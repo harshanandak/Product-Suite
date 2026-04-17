@@ -1,0 +1,59 @@
+{
+  "meeting": {
+    "id": "fixture-multilingual",
+    "tenant_id": "tenant-1",
+    "status": "stopped",
+    "updated_at": "2026-04-07T13:30:00+00:00"
+  },
+  "finalize": true,
+  "transcript_segments": [
+    {
+      "id": "seg-1",
+      "speaker_label": "SPK 1",
+      "text": "हमें पेमेंट इंटीग्रेशन में दिक्कत आ रही है।",
+      "translated_text": "We have a problem with the payment integration.",
+      "timestamp_start": 0,
+      "timestamp_end": 40
+    },
+    {
+      "id": "seg-2",
+      "speaker_label": "SPK 2",
+      "text": "हमने तय किया है कि लॉन्च एक हफ्ते आगे बढ़ेगा।",
+      "translated_text": "We decided to move the launch by one week.",
+      "timestamp_start": 50,
+      "timestamp_end": 90
+    },
+    {
+      "id": "seg-3",
+      "speaker_label": "SPK 3",
+      "text": "राहुल शुक्रवार तक संशोधित डेक भेजेगा।",
+      "translated_text": "Rahul will send the revised deck by Friday.",
+      "timestamp_start": 100,
+      "timestamp_end": 140
+    },
+    {
+      "id": "seg-4",
+      "speaker_label": "SPK 1",
+      "text": "पोस्ट-लॉन्च सपोर्ट कौन संभालेगा?",
+      "translated_text": "Who will own post-launch support?",
+      "timestamp_start": 150,
+      "timestamp_end": 180
+    }
+  ],
+  "expected": {
+    "min_state_records": 2,
+    "chapter_count": 1,
+    "promoted_decisions": [
+      "We decided to move the launch by one week"
+    ],
+    "promoted_action_items": [
+      "Rahul will send the revised deck by Friday"
+    ],
+    "open_questions": [
+      "Who will own post-launch support?"
+    ],
+    "blockers": [
+      "We have a problem with the payment integration"
+    ]
+  }
+}

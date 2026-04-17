@@ -1,0 +1,135 @@
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/noto-sans";
+@import "@fontsource-variable/public-sans";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  font-family: var(--font-sans, 'Noto Sans Variable', sans-serif);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 280 5% 8%;
+    --card: 0 0% 100%;
+    --card-foreground: 280 5% 8%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 280 5% 8%;
+    --primary: 231 76% 34%;
+    --primary-foreground: 224 80% 96%;
+    --secondary: 230 15% 96%;
+    --secondary-foreground: 280 5% 12%;
+    --muted: 230 18% 97%;
+    --muted-foreground: 280 5% 46%;
+    --accent: 230 22% 93%;
+    --accent-foreground: 280 5% 12%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 280 5% 90%;
+    --input: 280 5% 90%;
+    --ring: 231 76% 34%;
+    --chart-1: 231 76% 52%;
+    --chart-2: 241 62% 58%;
+    --chart-3: 251 50% 62%;
+    --chart-4: 222 70% 58%;
+    --chart-5: 201 72% 52%;
+    --radius: 0.625rem;
+    --sidebar: 230 20% 98%;
+    --sidebar-foreground: 280 5% 12%;
+    --sidebar-primary: 231 76% 34%;
+    --sidebar-primary-foreground: 224 80% 96%;
+    --sidebar-accent: 230 22% 93%;
+    --sidebar-accent-foreground: 280 5% 12%;
+    --sidebar-border: 280 5% 90%;
+    --sidebar-ring: 231 76% 34%;
+  }
+  .dark {
+    --background: 284 18% 7%;
+    --foreground: 224 80% 96%;
+    --card: 285 14% 11%;
+    --card-foreground: 224 80% 96%;
+    --popover: 285 14% 11%;
+    --popover-foreground: 224 80% 96%;
+    --primary: 229 68% 52%;
+    --primary-foreground: 224 80% 96%;
+    --secondary: 285 11% 16%;
+    --secondary-foreground: 224 80% 96%;
+    --muted: 285 10% 18%;
+    --muted-foreground: 281 9% 72%;
+    --accent: 285 11% 16%;
+    --accent-foreground: 224 80% 96%;
+    --destructive: 0 63% 56%;
+    --border: 286 11% 20%;
+    --input: 286 11% 20%;
+    --ring: 229 68% 52%;
+    --chart-1: 231 82% 64%;
+    --chart-2: 244 68% 60%;
+    --chart-3: 256 56% 56%;
+    --chart-4: 220 74% 58%;
+    --chart-5: 204 82% 56%;
+    --sidebar: 286 16% 9%;
+    --sidebar-foreground: 224 80% 96%;
+    --sidebar-primary: 229 68% 52%;
+    --sidebar-primary-foreground: 224 80% 96%;
+    --sidebar-accent: 285 11% 14%;
+    --sidebar-accent-foreground: 224 80% 96%;
+    --sidebar-border: 286 11% 18%;
+    --sidebar-ring: 229 68% 52%;
+  }
+  .theme {
+    --font-sans: 'Noto Sans Variable', sans-serif;
+    --font-heading: 'Public Sans Variable', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+@layer base {
+  [data-debug-wrapper="true"] {
+    display: contents !important;
+  }
+
+  [data-debug-wrapper="true"] > * {
+    margin-left: inherit;
+    margin-right: inherit;
+    margin-top: inherit;
+    margin-bottom: inherit;
+    padding-left: inherit;
+    padding-right: inherit;
+    padding-top: inherit;
+    padding-bottom: inherit;
+    column-gap: inherit;
+    row-gap: inherit;
+    gap: inherit;
+    border-left-width: inherit;
+    border-right-width: inherit;
+    border-top-width: inherit;
+    border-bottom-width: inherit;
+    border-left-style: inherit;
+    border-right-style: inherit;
+    border-top-style: inherit;
+    border-bottom-style: inherit;
+    border-left-color: inherit;
+    border-right-color: inherit;
+    border-top-color: inherit;
+    border-bottom-color: inherit;
+  }
+}

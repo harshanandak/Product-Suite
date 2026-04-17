@@ -1,0 +1,64 @@
+{
+  "meeting": {
+    "id": "fixture-problem-solving",
+    "tenant_id": "tenant-1",
+    "status": "stopped",
+    "updated_at": "2026-04-07T11:00:00+00:00"
+  },
+  "finalize": true,
+  "transcript_segments": [
+    {
+      "id": "seg-1",
+      "speaker_label": "SPK 1",
+      "text": "The login bug is blocking onboarding.",
+      "translated_text": "The login bug is blocking onboarding.",
+      "timestamp_start": 0,
+      "timestamp_end": 40
+    },
+    {
+      "id": "seg-2",
+      "speaker_label": "SPK 2",
+      "text": "We decided to roll back the last authentication deploy.",
+      "translated_text": "We decided to roll back the last authentication deploy.",
+      "timestamp_start": 70,
+      "timestamp_end": 105
+    },
+    {
+      "id": "seg-3",
+      "speaker_label": "SPK 3",
+      "text": "Maya will send the rollback note by noon.",
+      "translated_text": "Maya will send the rollback note by noon.",
+      "timestamp_start": 120,
+      "timestamp_end": 150
+    },
+    {
+      "id": "seg-4",
+      "speaker_label": "SPK 1",
+      "text": "Who owns the follow-up fix?",
+      "translated_text": "Who owns the follow-up fix?",
+      "timestamp_start": 170,
+      "timestamp_end": 190
+    },
+    {
+      "id": "seg-5",
+      "speaker_label": "SPK 2",
+      "text": "The owner is platform team until the fix lands.",
+      "translated_text": "The owner is platform team until the fix lands.",
+      "timestamp_start": 195,
+      "timestamp_end": 220
+    }
+  ],
+  "expected": {
+    "min_state_records": 2,
+    "chapter_count": 1,
+    "promoted_decisions": [
+      "We decided to roll back the last authentication deploy"
+    ],
+    "promoted_action_items": [
+      "Maya will send the rollback note by noon"
+    ],
+    "excluded_open_questions": [
+      "Who owns the follow-up fix?"
+    ]
+  }
+}

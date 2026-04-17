@@ -1,0 +1,93 @@
+{
+  "meeting": {
+    "id": "fixture-planning",
+    "tenant_id": "tenant-1",
+    "status": "stopped",
+    "updated_at": "2026-04-07T12:30:00+00:00"
+  },
+  "finalize": true,
+  "transcript_segments": [
+    {
+      "id": "seg-1",
+      "speaker_label": "SPK 1",
+      "text": "Planning the Q3 roadmap and milestones.",
+      "translated_text": "Planning the Q3 roadmap and milestones.",
+      "timestamp_start": 0,
+      "timestamp_end": 40
+    },
+    {
+      "id": "seg-2",
+      "speaker_label": "SPK 2",
+      "text": "We decided to launch the beta signup page in July.",
+      "translated_text": "We decided to launch the beta signup page in July.",
+      "timestamp_start": 90,
+      "timestamp_end": 130
+    },
+    {
+      "id": "seg-3",
+      "speaker_label": "SPK 3",
+      "text": "Priya will draft the launch brief this week.",
+      "translated_text": "Priya will draft the launch brief this week.",
+      "timestamp_start": 160,
+      "timestamp_end": 195
+    },
+    {
+      "id": "seg-4",
+      "speaker_label": "SPK 1",
+      "text": "What is the final budget for ads?",
+      "translated_text": "What is the final budget for ads?",
+      "timestamp_start": 260,
+      "timestamp_end": 320
+    },
+    {
+      "id": "seg-5",
+      "speaker_label": "SPK 2",
+      "text": "Shift to campaign planning and timeline review.",
+      "translated_text": "Shift to campaign planning and timeline review.",
+      "timestamp_start": 340,
+      "timestamp_end": 380
+    },
+    {
+      "id": "seg-6",
+      "speaker_label": "SPK 3",
+      "text": "We should review the channel mix before launch.",
+      "translated_text": "We should review the channel mix before launch.",
+      "timestamp_start": 400,
+      "timestamp_end": 440
+    },
+    {
+      "id": "seg-7",
+      "speaker_label": "SPK 1",
+      "text": "We decided to run the webinar in the second week of August.",
+      "translated_text": "We decided to run the webinar in the second week of August.",
+      "timestamp_start": 500,
+      "timestamp_end": 540
+    },
+    {
+      "id": "seg-8",
+      "speaker_label": "SPK 2",
+      "text": "Arjun will send the updated timeline by Monday.",
+      "translated_text": "Arjun will send the updated timeline by Monday.",
+      "timestamp_start": 560,
+      "timestamp_end": 620
+    }
+  ],
+  "expected": {
+    "min_state_records": 4,
+    "chapter_count": 2,
+    "promoted_decisions": [
+      "We decided to launch the beta signup page in July",
+      "We decided to run the webinar in the second week of August"
+    ],
+    "promoted_action_items": [
+      "Priya will draft the launch brief this week",
+      "Arjun will send the updated timeline by Monday"
+    ],
+    "draft_action_items": [
+      "We should review the channel mix before launch"
+    ],
+    "open_questions": [
+      "What is the final budget for ads?"
+    ]
+  }
+}

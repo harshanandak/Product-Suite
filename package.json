@@ -1,0 +1,19 @@
+{
+  "name": "product-suite",
+  "private": true,
+  "packageManager": "bun@1.3.6",
+  "workspaces": [
+    "apps/meeting-web",
+    "apps/roadmap-web"
+  ],
+  "scripts": {
+    "verify:deployment": "node scripts/deployment/verify-monorepo-rebinding.mjs",
+    "ci:meeting-web": "bun --cwd apps/meeting-web lint && bun --cwd apps/meeting-web test && bun --cwd apps/meeting-web build",
+    "ci:roadmap-web": "bun --cwd apps/roadmap-web run lint && bun --cwd apps/roadmap-web x tsc --noEmit && bun --cwd apps/roadmap-web run build"
+  },
+  "overrides": {
+    "typescript-eslint": "8.51.0",
+    "@typescript-eslint/eslint-plugin": "8.51.0",
+    "@typescript-eslint/parser": "8.51.0"
+  }
+}

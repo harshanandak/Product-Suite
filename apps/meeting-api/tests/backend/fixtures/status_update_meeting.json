@@ -1,0 +1,56 @@
+{
+  "meeting": {
+    "id": "fixture-status-update",
+    "tenant_id": "tenant-1",
+    "status": "stopped",
+    "updated_at": "2026-04-07T10:05:00+00:00"
+  },
+  "finalize": true,
+  "transcript_segments": [
+    {
+      "id": "seg-1",
+      "speaker_label": "SPK 1",
+      "text": "Team status update on launch readiness.",
+      "translated_text": "Team status update on launch readiness.",
+      "timestamp_start": 0,
+      "timestamp_end": 35
+    },
+    {
+      "id": "seg-2",
+      "speaker_label": "SPK 2",
+      "text": "We need to review the analytics dashboard before Friday.",
+      "translated_text": "We need to review the analytics dashboard before Friday.",
+      "timestamp_start": 60,
+      "timestamp_end": 95
+    },
+    {
+      "id": "seg-3",
+      "speaker_label": "SPK 1",
+      "text": "What is the remaining blocker for billing migration?",
+      "translated_text": "What is the remaining blocker for billing migration?",
+      "timestamp_start": 120,
+      "timestamp_end": 145
+    },
+    {
+      "id": "seg-4",
+      "speaker_label": "SPK 2",
+      "text": "The blocker is the staging database access issue.",
+      "translated_text": "The blocker is the staging database access issue.",
+      "timestamp_start": 160,
+      "timestamp_end": 190
+    }
+  ],
+  "expected": {
+    "min_state_records": 2,
+    "chapter_count": 1,
+    "draft_action_items": [
+      "We need to review the analytics dashboard before Friday"
+    ],
+    "open_questions": [
+      "What is the remaining blocker for billing migration?"
+    ],
+    "blockers": [
+      "The blocker is the staging database access issue"
+    ]
+  }
+}

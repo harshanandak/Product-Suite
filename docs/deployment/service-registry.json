@@ -1,0 +1,41 @@
+{
+  "services": [
+    {
+      "id": "roadmap-web",
+      "platform": "vercel",
+      "currentRepo": "Roadmap",
+      "targetRepo": "Product-Suite",
+      "targetRootDirectory": "apps/roadmap-web",
+      "currentBranch": "main",
+      "currentBuildCommand": "bun run build",
+      "currentProductionDomain": "https://platform-test-cyan.vercel.app",
+      "previewBehavior": "Vercel Git-based preview deployments from the current repo",
+      "notes": "Preserve the existing Vercel project and reconnect it to the monorepo."
+    },
+    {
+      "id": "meeting-web",
+      "platform": "vercel",
+      "currentRepo": "Meeting-Agent",
+      "targetRepo": "Product-Suite",
+      "targetRootDirectory": "apps/meeting-web",
+      "currentBranch": "main",
+      "currentBuildCommand": "bun run build",
+      "currentProductionDomain": "https://meeting-agent-coral.vercel.app",
+      "previewBehavior": "Vercel Git-based preview deployments from the current repo",
+      "notes": "Preserve the existing Vercel project and reconnect it to the monorepo."
+    },
+    {
+      "id": "meeting-api",
+      "platform": "railway",
+      "currentRepo": "Meeting-Agent",
+      "targetRepo": "Product-Suite",
+      "targetRootDirectory": "apps/meeting-api/backend",
+      "currentBranch": "main",
+      "currentBuildCommand": "python -m uvicorn server:app --host 0.0.0.0 --port ${PORT}",
+      "currentProductionDomain": "https://backend-production-089a.up.railway.app",
+      "previewBehavior": "GitHub Actions creates Railway preview environments for non-main branches",
+      "notes": "Preserve the existing Railway service and reconnect it to the monorepo source."
+    }
+  ]
+}
+

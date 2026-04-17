@@ -1,0 +1,7 @@
+{
+  "appName": "TRANSCRIBE",
+  "deploymentMode": "oss",
+  "tenantMode": "single",
+  "authMode": "none",
+  "authRequired": false
+}

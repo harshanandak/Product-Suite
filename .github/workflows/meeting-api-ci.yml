@@ -1,0 +1,64 @@
+name: Meeting API CI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/meeting-api/backend/**"
+      - "apps/meeting-api/tests/**"
+      - ".github/workflows/meeting-api-ci.yml"
+  pull_request:
+    paths:
+      - "apps/meeting-api/backend/**"
+      - "apps/meeting-api/tests/**"
+      - ".github/workflows/meeting-api-ci.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: meeting_agent
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d meeting_agent"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      CI: "true"
+      PYTHONPATH: apps/meeting-api
+      DEPLOYMENT_MODE: oss
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/meeting_agent
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install backend dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -r apps/meeting-api/backend/requirements.txt
+
+      - name: Run backend migrations
+        working-directory: apps/meeting-api/backend
+        run: python -m alembic -c alembic.ini -x db_url=postgresql+psycopg://postgres:postgres@127.0.0.1:5432/meeting_agent upgrade head
+
+      - name: Run backend tests
+        run: python -m pytest apps/meeting-api/tests/backend -q
+
