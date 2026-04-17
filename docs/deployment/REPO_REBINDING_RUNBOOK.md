@@ -1,6 +1,6 @@
 # Repo Rebinding Runbook
 
-This runbook is the operator checklist for moving Vercel and Railway projects from the legacy repositories to this monorepo.
+This runbook records the verified cutover state after moving the live Vercel and Railway projects from the legacy repositories to this monorepo.
 
 ## Target Mapping
 
@@ -20,55 +20,49 @@ This runbook is the operator checklist for moving Vercel and Railway projects fr
 - `meeting-web`: `bun run build`
 - `meeting-api`: Railway start command remains defined in `apps/meeting-api/backend/railway.json`
 
-## Manual Steps
+## Verified Live State
 
-### 1. Export Existing Platform Settings
+- `Vercel / Meeting frontend`
+  - project: `meeting-agent`
+  - git repo: `harshanandak/Product-Suite`
+  - root directory: `apps/meeting-web`
+  - install command: `bun install --frozen-lockfile`
+  - build command: `bun run build`
+  - affected deployments: enabled
+- `Vercel / Roadmap`
+  - project: `roadmap`
+  - git repo: `harshanandak/Product-Suite`
+  - root directory: `apps/roadmap-web`
+  - install command: `bun install --frozen-lockfile`
+  - build command: `bun run build`
+  - affected deployments: enabled
+- `Railway / Meeting API`
+  - project: `meeting-agent`
+  - service: `backend`
+  - git repo: `harshanandak/Product-Suite`
+  - root directory: `/apps/meeting-api/backend`
+  - watch path: `apps/meeting-api/backend/**`
+  - production domain preserved: `https://backend-production-089a.up.railway.app`
 
-For each platform object, record:
+## Remaining Operator Tasks
 
-- project / service name
-- linked repository
-- production branch
-- root directory
-- build command
-- install command
-- start command
-- env vars present in preview, staging, and production
-- domains attached
+### 1. Add Railway preview repo configuration in GitHub
 
-Use [SERVICE_INVENTORY.md](SERVICE_INVENTORY.md) as the baseline.
+The monorepo workflow now expects:
 
-### 2. Validate Monorepo Roots Before Rebinding
+- repository variables:
+  - `RAILWAY_PROJECT_ID`
+  - `RAILWAY_BASE_ENVIRONMENT`
+  - `RAILWAY_BACKEND_SERVICE`
+- repository secret:
+  - `RAILWAY_API_TOKEN`
 
-Run:
+The non-secret values are now stored in `harshanandak/Product-Suite`. The only remaining missing credential is `RAILWAY_API_TOKEN`.
 
-```bash
-bun run verify:deployment
-```
+### 2. Confirm post-cutover app readiness
 
-Then validate each service in CI:
-
-- `meeting-web-ci`
-- `meeting-api-ci`
-- `roadmap-web-ci`
-- `roadmap-web-playwright`
-
-### 3. Non-Prod Rebinding First
-
-- Reconnect preview or staging Vercel projects to this repo.
-- Reconnect Railway staging or preview deployment source to this repo.
-- Keep production objects on the legacy repos until staging is green.
-
-### 4. Production Rebinding
-
-For each live platform object:
-
-1. reconnect the Git source to this monorepo
-2. set the root directory
-3. verify build, install, and start commands
-4. run a controlled deployment
-5. smoke test the live URL
-6. disable legacy repo auto-deploy immediately
+- `meeting-web` and `roadmap-web` are Git-bound to the monorepo, but they have not yet produced a fresh Git-triggered Vercel deployment from a post-cutover app-path commit.
+- `meeting-api` is deploying from the monorepo and the public health endpoint responds, but the current payload still reports `database: false`, so backend runtime readiness needs separate environment verification.
 
 ## Risk Checklist
 
@@ -81,7 +75,7 @@ For each live platform object:
 
 ## Success Criteria
 
-- one monorepo PR can generate the expected Vercel preview deployments
-- Railway preview deploys from `apps/meeting-api/backend`
+- Vercel projects resolve to `harshanandak/Product-Suite` with the expected root directory
+- Railway production deploys resolve to `harshanandak/Product-Suite` with root `/apps/meeting-api/backend`
 - production domains remain attached to the same Vercel and Railway objects
-- old repos stop triggering deploys after cutover
+- old repositories no longer drive those preserved live platform objects
