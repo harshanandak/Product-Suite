@@ -1,0 +1,123 @@
+name: Roadmap Supabase
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - "infra/supabase/**"
+      - "apps/roadmap-web/src/lib/supabase/**"
+      - ".github/workflows/roadmap-supabase.yml"
+  pull_request:
+    branches:
+      - main
+      - develop
+    paths:
+      - "infra/supabase/**"
+      - "apps/roadmap-web/src/lib/supabase/**"
+      - ".github/workflows/roadmap-supabase.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  config-check:
+    runs-on: ubuntu-latest
+    outputs:
+      live_sync_ready: ${{ steps.check.outputs.live_sync_ready }}
+    steps:
+      - id: check
+        shell: bash
+        env:
+          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          missing=()
+
+          [ -n "$SUPABASE_PROJECT_REF" ] || missing+=("SUPABASE_PROJECT_REF (repository variable)")
+          [ -n "$SUPABASE_ACCESS_TOKEN" ] || missing+=("SUPABASE_ACCESS_TOKEN (repository secret)")
+          [ -n "$SUPABASE_DB_PASSWORD" ] || missing+=("SUPABASE_DB_PASSWORD (repository secret)")
+
+          if [ ${#missing[@]} -eq 0 ]; then
+            echo "live_sync_ready=true" >> "$GITHUB_OUTPUT"
+            echo "Roadmap Supabase live validation is configured." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          echo "live_sync_ready=false" >> "$GITHUB_OUTPUT"
+          echo "Roadmap Supabase live validation was skipped." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Missing GitHub configuration:" >> "$GITHUB_STEP_SUMMARY"
+          for item in "${missing[@]}"; do
+            echo "- \`$item\`" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+  live-sync:
+    needs: config-check
+    if: needs.config-check.outputs.live_sync_ready == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link Roadmap Supabase project
+        run: supabase link --project-ref "$SUPABASE_PROJECT_REF" --workdir . --yes
+
+      - name: Verify migration history matches the linked project
+        shell: bash
+        run: |
+          supabase migration list --workdir . > migration-list.txt
+
+          echo "### Migration History" >> "$GITHUB_STEP_SUMMARY"
+          echo '```text' >> "$GITHUB_STEP_SUMMARY"
+          cat migration-list.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+          if ! awk -F'|' '
+            /[0-9]{14}/ {
+              local_version=$1
+              remote_version=$2
+              gsub(/[[:space:]]/, "", local_version)
+              gsub(/[[:space:]]/, "", remote_version)
+              if (local_version != remote_version) {
+                mismatch=1
+              }
+            }
+            END {
+              exit mismatch
+            }
+          ' migration-list.txt; then
+            echo "Supabase migration history drift detected." >&2
+            exit 1
+          fi
+
+      - name: Verify Roadmap Supabase types are current
+        shell: bash
+        run: |
+          generated_types="$RUNNER_TEMP/roadmap-supabase-types.ts"
+          tracked_types="../apps/roadmap-web/src/lib/supabase/types.ts"
+
+          supabase gen types typescript --project-id "$SUPABASE_PROJECT_REF" --schema public --workdir . > "$generated_types"
+
+          if ! diff -u "$tracked_types" "$generated_types"; then
+            echo "Supabase types drift detected in $tracked_types" >&2
+            exit 1
+          fi

@@ -4289,6 +4289,10 @@ export type Database = {
         Args: { feature_a_id: string; feature_b_id: string }
         Returns: boolean
       }
+      assert_team_membership: {
+        Args: { p_team_id: string }
+        Returns: undefined
+      }
       calculate_importance_score: {
         Args: { feature_id_param: string }
         Returns: number
@@ -4420,6 +4424,24 @@ export type Database = {
           correlation_score: number
           correlation_type: string
           status: string
+        }[]
+      }
+      get_invitation_by_token: {
+        Args: { p_token: string }
+        Returns: {
+          accepted_at: string
+          created_at: string
+          email: string
+          expires_at: string
+          invitation_id: string
+          invited_by: string
+          inviter_email: string
+          inviter_name: string
+          phase_assignments: Json
+          role: string
+          team_id: string
+          team_name: string
+          team_plan: string
         }[]
       }
       get_knowledge_base_stats: {
