@@ -16,6 +16,12 @@ This inventory records the current verified live deploy inputs after cutover to 
 - `meeting-web` -> `apps/meeting-web`
 - `meeting-api` -> `apps/meeting-api/backend`
 
+## Repo Topology Notes
+
+- The root Bun workspace currently covers only the JavaScript web apps.
+- `meeting-api` is a first-class deployable service in repo tooling and deployment docs, but it is not a Bun workspace package.
+- `packages/` and `services/` are reserved for future shared blocks and standalone runtimes; they do not change current deploy roots.
+
 ## Post-Cutover Notes
 
 - `meeting-api` preview automation still requires a valid `RAILWAY_API_TOKEN` secret in `harshanandak/Product-Suite`.
