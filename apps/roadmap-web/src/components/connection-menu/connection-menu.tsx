@@ -281,7 +281,7 @@ export function ConnectionMenu({
   // Clear results when menu opens (reset state on open)
   useEffect(() => {
     if (open) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional state reset on menu open
+
       setSearchQuery('')
       setActiveFilter('all')
       clearResults()

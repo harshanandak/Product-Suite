@@ -82,7 +82,7 @@ export function OnboardingProvider({
     const stored = localStorage.getItem(`${STORAGE_KEY}_${userId || 'default'}`)
     if (stored) {
       try {
-        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional localStorage sync on userId change
+
         setState(JSON.parse(stored))
         setShowWelcome(false)
       } catch (error) {

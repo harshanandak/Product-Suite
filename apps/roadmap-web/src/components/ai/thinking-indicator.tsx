@@ -64,7 +64,7 @@ export function ThinkingIndicator({
   // Reset elapsed time when thinking stops
   useEffect(() => {
     if (!isThinking) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional thinking state sync
+
       setElapsedSeconds(0)
     }
   }, [isThinking])

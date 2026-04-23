@@ -69,7 +69,7 @@ export const Reasoning = memo(
     useEffect(() => {
       if (isStreaming && startTime === null) {
         // Store start time when streaming begins
-        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional streaming state sync
+
         setStartTime(Date.now());
       }
     }, [isStreaming, startTime]);
@@ -78,7 +78,7 @@ export const Reasoning = memo(
     useEffect(() => {
       if (!isStreaming && startTime !== null) {
         setDuration(Math.ceil((Date.now() - startTime) / MS_IN_S));
-        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional streaming state sync
+
         setStartTime(null);
       }
     }, [isStreaming, startTime, setDuration]);
