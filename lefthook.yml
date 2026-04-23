@@ -1,0 +1,4 @@
+pre-push:
+  jobs:
+    - name: repo tooling tests
+      run: bun run test
