@@ -556,7 +556,6 @@ export function StrategyForm({
         />
 
         {/* Manual progress slider */}
-        { }
         {form.watch('progress_mode') === 'manual' && (
           <FormField
             control={form.control}

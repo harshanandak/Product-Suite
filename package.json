@@ -8,7 +8,7 @@
   ],
   "scripts": {
     "verify:deployment": "node scripts/deployment/verify-monorepo-rebinding.mjs",
-    "install:meeting-api": "py -3.13 -m pip install -r apps/meeting-api/backend/requirements.txt",
+    "install:meeting-api": "python3 -m pip install -r apps/meeting-api/backend/requirements.txt || python -m pip install -r apps/meeting-api/backend/requirements.txt",
     "test": "bun test test/repo-tooling.test.js",
     "ci:meeting-web": "bun run --cwd apps/meeting-web lint && bun run --cwd apps/meeting-web test && bun run --cwd apps/meeting-web build",
     "ci:roadmap-web": "bun run --cwd apps/roadmap-web lint && bun run --cwd apps/roadmap-web typecheck && bun run --cwd apps/roadmap-web build"

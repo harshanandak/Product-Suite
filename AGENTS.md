@@ -90,7 +90,7 @@ Command files (`.claude/commands/*.md` and agent equivalents) must never hardcod
 6. **Decision gate** → 7-dimension impact scoring when spec gap found; score routes to PROCEED/SPEC-REVIEWER/BLOCKED
 
 **Example execution:**
-```
+```text
 /dev starts:
   ✓ Read task list: docs/plans/2026-02-26-stripe-billing-tasks.md (8 tasks)
   ✓ Created decisions log: docs/plans/2026-02-26-stripe-billing-decisions.md
