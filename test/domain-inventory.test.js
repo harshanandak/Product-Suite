@@ -53,6 +53,9 @@ describe("schema domain inventory", () => {
       "| `meeting` | `meeting-api` | `meeting-api` | `Meeting API Postgres` | `apps/meeting-api/backend/alembic/versions/0001_multi_user_jobs.py` |",
     );
     expect(inventoryDoc).toContain(
+      "| `artifact` | `split by artifact type` | `split by artifact type` | `Supabase Postgres` and `Meeting API Postgres` | `apps/roadmap-web/src/lib/supabase/types.ts` and `apps/meeting-api/backend/alembic/versions/0001_multi_user_jobs.py` |",
+    );
+    expect(inventoryDoc).toContain(
       "Meeting transcript, summary, and processing job artifacts stay in the meeting-api domain.",
     );
     expect(inventoryDoc).toContain("## Migration Drift");

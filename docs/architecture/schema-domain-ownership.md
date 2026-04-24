@@ -11,6 +11,7 @@ This document is the durable ownership inventory for shared Product Suite domain
 | `workspace` | `roadmap-web` | `roadmap-web` | `Supabase Postgres` | `apps/roadmap-web/supabase/migrations/20250110000001_initial_multitenant_schema.sql` | Workspace lifecycle, planning mode, and module configuration remain roadmap-owned. |
 | `thread` | `roadmap-web` | `roadmap-web` | `Supabase Postgres` | `apps/roadmap-web/src/lib/supabase/types.ts` | Canonical workspace conversation threads are represented by roadmap `chat_threads` and thread-scoped `chat_messages`. |
 | `meeting` | `meeting-api` | `meeting-api` | `Meeting API Postgres` | `apps/meeting-api/backend/alembic/versions/0001_multi_user_jobs.py` | Meeting records, transcripts, summaries, meeting chat, and processing jobs remain meeting-api owned. |
+| `artifact` | `split by artifact type` | `split by artifact type` | `Supabase Postgres` and `Meeting API Postgres` | `apps/roadmap-web/src/lib/supabase/types.ts` and `apps/meeting-api/backend/alembic/versions/0001_multi_user_jobs.py` | Planning and canvas artifacts remain roadmap-owned, while transcript, summary, and processing artifacts remain meeting-api owned. |
 | `task` | `roadmap-web` | `roadmap-web` | `Supabase Postgres` | `apps/roadmap-web/supabase/migrations/20250110000001_initial_multitenant_schema.sql` | Product work tracking stays in roadmap `features`, `timeline_items`, and related dependency tables. |
 
 ## Roadmap Domain-Local Scope

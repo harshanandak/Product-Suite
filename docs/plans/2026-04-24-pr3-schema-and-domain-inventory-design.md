@@ -65,7 +65,7 @@ Supporting discoverability targets:
   - `users` exists in roadmap and meeting-api
   - `chat_messages` exists in roadmap and meeting-api, but with different semantics
 - Some roadmap truth exists in both SQL migrations and generated Supabase types, and the generated types contain tables beyond the initial migration.
-- Meeting API migration truth is split between `backend/migrations/0001_initial.sql` and Alembic `0001_initial_multi_user_job_schema`.
+- Meeting API migration truth is split between `backend/migrations/0001_initial.sql` and Alembic `0001_multi_user_jobs.py`.
 - `thread` is not a meeting-api native concept even though meeting chat exists there; roadmap thread ownership must be kept distinct from meeting chat ownership.
 - Baseline tests are already red in unrelated suites, so PR3 task validation should use targeted tests instead of assuming a clean repo-wide baseline.
 
