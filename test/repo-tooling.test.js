@@ -13,6 +13,22 @@ const meetingApiWorkflow = readFileSync(
   join(rootDir, ".github", "workflows", "meeting-api-ci.yml"),
   "utf8",
 );
+const meetingWebWorkflow = readFileSync(
+  join(rootDir, ".github", "workflows", "meeting-web-ci.yml"),
+  "utf8",
+);
+const roadmapWebWorkflow = readFileSync(
+  join(rootDir, ".github", "workflows", "roadmap-web-ci.yml"),
+  "utf8",
+);
+const meetingApiRailwayPreviewWorkflow = readFileSync(
+  join(rootDir, ".github", "workflows", "meeting-api-railway-preview.yml"),
+  "utf8",
+);
+const repoToolingWorkflow = readFileSync(
+  join(rootDir, ".github", "workflows", "repo-tooling-ci.yml"),
+  "utf8",
+);
 
 describe("repo tooling", () => {
   test("root CI scripts validate every deployable", () => {
@@ -67,5 +83,28 @@ describe("repo tooling", () => {
     expect(meetingApiWorkflow).toContain("python -m flake8");
     expect(meetingApiWorkflow).toContain("Run backend migrations");
     expect(meetingApiWorkflow).toContain("Run backend tests");
+  });
+
+  test("root tooling changes trigger a dedicated GitHub Actions workflow", () => {
+    expect(repoToolingWorkflow).toContain("name: Repo Tooling CI");
+    expect(repoToolingWorkflow).toContain('"test/**"');
+    expect(repoToolingWorkflow).toContain('"docs/**"');
+    expect(repoToolingWorkflow).toContain('"README.md"');
+    expect(repoToolingWorkflow).toContain("bun test test/repo-tooling.test.js test/domain-inventory.test.js");
+  });
+
+  test("shared root dependency changes trigger the web and backend CI workflows", () => {
+    expect(meetingWebWorkflow).toContain('"package.json"');
+    expect(meetingWebWorkflow).toContain('"bun.lock"');
+    expect(roadmapWebWorkflow).toContain('"package.json"');
+    expect(roadmapWebWorkflow).toContain('"bun.lock"');
+    expect(meetingApiWorkflow).toContain('"test/**"');
+    expect(meetingApiWorkflow).toContain('"scripts/meeting-api-validation.mjs"');
+    expect(meetingApiRailwayPreviewWorkflow).toContain('"test/**"');
+    expect(meetingApiRailwayPreviewWorkflow).toContain(
+      '"scripts/meeting-api-validation.mjs"',
+    );
+    expect(meetingApiRailwayPreviewWorkflow).toContain('"package.json"');
+    expect(meetingApiRailwayPreviewWorkflow).toContain('"bun.lock"');
   });
 });

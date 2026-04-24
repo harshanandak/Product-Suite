@@ -8,6 +8,8 @@ on:
     paths:
       - "apps/roadmap-web/**"
       - "infra/supabase/**"
+      - "package.json"
+      - "bun.lock"
       - ".github/workflows/roadmap-web-ci.yml"
   pull_request:
     branches:
@@ -16,6 +18,8 @@ on:
     paths:
       - "apps/roadmap-web/**"
       - "infra/supabase/**"
+      - "package.json"
+      - "bun.lock"
       - ".github/workflows/roadmap-web-ci.yml"
 
 concurrency:

@@ -1,20 +1,28 @@
-name: Meeting Web CI
+name: Repo Tooling CI
 
 on:
   push:
     branches:
       - main
     paths:
-      - "apps/meeting-web/**"
+      - "README.md"
+      - "CHANGELOG.md"
+      - "docs/**"
+      - "test/**"
+      - "scripts/**"
       - "package.json"
       - "bun.lock"
-      - ".github/workflows/meeting-web-ci.yml"
+      - ".github/workflows/repo-tooling-ci.yml"
   pull_request:
     paths:
-      - "apps/meeting-web/**"
+      - "README.md"
+      - "CHANGELOG.md"
+      - "docs/**"
+      - "test/**"
+      - "scripts/**"
       - "package.json"
       - "bun.lock"
-      - ".github/workflows/meeting-web-ci.yml"
+      - ".github/workflows/repo-tooling-ci.yml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -24,14 +32,8 @@ permissions:
   contents: read
 
 jobs:
-  meeting-web:
+  repo-tooling:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/meeting-web
-    env:
-      CI: "true"
-      VITE_BACKEND_URL: https://backend.example.com
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -44,12 +46,5 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Lint
-        run: bun run lint
-
-      - name: Test
-        run: bun run test
-
-      - name: Build
-        run: bun run build
-
+      - name: Run root tooling tests
+        run: bun test test/repo-tooling.test.js test/domain-inventory.test.js
