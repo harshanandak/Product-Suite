@@ -38,4 +38,22 @@ describe("schema domain inventory", () => {
       "| `task` | `roadmap-web` | `roadmap-web` | `Supabase Postgres` | `apps/roadmap-web/supabase/migrations/20250110000001_initial_multitenant_schema.sql` |",
     );
   });
+
+  test("meeting-owned entities and migration drift are documented", () => {
+    const inventoryDoc = readFileSync(inventoryDocPath, "utf8");
+
+    expect(inventoryDoc).toContain(
+      "| `meeting` | `meeting-api` | `meeting-api` | `Meeting API Postgres` | `apps/meeting-api/backend/alembic/versions/0001_multi_user_jobs.py` |",
+    );
+    expect(inventoryDoc).toContain(
+      "Meeting transcript, summary, and processing job artifacts stay in the meeting-api domain.",
+    );
+    expect(inventoryDoc).toContain("## Migration Drift");
+    expect(inventoryDoc).toContain(
+      "`apps/meeting-api/backend/migrations/0001_initial.sql`",
+    );
+    expect(inventoryDoc).toContain(
+      "`apps/meeting-api/backend/alembic/versions/0001_multi_user_jobs.py`",
+    );
+  });
 });
