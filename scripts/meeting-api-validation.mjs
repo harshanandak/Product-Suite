@@ -7,6 +7,7 @@ const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 const pythonCandidates = [
   { command: "py", args: ["-3.13"] },
+  { command: "python3.13", args: [] },
   { command: "python3", args: [] },
   { command: "python", args: [] },
   { command: "py", args: ["-3"] },

@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 if command -v bd.exe >/dev/null 2>&1; then
   exec bd.exe "$@"
 fi
 
-if command -v bd >/dev/null 2>&1; then
-  exec bd "$@"
-fi
+IFS=':' read -r -a PATH_ENTRIES <<<"$PATH"
+for entry in "${PATH_ENTRIES[@]}"; do
+  [[ -z "$entry" || "$entry" == "$SCRIPT_DIR" ]] && continue
+  if [[ -x "$entry/bd" ]]; then
+    exec "$entry/bd" "$@"
+  fi
+done
 
 echo "Error: neither bd.exe nor bd was found on PATH" >&2
 exit 1
