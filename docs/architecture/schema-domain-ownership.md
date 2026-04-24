@@ -46,6 +46,47 @@ For PR3, the canonical source-of-truth schema path for meeting ownership is the 
 
 This section records places where names overlap across roadmap and meeting surfaces so later PRs do not infer false unification.
 
+### `users`
+
+Roadmap `users` are part of the team and workspace membership model.
+
+Meeting-api `users` are part of the meeting ownership and job execution model.
+
+PR4 and PR5 can normalize identity claims later, but PR3 does not treat these tables as one shared schema owner.
+
+### Chat semantics
+
+Roadmap `chat_threads` and roadmap `chat_messages` represent workspace conversation state.
+
+Meeting-api `chat_messages` represent meeting-scoped assistant and transcript-adjacent conversation state.
+
+The shared noun is similar, but the resource boundary is different:
+- roadmap chat is workspace-thread scoped
+- meeting chat is meeting scoped
+
+### Artifact split
+
+Planning and canvas artifacts stay in roadmap, while transcript and summary artifacts stay in meeting-api.
+
+Examples:
+- roadmap-owned artifacts:
+  - `blocksuite_documents`
+  - workspace planning records
+  - dashboard and review artifacts
+- meeting-api-owned artifacts:
+  - transcript segments
+  - summaries
+  - meeting processing jobs
+
+## Shared-Contract Boundary
+
+PR4 can only extract shared wire contracts that respect the documented ownership split:
+- roadmap remains authoritative for workspace and planning entities
+- meeting-api remains authoritative for meeting entities
+- overlapping names do not automatically become shared contracts
+
+If a later PR needs one shared abstraction, it must sit above these domain owners instead of replacing them implicitly.
+
 ## Non-Goals
 
 - This document does not move runtime schema ownership.

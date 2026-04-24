@@ -56,4 +56,20 @@ describe("schema domain inventory", () => {
       "`apps/meeting-api/backend/alembic/versions/0001_multi_user_jobs.py`",
     );
   });
+
+  test("shared-entity collision rules are explicit", () => {
+    const inventoryDoc = readFileSync(inventoryDocPath, "utf8");
+
+    expect(inventoryDoc).toContain("### `users`");
+    expect(inventoryDoc).toContain(
+      "Roadmap `chat_threads` and roadmap `chat_messages` represent workspace conversation state.",
+    );
+    expect(inventoryDoc).toContain(
+      "Meeting-api `chat_messages` represent meeting-scoped assistant and transcript-adjacent conversation state.",
+    );
+    expect(inventoryDoc).toContain(
+      "Planning and canvas artifacts stay in roadmap, while transcript and summary artifacts stay in meeting-api.",
+    );
+    expect(inventoryDoc).toContain("## Shared-Contract Boundary");
+  });
 });
