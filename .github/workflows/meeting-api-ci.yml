@@ -5,11 +5,13 @@ on:
     branches:
       - main
     paths:
+      - "apps/meeting-api/*.py"
       - "apps/meeting-api/backend/**"
       - "apps/meeting-api/tests/**"
       - ".github/workflows/meeting-api-ci.yml"
   pull_request:
     paths:
+      - "apps/meeting-api/*.py"
       - "apps/meeting-api/backend/**"
       - "apps/meeting-api/tests/**"
       - ".github/workflows/meeting-api-ci.yml"
