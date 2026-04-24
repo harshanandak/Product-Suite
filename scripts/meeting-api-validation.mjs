@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { delimiter, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -53,7 +53,7 @@ function resolvePython() {
 
 function runPython(python, args) {
   const pythonPath = process.env.PYTHONPATH
-    ? `${process.env.PYTHONPATH};apps/meeting-api`
+    ? `${process.env.PYTHONPATH}${delimiter}apps/meeting-api`
     : "apps/meeting-api";
   const result = spawnSync(python.command, [...python.args, ...args], {
       cwd: rootDir,

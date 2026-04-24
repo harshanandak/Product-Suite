@@ -5,5 +5,9 @@ if command -v bd.exe >/dev/null 2>&1; then
   exec bd.exe "$@"
 fi
 
-echo "Error: bd.exe not found on PATH" >&2
+if command -v bd >/dev/null 2>&1; then
+  exec bd "$@"
+fi
+
+echo "Error: neither bd.exe nor bd was found on PATH" >&2
 exit 1

@@ -46,7 +46,7 @@ Add a small root validation surface in `package.json` and align root documentati
 - If Python lint commands prove too noisy for the first pass, PR2 should still wire the entrypoint and document the short-term scope.
 
 ## Technical Research
-See [pr2-validation-baseline.md](/C:/Users/harsha_befach/Downloads/Product-Suite-pr2-validation-baseline/docs/research/pr2-validation-baseline.md).
+See [pr2-validation-baseline.md](../research/pr2-validation-baseline.md).
 
 ## Ambiguity Policy
 Use the existing staged workflow discipline:

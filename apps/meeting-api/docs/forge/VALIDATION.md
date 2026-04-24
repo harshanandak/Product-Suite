@@ -1,6 +1,6 @@
 # Meeting API Validation
 
-Run backend validation with the root commands or directly with the Python helper:
+Run backend validation with the root commands:
 
 - `bun run validate:meeting-api`
 - `bun run validate:meeting-api:lint`
