@@ -6,12 +6,18 @@ on:
       - main
     paths:
       - "apps/roadmap-web/**"
+      - "infra/supabase/**"
+      - "package.json"
+      - "bun.lock"
       - ".github/workflows/roadmap-web-playwright.yml"
   pull_request:
     branches:
       - main
     paths:
       - "apps/roadmap-web/**"
+      - "infra/supabase/**"
+      - "package.json"
+      - "bun.lock"
       - ".github/workflows/roadmap-web-playwright.yml"
   workflow_dispatch:
 
@@ -49,8 +55,11 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
-          TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
-          TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          TEST_USER_A_EMAIL: ${{ secrets.TEST_USER_A_EMAIL }}
+          TEST_USER_A_PASSWORD: ${{ secrets.TEST_USER_A_PASSWORD }}
+          TEST_USER_B_EMAIL: ${{ secrets.TEST_USER_B_EMAIL }}
+          TEST_USER_B_PASSWORD: ${{ secrets.TEST_USER_B_PASSWORD }}
 
       - name: Upload Playwright Report
         uses: actions/upload-artifact@v6

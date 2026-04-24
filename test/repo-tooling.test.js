@@ -25,6 +25,10 @@ const meetingApiRailwayPreviewWorkflow = readFileSync(
   join(rootDir, ".github", "workflows", "meeting-api-railway-preview.yml"),
   "utf8",
 );
+const roadmapWebPlaywrightWorkflow = readFileSync(
+  join(rootDir, ".github", "workflows", "roadmap-web-playwright.yml"),
+  "utf8",
+);
 const repoToolingWorkflow = readFileSync(
   join(rootDir, ".github", "workflows", "repo-tooling-ci.yml"),
   "utf8",
@@ -96,6 +100,17 @@ describe("repo tooling", () => {
     expect(roadmapWebWorkflow).toContain("bun run test");
   });
 
+  test("roadmap Playwright CI reflects the full e2e environment contract", () => {
+    expect(roadmapWebPlaywrightWorkflow).toContain("name: Roadmap Web Playwright");
+    expect(roadmapWebPlaywrightWorkflow).toContain("Run Playwright tests");
+    expect(roadmapWebPlaywrightWorkflow).toContain("bun run test:e2e");
+    expect(roadmapWebPlaywrightWorkflow).toContain("SUPABASE_SERVICE_ROLE_KEY");
+    expect(roadmapWebPlaywrightWorkflow).toContain("TEST_USER_A_EMAIL");
+    expect(roadmapWebPlaywrightWorkflow).toContain("TEST_USER_A_PASSWORD");
+    expect(roadmapWebPlaywrightWorkflow).toContain("TEST_USER_B_EMAIL");
+    expect(roadmapWebPlaywrightWorkflow).toContain("TEST_USER_B_PASSWORD");
+  });
+
   test("meeting web CI reflects the local validation baseline", () => {
     expect(meetingWebWorkflow).toContain("name: Meeting Web CI");
     expect(meetingWebWorkflow).toContain("name: Test");
@@ -115,6 +130,9 @@ describe("repo tooling", () => {
     expect(meetingWebWorkflow).toContain('"bun.lock"');
     expect(roadmapWebWorkflow).toContain('"package.json"');
     expect(roadmapWebWorkflow).toContain('"bun.lock"');
+    expect(roadmapWebPlaywrightWorkflow).toContain('"package.json"');
+    expect(roadmapWebPlaywrightWorkflow).toContain('"bun.lock"');
+    expect(roadmapWebPlaywrightWorkflow).toContain('"infra/supabase/**"');
     expect(meetingApiWorkflow).toContain('"test/**"');
     expect(meetingApiWorkflow).toContain('"scripts/meeting-api-validation.mjs"');
     expect(meetingApiRailwayPreviewWorkflow).toContain('"test/**"');
