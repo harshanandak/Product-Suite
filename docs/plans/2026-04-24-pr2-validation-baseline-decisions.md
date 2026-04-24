@@ -1,6 +1,6 @@
 # PR2 Validation Baseline Decisions
 
-Date: 2026-04-24  
+Date: 2026-04-24
 Issue: `product-suite-84m`
 
 ## Decision 1: Root validation is an orchestrator, not a new build system

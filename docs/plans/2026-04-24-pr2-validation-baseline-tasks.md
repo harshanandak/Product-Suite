@@ -1,6 +1,6 @@
 # PR2 Validation Baseline Tasks
 
-Date: 2026-04-24  
+Date: 2026-04-24
 Issue: `product-suite-84m`
 
 ## Task 1: Inventory Current Validation Commands

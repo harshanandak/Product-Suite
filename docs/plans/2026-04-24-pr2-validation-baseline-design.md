@@ -1,8 +1,8 @@
 # PR2 Validation Baseline Design
 
-Feature: `pr2-validation-baseline`  
-Date: 2026-04-24  
-Status: planned  
+Feature: `pr2-validation-baseline`
+Date: 2026-04-24
+Status: planned
 Issue: `product-suite-84m`
 
 ## Purpose
@@ -52,4 +52,3 @@ See [pr2-validation-baseline.md](/C:/Users/harsha_befach/Downloads/Product-Suite
 Use the existing staged workflow discipline:
 - If a validation command can be added conservatively without changing app behavior, proceed and document it.
 - If a command would silently redefine quality policy, stop and record the decision in the PR2 decisions log.
-
