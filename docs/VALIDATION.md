@@ -1,0 +1,50 @@
+# Validation
+
+Run validation from the repo root so every deployable uses one documented entrypoint.
+
+## Root Commands
+
+- `bun run validate`
+  - runs the full baseline in this order:
+    1. `bun run validate:meeting-web`
+    2. `bun run validate:roadmap-web`
+    3. `bun run validate:meeting-api`
+- `bun run validate:meeting-web`
+  - runs Meeting Web lint, tests, and build
+- `bun run validate:roadmap-web`
+  - runs Roadmap Web lint, typecheck, and build
+- `bun run install:meeting-api`
+  - installs Python dependencies from `apps/meeting-api/backend/requirements.txt`
+- `bun run validate:meeting-api`
+  - runs the Meeting API lint and pytest baseline
+- `bun run validate:meeting-api:lint`
+  - runs `python -m flake8 apps/meeting-api/backend apps/meeting-api/tests/backend`
+- `bun run validate:meeting-api:test`
+  - runs `python -m pytest apps/meeting-api/tests/backend -q`
+
+## Recommended Local Order
+
+1. Run `bun install` for the JavaScript workspaces.
+2. Ensure Python `3.13` is available for the Meeting API toolchain.
+3. Run `bun run install:meeting-api` for the Python backend dependencies.
+4. Run `bun run validate` from the repo root.
+
+If only Python `3.14+` is installed, `bun run install:meeting-api` fails intentionally. The backend pins dependency versions that are currently validated in CI on Python `3.13`.
+
+## Meeting API Migration Prerequisite
+
+Some Meeting API tests assume a reachable Postgres database that matches the current Alembic head. Before running the backend test baseline against a fresh database, apply migrations manually:
+
+```bash
+python -m alembic -c apps/meeting-api/backend/alembic.ini -x db_url=postgresql+psycopg://postgres:postgres@127.0.0.1:5432/meeting_agent upgrade head
+```
+
+Use the same `db_url` pattern as CI, adjusted for your local database.
+
+## CI Mapping
+
+- `.github/workflows/meeting-web-ci.yml` validates the same Meeting Web lint, test, and build sequence.
+- `.github/workflows/roadmap-web-ci.yml` validates the same Roadmap Web lint, typecheck, and build sequence.
+- `.github/workflows/meeting-api-ci.yml` installs backend dependencies, runs Meeting API lint, applies migrations, and runs pytest.
+
+If CI behavior changes, update this document and the root scripts together so local validation and CI keep telling the same story.

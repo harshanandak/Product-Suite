@@ -9,12 +9,19 @@
   "scripts": {
     "prepare": "lefthook install",
     "verify:deployment": "node scripts/deployment/verify-monorepo-rebinding.mjs",
-    "install:meeting-api": "python3 -m pip install -r apps/meeting-api/backend/requirements.txt || python -m pip install -r apps/meeting-api/backend/requirements.txt || py -3 -m pip install -r apps/meeting-api/backend/requirements.txt",
+    "install:meeting-api": "node scripts/meeting-api-validation.mjs install apps/meeting-api/backend/requirements.txt",
     "test:repo-tooling": "bun test test/repo-tooling.test.js",
-    "test:prepush": "bun run test:repo-tooling && bun run ci:meeting-web && bun run ci:roadmap-web",
+    "test:prepush": "bun run test:repo-tooling && bun run ci:meeting-web && bun run ci:roadmap-web && bun run ci:meeting-api",
     "test": "bun run test:repo-tooling",
     "ci:meeting-web": "bun run --cwd apps/meeting-web lint && bun run --cwd apps/meeting-web test && bun run --cwd apps/meeting-web build",
-    "ci:roadmap-web": "bun run --cwd apps/roadmap-web lint && bun run --cwd apps/roadmap-web typecheck && bun run --cwd apps/roadmap-web build"
+    "ci:roadmap-web": "bun run --cwd apps/roadmap-web lint && bun run --cwd apps/roadmap-web typecheck && bun run --cwd apps/roadmap-web build",
+    "ci:meeting-api": "bun run validate:meeting-api",
+    "validate": "bun run validate:meeting-web && bun run validate:roadmap-web && bun run validate:meeting-api",
+    "validate:meeting-web": "bun run ci:meeting-web",
+    "validate:roadmap-web": "bun run ci:roadmap-web",
+    "validate:meeting-api:lint": "node scripts/meeting-api-validation.mjs lint apps/meeting-api/backend apps/meeting-api/tests/backend",
+    "validate:meeting-api:test": "node scripts/meeting-api-validation.mjs test apps/meeting-api/tests/backend",
+    "validate:meeting-api": "bun run validate:meeting-api:lint && bun run validate:meeting-api:test"
   },
   "overrides": {
     "typescript-eslint": "8.51.0",
