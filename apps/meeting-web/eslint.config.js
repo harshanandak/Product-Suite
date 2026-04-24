@@ -43,6 +43,7 @@ module.exports = [
       ...reactHooksPlugin.configs.recommended.rules,
       ...jsxA11yPlugin.configs.recommended.rules,
       ...importPlugin.configs.recommended.rules,
+      "import/named": "off",
       "import/no-unresolved": "off",
       "react/prop-types": "off",
     },

@@ -348,7 +348,7 @@ export function SmartWorkItemForm({
   // Reset type when mode changes
   useEffect(() => {
     if (!initialValues?.type) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional mode change sync
+
       setType(getModeDefaultWorkItemType(mode))
     }
   }, [mode, initialValues?.type])

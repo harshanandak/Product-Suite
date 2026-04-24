@@ -12,10 +12,18 @@ import { Parallel } from 'parallel-web';
  * @see https://docs.parallel.ai/integrations/search
  */
 
-// Initialize client with API key from environment
-const client = new Parallel({
-  apiKey: process.env.PARALLEL_API_KEY!
-});
+let parallelClient: Parallel | null = null;
+
+function getParallelClient() {
+  const apiKey = process.env.PARALLEL_API_KEY;
+
+  if (!apiKey) {
+    throw new Error('PARALLEL_API_KEY not configured in environment variables');
+  }
+
+  parallelClient ??= new Parallel({ apiKey });
+  return parallelClient;
+}
 
 export interface ParallelSearchOptions {
   objective?: string;
@@ -68,6 +76,7 @@ export async function searchWeb(
   }
 
   try {
+    const client = getParallelClient();
     const response = await client.beta.search(
       {
         objective: objective || undefined,
@@ -120,6 +129,7 @@ export async function extractContent(options: {
   } = options;
 
   try {
+    const client = getParallelClient();
     const response = await client.beta.extract(
       {
         urls,
@@ -142,4 +152,4 @@ export async function extractContent(options: {
   }
 }
 
-export { client as parallelClient };
+export { getParallelClient };

@@ -170,7 +170,7 @@ export function WorkBoardProvider({
 
   // Load preferences from localStorage AFTER mount (client-only)
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- necessary for hydration
+
     setHasMounted(true)
     try {
       const stored = localStorage.getItem(getStorageKey(workspaceId))

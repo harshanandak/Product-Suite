@@ -1,0 +1,4 @@
+pre-push:
+  jobs:
+    - name: pre-push validation
+      run: bun run test:prepush
