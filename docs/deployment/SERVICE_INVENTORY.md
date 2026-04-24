@@ -22,6 +22,8 @@ This inventory records the current verified live deploy inputs after cutover to 
 - `meeting-api` is a first-class deployable service in repo tooling and deployment docs, but it is not a Bun workspace package.
 - `packages/` and `services/` are reserved for future shared blocks and standalone runtimes; they do not change current deploy roots.
 
+See also [../architecture/schema-domain-ownership.md](../architecture/schema-domain-ownership.md) for canonical shared-domain ownership before contract extraction work.
+
 ## Post-Cutover Notes
 
 - `meeting-api` preview automation still requires a valid `RAILWAY_API_TOKEN` secret in `harshanandak/Product-Suite`.

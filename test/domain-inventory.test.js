@@ -9,6 +9,13 @@ const inventoryDocPath = join(
   "architecture",
   "schema-domain-ownership.md",
 );
+const rootReadmePath = join(rootDir, "README.md");
+const serviceInventoryPath = join(
+  rootDir,
+  "docs",
+  "deployment",
+  "SERVICE_INVENTORY.md",
+);
 
 describe("schema domain inventory", () => {
   test("durable ownership inventory doc exists with required task-one sections", () => {
@@ -71,5 +78,17 @@ describe("schema domain inventory", () => {
       "Planning and canvas artifacts stay in roadmap, while transcript and summary artifacts stay in meeting-api.",
     );
     expect(inventoryDoc).toContain("## Shared-Contract Boundary");
+  });
+
+  test("inventory doc is discoverable from durable root-facing docs", () => {
+    const rootReadme = readFileSync(rootReadmePath, "utf8");
+    const serviceInventory = readFileSync(serviceInventoryPath, "utf8");
+
+    expect(rootReadme).toContain(
+      "docs/architecture/schema-domain-ownership.md",
+    );
+    expect(serviceInventory).toContain(
+      "../architecture/schema-domain-ownership.md",
+    );
   });
 });
