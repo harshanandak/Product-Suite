@@ -12,7 +12,7 @@ Run validation from the repo root so every deployable uses one documented entryp
 - `bun run validate:meeting-web`
   - runs Meeting Web lint, tests, and build
 - `bun run validate:roadmap-web`
-  - runs Roadmap Web lint, typecheck, and build
+  - runs Roadmap Web lint, typecheck, unit tests, and build
 - `bun run install:meeting-api`
   - installs Python dependencies from `apps/meeting-api/backend/requirements.txt`
 - `bun run validate:meeting-api`
@@ -44,7 +44,7 @@ Use the same `db_url` pattern as CI, adjusted for your local database.
 ## CI Mapping
 
 - `.github/workflows/meeting-web-ci.yml` validates the same Meeting Web lint, test, and build sequence.
-- `.github/workflows/roadmap-web-ci.yml` validates the same Roadmap Web lint, typecheck, and build sequence.
+- `.github/workflows/roadmap-web-ci.yml` validates the same Roadmap Web lint, typecheck, unit-test, and build sequence.
 - `.github/workflows/meeting-api-ci.yml` installs backend dependencies, runs Meeting API lint, applies migrations, and runs pytest.
 - The Meeting API lint baseline is intentionally limited to fatal flake8 categories in PR2 so root validation is truthful without pulling existing style debt into this slice.
 

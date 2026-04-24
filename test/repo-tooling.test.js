@@ -45,6 +45,9 @@ describe("repo tooling", () => {
 
     expect(packageJson.scripts["validate:meeting-web"]).toContain("ci:meeting-web");
     expect(packageJson.scripts["validate:roadmap-web"]).toContain("ci:roadmap-web");
+    expect(packageJson.scripts["ci:roadmap-web"]).toContain(
+      "bun run --cwd apps/roadmap-web test",
+    );
     expect(packageJson.scripts["validate:meeting-api"]).toContain(
       "validate:meeting-api:lint",
     );
@@ -73,6 +76,7 @@ describe("repo tooling", () => {
     expect(validationDoc).toContain("bun run validate");
     expect(validationDoc).toContain("bun run validate:meeting-web");
     expect(validationDoc).toContain("bun run validate:roadmap-web");
+    expect(validationDoc).toContain("unit tests");
     expect(validationDoc).toContain("bun run install:meeting-api");
     expect(validationDoc).toContain("bun run validate:meeting-api");
     expect(validationDoc).toContain("python -m alembic");
@@ -83,6 +87,11 @@ describe("repo tooling", () => {
     expect(meetingApiWorkflow).toContain("python -m flake8");
     expect(meetingApiWorkflow).toContain("Run backend migrations");
     expect(meetingApiWorkflow).toContain("Run backend tests");
+  });
+
+  test("roadmap CI reflects the local validation baseline", () => {
+    expect(roadmapWebWorkflow).toContain("Roadmap unit tests");
+    expect(roadmapWebWorkflow).toContain("bun run test");
   });
 
   test("root tooling changes trigger a dedicated GitHub Actions workflow", () => {
