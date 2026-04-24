@@ -3,6 +3,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+if [[ "${1:-}" == "comments" && "${2:-}" == "list" && -n "${3:-}" ]]; then
+  set -- comments "$3" "${@:4}"
+fi
+
 if command -v bd.exe >/dev/null 2>&1; then
   exec bd.exe "$@"
 fi
