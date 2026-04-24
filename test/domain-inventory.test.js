@@ -21,4 +21,21 @@ describe("schema domain inventory", () => {
     expect(inventoryDoc).toContain("## Overlap Notes");
     expect(inventoryDoc).toContain("## Non-Goals");
   });
+
+  test("roadmap-owned entities are mapped with canonical schema paths", () => {
+    const inventoryDoc = readFileSync(inventoryDocPath, "utf8");
+
+    expect(inventoryDoc).toContain(
+      "| `team` | `roadmap-web` | `roadmap-web` | `Supabase Postgres` | `apps/roadmap-web/supabase/migrations/20250110000001_initial_multitenant_schema.sql` |",
+    );
+    expect(inventoryDoc).toContain(
+      "| `workspace` | `roadmap-web` | `roadmap-web` | `Supabase Postgres` | `apps/roadmap-web/supabase/migrations/20250110000001_initial_multitenant_schema.sql` |",
+    );
+    expect(inventoryDoc).toContain(
+      "| `thread` | `roadmap-web` | `roadmap-web` | `Supabase Postgres` | `apps/roadmap-web/src/lib/supabase/types.ts` |",
+    );
+    expect(inventoryDoc).toContain(
+      "| `task` | `roadmap-web` | `roadmap-web` | `Supabase Postgres` | `apps/roadmap-web/supabase/migrations/20250110000001_initial_multitenant_schema.sql` |",
+    );
+  });
 });
