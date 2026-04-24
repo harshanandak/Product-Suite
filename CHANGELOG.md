@@ -8,3 +8,4 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 - Root validation baseline across `roadmap-web`, `meeting-web`, and `meeting-api`, including shared root commands, Meeting API validation helpers, and CI alignment (PR #2, product-suite-84m)
+- Schema and domain ownership inventory for roadmap and meeting surfaces, including canonical ownership boundaries, overlap rules, and guarded discoverability links (PR #3, product-suite-waq)

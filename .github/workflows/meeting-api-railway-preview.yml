@@ -6,12 +6,22 @@ on:
       - "main"
     paths:
       - "apps/meeting-api/backend/**"
+      - "apps/meeting-api/tests/**"
+      - "test/**"
+      - "scripts/meeting-api-validation.mjs"
+      - "package.json"
+      - "bun.lock"
       - ".github/workflows/meeting-api-railway-preview.yml"
   pull_request:
     types:
       - closed
     paths:
       - "apps/meeting-api/backend/**"
+      - "apps/meeting-api/tests/**"
+      - "test/**"
+      - "scripts/meeting-api-validation.mjs"
+      - "package.json"
+      - "bun.lock"
       - ".github/workflows/meeting-api-railway-preview.yml"
 
 permissions:

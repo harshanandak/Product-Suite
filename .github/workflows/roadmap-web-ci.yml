@@ -8,6 +8,8 @@ on:
     paths:
       - "apps/roadmap-web/**"
       - "infra/supabase/**"
+      - "package.json"
+      - "bun.lock"
       - ".github/workflows/roadmap-web-ci.yml"
   pull_request:
     branches:
@@ -16,6 +18,8 @@ on:
     paths:
       - "apps/roadmap-web/**"
       - "infra/supabase/**"
+      - "package.json"
+      - "bun.lock"
       - ".github/workflows/roadmap-web-ci.yml"
 
 concurrency:
@@ -49,6 +53,9 @@ jobs:
       - name: ESLint
         run: bun run lint
         continue-on-error: true
+
+      - name: Roadmap unit tests
+        run: bun run test
 
       - name: Build Next.js application
         run: bun run build
