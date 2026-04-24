@@ -33,6 +33,7 @@ const repoToolingWorkflow = readFileSync(
 describe("repo tooling", () => {
   test("root CI scripts validate every deployable", () => {
     expect(packageJson.scripts["ci:meeting-web"]).toContain("apps/meeting-web");
+    expect(packageJson.scripts["ci:meeting-web"]).toContain("apps/meeting-web test");
     expect(packageJson.scripts["ci:roadmap-web"]).toContain("apps/roadmap-web");
     expect(packageJson.scripts["ci:meeting-api"]).toBeDefined();
     expect(packageJson.scripts["ci:meeting-api"]).toContain("validate:meeting-api");
@@ -87,11 +88,18 @@ describe("repo tooling", () => {
     expect(meetingApiWorkflow).toContain("python -m flake8");
     expect(meetingApiWorkflow).toContain("Run backend migrations");
     expect(meetingApiWorkflow).toContain("Run backend tests");
+    expect(meetingApiWorkflow).toContain("python -m pytest apps/meeting-api/tests/backend -q");
   });
 
   test("roadmap CI reflects the local validation baseline", () => {
     expect(roadmapWebWorkflow).toContain("Roadmap unit tests");
     expect(roadmapWebWorkflow).toContain("bun run test");
+  });
+
+  test("meeting web CI reflects the local validation baseline", () => {
+    expect(meetingWebWorkflow).toContain("name: Meeting Web CI");
+    expect(meetingWebWorkflow).toContain("name: Test");
+    expect(meetingWebWorkflow).toContain("run: bun run test");
   });
 
   test("root tooling changes trigger a dedicated GitHub Actions workflow", () => {
