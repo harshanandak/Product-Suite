@@ -12,7 +12,12 @@ on:
       - "scripts/**"
       - "package.json"
       - "bun.lock"
+      - ".github/workflows/meeting-api-ci.yml"
+      - ".github/workflows/meeting-api-railway-preview.yml"
+      - ".github/workflows/meeting-web-ci.yml"
       - ".github/workflows/repo-tooling-ci.yml"
+      - ".github/workflows/roadmap-web-ci.yml"
+      - ".github/workflows/roadmap-web-playwright.yml"
   pull_request:
     paths:
       - "README.md"
@@ -22,7 +27,12 @@ on:
       - "scripts/**"
       - "package.json"
       - "bun.lock"
+      - ".github/workflows/meeting-api-ci.yml"
+      - ".github/workflows/meeting-api-railway-preview.yml"
+      - ".github/workflows/meeting-web-ci.yml"
       - ".github/workflows/repo-tooling-ci.yml"
+      - ".github/workflows/roadmap-web-ci.yml"
+      - ".github/workflows/roadmap-web-playwright.yml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

@@ -39,7 +39,7 @@ describe("schema domain inventory", () => {
       "| `workspace` | `roadmap-web` | `roadmap-web` | `Supabase Postgres` | `apps/roadmap-web/supabase/migrations/20250110000001_initial_multitenant_schema.sql` |",
     );
     expect(inventoryDoc).toContain(
-      "| `thread` | `roadmap-web` | `roadmap-web` | `Supabase Postgres` | `apps/roadmap-web/src/lib/supabase/types.ts` |",
+      "| `thread` | `roadmap-web` | `roadmap-web` | `Supabase Postgres` | `infra/supabase/migrations/20251208100000_create_chat_threads_tables.sql` |",
     );
     expect(inventoryDoc).toContain(
       "| `task` | `roadmap-web` | `roadmap-web` | `Supabase Postgres` | `apps/roadmap-web/supabase/migrations/20250110000001_initial_multitenant_schema.sql` |",

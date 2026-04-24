@@ -50,9 +50,7 @@ describe("repo tooling", () => {
 
     expect(packageJson.scripts["validate:meeting-web"]).toContain("ci:meeting-web");
     expect(packageJson.scripts["validate:roadmap-web"]).toContain("ci:roadmap-web");
-    expect(packageJson.scripts["ci:roadmap-web"]).toContain(
-      "bun run --cwd apps/roadmap-web test",
-    );
+    expect(packageJson.scripts["ci:roadmap-web"]).toContain("apps/roadmap-web test");
     expect(packageJson.scripts["validate:meeting-api"]).toContain(
       "validate:meeting-api:lint",
     );
@@ -122,6 +120,15 @@ describe("repo tooling", () => {
     expect(repoToolingWorkflow).toContain('"test/**"');
     expect(repoToolingWorkflow).toContain('"docs/**"');
     expect(repoToolingWorkflow).toContain('"README.md"');
+    expect(repoToolingWorkflow).toContain('".github/workflows/meeting-api-ci.yml"');
+    expect(repoToolingWorkflow).toContain(
+      '".github/workflows/meeting-api-railway-preview.yml"',
+    );
+    expect(repoToolingWorkflow).toContain('".github/workflows/meeting-web-ci.yml"');
+    expect(repoToolingWorkflow).toContain('".github/workflows/roadmap-web-ci.yml"');
+    expect(repoToolingWorkflow).toContain(
+      '".github/workflows/roadmap-web-playwright.yml"',
+    );
     expect(repoToolingWorkflow).toContain("bun test test/repo-tooling.test.js test/domain-inventory.test.js");
   });
 

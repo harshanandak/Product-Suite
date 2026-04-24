@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run src/components/blocksuite/__tests__/mindmap-chunker.test.ts src/components/blocksuite/__tests__/text-extractor.test.ts",
+    "test": "vitest run",
     "check:links": "bun x tsx scripts/check-doc-links.ts",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
