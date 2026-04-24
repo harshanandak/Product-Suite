@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if command -v bd.exe >/dev/null 2>&1; then
+  exec bd.exe "$@"
+fi
+
+echo "Error: bd.exe not found on PATH" >&2
+exit 1

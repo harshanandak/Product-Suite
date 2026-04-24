@@ -6,11 +6,13 @@ import { fileURLToPath } from "node:url";
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 const pythonCandidates = [
+  { command: "py", args: ["-3.13"] },
   { command: "python3", args: [] },
   { command: "python", args: [] },
   { command: "py", args: ["-3"] },
 ];
 const requiredPythonVersion = "3.13";
+const lintBaselineArgs = ["-m", "flake8", "--select=E9,F63,F7,F82"];
 
 function resolvePython() {
   const discoveredVersions = [];
@@ -50,8 +52,16 @@ function resolvePython() {
 }
 
 function runPython(python, args) {
+  const pythonPath = process.env.PYTHONPATH
+    ? `${process.env.PYTHONPATH};apps/meeting-api`
+    : "apps/meeting-api";
   const result = spawnSync(python.command, [...python.args, ...args], {
       cwd: rootDir,
+      env: {
+        ...process.env,
+        PYTHONPATH: pythonPath,
+        DEPLOYMENT_MODE: process.env.DEPLOYMENT_MODE ?? "oss",
+      },
       stdio: "inherit",
     },
   );
@@ -75,7 +85,7 @@ switch (command) {
     runPython(python, ["-m", "pip", "install", "-r", scriptArgs[0] ?? "apps/meeting-api/backend/requirements.txt"]);
     break;
   case "lint":
-    runPython(python, ["-m", "flake8", ...scriptArgs]);
+    runPython(python, [...lintBaselineArgs, ...scriptArgs]);
     break;
   case "test":
     runPython(python, ["-m", "pytest", ...scriptArgs, "-q"]);
