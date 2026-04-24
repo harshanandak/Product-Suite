@@ -46,3 +46,7 @@ The root Bun workspace intentionally includes only the JavaScript web apps. The 
 - `Neon`, `Supabase`, and `R2` remain environment/data systems. They are not repo-linked deploy targets.
 
 See [docs/deployment/SERVICE_INVENTORY.md](docs/deployment/SERVICE_INVENTORY.md) and [docs/deployment/REPO_REBINDING_RUNBOOK.md](docs/deployment/REPO_REBINDING_RUNBOOK.md).
+
+## Validation
+
+Run repo validation from the root with the documented commands in [docs/VALIDATION.md](docs/VALIDATION.md).

@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [[ "${1:-}" == "comments" && "${2:-}" == "list" && -n "${3:-}" ]]; then
+  set -- comments "$3" "${@:4}"
+fi
+
+if command -v bd.exe >/dev/null 2>&1; then
+  exec bd.exe "$@"
+fi
+
+IFS=':' read -r -a PATH_ENTRIES <<<"$PATH"
+for entry in "${PATH_ENTRIES[@]}"; do
+  [[ -z "$entry" || "$entry" == "$SCRIPT_DIR" ]] && continue
+  if [[ -x "$entry/bd" ]]; then
+    exec "$entry/bd" "$@"
+  fi
+done
+
+echo "Error: neither bd.exe nor bd was found on PATH" >&2
+exit 1
