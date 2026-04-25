@@ -4,12 +4,14 @@
   "packageManager": "bun@1.3.6",
   "workspaces": [
     "apps/meeting-web",
-    "apps/roadmap-web"
+    "apps/roadmap-web",
+    "packages/contracts"
   ],
   "scripts": {
     "prepare": "lefthook install",
     "verify:deployment": "node scripts/deployment/verify-monorepo-rebinding.mjs",
     "install:meeting-api": "node scripts/meeting-api-validation.mjs install apps/meeting-api/backend/requirements.txt",
+    "test:contracts": "bun run --cwd packages/contracts test",
     "test:repo-tooling": "bun test test/repo-tooling.test.js",
     "test:prepush": "bun run test:repo-tooling && bun run ci:meeting-web && bun run ci:roadmap-web && bun run ci:meeting-api",
     "test": "bun run test:repo-tooling",

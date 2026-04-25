@@ -35,6 +35,12 @@ const repoToolingWorkflow = readFileSync(
 );
 
 describe("repo tooling", () => {
+  test("root workspace and scripts acknowledge the contracts package", () => {
+    expect(packageJson.workspaces).toContain("packages/contracts");
+    expect(packageJson.scripts["test:contracts"]).toBeDefined();
+    expect(packageJson.scripts["test:contracts"]).toContain("packages/contracts");
+  });
+
   test("root CI scripts validate every deployable", () => {
     expect(packageJson.scripts["ci:meeting-web"]).toContain("apps/meeting-web");
     expect(packageJson.scripts["ci:meeting-web"]).toContain("apps/meeting-web test");
