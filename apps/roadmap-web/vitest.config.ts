@@ -4,6 +4,7 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   resolve: {
     alias: {
+      "@": fileURLToPath(new URL("./src", import.meta.url)),
       "@product-suite/contracts": fileURLToPath(
         new URL("./node_modules/@product-suite/contracts/src/index.js", import.meta.url),
       ),

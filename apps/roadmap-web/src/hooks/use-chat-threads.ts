@@ -14,12 +14,15 @@
  */
 
 import { useState, useEffect, useCallback } from 'react'
-import { conversationContract } from '@product-suite/contracts'
 import { createClient } from '@/lib/supabase/client'
+import {
+  SHARED_CONVERSATION_MESSAGE_TABLE,
+  SHARED_CONVERSATION_THREAD_TABLE,
+} from '@/lib/supabase/shared-contracts'
 import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js'
 
-const chatThreadsTable = conversationContract.thread.table
-const chatMessagesTable = conversationContract.message.table
+export const CHAT_THREADS_TABLE = SHARED_CONVERSATION_THREAD_TABLE
+export const CHAT_MESSAGES_TABLE = SHARED_CONVERSATION_MESSAGE_TABLE
 
 // =============================================================================
 // TYPES
@@ -104,7 +107,7 @@ export function useThreads({ teamId, workspaceId, initialLimit = 20, pageSize = 
       console.log('[useThreads] Fetching threads for:', { teamId, workspaceId })
 
       const { data, error: fetchError } = await supabase
-        .from(chatThreadsTable)
+        .from(CHAT_THREADS_TABLE)
         .select('*')
         .eq('team_id', teamId)
         .eq('workspace_id', workspaceId)
@@ -138,7 +141,7 @@ export function useThreads({ teamId, workspaceId, initialLimit = 20, pageSize = 
 
       const lastThread = threads[threads.length - 1]
       const { data, error: fetchError } = await supabase
-        .from(chatThreadsTable)
+        .from(CHAT_THREADS_TABLE)
         .select('*')
         .eq('team_id', teamId)
         .eq('workspace_id', workspaceId)
@@ -175,7 +178,7 @@ export function useThreads({ teamId, workspaceId, initialLimit = 20, pageSize = 
         console.log('[useThreads] Creating thread:', newThread)
 
         const { data, error: insertError } = await supabase
-          .from(chatThreadsTable)
+          .from(CHAT_THREADS_TABLE)
           .insert(newThread)
           .select()
           .single()
@@ -206,7 +209,7 @@ export function useThreads({ teamId, workspaceId, initialLimit = 20, pageSize = 
     async (threadId: string, title: string): Promise<boolean> => {
       try {
         const { error: updateError } = await supabase
-          .from(chatThreadsTable)
+          .from(CHAT_THREADS_TABLE)
           .update({ title })
           .eq('id', threadId)
           .eq('team_id', teamId)
@@ -232,7 +235,7 @@ export function useThreads({ teamId, workspaceId, initialLimit = 20, pageSize = 
     async (threadId: string): Promise<boolean> => {
       try {
         const { error: updateError } = await supabase
-          .from(chatThreadsTable)
+          .from(CHAT_THREADS_TABLE)
           .update({ status: 'archived' })
           .eq('id', threadId)
           .eq('team_id', teamId)
@@ -263,7 +266,7 @@ export function useThreads({ teamId, workspaceId, initialLimit = 20, pageSize = 
         {
           event: '*',
           schema: 'public',
-          table: chatThreadsTable,
+          table: CHAT_THREADS_TABLE,
           filter: `workspace_id=eq.${workspaceId}`,
         },
         (payload: RealtimePostgresChangesPayload<ChatThread>) => {
@@ -341,7 +344,7 @@ export function useMessages({ threadId, enabled = true }: UseMessagesOptions) {
       console.log('[useMessages] Fetching messages for thread:', threadId)
 
       const { data, error: fetchError } = await supabase
-        .from(chatMessagesTable)
+        .from(CHAT_MESSAGES_TABLE)
         .select('*')
         .eq('thread_id', threadId)
         .order('created_at', { ascending: true })
@@ -401,7 +404,7 @@ export function useMessages({ threadId, enabled = true }: UseMessagesOptions) {
         })
 
         const { data, error: insertError } = await supabase
-          .from(chatMessagesTable)
+          .from(CHAT_MESSAGES_TABLE)
           .insert(newMessage)
           .select()
           .single()
@@ -440,7 +443,7 @@ export function useMessages({ threadId, enabled = true }: UseMessagesOptions) {
         }))
 
         const { error: insertError } = await supabase
-          .from(chatMessagesTable)
+          .from(CHAT_MESSAGES_TABLE)
           .insert(newMessages)
 
         if (insertError) throw insertError
@@ -479,7 +482,7 @@ export function useMessages({ threadId, enabled = true }: UseMessagesOptions) {
         {
           event: 'INSERT',
           schema: 'public',
-          table: chatMessagesTable,
+          table: CHAT_MESSAGES_TABLE,
           filter: `thread_id=eq.${threadId}`,
         },
         (payload: RealtimePostgresChangesPayload<ChatMessage>) => {

@@ -1,3 +1,8 @@
+pre-commit:
+  jobs:
+    - name: source-test coupling
+      run: bun run check:source-test
+
 pre-push:
   jobs:
     - name: pre-push validation

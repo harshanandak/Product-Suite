@@ -91,6 +91,22 @@ function readConfiguredBackendEnv() {
   return normalizeBaseUrl(readFrontendEnv("VITE_BACKEND_URL", "VITE_REACT_APP_BACKEND_URL", "REACT_APP_BACKEND_URL"));
 }
 
+function readBackendAliasValue(candidate = {}) {
+  return (
+    candidate[meetingRuntimeConfig.backendUrlKey] ||
+    candidate.backendUrl ||
+    candidate.api_base_url ||
+    candidate.apiBaseUrl ||
+    candidate.base_url ||
+    candidate.baseUrl ||
+    ""
+  );
+}
+
+function readConfiguredBackendAlias(candidate = {}) {
+  return stripApiSuffix(readBackendAliasValue(candidate));
+}
+
 function buildDefaultRuntimeConfig() {
   return {
     ...BASE_RUNTIME_CONFIG,
@@ -345,12 +361,8 @@ export async function initializeRuntimeConfig({ force = false } = {}) {
     const injectedConfig = readInjectedRuntimeConfig() || {};
     const staticConfig = { ...injectedConfig, ...fileConfig };
     const envConfiguredBackendUrl = readConfiguredBackendEnv();
-    const fileConfiguredBackendUrl = normalizeBaseUrl(
-      fileConfig.backendUrl || fileConfig[meetingRuntimeConfig.backendUrlKey]
-    );
-    const injectedConfiguredBackendUrl = normalizeBaseUrl(
-      injectedConfig.backendUrl || injectedConfig[meetingRuntimeConfig.backendUrlKey]
-    );
+    const fileConfiguredBackendUrl = readConfiguredBackendAlias(fileConfig);
+    const injectedConfiguredBackendUrl = readConfiguredBackendAlias(injectedConfig);
     const localDevOrigin = resolveWindowOrigin();
     const shouldPreferWindowOrigin =
       isLocalDevFrontend() && !envConfiguredBackendUrl && !fileConfiguredBackendUrl;

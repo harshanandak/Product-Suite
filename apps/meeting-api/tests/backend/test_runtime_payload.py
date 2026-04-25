@@ -6,7 +6,17 @@ from backend.routes.state import build_state_payload
 
 
 def load_contract_artifact(name: str) -> dict:
-    root = Path(__file__).resolve().parents[4]
+    current = Path(__file__).resolve()
+    root = None
+    for candidate in [current.parent, *current.parents]:
+        contracts_dir = candidate / "packages" / "contracts" / "contracts"
+        if contracts_dir.is_dir():
+            root = candidate
+            break
+
+    if root is None:
+        raise RuntimeError("Could not locate packages/contracts/contracts from test_runtime_payload.py")
+
     return json.loads(
         (root / "packages" / "contracts" / "contracts" / f"{name}.json").read_text(
             encoding="utf-8"

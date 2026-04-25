@@ -7,6 +7,7 @@ on:
     paths:
       - "apps/meeting-api/backend/**"
       - "apps/meeting-api/tests/**"
+      - "packages/contracts/**"
       - "test/**"
       - "scripts/meeting-api-validation.mjs"
       - "package.json"
@@ -18,6 +19,7 @@ on:
     paths:
       - "apps/meeting-api/backend/**"
       - "apps/meeting-api/tests/**"
+      - "packages/contracts/**"
       - "test/**"
       - "scripts/meeting-api-validation.mjs"
       - "package.json"

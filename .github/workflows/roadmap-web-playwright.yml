@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - "apps/roadmap-web/**"
+      - "packages/contracts/**"
       - "infra/supabase/**"
       - "package.json"
       - "bun.lock"
@@ -15,6 +16,7 @@ on:
       - main
     paths:
       - "apps/roadmap-web/**"
+      - "packages/contracts/**"
       - "infra/supabase/**"
       - "package.json"
       - "bun.lock"

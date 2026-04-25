@@ -33,12 +33,17 @@ const repoToolingWorkflow = readFileSync(
   join(rootDir, ".github", "workflows", "repo-tooling-ci.yml"),
   "utf8",
 );
+const lefthookConfig = readFileSync(join(rootDir, "lefthook.yml"), "utf8");
 
 describe("repo tooling", () => {
   test("root workspace and scripts acknowledge the contracts package", () => {
     expect(packageJson.workspaces).toContain("packages/contracts");
     expect(packageJson.scripts["test:contracts"]).toBeDefined();
     expect(packageJson.scripts["test:contracts"]).toContain("packages/contracts");
+    expect(packageJson.scripts["check:source-test"]).toBeDefined();
+    expect(packageJson.scripts["check:source-test"]).toContain("check-source-test-coupling");
+    expect(lefthookConfig).toContain("pre-commit:");
+    expect(lefthookConfig).toContain("bun run check:source-test");
   });
 
   test("root CI scripts validate every deployable", () => {
@@ -142,15 +147,20 @@ describe("repo tooling", () => {
   });
 
   test("shared root dependency changes trigger the web and backend CI workflows", () => {
+    expect(meetingWebWorkflow).toContain('"packages/contracts/**"');
     expect(meetingWebWorkflow).toContain('"package.json"');
     expect(meetingWebWorkflow).toContain('"bun.lock"');
+    expect(roadmapWebWorkflow).toContain('"packages/contracts/**"');
     expect(roadmapWebWorkflow).toContain('"package.json"');
     expect(roadmapWebWorkflow).toContain('"bun.lock"');
+    expect(roadmapWebPlaywrightWorkflow).toContain('"packages/contracts/**"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"package.json"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"bun.lock"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"infra/supabase/**"');
+    expect(meetingApiWorkflow).toContain('"packages/contracts/**"');
     expect(meetingApiWorkflow).toContain('"test/**"');
     expect(meetingApiWorkflow).toContain('"scripts/meeting-api-validation.mjs"');
+    expect(meetingApiRailwayPreviewWorkflow).toContain('"packages/contracts/**"');
     expect(meetingApiRailwayPreviewWorkflow).toContain('"test/**"');
     expect(meetingApiRailwayPreviewWorkflow).toContain(
       '"scripts/meeting-api-validation.mjs"',

@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "prepare": "lefthook install",
+    "check:source-test": "node scripts/check-source-test-coupling.mjs",
     "verify:deployment": "node scripts/deployment/verify-monorepo-rebinding.mjs",
     "install:meeting-api": "node scripts/meeting-api-validation.mjs install apps/meeting-api/backend/requirements.txt",
     "test:contracts": "bun run --cwd packages/contracts test",
