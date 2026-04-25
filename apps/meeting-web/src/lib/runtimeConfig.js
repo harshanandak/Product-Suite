@@ -1,9 +1,18 @@
+import {
+  identityScopeContract,
+  meetingCoreContract,
+} from "@product-suite/contracts";
+
 const AUTH_TOKEN_KEY = "meeting-agent.auth-token";
 const LEGACY_AUTH_TOKEN_KEY = "meeting-agent.auth.token";
 const RUNTIME_CONFIG_STORAGE_KEY = "meeting-agent.runtime-config";
 const DEFAULT_LOCAL_BACKEND_URL = "http://localhost:8000";
 const DEFAULT_LOCAL_API_BASE_URL = `${DEFAULT_LOCAL_BACKEND_URL}/api`;
 const LOCAL_DEV_FRONTEND_PORTS = new Set(["3000", "4173", "4174", "4175", "4176", "5173"]);
+const identityDeployment = identityScopeContract.deployment;
+const identityAuth = identityScopeContract.auth;
+const meetingRuntimeConfig = meetingCoreContract.runtimeConfig;
+const meetingRuntimeAuth = meetingRuntimeConfig.auth;
 
 const BASE_RUNTIME_CONFIG = {
   appName: "TRANSCRIBE",
@@ -88,11 +97,11 @@ function buildDefaultRuntimeConfig() {
     apiBaseUrl: DEFAULT_LOCAL_API_BASE_URL,
     api_base_url: DEFAULT_LOCAL_API_BASE_URL,
     backendUrl: DEFAULT_LOCAL_BACKEND_URL,
-    backend_url: DEFAULT_LOCAL_BACKEND_URL,
+    [meetingRuntimeConfig.backendUrlKey]: DEFAULT_LOCAL_BACKEND_URL,
     baseUrl: DEFAULT_LOCAL_BACKEND_URL,
     base_url: DEFAULT_LOCAL_BACKEND_URL,
-    deployment_mode: BASE_RUNTIME_CONFIG.deploymentMode,
-    tenant_mode: BASE_RUNTIME_CONFIG.tenantMode,
+    [identityDeployment.deploymentModeKey]: BASE_RUNTIME_CONFIG.deploymentMode,
+    [identityDeployment.tenantModeKey]: BASE_RUNTIME_CONFIG.tenantMode,
     auth_mode: BASE_RUNTIME_CONFIG.authMode,
     auth_required: BASE_RUNTIME_CONFIG.authRequired,
   };
@@ -103,18 +112,25 @@ function deriveAuthConfig(candidateAuth = {}, normalizedConfig) {
 
   return {
     ...candidateAuth,
-    required: normalizedConfig.authRequired,
-    mode: candidateAuth.mode || candidateAuth.auth_mode || normalizedConfig.authMode,
-    provider: candidateAuth.provider || defaultAuthProvider,
-    supported_providers:
-      candidateAuth.supported_providers ||
+    [identityAuth.requiredKey]: normalizedConfig.authRequired,
+    [identityAuth.modeKey]:
+      candidateAuth[identityAuth.modeKey] ||
+      candidateAuth.auth_mode ||
+      normalizedConfig.authMode,
+    [identityAuth.providerKey]:
+      candidateAuth[identityAuth.providerKey] || defaultAuthProvider,
+    [identityAuth.supportedProvidersKey]:
+      candidateAuth[identityAuth.supportedProvidersKey] ||
       (normalizedConfig.deploymentMode === "hosted" ? ["email", "google"] : ["email"]),
-    organization_required: Boolean(
-      candidateAuth.organization_required ?? normalizedConfig.tenantMode === "organization"
+    [identityAuth.organizationRequiredKey]: Boolean(
+      candidateAuth[identityAuth.organizationRequiredKey] ??
+        normalizedConfig.tenantMode === "organization"
     ),
-    onboarding_required: Boolean(candidateAuth.onboarding_required ?? false),
+    [identityAuth.onboardingRequiredKey]: Boolean(
+      candidateAuth[identityAuth.onboardingRequiredKey] ?? false
+    ),
     neon: {
-      auth_url: "",
+      [meetingRuntimeAuth.neonAuthUrlKey]: "",
       ...(candidateAuth.neon || {}),
     },
   };
@@ -188,8 +204,14 @@ export function normalizeRuntimeConfig(candidate = {}, options = {}) {
   const fallbackBackendUrl = normalizeBaseUrl(
     options.fallbackBackendUrl || resolveConfiguredBackendUrl() || DEFAULT_LOCAL_BACKEND_URL
   );
-  const deploymentMode = candidate.deployment_mode || candidate.deploymentMode || BASE_RUNTIME_CONFIG.deploymentMode;
-  const tenantMode = candidate.tenant_mode || candidate.tenantMode || BASE_RUNTIME_CONFIG.tenantMode;
+  const deploymentMode =
+    candidate[identityDeployment.deploymentModeKey] ||
+    candidate.deploymentMode ||
+    BASE_RUNTIME_CONFIG.deploymentMode;
+  const tenantMode =
+    candidate[identityDeployment.tenantModeKey] ||
+    candidate.tenantMode ||
+    BASE_RUNTIME_CONFIG.tenantMode;
   const authRequired = Boolean(
     candidate.auth_required ??
       candidate.authRequired ??
@@ -203,7 +225,7 @@ export function normalizeRuntimeConfig(candidate = {}, options = {}) {
     candidate.auth?.mode ||
     (authRequired ? "token" : BASE_RUNTIME_CONFIG.authMode);
   const apiBaseUrl = normalizeApiBaseUrl(
-    candidate.backend_url ||
+    candidate[meetingRuntimeConfig.backendUrlKey] ||
       candidate.backendUrl ||
       candidate.api_base_url ||
       candidate.apiBaseUrl ||
@@ -220,13 +242,13 @@ export function normalizeRuntimeConfig(candidate = {}, options = {}) {
     apiBaseUrl,
     api_base_url: apiBaseUrl,
     backendUrl,
-    backend_url: backendUrl,
+    [meetingRuntimeConfig.backendUrlKey]: backendUrl,
     baseUrl: backendUrl,
     base_url: backendUrl,
     deploymentMode,
-    deployment_mode: deploymentMode,
+    [identityDeployment.deploymentModeKey]: deploymentMode,
     tenantMode,
-    tenant_mode: tenantMode,
+    [identityDeployment.tenantModeKey]: tenantMode,
     authRequired,
     auth_required: authRequired,
     authMode,
@@ -323,8 +345,12 @@ export async function initializeRuntimeConfig({ force = false } = {}) {
     const injectedConfig = readInjectedRuntimeConfig() || {};
     const staticConfig = { ...injectedConfig, ...fileConfig };
     const envConfiguredBackendUrl = readConfiguredBackendEnv();
-    const fileConfiguredBackendUrl = normalizeBaseUrl(fileConfig.backendUrl || fileConfig.backend_url);
-    const injectedConfiguredBackendUrl = normalizeBaseUrl(injectedConfig.backendUrl || injectedConfig.backend_url);
+    const fileConfiguredBackendUrl = normalizeBaseUrl(
+      fileConfig.backendUrl || fileConfig[meetingRuntimeConfig.backendUrlKey]
+    );
+    const injectedConfiguredBackendUrl = normalizeBaseUrl(
+      injectedConfig.backendUrl || injectedConfig[meetingRuntimeConfig.backendUrlKey]
+    );
     const localDevOrigin = resolveWindowOrigin();
     const shouldPreferWindowOrigin =
       isLocalDevFrontend() && !envConfiguredBackendUrl && !fileConfiguredBackendUrl;
@@ -342,7 +368,7 @@ export async function initializeRuntimeConfig({ force = false } = {}) {
           apiBaseUrl: normalizeApiBaseUrl(forcedBackendUrl),
           api_base_url: normalizeApiBaseUrl(forcedBackendUrl),
           backendUrl: forcedBackendUrl,
-          backend_url: forcedBackendUrl,
+          [meetingRuntimeConfig.backendUrlKey]: forcedBackendUrl,
           baseUrl: forcedBackendUrl,
           base_url: forcedBackendUrl,
         }
@@ -360,14 +386,19 @@ export async function initializeRuntimeConfig({ force = false } = {}) {
         },
         {
           fallbackBackendUrl:
-            remoteConfig?.backend_url || remoteConfig?.backendUrl || configuredBackendUrl || DEFAULT_LOCAL_BACKEND_URL,
+            remoteConfig?.[meetingRuntimeConfig.backendUrlKey] ||
+            remoteConfig?.backendUrl ||
+            configuredBackendUrl ||
+            DEFAULT_LOCAL_BACKEND_URL,
         }
       );
 
       return persistRuntimeConfig(
         validateHostedRuntimeConfig(
           mergedConfig,
-          configuredBackendUrl || mergedConfig.backendUrl || mergedConfig.backend_url
+          configuredBackendUrl ||
+            mergedConfig.backendUrl ||
+            mergedConfig[meetingRuntimeConfig.backendUrlKey]
         )
       );
     } catch (error) {

@@ -24,6 +24,4 @@ export const conversationContract = {
     modelUsedKey: "model_used",
     createdAtKey: "created_at",
   },
-} as const;
-
-export type ConversationContract = typeof conversationContract;
+};

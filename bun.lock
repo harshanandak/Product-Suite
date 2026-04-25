@@ -18,6 +18,7 @@
         "@fontsource-variable/public-sans": "^5.2.7",
         "@hookform/resolvers": "^5.0.1",
         "@neondatabase/neon-js": "^0.2.0-beta.1",
+        "@product-suite/contracts": "workspace:*",
         "@radix-ui/react-accordion": "^1.2.8",
         "@radix-ui/react-alert-dialog": "^1.1.11",
         "@radix-ui/react-aspect-ratio": "^1.1.4",
@@ -199,6 +200,10 @@
         "typescript": "^5",
         "vitest": "^4.0.17",
       },
+    },
+    "packages/contracts": {
+      "name": "@product-suite/contracts",
+      "version": "0.0.0",
     },
   },
   "patchedDependencies": {
@@ -809,6 +814,8 @@
     "@preact/signals-core": ["@preact/signals-core@1.14.1", "", {}, "sha512-vxPpfXqrwUe9lpjqfYNjAF/0RF/eFGeLgdJzdmIIZjpOnTmGmAB4BjWone562mJGMRP4frU6iZ6ei3PDsu52Ng=="],
 
     "@prisma/instrumentation": ["@prisma/instrumentation@6.11.1", "", { "dependencies": { "@opentelemetry/instrumentation": "^0.52.0 || ^0.53.0 || ^0.54.0 || ^0.55.0 || ^0.56.0 || ^0.57.0" }, "peerDependencies": { "@opentelemetry/api": "^1.8" } }, "sha512-mrZOev24EDhnefmnZX7WVVT7v+r9LttPRqf54ONvj6re4XMF7wFTpK2tLJi4XHB7fFp/6xhYbgRel8YV7gQiyA=="],
+
+    "@product-suite/contracts": ["@product-suite/contracts@workspace:packages/contracts"],
 
     "@radix-ui/number": ["@radix-ui/number@1.1.1", "", {}, "sha512-MkKCwxlXTgz6CFoJx3pCwn07GKp36+aZyu/u2Ln2VrA5DcdyCZkASEDBTd8x5whTQQL5CiYf4prXKLcgQdv29g=="],
 

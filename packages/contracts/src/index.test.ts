@@ -5,7 +5,7 @@ import {
   conversationContract,
   identityScopeContract,
   meetingCoreContract,
-} from "./index";
+} from "./index.js";
 
 describe("@product-suite/contracts", () => {
   test("exports the minimal contracts nucleus", () => {

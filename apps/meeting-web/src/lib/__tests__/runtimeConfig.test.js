@@ -1,4 +1,7 @@
+import { readFileSync } from "node:fs";
+
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import { identityScopeContract, meetingCoreContract } from "@product-suite/contracts";
 
 import {
   getCachedRuntimeConfig,
@@ -62,8 +65,19 @@ describe("runtimeConfig helpers", () => {
     expect(config.apiBaseUrl).toBe("http://localhost:8000/api");
     expect(config.authRequired).toBe(true);
     expect(config.authMode).toBe("token");
-    expect(config.auth.provider).toBe("neon");
+    expect(config.auth[identityScopeContract.auth.providerKey]).toBe("neon");
     expect(config.auth.neon.auth_url).toBe("https://project-123.neon.tech/auth");
+  });
+
+  test("imports shared contracts for runtime and auth field naming", () => {
+    const runtimeConfigSource = readFileSync(
+      new URL("../runtimeConfig.js", import.meta.url),
+      "utf8",
+    );
+
+    expect(runtimeConfigSource).toContain("@product-suite/contracts");
+    expect(meetingCoreContract.runtimeConfig.backendUrlKey).toBe("backend_url");
+    expect(identityScopeContract.auth.providerKey).toBe("provider");
   });
 
   test("normalized auth flags override conflicting nested auth values", () => {

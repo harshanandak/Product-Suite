@@ -36,6 +36,4 @@ export const meetingCoreContract = {
       rankingProfileKey: "ranking_profile",
     },
   },
-} as const;
-
-export type MeetingCoreContract = typeof meetingCoreContract;
+};

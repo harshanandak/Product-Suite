@@ -14,6 +14,4 @@ export const identityScopeContract = {
     onboardingRequiredKey: "onboarding_required",
     hostedAuthUrlKey: "auth_url",
   },
-} as const;
-
-export type IdentityScopeContract = typeof identityScopeContract;
+};

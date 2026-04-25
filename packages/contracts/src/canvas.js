@@ -15,6 +15,4 @@ export const canvasCoreContract = {
     createdAtKey: "created_at",
     updatedAtKey: "updated_at",
   },
-} as const;
-
-export type CanvasCoreContract = typeof canvasCoreContract;
+};
