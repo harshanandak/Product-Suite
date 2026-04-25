@@ -36,6 +36,7 @@
     "file-type": "22.0.1",
     "next": "16.2.4",
     "nodemailer": "8.0.5",
+    "postcss": "8.5.10",
     "uuid": "14.0.0"
   },
   "devDependencies": {
