@@ -358,6 +358,65 @@ describe("runtimeConfig helpers", () => {
     expect(config.apiBaseUrl).toBe("https://file.example/api");
   });
 
+  test("initializeRuntimeConfig prefers remote backend_url over stale cached api_base_url", async () => {
+    window.__MEETING_AGENT_CONFIG__ = undefined;
+    global.window = {
+      localStorage: createStorage(),
+      location: {
+        hostname: "app.example.com",
+        origin: "https://app.example.com",
+        port: "",
+      },
+    };
+    window.localStorage.setItem(
+      "meeting-agent.runtime-config",
+      JSON.stringify({
+        deployment_mode: "hosted",
+        api_base_url: "https://stale.example/api",
+        auth: {
+          required: true,
+          provider: "neon",
+        },
+      }),
+    );
+
+    const fetchCalls = [];
+    global.fetch = async (url) => {
+      fetchCalls.push(url);
+
+      if (url === "/runtime-config.json") {
+        return {
+          ok: false,
+          status: 404,
+          text: async () => "",
+        };
+      }
+
+      if (url === "https://stale.example/api/runtime-config") {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            deployment_mode: "hosted",
+            backend_url: "https://remote.example",
+            auth: {
+              required: true,
+              provider: "neon",
+            },
+          }),
+        };
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    };
+
+    const config = await initializeRuntimeConfig({ force: true });
+
+    expect(fetchCalls).toContain("https://stale.example/api/runtime-config");
+    expect(config.backendUrl).toBe("https://remote.example");
+    expect(config.apiBaseUrl).toBe("https://remote.example/api");
+  });
+
   test("initializeRuntimeConfig ignores stale cached backend origin on local Vite ports", async () => {
     window.__MEETING_AGENT_CONFIG__ = undefined;
     window.localStorage.setItem(

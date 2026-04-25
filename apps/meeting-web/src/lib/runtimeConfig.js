@@ -391,13 +391,24 @@ export async function initializeRuntimeConfig({ force = false } = {}) {
 
     try {
       const remoteConfig = await fetchRemoteRuntimeConfig(configuredBackendUrl || DEFAULT_LOCAL_BACKEND_URL);
+      const remoteApiAlias = remoteConfig?.api_base_url || remoteConfig?.apiBaseUrl || "";
+      const remoteBackendAlias =
+        remoteConfig?.[meetingRuntimeConfig.backendUrlKey] || remoteConfig?.backendUrl || "";
+      const mergedRemoteConfig = {
+        ...staticConfigWithResolvedBackend,
+        ...remoteConfig,
+        ...(remoteBackendAlias && !remoteApiAlias
+          ? {
+              apiBaseUrl: normalizeApiBaseUrl(remoteBackendAlias),
+              api_base_url: normalizeApiBaseUrl(remoteBackendAlias),
+            }
+          : {}),
+      };
       const mergedConfig = normalizeRuntimeConfig(
-        {
-          ...staticConfigWithResolvedBackend,
-          ...remoteConfig,
-        },
+        mergedRemoteConfig,
         {
           fallbackBackendUrl:
+            stripApiSuffix(remoteApiAlias) ||
             remoteConfig?.[meetingRuntimeConfig.backendUrlKey] ||
             remoteConfig?.backendUrl ||
             configuredBackendUrl ||
