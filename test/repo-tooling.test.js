@@ -83,6 +83,8 @@ describe("repo tooling", () => {
   test("root docs describe the shared validation entrypoints", () => {
     expect(rootReadme).toContain("docs/VALIDATION.md");
     expect(validationDoc).toContain("bun run validate");
+    expect(validationDoc).toContain("bun run test:contracts");
+    expect(validationDoc).toContain("packages/contracts");
     expect(validationDoc).toContain("bun run validate:meeting-web");
     expect(validationDoc).toContain("bun run validate:roadmap-web");
     expect(validationDoc).toContain("unit tests");
@@ -125,6 +127,7 @@ describe("repo tooling", () => {
     expect(repoToolingWorkflow).toContain("name: Repo Tooling CI");
     expect(repoToolingWorkflow).toContain('"test/**"');
     expect(repoToolingWorkflow).toContain('"docs/**"');
+    expect(repoToolingWorkflow).toContain('"packages/contracts/**"');
     expect(repoToolingWorkflow).toContain('"README.md"');
     expect(repoToolingWorkflow).toContain('".github/workflows/meeting-api-ci.yml"');
     expect(repoToolingWorkflow).toContain(
