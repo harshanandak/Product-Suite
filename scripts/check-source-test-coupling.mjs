@@ -74,6 +74,10 @@ export function isSourceFile(file) {
     return false;
   }
 
+  if (normalized.endsWith("package.json")) {
+    return true;
+  }
+
   return SOURCE_EXTENSIONS.has(path.posix.extname(normalized));
 }
 

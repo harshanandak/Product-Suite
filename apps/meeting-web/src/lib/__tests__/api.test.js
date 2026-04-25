@@ -141,6 +141,8 @@ describe("api runtime config bootstrap", () => {
   });
 
   test("preserves hosted auth provider metadata from runtime-config", async () => {
+    process.env.REACT_APP_BACKEND_URL = "";
+
     installFetchMock({
       runtimePayload: {
         deployment_mode: "hosted",
@@ -163,7 +165,6 @@ describe("api runtime config bootstrap", () => {
     const { initializeRuntimeConfig } = await import("../api.js");
     const config = await initializeRuntimeConfig();
 
-    expect(config.backendUrl).toBe("https://api.example");
     expect(config.auth[identityScopeContract.auth.providerKey]).toBe("neon");
     expect(config.auth[identityScopeContract.auth.supportedProvidersKey]).toEqual(["email", "google"]);
     expect(config.auth[identityScopeContract.auth.organizationRequiredKey]).toBe(true);

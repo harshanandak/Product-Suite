@@ -93,10 +93,10 @@ function readConfiguredBackendEnv() {
 
 function readBackendAliasValue(candidate = {}) {
   return (
-    candidate[meetingRuntimeConfig.backendUrlKey] ||
-    candidate.backendUrl ||
     candidate.api_base_url ||
     candidate.apiBaseUrl ||
+    candidate[meetingRuntimeConfig.backendUrlKey] ||
+    candidate.backendUrl ||
     candidate.base_url ||
     candidate.baseUrl ||
     ""
@@ -241,10 +241,10 @@ export function normalizeRuntimeConfig(candidate = {}, options = {}) {
     candidate.auth?.mode ||
     (authRequired ? "token" : BASE_RUNTIME_CONFIG.authMode);
   const apiBaseUrl = normalizeApiBaseUrl(
-    candidate[meetingRuntimeConfig.backendUrlKey] ||
-      candidate.backendUrl ||
-      candidate.api_base_url ||
+    candidate.api_base_url ||
       candidate.apiBaseUrl ||
+      candidate[meetingRuntimeConfig.backendUrlKey] ||
+      candidate.backendUrl ||
       candidate.base_url ||
       candidate.baseUrl ||
       fallbackBackendUrl,

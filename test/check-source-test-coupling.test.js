@@ -18,6 +18,7 @@ describe("check-source-test-coupling", () => {
     expect(SOURCE_EXTENSIONS.has(".rb")).toBe(true);
     expect(SOURCE_EXTENSIONS.has(".cs")).toBe(true);
     expect(isSourceFile("scripts/check-source-test-coupling.mjs")).toBe(true);
+    expect(isSourceFile("package.json")).toBe(true);
   });
 
   test("recognizes the expanded test markers", () => {
@@ -75,6 +76,13 @@ describe("check-source-test-coupling", () => {
     const stagedFiles = ["packages/contracts/src/index.d.ts"];
 
     expect(hasCorrespondingTest("packages/contracts/src/index.d.ts", stagedFiles)).toBe(true);
+    expect(getMissingSourceTests(stagedFiles)).toEqual([]);
+  });
+
+  test("requires repo-tooling coverage for package.json changes", () => {
+    const stagedFiles = ["package.json"];
+
+    expect(hasCorrespondingTest("package.json", stagedFiles)).toBe(true);
     expect(getMissingSourceTests(stagedFiles)).toEqual([]);
   });
 });
