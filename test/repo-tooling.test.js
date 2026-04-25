@@ -42,6 +42,7 @@ describe("repo tooling", () => {
     expect(packageJson.scripts["test:contracts"]).toContain("packages/contracts");
     expect(packageJson.scripts["check:source-test"]).toBeDefined();
     expect(packageJson.scripts["check:source-test"]).toContain("check-source-test-coupling");
+    expect(packageJson.scripts["test:repo-tooling"]).toContain("check-source-test-coupling.test.js");
     expect(lefthookConfig).toContain("pre-commit:");
     expect(lefthookConfig).toContain("bun run check:source-test");
   });
@@ -143,7 +144,7 @@ describe("repo tooling", () => {
     expect(repoToolingWorkflow).toContain(
       '".github/workflows/roadmap-web-playwright.yml"',
     );
-    expect(repoToolingWorkflow).toContain("bun test test/repo-tooling.test.js test/domain-inventory.test.js");
+    expect(repoToolingWorkflow).toContain("bun run test:repo-tooling");
   });
 
   test("shared root dependency changes trigger the web and backend CI workflows", () => {

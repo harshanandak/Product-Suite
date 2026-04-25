@@ -59,4 +59,4 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Run root tooling tests
-        run: bun run test:contracts && bun test test/repo-tooling.test.js test/domain-inventory.test.js
+        run: bun run test:contracts && bun run test:repo-tooling
