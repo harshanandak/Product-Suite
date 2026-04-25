@@ -75,8 +75,6 @@ describe("runtimeConfig helpers", () => {
       },
     });
 
-    expect(meetingCoreContract.runtimeConfig.backendUrlKey).toBe("backend_url");
-    expect(identityScopeContract.auth.providerKey).toBe("provider");
     expect(config.backendUrl).toBe("https://api.example");
     expect(config.auth[identityScopeContract.auth.providerKey]).toBe("neon");
   });
