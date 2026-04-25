@@ -10,6 +10,7 @@
 
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import type { Doc } from 'yjs'
+import { canvasCoreContract } from '@product-suite/contracts'
 import { createClient } from '@/lib/supabase/client'
 import { HybridProvider } from './hybrid-provider'
 import {
@@ -18,6 +19,8 @@ import {
   type UseBlockSuiteSyncOptions,
   type UseBlockSuiteSyncReturn,
 } from './persistence-types'
+
+const blockSuiteDocumentsTable = canvasCoreContract.document.table
 
 /**
  * Hook for syncing BlockSuite Yjs documents with Supabase
@@ -193,7 +196,7 @@ export function useBlockSuiteDocument(options: {
         const id = Date.now().toString()
         const storagePath = getStoragePath(teamId, id)
 
-        const { error } = await supabase.from('blocksuite_documents').insert({
+        const { error } = await supabase.from(blockSuiteDocumentsTable).insert({
           id,
           team_id: teamId,
           workspace_id: workspaceId ?? null,
