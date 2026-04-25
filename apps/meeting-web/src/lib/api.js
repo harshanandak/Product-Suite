@@ -1,6 +1,10 @@
 import axios from "axios";
 import { createAuthClient } from "@neondatabase/neon-js/auth";
 import { BetterAuthReactAdapter } from "@neondatabase/neon-js/auth/react";
+import {
+  identityScopeContract,
+  meetingCoreContract,
+} from "@product-suite/contracts";
 
 import {
   clearAuthToken as clearRuntimeAuthToken,
@@ -12,6 +16,8 @@ import {
 
 let hostedAuthClient = null;
 let hostedAuthClientUrl = "";
+const identityAuth = identityScopeContract.auth;
+const meetingRuntimeAuth = meetingCoreContract.runtimeConfig.auth;
 
 function normalizeBaseUrl(value) {
   return (value || "").trim().replace(/\/$/, "");
@@ -33,7 +39,9 @@ export function clearAuthToken() {
 
 async function getHostedAuthClient() {
   const runtimeConfig = await initializeRuntimeConfig();
-  const authUrl = normalizeBaseUrl(runtimeConfig?.auth?.neon?.auth_url);
+  const authUrl = normalizeBaseUrl(
+    runtimeConfig?.auth?.neon?.[meetingRuntimeAuth.neonAuthUrlKey],
+  );
 
   if (!authUrl) {
     throw new Error("Hosted Neon auth is not configured");
@@ -88,7 +96,9 @@ export const getHostedSession = async () => {
 export const getHostedIdentityToken = async () => {
   const runtimeConfig = await initializeRuntimeConfig();
   const client = await getHostedAuthClient();
-  const authUrl = normalizeBaseUrl(runtimeConfig?.auth?.neon?.auth_url);
+  const authUrl = normalizeBaseUrl(
+    runtimeConfig?.auth?.neon?.[meetingRuntimeAuth.neonAuthUrlKey],
+  );
   const fallbackErrors = [];
 
   if (authUrl && typeof fetch === "function") {
@@ -160,7 +170,7 @@ export const exchangeHostedSession = async (providerToken) => {
   const runtimeConfig = await initializeRuntimeConfig();
   return api.post("/auth/session/exchange", {
     provider_token: providerToken,
-    provider: runtimeConfig?.auth?.provider || "neon",
+    provider: runtimeConfig?.auth?.[identityAuth.providerKey] || "neon",
   });
 };
 export const getCurrentUser = () => api.get("/auth/me");

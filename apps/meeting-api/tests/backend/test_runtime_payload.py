@@ -1,8 +1,31 @@
+import json
+from pathlib import Path
+
 from backend.routes.runtime import build_runtime_config_payload
 from backend.routes.state import build_state_payload
 
 
+def load_contract_artifact(name: str) -> dict:
+    current = Path(__file__).resolve()
+    root = None
+    for candidate in [current.parent, *current.parents]:
+        contracts_dir = candidate / "packages" / "contracts" / "contracts"
+        if contracts_dir.is_dir():
+            root = candidate
+            break
+
+    if root is None:
+        raise RuntimeError("Could not locate packages/contracts/contracts from test_runtime_payload.py")
+
+    return json.loads(
+        (root / "packages" / "contracts" / "contracts" / f"{name}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+
 def test_runtime_config_payload_exposes_neon_auth_metadata():
+    contract = load_contract_artifact("meeting-runtime-config")
     payload = build_runtime_config_payload(
         deployment_mode="hosted",
         auth_required=True,
@@ -27,22 +50,29 @@ def test_runtime_config_payload_exposes_neon_auth_metadata():
         engines=[{"id": "whisper", "name": "Whisper", "available": True}],
     )
 
-    assert payload["auth"]["provider"] == "neon"
+    runtime_config = contract["runtimeConfig"]
+    auth = runtime_config["auth"]
+    database = runtime_config["database"]
+    storage = runtime_config["storage"]
+    summary_policy = runtime_config["summaryPolicy"]
+    retrieval_policy = runtime_config["retrievalPolicy"]
+
+    assert payload["auth"][auth["providerKey"]] == "neon"
     assert payload["auth"]["neon"] == {
-        "auth_url": "https://project-123.neon.tech/auth",
+        auth["neonAuthUrlKey"]: "https://project-123.neon.tech/auth",
     }
-    assert payload["database"]["provider"] == "neon"
-    assert payload["storage"]["backend"] == "r2"
-    assert payload["storage"]["audio_archival_enabled"] is True
-    assert payload["summary_policy"]["raw_audio_retention_days"] == 30
-    assert payload["summary_policy"]["transcript_retention_days"] == -1
-    assert payload["summary_policy"]["derived_retention_days"] == -1
-    assert payload["summary_policy"]["state_window_seconds"] == 120
-    assert payload["summary_policy"]["chapter_window_seconds"] == 300
-    assert payload["summary_policy"]["inactivity_timeout_seconds"] == 180
+    assert payload["database"][database["providerKey"]] == "neon"
+    assert payload["storage"][storage["backendKey"]] == "r2"
+    assert payload["storage"][storage["audioArchivalEnabledKey"]] is True
+    assert payload["summary_policy"][summary_policy["rawAudioRetentionDaysKey"]] == 30
+    assert payload["summary_policy"][summary_policy["transcriptRetentionDaysKey"]] == -1
+    assert payload["summary_policy"][summary_policy["derivedRetentionDaysKey"]] == -1
+    assert payload["summary_policy"][summary_policy["stateWindowSecondsKey"]] == 120
+    assert payload["summary_policy"][summary_policy["chapterWindowSecondsKey"]] == 300
+    assert payload["summary_policy"][summary_policy["inactivityTimeoutSecondsKey"]] == 180
     assert payload["retrieval_policy"] == {
-        "history_corpus": ["chapter_summary", "final_summary"],
-        "ranking_profile": "hybrid_summary_first",
+        retrieval_policy["historyCorpusKey"]: ["chapter_summary", "final_summary"],
+        retrieval_policy["rankingProfileKey"]: "hybrid_summary_first",
     }
 
 

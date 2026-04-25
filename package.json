@@ -4,13 +4,16 @@
   "packageManager": "bun@1.3.6",
   "workspaces": [
     "apps/meeting-web",
-    "apps/roadmap-web"
+    "apps/roadmap-web",
+    "packages/contracts"
   ],
   "scripts": {
     "prepare": "lefthook install",
+    "check:source-test": "node scripts/check-source-test-coupling.mjs",
     "verify:deployment": "node scripts/deployment/verify-monorepo-rebinding.mjs",
     "install:meeting-api": "node scripts/meeting-api-validation.mjs install apps/meeting-api/backend/requirements.txt",
-    "test:repo-tooling": "bun test test/repo-tooling.test.js",
+    "test:contracts": "bun run --cwd packages/contracts test",
+    "test:repo-tooling": "bun test test/repo-tooling.test.js test/domain-inventory.test.js test/check-source-test-coupling.test.js",
     "test:prepush": "bun run test:repo-tooling && bun run ci:meeting-web && bun run ci:roadmap-web && bun run ci:meeting-api",
     "test": "bun run test:repo-tooling",
     "ci:meeting-web": "bun run --cwd apps/meeting-web lint && bun run --cwd apps/meeting-web test && bun run --cwd apps/meeting-web build",
@@ -34,6 +37,7 @@
     "file-type": "22.0.1",
     "next": "16.2.4",
     "nodemailer": "8.0.5",
+    "postcss": "8.5.10",
     "uuid": "14.0.0"
   },
   "devDependencies": {

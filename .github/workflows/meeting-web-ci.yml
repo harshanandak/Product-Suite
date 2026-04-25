@@ -6,12 +6,14 @@ on:
       - main
     paths:
       - "apps/meeting-web/**"
+      - "packages/contracts/**"
       - "package.json"
       - "bun.lock"
       - ".github/workflows/meeting-web-ci.yml"
   pull_request:
     paths:
       - "apps/meeting-web/**"
+      - "packages/contracts/**"
       - "package.json"
       - "bun.lock"
       - ".github/workflows/meeting-web-ci.yml"

@@ -1,0 +1,39 @@
+export const meetingCoreContract = {
+  module: "meeting",
+  runtimeConfig: {
+    deploymentModeKey: "deployment_mode",
+    tenantModeKey: "tenant_mode",
+    backendUrlKey: "backend_url",
+    capabilitiesKey: "capabilities",
+    enginesKey: "engines",
+    auth: {
+      requiredKey: "required",
+      modeKey: "mode",
+      providerKey: "provider",
+      supportedProvidersKey: "supported_providers",
+      organizationRequiredKey: "organization_required",
+      onboardingRequiredKey: "onboarding_required",
+      neonAuthUrlKey: "auth_url",
+    },
+    database: {
+      providerKey: "provider",
+    },
+    storage: {
+      backendKey: "backend",
+      audioArchivalEnabledKey: "audio_archival_enabled",
+    },
+    summaryPolicy: {
+      rawAudioRetentionDaysKey: "raw_audio_retention_days",
+      transcriptRetentionDaysKey: "transcript_retention_days",
+      derivedRetentionDaysKey: "derived_retention_days",
+      stateWindowSecondsKey: "state_window_seconds",
+      chapterWindowSecondsKey: "chapter_window_seconds",
+      inactivityTimeoutSecondsKey: "inactivity_timeout_seconds",
+      fullTranscriptRetainedKey: "full_transcript_retained",
+    },
+    retrievalPolicy: {
+      historyCorpusKey: "history_corpus",
+      rankingProfileKey: "ranking_profile",
+    },
+  },
+};

@@ -21,7 +21,10 @@ This file is the durable execution plan for the multi-PR transformation of Produ
 
 ## Current Status
 - `PR1 Repo Tooling Normalization`: merged and verified
-- `PR2+`: still need planning and execution as tracked work slices
+- `PR2 Validation Baseline`: merged and verified
+- `PR3 Schema And Domain Inventory`: merged and verified
+- `PR4 Contracts Nucleus`: planning in progress on `feat/pr4-contracts-nucleus`
+- `PR5+`: still need planning and execution as tracked work slices
 
 ## Global Rules
 - Roll back the PR if it breaks a prior gate.

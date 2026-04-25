@@ -1,5 +1,7 @@
 import axios from "axios";
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { identityScopeContract, meetingCoreContract } from "@product-suite/contracts";
 
 const hostedAuthClient = {
   getSession: vi.fn(),
@@ -139,6 +141,8 @@ describe("api runtime config bootstrap", () => {
   });
 
   test("preserves hosted auth provider metadata from runtime-config", async () => {
+    process.env.REACT_APP_BACKEND_URL = "";
+
     installFetchMock({
       runtimePayload: {
         deployment_mode: "hosted",
@@ -161,12 +165,19 @@ describe("api runtime config bootstrap", () => {
     const { initializeRuntimeConfig } = await import("../api.js");
     const config = await initializeRuntimeConfig();
 
-    expect(config.backendUrl).toBe("https://api.example");
-    expect(config.auth.provider).toBe("neon");
-    expect(config.auth.supported_providers).toEqual(["email", "google"]);
-    expect(config.auth.organization_required).toBe(true);
-    expect(config.auth.onboarding_required).toBe(true);
+    expect(config.auth[identityScopeContract.auth.providerKey]).toBe("neon");
+    expect(config.auth[identityScopeContract.auth.supportedProvidersKey]).toEqual(["email", "google"]);
+    expect(config.auth[identityScopeContract.auth.organizationRequiredKey]).toBe(true);
+    expect(config.auth[identityScopeContract.auth.onboardingRequiredKey]).toBe(true);
     expect(config.auth.neon.auth_url).toBe("https://project-123.neon.tech/auth");
+  });
+
+  test("imports shared contracts for hosted runtime payload field access", () => {
+    const apiSource = readFileSync(new URL("../api.js", import.meta.url), "utf8");
+
+    expect(apiSource).toContain("@product-suite/contracts");
+    expect(meetingCoreContract.runtimeConfig.auth.providerKey).toBe("provider");
+    expect(meetingCoreContract.runtimeConfig.auth.neonAuthUrlKey).toBe("auth_url");
   });
 
   test("prefers VITE_BACKEND_URL over the REACT_APP compatibility alias", async () => {

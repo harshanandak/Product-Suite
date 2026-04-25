@@ -33,8 +33,20 @@ const repoToolingWorkflow = readFileSync(
   join(rootDir, ".github", "workflows", "repo-tooling-ci.yml"),
   "utf8",
 );
+const lefthookConfig = readFileSync(join(rootDir, "lefthook.yml"), "utf8");
 
 describe("repo tooling", () => {
+  test("root workspace and scripts acknowledge the contracts package", () => {
+    expect(packageJson.workspaces).toContain("packages/contracts");
+    expect(packageJson.scripts["test:contracts"]).toBeDefined();
+    expect(packageJson.scripts["test:contracts"]).toContain("packages/contracts");
+    expect(packageJson.scripts["check:source-test"]).toBeDefined();
+    expect(packageJson.scripts["check:source-test"]).toContain("check-source-test-coupling");
+    expect(packageJson.scripts["test:repo-tooling"]).toContain("check-source-test-coupling.test.js");
+    expect(lefthookConfig).toContain("pre-commit:");
+    expect(lefthookConfig).toContain("bun run check:source-test");
+  });
+
   test("root CI scripts validate every deployable", () => {
     expect(packageJson.scripts["ci:meeting-web"]).toContain("apps/meeting-web");
     expect(packageJson.scripts["ci:meeting-web"]).toContain("apps/meeting-web test");
@@ -77,6 +89,8 @@ describe("repo tooling", () => {
   test("root docs describe the shared validation entrypoints", () => {
     expect(rootReadme).toContain("docs/VALIDATION.md");
     expect(validationDoc).toContain("bun run validate");
+    expect(validationDoc).toContain("bun run test:contracts");
+    expect(validationDoc).toContain("packages/contracts");
     expect(validationDoc).toContain("bun run validate:meeting-web");
     expect(validationDoc).toContain("bun run validate:roadmap-web");
     expect(validationDoc).toContain("unit tests");
@@ -119,6 +133,7 @@ describe("repo tooling", () => {
     expect(repoToolingWorkflow).toContain("name: Repo Tooling CI");
     expect(repoToolingWorkflow).toContain('"test/**"');
     expect(repoToolingWorkflow).toContain('"docs/**"');
+    expect(repoToolingWorkflow).toContain('"packages/contracts/**"');
     expect(repoToolingWorkflow).toContain('"README.md"');
     expect(repoToolingWorkflow).toContain('".github/workflows/meeting-api-ci.yml"');
     expect(repoToolingWorkflow).toContain(
@@ -129,19 +144,24 @@ describe("repo tooling", () => {
     expect(repoToolingWorkflow).toContain(
       '".github/workflows/roadmap-web-playwright.yml"',
     );
-    expect(repoToolingWorkflow).toContain("bun test test/repo-tooling.test.js test/domain-inventory.test.js");
+    expect(repoToolingWorkflow).toContain("bun run test:repo-tooling");
   });
 
   test("shared root dependency changes trigger the web and backend CI workflows", () => {
+    expect(meetingWebWorkflow).toContain('"packages/contracts/**"');
     expect(meetingWebWorkflow).toContain('"package.json"');
     expect(meetingWebWorkflow).toContain('"bun.lock"');
+    expect(roadmapWebWorkflow).toContain('"packages/contracts/**"');
     expect(roadmapWebWorkflow).toContain('"package.json"');
     expect(roadmapWebWorkflow).toContain('"bun.lock"');
+    expect(roadmapWebPlaywrightWorkflow).toContain('"packages/contracts/**"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"package.json"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"bun.lock"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"infra/supabase/**"');
+    expect(meetingApiWorkflow).toContain('"packages/contracts/**"');
     expect(meetingApiWorkflow).toContain('"test/**"');
     expect(meetingApiWorkflow).toContain('"scripts/meeting-api-validation.mjs"');
+    expect(meetingApiRailwayPreviewWorkflow).toContain('"packages/contracts/**"');
     expect(meetingApiRailwayPreviewWorkflow).toContain('"test/**"');
     expect(meetingApiRailwayPreviewWorkflow).toContain(
       '"scripts/meeting-api-validation.mjs"',

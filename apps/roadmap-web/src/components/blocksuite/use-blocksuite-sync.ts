@@ -11,6 +11,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import type { Doc } from 'yjs'
 import { createClient } from '@/lib/supabase/client'
+import { SHARED_CANVAS_DOCUMENT_TABLE } from '@/lib/supabase/shared-contracts'
 import { HybridProvider } from './hybrid-provider'
 import {
   DEFAULT_DEBOUNCE_MS,
@@ -18,6 +19,8 @@ import {
   type UseBlockSuiteSyncOptions,
   type UseBlockSuiteSyncReturn,
 } from './persistence-types'
+
+export const BLOCKSUITE_DOCUMENTS_TABLE = SHARED_CANVAS_DOCUMENT_TABLE
 
 /**
  * Hook for syncing BlockSuite Yjs documents with Supabase
@@ -193,7 +196,7 @@ export function useBlockSuiteDocument(options: {
         const id = Date.now().toString()
         const storagePath = getStoragePath(teamId, id)
 
-        const { error } = await supabase.from('blocksuite_documents').insert({
+        const { error } = await supabase.from(BLOCKSUITE_DOCUMENTS_TABLE).insert({
           id,
           team_id: teamId,
           workspace_id: workspaceId ?? null,
