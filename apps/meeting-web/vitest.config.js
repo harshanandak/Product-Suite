@@ -15,7 +15,9 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "src"),
+      "@product-suite/contracts": path.resolve(__dirname, "../../packages/contracts/src/index.js"),
     },
+    preserveSymlinks: true,
   },
   test: {
     environment: "node",
