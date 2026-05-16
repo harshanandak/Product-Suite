@@ -1,0 +1,38 @@
+export const authCoreContract = {
+  module: "auth",
+  claims: {
+    shape: "AuthClaims",
+    requiredKeys: ["provider", "subject"],
+    optionalKeys: [
+      "issuer",
+      "audience",
+      "email",
+      "display_name",
+      "tenant_id",
+      "workspace_ids",
+      "roles",
+      "issued_at",
+      "expires_at",
+      "jwt_id",
+      "provider_claims",
+    ],
+  },
+  tokenVerifier: {
+    shape: "TokenVerifier",
+    inputKey: "authorization",
+    outputKey: "auth_claims",
+    failureKey: "auth_error",
+  },
+  sessionBridge: {
+    shape: "SessionBridge",
+    stateKey: "auth_state",
+    claimsKey: "auth_claims",
+    tokenKey: "access_token",
+  },
+  workspaceAccessResolver: {
+    shape: "WorkspaceAccessResolver",
+    workspaceIdKey: "workspace_id",
+    claimsKey: "auth_claims",
+    resultKey: "workspace_access",
+  },
+};

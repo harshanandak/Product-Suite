@@ -16,6 +16,33 @@ export interface IdentityScopeContract {
   };
 }
 
+export interface AuthCoreContract {
+  module: "auth";
+  claims: {
+    shape: "AuthClaims";
+    requiredKeys: string[];
+    optionalKeys: string[];
+  };
+  tokenVerifier: {
+    shape: "TokenVerifier";
+    inputKey: string;
+    outputKey: string;
+    failureKey: string;
+  };
+  sessionBridge: {
+    shape: "SessionBridge";
+    stateKey: string;
+    claimsKey: string;
+    tokenKey: string;
+  };
+  workspaceAccessResolver: {
+    shape: "WorkspaceAccessResolver";
+    workspaceIdKey: string;
+    claimsKey: string;
+    resultKey: string;
+  };
+}
+
 export interface ConversationContract {
   module: "conversation";
   thread: {
@@ -104,6 +131,7 @@ export interface CanvasCoreContract {
 }
 
 export const identityScopeContract: IdentityScopeContract;
+export const authCoreContract: AuthCoreContract;
 export const conversationContract: ConversationContract;
 export const meetingCoreContract: MeetingCoreContract;
 export const canvasCoreContract: CanvasCoreContract;
