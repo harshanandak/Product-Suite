@@ -15,7 +15,10 @@ describe('roadmap auth contract adapters', () => {
       },
     })
 
-    expect(result.ok).toBe(true)
+    if (!result.ok) {
+      throw new Error(`Expected valid auth claims, got ${result.error.code}`)
+    }
+
     expect(result.claims).toMatchObject({
       provider: 'supabase',
       subject: 'user_123',
@@ -27,7 +30,7 @@ describe('roadmap auth contract adapters', () => {
   it('denies workspace access when membership is absent', () => {
     expect(
       resolveWorkspaceAccess({
-        claims: { provider: 'supabase', subject: 'user_123', workspace_ids: ['workspace_123'] },
+        claims: { workspace_ids: ['workspace_123'] },
         workspaceId: 'workspace_999',
       }),
     ).toEqual({
