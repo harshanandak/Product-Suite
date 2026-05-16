@@ -9,6 +9,10 @@ const packageJson = JSON.parse(
 const rootReadme = readFileSync(join(rootDir, "README.md"), "utf8");
 const validationDocPath = join(rootDir, "docs", "VALIDATION.md");
 const validationDoc = readFileSync(validationDocPath, "utf8");
+const buildingBlocksPlan = readFileSync(
+  join(rootDir, "docs", "plans", "building-blocks-transformation-pr-plan.md"),
+  "utf8",
+);
 const meetingApiWorkflow = readFileSync(
   join(rootDir, ".github", "workflows", "meeting-api-ci.yml"),
   "utf8",
@@ -97,6 +101,17 @@ describe("repo tooling", () => {
     expect(validationDoc).toContain("bun run install:meeting-api");
     expect(validationDoc).toContain("bun run validate:meeting-api");
     expect(validationDoc).toContain("python -m alembic");
+  });
+
+  test("building blocks plan points to the active PR5 artifacts", () => {
+    expect(buildingBlocksPlan).toContain("PR5 Auth Contracts And Adapters");
+    expect(buildingBlocksPlan).toContain(
+      "docs/plans/2026-05-16-pr5-auth-contracts-and-adapters-design.md",
+    );
+    expect(buildingBlocksPlan).toContain(
+      "docs/plans/2026-05-16-pr5-auth-contracts-and-adapters-tasks.md",
+    );
+    expect(buildingBlocksPlan).toContain("docs/research/pr5-auth-contracts-and-adapters.md");
   });
 
   test("meeting-api CI reflects the local validation baseline", () => {
