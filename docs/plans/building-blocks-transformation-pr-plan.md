@@ -1,6 +1,6 @@
 # Building Blocks Transformation PR Plan
 
-Last updated: 2026-04-24
+Last updated: 2026-05-16
 
 This file is the durable execution plan for the multi-PR transformation of Product Suite into a clearer building-blocks architecture. It exists so the team can return to the sequence and continue execution without depending on chat history.
 
@@ -23,8 +23,9 @@ This file is the durable execution plan for the multi-PR transformation of Produ
 - `PR1 Repo Tooling Normalization`: merged and verified
 - `PR2 Validation Baseline`: merged and verified
 - `PR3 Schema And Domain Inventory`: merged and verified
-- `PR4 Contracts Nucleus`: planning in progress on `feat/pr4-contracts-nucleus`
-- `PR5+`: still need planning and execution as tracked work slices
+- `PR4 Contracts Nucleus`: merged and verified
+- `PR5 Auth Contracts And Adapters`: active on `feat/pr5-auth-contracts-and-adapters`
+- `PR6+`: still need planning and execution as tracked work slices
 
 ## Global Rules
 - Roll back the PR if it breaks a prior gate.
@@ -120,6 +121,10 @@ This file is the durable execution plan for the multi-PR transformation of Produ
 ### PR5 Auth Contracts And Adapters
 - Goal: unify auth shape before changing providers.
 - Why now: auth is currently split across Supabase middleware in `apps/roadmap-web/src/middleware.ts`, Neon/BetterAuth client logic in `apps/meeting-web/src/lib/api.js`, and backend token verification in `apps/meeting-api/backend/security.py`.
+- Active artifacts:
+  - `docs/research/pr5-auth-contracts-and-adapters.md`
+  - `docs/plans/2026-05-16-pr5-auth-contracts-and-adapters-design.md`
+  - `docs/plans/2026-05-16-pr5-auth-contracts-and-adapters-tasks.md`
 - Checklist:
   - define `AuthClaims`, `TokenVerifier`, `SessionBridge`, `WorkspaceAccessResolver`
   - wrap current providers behind adapters
