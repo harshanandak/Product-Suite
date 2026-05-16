@@ -179,7 +179,9 @@ function sanitizeProviderClaims(value: unknown) {
   }
 
   return Object.fromEntries(
-    Object.entries(value).filter(([key]) => !SENSITIVE_PROVIDER_CLAIM_KEYS.has(key)),
+    Object.entries(value).filter(
+      ([key]) => !SENSITIVE_PROVIDER_CLAIM_KEYS.has(key.toLowerCase()),
+    ),
   )
 }
 
@@ -193,14 +195,18 @@ function firstString(...values: unknown[]) {
 }
 
 function isExpired(expiresAt: unknown, nowSeconds = Math.floor(Date.now() / 1000)) {
-  if (expiresAt === undefined || expiresAt === null || expiresAt === '') {
+  if (expiresAt === undefined || expiresAt === null) {
     return false
   }
 
   const expiresAtSeconds =
-    typeof expiresAt === 'number' ? expiresAt : Number.parseInt(String(expiresAt), 10)
+    typeof expiresAt === 'number' ? expiresAt : Number(String(expiresAt))
 
-  return Number.isFinite(expiresAtSeconds) && expiresAtSeconds <= nowSeconds
+  if (!Number.isFinite(expiresAtSeconds)) {
+    return true
+  }
+
+  return expiresAtSeconds <= nowSeconds
 }
 
 function resolveClaimsCookieName(options: CanonicalAuthOptions) {

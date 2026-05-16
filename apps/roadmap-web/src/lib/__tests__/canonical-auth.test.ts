@@ -87,6 +87,52 @@ describe('roadmap canonical auth facade', () => {
     })
   })
 
+  it('fails closed when signed canonical claims have malformed expiry', () => {
+    const result = mapCanonicalSessionToAuthClaims({
+      claims: {
+        provider: 'neon',
+        subject: 'user_123',
+        email: 'user@example.com',
+        expires_at: 'not-a-number',
+      },
+    })
+
+    expect(result).toEqual({
+      ok: false,
+      error: {
+        code: 'CANONICAL_AUTH_SESSION_INVALID',
+        missing: ['expires_at'],
+      },
+    })
+  })
+
+  it('strips mixed-case sensitive provider claim keys', () => {
+    const result = mapCanonicalSessionToAuthClaims({
+      claims: {
+        provider: 'neon',
+        subject: 'user_123',
+        email: 'user@example.com',
+        provider_claims: {
+          organization_id: 'tenant_123',
+          Access_Token: 'secret-token-value',
+          Refresh_Token: 'refresh-secret',
+          provider: 'neon',
+        },
+      },
+    })
+
+    if (!result.ok) {
+      throw new Error(`Expected canonical claims, got ${result.error.code}`)
+    }
+
+    expect(result.claims.provider_claims).toEqual({
+      organization_id: 'tenant_123',
+      provider: 'neon',
+    })
+    expect(JSON.stringify(result.claims)).not.toContain('secret-token-value')
+    expect(JSON.stringify(result.claims)).not.toContain('refresh-secret')
+  })
+
   it('reads signed canonical claims from request cookies', async () => {
     const sealed = await sealCanonicalAuthClaims(
       {
