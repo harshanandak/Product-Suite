@@ -32,13 +32,19 @@
     "@typescript-eslint/parser": "8.51.0",
     "@eslint/plugin-kit": "0.7.1",
     "axios": "1.15.2",
-    "better-auth": "1.6.8",
+    "better-auth": "1.6.11",
     "fastify": "5.8.5",
     "file-type": "22.0.1",
-    "next": "16.2.4",
+    "next": "16.2.6",
     "nodemailer": "8.0.5",
     "postcss": "8.5.10",
-    "uuid": "14.0.0"
+    "uuid": "14.0.0",
+    "@neondatabase/neon-js": "0.6.1-beta",
+    "fast-uri": "3.1.2",
+    "hono": "4.12.18",
+    "ip-address": "10.2.0",
+    "kysely": "0.29.1",
+    "mermaid": "11.15.0"
   },
   "devDependencies": {
     "forge-workflow": "^0.0.9",

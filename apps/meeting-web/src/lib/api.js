@@ -1,6 +1,6 @@
 import axios from "axios";
 import { createAuthClient } from "@neondatabase/neon-js/auth";
-import { BetterAuthReactAdapter } from "@neondatabase/neon-js/auth/react";
+import { BetterAuthReactAdapter } from "@neondatabase/neon-js/auth/react/adapters";
 import {
   identityScopeContract,
   meetingCoreContract,

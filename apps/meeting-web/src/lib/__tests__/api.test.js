@@ -41,7 +41,7 @@ vi.mock("@neondatabase/neon-js/auth", () => ({
   createAuthClient: vi.fn(() => hostedAuthClient),
 }));
 
-vi.mock("@neondatabase/neon-js/auth/react", () => ({
+vi.mock("@neondatabase/neon-js/auth/react/adapters", () => ({
   BetterAuthReactAdapter: vi.fn(() => ({ kind: "react-adapter" })),
 }));
 
@@ -178,6 +178,43 @@ describe("api runtime config bootstrap", () => {
     expect(apiSource).toContain("@product-suite/contracts");
     expect(meetingCoreContract.runtimeConfig.auth.providerKey).toBe("provider");
     expect(meetingCoreContract.runtimeConfig.auth.neonAuthUrlKey).toBe("auth_url");
+  });
+
+  test("constructs hosted auth client with the React adapter export", async () => {
+    process.env.REACT_APP_BACKEND_URL = "";
+    installFetchMock({
+      runtimePayload: {
+        deployment_mode: "hosted",
+        tenant_mode: "organization",
+        backend_url: "https://api.example",
+        auth: {
+          required: true,
+          mode: "bearer",
+          provider: "neon",
+          neon: {
+            auth_url: "https://project-123.neon.tech/auth/",
+          },
+        },
+      },
+    });
+
+    const { createAuthClient } = await import("@neondatabase/neon-js/auth");
+    const { BetterAuthReactAdapter } = await import("@neondatabase/neon-js/auth/react/adapters");
+    const { signInHostedWithEmail } = await import("../api.js");
+
+    await signInHostedWithEmail({
+      email: "user@example.com",
+      password: "password-123",
+    });
+
+    expect(BetterAuthReactAdapter).toHaveBeenCalledTimes(1);
+    expect(createAuthClient).toHaveBeenCalledWith("https://project-123.neon.tech/auth", {
+      adapter: { kind: "react-adapter" },
+    });
+    expect(hostedAuthClient.signIn.email).toHaveBeenCalledWith({
+      email: "user@example.com",
+      password: "password-123",
+    });
   });
 
   test("prefers VITE_BACKEND_URL over the REACT_APP compatibility alias", async () => {

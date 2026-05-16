@@ -43,4 +43,19 @@ describe("@product-suite/contracts", () => {
     expect(canvasCoreContract.document.workspaceIdKey).toBe("workspace_id");
     expect(canvasCoreContract).toEqual(canvasArtifact);
   });
+
+  test("exports auth contracts for PR5 adapter boundaries", async () => {
+    const { authCoreContract } = await import("./index.js");
+    const authArtifact = JSON.parse(
+      readFileSync(new URL("../contracts/auth-core.json", import.meta.url), "utf8"),
+    );
+
+    expect(authCoreContract.module).toBe("auth");
+    expect(authCoreContract.claims.requiredKeys).toContain("provider");
+    expect(authCoreContract.claims.requiredKeys).toContain("subject");
+    expect(authCoreContract.tokenVerifier.outputKey).toBe("auth_claims");
+    expect(authCoreContract.sessionBridge.stateKey).toBe("auth_state");
+    expect(authCoreContract.workspaceAccessResolver.workspaceIdKey).toBe("workspace_id");
+    expect(authCoreContract).toEqual(authArtifact);
+  });
 });
