@@ -53,6 +53,7 @@ export interface AuthClaims {
   tenant_id?: string;
   workspace_ids?: string[];
   roles?: string[];
+  permissions?: string[];
   issued_at?: number | string;
   expires_at?: number | string;
   jwt_id?: string;

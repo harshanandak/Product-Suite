@@ -81,6 +81,10 @@ class Settings:
     neon_auth_url: str
     neon_issuer: str
     neon_jwks_url: str
+    canonical_auth_provider: str
+    canonical_auth_issuer: str
+    canonical_auth_audience: str
+    canonical_auth_jwks_url: str
     storage_backend: str
     storage_base_path: str
     r2_account_id: str
@@ -151,6 +155,14 @@ def load_settings() -> Settings:
     ).strip().rstrip("/")
     neon_issuer = (os.environ.get("NEON_ISSUER") or derive_neon_issuer(neon_auth_url)).strip()
     neon_jwks_url = (os.environ.get("NEON_JWKS_URL") or f"{neon_auth_url}/.well-known/jwks.json").strip()
+    canonical_auth_provider = (os.environ.get("CANONICAL_AUTH_PROVIDER") or auth_provider).strip().lower()
+    canonical_auth_issuer = (os.environ.get("CANONICAL_AUTH_ISSUER") or neon_issuer).strip()
+    canonical_auth_audience = (
+        os.environ.get("CANONICAL_AUTH_AUDIENCE")
+        or os.environ.get("NEON_AUDIENCE")
+        or canonical_auth_issuer
+    ).strip()
+    canonical_auth_jwks_url = (os.environ.get("CANONICAL_AUTH_JWKS_URL") or neon_jwks_url).strip()
     storage_backend = (os.environ.get("STORAGE_BACKEND") or ("r2" if deployment_mode == "hosted" else "local")).strip().lower()
     r2_account_id = os.environ.get("R2_ACCOUNT_ID", "").strip()
     r2_bucket_name = os.environ.get("R2_BUCKET_NAME", "").strip()
@@ -206,6 +218,10 @@ def load_settings() -> Settings:
         neon_auth_url=neon_auth_url,
         neon_issuer=neon_issuer,
         neon_jwks_url=neon_jwks_url,
+        canonical_auth_provider=canonical_auth_provider,
+        canonical_auth_issuer=canonical_auth_issuer,
+        canonical_auth_audience=canonical_auth_audience,
+        canonical_auth_jwks_url=canonical_auth_jwks_url,
         storage_backend=storage_backend,
         storage_base_path=os.environ.get("STORAGE_BASE_PATH", str(ROOT_DIR / "storage")),
         r2_account_id=r2_account_id,

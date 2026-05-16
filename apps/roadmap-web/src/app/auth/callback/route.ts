@@ -1,58 +1,37 @@
 import { createClient } from '@/lib/supabase/server'
+import { readCanonicalAuthClaimsFromRequest } from '@/lib/canonical-auth'
+import { resolveCallbackRedirectPath } from '@/lib/roadmap-auth-routing'
 import { NextResponse } from 'next/server'
 import { type NextRequest } from 'next/server'
 
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url)
-  const code = requestUrl.searchParams.get('code')
   const returnTo = requestUrl.searchParams.get('returnTo')
+  const claimsResult = await readCanonicalAuthClaimsFromRequest(request)
 
-  if (code) {
-    const supabase = await createClient()
-    await supabase.auth.exchangeCodeForSession(code)
+  if (!claimsResult.ok) {
+    return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  // Check if user has completed onboarding (has a team)
   const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const { data: userProfile } = await supabase
+    .from('users')
+    .select('id')
+    .eq('id', claimsResult.claims.subject)
+    .single()
+  const { data: teamMember } = await supabase
+    .from('team_members')
+    .select('team_id')
+    .eq('user_id', claimsResult.claims.subject)
+    .limit(1)
+    .single()
 
-  if (user) {
-    // If there's a returnTo parameter, redirect there (e.g., from invitation acceptance)
-    if (returnTo) {
-      return NextResponse.redirect(new URL(returnTo, request.url))
-    }
+  const redirectPath = resolveCallbackRedirectPath({
+    claimsResult,
+    returnTo,
+    hasUserProfile: Boolean(userProfile),
+    hasTeamMembership: Boolean(teamMember),
+  })
 
-    // Check if user exists in users table and has a team
-    const { data: userProfile } = await supabase
-      .from('users')
-      .select('id')
-      .eq('id', user.id)
-      .single()
-
-    if (!userProfile) {
-      // User needs to complete onboarding
-      return NextResponse.redirect(new URL('/onboarding', request.url))
-    }
-
-    // Check if user is a member of any team
-    const { data: teamMember } = await supabase
-      .from('team_members')
-      .select('team_id')
-      .eq('user_id', user.id)
-      .limit(1)
-      .single()
-
-    if (!teamMember) {
-      // User needs to create/join a team
-      return NextResponse.redirect(new URL('/onboarding', request.url))
-    }
-
-    // User is fully onboarded, redirect to dashboard
-    return NextResponse.redirect(new URL('/dashboard', request.url))
-  }
-
-  // No user session, redirect to login
-  return NextResponse.redirect(new URL('/login', request.url))
+  return NextResponse.redirect(new URL(redirectPath, request.url))
 }

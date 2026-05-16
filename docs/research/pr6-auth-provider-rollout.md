@@ -45,6 +45,15 @@ Use a compatibility-first rollout:
 - Extend meeting-api config/tests around canonical JWKS/OIDC verification rather than inventing a second verifier.
 - Update docs and env examples to make the canonical auth provider explicit.
 
+## Launch Configuration
+
+- Canonical provider: Neon/Better Auth.
+- Meeting web: set `VITE_CANONICAL_AUTH_PROVIDER`, `VITE_BETTER_AUTH_URL`, and `VITE_BETTER_AUTH_TRUSTED_ORIGINS`.
+- Roadmap web: set `ROADMAP_CANONICAL_AUTH_PROVIDER`, `ROADMAP_CANONICAL_AUTH_SECRET`, signed claims/signature cookie names, `ROADMAP_CANONICAL_AUTH_TRUSTED_ORIGINS`, and `NEXT_PUBLIC_BETTER_AUTH_URL`.
+- Meeting API: set `CANONICAL_AUTH_PROVIDER`, `CANONICAL_AUTH_ISSUER`, `CANONICAL_AUTH_AUDIENCE`, and `CANONICAL_AUTH_JWKS_URL`; keep `NEON_AUTH_URL` as the hosted auth URL.
+- Callback URLs and trusted origins must exactly match each deployed web origin. Do not rely on wildcard origins for hosted auth.
+- rollback: restore the roadmap middleware import from `@/lib/supabase/middleware`, keep PR5 auth contracts in place, and leave Supabase data/RLS clients untouched while the canonical provider configuration is corrected.
+
 ## Primary Sources
 
 - Better Auth setup and client docs: https://github.com/better-auth/better-auth/blob/main/docs/content/docs/installation.mdx

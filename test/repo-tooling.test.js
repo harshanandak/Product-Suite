@@ -13,6 +13,22 @@ const buildingBlocksPlan = readFileSync(
   join(rootDir, "docs", "plans", "building-blocks-transformation-pr-plan.md"),
   "utf8",
 );
+const pr6ResearchDoc = readFileSync(
+  join(rootDir, "docs", "research", "pr6-auth-provider-rollout.md"),
+  "utf8",
+);
+const meetingWebEnvExample = readFileSync(
+  join(rootDir, "apps", "meeting-web", ".env.example"),
+  "utf8",
+);
+const meetingApiEnvExample = readFileSync(
+  join(rootDir, "apps", "meeting-api", "backend", ".env.example"),
+  "utf8",
+);
+const roadmapWebEnvExample = readFileSync(
+  join(rootDir, "apps", "roadmap-web", ".env.example"),
+  "utf8",
+);
 const meetingApiWorkflow = readFileSync(
   join(rootDir, ".github", "workflows", "meeting-api-ci.yml"),
   "utf8",
@@ -114,6 +130,15 @@ describe("repo tooling", () => {
     expect(buildingBlocksPlan).toContain("docs/research/pr5-auth-contracts-and-adapters.md");
   });
 
+  test("building blocks plan marks PR5 verified and PR6 active", () => {
+    expect(buildingBlocksPlan).toContain("PR5 Auth Contracts And Adapters`: merged and verified");
+    expect(buildingBlocksPlan).toContain(
+      "PR6 Auth Provider Rollout`: active on `feat/pr6-auth-provider-rollout`",
+    );
+    expect(buildingBlocksPlan).not.toContain("PR4 is in progress");
+    expect(buildingBlocksPlan).not.toContain("PR5+ need planning");
+  });
+
   test("meeting-api CI reflects the local validation baseline", () => {
     expect(meetingApiWorkflow).toContain("Run backend lint");
     expect(meetingApiWorkflow).toContain("python -m flake8");
@@ -183,5 +208,27 @@ describe("repo tooling", () => {
     );
     expect(meetingApiRailwayPreviewWorkflow).toContain('"package.json"');
     expect(meetingApiRailwayPreviewWorkflow).toContain('"bun.lock"');
+  });
+
+  test("PR6 auth rollout docs and env examples describe canonical provider configuration", () => {
+    for (const doc of [buildingBlocksPlan, pr6ResearchDoc]) {
+      expect(doc).toContain("canonical");
+      expect(doc).toContain("JWKS");
+      expect(doc).toContain("issuer");
+      expect(doc).toContain("audience");
+      expect(doc).toContain("trusted origins");
+      expect(doc).toContain("rollback");
+    }
+
+    expect(meetingWebEnvExample).toContain("VITE_CANONICAL_AUTH_PROVIDER");
+    expect(meetingWebEnvExample).toContain("VITE_BETTER_AUTH_URL");
+    expect(meetingWebEnvExample).toContain("VITE_BETTER_AUTH_TRUSTED_ORIGINS");
+    expect(meetingApiEnvExample).toContain("CANONICAL_AUTH_PROVIDER");
+    expect(meetingApiEnvExample).toContain("CANONICAL_AUTH_ISSUER");
+    expect(meetingApiEnvExample).toContain("CANONICAL_AUTH_AUDIENCE");
+    expect(meetingApiEnvExample).toContain("CANONICAL_AUTH_JWKS_URL");
+    expect(roadmapWebEnvExample).toContain("ROADMAP_CANONICAL_AUTH_PROVIDER");
+    expect(roadmapWebEnvExample).toContain("ROADMAP_CANONICAL_AUTH_SECRET");
+    expect(roadmapWebEnvExample).toContain("ROADMAP_CANONICAL_AUTH_TRUSTED_ORIGINS");
   });
 });

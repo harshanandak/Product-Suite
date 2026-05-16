@@ -1,8 +1,8 @@
-import { updateSession } from '@/lib/supabase/middleware'
+import { updateCanonicalAuthSession } from '@/lib/canonical-auth-middleware'
 import { type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
-  return await updateSession(request)
+  return await updateCanonicalAuthSession(request)
 }
 
 export const config = {

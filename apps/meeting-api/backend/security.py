@@ -221,7 +221,9 @@ def _get_jwks_client(url: str) -> PyJWKClient:
 
 
 def resolve_auth_provider(deployment_mode: str, issuer: str | None = None) -> str:
-    configured_provider = str(os.environ.get("AUTH_PROVIDER") or "").strip().lower()
+    configured_provider = str(
+        os.environ.get("CANONICAL_AUTH_PROVIDER") or os.environ.get("AUTH_PROVIDER") or ""
+    ).strip().lower()
     if configured_provider:
         return configured_provider
     if deployment_mode == "hosted":
@@ -249,9 +251,9 @@ def actor_from_credentials(
         payload = decode_neon_access_token(
             credentials.credentials,
             auth_url=(os.environ.get("NEON_AUTH_URL") or os.environ.get("NEON_AUTH_BASE_URL") or "").strip(),
-            issuer=(os.environ.get("NEON_ISSUER") or "").strip() or None,
-            audience=(os.environ.get("NEON_AUDIENCE") or "").strip() or None,
-            jwks_url=(os.environ.get("NEON_JWKS_URL") or "").strip() or None,
+            issuer=(os.environ.get("CANONICAL_AUTH_ISSUER") or os.environ.get("NEON_ISSUER") or "").strip() or None,
+            audience=(os.environ.get("CANONICAL_AUTH_AUDIENCE") or os.environ.get("NEON_AUDIENCE") or "").strip() or None,
+            jwks_url=(os.environ.get("CANONICAL_AUTH_JWKS_URL") or os.environ.get("NEON_JWKS_URL") or "").strip() or None,
         )
     else:
         payload = decode_access_token(credentials.credentials, secret=secret, algorithm=algorithm)

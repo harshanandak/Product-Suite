@@ -223,6 +223,43 @@ def test_actor_from_credentials_uses_neon_identity_context(monkeypatch):
     assert captured["audience"] is None
 
 
+def test_actor_from_credentials_uses_canonical_jwks_config(monkeypatch):
+    monkeypatch.delenv("AUTH_PROVIDER", raising=False)
+    monkeypatch.setenv("NEON_AUTH_URL", "https://project-123.neon.tech/auth")
+    monkeypatch.setenv("CANONICAL_AUTH_ISSUER", "https://issuer.example.com")
+    monkeypatch.setenv("CANONICAL_AUTH_AUDIENCE", "meeting-api")
+    monkeypatch.setenv("CANONICAL_AUTH_JWKS_URL", "https://issuer.example.com/.well-known/jwks.json")
+    captured = {}
+    monkeypatch.setattr(
+        "backend.security.decode_neon_access_token",
+        lambda token, *, auth_url=None, issuer=None, audience=None, jwks_url=None: captured.update(
+            {"token": token, "auth_url": auth_url, "issuer": issuer, "audience": audience, "jwks_url": jwks_url}
+        )
+        or {
+            "sub": "user_123",
+            "email": "user@example.com",
+            "name": "Example User",
+        },
+    )
+
+    actor = actor_from_credentials(
+        deployment_mode="hosted",
+        auth_required=True,
+        secret="unused",
+        credentials=HTTPAuthorizationCredentials(scheme="Bearer", credentials="token"),
+        token_kind="neon",
+    )
+
+    assert actor.user_id == "user_123"
+    assert captured == {
+        "token": "token",
+        "auth_url": "https://project-123.neon.tech/auth",
+        "issuer": "https://issuer.example.com",
+        "audience": "meeting-api",
+        "jwks_url": "https://issuer.example.com/.well-known/jwks.json",
+    }
+
+
 def test_actor_from_credentials_rejects_invalid_neon_token(monkeypatch):
     monkeypatch.delenv("AUTH_PROVIDER", raising=False)
     monkeypatch.setattr(

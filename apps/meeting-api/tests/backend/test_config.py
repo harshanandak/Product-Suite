@@ -22,7 +22,12 @@ def clear_relevant_env(monkeypatch):
         "NEON_API_KEY",
         "NEON_CLIENT_ID",
         "NEON_ISSUER",
+        "NEON_AUDIENCE",
         "NEON_JWKS_URL",
+        "CANONICAL_AUTH_PROVIDER",
+        "CANONICAL_AUTH_ISSUER",
+        "CANONICAL_AUTH_AUDIENCE",
+        "CANONICAL_AUTH_JWKS_URL",
         "NEON_REDIRECT_URI",
         "FRONTEND_RUNTIME_BACKEND_URL",
         "DATABASE_PROVIDER",
@@ -84,6 +89,10 @@ def test_load_settings_uses_hosted_mode_defaults(monkeypatch):
     assert settings.neon_auth_url == "https://project-123.neon.tech/auth"
     assert settings.neon_issuer == "https://project-123.neon.tech"
     assert settings.neon_jwks_url == "https://project-123.neon.tech/auth/.well-known/jwks.json"
+    assert settings.canonical_auth_provider == "neon"
+    assert settings.canonical_auth_issuer == "https://project-123.neon.tech"
+    assert settings.canonical_auth_audience == "https://project-123.neon.tech"
+    assert settings.canonical_auth_jwks_url == "https://project-123.neon.tech/auth/.well-known/jwks.json"
     assert settings.raw_audio_retention_days == 30
     assert settings.transcript_retention_days == -1
     assert settings.derived_retention_days == -1
@@ -108,6 +117,28 @@ def test_load_settings_does_not_accept_redirect_uris_as_neon_auth_url(monkeypatc
 
     with pytest.raises(KeyError, match="NEON_AUTH_URL"):
         load_settings()
+
+
+def test_load_settings_prefers_explicit_canonical_auth_config(monkeypatch):
+    monkeypatch.setenv("DEPLOYMENT_MODE", "hosted")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
+    monkeypatch.setenv("NEON_AUTH_URL", "https://project-123.neon.tech/auth")
+    monkeypatch.setenv("CANONICAL_AUTH_PROVIDER", "neon")
+    monkeypatch.setenv("CANONICAL_AUTH_ISSUER", "https://issuer.example.com")
+    monkeypatch.setenv("CANONICAL_AUTH_AUDIENCE", "meeting-api")
+    monkeypatch.setenv("CANONICAL_AUTH_JWKS_URL", "https://issuer.example.com/.well-known/jwks.json")
+    monkeypatch.setenv("R2_ACCOUNT_ID", "account-123")
+    monkeypatch.setenv("R2_BUCKET_NAME", "meeting-agent-audio")
+    monkeypatch.setenv("R2_ACCESS_KEY_ID", "r2-key")
+    monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "r2-secret")
+
+    settings = load_settings()
+
+    assert settings.canonical_auth_provider == "neon"
+    assert settings.canonical_auth_issuer == "https://issuer.example.com"
+    assert settings.canonical_auth_audience == "meeting-api"
+    assert settings.canonical_auth_jwks_url == "https://issuer.example.com/.well-known/jwks.json"
 
 
 def test_load_settings_requires_database_url():

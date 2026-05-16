@@ -11,6 +11,7 @@
       "tenant_id",
       "workspace_ids",
       "roles",
+      "permissions",
       "issued_at",
       "expires_at",
       "jwt_id",
