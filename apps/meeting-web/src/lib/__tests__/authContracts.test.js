@@ -30,4 +30,19 @@ describe("meeting-web auth contract adapters", () => {
     });
     expect(JSON.stringify(result)).not.toContain("secret-session-token");
   });
+
+  it("preserves top-level snake_case workspace context with nested sessions", () => {
+    const result = mapHostedSessionToAuthClaims({
+      session: {
+        user: {
+          id: "user_123",
+          email: "user@example.com",
+        },
+      },
+      workspace_id: "workspace_snake",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.claims.workspace_ids).toEqual(["workspace_snake"]);
+  });
 });

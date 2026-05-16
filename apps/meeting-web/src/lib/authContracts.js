@@ -4,7 +4,8 @@ export function mapHostedSessionToAuthClaims(input = {}) {
   const session = input.session ?? input;
   const user = session.user ?? input.user ?? {};
   const organization = session.organization ?? input.organization ?? {};
-  const workspaceId = input.workspaceId ?? session.workspaceId ?? session.workspace_id;
+  const workspaceId =
+    input.workspaceId ?? input.workspace_id ?? session.workspaceId ?? session.workspace_id;
 
   return validateAuthClaims({
     provider: "hosted",
