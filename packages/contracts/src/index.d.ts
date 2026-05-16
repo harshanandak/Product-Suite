@@ -43,6 +43,35 @@ export interface AuthCoreContract {
   };
 }
 
+export interface AuthClaims {
+  provider: string;
+  subject: string;
+  issuer?: string;
+  audience?: string[];
+  email?: string;
+  display_name?: string;
+  tenant_id?: string;
+  workspace_ids?: string[];
+  roles?: string[];
+  issued_at?: number | string;
+  expires_at?: number | string;
+  jwt_id?: string;
+  provider_claims?: Record<string, unknown>;
+}
+
+export type AuthClaimsValidationResult =
+  | {
+      ok: true;
+      claims: AuthClaims;
+    }
+  | {
+      ok: false;
+      error: {
+        code: "AUTH_CLAIMS_INVALID";
+        missing: string[];
+      };
+    };
+
 export interface ConversationContract {
   module: "conversation";
   thread: {
@@ -132,6 +161,7 @@ export interface CanvasCoreContract {
 
 export const identityScopeContract: IdentityScopeContract;
 export const authCoreContract: AuthCoreContract;
+export function validateAuthClaims(input: unknown): AuthClaimsValidationResult;
 export const conversationContract: ConversationContract;
 export const meetingCoreContract: MeetingCoreContract;
 export const canvasCoreContract: CanvasCoreContract;
