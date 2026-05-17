@@ -8,6 +8,7 @@
     "@fontsource-variable/public-sans": "^5.2.7",
     "@hookform/resolvers": "^5.0.1",
     "@product-suite/contracts": "workspace:*",
+    "@product-suite/sdk": "workspace:*",
     "@neondatabase/neon-js": "^0.6.1-beta",
     "@radix-ui/react-accordion": "^1.2.8",
     "@radix-ui/react-alert-dialog": "^1.1.11",

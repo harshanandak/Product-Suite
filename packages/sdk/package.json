@@ -1,0 +1,19 @@
+{
+  "name": "@product-suite/sdk",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    }
+  },
+  "scripts": {
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@product-suite/contracts": "workspace:*"
+  }
+}

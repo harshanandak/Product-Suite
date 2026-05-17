@@ -1,6 +1,7 @@
 import axios from "axios";
 import { createAuthClient } from "@neondatabase/neon-js/auth";
 import { BetterAuthReactAdapter } from "@neondatabase/neon-js/auth/react/adapters";
+import { createMeetingApiClient } from "@product-suite/sdk";
 import {
   identityScopeContract,
   meetingCoreContract,
@@ -58,6 +59,7 @@ async function getHostedAuthClient() {
 }
 
 const api = axios.create({ timeout: 45000 });
+const meetingApi = createMeetingApiClient({ transport: api });
 
 api.interceptors.request.use(async (config) => {
   const runtimeConfig = await initializeRuntimeConfig();
@@ -168,66 +170,54 @@ export const signOutHostedSession = async () => {
 };
 export const exchangeHostedSession = async (providerToken) => {
   const runtimeConfig = await initializeRuntimeConfig();
-  return api.post("/auth/session/exchange", {
-    provider_token: providerToken,
-    provider: runtimeConfig?.auth?.[identityAuth.providerKey] || "neon",
-  });
+  return meetingApi.exchangeHostedSession(
+    providerToken,
+    runtimeConfig?.auth?.[identityAuth.providerKey] || "neon",
+  );
 };
-export const getCurrentUser = () => api.get("/auth/me");
-export const getOnboardingState = () => api.get("/auth/onboarding/state");
+export const getCurrentUser = () => meetingApi.getCurrentUser();
+export const getOnboardingState = () => meetingApi.getOnboardingState();
 export const createOrganization = (name, slug) =>
-  api.post("/auth/onboarding/organizations", {
-    name,
-    ...(slug ? { slug } : {}),
-  });
+  meetingApi.createOrganization(name, slug);
 export const acceptOrganizationInvite = (inviteToken) =>
-  api.post("/auth/onboarding/invitations/accept", { invite_token: inviteToken });
+  meetingApi.acceptOrganizationInvite(inviteToken);
 
 export const createMeeting = (title, engine = "whisper") =>
-  api.post("/meetings", { title, engine });
-export const listMeetings = () => api.get("/meetings");
-export const getMeeting = (id) => api.get(`/meetings/${id}`);
-export const updateMeeting = (id, data) => api.put(`/meetings/${id}`, data);
-export const deleteMeeting = (id) => api.delete(`/meetings/${id}`);
+  meetingApi.createMeeting(title, engine);
+export const listMeetings = () => meetingApi.listMeetings();
+export const getMeeting = (id) => meetingApi.getMeeting(id);
+export const updateMeeting = (id, data) => meetingApi.updateMeeting(id, data);
+export const deleteMeeting = (id) => meetingApi.deleteMeeting(id);
 
 export const transcribeAudio = (meetingId, formData) =>
-  api.post(`/meetings/${meetingId}/transcribe`, formData, {
-    headers: { "Content-Type": "multipart/form-data" },
-    timeout: 30000,
-  });
+  meetingApi.transcribeAudio(meetingId, formData);
 
 export const getTranscript = (meetingId) =>
-  api.get(`/meetings/${meetingId}/transcript`);
+  meetingApi.getTranscript(meetingId);
 
 export const generateSummary = (meetingId) =>
-  api.post(`/meetings/${meetingId}/summary`);
+  meetingApi.generateSummary(meetingId);
 export const getSummary = (meetingId) =>
-  api.get(`/meetings/${meetingId}/summary`);
+  meetingApi.getSummary(meetingId);
 
 export const sendChatMessage = (meetingId, content) =>
-  api.post(`/meetings/${meetingId}/chat`, { content });
+  meetingApi.sendChatMessage(meetingId, content);
 export const getChatHistory = (meetingId) =>
-  api.get(`/meetings/${meetingId}/chat`);
+  meetingApi.getChatHistory(meetingId);
 
 export const searchTranscripts = (q) =>
-  api.get(`/meetings/search/transcripts`, { params: { q } });
+  meetingApi.searchTranscripts(q);
 
 export const exportTranscript = (meetingId, format = "txt") =>
-  api.get(`/meetings/${meetingId}/export`, { params: { format } });
+  meetingApi.exportTranscript(meetingId, format);
 
-export const listEngines = () => api.get("/engines");
-export const getHealth = () => api.get("/health");
+export const listEngines = () => meetingApi.listEngines();
+export const getHealth = () => meetingApi.getHealth();
 
 export const voiceChat = (meetingId, formData) =>
-  api.post(`/meetings/${meetingId}/voice-chat`, formData, {
-    headers: { "Content-Type": "multipart/form-data" },
-    timeout: 45000,
-  });
-export const listLanguages = () => api.get("/languages");
+  meetingApi.voiceChat(meetingId, formData);
+export const listLanguages = () => meetingApi.listLanguages();
 export const translateText = (text, sourceLang, targetLang) =>
-  api.post("/translate", { text, source_language: sourceLang, target_language: targetLang });
-export const translateMeetingTranscript = (meetingId, targetLanguage) => {
-  const formData = new FormData();
-  formData.append("target_language", targetLanguage);
-  return api.post(`/meetings/${meetingId}/translate`, formData);
-};
+  meetingApi.translateText(text, sourceLang, targetLang);
+export const translateMeetingTranscript = (meetingId, targetLanguage) =>
+  meetingApi.translateMeetingTranscript(meetingId, targetLanguage);

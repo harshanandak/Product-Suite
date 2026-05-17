@@ -56,8 +56,9 @@ const repoToolingWorkflow = readFileSync(
 const lefthookConfig = readFileSync(join(rootDir, "lefthook.yml"), "utf8");
 
 describe("repo tooling", () => {
-  test("root workspace and scripts acknowledge the contracts package", () => {
+  test("root workspace and scripts acknowledge shared packages", () => {
     expect(packageJson.workspaces).toContain("packages/contracts");
+    expect(packageJson.workspaces).toContain("packages/sdk");
     expect(packageJson.scripts["test:contracts"]).toBeDefined();
     expect(packageJson.scripts["test:contracts"]).toContain("packages/contracts");
     expect(packageJson.scripts["check:source-test"]).toBeDefined();
@@ -130,13 +131,15 @@ describe("repo tooling", () => {
     expect(buildingBlocksPlan).toContain("docs/research/pr5-auth-contracts-and-adapters.md");
   });
 
-  test("building blocks plan marks PR5 verified and PR6 active", () => {
+  test("building blocks plan marks PR6 verified and PR7 active", () => {
     expect(buildingBlocksPlan).toContain("PR5 Auth Contracts And Adapters`: merged and verified");
+    expect(buildingBlocksPlan).toContain("PR6 Auth Provider Rollout`: merged and verified");
     expect(buildingBlocksPlan).toContain(
-      "PR6 Auth Provider Rollout`: active on `feat/pr6-auth-provider-rollout`",
+      "PR7 SDK / Typed Client Layer`: active on `feat/pr7-sdk-typed-client-layer`",
     );
     expect(buildingBlocksPlan).not.toContain("PR4 is in progress");
     expect(buildingBlocksPlan).not.toContain("PR5+ need planning");
+    expect(buildingBlocksPlan).not.toContain("PR6 Auth Provider Rollout`: active");
   });
 
   test("meeting-api CI reflects the local validation baseline", () => {
@@ -174,6 +177,7 @@ describe("repo tooling", () => {
     expect(repoToolingWorkflow).toContain('"test/**"');
     expect(repoToolingWorkflow).toContain('"docs/**"');
     expect(repoToolingWorkflow).toContain('"packages/contracts/**"');
+    expect(repoToolingWorkflow).toContain('"packages/sdk/**"');
     expect(repoToolingWorkflow).toContain('"README.md"');
     expect(repoToolingWorkflow).toContain('".github/workflows/meeting-api-ci.yml"');
     expect(repoToolingWorkflow).toContain(
@@ -189,19 +193,24 @@ describe("repo tooling", () => {
 
   test("shared root dependency changes trigger the web and backend CI workflows", () => {
     expect(meetingWebWorkflow).toContain('"packages/contracts/**"');
+    expect(meetingWebWorkflow).toContain('"packages/sdk/**"');
     expect(meetingWebWorkflow).toContain('"package.json"');
     expect(meetingWebWorkflow).toContain('"bun.lock"');
     expect(roadmapWebWorkflow).toContain('"packages/contracts/**"');
+    expect(roadmapWebWorkflow).toContain('"packages/sdk/**"');
     expect(roadmapWebWorkflow).toContain('"package.json"');
     expect(roadmapWebWorkflow).toContain('"bun.lock"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"packages/contracts/**"');
+    expect(roadmapWebPlaywrightWorkflow).toContain('"packages/sdk/**"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"package.json"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"bun.lock"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"infra/supabase/**"');
     expect(meetingApiWorkflow).toContain('"packages/contracts/**"');
+    expect(meetingApiWorkflow).toContain('"packages/sdk/**"');
     expect(meetingApiWorkflow).toContain('"test/**"');
     expect(meetingApiWorkflow).toContain('"scripts/meeting-api-validation.mjs"');
     expect(meetingApiRailwayPreviewWorkflow).toContain('"packages/contracts/**"');
+    expect(meetingApiRailwayPreviewWorkflow).toContain('"packages/sdk/**"');
     expect(meetingApiRailwayPreviewWorkflow).toContain('"test/**"');
     expect(meetingApiRailwayPreviewWorkflow).toContain(
       '"scripts/meeting-api-validation.mjs"',
