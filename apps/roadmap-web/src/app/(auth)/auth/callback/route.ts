@@ -5,6 +5,7 @@ import {
   type CanonicalAuthResult,
 } from '@/lib/canonical-auth'
 import { mapSupabaseUserToAuthClaims } from '@/lib/auth-contracts'
+import { type AuthClaims } from '@product-suite/contracts'
 import { resolveCallbackRedirectPath } from '@/lib/roadmap-auth-routing'
 import { NextResponse } from 'next/server'
 import { type NextRequest } from 'next/server'
@@ -19,15 +20,15 @@ export async function GET(request: NextRequest) {
 
   if (code) {
     const {
-      data: { user },
+      data: { user, session },
       error,
     } = await supabase.auth.exchangeCodeForSession(code)
 
-    if (error || !user) {
+    if (error || !user || !session?.expires_at) {
       return NextResponse.redirect(new URL('/login', request.url))
     }
 
-    claimsResult = mapSupabaseUserToAuthClaims(user) as CanonicalAuthResult
+    claimsResult = mapSupabaseSessionToCanonicalAuthResult(user, session.expires_at)
     if (claimsResult.ok) {
       const canonicalAuthSecret = process.env.ROADMAP_CANONICAL_AUTH_SECRET
       if (!canonicalAuthSecret) {
@@ -86,4 +87,29 @@ export async function GET(request: NextRequest) {
   }
 
   return response
+}
+
+function mapSupabaseSessionToCanonicalAuthResult(
+  user: Parameters<typeof mapSupabaseUserToAuthClaims>[0],
+  expiresAt: AuthClaims['expires_at'],
+): CanonicalAuthResult {
+  const mappedClaims = mapSupabaseUserToAuthClaims(user)
+
+  if (!mappedClaims.ok) {
+    return {
+      ok: false,
+      error: {
+        code: 'CANONICAL_AUTH_SESSION_INVALID',
+        missing: mappedClaims.error.missing,
+      },
+    }
+  }
+
+  return {
+    ok: true,
+    claims: {
+      ...mappedClaims.claims,
+      expires_at: expiresAt,
+    },
+  }
 }

@@ -32,6 +32,7 @@ function createSupabaseMock({
     email: 'user@example.com',
   },
   exchangeError = null,
+  expiresAt = 1_770_000_000,
 }: {
   userProfile?: unknown
   userProfileError?: unknown
@@ -39,12 +40,14 @@ function createSupabaseMock({
   teamMemberError?: unknown
   exchangedUser?: unknown
   exchangeError?: unknown
+  expiresAt?: unknown
 } = {}) {
   const exchangeCodeForSession = vi.fn().mockResolvedValue({
     data: {
       user: exchangedUser,
       session: {
         user: exchangedUser,
+        expires_at: expiresAt,
       },
     },
     error: exchangeError,
@@ -153,6 +156,14 @@ describe('auth callback canonical routing', () => {
 
     expect(supabase.auth.exchangeCodeForSession).toHaveBeenCalledWith('legacy-code')
     expect(mocks.sealCanonicalAuthClaims).toHaveBeenCalled()
+    expect(mocks.sealCanonicalAuthClaims).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expires_at: 1_770_000_000,
+      }),
+      {
+        secret: 'session-secret',
+      },
+    )
     expect(response.headers.get('location')).toBe('https://roadmap.example.com/dashboard')
     expect(response.headers.get('set-cookie')).toContain('ps_auth_claims=claims')
     expect(response.headers.get('set-cookie')).toContain('ps_auth_sig=sig')
@@ -189,12 +200,45 @@ describe('auth callback canonical routing', () => {
       expect.objectContaining({
         subject: 'fresh_user',
         email: 'fresh@example.com',
+        expires_at: 1_770_000_000,
       }),
       {
         secret: 'session-secret',
       },
     )
     expect(response.headers.get('location')).toBe('https://roadmap.example.com/dashboard')
+  })
+
+  it('fails closed when callback exchange does not provide an expiry', async () => {
+    const supabase = createSupabaseMock({
+      expiresAt: null,
+    })
+    mocks.createClient.mockResolvedValue(supabase)
+
+    const response = await GET(
+      new Request('https://roadmap.example.com/auth/callback?code=no-expiry') as never,
+    )
+
+    expect(supabase.auth.exchangeCodeForSession).toHaveBeenCalledWith('no-expiry')
+    expect(mocks.sealCanonicalAuthClaims).not.toHaveBeenCalled()
+    expect(response.headers.get('location')).toBe('https://roadmap.example.com/login')
+  })
+
+  it('normalizes invalid exchanged users into canonical auth failures', async () => {
+    const supabase = createSupabaseMock({
+      exchangedUser: {
+        email: 'missing-subject@example.com',
+      },
+    })
+    mocks.createClient.mockResolvedValue(supabase)
+
+    const response = await GET(
+      new Request('https://roadmap.example.com/auth/callback?code=invalid-user') as never,
+    )
+
+    expect(supabase.auth.exchangeCodeForSession).toHaveBeenCalledWith('invalid-user')
+    expect(mocks.sealCanonicalAuthClaims).not.toHaveBeenCalled()
+    expect(response.headers.get('location')).toBe('https://roadmap.example.com/login')
   })
 
   it('uses maybeSingle for onboarding checks and fails closed on query errors', async () => {
