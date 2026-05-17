@@ -11,6 +11,7 @@ export const authCoreContract = {
       "tenant_id",
       "workspace_ids",
       "roles",
+      "permissions",
       "issued_at",
       "expires_at",
       "jwt_id",
@@ -42,7 +43,7 @@ const AUTH_CLAIM_KEYS = new Set([
   ...authCoreContract.claims.requiredKeys,
   ...authCoreContract.claims.optionalKeys,
 ]);
-const ARRAY_CLAIM_KEYS = new Set(["audience", "workspace_ids", "roles"]);
+const ARRAY_CLAIM_KEYS = new Set(["audience", "workspace_ids", "roles", "permissions"]);
 
 export function validateAuthClaims(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) {

@@ -1,11 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-/**
- * Create a Supabase client for middleware usage
- * This handles refreshing auth tokens and maintaining user sessions
- */
-export async function updateSession(request: NextRequest) {
+export async function refreshSupabaseAuthSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
   })
@@ -40,6 +36,19 @@ export async function updateSession(request: NextRequest) {
   const {
     data: { user },
   } = await supabase.auth.getUser()
+
+  return {
+    response: supabaseResponse,
+    user,
+  }
+}
+
+/**
+ * Create a Supabase client for middleware usage
+ * This handles refreshing auth tokens and maintaining user sessions
+ */
+export async function updateSession(request: NextRequest) {
+  const { response: supabaseResponse, user } = await refreshSupabaseAuthSession(request)
 
   // Protected routes - redirect to login if not authenticated
   const isAuthPage = request.nextUrl.pathname.startsWith('/login') ||

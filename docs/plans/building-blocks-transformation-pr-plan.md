@@ -24,8 +24,9 @@ This file is the durable execution plan for the multi-PR transformation of Produ
 - `PR2 Validation Baseline`: merged and verified
 - `PR3 Schema And Domain Inventory`: merged and verified
 - `PR4 Contracts Nucleus`: merged and verified
-- `PR5 Auth Contracts And Adapters`: active on `feat/pr5-auth-contracts-and-adapters`
-- `PR6+`: still need planning and execution as tracked work slices
+- `PR5 Auth Contracts And Adapters`: merged and verified
+- `PR6 Auth Provider Rollout`: active on `feat/pr6-auth-provider-rollout`
+- `PR7+`: still need planning and execution as tracked work slices
 
 ## Global Rules
 - Roll back the PR if it breaks a prior gate.
@@ -141,6 +142,11 @@ This file is the durable execution plan for the multi-PR transformation of Produ
 
 ### PR6 Auth Provider Rollout
 - Goal: remove `Supabase Auth` as the foundation.
+- Active artifacts:
+  - `docs/research/pr6-auth-provider-rollout.md`
+  - `docs/plans/2026-05-16-pr6-auth-provider-rollout-design.md`
+  - `docs/plans/2026-05-16-pr6-auth-provider-rollout-tasks.md`
+- Canonical rollout configuration: use one canonical Neon/Better Auth provider, explicit JWKS URL, issuer, audience, signed roadmap session cookies, exact trusted origins, and a rollback path that restores Supabase route gating while leaving PR5 contracts intact.
 - Checklist:
   - switch both web apps to one canonical IdP model
   - update backend verification to JWKS/OIDC flow

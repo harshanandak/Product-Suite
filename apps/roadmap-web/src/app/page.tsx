@@ -1,18 +1,16 @@
-import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
+import { cookies } from 'next/headers'
+import { readCanonicalAuthClaimsFromCookieStore } from '@/lib/canonical-auth'
+import { resolveHomeRedirectPath } from '@/lib/roadmap-auth-routing'
 
 export default async function Home() {
-  const supabase = await createClient()
+  const authResult = await readCanonicalAuthClaimsFromCookieStore(await cookies())
+  const redirectPath = resolveHomeRedirectPath(authResult)
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  // If user is authenticated, redirect to dashboard
-  if (user) {
-    redirect('/dashboard')
+  if (redirectPath) {
+    redirect(redirectPath)
   }
 
   return (
