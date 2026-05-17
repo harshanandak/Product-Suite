@@ -72,13 +72,16 @@ export async function GET(request: NextRequest) {
 
   const response = NextResponse.redirect(new URL(redirectPath, request.url))
   if (canonicalCookies) {
+    const cookieExpires = new Date(Number(claimsResult.claims.expires_at) * 1000)
     response.cookies.set(canonicalCookies.claimsCookieName, canonicalCookies.claimsValue, {
+      expires: cookieExpires,
       httpOnly: true,
       path: '/',
       sameSite: 'lax',
       secure: requestUrl.protocol === 'https:',
     })
     response.cookies.set(canonicalCookies.signatureCookieName, canonicalCookies.signatureValue, {
+      expires: cookieExpires,
       httpOnly: true,
       path: '/',
       sameSite: 'lax',

@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { readCanonicalAuthClaimsFromRequest } from './canonical-auth'
 
 type CanonicalAuthMiddlewareOptions = {
+  response?: NextResponse
   secret?: string
 }
 
@@ -13,7 +14,7 @@ export async function updateCanonicalAuthSession(
   if (request.nextUrl.pathname.includes('/mind-maps')) {
     const url = request.nextUrl.clone()
     url.pathname = url.pathname.replace('/mind-maps', '/canvas')
-    return NextResponse.redirect(url)
+    return preserveResponseCookies(NextResponse.redirect(url), options.response)
   }
 
   const authResult = await readCanonicalAuthClaimsFromRequest(request, options)
@@ -29,16 +30,27 @@ export async function updateCanonicalAuthSession(
   if (!isAuthenticated && isProtectedRoute) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
-    return NextResponse.redirect(url)
+    return preserveResponseCookies(NextResponse.redirect(url), options.response)
   }
 
   if (isAuthenticated && isAuthPage) {
     const url = request.nextUrl.clone()
     url.pathname = '/dashboard'
-    return NextResponse.redirect(url)
+    return preserveResponseCookies(NextResponse.redirect(url), options.response)
   }
 
-  return NextResponse.next({
-    request,
+  return preserveResponseCookies(
+    NextResponse.next({
+      request,
+    }),
+    options.response,
+  )
+}
+
+function preserveResponseCookies(response: NextResponse, sourceResponse?: NextResponse) {
+  sourceResponse?.cookies.getAll().forEach((cookie) => {
+    response.cookies.set(cookie)
   })
+
+  return response
 }

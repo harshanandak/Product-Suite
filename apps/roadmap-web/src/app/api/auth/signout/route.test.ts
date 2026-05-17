@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
 
 import { GET, POST } from './route'
@@ -6,6 +6,9 @@ import { GET, POST } from './route'
 const mocks = vi.hoisted(() => ({
   createClient: vi.fn(),
 }))
+
+const originalClaimsCookieName = process.env.ROADMAP_CANONICAL_AUTH_CLAIMS_COOKIE
+const originalSignatureCookieName = process.env.ROADMAP_CANONICAL_AUTH_SIGNATURE_COOKIE
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: mocks.createClient,
@@ -24,6 +27,20 @@ function createRequest() {
 }
 
 describe('roadmap auth signout route', () => {
+  afterEach(() => {
+    if (originalClaimsCookieName === undefined) {
+      delete process.env.ROADMAP_CANONICAL_AUTH_CLAIMS_COOKIE
+    } else {
+      process.env.ROADMAP_CANONICAL_AUTH_CLAIMS_COOKIE = originalClaimsCookieName
+    }
+
+    if (originalSignatureCookieName === undefined) {
+      delete process.env.ROADMAP_CANONICAL_AUTH_SIGNATURE_COOKIE
+    } else {
+      process.env.ROADMAP_CANONICAL_AUTH_SIGNATURE_COOKIE = originalSignatureCookieName
+    }
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
     delete process.env.ROADMAP_CANONICAL_AUTH_CLAIMS_COOKIE

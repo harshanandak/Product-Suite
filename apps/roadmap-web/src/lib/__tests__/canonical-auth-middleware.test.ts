@@ -1,4 +1,4 @@
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { describe, expect, it } from 'vitest'
 
 import { buildCanonicalAuthCookieHeader, sealCanonicalAuthClaims } from '../canonical-auth'
@@ -45,5 +45,24 @@ describe('roadmap canonical auth middleware', () => {
 
     expect(response.status).toBe(307)
     expect(response.headers.get('location')).toBe('https://roadmap.example.com/canvas/abc')
+  })
+
+  it('preserves refreshed Supabase cookies on canonical auth responses', async () => {
+    const request = new NextRequest('https://roadmap.example.com/dashboard')
+    const refreshedSessionResponse = NextResponse.next({
+      request,
+    })
+    refreshedSessionResponse.cookies.set('sb-project-auth-token', 'refreshed', {
+      path: '/',
+    })
+
+    const response = await updateCanonicalAuthSession(request, {
+      response: refreshedSessionResponse,
+      secret: 'session-secret',
+    })
+
+    expect(response.status).toBe(307)
+    expect(response.headers.get('location')).toBe('https://roadmap.example.com/login')
+    expect(response.headers.get('set-cookie')).toContain('sb-project-auth-token=refreshed')
   })
 })

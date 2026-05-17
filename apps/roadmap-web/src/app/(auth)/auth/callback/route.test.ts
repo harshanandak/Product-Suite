@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { resolveCallbackRedirectPath } from '@/lib/roadmap-auth-routing'
 import { GET } from './route'
@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   readCanonicalAuthClaimsFromRequest: vi.fn(),
   sealCanonicalAuthClaims: vi.fn(),
 }))
+
+const originalCanonicalAuthSecret = process.env.ROADMAP_CANONICAL_AUTH_SECRET
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: mocks.createClient,
@@ -91,6 +93,14 @@ function createSupabaseMock({
 }
 
 describe('auth callback canonical routing', () => {
+  afterEach(() => {
+    if (originalCanonicalAuthSecret === undefined) {
+      delete process.env.ROADMAP_CANONICAL_AUTH_SECRET
+    } else {
+      process.env.ROADMAP_CANONICAL_AUTH_SECRET = originalCanonicalAuthSecret
+    }
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
     process.env.ROADMAP_CANONICAL_AUTH_SECRET = 'session-secret'
@@ -167,6 +177,9 @@ describe('auth callback canonical routing', () => {
     expect(response.headers.get('location')).toBe('https://roadmap.example.com/dashboard')
     expect(response.headers.get('set-cookie')).toContain('ps_auth_claims=claims')
     expect(response.headers.get('set-cookie')).toContain('ps_auth_sig=sig')
+    expect(response.headers.get('set-cookie')).toContain(
+      'Expires=Mon, 02 Feb 2026 02:40:00 GMT',
+    )
   })
 
   it('uses incoming callback code instead of stale canonical cookies', async () => {
