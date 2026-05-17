@@ -14,10 +14,10 @@ export async function GET(request: NextRequest) {
   const code = requestUrl.searchParams.get('code')
   const returnTo = requestUrl.searchParams.get('returnTo')
   const supabase = await createClient()
-  let claimsResult = await readCanonicalAuthClaimsFromRequest(request)
+  let claimsResult: CanonicalAuthResult
   let canonicalCookies: Awaited<ReturnType<typeof sealCanonicalAuthClaims>> | null = null
 
-  if (!claimsResult.ok && code) {
+  if (code) {
     const {
       data: { user },
       error,
@@ -38,6 +38,8 @@ export async function GET(request: NextRequest) {
         secret: canonicalAuthSecret,
       })
     }
+  } else {
+    claimsResult = await readCanonicalAuthClaimsFromRequest(request)
   }
 
   if (!claimsResult.ok) {

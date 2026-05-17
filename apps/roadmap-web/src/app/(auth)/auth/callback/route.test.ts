@@ -158,6 +158,45 @@ describe('auth callback canonical routing', () => {
     expect(response.headers.get('set-cookie')).toContain('ps_auth_sig=sig')
   })
 
+  it('uses incoming callback code instead of stale canonical cookies', async () => {
+    mocks.readCanonicalAuthClaimsFromRequest.mockResolvedValue({
+      ok: true,
+      claims: {
+        provider: 'neon',
+        subject: 'stale_user',
+        email: 'stale@example.com',
+      },
+    })
+    const supabase = createSupabaseMock({
+      exchangedUser: {
+        id: 'fresh_user',
+        email: 'fresh@example.com',
+      },
+      userProfile: {
+        id: 'fresh_user',
+      },
+    })
+    mocks.createClient.mockResolvedValue(supabase)
+
+    const response = await GET(
+      new Request('https://roadmap.example.com/auth/callback?code=fresh-code') as never,
+    )
+
+    expect(mocks.readCanonicalAuthClaimsFromRequest).not.toHaveBeenCalled()
+    expect(supabase.auth.exchangeCodeForSession).toHaveBeenCalledWith('fresh-code')
+    expect(supabase.usersQuery.eq).toHaveBeenCalledWith('id', 'fresh_user')
+    expect(mocks.sealCanonicalAuthClaims).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subject: 'fresh_user',
+        email: 'fresh@example.com',
+      }),
+      {
+        secret: 'session-secret',
+      },
+    )
+    expect(response.headers.get('location')).toBe('https://roadmap.example.com/dashboard')
+  })
+
   it('uses maybeSingle for onboarding checks and fails closed on query errors', async () => {
     const supabase = createSupabaseMock({
       userProfile: null,
