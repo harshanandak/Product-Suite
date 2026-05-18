@@ -14,6 +14,12 @@
  */
 
 import { useState, useEffect, useCallback } from 'react'
+import {
+  createChatRecordId,
+  sortChatThreadsByUpdatedAt,
+  type ChatMessage,
+  type ChatThread,
+} from '@product-suite/ui-chat'
 import { createClient } from '@/lib/supabase/client'
 import {
   SHARED_CONVERSATION_MESSAGE_TABLE,
@@ -28,38 +34,7 @@ export const CHAT_MESSAGES_TABLE = SHARED_CONVERSATION_MESSAGE_TABLE
 // TYPES
 // =============================================================================
 
-export interface ChatThread {
-  id: string
-  team_id: string
-  workspace_id: string
-  title: string | null
-  created_at: string
-  updated_at: string
-  metadata: Record<string, unknown>
-  created_by: string | null
-  status: 'active' | 'archived' | 'deleted'
-}
-
-export interface ChatMessage {
-  id: string
-  thread_id: string
-  role: 'user' | 'assistant' | 'system'
-  content: string | null
-  parts: Array<{
-    type: string
-    text?: string
-    [key: string]: unknown
-  }> | null
-  tool_invocations: Array<{
-    toolName: string
-    state: string
-    args?: unknown
-    result?: unknown
-  }> | null
-  model_used: string | null
-  metadata: Record<string, unknown>
-  created_at: string
-}
+export type { ChatMessage, ChatThread } from '@product-suite/ui-chat'
 
 interface UseThreadsOptions {
   teamId: string
@@ -76,10 +51,6 @@ interface UseMessagesOptions {
 // =============================================================================
 // HELPER: Generate ID
 // =============================================================================
-
-function generateId(): string {
-  return Date.now().toString()
-}
 
 // =============================================================================
 // HOOK: useThreads
@@ -120,7 +91,7 @@ export function useThreads({ teamId, workspaceId, initialLimit = 20, pageSize = 
         throw fetchError
       }
 
-      const fetchedThreads = (data || []) as ChatThread[]
+      const fetchedThreads = sortChatThreadsByUpdatedAt((data || []) as ChatThread[])
       console.log('[useThreads] Fetched threads:', fetchedThreads.length)
       setThreads(fetchedThreads)
       setHasMore(fetchedThreads.length >= initialLimit)
@@ -152,8 +123,8 @@ export function useThreads({ teamId, workspaceId, initialLimit = 20, pageSize = 
 
       if (fetchError) throw fetchError
 
-      const newThreads = (data || []) as ChatThread[]
-      setThreads((prev) => [...prev, ...newThreads])
+      const newThreads = sortChatThreadsByUpdatedAt((data || []) as ChatThread[])
+      setThreads((prev) => sortChatThreadsByUpdatedAt([...prev, ...newThreads]))
       setHasMore(newThreads.length >= pageSize)
     } catch (err) {
       setError(err instanceof Error ? err : new Error('Failed to load more threads'))
@@ -167,7 +138,7 @@ export function useThreads({ teamId, workspaceId, initialLimit = 20, pageSize = 
     async (title?: string): Promise<ChatThread | null> => {
       try {
         const newThread = {
-          id: generateId(),
+          id: createChatRecordId(),
           team_id: teamId,
           workspace_id: workspaceId,
           title: title || null,
@@ -192,7 +163,7 @@ export function useThreads({ teamId, workspaceId, initialLimit = 20, pageSize = 
         console.log('[useThreads] Thread created:', thread)
 
         // Optimistic update
-        setThreads((prev) => [thread, ...prev])
+        setThreads((prev) => sortChatThreadsByUpdatedAt([thread, ...prev]))
 
         return thread
       } catch (err) {
@@ -270,8 +241,12 @@ export function useThreads({ teamId, workspaceId, initialLimit = 20, pageSize = 
           filter: `workspace_id=eq.${workspaceId}`,
         },
         (payload: RealtimePostgresChangesPayload<ChatThread>) => {
-          if (payload.eventType === 'INSERT') {
-            setThreads((prev) => [payload.new as ChatThread, ...prev])
+        if (payload.eventType === 'INSERT') {
+            setThreads((prev) => {
+              const incoming = payload.new as ChatThread
+              if (prev.some((thread) => thread.id === incoming.id)) return prev
+              return sortChatThreadsByUpdatedAt([incoming, ...prev])
+            })
           } else if (payload.eventType === 'UPDATE') {
             setThreads((prev) =>
               prev.map((t) =>
@@ -389,7 +364,7 @@ export function useMessages({ threadId, enabled = true }: UseMessagesOptions) {
 
       try {
         const newMessage = {
-          id: generateId(),
+          id: createChatRecordId(),
           thread_id: threadId,
           ...message,
         }
@@ -437,7 +412,7 @@ export function useMessages({ threadId, enabled = true }: UseMessagesOptions) {
 
       try {
         const newMessages = messageList.map((msg) => ({
-          id: generateId(),
+          id: createChatRecordId(),
           thread_id: threadId,
           ...msg,
         }))

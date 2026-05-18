@@ -27,8 +27,9 @@ This file is the durable execution plan for the multi-PR transformation of Produ
 - `PR5 Auth Contracts And Adapters`: merged and verified
 - `PR6 Auth Provider Rollout`: merged and verified
 - `PR7 SDK / Typed Client Layer`: merged and verified
-- `PR8 Meeting Block Extraction`: active on `feat/pr8-meeting-block-extraction`
-- `PR9+`: still need planning and execution as tracked work slices
+- `PR8 Meeting Block Extraction`: merged and verified
+- `PR9 Chat Block Extraction`: active on `feat/pr9-chat-block-extraction`
+- `PR10+`: still need planning and execution as tracked work slices
 
 ## Global Rules
 - Roll back the PR if it breaks a prior gate.
@@ -204,6 +205,10 @@ This file is the durable execution plan for the multi-PR transformation of Produ
 
 ### PR9 Chat Block Extraction
 - Goal: extract reusable chat block, no `chat-web`.
+- Active artifacts:
+  - `docs/research/pr9-chat-block-extraction.md`
+  - `docs/plans/2026-05-18-pr9-chat-block-extraction-design.md`
+  - `docs/plans/2026-05-18-pr9-chat-block-extraction-tasks.md`
 - Checklist:
   - create `packages/ui-chat`
   - lift reusable logic from `apps/roadmap-web/src/hooks/use-chat-threads.ts`

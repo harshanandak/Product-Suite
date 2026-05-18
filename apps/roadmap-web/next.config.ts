@@ -18,6 +18,7 @@ const nextConfig: NextConfig = {
     "@blocksuite/inline",
     "@blocksuite/block-std",
     "@blocksuite/global",
+    "@product-suite/ui-chat",
     "@product-suite/ui-meeting",
   ],
 
