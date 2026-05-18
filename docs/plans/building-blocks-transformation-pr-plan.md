@@ -28,8 +28,9 @@ This file is the durable execution plan for the multi-PR transformation of Produ
 - `PR6 Auth Provider Rollout`: merged and verified
 - `PR7 SDK / Typed Client Layer`: merged and verified
 - `PR8 Meeting Block Extraction`: merged and verified
-- `PR9 Chat Block Extraction`: active on `feat/pr9-chat-block-extraction`
-- `PR10+`: still need planning and execution as tracked work slices
+- `PR9 Chat Block Extraction`: merged and verified
+- `PR10 Canvas Boundary Extraction`: active on `feat/pr10-canvas-boundary-extraction`
+- `PR11+`: still need planning and execution as tracked work slices
 
 ## Global Rules
 - Roll back the PR if it breaks a prior gate.
@@ -225,6 +226,10 @@ This file is the durable execution plan for the multi-PR transformation of Produ
 ### PR10 Canvas Boundary Extraction
 - Goal: isolate canvas from transport/persistence/auth, then extract it.
 - Why risky: current canvas is tightly coupled through `apps/roadmap-web/src/components/blocksuite/hybrid-provider.ts` and BlockSuite-specific Next config in `apps/roadmap-web/next.config.ts`.
+- Active artifacts:
+  - `docs/research/pr10-canvas-boundary-extraction.md`
+  - `docs/plans/2026-05-18-pr10-canvas-boundary-extraction-design.md`
+  - `docs/plans/2026-05-18-pr10-canvas-boundary-extraction-tasks.md`
 - Checklist:
   - define provider/persistence interfaces first
   - keep shell-specific build hacks outside package

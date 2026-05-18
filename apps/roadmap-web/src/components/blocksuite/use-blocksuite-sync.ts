@@ -13,6 +13,7 @@ import type { Doc } from 'yjs'
 import { createClient } from '@/lib/supabase/client'
 import { SHARED_CANVAS_DOCUMENT_TABLE } from '@/lib/supabase/shared-contracts'
 import { HybridProvider } from './hybrid-provider'
+import { createSupabaseCanvasBoundary } from './canvas-boundary'
 import {
   DEFAULT_DEBOUNCE_MS,
   getStoragePath,
@@ -51,6 +52,7 @@ export function useBlockSuiteSync(
   // Without useMemo, createClient() returns a new instance each render,
   // causing HybridProvider to be destroyed and recreated constantly
   const supabase = useMemo(() => createClient(), [])
+  const canvasBoundary = useMemo(() => createSupabaseCanvasBoundary(supabase), [supabase])
 
   const [isLoading, setIsLoading] = useState(true)
   const [isConnected, setIsConnected] = useState(false)
@@ -79,7 +81,7 @@ export function useBlockSuiteSync(
     const provider = new HybridProvider(doc, {
       documentId,
       teamId,
-      supabase,
+      ...canvasBoundary,
       debounceMs,
       onConnectionChange: (connected) => {
         setIsConnected(connected)
@@ -117,7 +119,7 @@ export function useBlockSuiteSync(
       providerRef.current = null
       setIsConnected(false)
     }
-  }, [canSync, doc, documentId, teamId, debounceMs, supabase])
+  }, [canSync, doc, documentId, teamId, debounceMs, canvasBoundary])
 
   // Handle loading state when sync is disabled
   useEffect(() => {

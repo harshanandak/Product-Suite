@@ -7,7 +7,15 @@
  * - Supabase Storage: Yjs binary state (blocksuite-yjs bucket)
  */
 
-import type { SupabaseClient } from '@supabase/supabase-js'
+import {
+  CANVAS_STORAGE_BUCKET,
+  DEFAULT_CANVAS_SYNC_DEBOUNCE_MS,
+  createCanvasStoragePath,
+  isValidCanvasId,
+  type CanvasMetadataStore,
+  type CanvasPersistenceAdapter,
+  type CanvasRealtimeAdapter,
+} from '@product-suite/ui-canvas'
 
 // ============================================================================
 // Document Types
@@ -66,10 +74,7 @@ export interface StorageResult {
 }
 
 /** Storage bucket name */
-export const BLOCKSUITE_STORAGE_BUCKET = 'blocksuite-yjs' as const
-
-/** Regex for valid ID format (alphanumeric, hyphens, underscores only) */
-const SAFE_ID_REGEX = /^[a-zA-Z0-9_-]+$/
+export const BLOCKSUITE_STORAGE_BUCKET = CANVAS_STORAGE_BUCKET
 
 /**
  * Sanitize an ID to prevent path traversal attacks
@@ -94,7 +99,7 @@ export function sanitizeId(id: string): string {
  * Validate that an ID is safe (doesn't contain path traversal characters)
  */
 export function isValidId(id: string): boolean {
-  return typeof id === 'string' && id.length > 0 && SAFE_ID_REGEX.test(id)
+  return isValidCanvasId(id)
 }
 
 /**
@@ -104,7 +109,7 @@ export function isValidId(id: string): boolean {
 export function getStoragePath(teamId: string, docId: string): string {
   const safeTeamId = sanitizeId(teamId)
   const safeDocId = sanitizeId(docId)
-  return `${safeTeamId}/${safeDocId}.yjs`
+  return createCanvasStoragePath({ teamId: safeTeamId, documentId: safeDocId })
 }
 
 // ============================================================================
@@ -115,7 +120,9 @@ export function getStoragePath(teamId: string, docId: string): string {
 export interface HybridProviderOptions {
   documentId: string
   teamId: string
-  supabase: SupabaseClient
+  persistence: CanvasPersistenceAdapter
+  realtime: CanvasRealtimeAdapter
+  metadata: CanvasMetadataStore
   /** Debounce time for storage saves (default: 2000ms) */
   debounceMs?: number
   /** Called when connection status changes */
@@ -201,7 +208,7 @@ export interface ApiErrorResponse {
 // ============================================================================
 
 /** Default debounce time for storage saves (ms) */
-export const DEFAULT_DEBOUNCE_MS = 2000
+export const DEFAULT_DEBOUNCE_MS = DEFAULT_CANVAS_SYNC_DEBOUNCE_MS
 
 /** Size threshold for monitoring large documents (bytes) */
 export const LARGE_DOCUMENT_THRESHOLD = 102400 // 100KB

@@ -5,8 +5,10 @@ import * as Y from 'yjs'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 import { HybridProvider } from './hybrid-provider'
+import { createSupabaseCanvasBoundary } from './canvas-boundary'
 import { LoadingSkeleton } from './loading-skeleton'
 import { cleanupBlockSuiteEditor, cleanupEditorInterval } from './editor-utils'
+import { resolveCanvasEditorMode } from '@product-suite/ui-canvas'
 
 // Types for BlockSuite modules (dynamically imported)
 type Doc = import('@blocksuite/store').Doc
@@ -69,9 +71,10 @@ export function SimpleCanvas({
 
   // Memoize supabase client
   const supabase = useMemo(() => createClient(), [])
+  const canvasBoundary = useMemo(() => createSupabaseCanvasBoundary(supabase), [supabase])
 
   // Determine editor mode based on document type
-  const editorMode = documentType === 'document' ? 'page' : 'edgeless'
+  const editorMode = resolveCanvasEditorMode(documentType)
 
   // Cleanup function using shared utility to avoid code duplication
   const cleanup = useCallback(() => {
@@ -185,7 +188,7 @@ export function SimpleCanvas({
             const provider = new HybridProvider(yjsDoc, {
               documentId,
               teamId,
-              supabase,
+              ...canvasBoundary,
               debounceMs: 2000,
               onConnectionChange: (connected) => {
                 setIsConnected(connected)
@@ -282,7 +285,7 @@ export function SimpleCanvas({
       cleanupEditorInterval(editorRef)
       cleanup()
     }
-  }, [documentId, teamId, editorMode, readOnly, supabase, cleanup, onReady, onSaveStatusChange])
+  }, [documentId, teamId, editorMode, readOnly, canvasBoundary, cleanup, onReady, onSaveStatusChange])
 
   // Error state
   if (error) {

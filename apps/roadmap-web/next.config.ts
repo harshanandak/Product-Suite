@@ -19,6 +19,7 @@ const nextConfig: NextConfig = {
     "@blocksuite/block-std",
     "@blocksuite/global",
     "@product-suite/ui-chat",
+    "@product-suite/ui-canvas",
     "@product-suite/ui-meeting",
   ],
 
