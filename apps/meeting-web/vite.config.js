@@ -95,7 +95,7 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "src"),
-        "@product-suite/ui-chat": path.resolve(__dirname, "../../packages/ui-chat/src/index.js"),
+        "@product-suite/ui-chat": path.resolve(__dirname, "../../packages/ui-chat/dist/index.js"),
         "@product-suite/ui-meeting": path.resolve(__dirname, "../../packages/ui-meeting/src/index.js"),
       },
     },

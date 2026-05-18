@@ -6,9 +6,10 @@ import {
   ChatMessageList,
   ChatThreadList,
   createChatRecordId,
+  formatChatTimestamp,
   getChatMessageText,
   sortChatThreadsByUpdatedAt,
-} from "./index.js";
+} from "../dist/index.js";
 
 describe("ui-chat shared chat block", () => {
   test("renders messages with content, parts fallback, and empty state", () => {
@@ -34,10 +35,18 @@ describe("ui-chat shared chat block", () => {
       { id: "older", title: "Older", updated_at: "2026-05-17T10:00:00Z" },
       { id: "newer", title: "Newer", updated_at: "2026-05-18T10:00:00Z" },
     ];
-    const readOnlyHtml = renderToStaticMarkup(<ChatThreadList threads={threads} selectedThreadId="newer" />);
+    const readOnlyHtml = renderToStaticMarkup(
+      <ChatThreadList
+        threads={threads}
+        selectedThreadId="newer"
+        formatDate={(timestamp) => `formatted ${timestamp}`}
+      />,
+    );
     const wiredHtml = renderToStaticMarkup(<ChatThreadList threads={threads} onSelectThread={() => {}} />);
 
     expect(readOnlyHtml).toContain("Newer");
+    expect(readOnlyHtml).toContain("formatted 2026-05-18T10:00:00Z");
+    expect(readOnlyHtml).not.toContain(">2026-05-18T10:00:00Z<");
     expect(readOnlyHtml).toContain("disabled=\"\"");
     expect(wiredHtml).not.toContain("disabled=\"\"");
   });
@@ -55,5 +64,7 @@ describe("ui-chat shared chat block", () => {
     expect(createChatRecordId(() => 12345)).toBe("12345-0");
     expect(createChatRecordId(() => 12345)).toBe("12345-1");
     expect(() => createChatRecordId(() => Number.NaN)).toThrow(TypeError);
+    expect(formatChatTimestamp("not-a-date")).toBe("not-a-date");
+    expect(formatChatTimestamp(null)).toBe("");
   });
 });

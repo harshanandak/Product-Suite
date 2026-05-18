@@ -42,6 +42,22 @@ export function createChatRecordId(now = Date.now) {
   return `${timestamp}-${sequence}`;
 }
 
+export function formatChatTimestamp(timestamp) {
+  if (!timestamp) {
+    return "";
+  }
+
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) {
+    return String(timestamp);
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
 function roleLabel(role) {
   return role || "message";
 }
@@ -83,6 +99,7 @@ export function ChatThreadList({
   onSelectThread,
   emptyLabel = "No chat threads yet.",
   className = "",
+  formatDate = formatChatTimestamp,
 }) {
   const sortedThreads = sortChatThreadsByUpdatedAt(threads);
   const canSelectThread = typeof onSelectThread === "function";
@@ -94,6 +111,8 @@ export function ChatThreadList({
         <div className="mt-3 space-y-2">
           {sortedThreads.map((thread) => {
             const isSelected = thread.id === selectedThreadId;
+            const timestamp = thread.updated_at || thread.created_at || "";
+            const timestampLabel = timestamp ? formatDate(timestamp) : "";
             return (
               <button
                 key={thread.id}
@@ -105,7 +124,7 @@ export function ChatThreadList({
                 } disabled:cursor-not-allowed disabled:opacity-60`}
               >
                 <span className="block font-medium text-foreground">{thread.title || "Untitled chat"}</span>
-                <span className="mt-1 block text-xs text-muted-foreground">{thread.updated_at || thread.created_at || ""}</span>
+                <span className="mt-1 block text-xs text-muted-foreground">{timestampLabel}</span>
               </button>
             );
           })}

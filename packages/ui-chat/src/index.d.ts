@@ -50,10 +50,12 @@ export interface ChatThreadListProps {
   onSelectThread?: (threadId: string) => void;
   emptyLabel?: string;
   className?: string;
+  formatDate?: (timestamp: string) => string;
 }
 
 export function getChatMessageText(message?: ChatMessage | null): string;
 export function sortChatThreadsByUpdatedAt<T extends ChatThread>(threads?: T[]): T[];
 export function createChatRecordId(now?: () => number): string;
+export function formatChatTimestamp(timestamp?: string | null): string;
 export function ChatMessageList(props: ChatMessageListProps): ReactNode;
 export function ChatThreadList(props: ChatThreadListProps): ReactNode;

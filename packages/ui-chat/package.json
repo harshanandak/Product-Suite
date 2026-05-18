@@ -7,11 +7,11 @@
   "exports": {
     ".": {
       "types": "./src/index.d.ts",
-      "default": "./src/index.js"
+      "default": "./dist/index.js"
     }
   },
   "scripts": {
-    "build": "bun build src/index.jsx --outfile src/index.js --target=browser --format=esm --external react",
+    "build": "bun build src/index.jsx --outfile dist/index.js --target=browser --format=esm --external react --production",
     "test": "bun run build && bun test"
   },
   "peerDependencies": {
