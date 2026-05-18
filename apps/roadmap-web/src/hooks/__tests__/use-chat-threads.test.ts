@@ -15,6 +15,7 @@ describe("use-chat-threads shared package boundary", () => {
     expect(hookSource).toContain("@product-suite/ui-chat");
     expect(hookSource).toContain("createChatRecordId");
     expect(hookSource).toContain("sortChatThreadsByUpdatedAt");
+    expect(hookSource).toContain("prev.some((thread) => thread.id === incoming.id)");
     expect(hookSource).toContain("@/lib/supabase/client");
     expect(packageSource).not.toContain("@/lib/supabase/client");
     expect(packageSource).not.toContain("createClient");

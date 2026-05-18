@@ -1,6 +1,8 @@
 // src/index.jsx
 import React from "react";
 import { jsxDEV } from "react/jsx-dev-runtime";
+var lastTimestamp = -1;
+var sequence = 0;
 function getChatMessageText(message = {}) {
   if (typeof message.content === "string" && message.content.trim()) {
     return message.content;
@@ -19,7 +21,17 @@ function sortChatThreadsByUpdatedAt(threads = []) {
   });
 }
 function createChatRecordId(now = Date.now) {
-  return String(now());
+  const timestamp = Number(now());
+  if (!Number.isFinite(timestamp)) {
+    throw new TypeError("createChatRecordId: now() must return a finite number");
+  }
+  if (timestamp === lastTimestamp) {
+    sequence += 1;
+  } else {
+    lastTimestamp = timestamp;
+    sequence = 0;
+  }
+  return `${timestamp}-${sequence}`;
 }
 function roleLabel(role) {
   return role || "message";

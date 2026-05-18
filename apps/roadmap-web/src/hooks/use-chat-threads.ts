@@ -241,8 +241,12 @@ export function useThreads({ teamId, workspaceId, initialLimit = 20, pageSize = 
           filter: `workspace_id=eq.${workspaceId}`,
         },
         (payload: RealtimePostgresChangesPayload<ChatThread>) => {
-          if (payload.eventType === 'INSERT') {
-            setThreads((prev) => sortChatThreadsByUpdatedAt([payload.new as ChatThread, ...prev]))
+        if (payload.eventType === 'INSERT') {
+            setThreads((prev) => {
+              const incoming = payload.new as ChatThread
+              if (prev.some((thread) => thread.id === incoming.id)) return prev
+              return sortChatThreadsByUpdatedAt([incoming, ...prev])
+            })
           } else if (payload.eventType === 'UPDATE') {
             setThreads((prev) =>
               prev.map((t) =>

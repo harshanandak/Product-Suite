@@ -52,6 +52,8 @@ describe("ui-chat shared chat block", () => {
     expect(getChatMessageText({ content: null, parts: [{ type: "text", text: "fallback" }] })).toBe("fallback");
     expect(sortChatThreadsByUpdatedAt(threads).map((thread) => thread.id)).toEqual(["newer", "older"]);
     expect(threads.map((thread) => thread.id)).toEqual(["older", "newer"]);
-    expect(createChatRecordId(() => 12345)).toBe("12345");
+    expect(createChatRecordId(() => 12345)).toBe("12345-0");
+    expect(createChatRecordId(() => 12345)).toBe("12345-1");
+    expect(() => createChatRecordId(() => Number.NaN)).toThrow(TypeError);
   });
 });
