@@ -1,6 +1,6 @@
 # Building Blocks Transformation PR Plan
 
-Last updated: 2026-05-16
+Last updated: 2026-05-18
 
 This file is the durable execution plan for the multi-PR transformation of Product Suite into a clearer building-blocks architecture. It exists so the team can return to the sequence and continue execution without depending on chat history.
 
@@ -26,8 +26,9 @@ This file is the durable execution plan for the multi-PR transformation of Produ
 - `PR4 Contracts Nucleus`: merged and verified
 - `PR5 Auth Contracts And Adapters`: merged and verified
 - `PR6 Auth Provider Rollout`: merged and verified
-- `PR7 SDK / Typed Client Layer`: active on `feat/pr7-sdk-typed-client-layer`
-- `PR8+`: still need planning and execution as tracked work slices
+- `PR7 SDK / Typed Client Layer`: merged and verified
+- `PR8 Meeting Block Extraction`: active on `feat/pr8-meeting-block-extraction`
+- `PR9+`: still need planning and execution as tracked work slices
 
 ## Global Rules
 - Roll back the PR if it breaks a prior gate.
@@ -182,6 +183,10 @@ This file is the durable execution plan for the multi-PR transformation of Produ
 
 ### PR8 Meeting Block Extraction
 - Goal: extract shared meeting block first.
+- Active artifacts:
+  - `docs/research/pr8-meeting-block-extraction.md`
+  - `docs/plans/2026-05-18-pr8-meeting-block-extraction-design.md`
+  - `docs/plans/2026-05-18-pr8-meeting-block-extraction-tasks.md`
 - Checklist:
   - create `packages/ui-meeting`
   - move shared meeting presentation out of `meeting-web`

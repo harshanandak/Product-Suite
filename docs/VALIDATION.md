@@ -11,6 +11,7 @@ Run validation from the repo root so every deployable uses one documented entryp
     3. `bun run validate:meeting-api`
 - `bun run test:contracts`
   - runs the shared contracts package guard/unit tests in `packages/contracts`
+  - runs the shared meeting UI package tests in `packages/ui-meeting`
 - `bun run validate:meeting-web`
   - runs Meeting Web lint, tests, and build
 - `bun run validate:roadmap-web`
@@ -28,6 +29,7 @@ Run validation from the repo root so every deployable uses one documented entryp
 
 1. Run `bun install` for the JavaScript workspaces.
 2. Run `bun run test:contracts` after changing `packages/contracts` so the shared wire-contract package stays honest.
+3. Run `bun run test:ui-meeting` after changing `packages/ui-meeting` so the shared meeting block stays reusable.
 3. Ensure Python `3.13` is available for the Meeting API toolchain.
 4. Run `bun run install:meeting-api` for the Python backend dependencies.
 5. Run `bun run validate` from the repo root.
