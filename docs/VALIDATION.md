@@ -13,6 +13,8 @@ Run validation from the repo root so every deployable uses one documented entryp
   - runs the shared contracts package guard/unit tests in `packages/contracts`
 - `bun run test:ui-chat`
   - runs the shared chat UI package tests in `packages/ui-chat`
+- `bun run test:ui-canvas`
+  - runs the shared canvas boundary package tests in `packages/ui-canvas`
 - `bun run test:ui-meeting`
   - runs the shared meeting UI package tests in `packages/ui-meeting`
 - `bun run validate:meeting-web`
@@ -33,7 +35,8 @@ Run validation from the repo root so every deployable uses one documented entryp
 1. Run `bun install` for the JavaScript workspaces.
 2. Run `bun run test:contracts` after changing `packages/contracts` so the shared wire-contract package stays honest.
 3. Run `bun run test:ui-chat` after changing `packages/ui-chat` so the shared chat block stays reusable.
-4. Run `bun run test:ui-meeting` after changing `packages/ui-meeting` so the shared meeting block stays reusable.
+4. Run `bun run test:ui-canvas` after changing `packages/ui-canvas` so canvas boundaries stay shell-agnostic.
+5. Run `bun run test:ui-meeting` after changing `packages/ui-meeting` so the shared meeting block stays reusable.
 5. Ensure Python `3.13` is available for the Meeting API toolchain.
 6. Run `bun run install:meeting-api` for the Python backend dependencies.
 7. Run `bun run validate` from the repo root.
