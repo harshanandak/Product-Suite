@@ -35,6 +35,25 @@ describe("MeetingSummaryBlock source module", () => {
     expect(html).toContain("No router coupling.");
   });
 
+  test("disables recording controls when shell handlers are not provided", () => {
+    const readOnlyHtml = renderToStaticMarkup(
+      <MeetingSummaryBlock meeting={{ title: "Read-only roadmap preview" }} />,
+    );
+    const wiredHtml = renderToStaticMarkup(
+      <MeetingSummaryBlock
+        meeting={{ title: "Writable meeting shell" }}
+        onStartRecording={() => {}}
+        onPauseRecording={() => {}}
+        onResumeRecording={() => {}}
+        onStopRecording={() => {}}
+      />,
+    );
+
+    expect((readOnlyHtml.match(/disabled=""/g) || []).length).toBe(4);
+    expect(wiredHtml).toContain(">Start</button>");
+    expect((wiredHtml.match(/disabled=""/g) || []).length).toBe(3);
+  });
+
   test("exports generated record helpers from the source module", () => {
     expect(formatConfidence(0.91)).toBe("Confidence 91%");
     expect(resolveStatusLabel({ review_status: "promoted" })).toBe("System promoted");

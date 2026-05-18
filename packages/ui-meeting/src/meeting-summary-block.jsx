@@ -170,10 +170,10 @@ export function MeetingSummaryBlock({
   const sections = summaryState.sections || [];
   const recentLines = summaryState.recentLines || [];
   const meetingState = summaryState.meetingState || {};
-  const canStartRecording = hasActiveMeeting && !isRecording && !isPaused;
-  const canPauseRecording = hasActiveMeeting && isRecording && !isPaused;
-  const canResumeRecording = hasActiveMeeting && isPaused;
-  const canStopRecording = hasActiveMeeting && (isRecording || isPaused);
+  const canStartRecording = hasActiveMeeting && typeof onStartRecording === "function" && !isRecording && !isPaused;
+  const canPauseRecording = hasActiveMeeting && typeof onPauseRecording === "function" && isRecording && !isPaused;
+  const canResumeRecording = hasActiveMeeting && typeof onResumeRecording === "function" && isPaused;
+  const canStopRecording = hasActiveMeeting && typeof onStopRecording === "function" && (isRecording || isPaused);
 
   const decisions = getSectionItems(sections, "decisions");
   const openQuestions = getSectionItems(sections, "openQuestions");
