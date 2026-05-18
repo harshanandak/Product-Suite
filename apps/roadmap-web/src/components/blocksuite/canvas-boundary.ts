@@ -1,7 +1,6 @@
 import type { SupabaseClient, RealtimeChannel } from '@supabase/supabase-js'
 import {
   createCanvasBoundary,
-  createCanvasStoragePath,
   type CanvasBoundary,
   type CanvasIdentity,
   type CanvasRealtimePayload,

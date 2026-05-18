@@ -76,9 +76,6 @@ export interface StorageResult {
 /** Storage bucket name */
 export const BLOCKSUITE_STORAGE_BUCKET = CANVAS_STORAGE_BUCKET
 
-/** Regex for valid ID format (alphanumeric, hyphens, underscores only) */
-const SAFE_ID_REGEX = /^[a-zA-Z0-9_-]+$/
-
 /**
  * Sanitize an ID to prevent path traversal attacks
  * Only allows alphanumeric characters, hyphens, and underscores

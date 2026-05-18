@@ -35,7 +35,6 @@ import {
   DEFAULT_DEBOUNCE_MS,
   isValidId,
   type HybridProviderOptions,
-  type YjsUpdatePayload,
 } from './persistence-types'
 import { safeValidateYjsUpdatePayload } from './schema'
 
