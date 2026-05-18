@@ -25,8 +25,9 @@ This file is the durable execution plan for the multi-PR transformation of Produ
 - `PR3 Schema And Domain Inventory`: merged and verified
 - `PR4 Contracts Nucleus`: merged and verified
 - `PR5 Auth Contracts And Adapters`: merged and verified
-- `PR6 Auth Provider Rollout`: active on `feat/pr6-auth-provider-rollout`
-- `PR7+`: still need planning and execution as tracked work slices
+- `PR6 Auth Provider Rollout`: merged and verified
+- `PR7 SDK / Typed Client Layer`: active on `feat/pr7-sdk-typed-client-layer`
+- `PR8+`: still need planning and execution as tracked work slices
 
 ## Global Rules
 - Roll back the PR if it breaks a prior gate.

@@ -19,6 +19,7 @@
         "@hookform/resolvers": "^5.0.1",
         "@neondatabase/neon-js": "^0.6.1-beta",
         "@product-suite/contracts": "workspace:*",
+        "@product-suite/sdk": "workspace:*",
         "@radix-ui/react-accordion": "^1.2.8",
         "@radix-ui/react-alert-dialog": "^1.1.11",
         "@radix-ui/react-aspect-ratio": "^1.1.4",
@@ -205,6 +206,13 @@
     "packages/contracts": {
       "name": "@product-suite/contracts",
       "version": "0.0.0",
+    },
+    "packages/sdk": {
+      "name": "@product-suite/sdk",
+      "version": "0.0.0",
+      "dependencies": {
+        "@product-suite/contracts": "workspace:*",
+      },
     },
   },
   "patchedDependencies": {
@@ -732,6 +740,8 @@
     "@preact/signals-core": ["@preact/signals-core@1.14.1", "", {}, "sha512-vxPpfXqrwUe9lpjqfYNjAF/0RF/eFGeLgdJzdmIIZjpOnTmGmAB4BjWone562mJGMRP4frU6iZ6ei3PDsu52Ng=="],
 
     "@product-suite/contracts": ["@product-suite/contracts@workspace:packages/contracts"],
+
+    "@product-suite/sdk": ["@product-suite/sdk@workspace:packages/sdk"],
 
     "@radix-ui/number": ["@radix-ui/number@1.1.1", "", {}, "sha512-MkKCwxlXTgz6CFoJx3pCwn07GKp36+aZyu/u2Ln2VrA5DcdyCZkASEDBTd8x5whTQQL5CiYf4prXKLcgQdv29g=="],
 

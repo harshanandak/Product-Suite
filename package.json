@@ -5,7 +5,8 @@
   "workspaces": [
     "apps/meeting-web",
     "apps/roadmap-web",
-    "packages/contracts"
+    "packages/contracts",
+    "packages/sdk"
   ],
   "scripts": {
     "prepare": "lefthook install",

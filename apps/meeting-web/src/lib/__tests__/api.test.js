@@ -113,9 +113,46 @@ function installFetchMock({
   });
 }
 
+const delegatedMeetingApiMethods = [
+  "acceptOrganizationInvite",
+  "createMeeting",
+  "createOrganization",
+  "deleteMeeting",
+  "exchangeHostedSession",
+  "exportTranscript",
+  "generateSummary",
+  "getChatHistory",
+  "getCurrentUser",
+  "getHealth",
+  "getMeeting",
+  "getOnboardingState",
+  "getSummary",
+  "getTranscript",
+  "listEngines",
+  "listLanguages",
+  "listMeetings",
+  "searchTranscripts",
+  "sendChatMessage",
+  "transcribeAudio",
+  "translateMeetingTranscript",
+  "translateText",
+  "updateMeeting",
+  "voiceChat",
+];
+
+function createDelegatedMeetingApiMock() {
+  return Object.fromEntries(
+    delegatedMeetingApiMethods.map((method) => [
+      method,
+      vi.fn(async (...args) => ({ method, args })),
+    ]),
+  );
+}
+
 describe("api runtime config bootstrap", () => {
   beforeEach(() => {
     vi.resetModules();
+    vi.doUnmock("@product-suite/sdk");
     axios.create.mockClear();
     hostedAuthClient.getSession.mockReset();
     hostedAuthClient.getJWTToken.mockReset();
@@ -178,6 +215,94 @@ describe("api runtime config bootstrap", () => {
     expect(apiSource).toContain("@product-suite/contracts");
     expect(meetingCoreContract.runtimeConfig.auth.providerKey).toBe("provider");
     expect(meetingCoreContract.runtimeConfig.auth.neonAuthUrlKey).toBe("auth_url");
+  });
+
+  test("delegates rewired meeting API helpers to the SDK client without changing arguments", async () => {
+    const meetingApi = createDelegatedMeetingApiMock();
+    const createMeetingApiClient = vi.fn(() => meetingApi);
+    vi.doMock("@product-suite/sdk", () => ({
+      createMeetingApiClient,
+    }));
+    installFetchMock({
+      runtimePayload: {
+        deployment_mode: "hosted",
+        tenant_mode: "organization",
+        backend_url: "https://api.example",
+        auth: {
+          required: true,
+          mode: "bearer",
+          provider: "neon",
+          neon: {
+            auth_url: "https://project-123.neon.tech/auth",
+          },
+        },
+      },
+    });
+
+    const apiModule = await import("../api.js");
+    const transport = axios.create.mock.results.at(-1).value;
+    expect(createMeetingApiClient).toHaveBeenCalledWith({ transport });
+
+    const formData = new FormData();
+    const helperCases = [
+      ["getCurrentUser", []],
+      ["getOnboardingState", []],
+      ["createOrganization", ["Team Alpha", "team-alpha"]],
+      ["acceptOrganizationInvite", ["invite-123"]],
+      ["createMeeting", ["Planning"], ["Planning", "whisper"]],
+      ["listMeetings", []],
+      ["getMeeting", ["meeting-123"]],
+      ["updateMeeting", ["meeting-123", { title: "Updated" }]],
+      ["deleteMeeting", ["meeting-123"]],
+      ["transcribeAudio", ["meeting-123", formData]],
+      ["getTranscript", ["meeting-123"]],
+      ["generateSummary", ["meeting-123"]],
+      ["getSummary", ["meeting-123"]],
+      ["sendChatMessage", ["meeting-123", "hello"]],
+      ["getChatHistory", ["meeting-123"]],
+      ["searchTranscripts", ["roadmap"]],
+      ["exportTranscript", ["meeting-123"], ["meeting-123", "txt"]],
+      ["listEngines", []],
+      ["getHealth", []],
+      ["voiceChat", ["meeting-123", formData]],
+      ["listLanguages", []],
+      ["translateText", ["hello", "en", "es"]],
+      ["translateMeetingTranscript", ["meeting-123", "fr"]],
+    ];
+
+    for (const [helperName, args, expectedArgs = args] of helperCases) {
+      await expect(apiModule[helperName](...args)).resolves.toEqual({
+        method: helperName,
+        args: expectedArgs,
+      });
+      expect(meetingApi[helperName]).toHaveBeenCalledWith(...expectedArgs);
+    }
+
+    await expect(apiModule.exchangeHostedSession("provider-jwt-123")).resolves.toEqual({
+      method: "exchangeHostedSession",
+      args: ["provider-jwt-123", "neon"],
+    });
+    expect(meetingApi.exchangeHostedSession).toHaveBeenCalledWith("provider-jwt-123", "neon");
+
+    await apiModule.createMeeting("Default Engine");
+    expect(meetingApi.createMeeting).toHaveBeenLastCalledWith("Default Engine", "whisper");
+
+    await apiModule.exportTranscript("meeting-456");
+    expect(meetingApi.exportTranscript).toHaveBeenLastCalledWith("meeting-456", "txt");
+  });
+
+  test("propagates SDK delegation failures from rewired meeting API helpers", async () => {
+    const meetingApi = createDelegatedMeetingApiMock();
+    const delegationError = new Error("sdk delegation failed");
+    meetingApi.getHealth.mockRejectedValueOnce(delegationError);
+    vi.doMock("@product-suite/sdk", () => ({
+      createMeetingApiClient: vi.fn(() => meetingApi),
+    }));
+    installFetchMock();
+
+    const { getHealth } = await import("../api.js");
+
+    await expect(getHealth()).rejects.toThrow("sdk delegation failed");
   });
 
   test("constructs hosted auth client with the React adapter export", async () => {

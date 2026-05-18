@@ -8,6 +8,7 @@ on:
     paths:
       - "apps/roadmap-web/**"
       - "packages/contracts/**"
+      - "packages/sdk/**"
       - "infra/supabase/**"
       - "package.json"
       - "bun.lock"
@@ -19,6 +20,7 @@ on:
     paths:
       - "apps/roadmap-web/**"
       - "packages/contracts/**"
+      - "packages/sdk/**"
       - "infra/supabase/**"
       - "package.json"
       - "bun.lock"
