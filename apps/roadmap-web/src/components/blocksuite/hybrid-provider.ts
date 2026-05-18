@@ -24,8 +24,13 @@
  */
 
 import * as Y from 'yjs'
-import type { SupabaseClient, RealtimeChannel } from '@supabase/supabase-js'
-import { saveYjsState, loadYjsState } from './storage-client'
+import type {
+  CanvasMetadataStore,
+  CanvasPersistenceAdapter,
+  CanvasRealtimeAdapter,
+  CanvasRealtimeConnection,
+  CanvasRealtimePayload,
+} from '@product-suite/ui-canvas'
 import {
   DEFAULT_DEBOUNCE_MS,
   isValidId,
@@ -46,8 +51,10 @@ export class HybridProvider {
   private doc: Y.Doc
   private documentId: string
   private teamId: string
-  private supabase: SupabaseClient
-  private channel: RealtimeChannel | null = null
+  private persistence: CanvasPersistenceAdapter
+  private realtime: CanvasRealtimeAdapter
+  private metadata: CanvasMetadataStore
+  private connection: CanvasRealtimeConnection | null = null
   private saveTimeout: ReturnType<typeof setTimeout> | null = null
   private debounceMs: number
   private syncVersion: number = 0
@@ -76,7 +83,9 @@ export class HybridProvider {
     this.doc = doc
     this.documentId = options.documentId
     this.teamId = options.teamId
-    this.supabase = options.supabase
+    this.persistence = options.persistence
+    this.realtime = options.realtime
+    this.metadata = options.metadata
     this.debounceMs = options.debounceMs ?? DEFAULT_DEBOUNCE_MS
     this.onConnectionChange = options.onConnectionChange
     this.onSyncError = options.onSyncError
@@ -149,10 +158,8 @@ export class HybridProvider {
     try {
       const state = Y.encodeStateAsUpdate(this.doc)
 
-      const result = await saveYjsState(
-        this.supabase,
-        this.teamId,
-        this.documentId,
+      const result = await this.persistence.saveState(
+        { teamId: this.teamId, documentId: this.documentId },
         state
       )
 
@@ -160,9 +167,12 @@ export class HybridProvider {
         // Update metadata in PostgreSQL
         // Note: Only increment syncVersion and clear isDirty after metadata update succeeds
         // to prevent desynchronization between local and database sync versions
-        const metadataSuccess = await this.updateMetadata(
-          result.size ?? state.length,
-          this.syncVersion + 1
+        const metadataSuccess = await this.metadata.updateMetadata(
+          { teamId: this.teamId, documentId: this.documentId },
+          {
+            sizeBytes: result.size ?? state.length,
+            syncVersion: this.syncVersion + 1,
+          }
         )
         if (metadataSuccess) {
           this.syncVersion++
@@ -207,50 +217,6 @@ export class HybridProvider {
   }
 
   /**
-   * Update document metadata in PostgreSQL
-   * Note: Explicit team_id filtering required per project conventions
-   * @param sizeBytes - Size of the saved state in bytes
-   * @param newSyncVersion - The new sync version to write (passed to ensure atomicity)
-   * @returns true if update succeeded, false otherwise
-   */
-  private async updateMetadata(
-    sizeBytes: number,
-    newSyncVersion: number
-  ): Promise<boolean> {
-    try {
-      // CRITICAL: Use .select() to verify rows were actually updated
-      // Without .select(), Supabase returns null error even when 0 rows match
-      const { data, error } = await this.supabase
-        .from('blocksuite_documents')
-        .update({
-          storage_size_bytes: sizeBytes,
-          last_sync_at: new Date().toISOString(),
-          sync_version: newSyncVersion,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', this.documentId)
-        .eq('team_id', this.teamId)
-        .select('id')
-
-      if (error) {
-        console.warn('[HybridProvider] Failed to update metadata:', error)
-        return false
-      }
-
-      // Verify at least one row was updated
-      if (!data || data.length === 0) {
-        console.warn('[HybridProvider] Metadata update matched 0 rows - document may not exist or team access denied')
-        return false
-      }
-
-      return true
-    } catch (error) {
-      console.warn('[HybridProvider] Metadata update error:', error)
-      return false
-    }
-  }
-
-  /**
    * Convert Uint8Array to base64 string safely (handles large arrays)
    * Uses chunked processing to avoid spread operator argument limits (~65K)
    */
@@ -272,23 +238,19 @@ export class HybridProvider {
    * Broadcast update to other clients via Supabase Realtime
    */
   private broadcast(update: Uint8Array): void {
-    if (!this.channel) return
+    if (!this.connection) return
 
     try {
       // Convert Uint8Array to base64 for transmission (chunked for large updates)
       const base64 = this.uint8ArrayToBase64(update)
 
-      const payload: YjsUpdatePayload = {
+      const payload: CanvasRealtimePayload = {
         update: base64,
         documentId: this.documentId,
         origin: 'local',
       }
 
-      this.channel.send({
-        type: 'broadcast',
-        event: 'yjs-update',
-        payload,
-      })
+      this.connection.sendUpdate(payload)
     } catch (error) {
       console.warn('[HybridProvider] Broadcast error:', error)
     }
@@ -299,11 +261,12 @@ export class HybridProvider {
    * SECURITY: Channel name uses validated documentId (validated in constructor)
    */
   private setupRealtimeChannel(): void {
-    this.channel = this.supabase
-      .channel(`blocksuite-${this.documentId}`)
-      .on('broadcast', { event: 'yjs-update' }, (message) => {
+    this.connection = this.realtime.connect(
+      { teamId: this.teamId, documentId: this.documentId },
+      {
+        onUpdate: (payloadCandidate) => {
         // SECURITY: Validate payload structure before processing
-        const validation = safeValidateYjsUpdatePayload(message.payload)
+        const validation = safeValidateYjsUpdatePayload(payloadCandidate)
         if (!validation.success) {
           console.warn(
             '[HybridProvider] Invalid broadcast payload received:',
@@ -339,11 +302,11 @@ export class HybridProvider {
         } catch (error) {
           console.warn('[HybridProvider] Failed to apply remote update:', error)
         }
-      })
-      .subscribe((status) => {
-        const connected = status === 'SUBSCRIBED'
+      },
+      onConnectionChange: (connected) => {
         this.onConnectionChange?.(connected)
-      })
+      },
+    })
   }
 
   /**
@@ -353,11 +316,10 @@ export class HybridProvider {
     if (this.isLoaded) return
 
     try {
-      const state = await loadYjsState(
-        this.supabase,
-        this.teamId,
-        this.documentId
-      )
+      const state = await this.persistence.loadState({
+        teamId: this.teamId,
+        documentId: this.documentId,
+      })
 
       if (state && state.length > 0) {
         // Apply loaded state with 'remote' origin
@@ -415,9 +377,9 @@ export class HybridProvider {
     if (this.saveTimeout) clearTimeout(this.saveTimeout)
 
     // Remove realtime channel
-    if (this.channel) {
-      this.supabase.removeChannel(this.channel)
-      this.channel = null
+    if (this.connection) {
+      this.connection.destroy()
+      this.connection = null
     }
 
     // Remove Yjs listener
