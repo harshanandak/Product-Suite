@@ -61,6 +61,8 @@ export class HybridProvider {
   private destroyed: boolean = false
   private isLoaded: boolean = false
   private isSaving: boolean = false // Mutex lock to prevent concurrent saves
+  private saveRequestedWhileSaving: boolean = false
+  private changeVersion: number = 0
   private onConnectionChange?: (connected: boolean) => void
   private onSyncError?: (error: Error) => void
 
@@ -113,6 +115,7 @@ export class HybridProvider {
     if (origin === 'remote') return
 
     this.isDirty = true
+    this.changeVersion++
 
     // Broadcast immediately for real-time sync
     this.broadcast(update)
@@ -150,10 +153,12 @@ export class HybridProvider {
     // Mutex lock: Skip if already saving to prevent concurrent writes
     if (this.isSaving) {
       console.log('[HybridProvider] Save already in progress, skipping')
+      this.saveRequestedWhileSaving = true
       return
     }
 
     this.isSaving = true
+    const saveVersion = this.changeVersion
     try {
       const state = Y.encodeStateAsUpdate(this.doc)
 
@@ -175,7 +180,11 @@ export class HybridProvider {
         )
         if (metadataSuccess) {
           this.syncVersion++
-          this.isDirty = false
+          if (this.changeVersion === saveVersion) {
+            this.isDirty = false
+          } else {
+            this.saveRequestedWhileSaving = true
+          }
         }
       } else {
         console.error('[HybridProvider] Failed to save:', result.error)
@@ -186,6 +195,12 @@ export class HybridProvider {
       this.onSyncError?.(error instanceof Error ? error : new Error(String(error)))
     } finally {
       this.isSaving = false
+      if (this.saveRequestedWhileSaving && this.isDirty && !this.destroyed) {
+        this.saveRequestedWhileSaving = false
+        await this.save()
+      } else {
+        this.saveRequestedWhileSaving = false
+      }
     }
   }
 

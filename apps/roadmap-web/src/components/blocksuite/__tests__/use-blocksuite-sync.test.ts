@@ -11,7 +11,11 @@ describe("useBlockSuiteSync boundary wiring", () => {
     expect(source).toContain("createSupabaseCanvasBoundary");
     expect(source).toContain("const canvasBoundary = useMemo");
     expect(source).toContain("...canvasBoundary");
-    const providerOptions = source.match(/new HybridProvider\(doc, \{([\s\S]*?)\n    \}\)/)?.[1] ?? "";
+    const providerOptionsMatch = source.match(
+      /new HybridProvider\(doc,\s*\{([\s\S]*?)\}\)/m,
+    );
+    expect(providerOptionsMatch).toBeTruthy();
+    const providerOptions = providerOptionsMatch![1];
     expect(providerOptions).not.toContain("supabase");
   });
 });

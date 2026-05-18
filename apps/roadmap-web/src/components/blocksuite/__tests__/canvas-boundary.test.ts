@@ -107,7 +107,7 @@ describe("canvas boundary adapters", () => {
     expect(supabase.calls).toContain("upload:team-1/doc-1.yjs:3");
     expect(supabase.calls).toContain("download:team-1/doc-1.yjs");
     expect(supabase.calls).toContain("from:blocksuite_documents");
-    expect(supabase.calls).toContain("channel:blocksuite-doc-1");
+    expect(supabase.calls).toContain("channel:blocksuite-team-1-doc-1");
     expect(supabase.calls).toContain("connected:true");
     expect(supabase.calls).toContain("update:doc-1");
     expect(supabase.calls).toContain("channel:send:doc-1");

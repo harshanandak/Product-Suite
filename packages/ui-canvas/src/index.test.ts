@@ -35,6 +35,7 @@ describe("ui-canvas boundary package", () => {
     expect(resolveCanvasEditorMode("canvas")).toBe("edgeless");
     expect(createCanvasRecordId(() => 123)).toBe("123-0");
     expect(createCanvasRecordId(() => 123)).toBe("123-1");
+    expect(createCanvasRecordId(() => 122)).toBe("123-2");
     expect(() => createCanvasRecordId(() => Number.NaN)).toThrow(TypeError);
   });
 

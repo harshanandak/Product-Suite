@@ -62,7 +62,7 @@ function createSupabaseRealtimeConnection(
   }
 ) {
   let channel: RealtimeChannel | null = supabase
-    .channel(`blocksuite-${identity.documentId}`)
+    .channel(`blocksuite-${identity.teamId}-${identity.documentId}`)
     .on('broadcast', { event: 'yjs-update' }, (message) => {
       handlers.onUpdate(message.payload)
     })

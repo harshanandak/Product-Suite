@@ -90,14 +90,14 @@ export function createCanvasRecordId(now = Date.now): string {
     throw new TypeError("createCanvasRecordId: now() must return a finite number");
   }
 
-  if (timestamp === lastTimestamp) {
+  if (timestamp <= lastTimestamp) {
     sequence += 1;
   } else {
     lastTimestamp = timestamp;
     sequence = 0;
   }
 
-  return `${timestamp}-${sequence}`;
+  return `${lastTimestamp}-${sequence}`;
 }
 
 export function createCanvasBoundary(boundary: CanvasBoundary): CanvasBoundary {
