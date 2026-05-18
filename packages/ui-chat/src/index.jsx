@@ -43,7 +43,7 @@ export function createChatRecordId(now = Date.now) {
 }
 
 export function formatChatTimestamp(timestamp) {
-  if (!timestamp) {
+  if (timestamp == null || timestamp === "") {
     return "";
   }
 

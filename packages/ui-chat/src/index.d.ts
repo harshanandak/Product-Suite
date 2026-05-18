@@ -56,6 +56,6 @@ export interface ChatThreadListProps {
 export function getChatMessageText(message?: ChatMessage | null): string;
 export function sortChatThreadsByUpdatedAt<T extends ChatThread>(threads?: T[]): T[];
 export function createChatRecordId(now?: () => number): string;
-export function formatChatTimestamp(timestamp?: string | null): string;
+export function formatChatTimestamp(timestamp?: string | number | null): string;
 export function ChatMessageList(props: ChatMessageListProps): ReactNode;
 export function ChatThreadList(props: ChatThreadListProps): ReactNode;

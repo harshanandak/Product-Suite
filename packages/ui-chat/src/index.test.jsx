@@ -65,6 +65,7 @@ describe("ui-chat shared chat block", () => {
     expect(createChatRecordId(() => 12345)).toBe("12345-1");
     expect(() => createChatRecordId(() => Number.NaN)).toThrow(TypeError);
     expect(formatChatTimestamp("not-a-date")).toBe("not-a-date");
+    expect(formatChatTimestamp(0)).not.toBe("");
     expect(formatChatTimestamp(null)).toBe("");
   });
 });
