@@ -5,7 +5,7 @@ Date: 2026-05-18
 ## Scope Verified
 
 - `docs/plans/building-blocks-transformation-pr-plan.md` names `PR8 Meeting Block Extraction` as the next slice after merged PR7.
-- GitHub PR #8 merged PR7 into `main`, and there are no open PRs.
+- GitHub PR #8 merged PR7 into `main` before this PR8 slice started.
 - Beads issue `product-suite-613` tracks this PR8 slice.
 
 ## Codebase Findings

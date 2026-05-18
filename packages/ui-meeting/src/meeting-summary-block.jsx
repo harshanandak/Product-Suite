@@ -170,6 +170,7 @@ export function MeetingSummaryBlock({
   const sections = summaryState.sections || [];
   const recentLines = summaryState.recentLines || [];
   const meetingState = summaryState.meetingState || {};
+  const canCreateMeeting = typeof onCreateMeeting === "function";
   const canStartRecording = hasActiveMeeting && typeof onStartRecording === "function" && !isRecording && !isPaused;
   const canPauseRecording = hasActiveMeeting && typeof onPauseRecording === "function" && isRecording && !isPaused;
   const canResumeRecording = hasActiveMeeting && typeof onResumeRecording === "function" && isPaused;
@@ -198,7 +199,8 @@ export function MeetingSummaryBlock({
               </p>
               <button
                 type="button"
-                onClick={onCreateMeeting}
+                onClick={canCreateMeeting ? onCreateMeeting : undefined}
+                disabled={!canCreateMeeting}
                 className="mt-8 inline-flex rounded-full border border-primary/35 bg-[linear-gradient(180deg,hsl(229,68%,52%),hsl(231,76%,34%))] px-6 py-3 text-sm font-semibold text-primary-foreground transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Create a meeting

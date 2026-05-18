@@ -54,6 +54,16 @@ describe("MeetingSummaryBlock source module", () => {
     expect((wiredHtml.match(/disabled=""/g) || []).length).toBe(3);
   });
 
+  test("disables the first-meeting create control when the shell handler is not provided", () => {
+    const readOnlyHtml = renderToStaticMarkup(<MeetingSummaryBlock />);
+    const wiredHtml = renderToStaticMarkup(<MeetingSummaryBlock onCreateMeeting={() => {}} />);
+
+    expect(readOnlyHtml).toContain(">Create a meeting</button>");
+    expect(readOnlyHtml).toContain("disabled=\"\"");
+    expect(wiredHtml).toContain(">Create a meeting</button>");
+    expect(wiredHtml).not.toContain("disabled=\"\"");
+  });
+
   test("exports generated record helpers from the source module", () => {
     expect(formatConfidence(0.91)).toBe("Confidence 91%");
     expect(resolveStatusLabel({ review_status: "promoted" })).toBe("System promoted");
