@@ -18,6 +18,7 @@ const nextConfig: NextConfig = {
     "@blocksuite/inline",
     "@blocksuite/block-std",
     "@blocksuite/global",
+    "@product-suite/ui-meeting",
   ],
 
   // Point Turbopack at the monorepo root so hoisted workspace dependencies resolve.

@@ -8,6 +8,9 @@ export default defineConfig({
       "@product-suite/contracts": fileURLToPath(
         new URL("../../packages/contracts/src/index.js", import.meta.url),
       ),
+      "@product-suite/ui-meeting": fileURLToPath(
+        new URL("../../packages/ui-meeting/src/index.js", import.meta.url),
+      ),
     },
   },
   test: {

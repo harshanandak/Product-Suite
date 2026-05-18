@@ -6,6 +6,7 @@ import { MultiPhaseProgressBar } from '@/components/workspaces/multi-phase-progr
 import { ActivityFeed } from '@/components/workspaces/activity-feed';
 import { ContextualOnboarding } from './contextual-onboarding';
 import { ModeAwareDashboard } from '@/components/dashboard/mode-aware-dashboard';
+import { WorkspaceMeetingSurface } from '@/components/meetings/workspace-meeting-surface';
 import { type WorkspaceMode } from '@/lib/types/workspace-mode';
 import type { Team } from '@/lib/types/team';
 import type { Database } from '@/lib/supabase/types';
@@ -96,6 +97,8 @@ export function DashboardView({
           teamSize={teamSize}
           phaseDistribution={phaseDistribution}
         />
+
+        <WorkspaceMeetingSurface workspaceName={workspace.name} />
 
         {/* Description */}
         {workspace.description && (

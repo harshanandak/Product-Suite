@@ -10,6 +10,7 @@ on:
       - "docs/**"
       - "packages/contracts/**"
       - "packages/sdk/**"
+      - "packages/ui-meeting/**"
       - "test/**"
       - "scripts/**"
       - "package.json"
@@ -27,6 +28,7 @@ on:
       - "docs/**"
       - "packages/contracts/**"
       - "packages/sdk/**"
+      - "packages/ui-meeting/**"
       - "test/**"
       - "scripts/**"
       - "package.json"
@@ -61,4 +63,4 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Run root tooling tests
-        run: bun run test:contracts && bun run test:repo-tooling
+        run: bun run test:contracts && bun run test:ui-meeting && bun run test:repo-tooling

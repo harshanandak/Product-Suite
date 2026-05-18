@@ -95,6 +95,17 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "src"),
+        "@product-suite/ui-meeting": path.resolve(__dirname, "../../packages/ui-meeting/src/index.js"),
+      },
+    },
+    ssr: {
+      noExternal: ["@product-suite/ui-meeting"],
+    },
+    test: {
+      server: {
+        deps: {
+          inline: ["@product-suite/ui-meeting"],
+        },
       },
     },
   };
