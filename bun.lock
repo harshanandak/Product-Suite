@@ -20,6 +20,7 @@
         "@neondatabase/neon-js": "^0.6.1-beta",
         "@product-suite/contracts": "workspace:*",
         "@product-suite/sdk": "workspace:*",
+        "@product-suite/ui-chat": "workspace:*",
         "@product-suite/ui-meeting": "workspace:*",
         "@radix-ui/react-accordion": "^1.2.8",
         "@radix-ui/react-alert-dialog": "^1.1.11",
@@ -114,6 +115,7 @@
         "@omts/dag-sort": "^0.0.1",
         "@openrouter/ai-sdk-provider": "^2.0.0",
         "@product-suite/contracts": "workspace:*",
+        "@product-suite/ui-chat": "workspace:*",
         "@product-suite/ui-meeting": "workspace:*",
         "@radix-ui/react-accordion": "^1.2.12",
         "@radix-ui/react-alert-dialog": "^1.1.15",
@@ -214,6 +216,14 @@
       "version": "0.0.0",
       "dependencies": {
         "@product-suite/contracts": "workspace:*",
+      },
+    },
+    "packages/ui-chat": {
+      "name": "@product-suite/ui-chat",
+      "version": "0.0.0",
+      "peerDependencies": {
+        "react": ">=19",
+        "react-dom": ">=19",
       },
     },
     "packages/ui-meeting": {
@@ -752,6 +762,8 @@
     "@product-suite/contracts": ["@product-suite/contracts@workspace:packages/contracts"],
 
     "@product-suite/sdk": ["@product-suite/sdk@workspace:packages/sdk"],
+
+    "@product-suite/ui-chat": ["@product-suite/ui-chat@workspace:packages/ui-chat"],
 
     "@product-suite/ui-meeting": ["@product-suite/ui-meeting@workspace:packages/ui-meeting"],
 

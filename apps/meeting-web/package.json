@@ -9,6 +9,7 @@
     "@hookform/resolvers": "^5.0.1",
     "@product-suite/contracts": "workspace:*",
     "@product-suite/sdk": "workspace:*",
+    "@product-suite/ui-chat": "workspace:*",
     "@product-suite/ui-meeting": "workspace:*",
     "@neondatabase/neon-js": "^0.6.1-beta",
     "@radix-ui/react-accordion": "^1.2.8",

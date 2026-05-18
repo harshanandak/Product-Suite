@@ -1,0 +1,21 @@
+{
+  "name": "@product-suite/ui-chat",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    }
+  },
+  "scripts": {
+    "build": "bun build src/index.jsx --outfile src/index.js --target=browser --format=esm --external react",
+    "test": "bun run build && bun test"
+  },
+  "peerDependencies": {
+    "react": ">=19",
+    "react-dom": ">=19"
+  }
+}

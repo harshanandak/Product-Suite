@@ -11,6 +11,8 @@ Run validation from the repo root so every deployable uses one documented entryp
     3. `bun run validate:meeting-api`
 - `bun run test:contracts`
   - runs the shared contracts package guard/unit tests in `packages/contracts`
+- `bun run test:ui-chat`
+  - runs the shared chat UI package tests in `packages/ui-chat`
 - `bun run test:ui-meeting`
   - runs the shared meeting UI package tests in `packages/ui-meeting`
 - `bun run validate:meeting-web`
@@ -30,10 +32,11 @@ Run validation from the repo root so every deployable uses one documented entryp
 
 1. Run `bun install` for the JavaScript workspaces.
 2. Run `bun run test:contracts` after changing `packages/contracts` so the shared wire-contract package stays honest.
-3. Run `bun run test:ui-meeting` after changing `packages/ui-meeting` so the shared meeting block stays reusable.
-4. Ensure Python `3.13` is available for the Meeting API toolchain.
-5. Run `bun run install:meeting-api` for the Python backend dependencies.
-6. Run `bun run validate` from the repo root.
+3. Run `bun run test:ui-chat` after changing `packages/ui-chat` so the shared chat block stays reusable.
+4. Run `bun run test:ui-meeting` after changing `packages/ui-meeting` so the shared meeting block stays reusable.
+5. Ensure Python `3.13` is available for the Meeting API toolchain.
+6. Run `bun run install:meeting-api` for the Python backend dependencies.
+7. Run `bun run validate` from the repo root.
 
 If only Python `3.14+` is installed, `bun run install:meeting-api` fails intentionally. The backend pins dependency versions that are currently validated in CI on Python `3.13`.
 
@@ -52,7 +55,7 @@ Use the same `db_url` pattern as CI, adjusted for your local database.
 - `.github/workflows/meeting-web-ci.yml` validates the same Meeting Web lint, test, and build sequence.
 - `.github/workflows/roadmap-web-ci.yml` validates the same Roadmap Web lint, typecheck, unit-test, and build sequence.
 - `.github/workflows/meeting-api-ci.yml` installs backend dependencies, runs Meeting API lint, applies migrations, and runs pytest.
-- `.github/workflows/repo-tooling-ci.yml` watches `packages/contracts/**` and runs the repo tooling guard plus the shared contracts package tests.
+- `.github/workflows/repo-tooling-ci.yml` watches shared package paths and runs the repo tooling guard plus shared package tests.
 - The Meeting API lint baseline is intentionally limited to fatal flake8 categories in PR2 so root validation is truthful without pulling existing style debt into this slice.
 
 If CI behavior changes, update this document and the root scripts together so local validation and CI keep telling the same story.
