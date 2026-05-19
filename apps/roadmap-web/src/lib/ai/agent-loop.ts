@@ -1,28 +1,18 @@
 /**
- * Agent Loop for Autonomous Task Execution
+ * Compatibility exports for autonomous task execution.
  *
- * Executes task plans step by step with:
- * - Progress reporting
- * - Error handling and recovery
- * - Cancellation support
- * - Result aggregation
- *
- * Safety features:
- * - Maximum execution time (5 minutes)
- * - Maximum steps (10)
- * - Cancel at any time
- * - Full execution log
+ * Multi-step plan orchestration is service-owned by
+ * executeTaskPlanWithAgentCore in agent-core-adapter.ts. This module keeps the
+ * older Roadmap import surface stable for routes and components.
  */
 
 import {
   TaskPlan,
   TaskStep,
-  updatePlanStatus,
   updateStepStatus,
-  getNextPendingStep,
-  formatPlanSummary,
 } from './task-planner'
 import { toolRegistry } from './tools/tool-registry'
+import { executeTaskPlanWithAgentCore } from './agent-core-adapter'
 
 // =============================================================================
 // TYPES
@@ -94,10 +84,6 @@ export interface ExecutionOptions {
 // CONSTANTS
 // =============================================================================
 
-const DEFAULT_MAX_EXECUTION_TIME = 5 * 60 * 1000 // 5 minutes
-const DEFAULT_STEP_DELAY = 500 // 500ms between steps
-const MAX_RETRIES = 1 // Retry failed steps once
-
 // =============================================================================
 // TOOL EXECUTION
 // =============================================================================
@@ -167,7 +153,11 @@ async function executeTool(
 // =============================================================================
 
 /**
- * Execute a task plan
+ * Execute a task plan by delegating to executeTaskPlanWithAgentCore.
+ *
+ * The authoritative execution defaults and limits live in the agent-core
+ * service behind executeTaskPlanWithAgentCore; this wrapper preserves the
+ * existing executeTaskPlan import path.
  *
  * @param plan The task plan to execute
  * @param options Execution options
@@ -177,130 +167,7 @@ export async function executeTaskPlan(
   plan: TaskPlan,
   options: ExecutionOptions = {}
 ): Promise<ExecutionResult> {
-  const {
-    onProgress,
-    cancelSignal,
-    maxExecutionTime = DEFAULT_MAX_EXECUTION_TIME,
-    stepDelay = DEFAULT_STEP_DELAY,
-  } = options
-
-  const startTime = Date.now()
-  let currentPlan = updatePlanStatus(plan, 'executing')
-  const results: Record<string, unknown> = {}
-  const errors: string[] = []
-
-  console.log(`[AgentLoop] Starting execution of plan: ${plan.id}`)
-  console.log(`[AgentLoop] Steps: ${plan.steps.length}, Max time: ${maxExecutionTime}ms`)
-
-  // Main execution loop
-  while (true) {
-    // Check cancellation
-    if (cancelSignal?.cancelled) {
-      console.log('[AgentLoop] Execution cancelled by user')
-      currentPlan = updatePlanStatus(currentPlan, 'cancelled')
-      break
-    }
-
-    // Check timeout
-    if (Date.now() - startTime > maxExecutionTime) {
-      console.log('[AgentLoop] Execution timed out')
-      errors.push('Execution timed out after ' + Math.round(maxExecutionTime / 1000) + ' seconds')
-      currentPlan = updatePlanStatus(currentPlan, 'failed')
-      break
-    }
-
-    // Get next step
-    const nextStep = getNextPendingStep(currentPlan)
-    if (!nextStep) {
-      // No more pending steps - check if all completed
-      const allCompleted = currentPlan.steps.every(
-        s => s.status === 'completed' || s.status === 'skipped'
-      )
-      if (allCompleted) {
-        console.log('[AgentLoop] All steps completed successfully')
-        currentPlan = updatePlanStatus(currentPlan, 'completed')
-      } else {
-        // Some steps failed
-        console.log('[AgentLoop] Execution finished with failures')
-        currentPlan = updatePlanStatus(currentPlan, 'failed')
-      }
-      break
-    }
-
-    // Update step to running
-    currentPlan = updateStepStatus(currentPlan, nextStep.id, 'running')
-    onProgress?.(nextStep, currentPlan, `Executing: ${nextStep.description}`)
-
-    // Execute the step
-    console.log(`[AgentLoop] Executing step ${nextStep.order}: ${nextStep.description}`)
-    let execResult = await executeTool(nextStep.toolName, nextStep.params)
-
-    // Retry on failure
-    if (!execResult.success && MAX_RETRIES > 0) {
-      console.log(`[AgentLoop] Step ${nextStep.id} failed, retrying...`)
-      await new Promise(resolve => setTimeout(resolve, stepDelay))
-      execResult = await executeTool(nextStep.toolName, nextStep.params)
-    }
-
-    // Update step result
-    if (execResult.success) {
-      results[nextStep.id] = execResult.result
-      currentPlan = updateStepStatus(
-        currentPlan,
-        nextStep.id,
-        'completed',
-        execResult.result
-      )
-      onProgress?.(
-        { ...nextStep, status: 'completed' },
-        currentPlan,
-        `Completed: ${nextStep.description}`
-      )
-      console.log(`[AgentLoop] Step ${nextStep.order} completed`)
-    } else {
-      errors.push(`Step ${nextStep.order} (${nextStep.toolName}): ${execResult.error}`)
-      currentPlan = updateStepStatus(
-        currentPlan,
-        nextStep.id,
-        'failed',
-        undefined,
-        execResult.error
-      )
-      onProgress?.(
-        { ...nextStep, status: 'failed', error: execResult.error },
-        currentPlan,
-        `Failed: ${nextStep.description}`
-      )
-      console.log(`[AgentLoop] Step ${nextStep.order} failed:`, execResult.error)
-
-      // Stop on first failure (can be changed to continue-on-failure mode)
-      currentPlan = updatePlanStatus(currentPlan, 'failed')
-      break
-    }
-
-    // Delay between steps (for rate limiting and UI updates)
-    await new Promise(resolve => setTimeout(resolve, stepDelay))
-  }
-
-  // Calculate final stats
-  const completedSteps = currentPlan.steps.filter(s => s.status === 'completed').length
-  const executionTime = Date.now() - startTime
-
-  // Generate summary
-  const summary = formatPlanSummary(currentPlan)
-  currentPlan = { ...currentPlan, summary }
-
-  console.log(`[AgentLoop] Execution finished: ${completedSteps}/${currentPlan.steps.length} steps in ${executionTime}ms`)
-
-  return {
-    success: currentPlan.status === 'completed',
-    completedSteps,
-    totalSteps: currentPlan.steps.length,
-    results,
-    errors,
-    executionTime,
-    plan: currentPlan,
-  }
+  return executeTaskPlanWithAgentCore(plan, options)
 }
 
 // =============================================================================

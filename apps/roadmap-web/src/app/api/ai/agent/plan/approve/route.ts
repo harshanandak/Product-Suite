@@ -18,7 +18,8 @@
 
 import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { executeTaskPlan, createCancelSignal, type CancelSignal } from '@/lib/ai/agent-loop'
+import { executeTaskPlanWithAgentCore as executeTaskPlan } from '@/lib/ai/agent-core-adapter'
+import { createCancelSignal, type CancelSignal } from '@/lib/ai/agent-loop'
 import type { TaskPlan } from '@/lib/ai/task-planner'
 
 // Store cancel signals by plan ID (for cancellation endpoint)
