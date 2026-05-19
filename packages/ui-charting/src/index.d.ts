@@ -32,8 +32,8 @@ export interface MetricCardProps {
 
 export function formatTrendValue(trend?: TrendRecord): string;
 export function normalizeChartData(
-  rows?: ChartDataRecord[],
+  rows?: unknown,
   options?: NormalizeChartDataOptions,
 ): NormalizedChartDatum[];
-export function sortChartDataByValue<T extends ChartDataRecord>(rows?: T[]): T[];
+export function sortChartDataByValue<T extends ChartDataRecord>(rows?: readonly T[] | null): T[];
 export function MetricCard(props: MetricCardProps): ReactNode;

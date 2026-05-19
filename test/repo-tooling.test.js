@@ -29,6 +29,10 @@ const roadmapWebEnvExample = readFileSync(
   join(rootDir, "apps", "roadmap-web", ".env.example"),
   "utf8",
 );
+const roadmapNextConfig = readFileSync(
+  join(rootDir, "apps", "roadmap-web", "next.config.ts"),
+  "utf8",
+);
 const meetingApiWorkflow = readFileSync(
   join(rootDir, ".github", "workflows", "meeting-api-ci.yml"),
   "utf8",
@@ -79,6 +83,7 @@ describe("repo tooling", () => {
     expect(packageJson.scripts["check:source-test"]).toBeDefined();
     expect(packageJson.scripts["check:source-test"]).toContain("check-source-test-coupling");
     expect(packageJson.scripts["test:repo-tooling"]).toContain("check-source-test-coupling.test.js");
+    expect(packageJson.scripts["test:prepush"]).toContain("check:source-test");
     expect(lefthookConfig).toContain("pre-commit:");
     expect(lefthookConfig).toContain("bun run check:source-test");
   });
@@ -166,6 +171,9 @@ describe("repo tooling", () => {
     );
     expect(buildingBlocksPlan).toContain(
       "docs/plans/2026-05-18-pr11-planning-and-charting-blocks-tasks.md",
+    );
+    expect(buildingBlocksPlan).toContain(
+      "docs/plans/2026-05-18-pr11-planning-and-charting-blocks-decisions.md",
     );
     expect(buildingBlocksPlan).not.toContain("PR4 is in progress");
     expect(buildingBlocksPlan).not.toContain("PR5+ need planning");
@@ -257,6 +265,8 @@ describe("repo tooling", () => {
     expect(roadmapWebPlaywrightWorkflow).toContain('"package.json"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"bun.lock"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"infra/supabase/**"');
+    expect(roadmapNextConfig).toContain('"@product-suite/ui-planning"');
+    expect(roadmapNextConfig).toContain('"@product-suite/ui-charting"');
     expect(meetingApiWorkflow).toContain('"packages/contracts/**"');
     expect(meetingApiWorkflow).toContain('"packages/sdk/**"');
     expect(meetingApiWorkflow).toContain('"test/**"');

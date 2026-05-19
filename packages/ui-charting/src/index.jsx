@@ -5,6 +5,10 @@ function toFiniteNumber(value) {
   return Number.isFinite(number) ? number : 0;
 }
 
+function toArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
 export function formatTrendValue(trend) {
   if (!trend) return "";
 
@@ -15,10 +19,11 @@ export function formatTrendValue(trend) {
 }
 
 export function normalizeChartData(rows = [], options = {}) {
+  const safeRows = toArray(rows);
   const nameKey = options.nameKey ?? "name";
   const valueKey = options.valueKey ?? "value";
 
-  return rows.map((row) => {
+  return safeRows.map((row) => {
     const nameCandidate = row?.[nameKey] ?? row?.name;
     const name = typeof nameCandidate === "string" && nameCandidate.trim() ? nameCandidate : "Untitled";
     return {
@@ -29,7 +34,7 @@ export function normalizeChartData(rows = [], options = {}) {
 }
 
 export function sortChartDataByValue(rows = []) {
-  return [...rows].sort((left, right) => toFiniteNumber(right?.value) - toFiniteNumber(left?.value));
+  return [...toArray(rows)].sort((left, right) => toFiniteNumber(right?.value) - toFiniteNumber(left?.value));
 }
 
 export function MetricCard({

@@ -3,6 +3,7 @@
 Beads: `product-suite-w4r`
 Branch: `feat/pr11-planning-and-charting-blocks`
 Status: locally validated for ship on 2026-05-19
+Decisions: `docs/plans/2026-05-18-pr11-planning-and-charting-blocks-decisions.md`
 
 ## Task 1: Register Shared Planning And Charting Packages
 

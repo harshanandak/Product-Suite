@@ -251,6 +251,7 @@ This file is the durable execution plan for the multi-PR transformation of Produ
   - `docs/research/pr11-planning-and-charting-blocks.md`
   - `docs/plans/2026-05-18-pr11-planning-and-charting-blocks-design.md`
   - `docs/plans/2026-05-18-pr11-planning-and-charting-blocks-tasks.md`
+  - `docs/plans/2026-05-18-pr11-planning-and-charting-blocks-decisions.md`
 - Checklist:
   - create `packages/ui-planning`
   - create `packages/ui-charting`

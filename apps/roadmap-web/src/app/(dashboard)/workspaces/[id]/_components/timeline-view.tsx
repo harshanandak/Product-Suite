@@ -72,11 +72,12 @@ export function TimelineView({
           targetId: link.target_id,
           type: link.link_type || 'relates_to',
         }));
+      const normalizedPhase = normalizeTimelinePhase(item.timeline_phase);
 
       return {
         id: item.id,
         name: item.name || item.title || 'Untitled',
-        timeline_phase: normalizeTimelinePhase(item.timeline_phase) as 'MVP' | 'SHORT' | 'LONG',
+        timeline_phase: normalizedPhase === 'UNASSIGNED' ? 'MVP' : normalizedPhase,
         status: item.status || 'planned',
         priority: item.priority,
         planned_start_date: item.start_date || item.planned_start_date,

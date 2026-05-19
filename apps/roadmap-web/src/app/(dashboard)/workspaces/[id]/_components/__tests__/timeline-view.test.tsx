@@ -10,5 +10,6 @@ describe('TimelineView shared planning integration', () => {
   test('normalizes timeline phases through the shared planning package', () => {
     expect(source).toContain('@product-suite/ui-planning')
     expect(source).toContain('normalizeTimelinePhase(item.timeline_phase)')
+    expect(source).toContain("normalizedPhase === 'UNASSIGNED' ? 'MVP' : normalizedPhase")
   })
 })

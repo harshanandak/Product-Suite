@@ -4,6 +4,7 @@ Feature: `pr11-planning-and-charting-blocks`
 Date: 2026-05-18
 Status: locally validated for ship
 Beads: `product-suite-w4r`
+Decisions: `docs/plans/2026-05-18-pr11-planning-and-charting-blocks-decisions.md`
 
 ## Purpose
 

@@ -48,6 +48,7 @@ export function PlanningSummaryBlock({
   title = "Planning",
   items = [],
   emptyLabel = "No planning items yet.",
+  children,
 }) {
   return (
     <section className="ps-planning-summary" aria-label={title}>
@@ -69,6 +70,7 @@ export function PlanningSummaryBlock({
           ))}
         </ul>
       )}
+      {children}
     </section>
   );
 }

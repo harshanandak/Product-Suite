@@ -48,6 +48,13 @@ describe("ui-charting shared charting block", () => {
     expect(rows).toEqual(originalRows);
   });
 
+  test("falls back safely for null and non-array chart inputs", () => {
+    for (const invalidRows of [null, undefined, "bad", 123, { name: "Backlog", value: 3 }]) {
+      expect(normalizeChartData(invalidRows)).toEqual([]);
+      expect(sortChartDataByValue(invalidRows)).toEqual([]);
+    }
+  });
+
   test("exports deterministic chart helpers", () => {
     const rows = [
       { name: "Small", value: 1 },

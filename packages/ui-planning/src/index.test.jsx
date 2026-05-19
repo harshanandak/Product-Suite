@@ -23,7 +23,9 @@ describe("ui-planning shared planning block", () => {
             timelinePhase: "MVP",
           },
         ]}
-      />,
+      >
+        <span>Composed planning footer</span>
+      </PlanningSummaryBlock>,
     );
     const emptyHtml = renderToStaticMarkup(<PlanningSummaryBlock title="Launch Plan" items={[]} />);
 
@@ -32,6 +34,7 @@ describe("ui-planning shared planning block", () => {
     expect(html).toContain("in progress");
     expect(html).toContain("high");
     expect(html).toContain("MVP");
+    expect(html).toContain("Composed planning footer");
     expect(emptyHtml).toContain("No planning items yet.");
   });
 
