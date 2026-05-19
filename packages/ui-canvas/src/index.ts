@@ -6,6 +6,10 @@ export interface CanvasIdentity {
   documentId: string;
 }
 
+export interface CanvasCollaborationIdentity extends CanvasIdentity {
+  userId: string;
+}
+
 export interface CanvasStorageResult {
   success: boolean;
   size?: number;
@@ -75,9 +79,24 @@ export function assertCanvasIdentity(identity: CanvasIdentity): CanvasIdentity {
   return identity;
 }
 
+export function validateCanvasCollaborationIdentity(
+  identity: CanvasCollaborationIdentity,
+): CanvasCollaborationIdentity {
+  assertCanvasIdentity(identity);
+  if (!isValidCanvasId(identity.userId)) {
+    throw new Error(`Invalid userId: ${identity.userId}`);
+  }
+  return identity;
+}
+
 export function createCanvasStoragePath(identity: CanvasIdentity): string {
   const safeIdentity = assertCanvasIdentity(identity);
   return `${safeIdentity.teamId}/${safeIdentity.documentId}.yjs`;
+}
+
+export function createCanvasCollaborationRoomName(identity: CanvasIdentity): string {
+  const safeIdentity = assertCanvasIdentity(identity);
+  return `canvas:${safeIdentity.teamId}:${safeIdentity.documentId}`;
 }
 
 export function resolveCanvasEditorMode(documentType: CanvasDocumentType = "mindmap"): CanvasEditorMode {

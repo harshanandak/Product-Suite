@@ -5,6 +5,7 @@ import {
   type CanvasIdentity,
   type CanvasRealtimePayload,
 } from '@product-suite/ui-canvas'
+import { createHocuspocusDocumentName } from '@product-suite/hocuspocus'
 import { SHARED_CANVAS_DOCUMENT_TABLE } from '@/lib/supabase/shared-contracts'
 import { loadYjsState, saveYjsState } from './storage-client'
 
@@ -61,8 +62,9 @@ function createSupabaseRealtimeConnection(
     onConnectionChange?: (connected: boolean) => void
   }
 ) {
+  const documentName = createHocuspocusDocumentName(identity)
   let channel: RealtimeChannel | null = supabase
-    .channel(`blocksuite-${identity.teamId}-${identity.documentId}`)
+    .channel(documentName)
     .on('broadcast', { event: 'yjs-update' }, (message) => {
       handlers.onUpdate(message.payload)
     })

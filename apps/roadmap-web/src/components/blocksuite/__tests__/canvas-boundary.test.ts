@@ -77,6 +77,9 @@ describe("canvas boundary adapters", () => {
   test("keeps Supabase in the roadmap adapter and out of HybridProvider", () => {
     expect(boundarySource).toContain("@supabase/supabase-js");
     expect(boundarySource).toContain("@product-suite/ui-canvas");
+    expect(boundarySource).toContain("@product-suite/hocuspocus");
+    expect(boundarySource).toContain("createHocuspocusDocumentName");
+    expect(boundarySource).not.toContain(".channel(`blocksuite-");
     expect(hybridProviderSource).not.toContain("@supabase/supabase-js");
     expect(hybridProviderSource).toContain("CanvasPersistenceAdapter");
     expect(hybridProviderSource).toContain("CanvasRealtimeAdapter");
@@ -107,7 +110,7 @@ describe("canvas boundary adapters", () => {
     expect(supabase.calls).toContain("upload:team-1/doc-1.yjs:3");
     expect(supabase.calls).toContain("download:team-1/doc-1.yjs");
     expect(supabase.calls).toContain("from:blocksuite_documents");
-    expect(supabase.calls).toContain("channel:blocksuite-team-1-doc-1");
+    expect(supabase.calls).toContain("channel:canvas:team-1:doc-1");
     expect(supabase.calls).toContain("connected:true");
     expect(supabase.calls).toContain("update:doc-1");
     expect(supabase.calls).toContain("channel:send:doc-1");

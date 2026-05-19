@@ -7,10 +7,12 @@ import {
   DEFAULT_CANVAS_SYNC_DEBOUNCE_MS,
   assertCanvasIdentity,
   createCanvasBoundary,
+  createCanvasCollaborationRoomName,
   createCanvasRecordId,
   createCanvasStoragePath,
   isValidCanvasId,
   resolveCanvasEditorMode,
+  validateCanvasCollaborationIdentity,
 } from "./index";
 
 const source = readFileSync(join(import.meta.dir, "index.ts"), "utf8");
@@ -97,5 +99,34 @@ describe("ui-canvas boundary package", () => {
     expect(source).not.toContain("@supabase");
     expect(source).not.toContain("next/");
     expect(source).not.toContain("@blocksuite");
+  });
+
+  test("defines canonical realtime collaboration identities and room names", () => {
+    const identity = validateCanvasCollaborationIdentity({
+      teamId: "team-1",
+      documentId: "doc_2",
+      userId: "user-3",
+    });
+
+    expect(identity).toEqual({
+      teamId: "team-1",
+      documentId: "doc_2",
+      userId: "user-3",
+    });
+    expect(createCanvasCollaborationRoomName(identity)).toBe("canvas:team-1:doc_2");
+    expect(() =>
+      validateCanvasCollaborationIdentity({
+        teamId: "team-1",
+        documentId: "../doc",
+        userId: "user-3",
+      }),
+    ).toThrow(/Invalid documentId/);
+    expect(() =>
+      validateCanvasCollaborationIdentity({
+        teamId: "team-1",
+        documentId: "doc-2",
+        userId: "",
+      }),
+    ).toThrow(/Invalid userId/);
   });
 });

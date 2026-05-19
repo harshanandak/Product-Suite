@@ -3,7 +3,23 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./server": {
+      "types": "./src/server.ts",
+      "default": "./src/server.ts"
+    }
+  },
   "scripts": {
-    "test": "bun test src/index.test.ts"
+    "test": "bun test src/*.test.ts"
+  },
+  "dependencies": {
+    "@hocuspocus/server": "^4.0.0",
+    "@product-suite/ui-canvas": "workspace:*",
+    "yjs": "^13.6.30"
   }
 }
