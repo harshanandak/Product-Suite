@@ -30,7 +30,7 @@ This file is the durable execution plan for the multi-PR transformation of Produ
 - `PR8 Meeting Block Extraction`: merged and verified
 - `PR9 Chat Block Extraction`: merged and verified
 - `PR10 Canvas Boundary Extraction`: merged and verified
-- `PR11 Planning And Charting Blocks`: active on `feat/pr11-planning-and-charting-blocks`
+- `PR11 Planning And Charting Blocks`: active on `feat/pr11-planning-and-charting-blocks`; locally validated for PR ship
 - `PR12+`: still need planning and execution as tracked work slices
 
 ## Global Rules

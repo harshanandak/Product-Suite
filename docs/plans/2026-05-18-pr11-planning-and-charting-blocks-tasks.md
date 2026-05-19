@@ -2,6 +2,7 @@
 
 Beads: `product-suite-w4r`
 Branch: `feat/pr11-planning-and-charting-blocks`
+Status: locally validated for ship on 2026-05-19
 
 ## Task 1: Register Shared Planning And Charting Packages
 
@@ -77,3 +78,13 @@ TDD steps:
 5. Commit any final docs-only state update and ship PR.
 
 Expected output: PR11 is open with package tests, app validation, repo-tooling validation, and full pre-push evidence.
+
+Validation evidence captured before shipping:
+
+- `bun run check:source-test`
+- `bun run test:ui-planning`
+- `bun run test:ui-charting`
+- `bun run test:repo-tooling`
+- `bun run --cwd apps/roadmap-web test src/components/analytics/__tests__/pr11-shared-packages.test.tsx src/components/analytics/metric-card.test.tsx "src/app/(dashboard)/workspaces/[id]/_components/__tests__/timeline-view.test.tsx"`
+- `bun run --cwd apps/roadmap-web typecheck`
+- `bun run test:prepush`

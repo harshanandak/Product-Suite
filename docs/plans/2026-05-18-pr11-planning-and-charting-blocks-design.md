@@ -2,7 +2,7 @@
 
 Feature: `pr11-planning-and-charting-blocks`
 Date: 2026-05-18
-Status: planned
+Status: locally validated for ship
 Beads: `product-suite-w4r`
 
 ## Purpose
@@ -76,3 +76,15 @@ TDD scenarios:
 3. `ui-charting` renders metric card value, description, and trend affordance without Roadmap imports.
 4. Repo-tooling test fails until workspace/scripts/CI/docs include the new packages.
 5. Roadmap integration test fails until Roadmap consumes package exports.
+
+## Validation Evidence
+
+Captured on 2026-05-19 before shipping PR11:
+
+- `bun run check:source-test`
+- `bun run test:ui-planning`
+- `bun run test:ui-charting`
+- `bun run test:repo-tooling`
+- `bun run --cwd apps/roadmap-web test src/components/analytics/__tests__/pr11-shared-packages.test.tsx src/components/analytics/metric-card.test.tsx "src/app/(dashboard)/workspaces/[id]/_components/__tests__/timeline-view.test.tsx"`
+- `bun run --cwd apps/roadmap-web typecheck`
+- `bun run test:prepush`
