@@ -3,6 +3,10 @@ import { executeTaskPlanWithAgentCore } from './agent-core-adapter'
 import { executeTaskPlan, type ExecutionOptions } from './agent-loop'
 import type { TaskPlan } from './task-planner'
 
+const mockedExecuteTaskPlanWithAgentCore = executeTaskPlanWithAgentCore as unknown as {
+  mockClear: () => void
+}
+
 vi.mock('./agent-core-adapter', () => ({
   executeTaskPlanWithAgentCore: vi.fn(async () => ({
     success: true,
@@ -39,7 +43,7 @@ function createPlan(): TaskPlan {
 
 describe('agent-loop compatibility wrapper', () => {
   beforeEach(() => {
-    vi.mocked(executeTaskPlanWithAgentCore).mockClear()
+    mockedExecuteTaskPlanWithAgentCore.mockClear()
   })
 
   test('preserves executeTaskPlan options while delegating to agent-core adapter', async () => {

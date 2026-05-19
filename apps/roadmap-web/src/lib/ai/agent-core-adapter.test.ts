@@ -3,6 +3,10 @@ import { executeTaskPlan as executeAgentCoreTaskPlan } from '@product-suite/agen
 import { executeTaskPlanWithAgentCore } from './agent-core-adapter'
 import type { TaskPlan } from './task-planner'
 
+const mockedExecuteAgentCoreTaskPlan = executeAgentCoreTaskPlan as unknown as {
+  mockClear: () => void
+}
+
 vi.mock('@product-suite/agent-core', () => ({
   executeTaskPlan: vi.fn(async (plan, options) => {
     const firstStep = plan.steps[0]
@@ -62,7 +66,7 @@ function createPlan(): TaskPlan {
 
 describe('agent-core adapter', () => {
   beforeEach(() => {
-    vi.mocked(executeAgentCoreTaskPlan).mockClear()
+    mockedExecuteAgentCoreTaskPlan.mockClear()
   })
 
   test('delegates ordered execution to agent-core while resolving tools through a registry', async () => {
