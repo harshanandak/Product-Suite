@@ -293,6 +293,7 @@ This file is the durable execution plan for the multi-PR transformation of Produ
   - `docs/research/pr13-realtime-transport-split.md`
   - `docs/plans/2026-05-19-pr13-realtime-transport-split-design.md`
   - `docs/plans/2026-05-19-pr13-realtime-transport-split-tasks.md`
+  - `docs/plans/2026-05-19-pr13-realtime-transport-split-decisions.md`
 - Checklist:
   - add `services/hocuspocus`
   - route canvas collaboration through service-owned transport

@@ -52,17 +52,34 @@ export function validateHocuspocusTokenContext(context: HocuspocusTokenContext):
 export function resolveHocuspocusRuntimeConfig(
   env: Record<string, string | undefined> = process.env,
 ): HocuspocusRuntimeConfig {
+  const parsePositiveInt = (raw: string | undefined, key: string, fallback: number): number => {
+    if (raw == null || raw === "") {
+      return fallback;
+    }
+    const parsed = Number(raw);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      throw new Error(`${key} must be a positive integer`);
+    }
+    return parsed;
+  };
+
   const rawPort = env.HOCUSPOCUS_PORT;
   const port = Number(rawPort);
   if (!rawPort || !Number.isInteger(port) || port <= 0) {
     throw new Error("HOCUSPOCUS_PORT must be a positive integer");
   }
 
+  const debounce = parsePositiveInt(env.HOCUSPOCUS_DEBOUNCE_MS, "HOCUSPOCUS_DEBOUNCE_MS", 2000);
+  const maxDebounce = parsePositiveInt(env.HOCUSPOCUS_MAX_DEBOUNCE_MS, "HOCUSPOCUS_MAX_DEBOUNCE_MS", 10000);
+  if (maxDebounce < debounce) {
+    throw new Error("HOCUSPOCUS_MAX_DEBOUNCE_MS must be greater than or equal to HOCUSPOCUS_DEBOUNCE_MS");
+  }
+
   return {
     port,
     address: env.HOCUSPOCUS_ADDRESS,
-    debounce: env.HOCUSPOCUS_DEBOUNCE_MS ? Number(env.HOCUSPOCUS_DEBOUNCE_MS) : 2000,
-    maxDebounce: env.HOCUSPOCUS_MAX_DEBOUNCE_MS ? Number(env.HOCUSPOCUS_MAX_DEBOUNCE_MS) : 10000,
+    debounce,
+    maxDebounce,
   };
 }
 
@@ -87,6 +104,9 @@ export function createHocuspocusServerOptions(options: CreateHocuspocusServerOpt
       if (!context) {
         throw new Error("Hocuspocus load context is missing");
       }
+      if (!context.canRead) {
+        throw new Error("Hocuspocus read access denied");
+      }
       return options.loadDocument?.({ document, documentName, context });
     },
     async onStoreDocument({
@@ -100,6 +120,9 @@ export function createHocuspocusServerOptions(options: CreateHocuspocusServerOpt
     }) {
       if (!lastContext) {
         throw new Error("Hocuspocus store context is missing");
+      }
+      if (!lastContext.canWrite) {
+        throw new Error("Hocuspocus write access denied");
       }
       await options.storeDocument?.({ document, documentName, context: lastContext });
     },
