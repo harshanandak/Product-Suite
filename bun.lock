@@ -114,6 +114,7 @@
         "@isaacs/brace-expansion": "^5.0.0",
         "@omts/dag-sort": "^0.0.1",
         "@openrouter/ai-sdk-provider": "^2.0.0",
+        "@product-suite/agent-core": "workspace:*",
         "@product-suite/contracts": "workspace:*",
         "@product-suite/ui-canvas": "workspace:*",
         "@product-suite/ui-charting": "workspace:*",

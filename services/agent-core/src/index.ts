@@ -287,7 +287,7 @@ async function withRemainingTimeout<T>(
     throw new Error(formatTimeoutError(maxExecutionTimeMs));
   }
 
-  let timeoutId: Timer | undefined;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
   try {
     return await Promise.race([
