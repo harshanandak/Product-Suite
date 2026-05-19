@@ -257,6 +257,10 @@
         "react-dom": ">=19",
       },
     },
+    "services/agent-core": {
+      "name": "@product-suite/agent-core",
+      "version": "0.0.0",
+    },
   },
   "patchedDependencies": {
     "@blocksuite/icons@2.2.17": "patches/@blocksuite%2Ficons@2.2.17.patch",
@@ -781,6 +785,8 @@
     "@playwright/test": ["@playwright/test@1.59.1", "", { "dependencies": { "playwright": "1.59.1" }, "bin": { "playwright": "cli.js" } }, "sha512-PG6q63nQg5c9rIi4/Z5lR5IVF7yU5MqmKaPOe0HSc0O2cX1fPi96sUQu5j7eo4gKCkB2AnNGoWt7y4/Xx3Kcqg=="],
 
     "@preact/signals-core": ["@preact/signals-core@1.14.1", "", {}, "sha512-vxPpfXqrwUe9lpjqfYNjAF/0RF/eFGeLgdJzdmIIZjpOnTmGmAB4BjWone562mJGMRP4frU6iZ6ei3PDsu52Ng=="],
+
+    "@product-suite/agent-core": ["@product-suite/agent-core@workspace:services/agent-core"],
 
     "@product-suite/contracts": ["@product-suite/contracts@workspace:packages/contracts"],
 
