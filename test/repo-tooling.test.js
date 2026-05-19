@@ -162,7 +162,7 @@ describe("repo tooling", () => {
     expect(buildingBlocksPlan).toContain("docs/research/pr5-auth-contracts-and-adapters.md");
   });
 
-  test("building blocks plan marks PR11 verified and PR12 active", () => {
+  test("building blocks plan marks PR12 verified and PR13 active", () => {
     expect(buildingBlocksPlan).toContain("PR5 Auth Contracts And Adapters`: merged and verified");
     expect(buildingBlocksPlan).toContain("PR6 Auth Provider Rollout`: merged and verified");
     expect(buildingBlocksPlan).toContain("PR7 SDK / Typed Client Layer`: merged and verified");
@@ -170,8 +170,9 @@ describe("repo tooling", () => {
     expect(buildingBlocksPlan).toContain("PR9 Chat Block Extraction`: merged and verified");
     expect(buildingBlocksPlan).toContain("PR10 Canvas Boundary Extraction`: merged and verified");
     expect(buildingBlocksPlan).toContain("PR11 Planning And Charting Blocks`: merged and verified");
+    expect(buildingBlocksPlan).toContain("PR12 Agent-Core Service`: merged and verified");
     expect(buildingBlocksPlan).toContain(
-      "PR12 Agent-Core Service`: active on `feat/pr12-agent-core-service`",
+      "PR13 Realtime Transport Split`: active on `feat/pr13-realtime-transport-split`",
     );
     expect(buildingBlocksPlan).toContain("docs/research/pr11-planning-and-charting-blocks.md");
     expect(buildingBlocksPlan).toContain(
@@ -193,12 +194,20 @@ describe("repo tooling", () => {
     expect(buildingBlocksPlan).toContain(
       "docs/plans/2026-05-19-pr12-agent-core-service-decisions.md",
     );
+    expect(buildingBlocksPlan).toContain("docs/research/pr13-realtime-transport-split.md");
+    expect(buildingBlocksPlan).toContain(
+      "docs/plans/2026-05-19-pr13-realtime-transport-split-design.md",
+    );
+    expect(buildingBlocksPlan).toContain(
+      "docs/plans/2026-05-19-pr13-realtime-transport-split-tasks.md",
+    );
     expect(buildingBlocksPlan).not.toContain("PR4 is in progress");
     expect(buildingBlocksPlan).not.toContain("PR5+ need planning");
     expect(buildingBlocksPlan).not.toContain("PR6 Auth Provider Rollout`: active");
     expect(buildingBlocksPlan).not.toContain("PR7 SDK / Typed Client Layer`: active");
     expect(buildingBlocksPlan).not.toContain("PR10 Canvas Boundary Extraction`: active");
     expect(buildingBlocksPlan).not.toContain("PR11 Planning And Charting Blocks`: active");
+    expect(buildingBlocksPlan).not.toContain("PR12 Agent-Core Service`: active");
   });
 
   test("meeting-api CI reflects the local validation baseline", () => {
