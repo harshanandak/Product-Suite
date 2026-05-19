@@ -62,6 +62,8 @@ describe("repo tooling", () => {
     expect(packageJson.workspaces).toContain("packages/ui-meeting");
     expect(packageJson.workspaces).toContain("packages/ui-chat");
     expect(packageJson.workspaces).toContain("packages/ui-canvas");
+    expect(packageJson.workspaces).toContain("packages/ui-planning");
+    expect(packageJson.workspaces).toContain("packages/ui-charting");
     expect(packageJson.scripts["test:contracts"]).toBeDefined();
     expect(packageJson.scripts["test:contracts"]).toContain("packages/contracts");
     expect(packageJson.scripts["test:ui-meeting"]).toBeDefined();
@@ -70,6 +72,10 @@ describe("repo tooling", () => {
     expect(packageJson.scripts["test:ui-chat"]).toContain("packages/ui-chat");
     expect(packageJson.scripts["test:ui-canvas"]).toBeDefined();
     expect(packageJson.scripts["test:ui-canvas"]).toContain("packages/ui-canvas");
+    expect(packageJson.scripts["test:ui-planning"]).toBeDefined();
+    expect(packageJson.scripts["test:ui-planning"]).toContain("packages/ui-planning");
+    expect(packageJson.scripts["test:ui-charting"]).toBeDefined();
+    expect(packageJson.scripts["test:ui-charting"]).toContain("packages/ui-charting");
     expect(packageJson.scripts["check:source-test"]).toBeDefined();
     expect(packageJson.scripts["check:source-test"]).toContain("check-source-test-coupling");
     expect(packageJson.scripts["test:repo-tooling"]).toContain("check-source-test-coupling.test.js");
@@ -122,6 +128,8 @@ describe("repo tooling", () => {
     expect(validationDoc).toContain("bun run test:contracts");
     expect(validationDoc).toContain("bun run test:ui-chat");
     expect(validationDoc).toContain("bun run test:ui-canvas");
+    expect(validationDoc).toContain("bun run test:ui-planning");
+    expect(validationDoc).toContain("bun run test:ui-charting");
     expect(validationDoc).toContain("packages/contracts");
     expect(validationDoc).toContain("bun run validate:meeting-web");
     expect(validationDoc).toContain("bun run validate:roadmap-web");
@@ -205,6 +213,8 @@ describe("repo tooling", () => {
     expect(repoToolingWorkflow).toContain('"packages/ui-meeting/**"');
     expect(repoToolingWorkflow).toContain('"packages/ui-chat/**"');
     expect(repoToolingWorkflow).toContain('"packages/ui-canvas/**"');
+    expect(repoToolingWorkflow).toContain('"packages/ui-planning/**"');
+    expect(repoToolingWorkflow).toContain('"packages/ui-charting/**"');
     expect(repoToolingWorkflow).toContain('"README.md"');
     expect(repoToolingWorkflow).toContain('".github/workflows/meeting-api-ci.yml"');
     expect(repoToolingWorkflow).toContain(
@@ -224,6 +234,8 @@ describe("repo tooling", () => {
     expect(meetingWebWorkflow).toContain('"packages/ui-meeting/**"');
     expect(meetingWebWorkflow).toContain('"packages/ui-chat/**"');
     expect(meetingWebWorkflow).toContain('"packages/ui-canvas/**"');
+    expect(meetingWebWorkflow).toContain('"packages/ui-planning/**"');
+    expect(meetingWebWorkflow).toContain('"packages/ui-charting/**"');
     expect(meetingWebWorkflow).toContain('"package.json"');
     expect(meetingWebWorkflow).toContain('"bun.lock"');
     expect(roadmapWebWorkflow).toContain('"packages/contracts/**"');
@@ -231,6 +243,8 @@ describe("repo tooling", () => {
     expect(roadmapWebWorkflow).toContain('"packages/ui-meeting/**"');
     expect(roadmapWebWorkflow).toContain('"packages/ui-chat/**"');
     expect(roadmapWebWorkflow).toContain('"packages/ui-canvas/**"');
+    expect(roadmapWebWorkflow).toContain('"packages/ui-planning/**"');
+    expect(roadmapWebWorkflow).toContain('"packages/ui-charting/**"');
     expect(roadmapWebWorkflow).toContain('"package.json"');
     expect(roadmapWebWorkflow).toContain('"bun.lock"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"packages/contracts/**"');
@@ -238,6 +252,8 @@ describe("repo tooling", () => {
     expect(roadmapWebPlaywrightWorkflow).toContain('"packages/ui-meeting/**"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"packages/ui-chat/**"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"packages/ui-canvas/**"');
+    expect(roadmapWebPlaywrightWorkflow).toContain('"packages/ui-planning/**"');
+    expect(roadmapWebPlaywrightWorkflow).toContain('"packages/ui-charting/**"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"package.json"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"bun.lock"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"infra/supabase/**"');

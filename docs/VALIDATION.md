@@ -17,6 +17,10 @@ Run validation from the repo root so every deployable uses one documented entryp
   - runs the shared canvas boundary package tests in `packages/ui-canvas`
 - `bun run test:ui-meeting`
   - runs the shared meeting UI package tests in `packages/ui-meeting`
+- `bun run test:ui-planning`
+  - runs the shared planning UI package tests in `packages/ui-planning`
+- `bun run test:ui-charting`
+  - runs the shared charting UI package tests in `packages/ui-charting`
 - `bun run validate:meeting-web`
   - runs Meeting Web lint, tests, and build
 - `bun run validate:roadmap-web`
@@ -37,9 +41,11 @@ Run validation from the repo root so every deployable uses one documented entryp
 3. Run `bun run test:ui-chat` after changing `packages/ui-chat` so the shared chat block stays reusable.
 4. Run `bun run test:ui-canvas` after changing `packages/ui-canvas` so canvas boundaries stay shell-agnostic.
 5. Run `bun run test:ui-meeting` after changing `packages/ui-meeting` so the shared meeting block stays reusable.
-6. Ensure Python `3.13` is available for the Meeting API toolchain.
-7. Run `bun run install:meeting-api` for the Python backend dependencies.
-8. Run `bun run validate` from the repo root.
+6. Run `bun run test:ui-planning` after changing `packages/ui-planning` so planning blocks stay shell-agnostic.
+7. Run `bun run test:ui-charting` after changing `packages/ui-charting` so charting blocks stay shell-agnostic.
+8. Ensure Python `3.13` is available for the Meeting API toolchain.
+9. Run `bun run install:meeting-api` for the Python backend dependencies.
+10. Run `bun run validate` from the repo root.
 
 If only Python `3.14+` is installed, `bun run install:meeting-api` fails intentionally. The backend pins dependency versions that are currently validated in CI on Python `3.13`.
 
