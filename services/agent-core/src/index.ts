@@ -70,6 +70,7 @@ export interface AgentCoreExecutionOptions {
 const DEFAULT_MAX_EXECUTION_TIME_MS = 5 * 60 * 1000;
 const DEFAULT_STEP_DELAY_MS = 500;
 const DEFAULT_RETRY_LIMIT = 1;
+const CANCELLED_ERROR = "Execution cancelled";
 
 export function createCancelSignal(): AgentCoreCancelSignal {
   return { cancelled: false };
@@ -83,6 +84,19 @@ export async function executeTaskPlan(
   plan: AgentCoreTaskPlan,
   options: AgentCoreExecutionOptions,
 ): Promise<AgentCoreExecutionResult> {
+  const validationError = validatePlan(plan);
+  if (validationError) {
+    return {
+      success: false,
+      completedSteps: 0,
+      totalSteps: plan.steps.length,
+      results: {},
+      errors: [validationError],
+      executionTime: 0,
+      plan: updatePlanStatus(plan, "failed"),
+    };
+  }
+
   const {
     executeTool,
     onProgress,
@@ -133,6 +147,7 @@ export async function executeTaskPlan(
     const execution = await executeStepWithRetry({
       executeTool,
       getPlan: () => currentPlan,
+      isCancelled: () => isCancelled?.() ?? cancelSignal?.cancelled ?? false,
       maxExecutionTimeMs,
       retryLimit,
       startedAt,
@@ -153,6 +168,21 @@ export async function executeTaskPlan(
         plan: currentPlan,
         message: `Completed: ${nextStep.description}`,
       });
+    } else if (execution.cancelled) {
+      currentPlan = updateStepStatus(
+        currentPlan,
+        nextStep.id,
+        "failed",
+        undefined,
+        CANCELLED_ERROR,
+      );
+      currentPlan = updatePlanStatus(currentPlan, "cancelled");
+      onProgress?.({
+        step: { ...runningStep, status: "failed", error: CANCELLED_ERROR },
+        plan: currentPlan,
+        message: `Cancelled: ${nextStep.description}`,
+      });
+      break;
     } else {
       const error = execution.error;
       errors.push(
@@ -234,25 +264,49 @@ function getNextPendingStep(plan: AgentCoreTaskPlan): AgentCoreTaskStep | undefi
     });
 }
 
+function validatePlan(plan: AgentCoreTaskPlan): string | null {
+  const stepIds = plan.steps.map((step) => step.id);
+  if (new Set(stepIds).size !== stepIds.length) {
+    return "Plan validation failed: duplicate step ids are not allowed";
+  }
+
+  const knownStepIds = new Set(stepIds);
+  for (const step of plan.steps) {
+    for (const dependencyId of step.dependsOn ?? []) {
+      if (!knownStepIds.has(dependencyId)) {
+        return `Plan validation failed: step "${step.id}" depends on unknown step "${dependencyId}"`;
+      }
+    }
+  }
+
+  return null;
+}
+
 async function executeStepWithRetry(args: {
   executeTool: (context: AgentCoreToolContext) => Promise<unknown>;
   getPlan: () => AgentCoreTaskPlan;
+  isCancelled: () => boolean;
   maxExecutionTimeMs: number;
   retryLimit: number;
   startedAt: number;
   step: AgentCoreTaskStep;
   stepDelayMs: number;
-}): Promise<{ success: true; result: unknown } | { success: false; error: string }> {
+}): Promise<
+  | { success: true; result: unknown }
+  | { success: false; error: string; cancelled?: boolean }
+> {
   for (let attempt = 0; attempt <= args.retryLimit; attempt += 1) {
     const controller = new AbortController();
 
     try {
-      const result = await withRemainingTimeout(
+      const result = await withExecutionGuards(
         args.executeTool({
           step: args.step,
           plan: args.getPlan(),
           abortSignal: controller.signal,
         }),
+        controller,
+        args.isCancelled,
         args.startedAt,
         args.maxExecutionTimeMs,
       );
@@ -262,7 +316,11 @@ async function executeStepWithRetry(args: {
       controller.abort();
       const message = error instanceof Error ? error.message : "Unknown error";
 
-      if (attempt >= args.retryLimit || message.startsWith("Execution timed out")) {
+      if (isCancellationError(message)) {
+        return { success: false, error: message, cancelled: true };
+      }
+
+      if (attempt >= args.retryLimit || isTimeoutError(message)) {
         return { success: false, error: message };
       }
 
@@ -275,8 +333,10 @@ async function executeStepWithRetry(args: {
   return { success: false, error: "Unknown error" };
 }
 
-async function withRemainingTimeout<T>(
+async function withExecutionGuards<T>(
   promise: Promise<T>,
+  controller: AbortController,
+  isCancelled: () => boolean,
   startedAt: number,
   maxExecutionTimeMs: number,
 ): Promise<T> {
@@ -288,6 +348,7 @@ async function withRemainingTimeout<T>(
   }
 
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  let cancellationId: ReturnType<typeof setInterval> | undefined;
 
   try {
     return await Promise.race([
@@ -298,10 +359,21 @@ async function withRemainingTimeout<T>(
           remainingMs,
         );
       }),
+      new Promise<T>((_, reject) => {
+        cancellationId = setInterval(() => {
+          if (isCancelled()) {
+            controller.abort();
+            reject(new Error(CANCELLED_ERROR));
+          }
+        }, 5);
+      }),
     ]);
   } finally {
     if (timeoutId) {
       clearTimeout(timeoutId);
+    }
+    if (cancellationId) {
+      clearInterval(cancellationId);
     }
   }
 }
@@ -312,6 +384,10 @@ function formatTimeoutError(maxExecutionTimeMs: number): string {
 
 function isTimeoutError(error: string): boolean {
   return error.startsWith("Execution timed out");
+}
+
+function isCancellationError(error: string): boolean {
+  return error === CANCELLED_ERROR;
 }
 
 function delay(ms: number): Promise<void> {

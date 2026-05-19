@@ -106,4 +106,67 @@ describe('agent-core adapter', () => {
     expect(result.plan.goal).toBe('Create a record')
     expect(result.plan.status).toBe('completed')
   })
+
+  test('executes confirmed tool actions when a Roadmap tool requests confirmation', async () => {
+    const executeConfirmed = vi.fn(async () => ({ id: 'confirmed-1' }))
+    const execute = vi.fn(async () => ({
+      needsConfirmation: true,
+      executeConfirmed,
+    }))
+    const registry = {
+      get: vi.fn(() => ({ execute })),
+    }
+    const progress = vi.fn()
+
+    const result = await executeTaskPlanWithAgentCore(
+      createPlan(),
+      { onProgress: progress, stepDelay: 0 },
+      registry,
+    )
+
+    expect(executeAgentCoreTaskPlan).toHaveBeenCalledTimes(1)
+    expect(execute).toHaveBeenCalledTimes(1)
+    expect(executeConfirmed).toHaveBeenCalledTimes(1)
+    expect(progress).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'step-1', status: 'completed' }),
+      expect.objectContaining({ id: 'plan-1', status: 'completed' }),
+      'Completed: Create a record',
+    )
+    expect(result.success).toBe(true)
+    expect(result.results).toEqual({ 'step-1': { id: 'confirmed-1' } })
+    expect(result.plan.goal).toBe('Create a record')
+    expect(result.plan.status).toBe('completed')
+  })
+
+  test('does not execute confirmation callbacks when the tool result is not a confirmation request', async () => {
+    const executeConfirmed = vi.fn(async () => ({ id: 'should-not-run' }))
+    const execute = vi.fn(async () => ({
+      needsConfirmation: false,
+      data: { id: 'plain-data' },
+      executeConfirmed,
+    }))
+    const registry = {
+      get: vi.fn(() => ({ execute })),
+    }
+    const progress = vi.fn()
+
+    const result = await executeTaskPlanWithAgentCore(
+      createPlan(),
+      { onProgress: progress, stepDelay: 0 },
+      registry,
+    )
+
+    expect(executeAgentCoreTaskPlan).toHaveBeenCalledTimes(1)
+    expect(execute).toHaveBeenCalledTimes(1)
+    expect(executeConfirmed).not.toHaveBeenCalled()
+    expect(progress).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'step-1', status: 'completed' }),
+      expect.objectContaining({ id: 'plan-1', status: 'completed' }),
+      'Completed: Create a record',
+    )
+    expect(result.success).toBe(true)
+    expect(result.results).toEqual({ 'step-1': { id: 'plain-data' } })
+    expect(result.plan.goal).toBe('Create a record')
+    expect(result.plan.status).toBe('completed')
+  })
 })

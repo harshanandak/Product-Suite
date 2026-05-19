@@ -1,17 +1,9 @@
 /**
- * Agent Loop for Autonomous Task Execution
+ * Compatibility exports for autonomous task execution.
  *
- * Executes task plans step by step with:
- * - Progress reporting
- * - Error handling and recovery
- * - Cancellation support
- * - Result aggregation
- *
- * Safety features:
- * - Maximum execution time (5 minutes)
- * - Maximum steps (10)
- * - Cancel at any time
- * - Full execution log
+ * Multi-step plan orchestration is service-owned by
+ * executeTaskPlanWithAgentCore in agent-core-adapter.ts. This module keeps the
+ * older Roadmap import surface stable for routes and components.
  */
 
 import {
@@ -161,7 +153,11 @@ async function executeTool(
 // =============================================================================
 
 /**
- * Execute a task plan
+ * Execute a task plan by delegating to executeTaskPlanWithAgentCore.
+ *
+ * The authoritative execution defaults and limits live in the agent-core
+ * service behind executeTaskPlanWithAgentCore; this wrapper preserves the
+ * existing executeTaskPlan import path.
  *
  * @param plan The task plan to execute
  * @param options Execution options

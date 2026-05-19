@@ -101,7 +101,7 @@ async function executeRegistryTool(
       executeConfirmed?: () => Promise<unknown>
     }
 
-    if (confirmationResult.executeConfirmed) {
+    if (confirmationResult.needsConfirmation && confirmationResult.executeConfirmed) {
       return confirmationResult.executeConfirmed()
     }
 

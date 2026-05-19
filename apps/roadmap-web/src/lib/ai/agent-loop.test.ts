@@ -5,18 +5,11 @@ import type { TaskPlan } from './task-planner'
 
 const mockedExecuteTaskPlanWithAgentCore = executeTaskPlanWithAgentCore as unknown as {
   mockClear: () => void
+  mockResolvedValue: (value: unknown) => void
 }
 
 vi.mock('./agent-core-adapter', () => ({
-  executeTaskPlanWithAgentCore: vi.fn(async () => ({
-    success: true,
-    completedSteps: 1,
-    totalSteps: 1,
-    results: { 'step-1': { ok: true } },
-    errors: [],
-    executionTime: 5,
-    plan: createPlan(),
-  })),
+  executeTaskPlanWithAgentCore: vi.fn(),
 }))
 
 function createPlan(): TaskPlan {
@@ -54,11 +47,21 @@ describe('agent-loop compatibility wrapper', () => {
       maxExecutionTime: 1000,
       stepDelay: 0,
     }
+    const adapterResult = {
+      success: true,
+      completedSteps: 1,
+      totalSteps: 1,
+      results: { 'step-1': { ok: true } },
+      errors: [],
+      executionTime: 5,
+      plan: createPlan(),
+    }
+
+    mockedExecuteTaskPlanWithAgentCore.mockResolvedValue(adapterResult)
 
     const result = await executeTaskPlan(plan, options)
 
     expect(executeTaskPlanWithAgentCore).toHaveBeenCalledWith(plan, options)
-    expect(result.success).toBe(true)
-    expect(result.results).toEqual({ 'step-1': { ok: true } })
+    expect(result).toEqual(adapterResult)
   })
 })

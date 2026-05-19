@@ -100,6 +100,79 @@ describe("agent-core task plan executor", () => {
     expect(result.plan.steps[1].status).toBe("pending");
   });
 
+  test("aborts an in-flight tool when cancellation is requested", async () => {
+    const cancelSignal = { cancelled: false };
+    let abortObserved = false;
+
+    const resultPromise = executeTaskPlan(createPlan(), {
+      executeTool: async ({ abortSignal }) =>
+        new Promise((resolve, reject) => {
+          abortSignal.addEventListener("abort", () => {
+            abortObserved = true;
+            reject(new Error("tool aborted"));
+          });
+
+          setTimeout(() => resolve({ ok: true }), 100);
+        }),
+      cancelSignal,
+      retryLimit: 0,
+      stepDelayMs: 0,
+    });
+
+    setTimeout(() => {
+      cancelSignal.cancelled = true;
+    }, 10);
+
+    const result = await resultPromise;
+
+    expect(abortObserved).toBe(true);
+    expect(result.success).toBe(false);
+    expect(result.plan.status).toBe("cancelled");
+    expect(result.completedSteps).toBe(0);
+    expect(result.errors).toEqual([]);
+    expect(result.plan.steps[0].status).toBe("failed");
+    expect(result.plan.steps[0].error).toBe("Execution cancelled");
+    expect(result.plan.steps[1].status).toBe("pending");
+  });
+
+  test("rejects plans with duplicate step ids before executing tools", async () => {
+    const plan = createPlan();
+    const executeTool = mockExecuteTool();
+    plan.steps[1].id = plan.steps[0].id;
+
+    const result = await executeTaskPlan(plan, {
+      executeTool,
+      stepDelayMs: 0,
+    });
+
+    expect(executeTool.calls).toBe(0);
+    expect(result.success).toBe(false);
+    expect(result.completedSteps).toBe(0);
+    expect(result.errors).toEqual([
+      "Plan validation failed: duplicate step ids are not allowed",
+    ]);
+    expect(result.plan.status).toBe("failed");
+  });
+
+  test("rejects plans with dependencies that reference unknown steps", async () => {
+    const plan = createPlan();
+    const executeTool = mockExecuteTool();
+    plan.steps[1].dependsOn = ["missing-step"];
+
+    const result = await executeTaskPlan(plan, {
+      executeTool,
+      stepDelayMs: 0,
+    });
+
+    expect(executeTool.calls).toBe(0);
+    expect(result.success).toBe(false);
+    expect(result.completedSteps).toBe(0);
+    expect(result.errors).toEqual([
+      'Plan validation failed: step "step-2" depends on unknown step "missing-step"',
+    ]);
+    expect(result.plan.status).toBe("failed");
+  });
+
   test("marks execution failed when a tool exceeds the timeout", async () => {
     const result = await executeTaskPlan(createPlan(), {
       executeTool: async () => {
@@ -119,3 +192,12 @@ describe("agent-core task plan executor", () => {
     expect(result.plan.steps[0].error).toBe("Execution timed out after 0 seconds");
   });
 });
+
+function mockExecuteTool(): ((() => Promise<unknown>) & { calls: number }) {
+  const executeTool = (async () => {
+    executeTool.calls += 1;
+    return { ok: true };
+  }) as (() => Promise<unknown>) & { calls: number };
+  executeTool.calls = 0;
+  return executeTool;
+}
