@@ -12,6 +12,7 @@ export interface PlanningItemRecord {
   phase?: string;
   timeline?: string;
   timelinePhase?: string;
+  timeline_phase?: string;
 }
 
 export interface PlanningSummaryBlockProps {

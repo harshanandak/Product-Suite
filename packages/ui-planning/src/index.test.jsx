@@ -43,16 +43,29 @@ describe("ui-planning shared planning block", () => {
       { id: "2", title: "Later", phase: "LONG" },
       { id: "1", title: "Launch", phase: "mvp" },
       { id: "3", title: "Unknown", phase: "someday" },
+      { id: "4", title: "Roadmap short", timeline_phase: "SHORT" },
     ];
     const originalOrder = timelineItems.map((item) => item.id);
 
     expect(groupTimelineItemsByPhase(timelineItems)).toEqual({
       MVP: [timelineItems[1]],
-      SHORT: [],
+      SHORT: [timelineItems[3]],
       LONG: [timelineItems[0]],
       UNASSIGNED: [timelineItems[2]],
     });
     expect(timelineItems.map((item) => item.id)).toEqual(originalOrder);
+  });
+
+  test("renders Roadmap snake_case timeline phases", () => {
+    const html = renderToStaticMarkup(
+      <PlanningSummaryBlock
+        title="Roadmap Plan"
+        items={[{ id: "roadmap-1", title: "Scope beta", timeline_phase: "SHORT" }]}
+      />,
+    );
+
+    expect(html).toContain("Scope beta");
+    expect(html).toContain("SHORT");
   });
 
   test("exports deterministic planning helpers", () => {

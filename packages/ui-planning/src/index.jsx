@@ -19,10 +19,14 @@ export function normalizeTimelinePhase(phase) {
   return TIMELINE_PHASES.includes(normalized) ? normalized : "UNASSIGNED";
 }
 
+function getTimelinePhaseCandidate(item) {
+  return item?.timeline_phase ?? item?.phase ?? item?.timelinePhase ?? item?.timeline;
+}
+
 export function groupTimelineItemsByPhase(items = []) {
   return items.reduce(
     (groups, item) => {
-      const phase = normalizeTimelinePhase(item?.phase ?? item?.timelinePhase ?? item?.timeline);
+      const phase = normalizeTimelinePhase(getTimelinePhaseCandidate(item));
       groups[phase].push(item);
       return groups;
     },
@@ -65,7 +69,7 @@ export function PlanningSummaryBlock({
               <strong>{getPlanningItemTitle(item)}</strong>
               <span>{formatToken(item.status)}</span>
               <span>{formatToken(item.priority)}</span>
-              <span>{normalizeTimelinePhase(item.timelinePhase ?? item.phase ?? item.timeline)}</span>
+              <span>{normalizeTimelinePhase(getTimelinePhaseCandidate(item))}</span>
             </li>
           ))}
         </ul>
