@@ -109,6 +109,21 @@ export function createHocuspocusServerOptions(options: CreateHocuspocusServerOpt
       }
       return options.loadDocument?.({ document, documentName, context });
     },
+    async onChange({
+      context,
+    }: {
+      document: Doc;
+      documentName: string;
+      update: Uint8Array;
+      context?: HocuspocusTokenContext;
+    }) {
+      if (!context) {
+        throw new Error("Hocuspocus change context is missing");
+      }
+      if (!context.canWrite) {
+        throw new Error("Hocuspocus write access denied");
+      }
+    },
     async onStoreDocument({
       document,
       documentName,

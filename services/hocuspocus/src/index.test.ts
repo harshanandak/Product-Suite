@@ -165,6 +165,14 @@ describe("hocuspocus service registration", () => {
       } as never),
     ).rejects.toThrow(/read access denied/);
     await expect(
+      options.onChange?.({
+        document: new Y.Doc(),
+        documentName: "canvas:team-1:doc-1",
+        update: new Uint8Array([1]),
+        context: readOnlyContext,
+      } as never),
+    ).rejects.toThrow(/write access denied/);
+    await expect(
       options.onStoreDocument?.({
         document: new Y.Doc(),
         documentName: "canvas:team-1:doc-1",
@@ -175,6 +183,12 @@ describe("hocuspocus service registration", () => {
       document: new Y.Doc(),
       documentName: "canvas:team-1:doc-1",
       context: readOnlyContext,
+    } as never);
+    await options.onChange?.({
+      document: new Y.Doc(),
+      documentName: "canvas:team-1:doc-1",
+      update: new Uint8Array([1]),
+      context: writeOnlyContext,
     } as never);
     await options.onStoreDocument?.({
       document: new Y.Doc(),
