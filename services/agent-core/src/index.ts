@@ -147,7 +147,7 @@ export async function executeTaskPlan(
     const execution = await executeStepWithRetry({
       executeTool,
       getPlan: () => currentPlan,
-      isCancelled: () => isCancelled?.() ?? cancelSignal?.cancelled ?? false,
+      isCancelled: () => Boolean(isCancelled?.() || cancelSignal?.cancelled),
       maxExecutionTimeMs,
       retryLimit,
       startedAt,

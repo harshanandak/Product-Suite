@@ -135,6 +135,38 @@ describe("agent-core task plan executor", () => {
     expect(result.plan.steps[1].status).toBe("pending");
   });
 
+  test("honors cancel signals during in-flight tools when isCancelled returns false", async () => {
+    const cancelSignal = { cancelled: false };
+    let abortObserved = false;
+
+    const resultPromise = executeTaskPlan(createPlan(), {
+      executeTool: async ({ abortSignal }) =>
+        new Promise((resolve, reject) => {
+          abortSignal.addEventListener("abort", () => {
+            abortObserved = true;
+            reject(new Error("tool aborted"));
+          });
+
+          setTimeout(() => resolve({ ok: true }), 100);
+        }),
+      cancelSignal,
+      isCancelled: () => false,
+      retryLimit: 0,
+      stepDelayMs: 0,
+    });
+
+    setTimeout(() => {
+      cancelSignal.cancelled = true;
+    }, 10);
+
+    const result = await resultPromise;
+
+    expect(abortObserved).toBe(true);
+    expect(result.success).toBe(false);
+    expect(result.plan.status).toBe("cancelled");
+    expect(result.completedSteps).toBe(0);
+  });
+
   test("rejects plans with duplicate step ids before executing tools", async () => {
     const plan = createPlan();
     const executeTool = mockExecuteTool();
