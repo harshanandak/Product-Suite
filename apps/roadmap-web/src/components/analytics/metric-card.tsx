@@ -3,6 +3,7 @@
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react'
+import { formatTrendValue } from '@product-suite/ui-charting'
 
 export interface MetricCardProps {
   title: string
@@ -50,12 +51,6 @@ export function MetricCard({
     }
   }
 
-  const formatTrendValue = () => {
-    if (!trend) return ''
-    const sign = trend.direction === 'up' ? '+' : trend.direction === 'down' ? '-' : ''
-    return `${sign}${Math.abs(trend.value)}%`
-  }
-
   return (
     <Card className={cn('hover:shadow-md transition-shadow', className)}>
       <CardHeader className="pb-3">
@@ -70,7 +65,7 @@ export function MetricCard({
             <div className="flex items-center gap-1">
               {getTrendIcon()}
               <span className={cn('text-sm font-medium', getTrendColor())}>
-                {formatTrendValue()}
+                {formatTrendValue(trend)}
               </span>
             </div>
           )}
