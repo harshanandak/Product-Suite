@@ -30,8 +30,9 @@ This file is the durable execution plan for the multi-PR transformation of Produ
 - `PR8 Meeting Block Extraction`: merged and verified
 - `PR9 Chat Block Extraction`: merged and verified
 - `PR10 Canvas Boundary Extraction`: merged and verified
-- `PR11 Planning And Charting Blocks`: active on `feat/pr11-planning-and-charting-blocks`; locally validated for PR ship
-- `PR12+`: still need planning and execution as tracked work slices
+- `PR11 Planning And Charting Blocks`: merged and verified
+- `PR12 Agent-Core Service`: active on `feat/pr12-agent-core-service`
+- `PR13+`: still need planning and execution as tracked work slices
 
 ## Global Rules
 - Roll back the PR if it breaks a prior gate.
@@ -266,6 +267,10 @@ This file is the durable execution plan for the multi-PR transformation of Produ
 
 ### PR12 Agent-Core Service
 - Goal: move heavy orchestration out of shells.
+- Active artifacts:
+  - `docs/research/pr12-agent-core-service.md`
+  - `docs/plans/2026-05-19-pr12-agent-core-service-design.md`
+  - `docs/plans/2026-05-19-pr12-agent-core-service-tasks.md`
 - Checklist:
   - create `services/agent-core`
   - shift long-running orchestration out of roadmap API routes like `apps/roadmap-web/src/app/api/ai/unified-chat/route.ts`
