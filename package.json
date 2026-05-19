@@ -11,7 +11,8 @@
     "packages/ui-canvas",
     "packages/ui-meeting",
     "packages/ui-planning",
-    "packages/ui-charting"
+    "packages/ui-charting",
+    "services/agent-core"
   ],
   "scripts": {
     "prepare": "lefthook install",
@@ -24,8 +25,9 @@
     "test:ui-meeting": "bun run --cwd packages/ui-meeting test",
     "test:ui-planning": "bun run --cwd packages/ui-planning test",
     "test:ui-charting": "bun run --cwd packages/ui-charting test",
+    "test:agent-core": "bun run --cwd services/agent-core test",
     "test:repo-tooling": "bun test test/repo-tooling.test.js test/domain-inventory.test.js test/check-source-test-coupling.test.js",
-    "test:prepush": "bun run check:source-test && bun run test:ui-chat && bun run test:ui-canvas && bun run test:ui-meeting && bun run test:ui-planning && bun run test:ui-charting && bun run test:repo-tooling && bun run ci:meeting-web && bun run ci:roadmap-web && bun run ci:meeting-api",
+    "test:prepush": "bun run check:source-test && bun run test:ui-chat && bun run test:ui-canvas && bun run test:ui-meeting && bun run test:ui-planning && bun run test:ui-charting && bun run test:agent-core && bun run test:repo-tooling && bun run ci:meeting-web && bun run ci:roadmap-web && bun run ci:meeting-api",
     "test": "bun run test:repo-tooling",
     "ci:meeting-web": "bun run --cwd apps/meeting-web lint && bun run --cwd apps/meeting-web test && bun run --cwd apps/meeting-web build",
     "ci:roadmap-web": "bun run --cwd apps/roadmap-web lint && bun run --cwd apps/roadmap-web typecheck && bun run --cwd apps/roadmap-web test && bun run --cwd apps/roadmap-web build",

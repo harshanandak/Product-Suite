@@ -9,6 +9,7 @@ const packageJson = JSON.parse(
 const rootReadme = readFileSync(join(rootDir, "README.md"), "utf8");
 const validationDocPath = join(rootDir, "docs", "VALIDATION.md");
 const validationDoc = readFileSync(validationDocPath, "utf8");
+const servicesReadme = readFileSync(join(rootDir, "services", "README.md"), "utf8");
 const buildingBlocksPlan = readFileSync(
   join(rootDir, "docs", "plans", "building-blocks-transformation-pr-plan.md"),
   "utf8",
@@ -68,6 +69,7 @@ describe("repo tooling", () => {
     expect(packageJson.workspaces).toContain("packages/ui-canvas");
     expect(packageJson.workspaces).toContain("packages/ui-planning");
     expect(packageJson.workspaces).toContain("packages/ui-charting");
+    expect(packageJson.workspaces).toContain("services/agent-core");
     expect(packageJson.scripts["test:contracts"]).toBeDefined();
     expect(packageJson.scripts["test:contracts"]).toContain("packages/contracts");
     expect(packageJson.scripts["test:ui-meeting"]).toBeDefined();
@@ -80,10 +82,13 @@ describe("repo tooling", () => {
     expect(packageJson.scripts["test:ui-planning"]).toContain("packages/ui-planning");
     expect(packageJson.scripts["test:ui-charting"]).toBeDefined();
     expect(packageJson.scripts["test:ui-charting"]).toContain("packages/ui-charting");
+    expect(packageJson.scripts["test:agent-core"]).toBeDefined();
+    expect(packageJson.scripts["test:agent-core"]).toContain("services/agent-core");
     expect(packageJson.scripts["check:source-test"]).toBeDefined();
     expect(packageJson.scripts["check:source-test"]).toContain("check-source-test-coupling");
     expect(packageJson.scripts["test:repo-tooling"]).toContain("check-source-test-coupling.test.js");
     expect(packageJson.scripts["test:prepush"]).toContain("check:source-test");
+    expect(packageJson.scripts["test:prepush"]).toContain("test:agent-core");
     expect(lefthookConfig).toContain("pre-commit:");
     expect(lefthookConfig).toContain("bun run check:source-test");
   });
@@ -135,7 +140,9 @@ describe("repo tooling", () => {
     expect(validationDoc).toContain("bun run test:ui-canvas");
     expect(validationDoc).toContain("bun run test:ui-planning");
     expect(validationDoc).toContain("bun run test:ui-charting");
+    expect(validationDoc).toContain("bun run test:agent-core");
     expect(validationDoc).toContain("packages/contracts");
+    expect(validationDoc).toContain("services/agent-core");
     expect(validationDoc).toContain("bun run validate:meeting-web");
     expect(validationDoc).toContain("bun run validate:roadmap-web");
     expect(validationDoc).toContain("unit tests");
@@ -182,6 +189,9 @@ describe("repo tooling", () => {
     );
     expect(buildingBlocksPlan).toContain(
       "docs/plans/2026-05-19-pr12-agent-core-service-tasks.md",
+    );
+    expect(buildingBlocksPlan).toContain(
+      "docs/plans/2026-05-19-pr12-agent-core-service-decisions.md",
     );
     expect(buildingBlocksPlan).not.toContain("PR4 is in progress");
     expect(buildingBlocksPlan).not.toContain("PR5+ need planning");
@@ -232,6 +242,7 @@ describe("repo tooling", () => {
     expect(repoToolingWorkflow).toContain('"packages/ui-canvas/**"');
     expect(repoToolingWorkflow).toContain('"packages/ui-planning/**"');
     expect(repoToolingWorkflow).toContain('"packages/ui-charting/**"');
+    expect(repoToolingWorkflow).toContain('"services/agent-core/**"');
     expect(repoToolingWorkflow).toContain('"README.md"');
     expect(repoToolingWorkflow).toContain('".github/workflows/meeting-api-ci.yml"');
     expect(repoToolingWorkflow).toContain(
@@ -242,6 +253,7 @@ describe("repo tooling", () => {
     expect(repoToolingWorkflow).toContain(
       '".github/workflows/roadmap-web-playwright.yml"',
     );
+    expect(repoToolingWorkflow).toContain("bun run test:agent-core");
     expect(repoToolingWorkflow).toContain("bun run test:repo-tooling");
   });
 
@@ -262,6 +274,7 @@ describe("repo tooling", () => {
     expect(roadmapWebWorkflow).toContain('"packages/ui-canvas/**"');
     expect(roadmapWebWorkflow).toContain('"packages/ui-planning/**"');
     expect(roadmapWebWorkflow).toContain('"packages/ui-charting/**"');
+    expect(roadmapWebWorkflow).toContain('"services/agent-core/**"');
     expect(roadmapWebWorkflow).toContain('"package.json"');
     expect(roadmapWebWorkflow).toContain('"bun.lock"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"packages/contracts/**"');
@@ -271,6 +284,7 @@ describe("repo tooling", () => {
     expect(roadmapWebPlaywrightWorkflow).toContain('"packages/ui-canvas/**"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"packages/ui-planning/**"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"packages/ui-charting/**"');
+    expect(roadmapWebPlaywrightWorkflow).toContain('"services/agent-core/**"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"package.json"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"bun.lock"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"infra/supabase/**"');
@@ -310,5 +324,11 @@ describe("repo tooling", () => {
     expect(roadmapWebEnvExample).toContain("ROADMAP_CANONICAL_AUTH_PROVIDER");
     expect(roadmapWebEnvExample).toContain("ROADMAP_CANONICAL_AUTH_SECRET");
     expect(roadmapWebEnvExample).toContain("ROADMAP_CANONICAL_AUTH_TRUSTED_ORIGINS");
+  });
+
+  test("services docs describe the agent-core service boundary", () => {
+    expect(servicesReadme).toContain("agent-core");
+    expect(servicesReadme).toContain("task-plan execution");
+    expect(servicesReadme).toContain("Roadmap");
   });
 });

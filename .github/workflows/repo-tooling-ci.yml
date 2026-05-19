@@ -15,6 +15,7 @@ on:
       - "packages/ui-meeting/**"
       - "packages/ui-planning/**"
       - "packages/ui-charting/**"
+      - "services/agent-core/**"
       - "test/**"
       - "scripts/**"
       - "package.json"
@@ -37,6 +38,7 @@ on:
       - "packages/ui-meeting/**"
       - "packages/ui-planning/**"
       - "packages/ui-charting/**"
+      - "services/agent-core/**"
       - "test/**"
       - "scripts/**"
       - "package.json"
@@ -71,4 +73,4 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Run root tooling tests
-        run: bun run test:contracts && bun run test:ui-chat && bun run test:ui-canvas && bun run test:ui-meeting && bun run test:ui-planning && bun run test:ui-charting && bun run test:repo-tooling
+        run: bun run test:contracts && bun run test:ui-chat && bun run test:ui-canvas && bun run test:ui-meeting && bun run test:ui-planning && bun run test:ui-charting && bun run test:agent-core && bun run test:repo-tooling

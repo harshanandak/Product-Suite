@@ -271,6 +271,7 @@ This file is the durable execution plan for the multi-PR transformation of Produ
   - `docs/research/pr12-agent-core-service.md`
   - `docs/plans/2026-05-19-pr12-agent-core-service-design.md`
   - `docs/plans/2026-05-19-pr12-agent-core-service-tasks.md`
+  - `docs/plans/2026-05-19-pr12-agent-core-service-decisions.md`
 - Checklist:
   - create `services/agent-core`
   - shift long-running orchestration out of roadmap API routes like `apps/roadmap-web/src/app/api/ai/unified-chat/route.ts`
