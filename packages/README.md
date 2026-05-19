@@ -14,3 +14,5 @@ Future examples:
 - `ui-canvas`
 - `ui-planning`
 - `ui-charting`
+
+`ui-planning` and `ui-charting` are introduced in PR11 as shell-agnostic presentation packages. Roadmap remains responsible for data loading, routing, permissions, and workspace orchestration.

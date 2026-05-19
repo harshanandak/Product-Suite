@@ -21,6 +21,8 @@ const nextConfig: NextConfig = {
     "@product-suite/ui-chat",
     "@product-suite/ui-canvas",
     "@product-suite/ui-meeting",
+    "@product-suite/ui-planning",
+    "@product-suite/ui-charting",
   ],
 
   // Point Turbopack at the monorepo root so hoisted workspace dependencies resolve.

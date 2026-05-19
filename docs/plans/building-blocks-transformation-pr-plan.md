@@ -29,8 +29,9 @@ This file is the durable execution plan for the multi-PR transformation of Produ
 - `PR7 SDK / Typed Client Layer`: merged and verified
 - `PR8 Meeting Block Extraction`: merged and verified
 - `PR9 Chat Block Extraction`: merged and verified
-- `PR10 Canvas Boundary Extraction`: active on `feat/pr10-canvas-boundary-extraction`
-- `PR11+`: still need planning and execution as tracked work slices
+- `PR10 Canvas Boundary Extraction`: merged and verified
+- `PR11 Planning And Charting Blocks`: active on `feat/pr11-planning-and-charting-blocks`; locally validated for PR ship
+- `PR12+`: still need planning and execution as tracked work slices
 
 ## Global Rules
 - Roll back the PR if it breaks a prior gate.
@@ -246,6 +247,11 @@ This file is the durable execution plan for the multi-PR transformation of Produ
 
 ### PR11 Planning And Charting Blocks
 - Goal: extract lower-risk reusable blocks after core boundaries are proven.
+- Active artifacts:
+  - `docs/research/pr11-planning-and-charting-blocks.md`
+  - `docs/plans/2026-05-18-pr11-planning-and-charting-blocks-design.md`
+  - `docs/plans/2026-05-18-pr11-planning-and-charting-blocks-tasks.md`
+  - `docs/plans/2026-05-18-pr11-planning-and-charting-blocks-decisions.md`
 - Checklist:
   - create `packages/ui-planning`
   - create `packages/ui-charting`

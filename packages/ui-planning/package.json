@@ -1,0 +1,20 @@
+{
+  "name": "@product-suite/ui-planning",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.jsx"
+    }
+  },
+  "scripts": {
+    "test": "bun test"
+  },
+  "peerDependencies": {
+    "react": ">=19",
+    "react-dom": ">=19"
+  }
+}

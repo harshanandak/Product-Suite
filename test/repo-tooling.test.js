@@ -29,6 +29,10 @@ const roadmapWebEnvExample = readFileSync(
   join(rootDir, "apps", "roadmap-web", ".env.example"),
   "utf8",
 );
+const roadmapNextConfig = readFileSync(
+  join(rootDir, "apps", "roadmap-web", "next.config.ts"),
+  "utf8",
+);
 const meetingApiWorkflow = readFileSync(
   join(rootDir, ".github", "workflows", "meeting-api-ci.yml"),
   "utf8",
@@ -62,6 +66,8 @@ describe("repo tooling", () => {
     expect(packageJson.workspaces).toContain("packages/ui-meeting");
     expect(packageJson.workspaces).toContain("packages/ui-chat");
     expect(packageJson.workspaces).toContain("packages/ui-canvas");
+    expect(packageJson.workspaces).toContain("packages/ui-planning");
+    expect(packageJson.workspaces).toContain("packages/ui-charting");
     expect(packageJson.scripts["test:contracts"]).toBeDefined();
     expect(packageJson.scripts["test:contracts"]).toContain("packages/contracts");
     expect(packageJson.scripts["test:ui-meeting"]).toBeDefined();
@@ -70,9 +76,14 @@ describe("repo tooling", () => {
     expect(packageJson.scripts["test:ui-chat"]).toContain("packages/ui-chat");
     expect(packageJson.scripts["test:ui-canvas"]).toBeDefined();
     expect(packageJson.scripts["test:ui-canvas"]).toContain("packages/ui-canvas");
+    expect(packageJson.scripts["test:ui-planning"]).toBeDefined();
+    expect(packageJson.scripts["test:ui-planning"]).toContain("packages/ui-planning");
+    expect(packageJson.scripts["test:ui-charting"]).toBeDefined();
+    expect(packageJson.scripts["test:ui-charting"]).toContain("packages/ui-charting");
     expect(packageJson.scripts["check:source-test"]).toBeDefined();
     expect(packageJson.scripts["check:source-test"]).toContain("check-source-test-coupling");
     expect(packageJson.scripts["test:repo-tooling"]).toContain("check-source-test-coupling.test.js");
+    expect(packageJson.scripts["test:prepush"]).toContain("check:source-test");
     expect(lefthookConfig).toContain("pre-commit:");
     expect(lefthookConfig).toContain("bun run check:source-test");
   });
@@ -122,6 +133,8 @@ describe("repo tooling", () => {
     expect(validationDoc).toContain("bun run test:contracts");
     expect(validationDoc).toContain("bun run test:ui-chat");
     expect(validationDoc).toContain("bun run test:ui-canvas");
+    expect(validationDoc).toContain("bun run test:ui-planning");
+    expect(validationDoc).toContain("bun run test:ui-charting");
     expect(validationDoc).toContain("packages/contracts");
     expect(validationDoc).toContain("bun run validate:meeting-web");
     expect(validationDoc).toContain("bun run validate:roadmap-web");
@@ -142,19 +155,31 @@ describe("repo tooling", () => {
     expect(buildingBlocksPlan).toContain("docs/research/pr5-auth-contracts-and-adapters.md");
   });
 
-  test("building blocks plan marks PR9 verified and PR10 active", () => {
+  test("building blocks plan marks PR10 verified and PR11 active", () => {
     expect(buildingBlocksPlan).toContain("PR5 Auth Contracts And Adapters`: merged and verified");
     expect(buildingBlocksPlan).toContain("PR6 Auth Provider Rollout`: merged and verified");
     expect(buildingBlocksPlan).toContain("PR7 SDK / Typed Client Layer`: merged and verified");
     expect(buildingBlocksPlan).toContain("PR8 Meeting Block Extraction`: merged and verified");
     expect(buildingBlocksPlan).toContain("PR9 Chat Block Extraction`: merged and verified");
+    expect(buildingBlocksPlan).toContain("PR10 Canvas Boundary Extraction`: merged and verified");
     expect(buildingBlocksPlan).toContain(
-      "PR10 Canvas Boundary Extraction`: active on `feat/pr10-canvas-boundary-extraction`",
+      "PR11 Planning And Charting Blocks`: active on `feat/pr11-planning-and-charting-blocks`",
+    );
+    expect(buildingBlocksPlan).toContain("docs/research/pr11-planning-and-charting-blocks.md");
+    expect(buildingBlocksPlan).toContain(
+      "docs/plans/2026-05-18-pr11-planning-and-charting-blocks-design.md",
+    );
+    expect(buildingBlocksPlan).toContain(
+      "docs/plans/2026-05-18-pr11-planning-and-charting-blocks-tasks.md",
+    );
+    expect(buildingBlocksPlan).toContain(
+      "docs/plans/2026-05-18-pr11-planning-and-charting-blocks-decisions.md",
     );
     expect(buildingBlocksPlan).not.toContain("PR4 is in progress");
     expect(buildingBlocksPlan).not.toContain("PR5+ need planning");
     expect(buildingBlocksPlan).not.toContain("PR6 Auth Provider Rollout`: active");
     expect(buildingBlocksPlan).not.toContain("PR7 SDK / Typed Client Layer`: active");
+    expect(buildingBlocksPlan).not.toContain("PR10 Canvas Boundary Extraction`: active");
   });
 
   test("meeting-api CI reflects the local validation baseline", () => {
@@ -196,6 +221,8 @@ describe("repo tooling", () => {
     expect(repoToolingWorkflow).toContain('"packages/ui-meeting/**"');
     expect(repoToolingWorkflow).toContain('"packages/ui-chat/**"');
     expect(repoToolingWorkflow).toContain('"packages/ui-canvas/**"');
+    expect(repoToolingWorkflow).toContain('"packages/ui-planning/**"');
+    expect(repoToolingWorkflow).toContain('"packages/ui-charting/**"');
     expect(repoToolingWorkflow).toContain('"README.md"');
     expect(repoToolingWorkflow).toContain('".github/workflows/meeting-api-ci.yml"');
     expect(repoToolingWorkflow).toContain(
@@ -215,6 +242,8 @@ describe("repo tooling", () => {
     expect(meetingWebWorkflow).toContain('"packages/ui-meeting/**"');
     expect(meetingWebWorkflow).toContain('"packages/ui-chat/**"');
     expect(meetingWebWorkflow).toContain('"packages/ui-canvas/**"');
+    expect(meetingWebWorkflow).toContain('"packages/ui-planning/**"');
+    expect(meetingWebWorkflow).toContain('"packages/ui-charting/**"');
     expect(meetingWebWorkflow).toContain('"package.json"');
     expect(meetingWebWorkflow).toContain('"bun.lock"');
     expect(roadmapWebWorkflow).toContain('"packages/contracts/**"');
@@ -222,6 +251,8 @@ describe("repo tooling", () => {
     expect(roadmapWebWorkflow).toContain('"packages/ui-meeting/**"');
     expect(roadmapWebWorkflow).toContain('"packages/ui-chat/**"');
     expect(roadmapWebWorkflow).toContain('"packages/ui-canvas/**"');
+    expect(roadmapWebWorkflow).toContain('"packages/ui-planning/**"');
+    expect(roadmapWebWorkflow).toContain('"packages/ui-charting/**"');
     expect(roadmapWebWorkflow).toContain('"package.json"');
     expect(roadmapWebWorkflow).toContain('"bun.lock"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"packages/contracts/**"');
@@ -229,9 +260,13 @@ describe("repo tooling", () => {
     expect(roadmapWebPlaywrightWorkflow).toContain('"packages/ui-meeting/**"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"packages/ui-chat/**"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"packages/ui-canvas/**"');
+    expect(roadmapWebPlaywrightWorkflow).toContain('"packages/ui-planning/**"');
+    expect(roadmapWebPlaywrightWorkflow).toContain('"packages/ui-charting/**"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"package.json"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"bun.lock"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"infra/supabase/**"');
+    expect(roadmapNextConfig).toContain('"@product-suite/ui-planning"');
+    expect(roadmapNextConfig).toContain('"@product-suite/ui-charting"');
     expect(meetingApiWorkflow).toContain('"packages/contracts/**"');
     expect(meetingApiWorkflow).toContain('"packages/sdk/**"');
     expect(meetingApiWorkflow).toContain('"test/**"');
