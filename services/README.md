@@ -8,8 +8,8 @@ Current standalone service ownership:
 
 - `apps/meeting-api/backend`
 - `services/agent-core`: owns reusable task-plan execution policy for Roadmap agent workflows without importing app-shell auth, persistence, or route handlers.
+- `services/hocuspocus`: owns canonical canvas collaboration transport service wiring without importing app-shell auth, persistence, or route handlers.
 
 Future examples:
 
-- `hocuspocus`
 - `workflow-core`
