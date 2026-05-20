@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Doc } from "yjs";
 
-import { startHocuspocusRuntime } from "./runtime";
+import { startHocuspocusRuntime, type HocuspocusReadinessStatus } from "./runtime";
 
 const writableContext = {
   userId: "user-1",
@@ -76,5 +76,61 @@ describe("hocuspocus runtime entrypoint", () => {
       }),
     ).rejects.toThrow(/HOCUSPOCUS_PORT/);
     expect(constructed).toBe(false);
+  });
+
+  test("reports pre-listen and healthy runtime readiness without sensitive inputs", async () => {
+    class RecordingServer {
+      constructor(public readonly options: Record<string, unknown>) {}
+
+      listen() {
+        return this;
+      }
+    }
+
+    const readinessStatuses: HocuspocusReadinessStatus[] = [];
+
+    await startHocuspocusRuntime({
+      env: {
+        HOCUSPOCUS_PORT: "4124",
+        HOCUSPOCUS_ADDRESS: "127.0.0.1",
+        HOCUSPOCUS_TOKEN: "secret-token",
+        DOCUMENT_ID: "doc-secret",
+      },
+      verifyAuthToken() {
+        return {
+          ...writableContext,
+          documentId: "doc-secret",
+        };
+      },
+      ServerImplementation: RecordingServer,
+      onReadinessChange(status) {
+        readinessStatuses.push(status);
+      },
+    });
+
+    expect(readinessStatuses).toEqual([
+      {
+        service: "hocuspocus",
+        ready: false,
+        status: "starting",
+        runtime: {
+          port: 4124,
+          address: "127.0.0.1",
+        },
+      },
+      {
+        service: "hocuspocus",
+        ready: true,
+        status: "ready",
+        runtime: {
+          port: 4124,
+          address: "127.0.0.1",
+        },
+      },
+    ]);
+    const serializedStatuses = JSON.stringify(readinessStatuses);
+    expect(serializedStatuses).not.toContain("secret-token");
+    expect(serializedStatuses).not.toContain("doc-secret");
+    expect(serializedStatuses).not.toContain("canWrite");
   });
 });
