@@ -176,14 +176,15 @@ describe("canvas boundary adapters", () => {
   test("passes Hocuspocus selection config through the canvas boundary factory", () => {
     const supabase = createMockSupabase();
     const calls: string[] = [];
+    const document = new Y.Doc();
     const boundary = createSupabaseCanvasBoundary(supabase as never, {
       hocuspocusUrl: "https://hocuspocus.example.com",
       createAuthToken(identity) {
         calls.push(`token:${identity.teamId}:${identity.documentId}`);
         return "token-1";
       },
-      createHocuspocusConnection({ documentName }) {
-        calls.push(`connect:${documentName}`);
+      createHocuspocusConnection({ documentName, document: receivedDocument }) {
+        calls.push(`connect:${documentName}:${receivedDocument === document}`);
         return {
           sendUpdate(payload) {
             calls.push(`send:${payload.documentId}`);
@@ -200,11 +201,17 @@ describe("canvas boundary adapters", () => {
       {
         onUpdate: () => calls.push("update"),
       },
+      { document },
     );
     connection.sendUpdate({ update: "abc", documentId: "doc-1", origin: "local" });
     connection.destroy();
 
-    expect(calls).toEqual(["token:team-1:doc-1", "connect:canvas:team-1:doc-1", "send:doc-1", "destroy"]);
+    expect(calls).toEqual([
+      "token:team-1:doc-1",
+      "connect:canvas:team-1:doc-1:true",
+      "send:doc-1",
+      "destroy",
+    ]);
     expect(supabase.calls).not.toContain("channel:canvas:team-1:doc-1");
   });
 

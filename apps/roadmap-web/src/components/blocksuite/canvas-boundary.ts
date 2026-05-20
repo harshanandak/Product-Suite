@@ -76,8 +76,12 @@ export function createSupabaseCanvasBoundary(
       },
     },
     realtime: {
-      connect(identity, handlers) {
-        return selectRoadmapRealtimeAdapter({ supabase, ...realtimeConfig }).connect(identity, handlers)
+      connect(identity, handlers, connectionOptions) {
+        return selectRoadmapRealtimeAdapter({ supabase, ...realtimeConfig }).connect(
+          identity,
+          handlers,
+          connectionOptions
+        )
       },
     },
   })
