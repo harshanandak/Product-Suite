@@ -196,11 +196,26 @@ describe("hocuspocus service registration", () => {
         context: writeOnlyContext,
       } as never),
     ).rejects.toThrow(/read access denied/);
+    await options.beforeSync?.({
+      document: new Y.Doc(),
+      documentName: "canvas:team-1:doc-1",
+      type: 0,
+      payload: new Uint8Array([1]),
+      context: readOnlyContext,
+    } as never);
+    await options.beforeSync?.({
+      document: new Y.Doc(),
+      documentName: "canvas:team-1:doc-1",
+      type: 1,
+      payload: new Uint8Array([1]),
+      context: readOnlyContext,
+    } as never);
     await expect(
-      options.beforeHandleMessage?.({
+      options.beforeSync?.({
         document: new Y.Doc(),
         documentName: "canvas:team-1:doc-1",
-        message: new Uint8Array([1]),
+        type: 2,
+        payload: new Uint8Array([1]),
         context: readOnlyContext,
       } as never),
     ).rejects.toThrow(/write access denied/);
@@ -216,10 +231,11 @@ describe("hocuspocus service registration", () => {
       documentName: "canvas:team-1:doc-1",
       context: readOnlyContext,
     } as never);
-    await options.beforeHandleMessage?.({
+    await options.beforeSync?.({
       document: new Y.Doc(),
       documentName: "canvas:team-1:doc-1",
-      message: new Uint8Array([1]),
+      type: 2,
+      payload: new Uint8Array([1]),
       context: writeOnlyContext,
     } as never);
     await options.onStoreDocument?.({

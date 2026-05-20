@@ -36,6 +36,8 @@ export interface CreateHocuspocusServerOptions {
   storeDocument?: (input: HocuspocusHookInput & { document: Doc }) => Promise<void> | void;
 }
 
+const YJS_UPDATE_SYNC_MESSAGE_TYPE = 2;
+
 export function createHocuspocusDocumentName(identity: CanvasIdentity): string {
   return createCanvasCollaborationRoomName(identity);
 }
@@ -117,16 +119,21 @@ export function createHocuspocusServerOptions(options: CreateHocuspocusServerOpt
       }
       return options.loadDocument?.({ document, documentName, context });
     },
-    async beforeHandleMessage({
+    async beforeSync({
       context,
+      type,
     }: {
       document: Doc;
       documentName: string;
-      message: Uint8Array;
+      type: number;
+      payload: Uint8Array;
       context?: HocuspocusTokenContext;
     }) {
+      if (type !== YJS_UPDATE_SYNC_MESSAGE_TYPE) {
+        return;
+      }
       if (!context) {
-        throw new Error("Hocuspocus message context is missing");
+        throw new Error("Hocuspocus sync context is missing");
       }
       if (!context.canWrite) {
         throw new Error("Hocuspocus write access denied");
