@@ -1,4 +1,6 @@
+import { HocuspocusProvider, type HocuspocusProviderConfiguration } from '@hocuspocus/provider'
 import type { SupabaseClient, RealtimeChannel } from '@supabase/supabase-js'
+import type * as Y from 'yjs'
 import {
   createCanvasBoundary,
   type CanvasBoundary,
@@ -74,8 +76,12 @@ export function createSupabaseCanvasBoundary(
       },
     },
     realtime: {
-      connect(identity, handlers) {
-        return selectRoadmapRealtimeAdapter({ supabase, ...realtimeConfig }).connect(identity, handlers)
+      connect(identity, handlers, connectionOptions) {
+        return selectRoadmapRealtimeAdapter({ supabase, ...realtimeConfig }).connect(
+          identity,
+          handlers,
+          connectionOptions
+        )
       },
     },
   })
@@ -85,8 +91,14 @@ export interface HocuspocusRealtimeConnectionOptions {
   url: string
   documentName: string
   token: string
+  document?: unknown
   handlers: CanvasRealtimeHandlers
+  Provider?: HocuspocusProviderConstructor
 }
+
+type HocuspocusProviderConstructor = new (
+  configuration: HocuspocusProviderConfiguration
+) => Pick<HocuspocusProvider, 'destroy'>
 
 export interface RoadmapRealtimeAdapterOptions {
   supabase: SupabaseClient
@@ -97,7 +109,7 @@ export interface RoadmapRealtimeAdapterOptions {
 
 export function selectRoadmapRealtimeAdapter(options: RoadmapRealtimeAdapterOptions): CanvasRealtimeAdapter {
   const hocuspocusUrl = options.hocuspocusUrl?.trim()
-  if (!hocuspocusUrl || !options.createAuthToken || !options.createHocuspocusConnection) {
+  if (!hocuspocusUrl || !options.createAuthToken) {
     return {
       connect(identity, handlers) {
         return createSupabaseRealtimeConnection(options.supabase, identity, handlers)
@@ -106,10 +118,10 @@ export function selectRoadmapRealtimeAdapter(options: RoadmapRealtimeAdapterOpti
   }
 
   const createAuthToken = options.createAuthToken
-  const createHocuspocusConnection = options.createHocuspocusConnection
+  const createHocuspocusConnection = options.createHocuspocusConnection ?? createHocuspocusRealtimeConnection
 
   return {
-    connect(identity, handlers) {
+    connect(identity, handlers, connectionOptions) {
       const token = createAuthToken(identity)
       if (typeof token !== 'string' || token.trim().length === 0) {
         throw new Error('Roadmap Hocuspocus auth token factory must return a non-empty token synchronously')
@@ -119,8 +131,60 @@ export function selectRoadmapRealtimeAdapter(options: RoadmapRealtimeAdapterOpti
         url: hocuspocusUrl,
         documentName: createHocuspocusDocumentName(identity),
         token,
+        document: connectionOptions?.document,
         handlers,
       })
+    },
+  }
+}
+
+export function createRoadmapHocuspocusTokenFactory(
+  token?: string
+): ((identity: CanvasIdentity) => string) | undefined {
+  const normalizedToken = token?.trim()
+  if (!normalizedToken) {
+    return undefined
+  }
+
+  return () => normalizedToken
+}
+
+export function createHocuspocusRealtimeConnection({
+  url,
+  documentName,
+  token,
+  document,
+  handlers,
+  Provider = HocuspocusProvider,
+}: HocuspocusRealtimeConnectionOptions): CanvasRealtimeConnection {
+  if (!document) {
+    throw new Error('Roadmap Hocuspocus provider requires a Yjs document')
+  }
+
+  const provider = new Provider({
+    url,
+    name: documentName,
+    token,
+    document: document as Y.Doc,
+    onStatus({ status }) {
+      if (status === 'connected') {
+        handlers.onConnectionChange?.(true)
+      } else if (status === 'disconnected') {
+        handlers.onConnectionChange?.(false)
+      }
+    },
+    onAuthenticationFailed({ reason }) {
+      handlers.onConnectionChange?.(false)
+      handlers.onSyncError?.(new Error(`Hocuspocus authentication failed: ${reason}`))
+    },
+  })
+
+  return {
+    sendUpdate() {
+      // HocuspocusProvider observes the bound Yjs document directly.
+    },
+    destroy() {
+      provider.destroy()
     },
   }
 }

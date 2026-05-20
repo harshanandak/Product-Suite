@@ -1,9 +1,13 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { HocuspocusProviderConfiguration } from "@hocuspocus/provider";
+import * as Y from "yjs";
 
 import {
+  createHocuspocusRealtimeConnection,
+  createRoadmapHocuspocusTokenFactory,
   createRoadmapCanvasBoundary,
   createSupabaseCanvasBoundary,
   resolveRoadmapRealtimeSelectionConfig,
@@ -125,6 +129,7 @@ describe("canvas boundary adapters", () => {
   test("selects Hocuspocus realtime when service URL and token factory are configured", async () => {
     const supabase = createMockSupabase();
     const calls: string[] = [];
+    const document = new Y.Doc();
     const realtime = selectRoadmapRealtimeAdapter({
       supabase: supabase as never,
       hocuspocusUrl: "https://hocuspocus.example.com",
@@ -132,8 +137,8 @@ describe("canvas boundary adapters", () => {
         calls.push(`token:${identity.teamId}:${identity.documentId}`);
         return "token-1";
       },
-      createHocuspocusConnection({ url, documentName, token, handlers }) {
-        calls.push(`connect:${url}:${documentName}:${token}`);
+      createHocuspocusConnection({ url, documentName, token, handlers, document: receivedDocument }) {
+        calls.push(`connect:${url}:${documentName}:${token}:${receivedDocument === document}`);
         handlers.onConnectionChange?.(true);
         return {
           sendUpdate(payload) {
@@ -152,6 +157,7 @@ describe("canvas boundary adapters", () => {
         onUpdate: () => calls.push("update"),
         onConnectionChange: (connected) => calls.push(`connected:${connected}`),
       },
+      { document },
     );
 
     await connection.sendUpdate({ update: "abc", documentId: "doc-1", origin: "local" });
@@ -159,7 +165,7 @@ describe("canvas boundary adapters", () => {
 
     expect(calls).toEqual([
       "token:team-1:doc-1",
-      "connect:https://hocuspocus.example.com:canvas:team-1:doc-1:token-1",
+      "connect:https://hocuspocus.example.com:canvas:team-1:doc-1:token-1:true",
       "connected:true",
       "send:doc-1",
       "destroy",
@@ -170,14 +176,15 @@ describe("canvas boundary adapters", () => {
   test("passes Hocuspocus selection config through the canvas boundary factory", () => {
     const supabase = createMockSupabase();
     const calls: string[] = [];
+    const document = new Y.Doc();
     const boundary = createSupabaseCanvasBoundary(supabase as never, {
       hocuspocusUrl: "https://hocuspocus.example.com",
       createAuthToken(identity) {
         calls.push(`token:${identity.teamId}:${identity.documentId}`);
         return "token-1";
       },
-      createHocuspocusConnection({ documentName }) {
-        calls.push(`connect:${documentName}`);
+      createHocuspocusConnection({ documentName, document: receivedDocument }) {
+        calls.push(`connect:${documentName}:${receivedDocument === document}`);
         return {
           sendUpdate(payload) {
             calls.push(`send:${payload.documentId}`);
@@ -194,11 +201,17 @@ describe("canvas boundary adapters", () => {
       {
         onUpdate: () => calls.push("update"),
       },
+      { document },
     );
     connection.sendUpdate({ update: "abc", documentId: "doc-1", origin: "local" });
     connection.destroy();
 
-    expect(calls).toEqual(["token:team-1:doc-1", "connect:canvas:team-1:doc-1", "send:doc-1", "destroy"]);
+    expect(calls).toEqual([
+      "token:team-1:doc-1",
+      "connect:canvas:team-1:doc-1:true",
+      "send:doc-1",
+      "destroy",
+    ]);
     expect(supabase.calls).not.toContain("channel:canvas:team-1:doc-1");
   });
 
@@ -280,6 +293,15 @@ describe("canvas boundary adapters", () => {
     ).toThrow(/auth token/);
   });
 
+  test("creates explicit non-empty Hocuspocus token factories", () => {
+    expect(createRoadmapHocuspocusTokenFactory()).toBeUndefined();
+    expect(createRoadmapHocuspocusTokenFactory("   ")).toBeUndefined();
+
+    const tokenFactory = createRoadmapHocuspocusTokenFactory("  token-1  ");
+
+    expect(tokenFactory?.({ teamId: "team-1", documentId: "doc-1" })).toBe("token-1");
+  });
+
   test("falls back to Supabase realtime when Hocuspocus URL is missing", () => {
     const supabase = createMockSupabase();
     const realtime = selectRoadmapRealtimeAdapter({
@@ -319,5 +341,65 @@ describe("canvas boundary adapters", () => {
 
     expect(supabase.calls).toContain("channel:canvas:team-1:doc-1");
     expect(supabase.calls).toContain("channel:remove");
+  });
+
+  test("creates concrete Hocuspocus provider connections with lifecycle handlers", () => {
+    const calls: string[] = [];
+    const document = new Y.Doc();
+    let providerConstructed = 0;
+    class Provider {
+      constructor(options: HocuspocusProviderConfiguration) {
+        providerConstructed += 1;
+        const url = "url" in options ? options.url : undefined;
+        calls.push(`${url}:${options.name}:${options.token}:${options.document === document}`);
+        options.onStatus?.({ status: "connected" } as Parameters<
+          NonNullable<HocuspocusProviderConfiguration["onStatus"]>
+        >[0]);
+        options.onAuthenticationFailed?.({ reason: "expired" });
+      }
+
+      destroy() {
+        calls.push("provider:destroy");
+      }
+    }
+    const handlers = {
+      onUpdate: vi.fn(),
+      onConnectionChange: vi.fn((connected: boolean) => calls.push(`connected:${connected}`)),
+      onSyncError: vi.fn((error: Error) => calls.push(`error:${error.message}`)),
+    };
+
+    const connection = createHocuspocusRealtimeConnection({
+      url: "wss://hocuspocus.example.com",
+      documentName: "canvas:team-1:doc-1",
+      token: "token-1",
+      document,
+      handlers,
+      Provider,
+    });
+
+    connection.sendUpdate({ update: "abc", documentId: "doc-1", origin: "local" });
+    connection.destroy();
+
+    expect(providerConstructed).toBe(1);
+    expect(calls).toEqual([
+      "wss://hocuspocus.example.com:canvas:team-1:doc-1:token-1:true",
+      "connected:true",
+      "connected:false",
+      "error:Hocuspocus authentication failed: expired",
+      "provider:destroy",
+    ]);
+  });
+
+  test("requires a document before constructing a Hocuspocus provider", () => {
+    expect(() =>
+      createHocuspocusRealtimeConnection({
+        url: "wss://hocuspocus.example.com",
+        documentName: "canvas:team-1:doc-1",
+        token: "token-1",
+        handlers: {
+          onUpdate: vi.fn(),
+        },
+      }),
+    ).toThrow(/Yjs document/);
   });
 });

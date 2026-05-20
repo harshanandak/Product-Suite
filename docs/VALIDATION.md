@@ -28,7 +28,7 @@ Run validation from the repo root so every deployable uses one documented entryp
 - `bun run start:hocuspocus`
   - starts the Hocuspocus runtime service from `services/hocuspocus`
 - `bun run test:roadmap-canvas-boundary`
-  - runs the focused Roadmap canvas boundary adapter tests for Supabase fallback and Hocuspocus selection
+  - runs the focused Roadmap canvas boundary adapter tests for Supabase fallback, Hocuspocus selection, and provider-readiness wiring
 - `bun run validate:meeting-web`
   - runs Meeting Web lint, tests, and build
 - `bun run validate:roadmap-web`
@@ -53,7 +53,7 @@ Run validation from the repo root so every deployable uses one documented entryp
 7. Run `bun run test:ui-charting` after changing `packages/ui-charting` so charting blocks stay shell-agnostic.
 8. Run `bun run test:agent-core` after changing `services/agent-core` so long-running agent orchestration stays service-owned.
 9. Run `bun run test:hocuspocus` after changing `services/hocuspocus` so canonical canvas collaboration transport stays service-owned.
-10. Run `bun run test:roadmap-canvas-boundary` after changing Roadmap canvas realtime selection.
+10. Run `bun run test:roadmap-canvas-boundary` after changing Roadmap canvas realtime selection, token handling, or Hocuspocus provider-readiness wiring.
 11. Ensure Python `3.13` is available for the Meeting API toolchain.
 12. Run `bun run install:meeting-api` for the Python backend dependencies.
 13. Run `bun run validate` from the repo root.

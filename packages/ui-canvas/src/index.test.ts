@@ -129,4 +129,50 @@ describe("ui-canvas boundary package", () => {
       }),
     ).toThrow(/Invalid userId/);
   });
+
+  test("allows realtime adapters to receive an optional document binding", () => {
+    const documentRef = { guid: "doc-guid-1" };
+    const calls: unknown[] = [];
+    const boundary = createCanvasBoundary({
+      persistence: {
+        async saveState() {
+          return { success: true };
+        },
+        async loadState() {
+          return null;
+        },
+      },
+      metadata: {
+        async updateMetadata() {
+          return true;
+        },
+      },
+      realtime: {
+        connect(identity, handlers, options) {
+          calls.push(identity, handlers, options?.document);
+          return {
+            sendUpdate() {},
+            destroy() {},
+          };
+        },
+      },
+    });
+
+    const identity = { teamId: "team-1", documentId: "doc-1" };
+    boundary.realtime.connect(
+      identity,
+      {
+        onUpdate: () => {},
+      },
+      { document: documentRef },
+    );
+
+    expect(calls).toEqual([
+      identity,
+      expect.objectContaining({ onUpdate: expect.any(Function) }),
+      documentRef,
+    ]);
+    expect(source).toContain("CanvasRealtimeConnectionOptions");
+    expect(source).toContain("document?: unknown");
+  });
 });
