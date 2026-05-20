@@ -78,6 +78,35 @@ describe("hocuspocus runtime entrypoint", () => {
     expect(constructed).toBe(false);
   });
 
+  test("rejects missing auth verifier before constructing or listening", async () => {
+    let constructed = false;
+    const readinessStatuses: HocuspocusReadinessStatus[] = [];
+
+    class RecordingServer {
+      constructor() {
+        constructed = true;
+      }
+
+      listen() {
+        throw new Error("listen should not be called");
+      }
+    }
+
+    await expect(
+      startHocuspocusRuntime({
+        env: {
+          HOCUSPOCUS_PORT: "4125",
+        },
+        ServerImplementation: RecordingServer,
+        onReadinessChange(status) {
+          readinessStatuses.push(status);
+        },
+      }),
+    ).rejects.toThrow(/auth verifier/);
+    expect(constructed).toBe(false);
+    expect(readinessStatuses).toEqual([]);
+  });
+
   test("reports pre-listen and healthy runtime readiness without sensitive inputs", async () => {
     class RecordingServer {
       constructor(public readonly options: Record<string, unknown>) {}

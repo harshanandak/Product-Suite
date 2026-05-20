@@ -47,6 +47,10 @@ export async function startHocuspocusRuntime<TServer extends HocuspocusServerLik
 ): Promise<TServer> {
   const { env = process.env, ServerImplementation, onReadinessChange, ...serviceOptions } = options;
   const runtime = resolveHocuspocusRuntimeConfig(env);
+  if (typeof serviceOptions.verifyAuthToken !== "function") {
+    throw new Error("Hocuspocus runtime requires an auth verifier before startup");
+  }
+
   onReadinessChange?.(createHocuspocusReadinessStatus(runtime, false));
   const server = createHocuspocusServer(
     {

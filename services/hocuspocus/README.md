@@ -17,6 +17,11 @@ Required runtime configuration:
 - `HOCUSPOCUS_DEBOUNCE_MS`: optional positive integer debounce override.
 - `HOCUSPOCUS_MAX_DEBOUNCE_MS`: optional positive integer maximum debounce override.
 
+Required service dependency:
+
+- `verifyAuthToken`: injected auth verifier for Hocuspocus connections. Runtime
+  startup fails before listening when this dependency is missing.
+
 ## Readiness
 
 The runtime emits a minimal readiness contract through `onReadinessChange`.
