@@ -42,10 +42,14 @@ export function createHocuspocusDocumentName(identity: CanvasIdentity): string {
 
 export function validateHocuspocusTokenContext(context: HocuspocusTokenContext): HocuspocusTokenContext {
   validateCanvasCollaborationIdentity(context);
+  if (typeof context.canRead !== "boolean") {
+    throw new Error("Invalid canRead: must be boolean");
+  }
+  if (typeof context.canWrite !== "boolean") {
+    throw new Error("Invalid canWrite: must be boolean");
+  }
   return {
     ...context,
-    canRead: Boolean(context.canRead),
-    canWrite: Boolean(context.canWrite),
   };
 }
 
@@ -90,7 +94,11 @@ export function createHocuspocusServerOptions(options: CreateHocuspocusServerOpt
       if (!options.verifyAuthToken) {
         throw new Error("Hocuspocus auth verifier is not configured");
       }
-      return validateHocuspocusTokenContext(await options.verifyAuthToken({ token, documentName }));
+      const context = validateHocuspocusTokenContext(await options.verifyAuthToken({ token, documentName }));
+      if (createHocuspocusDocumentName(context) !== documentName) {
+        throw new Error("Hocuspocus auth context does not match requested document");
+      }
+      return context;
     },
     async onLoadDocument({
       document,

@@ -49,6 +49,15 @@ describe("hocuspocus service registration", () => {
     expect(() => validateHocuspocusTokenContext({ userId: "", teamId: "team-1", documentId: "doc-1" })).toThrow(
       /Invalid userId/,
     );
+    expect(() =>
+      validateHocuspocusTokenContext({
+        userId: "user-1",
+        teamId: "team-1",
+        documentId: "doc-1",
+        canRead: "false",
+        canWrite: false,
+      } as never),
+    ).toThrow(/canRead/);
     expect(() => resolveHocuspocusRuntimeConfig({ HOCUSPOCUS_PORT: "" })).toThrow(
       /HOCUSPOCUS_PORT/,
     );
@@ -130,6 +139,29 @@ describe("hocuspocus service registration", () => {
       "store:canvas:team-1:doc-1:user-1",
     ]);
     expect(options.port).toBe(1234);
+  });
+
+  test("rejects auth contexts that do not match the requested document", async () => {
+    const options = createHocuspocusServerOptions({
+      runtime: { port: 1234 },
+      async verifyAuthToken() {
+        return {
+          userId: "user-1",
+          teamId: "team-1",
+          documentId: "doc-a",
+          canRead: true,
+          canWrite: true,
+        };
+      },
+    });
+
+    await expect(
+      options.onAuthenticate?.({
+        token: "token-1",
+        documentName: "canvas:team-1:doc-b",
+        context: {},
+      } as never),
+    ).rejects.toThrow(/does not match requested document/);
   });
 
   test("enforces read and write permissions before load and store delegation", async () => {
