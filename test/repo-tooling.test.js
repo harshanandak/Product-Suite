@@ -87,12 +87,19 @@ describe("repo tooling", () => {
     expect(packageJson.scripts["test:agent-core"]).toContain("services/agent-core");
     expect(packageJson.scripts["test:hocuspocus"]).toBeDefined();
     expect(packageJson.scripts["test:hocuspocus"]).toContain("services/hocuspocus");
+    expect(packageJson.scripts["start:hocuspocus"]).toBeDefined();
+    expect(packageJson.scripts["start:hocuspocus"]).toContain("services/hocuspocus start");
+    expect(packageJson.scripts["test:roadmap-canvas-boundary"]).toBeDefined();
+    expect(packageJson.scripts["test:roadmap-canvas-boundary"]).toContain(
+      "src/components/blocksuite/__tests__/canvas-boundary.test.ts",
+    );
     expect(packageJson.scripts["check:source-test"]).toBeDefined();
     expect(packageJson.scripts["check:source-test"]).toContain("check-source-test-coupling");
     expect(packageJson.scripts["test:repo-tooling"]).toContain("check-source-test-coupling.test.js");
     expect(packageJson.scripts["test:prepush"]).toContain("check:source-test");
     expect(packageJson.scripts["test:prepush"]).toContain("test:agent-core");
     expect(packageJson.scripts["test:prepush"]).toContain("test:hocuspocus");
+    expect(packageJson.scripts["test:prepush"]).toContain("test:roadmap-canvas-boundary");
     expect(lefthookConfig).toContain("pre-commit:");
     expect(lefthookConfig).toContain("bun run check:source-test");
   });
@@ -146,6 +153,8 @@ describe("repo tooling", () => {
     expect(validationDoc).toContain("bun run test:ui-charting");
     expect(validationDoc).toContain("bun run test:agent-core");
     expect(validationDoc).toContain("bun run test:hocuspocus");
+    expect(validationDoc).toContain("bun run start:hocuspocus");
+    expect(validationDoc).toContain("bun run test:roadmap-canvas-boundary");
     expect(validationDoc).toContain("packages/contracts");
     expect(validationDoc).toContain("services/agent-core");
     expect(validationDoc).toContain("services/hocuspocus");
@@ -270,6 +279,9 @@ describe("repo tooling", () => {
     expect(repoToolingWorkflow).toContain('"packages/ui-charting/**"');
     expect(repoToolingWorkflow).toContain('"services/agent-core/**"');
     expect(repoToolingWorkflow).toContain('"services/hocuspocus/**"');
+    expect(repoToolingWorkflow).toContain('"services/hocuspocus/package.json"');
+    expect(repoToolingWorkflow).toContain('"services/hocuspocus/src/runtime.ts"');
+    expect(repoToolingWorkflow).toContain('"services/hocuspocus/src/runtime.test.ts"');
     expect(repoToolingWorkflow).toContain('"README.md"');
     expect(repoToolingWorkflow).toContain('".github/workflows/meeting-api-ci.yml"');
     expect(repoToolingWorkflow).toContain(
@@ -282,6 +294,7 @@ describe("repo tooling", () => {
     );
     expect(repoToolingWorkflow).toContain("bun run test:agent-core");
     expect(repoToolingWorkflow).toContain("bun run test:hocuspocus");
+    expect(repoToolingWorkflow).toContain("bun run test:roadmap-canvas-boundary");
     expect(repoToolingWorkflow).toContain("bun run test:repo-tooling");
   });
 
@@ -304,6 +317,8 @@ describe("repo tooling", () => {
     expect(roadmapWebWorkflow).toContain('"packages/ui-charting/**"');
     expect(roadmapWebWorkflow).toContain('"services/agent-core/**"');
     expect(roadmapWebWorkflow).toContain('"services/hocuspocus/**"');
+    expect(roadmapWebWorkflow).toContain('"services/hocuspocus/src/runtime.ts"');
+    expect(roadmapWebWorkflow).toContain('"services/hocuspocus/src/runtime.test.ts"');
     expect(roadmapWebWorkflow).toContain('"package.json"');
     expect(roadmapWebWorkflow).toContain('"bun.lock"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"packages/contracts/**"');
@@ -315,6 +330,8 @@ describe("repo tooling", () => {
     expect(roadmapWebPlaywrightWorkflow).toContain('"packages/ui-charting/**"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"services/agent-core/**"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"services/hocuspocus/**"');
+    expect(roadmapWebPlaywrightWorkflow).toContain('"services/hocuspocus/src/runtime.ts"');
+    expect(roadmapWebPlaywrightWorkflow).toContain('"services/hocuspocus/src/runtime.test.ts"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"package.json"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"bun.lock"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"infra/supabase/**"');
