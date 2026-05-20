@@ -98,9 +98,11 @@ export class HybridProvider {
     this.setupRealtimeChannel()
 
     // Save on window events (browser only)
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
       window.addEventListener('beforeunload', this.handleBeforeUnload)
-      document.addEventListener('visibilitychange', this.handleVisibilityChange)
+      if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+        document.addEventListener('visibilitychange', this.handleVisibilityChange)
+      }
     }
   }
 
@@ -279,48 +281,53 @@ export class HybridProvider {
       { teamId: this.teamId, documentId: this.documentId },
       {
         onUpdate: (payloadCandidate) => {
-        // SECURITY: Validate payload structure before processing
-        const validation = safeValidateYjsUpdatePayload(payloadCandidate)
-        if (!validation.success) {
-          console.warn(
-            '[HybridProvider] Invalid broadcast payload received:',
-            validation.error.flatten()
-          )
-          return
-        }
-
-        const payload = validation.data
-
-        // Skip if not for this document
-        if (payload.documentId !== this.documentId) return
-
-        // Skip our own broadcasts
-        if (payload.origin === 'local') return
-
-        // SECURITY: Validate base64 format before decoding
-        if (!/^[A-Za-z0-9+/]*={0,2}$/.test(payload.update)) {
-          console.warn('[HybridProvider] Invalid base64 format in broadcast')
-          return
-        }
-
-        try {
-          // Decode base64 to Uint8Array
-          const binaryString = atob(payload.update)
-          const bytes = new Uint8Array(binaryString.length)
-          for (let i = 0; i < binaryString.length; i++) {
-            bytes[i] = binaryString.charCodeAt(i)
+          // SECURITY: Validate payload structure before processing
+          const validation = safeValidateYjsUpdatePayload(payloadCandidate)
+          if (!validation.success) {
+            console.warn(
+              '[HybridProvider] Invalid broadcast payload received:',
+              validation.error.flatten()
+            )
+            return
           }
 
-          // Apply remote update with 'remote' origin to prevent re-broadcast
-          Y.applyUpdate(this.doc, bytes, 'remote')
-        } catch (error) {
-          console.warn('[HybridProvider] Failed to apply remote update:', error)
-        }
+          const payload = validation.data
+
+          // Skip if not for this document
+          if (payload.documentId !== this.documentId) return
+
+          // Skip our own broadcasts
+          if (payload.origin === 'local') return
+
+          // SECURITY: Validate base64 format before decoding
+          if (!/^[A-Za-z0-9+/]*={0,2}$/.test(payload.update)) {
+            console.warn('[HybridProvider] Invalid base64 format in broadcast')
+            return
+          }
+
+          try {
+            // Decode base64 to Uint8Array
+            const binaryString = atob(payload.update)
+            const bytes = new Uint8Array(binaryString.length)
+            for (let i = 0; i < binaryString.length; i++) {
+              bytes[i] = binaryString.charCodeAt(i)
+            }
+
+            // Apply remote update with 'remote' origin to prevent re-broadcast
+            Y.applyUpdate(this.doc, bytes, 'remote')
+          } catch (error) {
+            console.warn('[HybridProvider] Failed to apply remote update:', error)
+          }
+        },
+        onConnectionChange: (connected) => {
+          this.onConnectionChange?.(connected)
+        },
+        onSyncError: (error) => {
+          this.onSyncError?.(error)
+        },
       },
-      onConnectionChange: (connected) => {
-        this.onConnectionChange?.(connected)
-      },
-    })
+      { document: this.doc }
+    )
   }
 
   /**
@@ -400,9 +407,11 @@ export class HybridProvider {
     this.doc.off('update', this.handleUpdate)
 
     // Remove window event listeners (browser only)
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
       window.removeEventListener('beforeunload', this.handleBeforeUnload)
-      document.removeEventListener('visibilitychange', this.handleVisibilityChange)
+      if (typeof document !== 'undefined' && typeof document.removeEventListener === 'function') {
+        document.removeEventListener('visibilitychange', this.handleVisibilityChange)
+      }
     }
   }
 }

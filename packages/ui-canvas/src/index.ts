@@ -40,6 +40,7 @@ export interface CanvasRealtimePayload {
 export interface CanvasRealtimeHandlers {
   onUpdate: (payload: unknown) => void;
   onConnectionChange?: (connected: boolean) => void;
+  onSyncError?: (error: Error) => void;
 }
 
 export interface CanvasRealtimeConnection {
@@ -47,8 +48,16 @@ export interface CanvasRealtimeConnection {
   destroy(): void | Promise<void>;
 }
 
+export interface CanvasRealtimeConnectionOptions {
+  document?: unknown;
+}
+
 export interface CanvasRealtimeAdapter {
-  connect(identity: CanvasIdentity, handlers: CanvasRealtimeHandlers): CanvasRealtimeConnection;
+  connect(
+    identity: CanvasIdentity,
+    handlers: CanvasRealtimeHandlers,
+    options?: CanvasRealtimeConnectionOptions,
+  ): CanvasRealtimeConnection;
 }
 
 export interface CanvasBoundary {

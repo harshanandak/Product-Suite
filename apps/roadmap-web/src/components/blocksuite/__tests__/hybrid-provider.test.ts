@@ -84,4 +84,35 @@ describe("HybridProvider canvas boundary", () => {
 
     provider.destroy();
   });
+
+  test("passes the active Yjs document to realtime adapters", () => {
+    const doc = new Y.Doc();
+    const connect = vi.fn(() => ({
+      sendUpdate: vi.fn(),
+      destroy: vi.fn(),
+    }));
+    const provider = new HybridProvider(doc, {
+      documentId: "doc-1",
+      teamId: "team-1",
+      persistence: {
+        saveState: vi.fn().mockResolvedValue({ success: true }),
+        loadState: vi.fn().mockResolvedValue(null),
+      },
+      metadata: {
+        updateMetadata: vi.fn().mockResolvedValue(true),
+      },
+      realtime: {
+        connect,
+      },
+      debounceMs: 10_000,
+    });
+
+    expect(connect).toHaveBeenCalledWith(
+      { teamId: "team-1", documentId: "doc-1" },
+      expect.objectContaining({ onUpdate: expect.any(Function) }),
+      { document: doc },
+    );
+
+    provider.destroy();
+  });
 });
