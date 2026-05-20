@@ -15,10 +15,10 @@ import { loadYjsState, saveYjsState } from './storage-client'
 export type RoadmapRealtimeSelectionConfig = Omit<RoadmapRealtimeAdapterOptions, 'supabase'>
 
 export function resolveRoadmapRealtimeSelectionConfig(
-  env: Record<string, string | undefined> = process.env
+  env?: Record<string, string | undefined>
 ): RoadmapRealtimeSelectionConfig {
   return {
-    hocuspocusUrl: env.NEXT_PUBLIC_HOCUSPOCUS_URL,
+    hocuspocusUrl: env?.NEXT_PUBLIC_HOCUSPOCUS_URL ?? process.env.NEXT_PUBLIC_HOCUSPOCUS_URL,
   }
 }
 
