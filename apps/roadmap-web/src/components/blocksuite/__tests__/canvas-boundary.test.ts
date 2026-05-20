@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { createSupabaseCanvasBoundary } from "../canvas-boundary";
+import { createSupabaseCanvasBoundary, selectRoadmapRealtimeAdapter } from "../canvas-boundary";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const hybridProviderSource = readFileSync(resolve(currentDir, "../hybrid-provider.ts"), "utf8");
@@ -114,6 +114,92 @@ describe("canvas boundary adapters", () => {
     expect(supabase.calls).toContain("connected:true");
     expect(supabase.calls).toContain("update:doc-1");
     expect(supabase.calls).toContain("channel:send:doc-1");
+    expect(supabase.calls).toContain("channel:remove");
+  });
+
+  test("selects Hocuspocus realtime when service URL and token factory are configured", async () => {
+    const supabase = createMockSupabase();
+    const calls: string[] = [];
+    const realtime = selectRoadmapRealtimeAdapter({
+      supabase: supabase as never,
+      hocuspocusUrl: "https://hocuspocus.example.com",
+      createAuthToken(identity) {
+        calls.push(`token:${identity.teamId}:${identity.documentId}`);
+        return "token-1";
+      },
+      createHocuspocusConnection({ url, documentName, token, handlers }) {
+        calls.push(`connect:${url}:${documentName}:${token}`);
+        handlers.onConnectionChange?.(true);
+        return {
+          sendUpdate(payload) {
+            calls.push(`send:${payload.documentId}`);
+          },
+          destroy() {
+            calls.push("destroy");
+          },
+        };
+      },
+    });
+
+    const connection = realtime.connect(
+      { teamId: "team-1", documentId: "doc-1" },
+      {
+        onUpdate: () => calls.push("update"),
+        onConnectionChange: (connected) => calls.push(`connected:${connected}`),
+      },
+    );
+
+    await connection.sendUpdate({ update: "abc", documentId: "doc-1", origin: "local" });
+    connection.destroy();
+
+    expect(calls).toEqual([
+      "token:team-1:doc-1",
+      "connect:https://hocuspocus.example.com:canvas:team-1:doc-1:token-1",
+      "connected:true",
+      "send:doc-1",
+      "destroy",
+    ]);
+    expect(supabase.calls).not.toContain("channel:canvas:team-1:doc-1");
+  });
+
+  test("falls back to Supabase realtime when Hocuspocus URL is missing", () => {
+    const supabase = createMockSupabase();
+    const realtime = selectRoadmapRealtimeAdapter({
+      supabase: supabase as never,
+      hocuspocusUrl: "",
+      createAuthToken() {
+        return "token-1";
+      },
+    });
+
+    const connection = realtime.connect(
+      { teamId: "team-1", documentId: "doc-1" },
+      {
+        onUpdate: () => supabase.calls.push("update"),
+      },
+    );
+    connection.destroy();
+
+    expect(supabase.calls).toContain("channel:canvas:team-1:doc-1");
+    expect(supabase.calls).toContain("channel:remove");
+  });
+
+  test("falls back to Supabase realtime when token factory is missing", () => {
+    const supabase = createMockSupabase();
+    const realtime = selectRoadmapRealtimeAdapter({
+      supabase: supabase as never,
+      hocuspocusUrl: "https://hocuspocus.example.com",
+    });
+
+    const connection = realtime.connect(
+      { teamId: "team-1", documentId: "doc-1" },
+      {
+        onUpdate: () => supabase.calls.push("update"),
+      },
+    );
+    connection.destroy();
+
+    expect(supabase.calls).toContain("channel:canvas:team-1:doc-1");
     expect(supabase.calls).toContain("channel:remove");
   });
 });

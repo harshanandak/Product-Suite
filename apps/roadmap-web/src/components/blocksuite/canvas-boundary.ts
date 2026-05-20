@@ -3,6 +3,9 @@ import {
   createCanvasBoundary,
   type CanvasBoundary,
   type CanvasIdentity,
+  type CanvasRealtimeAdapter,
+  type CanvasRealtimeConnection,
+  type CanvasRealtimeHandlers,
   type CanvasRealtimePayload,
 } from '@product-suite/ui-canvas'
 import { createHocuspocusDocumentName } from '@product-suite/hocuspocus'
@@ -48,19 +51,60 @@ export function createSupabaseCanvasBoundary(supabase: SupabaseClient): CanvasBo
     },
     realtime: {
       connect(identity, handlers) {
-        return createSupabaseRealtimeConnection(supabase, identity, handlers)
+        return selectRoadmapRealtimeAdapter({ supabase }).connect(identity, handlers)
       },
     },
   })
 }
 
+export interface HocuspocusRealtimeConnectionOptions {
+  url: string
+  documentName: string
+  token: string
+  handlers: CanvasRealtimeHandlers
+}
+
+export interface RoadmapRealtimeAdapterOptions {
+  supabase: SupabaseClient
+  hocuspocusUrl?: string
+  createAuthToken?: (identity: CanvasIdentity) => string
+  createHocuspocusConnection?: (options: HocuspocusRealtimeConnectionOptions) => CanvasRealtimeConnection
+}
+
+export function selectRoadmapRealtimeAdapter(options: RoadmapRealtimeAdapterOptions): CanvasRealtimeAdapter {
+  const hocuspocusUrl = options.hocuspocusUrl?.trim()
+  if (!hocuspocusUrl || !options.createAuthToken || !options.createHocuspocusConnection) {
+    return {
+      connect(identity, handlers) {
+        return createSupabaseRealtimeConnection(options.supabase, identity, handlers)
+      },
+    }
+  }
+
+  const createAuthToken = options.createAuthToken
+  const createHocuspocusConnection = options.createHocuspocusConnection
+
+  return {
+    connect(identity, handlers) {
+      const token = createAuthToken(identity)
+      if (typeof token !== 'string') {
+        throw new Error('Roadmap Hocuspocus auth token factory must return a token synchronously')
+      }
+
+      return createHocuspocusConnection({
+        url: hocuspocusUrl,
+        documentName: createHocuspocusDocumentName(identity),
+        token,
+        handlers,
+      })
+    },
+  }
+}
+
 function createSupabaseRealtimeConnection(
   supabase: SupabaseClient,
   identity: CanvasIdentity,
-  handlers: {
-    onUpdate: (payload: unknown) => void
-    onConnectionChange?: (connected: boolean) => void
-  }
+  handlers: CanvasRealtimeHandlers
 ) {
   const documentName = createHocuspocusDocumentName(identity)
   let channel: RealtimeChannel | null = supabase
