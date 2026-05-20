@@ -1,6 +1,6 @@
 # Building Blocks Transformation PR Plan
 
-Last updated: 2026-05-18
+Last updated: 2026-05-20
 
 This file is the durable execution plan for the multi-PR transformation of Product Suite into a clearer building-blocks architecture. It exists so the team can return to the sequence and continue execution without depending on chat history.
 
@@ -18,6 +18,7 @@ This file is the durable execution plan for the multi-PR transformation of Produ
 11. `PR11 Planning And Charting Blocks`
 12. `PR12 Agent-Core Service`
 13. `PR13 Realtime Transport Split`
+14. `PR14 Realtime Service Runtime Wiring`
 
 ## Current Status
 - `PR1 Repo Tooling Normalization`: merged and verified
@@ -32,8 +33,9 @@ This file is the durable execution plan for the multi-PR transformation of Produ
 - `PR10 Canvas Boundary Extraction`: merged and verified
 - `PR11 Planning And Charting Blocks`: merged and verified
 - `PR12 Agent-Core Service`: merged and verified
-- `PR13 Realtime Transport Split`: active on `feat/pr13-realtime-transport-split`
-- `PR14+`: still need planning and execution as tracked work slices
+- `PR13 Realtime Transport Split`: merged and verified
+- `PR14 Realtime Service Runtime Wiring`: active on `feat/pr14-realtime-service-runtime-wiring`
+- `PR15+`: still need planning and execution as tracked work slices
 
 ## Global Rules
 - Roll back the PR if it breaks a prior gate.
@@ -306,3 +308,26 @@ This file is the durable execution plan for the multi-PR transformation of Produ
 - Rollback criteria:
   - canvas still depends on app-local transport semantics
   - transport split increases product instability
+
+### PR14 Realtime Service Runtime Wiring
+- Goal: turn the Hocuspocus boundary into a runnable service runtime without cutting over Roadmap by default.
+- Active artifacts:
+  - `docs/research/pr14-realtime-service-runtime-wiring.md`
+  - `docs/plans/2026-05-20-pr14-realtime-service-runtime-wiring-design.md`
+  - `docs/plans/2026-05-20-pr14-realtime-service-runtime-wiring-tasks.md`
+- Checklist:
+  - add a tested `services/hocuspocus` runtime entrypoint
+  - add minimal health/readiness behavior for deployment smoke checks
+  - add Roadmap runtime selection helpers while preserving Supabase Realtime fallback
+  - update validation docs, scripts, and CI path filters
+- Reviewer focus:
+  - service startup safety
+  - auth and read-only enforcement
+  - explicit fallback behavior
+  - deployment readiness without hidden secrets
+- Merge gate:
+  - Hocuspocus can run as a validated service runtime and Roadmap can opt into it only when fully configured
+- Rollback criteria:
+  - service startup can open a port with invalid auth/runtime config
+  - Roadmap silently changes realtime behavior when Hocuspocus config is missing
+  - health/readiness leaks tokens, document identifiers, or user context
