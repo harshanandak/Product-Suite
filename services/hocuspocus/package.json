@@ -12,9 +12,14 @@
     "./server": {
       "types": "./src/server.ts",
       "default": "./src/server.ts"
+    },
+    "./runtime": {
+      "types": "./src/runtime.ts",
+      "default": "./src/runtime.ts"
     }
   },
   "scripts": {
+    "start": "bun src/runtime.ts",
     "test": "bun test src/*.test.ts"
   },
   "dependencies": {

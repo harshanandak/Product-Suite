@@ -5,11 +5,17 @@ import {
   type CreateHocuspocusServerOptions,
 } from "./index";
 
-type HocuspocusServerConstructor = new (options: any) => Server;
+export interface HocuspocusServerLike {
+  listen(): unknown;
+}
 
-export function createHocuspocusServer(
+export type HocuspocusServerConstructor<TServer extends HocuspocusServerLike = Server> = new (
+  options: any,
+) => TServer;
+
+export function createHocuspocusServer<TServer extends HocuspocusServerLike = Server>(
   options: CreateHocuspocusServerOptions,
-  ServerImplementation: HocuspocusServerConstructor = Server,
-): Server {
+  ServerImplementation: HocuspocusServerConstructor<TServer> = Server as HocuspocusServerConstructor<TServer>,
+): TServer {
   return new ServerImplementation(createHocuspocusServerOptions(options));
 }
