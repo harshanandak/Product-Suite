@@ -23,7 +23,7 @@ export interface HocuspocusRuntimeConfig {
 
 export interface HocuspocusHookInput {
   documentName: string;
-  context: HocuspocusTokenContext;
+  context?: HocuspocusTokenContext;
 }
 
 export interface CreateHocuspocusServerOptions {
@@ -32,7 +32,7 @@ export interface CreateHocuspocusServerOptions {
     token: string;
     documentName: string;
   }) => Promise<HocuspocusTokenContext> | HocuspocusTokenContext;
-  loadDocument?: (input: HocuspocusHookInput & { document: Doc }) => Promise<Doc | Uint8Array | null | void> | Doc | Uint8Array | null | void;
+  loadDocument?: (input: Omit<HocuspocusHookInput, "context"> & { document: Doc; context: HocuspocusTokenContext }) => Promise<Doc | Uint8Array | null | void> | Doc | Uint8Array | null | void;
   storeDocument?: (input: HocuspocusHookInput & { document: Doc }) => Promise<void> | void;
 }
 
@@ -117,6 +117,21 @@ export function createHocuspocusServerOptions(options: CreateHocuspocusServerOpt
       }
       return options.loadDocument?.({ document, documentName, context });
     },
+    async beforeHandleMessage({
+      context,
+    }: {
+      document: Doc;
+      documentName: string;
+      message: Uint8Array;
+      context?: HocuspocusTokenContext;
+    }) {
+      if (!context) {
+        throw new Error("Hocuspocus message context is missing");
+      }
+      if (!context.canWrite) {
+        throw new Error("Hocuspocus write access denied");
+      }
+    },
     async onChange({
       context,
     }: {
@@ -141,10 +156,7 @@ export function createHocuspocusServerOptions(options: CreateHocuspocusServerOpt
       documentName: string;
       lastContext?: HocuspocusTokenContext;
     }) {
-      if (!lastContext) {
-        throw new Error("Hocuspocus store context is missing");
-      }
-      if (!lastContext.canWrite) {
+      if (lastContext && !lastContext.canWrite) {
         throw new Error("Hocuspocus write access denied");
       }
       await options.storeDocument?.({ document, documentName, context: lastContext });
