@@ -36,8 +36,6 @@ export interface CreateHocuspocusServerOptions {
   storeDocument?: (input: HocuspocusHookInput & { document: Doc }) => Promise<void> | void;
 }
 
-const YJS_UPDATE_SYNC_MESSAGE_TYPE = 2;
-
 export function createHocuspocusDocumentName(identity: CanvasIdentity): string {
   return createCanvasCollaborationRoomName(identity);
 }
@@ -92,13 +90,24 @@ export function resolveHocuspocusRuntimeConfig(
 export function createHocuspocusServerOptions(options: CreateHocuspocusServerOptions) {
   return {
     ...options.runtime,
-    async onAuthenticate({ token, documentName }: { token: string; documentName: string }) {
+    async onAuthenticate({
+      token,
+      documentName,
+      connectionConfig,
+    }: {
+      token: string;
+      documentName: string;
+      connectionConfig?: { readOnly: boolean };
+    }) {
       if (!options.verifyAuthToken) {
         throw new Error("Hocuspocus auth verifier is not configured");
       }
       const context = validateHocuspocusTokenContext(await options.verifyAuthToken({ token, documentName }));
       if (createHocuspocusDocumentName(context) !== documentName) {
         throw new Error("Hocuspocus auth context does not match requested document");
+      }
+      if (connectionConfig) {
+        connectionConfig.readOnly = !context.canWrite;
       }
       return context;
     },
@@ -118,26 +127,6 @@ export function createHocuspocusServerOptions(options: CreateHocuspocusServerOpt
         throw new Error("Hocuspocus read access denied");
       }
       return options.loadDocument?.({ document, documentName, context });
-    },
-    async beforeSync({
-      context,
-      type,
-    }: {
-      document: Doc;
-      documentName: string;
-      type: number;
-      payload: Uint8Array;
-      context?: HocuspocusTokenContext;
-    }) {
-      if (type !== YJS_UPDATE_SYNC_MESSAGE_TYPE) {
-        return;
-      }
-      if (!context) {
-        throw new Error("Hocuspocus sync context is missing");
-      }
-      if (!context.canWrite) {
-        throw new Error("Hocuspocus write access denied");
-      }
     },
     async onChange({
       context,

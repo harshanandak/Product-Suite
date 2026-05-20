@@ -116,9 +116,11 @@ describe("hocuspocus service registration", () => {
       },
     });
 
+    const connectionConfig = { readOnly: true };
     const context = await options.onAuthenticate?.({
       token: "token-1",
       documentName: "canvas:team-1:doc-1",
+      connectionConfig,
       context: {},
     } as never);
     const document = await options.onLoadDocument?.({
@@ -138,6 +140,7 @@ describe("hocuspocus service registration", () => {
       "load:canvas:team-1:doc-1:user-1",
       "store:canvas:team-1:doc-1:user-1",
     ]);
+    expect(connectionConfig.readOnly).toBe(false);
     expect(options.port).toBe(1234);
   });
 
@@ -196,26 +199,11 @@ describe("hocuspocus service registration", () => {
         context: writeOnlyContext,
       } as never),
     ).rejects.toThrow(/read access denied/);
-    await options.beforeSync?.({
-      document: new Y.Doc(),
-      documentName: "canvas:team-1:doc-1",
-      type: 0,
-      payload: new Uint8Array([1]),
-      context: readOnlyContext,
-    } as never);
-    await options.beforeSync?.({
-      document: new Y.Doc(),
-      documentName: "canvas:team-1:doc-1",
-      type: 1,
-      payload: new Uint8Array([1]),
-      context: readOnlyContext,
-    } as never);
     await expect(
-      options.beforeSync?.({
+      options.onChange?.({
         document: new Y.Doc(),
         documentName: "canvas:team-1:doc-1",
-        type: 2,
-        payload: new Uint8Array([1]),
+        update: new Uint8Array([1]),
         context: readOnlyContext,
       } as never),
     ).rejects.toThrow(/write access denied/);
@@ -231,11 +219,10 @@ describe("hocuspocus service registration", () => {
       documentName: "canvas:team-1:doc-1",
       context: readOnlyContext,
     } as never);
-    await options.beforeSync?.({
+    await options.onChange?.({
       document: new Y.Doc(),
       documentName: "canvas:team-1:doc-1",
-      type: 2,
-      payload: new Uint8Array([1]),
+      update: new Uint8Array([1]),
       context: writeOnlyContext,
     } as never);
     await options.onStoreDocument?.({
@@ -249,5 +236,29 @@ describe("hocuspocus service registration", () => {
     } as never);
 
     expect(calls).toEqual(["load", "store", "store"]);
+  });
+
+  test("marks read-only auth contexts on the Hocuspocus connection config", async () => {
+    const options = createHocuspocusServerOptions({
+      runtime: { port: 1234 },
+      async verifyAuthToken() {
+        return {
+          userId: "user-1",
+          teamId: "team-1",
+          documentId: "doc-1",
+          canRead: true,
+          canWrite: false,
+        };
+      },
+    });
+    const connectionConfig = { readOnly: false };
+
+    await options.onAuthenticate?.({
+      token: "token-1",
+      documentName: "canvas:team-1:doc-1",
+      connectionConfig,
+    } as never);
+
+    expect(connectionConfig.readOnly).toBe(true);
   });
 });
