@@ -6,7 +6,7 @@ Beads: `product-suite-36p`
 ## Decision 1
 **Date**: 2026-05-20
 **Task**: Task 2 - Add Hocuspocus Runtime Entrypoint
-**Gap**: The design required validated startup but did not specify whether validation should live in the runtime wrapper or server factory.
+**Gap**: The design required startup to be validated but did not specify whether validation should live in the runtime wrapper or server factory.
 **Score**: 2 / 14
 **Route**: PROCEED
 **Choice made**: Runtime startup resolves and validates environment config before constructing the server, so invalid ports or debounce values fail before `listen()` can open a socket.

@@ -3,7 +3,12 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { createSupabaseCanvasBoundary, selectRoadmapRealtimeAdapter } from "../canvas-boundary";
+import {
+  createRoadmapCanvasBoundary,
+  createSupabaseCanvasBoundary,
+  resolveRoadmapRealtimeSelectionConfig,
+  selectRoadmapRealtimeAdapter,
+} from "../canvas-boundary";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const hybridProviderSource = readFileSync(resolve(currentDir, "../hybrid-provider.ts"), "utf8");
@@ -194,6 +199,48 @@ describe("canvas boundary adapters", () => {
     connection.destroy();
 
     expect(calls).toEqual(["token:team-1:doc-1", "connect:canvas:team-1:doc-1", "send:doc-1", "destroy"]);
+    expect(supabase.calls).not.toContain("channel:canvas:team-1:doc-1");
+  });
+
+  test("creates Roadmap canvas boundaries from the public Hocuspocus runtime URL", () => {
+    expect(resolveRoadmapRealtimeSelectionConfig({
+      NEXT_PUBLIC_HOCUSPOCUS_URL: "wss://hocuspocus.example.com",
+    })).toEqual({
+      hocuspocusUrl: "wss://hocuspocus.example.com",
+    });
+  });
+
+  test("passes Roadmap runtime config through the app boundary helper", () => {
+    const supabase = createMockSupabase();
+    const calls: string[] = [];
+    const boundary = createRoadmapCanvasBoundary(supabase as never, {
+      hocuspocusUrl: "wss://hocuspocus.example.com",
+      createAuthToken() {
+        return "token-1";
+      },
+      createHocuspocusConnection({ url }) {
+        calls.push(`connect:${url}`);
+        return {
+          sendUpdate(payload) {
+            calls.push(`send:${payload.documentId}`);
+          },
+          destroy() {
+            calls.push("destroy");
+          },
+        };
+      },
+    });
+
+    const connection = boundary.realtime.connect(
+      { teamId: "team-1", documentId: "doc-1" },
+      {
+        onUpdate: () => calls.push("update"),
+      },
+    );
+    connection.sendUpdate({ update: "abc", documentId: "doc-1", origin: "local" });
+    connection.destroy();
+
+    expect(calls).toEqual(["connect:wss://hocuspocus.example.com", "send:doc-1", "destroy"]);
     expect(supabase.calls).not.toContain("channel:canvas:team-1:doc-1");
   });
 

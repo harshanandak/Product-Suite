@@ -8,7 +8,8 @@ const source = readFileSync(resolve(currentDir, "../use-blocksuite-sync.ts"), "u
 
 describe("useBlockSuiteSync boundary wiring", () => {
   test("injects Supabase canvas boundaries into HybridProvider", () => {
-    expect(source).toContain("createSupabaseCanvasBoundary");
+    expect(source).toContain("createRoadmapCanvasBoundary");
+    expect(source).not.toContain("createSupabaseCanvasBoundary(supabase)");
     expect(source).toContain("const canvasBoundary = useMemo");
     expect(source).toContain("...canvasBoundary");
     const providerOptionsMatch = source.match(

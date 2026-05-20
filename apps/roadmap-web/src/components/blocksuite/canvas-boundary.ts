@@ -12,7 +12,22 @@ import { createHocuspocusDocumentName } from '@product-suite/hocuspocus'
 import { SHARED_CANVAS_DOCUMENT_TABLE } from '@/lib/supabase/shared-contracts'
 import { loadYjsState, saveYjsState } from './storage-client'
 
-type RoadmapRealtimeSelectionConfig = Omit<RoadmapRealtimeAdapterOptions, 'supabase'>
+export type RoadmapRealtimeSelectionConfig = Omit<RoadmapRealtimeAdapterOptions, 'supabase'>
+
+export function resolveRoadmapRealtimeSelectionConfig(
+  env: Record<string, string | undefined> = process.env
+): RoadmapRealtimeSelectionConfig {
+  return {
+    hocuspocusUrl: env.NEXT_PUBLIC_HOCUSPOCUS_URL,
+  }
+}
+
+export function createRoadmapCanvasBoundary(
+  supabase: SupabaseClient,
+  realtimeConfig: RoadmapRealtimeSelectionConfig = resolveRoadmapRealtimeSelectionConfig()
+): CanvasBoundary {
+  return createSupabaseCanvasBoundary(supabase, realtimeConfig)
+}
 
 export function createSupabaseCanvasBoundary(
   supabase: SupabaseClient,

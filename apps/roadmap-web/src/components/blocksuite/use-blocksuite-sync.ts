@@ -13,7 +13,7 @@ import type { Doc } from 'yjs'
 import { createClient } from '@/lib/supabase/client'
 import { SHARED_CANVAS_DOCUMENT_TABLE } from '@/lib/supabase/shared-contracts'
 import { HybridProvider } from './hybrid-provider'
-import { createSupabaseCanvasBoundary } from './canvas-boundary'
+import { createRoadmapCanvasBoundary } from './canvas-boundary'
 import {
   DEFAULT_DEBOUNCE_MS,
   getStoragePath,
@@ -52,7 +52,7 @@ export function useBlockSuiteSync(
   // Without useMemo, createClient() returns a new instance each render,
   // causing HybridProvider to be destroyed and recreated constantly
   const supabase = useMemo(() => createClient(), [])
-  const canvasBoundary = useMemo(() => createSupabaseCanvasBoundary(supabase), [supabase])
+  const canvasBoundary = useMemo(() => createRoadmapCanvasBoundary(supabase), [supabase])
 
   const [isLoading, setIsLoading] = useState(true)
   const [isConnected, setIsConnected] = useState(false)
