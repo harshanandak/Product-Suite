@@ -357,6 +357,8 @@ describe("repo tooling", () => {
     expect(roadmapWebPlaywrightWorkflow).toContain('"packages/ui-charting/**"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"services/agent-core/**"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"services/hocuspocus/**"');
+    expect(roadmapWebPlaywrightWorkflow).toContain('"docs/**"');
+    expect(roadmapWebPlaywrightWorkflow).toContain('"test/**"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"package.json"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"bun.lock"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"infra/supabase/**"');
