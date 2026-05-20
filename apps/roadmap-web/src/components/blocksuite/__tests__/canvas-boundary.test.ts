@@ -205,6 +205,17 @@ describe("canvas boundary adapters", () => {
   test("creates Roadmap canvas boundaries from the public Hocuspocus runtime URL", () => {
     expect(boundarySource).toContain("process.env.NEXT_PUBLIC_HOCUSPOCUS_URL");
     expect(boundarySource).not.toContain("= process.env\n): RoadmapRealtimeSelectionConfig");
+    const originalUrl = process.env.NEXT_PUBLIC_HOCUSPOCUS_URL;
+    process.env.NEXT_PUBLIC_HOCUSPOCUS_URL = "wss://ambient.example.com";
+
+    try {
+      expect(resolveRoadmapRealtimeSelectionConfig({})).toEqual({
+        hocuspocusUrl: undefined,
+      });
+    } finally {
+      process.env.NEXT_PUBLIC_HOCUSPOCUS_URL = originalUrl;
+    }
+
     expect(resolveRoadmapRealtimeSelectionConfig({
       NEXT_PUBLIC_HOCUSPOCUS_URL: "wss://hocuspocus.example.com",
     })).toEqual({

@@ -17,8 +17,12 @@ export type RoadmapRealtimeSelectionConfig = Omit<RoadmapRealtimeAdapterOptions,
 export function resolveRoadmapRealtimeSelectionConfig(
   env?: Record<string, string | undefined>
 ): RoadmapRealtimeSelectionConfig {
+  const hocuspocusUrl = env === undefined
+    ? process.env.NEXT_PUBLIC_HOCUSPOCUS_URL
+    : env.NEXT_PUBLIC_HOCUSPOCUS_URL
+
   return {
-    hocuspocusUrl: env?.NEXT_PUBLIC_HOCUSPOCUS_URL ?? process.env.NEXT_PUBLIC_HOCUSPOCUS_URL,
+    hocuspocusUrl,
   }
 }
 
