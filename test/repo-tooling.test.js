@@ -87,12 +87,19 @@ describe("repo tooling", () => {
     expect(packageJson.scripts["test:agent-core"]).toContain("services/agent-core");
     expect(packageJson.scripts["test:hocuspocus"]).toBeDefined();
     expect(packageJson.scripts["test:hocuspocus"]).toContain("services/hocuspocus");
+    expect(packageJson.scripts["start:hocuspocus"]).toBeDefined();
+    expect(packageJson.scripts["start:hocuspocus"]).toContain("services/hocuspocus start");
+    expect(packageJson.scripts["test:roadmap-canvas-boundary"]).toBeDefined();
+    expect(packageJson.scripts["test:roadmap-canvas-boundary"]).toContain(
+      "src/components/blocksuite/__tests__/canvas-boundary.test.ts",
+    );
     expect(packageJson.scripts["check:source-test"]).toBeDefined();
     expect(packageJson.scripts["check:source-test"]).toContain("check-source-test-coupling");
     expect(packageJson.scripts["test:repo-tooling"]).toContain("check-source-test-coupling.test.js");
     expect(packageJson.scripts["test:prepush"]).toContain("check:source-test");
     expect(packageJson.scripts["test:prepush"]).toContain("test:agent-core");
     expect(packageJson.scripts["test:prepush"]).toContain("test:hocuspocus");
+    expect(packageJson.scripts["test:prepush"]).toContain("test:roadmap-canvas-boundary");
     expect(lefthookConfig).toContain("pre-commit:");
     expect(lefthookConfig).toContain("bun run check:source-test");
   });
@@ -146,6 +153,8 @@ describe("repo tooling", () => {
     expect(validationDoc).toContain("bun run test:ui-charting");
     expect(validationDoc).toContain("bun run test:agent-core");
     expect(validationDoc).toContain("bun run test:hocuspocus");
+    expect(validationDoc).toContain("bun run start:hocuspocus");
+    expect(validationDoc).toContain("bun run test:roadmap-canvas-boundary");
     expect(validationDoc).toContain("packages/contracts");
     expect(validationDoc).toContain("services/agent-core");
     expect(validationDoc).toContain("services/hocuspocus");
@@ -168,7 +177,7 @@ describe("repo tooling", () => {
     expect(buildingBlocksPlan).toContain("docs/research/pr5-auth-contracts-and-adapters.md");
   });
 
-  test("building blocks plan marks PR12 verified and PR13 active", () => {
+  test("building blocks plan marks PR13 verified and PR14 active", () => {
     expect(buildingBlocksPlan).toContain("PR5 Auth Contracts And Adapters`: merged and verified");
     expect(buildingBlocksPlan).toContain("PR6 Auth Provider Rollout`: merged and verified");
     expect(buildingBlocksPlan).toContain("PR7 SDK / Typed Client Layer`: merged and verified");
@@ -177,8 +186,9 @@ describe("repo tooling", () => {
     expect(buildingBlocksPlan).toContain("PR10 Canvas Boundary Extraction`: merged and verified");
     expect(buildingBlocksPlan).toContain("PR11 Planning And Charting Blocks`: merged and verified");
     expect(buildingBlocksPlan).toContain("PR12 Agent-Core Service`: merged and verified");
+    expect(buildingBlocksPlan).toContain("PR13 Realtime Transport Split`: merged and verified");
     expect(buildingBlocksPlan).toContain(
-      "PR13 Realtime Transport Split`: active on `feat/pr13-realtime-transport-split`",
+      "PR14 Realtime Service Runtime Wiring`: active on `feat/pr14-realtime-service-runtime-wiring`",
     );
     expect(buildingBlocksPlan).toContain("docs/research/pr11-planning-and-charting-blocks.md");
     expect(buildingBlocksPlan).toContain(
@@ -207,6 +217,15 @@ describe("repo tooling", () => {
     expect(buildingBlocksPlan).toContain(
       "docs/plans/2026-05-19-pr13-realtime-transport-split-tasks.md",
     );
+    expect(buildingBlocksPlan).toContain(
+      "docs/research/pr14-realtime-service-runtime-wiring.md",
+    );
+    expect(buildingBlocksPlan).toContain(
+      "docs/plans/2026-05-20-pr14-realtime-service-runtime-wiring-design.md",
+    );
+    expect(buildingBlocksPlan).toContain(
+      "docs/plans/2026-05-20-pr14-realtime-service-runtime-wiring-tasks.md",
+    );
     expect(buildingBlocksPlan).not.toContain("PR4 is in progress");
     expect(buildingBlocksPlan).not.toContain("PR5+ need planning");
     expect(buildingBlocksPlan).not.toContain("PR6 Auth Provider Rollout`: active");
@@ -214,6 +233,7 @@ describe("repo tooling", () => {
     expect(buildingBlocksPlan).not.toContain("PR10 Canvas Boundary Extraction`: active");
     expect(buildingBlocksPlan).not.toContain("PR11 Planning And Charting Blocks`: active");
     expect(buildingBlocksPlan).not.toContain("PR12 Agent-Core Service`: active");
+    expect(buildingBlocksPlan).not.toContain("PR13 Realtime Transport Split`: active");
   });
 
   test("meeting-api CI reflects the local validation baseline", () => {
@@ -271,6 +291,7 @@ describe("repo tooling", () => {
     );
     expect(repoToolingWorkflow).toContain("bun run test:agent-core");
     expect(repoToolingWorkflow).toContain("bun run test:hocuspocus");
+    expect(repoToolingWorkflow).toContain("bun run test:roadmap-canvas-boundary");
     expect(repoToolingWorkflow).toContain("bun run test:repo-tooling");
   });
 

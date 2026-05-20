@@ -3,13 +3,40 @@ import {
   createCanvasBoundary,
   type CanvasBoundary,
   type CanvasIdentity,
+  type CanvasRealtimeAdapter,
+  type CanvasRealtimeConnection,
+  type CanvasRealtimeHandlers,
   type CanvasRealtimePayload,
 } from '@product-suite/ui-canvas'
 import { createHocuspocusDocumentName } from '@product-suite/hocuspocus'
 import { SHARED_CANVAS_DOCUMENT_TABLE } from '@/lib/supabase/shared-contracts'
 import { loadYjsState, saveYjsState } from './storage-client'
 
-export function createSupabaseCanvasBoundary(supabase: SupabaseClient): CanvasBoundary {
+export type RoadmapRealtimeSelectionConfig = Omit<RoadmapRealtimeAdapterOptions, 'supabase'>
+
+export function resolveRoadmapRealtimeSelectionConfig(
+  env?: Record<string, string | undefined>
+): RoadmapRealtimeSelectionConfig {
+  const hocuspocusUrl = env === undefined
+    ? process.env.NEXT_PUBLIC_HOCUSPOCUS_URL
+    : env.NEXT_PUBLIC_HOCUSPOCUS_URL
+
+  return {
+    hocuspocusUrl,
+  }
+}
+
+export function createRoadmapCanvasBoundary(
+  supabase: SupabaseClient,
+  realtimeConfig: RoadmapRealtimeSelectionConfig = resolveRoadmapRealtimeSelectionConfig()
+): CanvasBoundary {
+  return createSupabaseCanvasBoundary(supabase, realtimeConfig)
+}
+
+export function createSupabaseCanvasBoundary(
+  supabase: SupabaseClient,
+  realtimeConfig: RoadmapRealtimeSelectionConfig = {}
+): CanvasBoundary {
   return createCanvasBoundary({
     persistence: {
       saveState(identity, state) {
@@ -48,19 +75,60 @@ export function createSupabaseCanvasBoundary(supabase: SupabaseClient): CanvasBo
     },
     realtime: {
       connect(identity, handlers) {
-        return createSupabaseRealtimeConnection(supabase, identity, handlers)
+        return selectRoadmapRealtimeAdapter({ supabase, ...realtimeConfig }).connect(identity, handlers)
       },
     },
   })
 }
 
+export interface HocuspocusRealtimeConnectionOptions {
+  url: string
+  documentName: string
+  token: string
+  handlers: CanvasRealtimeHandlers
+}
+
+export interface RoadmapRealtimeAdapterOptions {
+  supabase: SupabaseClient
+  hocuspocusUrl?: string
+  createAuthToken?: (identity: CanvasIdentity) => string
+  createHocuspocusConnection?: (options: HocuspocusRealtimeConnectionOptions) => CanvasRealtimeConnection
+}
+
+export function selectRoadmapRealtimeAdapter(options: RoadmapRealtimeAdapterOptions): CanvasRealtimeAdapter {
+  const hocuspocusUrl = options.hocuspocusUrl?.trim()
+  if (!hocuspocusUrl || !options.createAuthToken || !options.createHocuspocusConnection) {
+    return {
+      connect(identity, handlers) {
+        return createSupabaseRealtimeConnection(options.supabase, identity, handlers)
+      },
+    }
+  }
+
+  const createAuthToken = options.createAuthToken
+  const createHocuspocusConnection = options.createHocuspocusConnection
+
+  return {
+    connect(identity, handlers) {
+      const token = createAuthToken(identity)
+      if (typeof token !== 'string' || token.trim().length === 0) {
+        throw new Error('Roadmap Hocuspocus auth token factory must return a non-empty token synchronously')
+      }
+
+      return createHocuspocusConnection({
+        url: hocuspocusUrl,
+        documentName: createHocuspocusDocumentName(identity),
+        token,
+        handlers,
+      })
+    },
+  }
+}
+
 function createSupabaseRealtimeConnection(
   supabase: SupabaseClient,
   identity: CanvasIdentity,
-  handlers: {
-    onUpdate: (payload: unknown) => void
-    onConnectionChange?: (connected: boolean) => void
-  }
+  handlers: CanvasRealtimeHandlers
 ) {
   const documentName = createHocuspocusDocumentName(identity)
   let channel: RealtimeChannel | null = supabase

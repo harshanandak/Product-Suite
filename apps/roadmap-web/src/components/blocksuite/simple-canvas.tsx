@@ -5,7 +5,7 @@ import * as Y from 'yjs'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 import { HybridProvider } from './hybrid-provider'
-import { createSupabaseCanvasBoundary } from './canvas-boundary'
+import { createRoadmapCanvasBoundary } from './canvas-boundary'
 import { LoadingSkeleton } from './loading-skeleton'
 import { cleanupBlockSuiteEditor, cleanupEditorInterval } from './editor-utils'
 import { resolveCanvasEditorMode } from '@product-suite/ui-canvas'
@@ -71,7 +71,7 @@ export function SimpleCanvas({
 
   // Memoize supabase client
   const supabase = useMemo(() => createClient(), [])
-  const canvasBoundary = useMemo(() => createSupabaseCanvasBoundary(supabase), [supabase])
+  const canvasBoundary = useMemo(() => createRoadmapCanvasBoundary(supabase), [supabase])
 
   // Determine editor mode based on document type
   const editorMode = resolveCanvasEditorMode(documentType)
