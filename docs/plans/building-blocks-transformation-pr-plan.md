@@ -19,6 +19,7 @@ This file is the durable execution plan for the multi-PR transformation of Produ
 12. `PR12 Agent-Core Service`
 13. `PR13 Realtime Transport Split`
 14. `PR14 Realtime Service Runtime Wiring`
+15. `PR15 Hocuspocus Provider Cutover Readiness`
 
 ## Current Status
 - `PR1 Repo Tooling Normalization`: merged and verified
@@ -34,8 +35,9 @@ This file is the durable execution plan for the multi-PR transformation of Produ
 - `PR11 Planning And Charting Blocks`: merged and verified
 - `PR12 Agent-Core Service`: merged and verified
 - `PR13 Realtime Transport Split`: merged and verified
-- `PR14 Realtime Service Runtime Wiring`: active on `feat/pr14-realtime-service-runtime-wiring`
-- `PR15+`: still need planning and execution as tracked work slices
+- `PR14 Realtime Service Runtime Wiring`: merged and verified
+- `PR15 Hocuspocus Provider Cutover Readiness`: active on `feat/pr15-hocuspocus-provider-cutover-readiness`
+- `PR16+`: still need planning and execution as tracked work slices
 
 ## Global Rules
 - Roll back the PR if it breaks a prior gate.
@@ -331,3 +333,28 @@ This file is the durable execution plan for the multi-PR transformation of Produ
   - service startup can open a port with invalid auth/runtime config
   - Roadmap silently changes realtime behavior when Hocuspocus config is missing
   - health/readiness leaks tokens, document identifiers, or user context
+
+### PR15 Hocuspocus Provider Cutover Readiness
+- Goal: prove Roadmap can activate a real Hocuspocus provider path with document, token, and provider inputs before removing Supabase Realtime fallback.
+- Active artifacts:
+  - `docs/research/pr15-hocuspocus-provider-cutover-readiness.md`
+  - `docs/plans/2026-05-20-pr15-hocuspocus-provider-cutover-readiness-design.md`
+  - `docs/plans/2026-05-20-pr15-hocuspocus-provider-cutover-readiness-tasks.md`
+  - `docs/plans/2026-05-20-pr15-hocuspocus-provider-cutover-readiness-decisions.md`
+- Checklist:
+  - extend canvas realtime contracts so provider-native transports can receive the active Yjs document
+  - pass the Yjs document through `HybridProvider` without changing the Supabase fallback
+  - add a Roadmap-owned Hocuspocus provider connection factory behind the existing explicit selection gate
+  - add token factory wiring that fails closed and does not change auth provider semantics
+  - update validation docs and repo-tooling state guards
+- Reviewer focus:
+  - realtime correctness
+  - auth token handling
+  - fallback preservation
+  - no Hocuspocus provider dependency in shared canvas contracts
+- Merge gate:
+  - Roadmap can prove Hocuspocus provider activation in tests when all inputs are present, while default behavior remains Supabase fallback
+- Rollback criteria:
+  - provider path requires app-specific imports in `packages/ui-canvas`
+  - partial config silently changes live collaboration behavior
+  - token handling logs or persists sensitive values

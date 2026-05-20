@@ -177,7 +177,7 @@ describe("repo tooling", () => {
     expect(buildingBlocksPlan).toContain("docs/research/pr5-auth-contracts-and-adapters.md");
   });
 
-  test("building blocks plan marks PR13 verified and PR14 active", () => {
+  test("building blocks plan marks PR14 verified and PR15 active", () => {
     expect(buildingBlocksPlan).toContain("PR5 Auth Contracts And Adapters`: merged and verified");
     expect(buildingBlocksPlan).toContain("PR6 Auth Provider Rollout`: merged and verified");
     expect(buildingBlocksPlan).toContain("PR7 SDK / Typed Client Layer`: merged and verified");
@@ -187,8 +187,9 @@ describe("repo tooling", () => {
     expect(buildingBlocksPlan).toContain("PR11 Planning And Charting Blocks`: merged and verified");
     expect(buildingBlocksPlan).toContain("PR12 Agent-Core Service`: merged and verified");
     expect(buildingBlocksPlan).toContain("PR13 Realtime Transport Split`: merged and verified");
+    expect(buildingBlocksPlan).toContain("PR14 Realtime Service Runtime Wiring`: merged and verified");
     expect(buildingBlocksPlan).toContain(
-      "PR14 Realtime Service Runtime Wiring`: active on `feat/pr14-realtime-service-runtime-wiring`",
+      "PR15 Hocuspocus Provider Cutover Readiness`: active on `feat/pr15-hocuspocus-provider-cutover-readiness`",
     );
     expect(buildingBlocksPlan).toContain("docs/research/pr11-planning-and-charting-blocks.md");
     expect(buildingBlocksPlan).toContain(
@@ -226,6 +227,18 @@ describe("repo tooling", () => {
     expect(buildingBlocksPlan).toContain(
       "docs/plans/2026-05-20-pr14-realtime-service-runtime-wiring-tasks.md",
     );
+    expect(buildingBlocksPlan).toContain(
+      "docs/research/pr15-hocuspocus-provider-cutover-readiness.md",
+    );
+    expect(buildingBlocksPlan).toContain(
+      "docs/plans/2026-05-20-pr15-hocuspocus-provider-cutover-readiness-design.md",
+    );
+    expect(buildingBlocksPlan).toContain(
+      "docs/plans/2026-05-20-pr15-hocuspocus-provider-cutover-readiness-tasks.md",
+    );
+    expect(buildingBlocksPlan).toContain(
+      "docs/plans/2026-05-20-pr15-hocuspocus-provider-cutover-readiness-decisions.md",
+    );
     expect(buildingBlocksPlan).not.toContain("PR4 is in progress");
     expect(buildingBlocksPlan).not.toContain("PR5+ need planning");
     expect(buildingBlocksPlan).not.toContain("PR6 Auth Provider Rollout`: active");
@@ -234,6 +247,7 @@ describe("repo tooling", () => {
     expect(buildingBlocksPlan).not.toContain("PR11 Planning And Charting Blocks`: active");
     expect(buildingBlocksPlan).not.toContain("PR12 Agent-Core Service`: active");
     expect(buildingBlocksPlan).not.toContain("PR13 Realtime Transport Split`: active");
+    expect(buildingBlocksPlan).not.toContain("PR14 Realtime Service Runtime Wiring`: active");
   });
 
   test("meeting-api CI reflects the local validation baseline", () => {
