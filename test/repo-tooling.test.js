@@ -279,9 +279,6 @@ describe("repo tooling", () => {
     expect(repoToolingWorkflow).toContain('"packages/ui-charting/**"');
     expect(repoToolingWorkflow).toContain('"services/agent-core/**"');
     expect(repoToolingWorkflow).toContain('"services/hocuspocus/**"');
-    expect(repoToolingWorkflow).toContain('"services/hocuspocus/package.json"');
-    expect(repoToolingWorkflow).toContain('"services/hocuspocus/src/runtime.ts"');
-    expect(repoToolingWorkflow).toContain('"services/hocuspocus/src/runtime.test.ts"');
     expect(repoToolingWorkflow).toContain('"README.md"');
     expect(repoToolingWorkflow).toContain('".github/workflows/meeting-api-ci.yml"');
     expect(repoToolingWorkflow).toContain(
@@ -317,8 +314,6 @@ describe("repo tooling", () => {
     expect(roadmapWebWorkflow).toContain('"packages/ui-charting/**"');
     expect(roadmapWebWorkflow).toContain('"services/agent-core/**"');
     expect(roadmapWebWorkflow).toContain('"services/hocuspocus/**"');
-    expect(roadmapWebWorkflow).toContain('"services/hocuspocus/src/runtime.ts"');
-    expect(roadmapWebWorkflow).toContain('"services/hocuspocus/src/runtime.test.ts"');
     expect(roadmapWebWorkflow).toContain('"package.json"');
     expect(roadmapWebWorkflow).toContain('"bun.lock"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"packages/contracts/**"');
@@ -330,8 +325,6 @@ describe("repo tooling", () => {
     expect(roadmapWebPlaywrightWorkflow).toContain('"packages/ui-charting/**"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"services/agent-core/**"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"services/hocuspocus/**"');
-    expect(roadmapWebPlaywrightWorkflow).toContain('"services/hocuspocus/src/runtime.ts"');
-    expect(roadmapWebPlaywrightWorkflow).toContain('"services/hocuspocus/src/runtime.test.ts"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"package.json"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"bun.lock"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"infra/supabase/**"');

@@ -162,6 +162,64 @@ describe("canvas boundary adapters", () => {
     expect(supabase.calls).not.toContain("channel:canvas:team-1:doc-1");
   });
 
+  test("passes Hocuspocus selection config through the canvas boundary factory", () => {
+    const supabase = createMockSupabase();
+    const calls: string[] = [];
+    const boundary = createSupabaseCanvasBoundary(supabase as never, {
+      hocuspocusUrl: "https://hocuspocus.example.com",
+      createAuthToken(identity) {
+        calls.push(`token:${identity.teamId}:${identity.documentId}`);
+        return "token-1";
+      },
+      createHocuspocusConnection({ documentName }) {
+        calls.push(`connect:${documentName}`);
+        return {
+          sendUpdate(payload) {
+            calls.push(`send:${payload.documentId}`);
+          },
+          destroy() {
+            calls.push("destroy");
+          },
+        };
+      },
+    });
+
+    const connection = boundary.realtime.connect(
+      { teamId: "team-1", documentId: "doc-1" },
+      {
+        onUpdate: () => calls.push("update"),
+      },
+    );
+    connection.sendUpdate({ update: "abc", documentId: "doc-1", origin: "local" });
+    connection.destroy();
+
+    expect(calls).toEqual(["token:team-1:doc-1", "connect:canvas:team-1:doc-1", "send:doc-1", "destroy"]);
+    expect(supabase.calls).not.toContain("channel:canvas:team-1:doc-1");
+  });
+
+  test("rejects empty Hocuspocus auth tokens before creating a connection", () => {
+    const supabase = createMockSupabase();
+    const realtime = selectRoadmapRealtimeAdapter({
+      supabase: supabase as never,
+      hocuspocusUrl: "https://hocuspocus.example.com",
+      createAuthToken() {
+        return "   ";
+      },
+      createHocuspocusConnection() {
+        throw new Error("connection should not be created");
+      },
+    });
+
+    expect(() =>
+      realtime.connect(
+        { teamId: "team-1", documentId: "doc-1" },
+        {
+          onUpdate: () => supabase.calls.push("update"),
+        },
+      ),
+    ).toThrow(/auth token/);
+  });
+
   test("falls back to Supabase realtime when Hocuspocus URL is missing", () => {
     const supabase = createMockSupabase();
     const realtime = selectRoadmapRealtimeAdapter({

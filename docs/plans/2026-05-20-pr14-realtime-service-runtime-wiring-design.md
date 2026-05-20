@@ -2,7 +2,7 @@
 
 Feature: `pr14-realtime-service-runtime-wiring`
 Date: 2026-05-20
-Status: planned
+Status: active
 Beads: `product-suite-36p`
 Classification: Critical - realtime service runtime and deployment boundary
 Research: `docs/research/pr14-realtime-service-runtime-wiring.md`

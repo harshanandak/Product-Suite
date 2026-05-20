@@ -12,7 +12,12 @@ import { createHocuspocusDocumentName } from '@product-suite/hocuspocus'
 import { SHARED_CANVAS_DOCUMENT_TABLE } from '@/lib/supabase/shared-contracts'
 import { loadYjsState, saveYjsState } from './storage-client'
 
-export function createSupabaseCanvasBoundary(supabase: SupabaseClient): CanvasBoundary {
+type RoadmapRealtimeSelectionConfig = Omit<RoadmapRealtimeAdapterOptions, 'supabase'>
+
+export function createSupabaseCanvasBoundary(
+  supabase: SupabaseClient,
+  realtimeConfig: RoadmapRealtimeSelectionConfig = {}
+): CanvasBoundary {
   return createCanvasBoundary({
     persistence: {
       saveState(identity, state) {
@@ -51,7 +56,7 @@ export function createSupabaseCanvasBoundary(supabase: SupabaseClient): CanvasBo
     },
     realtime: {
       connect(identity, handlers) {
-        return selectRoadmapRealtimeAdapter({ supabase }).connect(identity, handlers)
+        return selectRoadmapRealtimeAdapter({ supabase, ...realtimeConfig }).connect(identity, handlers)
       },
     },
   })
@@ -87,8 +92,8 @@ export function selectRoadmapRealtimeAdapter(options: RoadmapRealtimeAdapterOpti
   return {
     connect(identity, handlers) {
       const token = createAuthToken(identity)
-      if (typeof token !== 'string') {
-        throw new Error('Roadmap Hocuspocus auth token factory must return a token synchronously')
+      if (typeof token !== 'string' || token.trim().length === 0) {
+        throw new Error('Roadmap Hocuspocus auth token factory must return a non-empty token synchronously')
       }
 
       return createHocuspocusConnection({
