@@ -331,6 +331,8 @@ describe("repo tooling", () => {
     expect(meetingWebWorkflow).toContain('"packages/ui-canvas/**"');
     expect(meetingWebWorkflow).toContain('"packages/ui-planning/**"');
     expect(meetingWebWorkflow).toContain('"packages/ui-charting/**"');
+    expect(meetingWebWorkflow).toContain('"docs/**"');
+    expect(meetingWebWorkflow).toContain('"test/**"');
     expect(meetingWebWorkflow).toContain('"package.json"');
     expect(meetingWebWorkflow).toContain('"bun.lock"');
     expect(roadmapWebWorkflow).toContain('"packages/contracts/**"');
@@ -342,6 +344,8 @@ describe("repo tooling", () => {
     expect(roadmapWebWorkflow).toContain('"packages/ui-charting/**"');
     expect(roadmapWebWorkflow).toContain('"services/agent-core/**"');
     expect(roadmapWebWorkflow).toContain('"services/hocuspocus/**"');
+    expect(roadmapWebWorkflow).toContain('"docs/**"');
+    expect(roadmapWebWorkflow).toContain('"test/**"');
     expect(roadmapWebWorkflow).toContain('"package.json"');
     expect(roadmapWebWorkflow).toContain('"bun.lock"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"packages/contracts/**"');
