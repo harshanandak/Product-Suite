@@ -70,6 +70,7 @@ describe("repo tooling", () => {
     expect(packageJson.workspaces).toContain("packages/ui-planning");
     expect(packageJson.workspaces).toContain("packages/ui-charting");
     expect(packageJson.workspaces).toContain("services/agent-core");
+    expect(packageJson.workspaces).toContain("services/hocuspocus");
     expect(packageJson.scripts["test:contracts"]).toBeDefined();
     expect(packageJson.scripts["test:contracts"]).toContain("packages/contracts");
     expect(packageJson.scripts["test:ui-meeting"]).toBeDefined();
@@ -84,11 +85,14 @@ describe("repo tooling", () => {
     expect(packageJson.scripts["test:ui-charting"]).toContain("packages/ui-charting");
     expect(packageJson.scripts["test:agent-core"]).toBeDefined();
     expect(packageJson.scripts["test:agent-core"]).toContain("services/agent-core");
+    expect(packageJson.scripts["test:hocuspocus"]).toBeDefined();
+    expect(packageJson.scripts["test:hocuspocus"]).toContain("services/hocuspocus");
     expect(packageJson.scripts["check:source-test"]).toBeDefined();
     expect(packageJson.scripts["check:source-test"]).toContain("check-source-test-coupling");
     expect(packageJson.scripts["test:repo-tooling"]).toContain("check-source-test-coupling.test.js");
     expect(packageJson.scripts["test:prepush"]).toContain("check:source-test");
     expect(packageJson.scripts["test:prepush"]).toContain("test:agent-core");
+    expect(packageJson.scripts["test:prepush"]).toContain("test:hocuspocus");
     expect(lefthookConfig).toContain("pre-commit:");
     expect(lefthookConfig).toContain("bun run check:source-test");
   });
@@ -141,8 +145,10 @@ describe("repo tooling", () => {
     expect(validationDoc).toContain("bun run test:ui-planning");
     expect(validationDoc).toContain("bun run test:ui-charting");
     expect(validationDoc).toContain("bun run test:agent-core");
+    expect(validationDoc).toContain("bun run test:hocuspocus");
     expect(validationDoc).toContain("packages/contracts");
     expect(validationDoc).toContain("services/agent-core");
+    expect(validationDoc).toContain("services/hocuspocus");
     expect(validationDoc).toContain("bun run validate:meeting-web");
     expect(validationDoc).toContain("bun run validate:roadmap-web");
     expect(validationDoc).toContain("unit tests");
@@ -162,7 +168,7 @@ describe("repo tooling", () => {
     expect(buildingBlocksPlan).toContain("docs/research/pr5-auth-contracts-and-adapters.md");
   });
 
-  test("building blocks plan marks PR11 verified and PR12 active", () => {
+  test("building blocks plan marks PR12 verified and PR13 active", () => {
     expect(buildingBlocksPlan).toContain("PR5 Auth Contracts And Adapters`: merged and verified");
     expect(buildingBlocksPlan).toContain("PR6 Auth Provider Rollout`: merged and verified");
     expect(buildingBlocksPlan).toContain("PR7 SDK / Typed Client Layer`: merged and verified");
@@ -170,8 +176,9 @@ describe("repo tooling", () => {
     expect(buildingBlocksPlan).toContain("PR9 Chat Block Extraction`: merged and verified");
     expect(buildingBlocksPlan).toContain("PR10 Canvas Boundary Extraction`: merged and verified");
     expect(buildingBlocksPlan).toContain("PR11 Planning And Charting Blocks`: merged and verified");
+    expect(buildingBlocksPlan).toContain("PR12 Agent-Core Service`: merged and verified");
     expect(buildingBlocksPlan).toContain(
-      "PR12 Agent-Core Service`: active on `feat/pr12-agent-core-service`",
+      "PR13 Realtime Transport Split`: active on `feat/pr13-realtime-transport-split`",
     );
     expect(buildingBlocksPlan).toContain("docs/research/pr11-planning-and-charting-blocks.md");
     expect(buildingBlocksPlan).toContain(
@@ -193,12 +200,20 @@ describe("repo tooling", () => {
     expect(buildingBlocksPlan).toContain(
       "docs/plans/2026-05-19-pr12-agent-core-service-decisions.md",
     );
+    expect(buildingBlocksPlan).toContain("docs/research/pr13-realtime-transport-split.md");
+    expect(buildingBlocksPlan).toContain(
+      "docs/plans/2026-05-19-pr13-realtime-transport-split-design.md",
+    );
+    expect(buildingBlocksPlan).toContain(
+      "docs/plans/2026-05-19-pr13-realtime-transport-split-tasks.md",
+    );
     expect(buildingBlocksPlan).not.toContain("PR4 is in progress");
     expect(buildingBlocksPlan).not.toContain("PR5+ need planning");
     expect(buildingBlocksPlan).not.toContain("PR6 Auth Provider Rollout`: active");
     expect(buildingBlocksPlan).not.toContain("PR7 SDK / Typed Client Layer`: active");
     expect(buildingBlocksPlan).not.toContain("PR10 Canvas Boundary Extraction`: active");
     expect(buildingBlocksPlan).not.toContain("PR11 Planning And Charting Blocks`: active");
+    expect(buildingBlocksPlan).not.toContain("PR12 Agent-Core Service`: active");
   });
 
   test("meeting-api CI reflects the local validation baseline", () => {
@@ -243,6 +258,7 @@ describe("repo tooling", () => {
     expect(repoToolingWorkflow).toContain('"packages/ui-planning/**"');
     expect(repoToolingWorkflow).toContain('"packages/ui-charting/**"');
     expect(repoToolingWorkflow).toContain('"services/agent-core/**"');
+    expect(repoToolingWorkflow).toContain('"services/hocuspocus/**"');
     expect(repoToolingWorkflow).toContain('"README.md"');
     expect(repoToolingWorkflow).toContain('".github/workflows/meeting-api-ci.yml"');
     expect(repoToolingWorkflow).toContain(
@@ -254,6 +270,7 @@ describe("repo tooling", () => {
       '".github/workflows/roadmap-web-playwright.yml"',
     );
     expect(repoToolingWorkflow).toContain("bun run test:agent-core");
+    expect(repoToolingWorkflow).toContain("bun run test:hocuspocus");
     expect(repoToolingWorkflow).toContain("bun run test:repo-tooling");
   });
 
@@ -275,6 +292,7 @@ describe("repo tooling", () => {
     expect(roadmapWebWorkflow).toContain('"packages/ui-planning/**"');
     expect(roadmapWebWorkflow).toContain('"packages/ui-charting/**"');
     expect(roadmapWebWorkflow).toContain('"services/agent-core/**"');
+    expect(roadmapWebWorkflow).toContain('"services/hocuspocus/**"');
     expect(roadmapWebWorkflow).toContain('"package.json"');
     expect(roadmapWebWorkflow).toContain('"bun.lock"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"packages/contracts/**"');
@@ -285,6 +303,7 @@ describe("repo tooling", () => {
     expect(roadmapWebPlaywrightWorkflow).toContain('"packages/ui-planning/**"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"packages/ui-charting/**"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"services/agent-core/**"');
+    expect(roadmapWebPlaywrightWorkflow).toContain('"services/hocuspocus/**"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"package.json"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"bun.lock"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"infra/supabase/**"');
@@ -330,5 +349,7 @@ describe("repo tooling", () => {
     expect(servicesReadme).toContain("agent-core");
     expect(servicesReadme).toContain("task-plan execution");
     expect(servicesReadme).toContain("Roadmap");
+    expect(servicesReadme).toContain("hocuspocus");
+    expect(servicesReadme).toContain("canonical canvas collaboration transport");
   });
 });

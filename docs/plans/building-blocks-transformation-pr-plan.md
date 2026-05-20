@@ -31,8 +31,9 @@ This file is the durable execution plan for the multi-PR transformation of Produ
 - `PR9 Chat Block Extraction`: merged and verified
 - `PR10 Canvas Boundary Extraction`: merged and verified
 - `PR11 Planning And Charting Blocks`: merged and verified
-- `PR12 Agent-Core Service`: active on `feat/pr12-agent-core-service`
-- `PR13+`: still need planning and execution as tracked work slices
+- `PR12 Agent-Core Service`: merged and verified
+- `PR13 Realtime Transport Split`: active on `feat/pr13-realtime-transport-split`
+- `PR14+`: still need planning and execution as tracked work slices
 
 ## Global Rules
 - Roll back the PR if it breaks a prior gate.
@@ -288,6 +289,11 @@ This file is the durable execution plan for the multi-PR transformation of Produ
 
 ### PR13 Realtime Transport Split
 - Goal: move canonical Yjs transport into a real service later.
+- Active artifacts:
+  - `docs/research/pr13-realtime-transport-split.md`
+  - `docs/plans/2026-05-19-pr13-realtime-transport-split-design.md`
+  - `docs/plans/2026-05-19-pr13-realtime-transport-split-tasks.md`
+  - `docs/plans/2026-05-19-pr13-realtime-transport-split-decisions.md`
 - Checklist:
   - add `services/hocuspocus`
   - route canvas collaboration through service-owned transport
