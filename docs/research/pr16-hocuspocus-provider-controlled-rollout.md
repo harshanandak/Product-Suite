@@ -15,7 +15,7 @@ The next gap is a controlled rollout boundary. Roadmap can build a provider conn
 
 ## Hocuspocus Documentation Notes
 
-Context7 resolved the official Hocuspocus docs as `/ueberdosis/hocuspocus`.
+The official Hocuspocus docs are available at `/ueberdosis/hocuspocus`.
 
 Relevant current docs show:
 - `HocuspocusProvider` accepts `url`, `name`, `document`, `token`, and lifecycle handlers.
