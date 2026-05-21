@@ -105,6 +105,7 @@ Scope:
 - add Clerk user and organization webhook handling plan
 - create internal platform user/workspace mapping tables or stubs
 - update auth contracts so Meeting and Roadmap can validate Clerk identities
+- define the platform auth redirect contract before any module rewiring
 
 Edge cases and mitigations:
 - Clerk webhook replay or duplicate delivery: use idempotency keys and unique external IDs.
@@ -112,6 +113,7 @@ Edge cases and mitigations:
 - Organization deleted in Clerk but still referenced in DB: mark workspace disabled before hard delete.
 - Clerk session token accepted by one backend but not another: centralize JWKS/audience/issuer validation helpers.
 - Preview deployments use wrong Clerk instance: env validation must fail closed.
+- Auth redirects loop or lose intent: one callback owner, signed `return_to`, allowed-prefix whitelist, module/workspace hints, and redirect-loop tests.
 
 ### PR19 Unified Supabase Platform Schema
 
@@ -121,6 +123,8 @@ Scope:
 - add `platform`, `meeting`, `roadmap`, `agent`, and `realtime` schema ownership docs
 - create or normalize platform tables for users, workspaces, memberships, and audit events
 - decide which existing Roadmap public-schema tables stay public temporarily and which move later
+- choose the canonical migration owner before adding Meeting tables to Supabase
+- define the exact Clerk-to-Supabase auth mode and JWT claim contract
 - add migration tests or drift checks
 
 Edge cases and mitigations:
@@ -128,6 +132,8 @@ Edge cases and mitigations:
 - RLS policies use stale JWT claims: use backend-mediated writes first where freshness matters.
 - Existing Roadmap code expects `public` schema: add compatibility views or phase schema moves.
 - Migration order breaks generated types: update generated types in the same PR as schema changes.
+- RLS maps the wrong identity: do not use `auth.uid()` unless Clerk `sub` is the internal UUID; otherwise read explicit internal user/workspace claims.
+- Existing grants expose data through PostgREST: revoke default privileges and fail CI on unexpected `anon`/`authenticated` grants.
 
 ### PR20 Meeting Database Cutover From Neon To Supabase
 
@@ -139,12 +145,15 @@ Scope:
 - remove hosted deployment requirement that forces `AUTH_PROVIDER=neon`
 - keep Meeting API as the write owner for meeting tables
 - add smoke tests for meeting create/read flows against Supabase-compatible Postgres
+- separate direct, session-pooler, and transaction-pooler connection strings by runtime purpose
 
 Edge cases and mitigations:
 - Alembic and Supabase migrations drift: make one canonical migration path for Meeting after cutover.
 - Connection pooling differs between Neon and Supabase: use the right pooled/direct URLs per runtime and migration.
 - Empty database assumption becomes false before PR lands: add a preflight row-count check and stop if data exists.
 - Meeting code depends on Neon auth claims: map Clerk claims to internal platform identity before writes.
+- Supabase extension support differs from Neon/local Postgres: check required extensions before migration.
+- Rollback is unproven: capture backup/restore proof before cutover.
 
 ### PR21 Single Domain Platform Shell
 
@@ -156,12 +165,15 @@ Scope:
 - add platform navigation and app switcher
 - mount Meeting as a first-class module in the Product Suite shell
 - keep existing module tests and build ownership separate
+- produce a route ownership matrix for old and new Meeting/Roadmap routes
 
 Edge cases and mitigations:
 - Route collisions between apps: reserve module prefixes and document route ownership.
 - Module bundle size grows too large: lazy-load modules by route.
 - One module failure breaks whole shell: add route-level error boundaries.
 - Auth redirects loop across modules: centralize protected-route handling.
+- Existing top-level Roadmap and Meeting routes break bookmarks: redirect or preserve them through an explicit compatibility layer.
+- Module registry imports too much runtime code: keep registry metadata-only and load module UI through dynamic route entrypoints.
 
 ### PR22 Platform Permissions And Access Hardening
 
@@ -188,11 +200,89 @@ Scope:
 - workspace creation and invitation funnels
 - per-module health checks
 - billing-readiness schema decisions, without implementing payments unless explicitly scoped
+- product event identity contract moved earlier into PR18/PR19 so conversion data is not delayed
 
 Edge cases and mitigations:
 - Analytics identifies users inconsistently across modules: use internal platform user/workspace IDs.
 - Event volume grows unexpectedly: start with compact event taxonomy.
 - Conversion data is hard to interpret: record module entrypoint, first action, and returning action separately.
+- Pricing experiments cannot be compared: include pricing variant and acquisition source in the event contract before shell rollout.
+
+## Evaluator Hardening Addendum
+
+This pass used the current PR17 plan, repo files, Context7 Clerk/Supabase guidance, and evaluator review to turn likely failure modes into future PR gates.
+
+### Clerk, JWT, And RLS Contract
+
+Decision: PR19 must choose the exact Clerk-to-Supabase auth mode before any browser Supabase access is allowed.
+
+Mitigation:
+- Define the JWT template name, issuer, audience, subject, organization claim, and internal identity claim.
+- Do not use `auth.uid()` in RLS unless the Clerk `sub` is intentionally the internal platform UUID.
+- Add SQL tests for mismatched user, workspace, organization, issuer, and audience claims.
+- Browser Supabase clients may use only publishable/anon keys plus Clerk access tokens.
+- Service-role keys stay server-only; CI must fail on service-role variables in public env names or client bundles.
+
+### Clerk Webhook Consistency
+
+Decision: webhooks are useful for user/workspace projection, but they are eventually consistent and must not be the only correctness path.
+
+Mitigation:
+- Verify Clerk/Svix signatures before processing.
+- Store event IDs and process user/org events idempotently.
+- Tolerate duplicate, retried, and out-of-order delivery.
+- Reconcile user/workspace mappings on first authenticated request.
+- Soft-disable users/workspaces before destructive deletes.
+
+### Supabase Exposure And Grants
+
+Decision: the unified database must not inherit permissive Roadmap-era exposure by accident.
+
+Mitigation:
+- Before adding `meeting`, audit exposed schemas, table grants, and RLS state.
+- Fail CI if an exposed table lacks RLS or has unexpected `anon`/`authenticated` grants.
+- Keep backend-only tables in private schemas and outside the Data API exposure list.
+- Use explicit `to authenticated` policies where browser access is intentional.
+
+### Migration Ownership
+
+Decision: PR19 must choose one migration owner before PR20 moves Meeting data structures.
+
+Mitigation:
+- Prefer committed Supabase SQL migrations under `infra/supabase/migrations` for the unified database.
+- Treat Meeting Alembic history as read-only after cutover, or remove Alembic runtime readiness checks before PR20.
+- Define schema-qualified table names, `alembic_version` handling, and compatibility views before moving anything out of `public`.
+- Every schema PR must run local reset, generate Supabase types, and fail if generated type files drift.
+
+### Connection And Recovery Runbook
+
+Decision: database URLs are not interchangeable once Supabase pooling is involved.
+
+Mitigation:
+- Document direct, session-pooler, and transaction-pooler URLs separately.
+- Use direct/session connections for migrations, restore, dumps, and extension checks.
+- Use the pooler for server runtime with a bounded application pool.
+- Before cutover, capture row-count evidence, backup/restore proof, and required-extension availability.
+
+### Route And Shell Isolation
+
+Decision: PR21 must account for the routes that already exist, not only the desired route prefixes.
+
+Mitigation:
+- Generate a route ownership matrix from Roadmap routes and Meeting React Router config.
+- Redirect old paths under module prefixes or preserve them through an explicit compatibility layer.
+- Fail CI on duplicate module prefixes, duplicate auth callback paths, and unowned top-level routes.
+- Keep the module registry metadata-only; route entrypoints dynamically import module runtime/UI.
+- Add bundle-size reports and budgets per module.
+
+### Conversion Evidence Timing
+
+Decision: telemetry cannot wait until after the platform shell is already committed.
+
+Mitigation:
+- PR18/PR19 define internal event identity using platform user/workspace IDs.
+- PR21 emits `module_view`, `module_activation`, `first_value`, `workspace_created`, `invite_sent`, `pricing_variant`, and acquisition source fields.
+- PR23 can improve sinks and dashboards, but the event contract starts earlier.
 
 ## Cross-Cutting Edge Cases
 

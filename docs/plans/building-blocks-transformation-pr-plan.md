@@ -405,6 +405,7 @@ This file is the durable execution plan for the multi-PR transformation of Produ
   - define Supabase Postgres as the single physical platform database
   - keep module ownership separate inside the shared database
   - document edge cases, mitigations, validation gates, and rollback paths before implementation
+  - incorporate evaluator hardening for Clerk JWT/RLS mapping, Supabase exposed-schema grants, migration ownership, route ownership, auth redirects, and conversion telemetry timing
 - Reviewer focus:
   - platform topology clarity
   - no hidden data migration requirement while current data is empty
@@ -422,6 +423,8 @@ This file is the durable execution plan for the multi-PR transformation of Produ
   - add Clerk provider and env contracts to the platform shell
   - add user/org sync design for `platform.users`, `platform.workspaces`, and memberships
   - add shared JWT/JWKS validation helpers for backend services
+  - define one auth callback owner, signed return intent, allowed redirect prefixes, and redirect-loop tests
+  - define the platform event identity contract using internal platform user/workspace IDs
   - remove Neon-auth-only hosted assumptions from future auth contracts
 - Merge gate:
   - users can authenticate through Clerk in tests and services can validate Clerk identity without relying on Supabase Auth.
@@ -432,6 +435,9 @@ This file is the durable execution plan for the multi-PR transformation of Produ
   - define `platform`, `meeting`, `roadmap`, `agent`, and `realtime` schema/table ownership
   - add migrations for platform identity/workspace tables
   - decide whether existing Roadmap public-schema tables move immediately or use compatibility views
+  - choose one canonical migration owner and define Alembic retirement/read-only rules before Meeting cutover
+  - define the exact Clerk JWT template/claims used by RLS and reject mismatched issuer/audience/user/org claims
+  - audit exposed schemas, table grants, and RLS before any new module table is reachable through PostgREST
   - update drift/type validation for the unified schema
 - Merge gate:
   - Supabase is ready to hold both platform-shared tables and module-owned tables with clear access boundaries.
@@ -442,6 +448,8 @@ This file is the durable execution plan for the multi-PR transformation of Produ
   - port or reconcile Meeting Alembic schema with Supabase migrations
   - update Meeting API env examples and deployment variables to Supabase `DATABASE_URL`
   - add a preflight row-count check so the no-production-data assumption is verified before cutover
+  - document direct, session-pooler, and transaction-pooler URLs by runtime purpose
+  - prove backup/restore and required extension availability before cutover
   - keep Neon as a rollback target only until smoke tests pass
 - Merge gate:
   - Meeting create/read flows pass against Supabase Postgres and no hosted runtime requires Neon database/auth defaults.
@@ -452,7 +460,10 @@ This file is the durable execution plan for the multi-PR transformation of Produ
   - add module registry and app switcher
   - reserve `/meetings`, `/roadmap`, `/canvas`, `/agents`, and `/settings`
   - mount Meeting as a Product Suite module
+  - generate a route ownership matrix from Roadmap routes and Meeting React Router config
+  - redirect or preserve old top-level paths through an explicit compatibility layer
   - add route-level error boundaries and lazy loading where needed
+  - keep module registry metadata-only and enforce per-module bundle reports/budgets
 - Merge gate:
   - a user signs in once and can navigate between modules without separate websites or separate auth flows.
 
@@ -471,6 +482,7 @@ This file is the durable execution plan for the multi-PR transformation of Produ
 - Checklist:
   - record module activation and first-value events
   - record workspace, invitation, and return-usage funnels
+  - continue the PR18/PR19 event identity contract with pricing variant and acquisition source fields
   - add per-module health/readiness signals
   - document billing-readiness data needs without implementing payments unless separately scoped
 - Merge gate:

@@ -56,6 +56,8 @@ Edge cases:
 - deleted Clerk org with existing database rows
 - stale JWT membership claims
 - preview deployments using the wrong Clerk instance
+- auth redirect loops or lost post-login intent
+- mismatched Clerk JWT issuer, audience, template, subject, or organization claims
 
 Mitigations:
 - idempotent webhook handlers
@@ -63,6 +65,8 @@ Mitigations:
 - soft-disable workspaces before hard delete
 - server-side membership checks for sensitive writes
 - fail-closed env validation
+- one callback owner with signed `return_to`, allowed-prefix whitelist, and redirect-loop tests
+- explicit Clerk-to-Supabase JWT contract before browser Supabase access
 
 ## Task 4: Unified Supabase Database Decision
 
@@ -87,6 +91,10 @@ Edge cases:
 - Meeting Alembic and Supabase migrations diverge
 - connection pooling differs between Neon and Supabase
 - data appears before cutover
+- existing `anon` or `authenticated` grants expose tables through PostgREST
+- RLS policies compare Clerk `sub` to the wrong internal user identifier
+- generated Supabase types drift after schema changes
+- required Postgres extensions differ between Neon, local Postgres, and Supabase
 
 Mitigations:
 - private schemas where possible
@@ -94,6 +102,10 @@ Mitigations:
 - compatibility views where needed
 - one canonical migration path after Meeting cutover
 - row-count preflight before destructive decisions
+- revoke default privileges and fail CI on unexpected exposed grants
+- SQL tests for mismatched user/workspace/org claims
+- run local Supabase reset and type generation for every schema PR
+- backup/restore and extension availability proof before Meeting cutover
 
 ## Task 5: Follow-Up PR Breakdown
 
@@ -111,6 +123,11 @@ Validation:
 - Each future PR must include focused tests, env contract checks, and rollback notes.
 - Database/auth PRs must include failure-mode tests.
 - Shell PRs must include route and module-registry tests.
+- PR18 must define auth redirect and event identity contracts.
+- PR19 must define Clerk JWT/RLS mapping, migration ownership, exposed-schema policy, and generated-type drift gates.
+- PR20 must include direct/session/pooler URL handling, backup proof, extension checks, and row-count proof.
+- PR21 must include a generated route ownership matrix, duplicate-route guard, compatibility redirects, and per-module bundle budgets.
+- PR23 can expand analytics sinks, but telemetry field names must already exist before shell rollout.
 
 ## Task 6: Beads And Stage Context
 
@@ -126,3 +143,20 @@ Exit criteria:
 - Durable plan points to PR17 artifacts.
 - Repo-tooling guard passes.
 - Worktree branch is ready for review or ship.
+
+## Task 7: Evaluator Hardening Pass
+
+Goal: ensure the plan captures adversarial risks found by evaluator agents and current Clerk/Supabase docs.
+
+Required updates:
+- Add a Clerk/JWT/RLS contract gate.
+- Add webhook signature, idempotency, retry, replay, and lazy reconciliation requirements.
+- Add Supabase exposed-schema, grant, and RLS audit gates.
+- Add migration-owner, schema-qualified table, generated-type, and Alembic retirement decisions.
+- Add connection pooling, backup/restore, and extension preflight gates.
+- Add route ownership, auth redirect, module isolation, and bundle budget gates.
+- Move telemetry identity and conversion event contracts earlier than PR23.
+
+Validation:
+- `bun run test:repo-tooling`
+- `bun run check:source-test`
