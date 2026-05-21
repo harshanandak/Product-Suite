@@ -20,6 +20,7 @@ This file is the durable execution plan for the multi-PR transformation of Produ
 13. `PR13 Realtime Transport Split`
 14. `PR14 Realtime Service Runtime Wiring`
 15. `PR15 Hocuspocus Provider Cutover Readiness`
+16. `PR16 Hocuspocus Provider Controlled Rollout`
 
 ## Current Status
 - `PR1 Repo Tooling Normalization`: merged and verified
@@ -36,8 +37,9 @@ This file is the durable execution plan for the multi-PR transformation of Produ
 - `PR12 Agent-Core Service`: merged and verified
 - `PR13 Realtime Transport Split`: merged and verified
 - `PR14 Realtime Service Runtime Wiring`: merged and verified
-- `PR15 Hocuspocus Provider Cutover Readiness`: active on `feat/pr15-hocuspocus-provider-cutover-readiness`
-- `PR16+`: still need planning and execution as tracked work slices
+- `PR15 Hocuspocus Provider Cutover Readiness`: merged and verified
+- `PR16 Hocuspocus Provider Controlled Rollout`: active on `feat/pr16-hocuspocus-provider-controlled-rollout`
+- `PR17+`: still need planning and execution as tracked work slices
 
 ## Global Rules
 - Roll back the PR if it breaks a prior gate.
@@ -358,3 +360,28 @@ This file is the durable execution plan for the multi-PR transformation of Produ
   - provider path requires app-specific imports in `packages/ui-canvas`
   - partial config silently changes live collaboration behavior
   - token handling logs or persists sensitive values
+
+### PR16 Hocuspocus Provider Controlled Rollout
+- Goal: move Roadmap from provider readiness to an explicitly gated Hocuspocus rollout path while keeping Supabase Realtime available as the operator rollback.
+- Active artifacts:
+  - `docs/research/pr16-hocuspocus-provider-controlled-rollout.md`
+  - `docs/plans/2026-05-20-pr16-hocuspocus-provider-controlled-rollout-design.md`
+  - `docs/plans/2026-05-20-pr16-hocuspocus-provider-controlled-rollout-tasks.md`
+  - `docs/plans/2026-05-20-pr16-hocuspocus-provider-controlled-rollout-decisions.md`
+- Checklist:
+  - add an explicit Roadmap rollout flag before Hocuspocus selection can activate
+  - keep partial Hocuspocus configuration on the Supabase Realtime fallback path
+  - map provider lifecycle events into existing connection and sync error callbacks without token leakage
+  - strengthen service/client token context alignment tests
+  - document rollback by disabling the rollout flag
+- Reviewer focus:
+  - controlled rollout safety
+  - auth token and document identity alignment
+  - fallback preservation
+  - observable provider lifecycle without sensitive logging
+- Merge gate:
+  - Hocuspocus provider traffic can be enabled only through explicit complete config, and disabling the rollout flag returns Roadmap to Supabase Realtime.
+- Rollback criteria:
+  - missing or partial config changes live collaboration behavior
+  - lifecycle logging exposes tokens or document-sensitive payloads
+  - read-only token contexts can still write document updates
