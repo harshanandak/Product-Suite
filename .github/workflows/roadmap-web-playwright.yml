@@ -16,31 +16,12 @@ on:
       - "services/agent-core/**"
       - "services/hocuspocus/**"
       - "infra/supabase/**"
-      - "docs/**"
-      - "test/**"
       - "package.json"
       - "bun.lock"
       - ".github/workflows/roadmap-web-playwright.yml"
   pull_request:
     branches:
       - main
-    paths:
-      - "apps/roadmap-web/**"
-      - "packages/contracts/**"
-      - "packages/sdk/**"
-      - "packages/ui-chat/**"
-      - "packages/ui-canvas/**"
-      - "packages/ui-meeting/**"
-      - "packages/ui-planning/**"
-      - "packages/ui-charting/**"
-      - "services/agent-core/**"
-      - "services/hocuspocus/**"
-      - "infra/supabase/**"
-      - "docs/**"
-      - "test/**"
-      - "package.json"
-      - "bun.lock"
-      - ".github/workflows/roadmap-web-playwright.yml"
   workflow_dispatch:
 
 concurrency:
@@ -60,19 +41,50 @@ jobs:
         working-directory: apps/roadmap-web
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Detect app-impacting changes
+        id: changes
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            head="${{ github.event.pull_request.head.sha }}"
+          else
+            base="${{ github.event.before }}"
+            head="${{ github.sha }}"
+          fi
+          if [ -z "$base" ] || [[ "$base" =~ ^0+$ ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed_files="$(git -C "$GITHUB_WORKSPACE" diff --name-only "$base" "$head")"
+          if echo "$changed_files" | grep -Eq '^(apps/roadmap-web/|packages/contracts/|packages/sdk/|packages/ui-chat/|packages/ui-canvas/|packages/ui-meeting/|packages/ui-planning/|packages/ui-charting/|services/agent-core/|services/hocuspocus/|infra/supabase/|package\.json$|bun\.lock$|\.github/workflows/roadmap-web-playwright\.yml$)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Setup Bun
+        if: steps.changes.outputs.run == 'true'
         uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3 # v2
         with:
           bun-version: latest
 
       - name: Install dependencies
+        if: steps.changes.outputs.run == 'true'
         run: bun install --frozen-lockfile
 
       - name: Install Playwright Browsers
+        if: steps.changes.outputs.run == 'true'
         run: bun x playwright install --with-deps chromium
 
       - name: Run Playwright tests
+        if: steps.changes.outputs.run == 'true'
         run: bun run test:e2e
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
@@ -85,7 +97,7 @@ jobs:
 
       - name: Upload Playwright Report
         uses: actions/upload-artifact@v6
-        if: always()
+        if: always() && steps.changes.outputs.run == 'true'
         with:
           name: roadmap-playwright-report
           path: apps/roadmap-web/playwright-report/
@@ -93,7 +105,7 @@ jobs:
 
       - name: Upload test results
         uses: actions/upload-artifact@v6
-        if: always()
+        if: always() && steps.changes.outputs.run == 'true'
         with:
           name: roadmap-playwright-results
           path: apps/roadmap-web/test-results/

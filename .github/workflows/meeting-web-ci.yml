@@ -13,26 +13,10 @@ on:
       - "packages/ui-meeting/**"
       - "packages/ui-planning/**"
       - "packages/ui-charting/**"
-      - "docs/**"
-      - "test/**"
       - "package.json"
       - "bun.lock"
       - ".github/workflows/meeting-web-ci.yml"
   pull_request:
-    paths:
-      - "apps/meeting-web/**"
-      - "packages/contracts/**"
-      - "packages/sdk/**"
-      - "packages/ui-chat/**"
-      - "packages/ui-canvas/**"
-      - "packages/ui-meeting/**"
-      - "packages/ui-planning/**"
-      - "packages/ui-charting/**"
-      - "docs/**"
-      - "test/**"
-      - "package.json"
-      - "bun.lock"
-      - ".github/workflows/meeting-web-ci.yml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -53,21 +37,53 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect app-impacting changes
+        id: changes
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            head="${{ github.event.pull_request.head.sha }}"
+          else
+            base="${{ github.event.before }}"
+            head="${{ github.sha }}"
+          fi
+          if [ -z "$base" ] || [[ "$base" =~ ^0+$ ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed_files="$(git -C "$GITHUB_WORKSPACE" diff --name-only "$base" "$head")"
+          if echo "$changed_files" | grep -Eq '^(apps/meeting-web/|packages/contracts/|packages/sdk/|packages/ui-chat/|packages/ui-canvas/|packages/ui-meeting/|packages/ui-planning/|packages/ui-charting/|package\.json$|bun\.lock$|\.github/workflows/meeting-web-ci\.yml$)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Setup Bun
+        if: steps.changes.outputs.run == 'true'
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.6
 
       - name: Install dependencies
+        if: steps.changes.outputs.run == 'true'
         run: bun install --frozen-lockfile
 
       - name: Lint
+        if: steps.changes.outputs.run == 'true'
         run: bun run lint
 
       - name: Test
+        if: steps.changes.outputs.run == 'true'
         run: bun run test
 
       - name: Build
+        if: steps.changes.outputs.run == 'true'
         run: bun run build
 

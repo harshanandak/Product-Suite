@@ -331,8 +331,10 @@ describe("repo tooling", () => {
     expect(meetingWebWorkflow).toContain('"packages/ui-canvas/**"');
     expect(meetingWebWorkflow).toContain('"packages/ui-planning/**"');
     expect(meetingWebWorkflow).toContain('"packages/ui-charting/**"');
-    expect(meetingWebWorkflow).toContain('"docs/**"');
-    expect(meetingWebWorkflow).toContain('"test/**"');
+    expect(meetingWebWorkflow).not.toContain('"docs/**"');
+    expect(meetingWebWorkflow).not.toContain('"test/**"');
+    expect(meetingWebWorkflow).toContain("Detect app-impacting changes");
+    expect(meetingWebWorkflow).toContain("steps.changes.outputs.run == 'true'");
     expect(meetingWebWorkflow).toContain('"package.json"');
     expect(meetingWebWorkflow).toContain('"bun.lock"');
     expect(roadmapWebWorkflow).toContain('"packages/contracts/**"');
@@ -344,8 +346,10 @@ describe("repo tooling", () => {
     expect(roadmapWebWorkflow).toContain('"packages/ui-charting/**"');
     expect(roadmapWebWorkflow).toContain('"services/agent-core/**"');
     expect(roadmapWebWorkflow).toContain('"services/hocuspocus/**"');
-    expect(roadmapWebWorkflow).toContain('"docs/**"');
-    expect(roadmapWebWorkflow).toContain('"test/**"');
+    expect(roadmapWebWorkflow).not.toContain('"docs/**"');
+    expect(roadmapWebWorkflow).not.toContain('"test/**"');
+    expect(roadmapWebWorkflow).toContain("Detect app-impacting changes");
+    expect(roadmapWebWorkflow).toContain("steps.changes.outputs.run == 'true'");
     expect(roadmapWebWorkflow).toContain('"package.json"');
     expect(roadmapWebWorkflow).toContain('"bun.lock"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"packages/contracts/**"');
@@ -357,8 +361,14 @@ describe("repo tooling", () => {
     expect(roadmapWebPlaywrightWorkflow).toContain('"packages/ui-charting/**"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"services/agent-core/**"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"services/hocuspocus/**"');
-    expect(roadmapWebPlaywrightWorkflow).toContain('"docs/**"');
-    expect(roadmapWebPlaywrightWorkflow).toContain('"test/**"');
+    expect(roadmapWebPlaywrightWorkflow).not.toContain('"docs/**"');
+    expect(roadmapWebPlaywrightWorkflow).not.toContain('"test/**"');
+    expect(roadmapWebPlaywrightWorkflow).toContain(
+      "Detect app-impacting changes",
+    );
+    expect(roadmapWebPlaywrightWorkflow).toContain(
+      "steps.changes.outputs.run == 'true'",
+    );
     expect(roadmapWebPlaywrightWorkflow).toContain('"package.json"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"bun.lock"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"infra/supabase/**"');
