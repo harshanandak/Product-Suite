@@ -335,6 +335,13 @@ describe("repo tooling", () => {
     expect(meetingWebWorkflow).not.toContain('"test/**"');
     expect(meetingWebWorkflow).toContain("Detect app-impacting changes");
     expect(meetingWebWorkflow).toContain("steps.changes.outputs.run == 'true'");
+    expect(meetingWebWorkflow).toContain(
+      "actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5",
+    );
+    expect(meetingWebWorkflow).toContain(
+      "oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6",
+    );
+    expect(meetingWebWorkflow).toContain("persist-credentials: false");
     expect(meetingWebWorkflow).toContain('"package.json"');
     expect(meetingWebWorkflow).toContain('"bun.lock"');
     expect(roadmapWebWorkflow).toContain('"packages/contracts/**"');
@@ -350,6 +357,10 @@ describe("repo tooling", () => {
     expect(roadmapWebWorkflow).not.toContain('"test/**"');
     expect(roadmapWebWorkflow).toContain("Detect app-impacting changes");
     expect(roadmapWebWorkflow).toContain("steps.changes.outputs.run == 'true'");
+    expect(roadmapWebWorkflow).toContain(
+      "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
+    );
+    expect(roadmapWebWorkflow).toContain("persist-credentials: false");
     expect(roadmapWebWorkflow).toContain('"package.json"');
     expect(roadmapWebWorkflow).toContain('"bun.lock"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"packages/contracts/**"');
@@ -368,6 +379,15 @@ describe("repo tooling", () => {
     );
     expect(roadmapWebPlaywrightWorkflow).toContain(
       "steps.changes.outputs.run == 'true'",
+    );
+    expect(roadmapWebPlaywrightWorkflow).toContain(
+      "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
+    );
+    expect(roadmapWebPlaywrightWorkflow).toContain(
+      "actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f",
+    );
+    expect(roadmapWebPlaywrightWorkflow).toContain(
+      "persist-credentials: false",
     );
     expect(roadmapWebPlaywrightWorkflow).toContain('"package.json"');
     expect(roadmapWebPlaywrightWorkflow).toContain('"bun.lock"');
