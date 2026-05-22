@@ -399,6 +399,7 @@ This file is the durable execution plan for the multi-PR transformation of Produ
 - Active artifacts:
   - `docs/plans/2026-05-21-pr17-platform-auth-data-consolidation-design.md`
   - `docs/plans/2026-05-21-pr17-platform-auth-data-consolidation-tasks.md`
+  - `docs/plans/2026-05-21-pr17-platform-auth-data-consolidation-decisions.md`
 - Checklist:
   - mark PR16 merged and verified
   - define Clerk as the canonical auth/user/org provider

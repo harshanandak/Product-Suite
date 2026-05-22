@@ -199,6 +199,9 @@ describe("repo tooling", () => {
     expect(buildingBlocksPlan).toContain(
       "docs/plans/2026-05-21-pr17-platform-auth-data-consolidation-tasks.md",
     );
+    expect(buildingBlocksPlan).toContain(
+      "docs/plans/2026-05-21-pr17-platform-auth-data-consolidation-decisions.md",
+    );
     expect(buildingBlocksPlan).toContain("docs/research/pr11-planning-and-charting-blocks.md");
     expect(buildingBlocksPlan).toContain(
       "docs/plans/2026-05-18-pr11-planning-and-charting-blocks-design.md",

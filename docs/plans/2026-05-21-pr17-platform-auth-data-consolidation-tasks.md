@@ -121,6 +121,8 @@ Required PRs:
 
 Validation:
 - Each future PR must include focused tests, env contract checks, and rollback notes.
+- Each future PR task list must explicitly follow TDD phases: RED (introduce failing test), GREEN (minimal implementation), and REFACTOR (cleanup with tests still green).
+- Commits must be blocked when source files change without corresponding test file updates through the pre-commit source-test coupling gate.
 - Database/auth PRs must include failure-mode tests.
 - Shell PRs must include route and module-registry tests.
 - PR18 must define auth redirect and event identity contracts.
