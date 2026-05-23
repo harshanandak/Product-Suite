@@ -21,6 +21,13 @@ This file is the durable execution plan for the multi-PR transformation of Produ
 14. `PR14 Realtime Service Runtime Wiring`
 15. `PR15 Hocuspocus Provider Cutover Readiness`
 16. `PR16 Hocuspocus Provider Controlled Rollout`
+17. `PR17 Platform Auth And Data Consolidation Plan`
+18. `PR18 Clerk Auth Foundation`
+19. `PR19 Unified Supabase Platform Schema`
+20. `PR20 Meeting Database Cutover From Neon To Supabase`
+21. `PR21 Single Domain Platform Shell`
+22. `PR22 Platform Permissions And Access Hardening`
+23. `PR23 Observability Billing Readiness And Conversion Analytics`
 
 ## Current Status
 - `PR1 Repo Tooling Normalization`: merged and verified
@@ -38,8 +45,9 @@ This file is the durable execution plan for the multi-PR transformation of Produ
 - `PR13 Realtime Transport Split`: merged and verified
 - `PR14 Realtime Service Runtime Wiring`: merged and verified
 - `PR15 Hocuspocus Provider Cutover Readiness`: merged and verified
-- `PR16 Hocuspocus Provider Controlled Rollout`: active on `feat/pr16-hocuspocus-provider-controlled-rollout`
-- `PR17+`: still need planning and execution as tracked work slices
+- `PR16 Hocuspocus Provider Controlled Rollout`: merged and verified
+- `PR17 Platform Auth And Data Consolidation Plan`: active on `feat/pr17-platform-auth-data-consolidation`
+- `PR18+`: planned below and must be executed as separate reviewable slices
 
 ## Global Rules
 - Roll back the PR if it breaks a prior gate.
@@ -385,3 +393,98 @@ This file is the durable execution plan for the multi-PR transformation of Produ
   - missing or partial config changes live collaboration behavior
   - lifecycle logging exposes tokens or document-sensitive payloads
   - read-only token contexts can still write document updates
+
+### PR17 Platform Auth And Data Consolidation Plan
+- Goal: lock the next platform direction before implementation: one domain, one platform shell, Clerk auth, and one Supabase Postgres platform database with explicit module ownership.
+- Active artifacts:
+  - `docs/plans/2026-05-21-pr17-platform-auth-data-consolidation-design.md`
+  - `docs/plans/2026-05-21-pr17-platform-auth-data-consolidation-tasks.md`
+  - `docs/plans/2026-05-21-pr17-platform-auth-data-consolidation-decisions.md`
+- Checklist:
+  - mark PR16 merged and verified
+  - define Clerk as the canonical auth/user/org provider
+  - define Supabase Postgres as the single physical platform database
+  - keep module ownership separate inside the shared database
+  - document edge cases, mitigations, validation gates, and rollback paths before implementation
+  - incorporate evaluator hardening for Clerk JWT/RLS mapping, Supabase exposed-schema grants, migration ownership, route ownership, auth redirects, and conversion telemetry timing
+- Reviewer focus:
+  - platform topology clarity
+  - no hidden data migration requirement while current data is empty
+  - no implementation bundled into the planning PR
+- Merge gate:
+  - PR18+ can start without ambiguity about auth provider, database target, product shell, or module ownership.
+- Rollback criteria:
+  - plan requires a production data migration that has not been verified
+  - plan collapses domain ownership into a shared-table free-for-all
+  - plan forces Supabase Auth despite the product decision to use Clerk
+
+### PR18 Clerk Auth Foundation
+- Goal: introduce Clerk as the canonical user-facing auth provider without changing database ownership yet.
+- Checklist:
+  - add Clerk provider and env contracts to the platform shell
+  - add user/org sync design for `platform.users`, `platform.workspaces`, and memberships
+  - add shared JWT/JWKS validation helpers for backend services
+  - define one auth callback owner, signed return intent, allowed redirect prefixes, and redirect-loop tests
+  - define the platform event identity contract using internal platform user/workspace IDs
+  - remove Neon-auth-only hosted assumptions from future auth contracts
+- Merge gate:
+  - users can authenticate through Clerk in tests and services can validate Clerk identity without relying on Supabase Auth.
+
+### PR19 Unified Supabase Platform Schema
+- Goal: create the single physical database shape in Supabase before cutting Meeting over.
+- Checklist:
+  - define `platform`, `meeting`, `roadmap`, `agent`, and `realtime` schema/table ownership
+  - add migrations for platform identity/workspace tables
+  - decide whether existing Roadmap public-schema tables move immediately or use compatibility views
+  - choose one canonical migration owner and define Alembic retirement/read-only rules before Meeting cutover
+  - define the exact Clerk JWT template/claims used by RLS and reject mismatched issuer/audience/user/org claims
+  - audit exposed schemas, table grants, and RLS before any new module table is reachable through PostgREST
+  - update drift/type validation for the unified schema
+- Merge gate:
+  - Supabase is ready to hold both platform-shared tables and module-owned tables with clear access boundaries.
+
+### PR20 Meeting Database Cutover From Neon To Supabase
+- Goal: move Meeting API database connectivity from Neon Postgres to Supabase Postgres while preserving Meeting backend ownership.
+- Checklist:
+  - port or reconcile Meeting Alembic schema with Supabase migrations
+  - update Meeting API env examples and deployment variables to Supabase `DATABASE_URL`
+  - add a preflight row-count check so the no-production-data assumption is verified before cutover
+  - document direct, session-pooler, and transaction-pooler URLs by runtime purpose
+  - prove backup/restore and required extension availability before cutover
+  - keep Neon as a rollback target only until smoke tests pass
+- Merge gate:
+  - Meeting create/read flows pass against Supabase Postgres and no hosted runtime requires Neon database/auth defaults.
+
+### PR21 Single Domain Platform Shell
+- Goal: bring Meeting, Roadmap, Canvas, Agents, and Settings under one website and one authenticated shell.
+- Checklist:
+  - add module registry and app switcher
+  - reserve `/meetings`, `/roadmap`, `/canvas`, `/agents`, and `/settings`
+  - mount Meeting as a Product Suite module
+  - generate a route ownership matrix from Roadmap routes and Meeting React Router config
+  - redirect or preserve old top-level paths through an explicit compatibility layer
+  - add route-level error boundaries and lazy loading where needed
+  - keep module registry metadata-only and enforce per-module bundle reports/budgets
+- Merge gate:
+  - a user signs in once and can navigate between modules without separate websites or separate auth flows.
+
+### PR22 Platform Permissions And Access Hardening
+- Goal: make Clerk identity, Supabase rows, and backend domain rules agree.
+- Checklist:
+  - define workspace roles and membership checks
+  - decide where RLS is used versus backend-only service access
+  - add audit events for sensitive workspace/auth changes
+  - prevent browser exposure of service-role credentials
+- Merge gate:
+  - invalid Clerk tokens, stale memberships, and missing workspace mappings fail closed.
+
+### PR23 Observability Billing Readiness And Conversion Analytics
+- Goal: measure product conversion and module value before scaling the platform.
+- Checklist:
+  - record module activation and first-value events
+  - record workspace, invitation, and return-usage funnels
+  - continue the PR18/PR19 event identity contract with pricing variant and acquisition source fields
+  - add per-module health/readiness signals
+  - document billing-readiness data needs without implementing payments unless separately scoped
+- Merge gate:
+  - product decisions can be made from platform/module usage evidence rather than anecdotal testing.

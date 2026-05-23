@@ -177,7 +177,7 @@ describe("repo tooling", () => {
     expect(buildingBlocksPlan).toContain("docs/research/pr5-auth-contracts-and-adapters.md");
   });
 
-  test("building blocks plan marks PR15 verified and PR16 active", () => {
+  test("building blocks plan marks PR16 verified and PR17 active", () => {
     expect(buildingBlocksPlan).toContain("PR5 Auth Contracts And Adapters`: merged and verified");
     expect(buildingBlocksPlan).toContain("PR6 Auth Provider Rollout`: merged and verified");
     expect(buildingBlocksPlan).toContain("PR7 SDK / Typed Client Layer`: merged and verified");
@@ -189,8 +189,18 @@ describe("repo tooling", () => {
     expect(buildingBlocksPlan).toContain("PR13 Realtime Transport Split`: merged and verified");
     expect(buildingBlocksPlan).toContain("PR14 Realtime Service Runtime Wiring`: merged and verified");
     expect(buildingBlocksPlan).toContain("PR15 Hocuspocus Provider Cutover Readiness`: merged and verified");
+    expect(buildingBlocksPlan).toContain("PR16 Hocuspocus Provider Controlled Rollout`: merged and verified");
     expect(buildingBlocksPlan).toContain(
-      "PR16 Hocuspocus Provider Controlled Rollout`: active on `feat/pr16-hocuspocus-provider-controlled-rollout`",
+      "PR17 Platform Auth And Data Consolidation Plan`: active on `feat/pr17-platform-auth-data-consolidation`",
+    );
+    expect(buildingBlocksPlan).toContain(
+      "docs/plans/2026-05-21-pr17-platform-auth-data-consolidation-design.md",
+    );
+    expect(buildingBlocksPlan).toContain(
+      "docs/plans/2026-05-21-pr17-platform-auth-data-consolidation-tasks.md",
+    );
+    expect(buildingBlocksPlan).toContain(
+      "docs/plans/2026-05-21-pr17-platform-auth-data-consolidation-decisions.md",
     );
     expect(buildingBlocksPlan).toContain("docs/research/pr11-planning-and-charting-blocks.md");
     expect(buildingBlocksPlan).toContain(
