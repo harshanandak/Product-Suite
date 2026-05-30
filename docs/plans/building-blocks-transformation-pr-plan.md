@@ -1,6 +1,6 @@
 # Building Blocks Transformation PR Plan
 
-Last updated: 2026-05-20
+Last updated: 2026-05-31
 
 This file is the durable execution plan for the multi-PR transformation of Product Suite into a clearer building-blocks architecture. It exists so the team can return to the sequence and continue execution without depending on chat history.
 
@@ -46,8 +46,9 @@ This file is the durable execution plan for the multi-PR transformation of Produ
 - `PR14 Realtime Service Runtime Wiring`: merged and verified
 - `PR15 Hocuspocus Provider Cutover Readiness`: merged and verified
 - `PR16 Hocuspocus Provider Controlled Rollout`: merged and verified
-- `PR17 Platform Auth And Data Consolidation Plan`: active on `feat/pr17-platform-auth-data-consolidation`
-- `PR18+`: planned below and must be executed as separate reviewable slices
+- `PR17 Platform Auth And Data Consolidation Plan`: merged via GitHub PR #18 and verified on `origin/main`
+- `PR18 Clerk Auth Foundation`: active on `feat/pr18-clerk-auth-foundation`
+- `PR19+`: planned below and must be executed as separate reviewable slices
 
 ## Global Rules
 - Roll back the PR if it breaks a prior gate.
@@ -420,6 +421,11 @@ This file is the durable execution plan for the multi-PR transformation of Produ
 
 ### PR18 Clerk Auth Foundation
 - Goal: introduce Clerk as the canonical user-facing auth provider without changing database ownership yet.
+- Active artifacts:
+  - `docs/research/pr18-clerk-auth-foundation.md`
+  - `docs/plans/2026-05-31-pr18-clerk-auth-foundation-design.md`
+  - `docs/plans/2026-05-31-pr18-clerk-auth-foundation-tasks.md`
+  - `docs/plans/2026-05-31-pr18-clerk-auth-foundation-decisions.md`
 - Checklist:
   - add Clerk provider and env contracts to the platform shell
   - add user/org sync design for `platform.users`, `platform.workspaces`, and memberships
