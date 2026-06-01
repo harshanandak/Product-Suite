@@ -39,6 +39,15 @@ export const authCoreContract = {
   },
 };
 
+const AUTH_ALLOWED_REDIRECT_PREFIXES = Object.freeze([
+  "/",
+  "/meetings",
+  "/roadmap",
+  "/canvas",
+  "/agents",
+  "/settings",
+]);
+
 export const clerkEnvironmentContract = {
   provider: "clerk",
   keys: {
@@ -56,7 +65,7 @@ export const clerkEnvironmentContract = {
     publicRoutes: ["/sign-in(.*)", "/sign-up(.*)"],
     protectedPrefixes: ["/meetings", "/roadmap", "/canvas", "/agents", "/settings"],
     callbackPath: "/auth/callback",
-    allowedRedirectPrefixes: ["/", "/meetings", "/roadmap", "/canvas", "/agents", "/settings"],
+    allowedRedirectPrefixes: AUTH_ALLOWED_REDIRECT_PREFIXES,
   },
   runtimeModes: {
     local: "local",
@@ -73,7 +82,7 @@ export const authRedirectContract = {
   callbackPath: "/auth/callback",
   signInPath: "/sign-in",
   signUpPath: "/sign-up",
-  allowedRedirectPrefixes: ["/", "/meetings", "/roadmap", "/canvas", "/agents", "/settings"],
+  allowedRedirectPrefixes: AUTH_ALLOWED_REDIRECT_PREFIXES,
 };
 
 export const clerkJwtVerificationContract = {
@@ -289,7 +298,9 @@ export function validateClerkJwtPayload(payload, options = {}) {
     return clerkJwtError("ISSUER_MISMATCH");
   }
 
-  if (!normalizeStringList(payload.aud).includes(options.audience)) {
+  const tokenAudiences = normalizeStringList(payload.aud);
+  const expectedAudiences = normalizeStringList(options.audience);
+  if (!expectedAudiences.some((audience) => tokenAudiences.includes(audience))) {
     return clerkJwtError("AUDIENCE_MISMATCH");
   }
 
