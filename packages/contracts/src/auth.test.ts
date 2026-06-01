@@ -276,6 +276,19 @@ describe("authCoreContract", () => {
     expect(disallowed.error.reason).toBe("RETURN_PREFIX_NOT_ALLOWED");
   });
 
+  test("rejects return paths that normalize outside allowed prefixes", () => {
+    const result = validateAuthReturnIntent(
+      {
+        return_to: "/meetings/%2e%2e/admin?view=timeline",
+        return_sig: "expected-signature",
+      },
+      { expectedSignature: "expected-signature" },
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.error.reason).toBe("RETURN_PREFIX_NOT_ALLOWED");
+  });
+
   test("rejects bad signatures and callback loops", () => {
     const badSignature = validateAuthReturnIntent(
       {
@@ -417,6 +430,31 @@ describe("authCoreContract", () => {
     expect(result.error.code).toBe("CLERK_JWT_INVALID");
     expect(result.error.reason).toBe("ISSUER_MISMATCH");
     expect(JSON.stringify(result)).not.toContain("secret-token-value");
+  });
+
+  test("fails closed when Clerk JWT authorized parties are not configured", () => {
+    const result = validateClerkJwtPayload(
+      {
+        iss: "https://clerk.example.com",
+        aud: "product-suite",
+        sub: "user_123",
+        azp: "https://app.example.com",
+        exp: 200,
+        nbf: 50,
+        iat: 100,
+        jti: "jwt_123",
+      },
+      {
+        issuer: "https://clerk.example.com",
+        audience: "product-suite",
+        authorizedParties: [],
+        now: 100,
+      },
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe("CLERK_JWT_INVALID");
+    expect(result.error.reason).toBe("AUTHORIZED_PARTY_MISMATCH");
   });
 
   test("defines Clerk user organization sync without PR19 schema migrations", () => {

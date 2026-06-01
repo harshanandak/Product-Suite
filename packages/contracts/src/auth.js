@@ -302,10 +302,7 @@ export function validateClerkJwtPayload(payload, options = {}) {
   }
 
   const authorizedParties = normalizeStringList(options.authorizedParties);
-  if (
-    authorizedParties.length > 0 &&
-    !authorizedParties.includes(payload[clerkJwtVerificationContract.authorizedPartyClaim])
-  ) {
+  if (!authorizedParties.includes(payload[clerkJwtVerificationContract.authorizedPartyClaim])) {
     return clerkJwtError("AUTHORIZED_PARTY_MISMATCH");
   }
 
@@ -434,8 +431,9 @@ function isExternalReturnUrl(returnTo) {
 
 function normalizeReturnTarget(returnTo) {
   const target = returnTo.startsWith("/") ? returnTo : `/${returnTo}`;
+  const url = new URL(target, "https://product-suite.local");
 
-  return target.split("#")[0] || "/";
+  return `${url.pathname}${url.search}` || "/";
 }
 
 function getReturnPathname(returnTarget) {
