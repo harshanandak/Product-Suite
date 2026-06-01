@@ -43,6 +43,32 @@ export interface AuthCoreContract {
   };
 }
 
+export interface ClerkEnvironmentContract {
+  provider: "clerk";
+  keys: {
+    publishableKey: string;
+    secretKey: string;
+    issuer: string;
+    audience: string;
+    authorizedParties: string;
+    signInUrl: string;
+    signUpUrl: string;
+    signInFallbackRedirectUrl: string;
+    signUpFallbackRedirectUrl: string;
+  };
+  routes: {
+    publicRoutes: string[];
+    protectedPrefixes: string[];
+    callbackPath: string;
+    allowedRedirectPrefixes: string[];
+  };
+  runtimeModes: {
+    local: string;
+    preview: string;
+    production: string;
+  };
+}
+
 export interface AuthClaims {
   provider: string;
   subject: string;
@@ -69,6 +95,36 @@ export type AuthClaimsValidationResult =
       ok: false;
       error: {
         code: "AUTH_CLAIMS_INVALID";
+        missing: string[];
+      };
+    };
+
+export interface ClerkEnvironment {
+  provider: "clerk";
+  publishableKey: string;
+  secretKeyConfigured: boolean;
+  issuer?: string;
+  audience: string[];
+  authorizedParties: string[];
+  signInUrl?: string;
+  signUpUrl?: string;
+  signInFallbackRedirectUrl?: string;
+  signUpFallbackRedirectUrl?: string;
+  publicRoutes: string[];
+  protectedPrefixes: string[];
+  callbackPath: string;
+  allowedRedirectPrefixes: string[];
+}
+
+export type ClerkEnvironmentValidationResult =
+  | {
+      ok: true;
+      environment: ClerkEnvironment;
+    }
+  | {
+      ok: false;
+      error: {
+        code: "CLERK_ENV_INVALID";
         missing: string[];
       };
     };
@@ -162,7 +218,12 @@ export interface CanvasCoreContract {
 
 export const identityScopeContract: IdentityScopeContract;
 export const authCoreContract: AuthCoreContract;
+export const clerkEnvironmentContract: ClerkEnvironmentContract;
 export function validateAuthClaims(input: unknown): AuthClaimsValidationResult;
+export function validateClerkEnvironment(
+  input: unknown,
+  options?: { protectedRuntime?: boolean },
+): ClerkEnvironmentValidationResult;
 export const conversationContract: ConversationContract;
 export const meetingCoreContract: MeetingCoreContract;
 export const canvasCoreContract: CanvasCoreContract;

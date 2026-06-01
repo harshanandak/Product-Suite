@@ -1,7 +1,12 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 
-import { authCoreContract, validateAuthClaims } from "./auth.js";
+import {
+  authCoreContract,
+  clerkEnvironmentContract,
+  validateAuthClaims,
+  validateClerkEnvironment,
+} from "./auth.js";
 
 describe("authCoreContract", () => {
   test("matches the committed auth contract artifact", () => {
@@ -85,5 +90,66 @@ describe("authCoreContract", () => {
     expect(result.error.code).toBe("AUTH_CLAIMS_INVALID");
     expect(result.error.missing).toEqual(["subject"]);
     expect(JSON.stringify(result)).not.toContain("secret-token-value");
+  });
+
+  test("validates protected Clerk runtime environment without leaking secrets", () => {
+    const result = validateClerkEnvironment({
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_test_public",
+      CLERK_SECRET_KEY: "sk_test_secret",
+      CLERK_ISSUER: "https://clerk.example.com",
+      CLERK_AUDIENCE: "product-suite",
+      CLERK_AUTHORIZED_PARTIES: "https://app.example.com,https://preview.example.com",
+      NEXT_PUBLIC_CLERK_SIGN_IN_URL: "/sign-in",
+      NEXT_PUBLIC_CLERK_SIGN_UP_URL: "/sign-up",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.environment).toMatchObject({
+      provider: "clerk",
+      publishableKey: "pk_test_public",
+      issuer: "https://clerk.example.com",
+      audience: ["product-suite"],
+      authorizedParties: ["https://app.example.com", "https://preview.example.com"],
+      secretKeyConfigured: true,
+      signInUrl: "/sign-in",
+      signUpUrl: "/sign-up",
+    });
+    expect(JSON.stringify(result)).not.toContain("sk_test_secret");
+  });
+
+  test("fails closed when protected Clerk runtime settings are missing", () => {
+    const result = validateClerkEnvironment({
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_test_public",
+      CLERK_SECRET_KEY: "sk_test_secret",
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe("CLERK_ENV_INVALID");
+    expect(result.error.missing).toEqual([
+      clerkEnvironmentContract.keys.issuer,
+      clerkEnvironmentContract.keys.audience,
+      clerkEnvironmentContract.keys.authorizedParties,
+    ]);
+    expect(JSON.stringify(result)).not.toContain("sk_test_secret");
+  });
+
+  test("keeps public-only Clerk shell settings separate from protected runtime secrets", () => {
+    const result = validateClerkEnvironment(
+      {
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_test_public",
+        NEXT_PUBLIC_CLERK_SIGN_IN_URL: "/sign-in",
+        NEXT_PUBLIC_CLERK_SIGN_UP_URL: "/sign-up",
+      },
+      { protectedRuntime: false },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.environment).toMatchObject({
+      provider: "clerk",
+      publishableKey: "pk_test_public",
+      secretKeyConfigured: false,
+      signInUrl: "/sign-in",
+      signUpUrl: "/sign-up",
+    });
   });
 });
