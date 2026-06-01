@@ -76,6 +76,21 @@ export const authRedirectContract = {
   allowedRedirectPrefixes: ["/", "/meetings", "/roadmap", "/canvas", "/agents", "/settings"],
 };
 
+export const clerkJwtVerificationContract = {
+  tokenSources: {
+    authorizationHeader: "authorization_header",
+    sessionCookie: "__session",
+  },
+  authorizationScheme: "Bearer",
+  algorithms: ["RS256"],
+  requiredClaims: ["iss", "aud", "sub", "exp", "nbf"],
+  authorizedPartyClaim: "azp",
+  jwks: {
+    keyIdClaim: "kid",
+    cacheKey: "clerk_jwks",
+  },
+};
+
 const REQUIRED_AUTH_CLAIM_KEYS = authCoreContract.claims.requiredKeys;
 const REQUIRED_CLERK_VERIFICATION_KEYS = [
   ...REQUIRED_AUTH_CLAIM_KEYS,
@@ -174,6 +189,87 @@ export function validateAuthReturnIntent(input, options = {}) {
       workspaceHint: normalizeOptionalString(input[authRedirectContract.workspaceHintKey]),
     },
   };
+}
+
+export function extractClerkSessionToken(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return clerkSessionTokenError();
+  }
+
+  const authorization = getHeaderValue(input.headers, "authorization");
+  const bearerToken = extractBearerToken(authorization);
+  if (bearerToken) {
+    return {
+      ok: true,
+      token: bearerToken,
+      source: clerkJwtVerificationContract.tokenSources.authorizationHeader,
+    };
+  }
+
+  const cookieToken = input.cookies?.[clerkJwtVerificationContract.tokenSources.sessionCookie];
+  if (hasNonEmptyString(cookieToken)) {
+    return {
+      ok: true,
+      token: cookieToken,
+      source: clerkJwtVerificationContract.tokenSources.sessionCookie,
+    };
+  }
+
+  return clerkSessionTokenError();
+}
+
+export function validateClerkJwtPayload(payload, options = {}) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return clerkJwtError("PAYLOAD_INVALID");
+  }
+
+  for (const claim of clerkJwtVerificationContract.requiredClaims) {
+    if (!hasRequiredJwtClaim(payload[claim], claim)) {
+      return clerkJwtError("MISSING_CLAIM", claim);
+    }
+  }
+
+  if (payload.iss !== options.issuer) {
+    return clerkJwtError("ISSUER_MISMATCH");
+  }
+
+  if (!normalizeStringList(payload.aud).includes(options.audience)) {
+    return clerkJwtError("AUDIENCE_MISMATCH");
+  }
+
+  const now = Number.isFinite(options.now) ? options.now : Math.floor(Date.now() / 1000);
+  if (Number(payload.exp) <= now) {
+    return clerkJwtError("TOKEN_EXPIRED");
+  }
+  if (Number(payload.nbf) > now) {
+    return clerkJwtError("TOKEN_NOT_YET_VALID");
+  }
+
+  const authorizedParties = normalizeStringList(options.authorizedParties);
+  if (
+    authorizedParties.length > 0 &&
+    !authorizedParties.includes(payload[clerkJwtVerificationContract.authorizedPartyClaim])
+  ) {
+    return clerkJwtError("AUTHORIZED_PARTY_MISMATCH");
+  }
+
+  return validateAuthClaims(
+    {
+      provider: "clerk",
+      subject: payload.sub,
+      issuer: payload.iss,
+      audience: payload.aud,
+      authorized_party: payload[clerkJwtVerificationContract.authorizedPartyClaim],
+      issued_at: payload.iat,
+      expires_at: payload.exp,
+      jwt_id: payload.jti,
+      provider_claims: {
+        session_id: payload.sid,
+        organization_id: payload.org_id,
+      },
+    },
+    { requireClerkVerification: true },
+  );
 }
 
 function normalizeAuthClaims(input) {
@@ -314,6 +410,58 @@ function authReturnIntentError(reason) {
     error: {
       code: "AUTH_RETURN_INTENT_INVALID",
       reason,
+    },
+  };
+}
+
+function getHeaderValue(headers, name) {
+  if (!headers || typeof headers !== "object") {
+    return undefined;
+  }
+
+  if (typeof headers.get === "function") {
+    return headers.get(name);
+  }
+
+  return headers[name] ?? headers[name.toLowerCase()] ?? headers[name.toUpperCase()];
+}
+
+function extractBearerToken(authorization) {
+  if (!hasNonEmptyString(authorization)) {
+    return undefined;
+  }
+
+  const prefix = `${clerkJwtVerificationContract.authorizationScheme} `;
+  return authorization.startsWith(prefix) ? authorization.slice(prefix.length).trim() : undefined;
+}
+
+function hasRequiredJwtClaim(value, claim) {
+  if (claim === "aud") {
+    return normalizeStringList(value).length > 0;
+  }
+  if (claim === "exp" || claim === "nbf") {
+    return Number.isFinite(Number(value));
+  }
+
+  return hasNonEmptyString(value);
+}
+
+function clerkSessionTokenError() {
+  return {
+    ok: false,
+    error: {
+      code: "CLERK_SESSION_TOKEN_MISSING",
+    },
+  };
+}
+
+function clerkJwtError(reason, claim) {
+  return {
+    ok: false,
+    error: {
+      code: "CLERK_JWT_INVALID",
+      reason,
+      ...(claim ? { claim } : {}),
     },
   };
 }

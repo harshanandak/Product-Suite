@@ -48,9 +48,12 @@ describe("@product-suite/contracts", () => {
     const {
       authCoreContract,
       authRedirectContract,
+      clerkJwtVerificationContract,
       clerkEnvironmentContract,
+      extractClerkSessionToken,
       validateAuthReturnIntent,
       validateClerkEnvironment,
+      validateClerkJwtPayload,
     } = await import("./index.js");
     const authArtifact = JSON.parse(
       readFileSync(new URL("../contracts/auth-core.json", import.meta.url), "utf8"),
@@ -67,5 +70,8 @@ describe("@product-suite/contracts", () => {
     expect(validateAuthReturnIntent).toBeTypeOf("function");
     expect(clerkEnvironmentContract.provider).toBe("clerk");
     expect(validateClerkEnvironment).toBeTypeOf("function");
+    expect(clerkJwtVerificationContract.algorithms).toContain("RS256");
+    expect(extractClerkSessionToken).toBeTypeOf("function");
+    expect(validateClerkJwtPayload).toBeTypeOf("function");
   });
 });

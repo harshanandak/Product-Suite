@@ -80,6 +80,21 @@ export interface AuthRedirectContract {
   allowedRedirectPrefixes: string[];
 }
 
+export interface ClerkJwtVerificationContract {
+  tokenSources: {
+    authorizationHeader: string;
+    sessionCookie: string;
+  };
+  authorizationScheme: string;
+  algorithms: string[];
+  requiredClaims: string[];
+  authorizedPartyClaim: string;
+  jwks: {
+    keyIdClaim: string;
+    cacheKey: string;
+  };
+}
+
 export interface AuthClaims {
   provider: string;
   subject: string;
@@ -162,6 +177,37 @@ export type AuthReturnIntentValidationResult =
           | "EXTERNAL_RETURN_URL"
           | "RETURN_LOOP"
           | "RETURN_PREFIX_NOT_ALLOWED";
+      };
+    };
+
+export type ClerkSessionTokenExtractionResult =
+  | {
+      ok: true;
+      token: string;
+      source: string;
+    }
+  | {
+      ok: false;
+      error: {
+        code: "CLERK_SESSION_TOKEN_MISSING";
+      };
+    };
+
+export type ClerkJwtPayloadValidationResult =
+  | AuthClaimsValidationResult
+  | {
+      ok: false;
+      error: {
+        code: "CLERK_JWT_INVALID";
+        reason:
+          | "PAYLOAD_INVALID"
+          | "MISSING_CLAIM"
+          | "ISSUER_MISMATCH"
+          | "AUDIENCE_MISMATCH"
+          | "TOKEN_EXPIRED"
+          | "TOKEN_NOT_YET_VALID"
+          | "AUTHORIZED_PARTY_MISMATCH";
+        claim?: string;
       };
     };
 
@@ -256,6 +302,8 @@ export const identityScopeContract: IdentityScopeContract;
 export const authCoreContract: AuthCoreContract;
 export const authRedirectContract: AuthRedirectContract;
 export const clerkEnvironmentContract: ClerkEnvironmentContract;
+export const clerkJwtVerificationContract: ClerkJwtVerificationContract;
+export function extractClerkSessionToken(input: unknown): ClerkSessionTokenExtractionResult;
 export function validateAuthClaims(
   input: unknown,
   options?: { requireClerkVerification?: boolean },
@@ -268,6 +316,15 @@ export function validateClerkEnvironment(
   input: unknown,
   options?: { protectedRuntime?: boolean },
 ): ClerkEnvironmentValidationResult;
+export function validateClerkJwtPayload(
+  payload: unknown,
+  options?: {
+    issuer?: string;
+    audience?: string;
+    authorizedParties?: string[];
+    now?: number;
+  },
+): ClerkJwtPayloadValidationResult;
 export const conversationContract: ConversationContract;
 export const meetingCoreContract: MeetingCoreContract;
 export const canvasCoreContract: CanvasCoreContract;

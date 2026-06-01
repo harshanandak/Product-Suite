@@ -4,10 +4,13 @@ import { describe, expect, test } from "bun:test";
 import {
   authCoreContract,
   authRedirectContract,
+  clerkJwtVerificationContract,
   clerkEnvironmentContract,
+  extractClerkSessionToken,
   validateAuthClaims,
   validateAuthReturnIntent,
   validateClerkEnvironment,
+  validateClerkJwtPayload,
 } from "./auth.js";
 
 describe("authCoreContract", () => {
@@ -276,5 +279,91 @@ describe("authCoreContract", () => {
     expect(badSignature.error.reason).toBe("SIGNATURE_MISMATCH");
     expect(loop.ok).toBe(false);
     expect(loop.error.reason).toBe("RETURN_LOOP");
+  });
+
+  test("extracts Clerk session tokens from bearer headers or session cookies", () => {
+    const bearer = extractClerkSessionToken({
+      headers: {
+        authorization: "Bearer bearer-token-value",
+      },
+      cookies: {
+        __session: "cookie-token-value",
+      },
+    });
+    const cookie = extractClerkSessionToken({
+      headers: {},
+      cookies: {
+        __session: "cookie-token-value",
+      },
+    });
+
+    expect(bearer).toEqual({
+      ok: true,
+      token: "bearer-token-value",
+      source: clerkJwtVerificationContract.tokenSources.authorizationHeader,
+    });
+    expect(cookie).toEqual({
+      ok: true,
+      token: "cookie-token-value",
+      source: clerkJwtVerificationContract.tokenSources.sessionCookie,
+    });
+  });
+
+  test("validates Clerk JWT payload metadata after signature verification", () => {
+    const result = validateClerkJwtPayload(
+      {
+        iss: "https://clerk.example.com",
+        aud: "product-suite",
+        sub: "user_123",
+        azp: "https://app.example.com",
+        exp: 200,
+        nbf: 50,
+        iat: 100,
+        jti: "jwt_123",
+      },
+      {
+        issuer: "https://clerk.example.com",
+        audience: "product-suite",
+        authorizedParties: ["https://app.example.com"],
+        now: 100,
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.claims).toMatchObject({
+      provider: "clerk",
+      subject: "user_123",
+      issuer: "https://clerk.example.com",
+      audience: ["product-suite"],
+      authorized_party: "https://app.example.com",
+      issued_at: 100,
+      expires_at: 200,
+      jwt_id: "jwt_123",
+    });
+  });
+
+  test("rejects mismatched Clerk JWT issuer audience or authorized party without token leakage", () => {
+    const result = validateClerkJwtPayload(
+      {
+        iss: "https://wrong.example.com",
+        aud: "other-suite",
+        sub: "user_123",
+        azp: "https://evil.example.com",
+        exp: 200,
+        nbf: 50,
+        raw_token: "secret-token-value",
+      },
+      {
+        issuer: "https://clerk.example.com",
+        audience: "product-suite",
+        authorizedParties: ["https://app.example.com"],
+        now: 100,
+      },
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe("CLERK_JWT_INVALID");
+    expect(result.error.reason).toBe("ISSUER_MISMATCH");
+    expect(JSON.stringify(result)).not.toContain("secret-token-value");
   });
 });
