@@ -6,6 +6,7 @@ export const authCoreContract = {
     optionalKeys: [
       "issuer",
       "audience",
+      "authorized_party",
       "email",
       "display_name",
       "tenant_id",
@@ -65,6 +66,12 @@ export const clerkEnvironmentContract = {
 };
 
 const REQUIRED_AUTH_CLAIM_KEYS = authCoreContract.claims.requiredKeys;
+const REQUIRED_CLERK_VERIFICATION_KEYS = [
+  ...REQUIRED_AUTH_CLAIM_KEYS,
+  "issuer",
+  "audience",
+  "authorized_party",
+];
 const AUTH_CLAIM_KEYS = new Set([
   ...authCoreContract.claims.requiredKeys,
   ...authCoreContract.claims.optionalKeys,
@@ -81,12 +88,17 @@ const PROTECTED_CLERK_ENV_KEYS = [
 
 const PUBLIC_CLERK_ENV_KEYS = [clerkEnvironmentContract.keys.publishableKey];
 
-export function validateAuthClaims(input) {
+export function validateAuthClaims(input, options = {}) {
+  const requiredKeys =
+    options.requireClerkVerification && input?.provider === "clerk"
+      ? REQUIRED_CLERK_VERIFICATION_KEYS
+      : REQUIRED_AUTH_CLAIM_KEYS;
+
   if (!input || typeof input !== "object" || Array.isArray(input)) {
-    return authClaimsError(REQUIRED_AUTH_CLAIM_KEYS);
+    return authClaimsError(requiredKeys);
   }
 
-  const missing = REQUIRED_AUTH_CLAIM_KEYS.filter((key) => !hasNonEmptyString(input[key]));
+  const missing = requiredKeys.filter((key) => !hasRequiredAuthClaimValue(input[key], key));
   if (missing.length > 0) {
     return authClaimsError(missing);
   }
@@ -143,6 +155,14 @@ function normalizeAuthClaims(input) {
 
 function hasNonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function hasRequiredAuthClaimValue(value, key) {
+  if (ARRAY_CLAIM_KEYS.has(key)) {
+    return normalizeStringList(value).length > 0;
+  }
+
+  return hasNonEmptyString(value);
 }
 
 function authClaimsError(missing) {

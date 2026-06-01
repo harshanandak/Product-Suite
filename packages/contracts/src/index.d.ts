@@ -74,6 +74,7 @@ export interface AuthClaims {
   subject: string;
   issuer?: string;
   audience?: string[];
+  authorized_party?: string;
   email?: string;
   display_name?: string;
   tenant_id?: string;
@@ -219,7 +220,10 @@ export interface CanvasCoreContract {
 export const identityScopeContract: IdentityScopeContract;
 export const authCoreContract: AuthCoreContract;
 export const clerkEnvironmentContract: ClerkEnvironmentContract;
-export function validateAuthClaims(input: unknown): AuthClaimsValidationResult;
+export function validateAuthClaims(
+  input: unknown,
+  options?: { requireClerkVerification?: boolean },
+): AuthClaimsValidationResult;
 export function validateClerkEnvironment(
   input: unknown,
   options?: { protectedRuntime?: boolean },

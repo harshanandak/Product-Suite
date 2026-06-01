@@ -6,6 +6,7 @@
     "optionalKeys": [
       "issuer",
       "audience",
+      "authorized_party",
       "email",
       "display_name",
       "tenant_id",

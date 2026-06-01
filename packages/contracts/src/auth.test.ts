@@ -92,6 +92,65 @@ describe("authCoreContract", () => {
     expect(JSON.stringify(result)).not.toContain("secret-token-value");
   });
 
+  test("normalizes canonical Clerk claims for backend verification", () => {
+    const result = validateAuthClaims(
+      {
+        provider: "clerk",
+        subject: "user_123",
+        issuer: "https://clerk.example.com",
+        audience: "product-suite",
+        authorized_party: "https://app.example.com",
+        email: "user@example.com",
+        display_name: "Example User",
+        tenant_id: "org_123",
+        workspace_ids: "workspace_123",
+        roles: ["admin"],
+        permissions: ["meetings:read"],
+        issued_at: 1_770_000_000,
+        expires_at: 1_770_003_600,
+        jwt_id: "jwt_123",
+        provider_claims: {
+          organization_id: "org_123",
+          provider: "clerk",
+        },
+        access_token: "secret-token-value",
+      },
+      { requireClerkVerification: true },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.claims).toMatchObject({
+      provider: "clerk",
+      subject: "user_123",
+      issuer: "https://clerk.example.com",
+      audience: ["product-suite"],
+      authorized_party: "https://app.example.com",
+      tenant_id: "org_123",
+      workspace_ids: ["workspace_123"],
+      provider_claims: {
+        organization_id: "org_123",
+        provider: "clerk",
+      },
+    });
+    expect(JSON.stringify(result.claims)).not.toContain("secret-token-value");
+  });
+
+  test("fails closed when Clerk verification claims are missing", () => {
+    const result = validateAuthClaims(
+      {
+        provider: "clerk",
+        subject: "user_123",
+        access_token: "secret-token-value",
+      },
+      { requireClerkVerification: true },
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe("AUTH_CLAIMS_INVALID");
+    expect(result.error.missing).toEqual(["issuer", "audience", "authorized_party"]);
+    expect(JSON.stringify(result)).not.toContain("secret-token-value");
+  });
+
   test("validates protected Clerk runtime environment without leaking secrets", () => {
     const result = validateClerkEnvironment({
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_test_public",
