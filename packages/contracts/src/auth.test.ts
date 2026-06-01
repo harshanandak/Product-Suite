@@ -283,6 +283,24 @@ describe("authCoreContract", () => {
     expect(loop.error.reason).toBe("RETURN_LOOP");
   });
 
+  test("requires signed return intents to be verified with an expected signature", () => {
+    const missingExpectedSignature = validateAuthReturnIntent({
+      return_to: "/meetings",
+      return_sig: "attacker-controlled-signature",
+    });
+    const missingReturnSignature = validateAuthReturnIntent(
+      {
+        return_to: "/meetings",
+      },
+      { expectedSignature: "expected-signature" },
+    );
+
+    expect(missingExpectedSignature.ok).toBe(false);
+    expect(missingExpectedSignature.error.reason).toBe("SIGNATURE_MISMATCH");
+    expect(missingReturnSignature.ok).toBe(false);
+    expect(missingReturnSignature.error.reason).toBe("SIGNATURE_MISMATCH");
+  });
+
   test("extracts Clerk session tokens from bearer headers or session cookies", () => {
     const bearer = extractClerkSessionToken({
       headers: {
@@ -307,6 +325,23 @@ describe("authCoreContract", () => {
     expect(cookie).toEqual({
       ok: true,
       token: "cookie-token-value",
+      source: clerkJwtVerificationContract.tokenSources.sessionCookie,
+    });
+  });
+
+  test("extracts Clerk session tokens from Next-style cookie stores", () => {
+    const cookie = extractClerkSessionToken({
+      headers: new Headers(),
+      cookies: {
+        get(name) {
+          return name === "__session" ? { value: "cookie-store-token-value" } : undefined;
+        },
+      },
+    });
+
+    expect(cookie).toEqual({
+      ok: true,
+      token: "cookie-store-token-value",
       source: clerkJwtVerificationContract.tokenSources.sessionCookie,
     });
   });

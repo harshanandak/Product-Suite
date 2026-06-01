@@ -367,7 +367,7 @@ export function validateAuthClaims(
 ): AuthClaimsValidationResult;
 export function validateAuthReturnIntent(
   input: unknown,
-  options?: { expectedSignature?: string },
+  options: { expectedSignature: string },
 ): AuthReturnIntentValidationResult;
 export function validateClerkEnvironment(
   input: unknown,

@@ -261,7 +261,7 @@ export function extractClerkSessionToken(input) {
     };
   }
 
-  const cookieToken = input.cookies?.[clerkJwtVerificationContract.tokenSources.sessionCookie];
+  const cookieToken = getCookieValue(input.cookies, clerkJwtVerificationContract.tokenSources.sessionCookie);
   if (hasNonEmptyString(cookieToken)) {
     return {
       ok: true,
@@ -421,7 +421,7 @@ function clerkEnvironmentError(missing) {
 
 function hasValidReturnSignature(input, options) {
   if (!hasNonEmptyString(options.expectedSignature)) {
-    return true;
+    return false;
   }
 
   return input[authRedirectContract.signatureKey] === options.expectedSignature;
@@ -479,6 +479,19 @@ function getHeaderValue(headers, name) {
   }
 
   return headers[name] ?? headers[name.toLowerCase()] ?? headers[name.toUpperCase()];
+}
+
+function getCookieValue(cookies, name) {
+  if (!cookies || typeof cookies !== "object") {
+    return undefined;
+  }
+
+  if (typeof cookies.get === "function") {
+    const cookie = cookies.get(name);
+    return typeof cookie === "object" && cookie !== null ? cookie.value : cookie;
+  }
+
+  return cookies[name];
 }
 
 function extractBearerToken(authorization) {
