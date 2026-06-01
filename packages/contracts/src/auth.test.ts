@@ -238,6 +238,21 @@ describe("authCoreContract", () => {
     });
   });
 
+  test("preserves signed return intent query strings after validating the path", () => {
+    const result = validateAuthReturnIntent(
+      {
+        return_to: "/roadmap/workspaces/workspace_123?view=timeline&panel=resources",
+        return_sig: "expected-signature",
+      },
+      { expectedSignature: "expected-signature" },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.intent.returnTo).toBe(
+      "/roadmap/workspaces/workspace_123?view=timeline&panel=resources",
+    );
+  });
+
   test("rejects external or disallowed auth return paths", () => {
     const external = validateAuthReturnIntent(
       {

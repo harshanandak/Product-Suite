@@ -227,19 +227,20 @@ export function validateAuthReturnIntent(input, options = {}) {
     return authReturnIntentError("EXTERNAL_RETURN_URL");
   }
 
-  const path = normalizeReturnPath(returnTo);
-  if (isReturnLoop(path)) {
+  const returnTarget = normalizeReturnTarget(returnTo);
+  const returnPath = getReturnPathname(returnTarget);
+  if (isReturnLoop(returnPath)) {
     return authReturnIntentError("RETURN_LOOP");
   }
 
-  if (!isAllowedReturnPath(path)) {
+  if (!isAllowedReturnPath(returnPath)) {
     return authReturnIntentError("RETURN_PREFIX_NOT_ALLOWED");
   }
 
   return {
     ok: true,
     intent: {
-      returnTo: path,
+      returnTo: returnTarget,
       moduleHint: normalizeOptionalString(input[authRedirectContract.moduleHintKey]),
       workspaceHint: normalizeOptionalString(input[authRedirectContract.workspaceHintKey]),
     },
@@ -431,10 +432,14 @@ function isExternalReturnUrl(returnTo) {
   return /^[a-z][a-z0-9+.-]*:/i.test(returnTo) || returnTo.startsWith("//");
 }
 
-function normalizeReturnPath(returnTo) {
-  const path = returnTo.startsWith("/") ? returnTo : `/${returnTo}`;
+function normalizeReturnTarget(returnTo) {
+  const target = returnTo.startsWith("/") ? returnTo : `/${returnTo}`;
 
-  return path.split("#")[0].split("?")[0] || "/";
+  return target.split("#")[0] || "/";
+}
+
+function getReturnPathname(returnTarget) {
+  return returnTarget.split("?")[0] || "/";
 }
 
 function isReturnLoop(path) {
