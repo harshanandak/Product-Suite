@@ -177,7 +177,7 @@ describe("repo tooling", () => {
     expect(buildingBlocksPlan).toContain("docs/research/pr5-auth-contracts-and-adapters.md");
   });
 
-  test("building blocks plan marks PR16 verified and PR17 active", () => {
+  test("building blocks plan marks PR17 verified and PR18 active", () => {
     expect(buildingBlocksPlan).toContain("PR5 Auth Contracts And Adapters`: merged and verified");
     expect(buildingBlocksPlan).toContain("PR6 Auth Provider Rollout`: merged and verified");
     expect(buildingBlocksPlan).toContain("PR7 SDK / Typed Client Layer`: merged and verified");
@@ -191,7 +191,7 @@ describe("repo tooling", () => {
     expect(buildingBlocksPlan).toContain("PR15 Hocuspocus Provider Cutover Readiness`: merged and verified");
     expect(buildingBlocksPlan).toContain("PR16 Hocuspocus Provider Controlled Rollout`: merged and verified");
     expect(buildingBlocksPlan).toContain(
-      "PR17 Platform Auth And Data Consolidation Plan`: active on `feat/pr17-platform-auth-data-consolidation`",
+      "PR17 Platform Auth And Data Consolidation Plan`: merged via GitHub PR #18 and verified on `origin/main`",
     );
     expect(buildingBlocksPlan).toContain(
       "docs/plans/2026-05-21-pr17-platform-auth-data-consolidation-design.md",
@@ -201,6 +201,19 @@ describe("repo tooling", () => {
     );
     expect(buildingBlocksPlan).toContain(
       "docs/plans/2026-05-21-pr17-platform-auth-data-consolidation-decisions.md",
+    );
+    expect(buildingBlocksPlan).toContain(
+      "PR18 Clerk Auth Foundation`: active on `feat/pr18-clerk-auth-foundation`",
+    );
+    expect(buildingBlocksPlan).toContain("docs/research/pr18-clerk-auth-foundation.md");
+    expect(buildingBlocksPlan).toContain(
+      "docs/plans/2026-05-31-pr18-clerk-auth-foundation-design.md",
+    );
+    expect(buildingBlocksPlan).toContain(
+      "docs/plans/2026-05-31-pr18-clerk-auth-foundation-tasks.md",
+    );
+    expect(buildingBlocksPlan).toContain(
+      "docs/plans/2026-05-31-pr18-clerk-auth-foundation-decisions.md",
     );
     expect(buildingBlocksPlan).toContain("docs/research/pr11-planning-and-charting-blocks.md");
     expect(buildingBlocksPlan).toContain(
