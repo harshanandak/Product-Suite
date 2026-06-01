@@ -51,6 +51,8 @@ describe("@product-suite/contracts", () => {
       clerkJwtVerificationContract,
       clerkEnvironmentContract,
       extractClerkSessionToken,
+      platformEventIdentityContract,
+      platformIdentitySyncContract,
       validateAuthReturnIntent,
       validateClerkEnvironment,
       validateClerkJwtPayload,
@@ -73,5 +75,7 @@ describe("@product-suite/contracts", () => {
     expect(clerkJwtVerificationContract.algorithms).toContain("RS256");
     expect(extractClerkSessionToken).toBeTypeOf("function");
     expect(validateClerkJwtPayload).toBeTypeOf("function");
+    expect(platformIdentitySyncContract.scope.createsSchemaMigrations).toBe(false);
+    expect(platformEventIdentityContract.scope.implementsAnalyticsSink).toBe(false);
   });
 });

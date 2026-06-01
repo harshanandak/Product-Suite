@@ -91,6 +91,61 @@ export const clerkJwtVerificationContract = {
   },
 };
 
+export const platformIdentitySyncContract = {
+  provider: "clerk",
+  user: {
+    internalUserIdKey: "platform_user_id",
+    externalProviderKey: "external_provider",
+    externalProviderIdKey: "external_provider_id",
+    externalUserIdKey: "clerk_user_id",
+    emailKey: "email",
+    displayNameKey: "display_name",
+  },
+  workspace: {
+    internalWorkspaceIdKey: "platform_workspace_id",
+    externalProviderKey: "external_provider",
+    externalProviderIdKey: "external_provider_id",
+    externalOrganizationIdKey: "clerk_organization_id",
+    nameKey: "name",
+    disabledAtKey: "disabled_at",
+  },
+  membership: {
+    internalMembershipIdKey: "platform_membership_id",
+    internalUserIdKey: "platform_user_id",
+    internalWorkspaceIdKey: "platform_workspace_id",
+    externalUserIdKey: "clerk_user_id",
+    externalOrganizationIdKey: "clerk_organization_id",
+    roleKey: "role",
+    statusKey: "status",
+    lastSyncedAtKey: "last_synced_at",
+  },
+  sync: {
+    idempotencyKey: "clerk_event_id",
+    reconciliationMode: "lazy_first_request",
+    softDeleteMode: "soft_disable_workspace",
+  },
+  scope: {
+    createsSchemaMigrations: false,
+  },
+};
+
+export const platformEventIdentityContract = {
+  identity: {
+    userIdKey: "platform_user_id",
+    workspaceIdKey: "platform_workspace_id",
+    membershipIdKey: "platform_membership_id",
+  },
+  context: {
+    moduleKey: "module",
+    eventNameKey: "event_name",
+    acquisitionSourceKey: "acquisition_source",
+    pricingVariantKey: "pricing_variant",
+  },
+  scope: {
+    implementsAnalyticsSink: false,
+  },
+};
+
 const REQUIRED_AUTH_CLAIM_KEYS = authCoreContract.claims.requiredKeys;
 const REQUIRED_CLERK_VERIFICATION_KEYS = [
   ...REQUIRED_AUTH_CLAIM_KEYS,

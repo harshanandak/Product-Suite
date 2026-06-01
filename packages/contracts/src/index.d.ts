@@ -95,6 +95,61 @@ export interface ClerkJwtVerificationContract {
   };
 }
 
+export interface PlatformIdentitySyncContract {
+  provider: "clerk";
+  user: {
+    internalUserIdKey: string;
+    externalProviderKey: string;
+    externalProviderIdKey: string;
+    externalUserIdKey: string;
+    emailKey: string;
+    displayNameKey: string;
+  };
+  workspace: {
+    internalWorkspaceIdKey: string;
+    externalProviderKey: string;
+    externalProviderIdKey: string;
+    externalOrganizationIdKey: string;
+    nameKey: string;
+    disabledAtKey: string;
+  };
+  membership: {
+    internalMembershipIdKey: string;
+    internalUserIdKey: string;
+    internalWorkspaceIdKey: string;
+    externalUserIdKey: string;
+    externalOrganizationIdKey: string;
+    roleKey: string;
+    statusKey: string;
+    lastSyncedAtKey: string;
+  };
+  sync: {
+    idempotencyKey: string;
+    reconciliationMode: string;
+    softDeleteMode: string;
+  };
+  scope: {
+    createsSchemaMigrations: boolean;
+  };
+}
+
+export interface PlatformEventIdentityContract {
+  identity: {
+    userIdKey: string;
+    workspaceIdKey: string;
+    membershipIdKey: string;
+  };
+  context: {
+    moduleKey: string;
+    eventNameKey: string;
+    acquisitionSourceKey: string;
+    pricingVariantKey: string;
+  };
+  scope: {
+    implementsAnalyticsSink: boolean;
+  };
+}
+
 export interface AuthClaims {
   provider: string;
   subject: string;
@@ -303,6 +358,8 @@ export const authCoreContract: AuthCoreContract;
 export const authRedirectContract: AuthRedirectContract;
 export const clerkEnvironmentContract: ClerkEnvironmentContract;
 export const clerkJwtVerificationContract: ClerkJwtVerificationContract;
+export const platformIdentitySyncContract: PlatformIdentitySyncContract;
+export const platformEventIdentityContract: PlatformEventIdentityContract;
 export function extractClerkSessionToken(input: unknown): ClerkSessionTokenExtractionResult;
 export function validateAuthClaims(
   input: unknown,

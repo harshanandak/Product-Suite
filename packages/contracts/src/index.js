@@ -6,6 +6,8 @@ export {
   clerkJwtVerificationContract,
   clerkEnvironmentContract,
   extractClerkSessionToken,
+  platformEventIdentityContract,
+  platformIdentitySyncContract,
   validateAuthClaims,
   validateAuthReturnIntent,
   validateClerkEnvironment,

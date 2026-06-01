@@ -7,6 +7,8 @@ import {
   clerkJwtVerificationContract,
   clerkEnvironmentContract,
   extractClerkSessionToken,
+  platformEventIdentityContract,
+  platformIdentitySyncContract,
   validateAuthClaims,
   validateAuthReturnIntent,
   validateClerkEnvironment,
@@ -365,5 +367,36 @@ describe("authCoreContract", () => {
     expect(result.error.code).toBe("CLERK_JWT_INVALID");
     expect(result.error.reason).toBe("ISSUER_MISMATCH");
     expect(JSON.stringify(result)).not.toContain("secret-token-value");
+  });
+
+  test("defines Clerk user organization sync without PR19 schema migrations", () => {
+    expect(platformIdentitySyncContract.provider).toBe("clerk");
+    expect(platformIdentitySyncContract.user.externalProviderIdKey).toBe(
+      "external_provider_id",
+    );
+    expect(platformIdentitySyncContract.workspace.externalProviderIdKey).toBe(
+      "external_provider_id",
+    );
+    expect(platformIdentitySyncContract.membership.externalUserIdKey).toBe(
+      "clerk_user_id",
+    );
+    expect(platformIdentitySyncContract.sync.idempotencyKey).toBe("clerk_event_id");
+    expect(platformIdentitySyncContract.sync.reconciliationMode).toBe("lazy_first_request");
+    expect(platformIdentitySyncContract.scope.createsSchemaMigrations).toBe(false);
+  });
+
+  test("defines platform event identity fields before analytics sinks exist", () => {
+    expect(platformEventIdentityContract.identity.userIdKey).toBe("platform_user_id");
+    expect(platformEventIdentityContract.identity.workspaceIdKey).toBe(
+      "platform_workspace_id",
+    );
+    expect(platformEventIdentityContract.context.moduleKey).toBe("module");
+    expect(platformEventIdentityContract.context.acquisitionSourceKey).toBe(
+      "acquisition_source",
+    );
+    expect(platformEventIdentityContract.context.pricingVariantKey).toBe(
+      "pricing_variant",
+    );
+    expect(platformEventIdentityContract.scope.implementsAnalyticsSink).toBe(false);
   });
 });
