@@ -45,9 +45,13 @@ describe("@product-suite/contracts", () => {
   });
 
   test("exports auth contracts for PR5 adapter boundaries", async () => {
-    const { authCoreContract, clerkEnvironmentContract, validateClerkEnvironment } = await import(
-      "./index.js"
-    );
+    const {
+      authCoreContract,
+      authRedirectContract,
+      clerkEnvironmentContract,
+      validateAuthReturnIntent,
+      validateClerkEnvironment,
+    } = await import("./index.js");
     const authArtifact = JSON.parse(
       readFileSync(new URL("../contracts/auth-core.json", import.meta.url), "utf8"),
     );
@@ -59,6 +63,8 @@ describe("@product-suite/contracts", () => {
     expect(authCoreContract.sessionBridge.stateKey).toBe("auth_state");
     expect(authCoreContract.workspaceAccessResolver.workspaceIdKey).toBe("workspace_id");
     expect(authCoreContract).toEqual(authArtifact);
+    expect(authRedirectContract.callbackPath).toBe("/auth/callback");
+    expect(validateAuthReturnIntent).toBeTypeOf("function");
     expect(clerkEnvironmentContract.provider).toBe("clerk");
     expect(validateClerkEnvironment).toBeTypeOf("function");
   });

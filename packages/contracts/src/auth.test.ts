@@ -3,8 +3,10 @@ import { describe, expect, test } from "bun:test";
 
 import {
   authCoreContract,
+  authRedirectContract,
   clerkEnvironmentContract,
   validateAuthClaims,
+  validateAuthReturnIntent,
   validateClerkEnvironment,
 } from "./auth.js";
 
@@ -210,5 +212,69 @@ describe("authCoreContract", () => {
       signInUrl: "/sign-in",
       signUpUrl: "/sign-up",
     });
+  });
+
+  test("accepts signed return intent for allowed module paths", () => {
+    const result = validateAuthReturnIntent(
+      {
+        return_to: "/roadmap/workspaces/workspace_123",
+        return_sig: "expected-signature",
+        module: "roadmap",
+        workspace_id: "workspace_123",
+      },
+      { expectedSignature: "expected-signature" },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.intent).toEqual({
+      returnTo: "/roadmap/workspaces/workspace_123",
+      moduleHint: "roadmap",
+      workspaceHint: "workspace_123",
+    });
+  });
+
+  test("rejects external or disallowed auth return paths", () => {
+    const external = validateAuthReturnIntent(
+      {
+        return_to: "https://evil.example.com/roadmap",
+        return_sig: "expected-signature",
+      },
+      { expectedSignature: "expected-signature" },
+    );
+    const disallowed = validateAuthReturnIntent(
+      {
+        return_to: "/admin",
+        return_sig: "expected-signature",
+      },
+      { expectedSignature: "expected-signature" },
+    );
+
+    expect(external.ok).toBe(false);
+    expect(external.error.code).toBe("AUTH_RETURN_INTENT_INVALID");
+    expect(external.error.reason).toBe("EXTERNAL_RETURN_URL");
+    expect(disallowed.ok).toBe(false);
+    expect(disallowed.error.reason).toBe("RETURN_PREFIX_NOT_ALLOWED");
+  });
+
+  test("rejects bad signatures and callback loops", () => {
+    const badSignature = validateAuthReturnIntent(
+      {
+        return_to: "/meetings",
+        return_sig: "wrong-signature",
+      },
+      { expectedSignature: "expected-signature" },
+    );
+    const loop = validateAuthReturnIntent(
+      {
+        return_to: authRedirectContract.callbackPath,
+        return_sig: "expected-signature",
+      },
+      { expectedSignature: "expected-signature" },
+    );
+
+    expect(badSignature.ok).toBe(false);
+    expect(badSignature.error.reason).toBe("SIGNATURE_MISMATCH");
+    expect(loop.ok).toBe(false);
+    expect(loop.error.reason).toBe("RETURN_LOOP");
   });
 });

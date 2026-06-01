@@ -65,6 +65,17 @@ export const clerkEnvironmentContract = {
   },
 };
 
+export const authRedirectContract = {
+  returnToKey: "return_to",
+  signatureKey: "return_sig",
+  moduleHintKey: "module",
+  workspaceHintKey: "workspace_id",
+  callbackPath: "/auth/callback",
+  signInPath: "/sign-in",
+  signUpPath: "/sign-up",
+  allowedRedirectPrefixes: ["/", "/meetings", "/roadmap", "/canvas", "/agents", "/settings"],
+};
+
 const REQUIRED_AUTH_CLAIM_KEYS = authCoreContract.claims.requiredKeys;
 const REQUIRED_CLERK_VERIFICATION_KEYS = [
   ...REQUIRED_AUTH_CLAIM_KEYS,
@@ -125,6 +136,43 @@ export function validateClerkEnvironment(input, options = {}) {
   return {
     ok: true,
     environment: normalizeClerkEnvironment(input),
+  };
+}
+
+export function validateAuthReturnIntent(input, options = {}) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return authReturnIntentError("MISSING_RETURN_TO");
+  }
+
+  const returnTo = input[authRedirectContract.returnToKey];
+  if (!hasNonEmptyString(returnTo)) {
+    return authReturnIntentError("MISSING_RETURN_TO");
+  }
+
+  if (!hasValidReturnSignature(input, options)) {
+    return authReturnIntentError("SIGNATURE_MISMATCH");
+  }
+
+  if (isExternalReturnUrl(returnTo)) {
+    return authReturnIntentError("EXTERNAL_RETURN_URL");
+  }
+
+  const path = normalizeReturnPath(returnTo);
+  if (isReturnLoop(path)) {
+    return authReturnIntentError("RETURN_LOOP");
+  }
+
+  if (!isAllowedReturnPath(path)) {
+    return authReturnIntentError("RETURN_PREFIX_NOT_ALLOWED");
+  }
+
+  return {
+    ok: true,
+    intent: {
+      returnTo: path,
+      moduleHint: normalizeOptionalString(input[authRedirectContract.moduleHintKey]),
+      workspaceHint: normalizeOptionalString(input[authRedirectContract.workspaceHintKey]),
+    },
   };
 }
 
@@ -216,6 +264,56 @@ function clerkEnvironmentError(missing) {
     error: {
       code: "CLERK_ENV_INVALID",
       missing,
+    },
+  };
+}
+
+function hasValidReturnSignature(input, options) {
+  if (!hasNonEmptyString(options.expectedSignature)) {
+    return true;
+  }
+
+  return input[authRedirectContract.signatureKey] === options.expectedSignature;
+}
+
+function isExternalReturnUrl(returnTo) {
+  return /^[a-z][a-z0-9+.-]*:/i.test(returnTo) || returnTo.startsWith("//");
+}
+
+function normalizeReturnPath(returnTo) {
+  const path = returnTo.startsWith("/") ? returnTo : `/${returnTo}`;
+
+  return path.split("#")[0].split("?")[0] || "/";
+}
+
+function isReturnLoop(path) {
+  return [
+    authRedirectContract.callbackPath,
+    authRedirectContract.signInPath,
+    authRedirectContract.signUpPath,
+  ].includes(path);
+}
+
+function isAllowedReturnPath(path) {
+  return authRedirectContract.allowedRedirectPrefixes.some((prefix) => {
+    if (prefix === "/") {
+      return path === "/";
+    }
+
+    return path === prefix || path.startsWith(`${prefix}/`);
+  });
+}
+
+function normalizeOptionalString(value) {
+  return hasNonEmptyString(value) ? value : undefined;
+}
+
+function authReturnIntentError(reason) {
+  return {
+    ok: false,
+    error: {
+      code: "AUTH_RETURN_INTENT_INVALID",
+      reason,
     },
   };
 }

@@ -69,6 +69,17 @@ export interface ClerkEnvironmentContract {
   };
 }
 
+export interface AuthRedirectContract {
+  returnToKey: string;
+  signatureKey: string;
+  moduleHintKey: string;
+  workspaceHintKey: string;
+  callbackPath: string;
+  signInPath: string;
+  signUpPath: string;
+  allowedRedirectPrefixes: string[];
+}
+
 export interface AuthClaims {
   provider: string;
   subject: string;
@@ -127,6 +138,30 @@ export type ClerkEnvironmentValidationResult =
       error: {
         code: "CLERK_ENV_INVALID";
         missing: string[];
+      };
+    };
+
+export interface AuthReturnIntent {
+  returnTo: string;
+  moduleHint?: string;
+  workspaceHint?: string;
+}
+
+export type AuthReturnIntentValidationResult =
+  | {
+      ok: true;
+      intent: AuthReturnIntent;
+    }
+  | {
+      ok: false;
+      error: {
+        code: "AUTH_RETURN_INTENT_INVALID";
+        reason:
+          | "MISSING_RETURN_TO"
+          | "SIGNATURE_MISMATCH"
+          | "EXTERNAL_RETURN_URL"
+          | "RETURN_LOOP"
+          | "RETURN_PREFIX_NOT_ALLOWED";
       };
     };
 
@@ -219,11 +254,16 @@ export interface CanvasCoreContract {
 
 export const identityScopeContract: IdentityScopeContract;
 export const authCoreContract: AuthCoreContract;
+export const authRedirectContract: AuthRedirectContract;
 export const clerkEnvironmentContract: ClerkEnvironmentContract;
 export function validateAuthClaims(
   input: unknown,
   options?: { requireClerkVerification?: boolean },
 ): AuthClaimsValidationResult;
+export function validateAuthReturnIntent(
+  input: unknown,
+  options?: { expectedSignature?: string },
+): AuthReturnIntentValidationResult;
 export function validateClerkEnvironment(
   input: unknown,
   options?: { protectedRuntime?: boolean },
