@@ -1,3 +1,4 @@
+/* eslint-disable import/no-named-as-default-member */
 import axios from "axios";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { readFileSync } from "node:fs";
@@ -27,12 +28,14 @@ vi.mock("axios", () => {
     get: vi.fn(),
     post: vi.fn(),
     put: vi.fn(),
-    delete: vi.fn(),
-  };
+      delete: vi.fn(),
+    };
+  const create = vi.fn(() => apiClient);
 
   return {
+    create,
     default: {
-      create: vi.fn(() => apiClient),
+      create,
     },
   };
 });
