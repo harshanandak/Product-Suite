@@ -13,6 +13,11 @@ This document is the durable ownership inventory for shared Product Suite domain
 | `meeting` | `meeting-api` | `meeting-api` | `Meeting API Postgres` | `apps/meeting-api/backend/alembic/versions/0001_multi_user_jobs.py` | Meeting records, transcripts, summaries, meeting chat, and processing jobs remain meeting-api owned. |
 | `artifact` | `split by artifact type` | `split by artifact type` | `Supabase Postgres` and `Meeting API Postgres` | `apps/roadmap-web/src/lib/supabase/types.ts` and `apps/meeting-api/backend/alembic/versions/0001_multi_user_jobs.py` | Planning and canvas artifacts remain roadmap-owned, while transcript, summary, and processing artifacts remain meeting-api owned. |
 | `task` | `roadmap-web` | `roadmap-web` | `Supabase Postgres` | `apps/roadmap-web/supabase/migrations/20250110000001_initial_multitenant_schema.sql` | Product work tracking stays in roadmap `features`, `timeline_items`, and related dependency tables. |
+| `platform` | `new in PR19` | `platform services` | `Supabase Postgres` | `infra/supabase/migrations/20260602120000_create_platform_schema.sql` | Shared internal users, workspaces, memberships, auth identities, and audit events live in the private `platform` schema. |
+| `meeting` | `meeting-api on Neon` | `meeting-api in Supabase schema` | `Neon Postgres to Supabase Postgres` | `apps/meeting-api/backend/alembic/versions/0001_multi_user_jobs.py` and `infra/supabase/migrations/20260602120000_create_platform_schema.sql` | PR19 reserves the private `meeting` schema from the live Neon baseline; PR20 performs cutover and table migration. |
+| `roadmap` | `roadmap-web public schema` | `roadmap-web public compatibility during PR19` | `Supabase Postgres` | `infra/supabase/migrations` and `apps/roadmap-web/supabase/migrations` | Existing Roadmap tables stay in `public` during PR19 to avoid breaking generated types and route code. |
+| `agent` | `services/agent-core` | `agent module schema` | `Supabase Postgres` | `infra/supabase/migrations/20260602120000_create_platform_schema.sql` | PR19 reserves the private `agent` schema for agent runtime and invocation ownership. |
+| `realtime` | `services/hocuspocus` | `realtime module schema` | `Supabase Postgres` | `infra/supabase/migrations/20260602120000_create_platform_schema.sql` | PR19 reserves the private `realtime` schema for collaboration transport state. |
 
 ## Roadmap Domain-Local Scope
 
@@ -42,6 +47,14 @@ Meeting API currently has two checked-in migration truth sources that are not eq
   - current Alembic baseline that adds `users`, `jobs`, and `owner_user_id` ownership fields
 
 For PR3, the canonical source-of-truth schema path for meeting ownership is the Alembic migration file, while the older raw SQL file must remain documented as migration-path drift.
+
+## PR19 Unified Schema Boundaries
+
+PR19 changes the target database shape, not runtime ownership. Meeting stays on Neon until PR20, and the live Neon baseline remains the source for Meeting table names during PR19 design and migration planning.
+
+The `platform`, `meeting`, `agent`, and `realtime` schemas are private by default and must not be added to the Supabase Data API exposed schema list in PR19. Existing Roadmap tables remain in `public` for compatibility until a later PR can move them with generated type and route updates.
+
+The canonical migration owner for new unified platform shape is `infra/supabase/migrations`. Meeting Alembic remains read-only source evidence until PR20 reconciles or retires it.
 
 ## Overlap Notes
 

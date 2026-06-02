@@ -67,6 +67,28 @@ describe("schema domain inventory", () => {
     );
   });
 
+  test("PR19 platform and module schema ownership is explicit", () => {
+    const inventoryDoc = readFileSync(inventoryDocPath, "utf8");
+
+    expect(inventoryDoc).toContain(
+      "| `platform` | `new in PR19` | `platform services` | `Supabase Postgres` | `infra/supabase/migrations/20260602120000_create_platform_schema.sql` |",
+    );
+    expect(inventoryDoc).toContain(
+      "| `meeting` | `meeting-api on Neon` | `meeting-api in Supabase schema` | `Neon Postgres to Supabase Postgres` | `apps/meeting-api/backend/alembic/versions/0001_multi_user_jobs.py` and `infra/supabase/migrations/20260602120000_create_platform_schema.sql` |",
+    );
+    expect(inventoryDoc).toContain(
+      "| `roadmap` | `roadmap-web public schema` | `roadmap-web public compatibility during PR19` | `Supabase Postgres` | `infra/supabase/migrations` and `apps/roadmap-web/supabase/migrations` |",
+    );
+    expect(inventoryDoc).toContain(
+      "| `agent` | `services/agent-core` | `agent module schema` | `Supabase Postgres` | `infra/supabase/migrations/20260602120000_create_platform_schema.sql` |",
+    );
+    expect(inventoryDoc).toContain(
+      "| `realtime` | `services/hocuspocus` | `realtime module schema` | `Supabase Postgres` | `infra/supabase/migrations/20260602120000_create_platform_schema.sql` |",
+    );
+    expect(inventoryDoc).toContain("## PR19 Unified Schema Boundaries");
+    expect(inventoryDoc).toContain("Meeting stays on Neon until PR20");
+  });
+
   test("shared-entity collision rules are explicit", () => {
     const inventoryDoc = readFileSync(inventoryDocPath, "utf8");
 
