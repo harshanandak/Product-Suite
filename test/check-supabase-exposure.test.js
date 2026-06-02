@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { platformSupabaseRlsContract } from "../packages/contracts/src/auth.js";
 import { analyzeSupabaseExposure } from "../scripts/check-supabase-exposure.mjs";
 
 describe("check-supabase-exposure", () => {
@@ -54,5 +55,17 @@ describe("check-supabase-exposure", () => {
     `);
 
     expect(issues).toEqual([]);
+  });
+
+  test("treats contract-managed Supabase schemas as managed instead of private", () => {
+    expect(platformSupabaseRlsContract.supabaseManagedSchemas).toContain("realtime");
+
+    const issues = analyzeSupabaseExposure(`
+      create schema if not exists realtime;
+    `);
+
+    expect(issues).not.toContain(
+      "realtime schema is private but does not revoke public, anon, and authenticated usage",
+    );
   });
 });
