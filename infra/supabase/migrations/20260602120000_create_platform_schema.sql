@@ -112,4 +112,5 @@ alter table platform.audit_events enable row level security;
 
 revoke all on all tables in schema platform from anon, authenticated;
 grant select, insert, update, delete on all tables in schema platform to service_role;
+revoke update, delete on table platform.audit_events from service_role;
 grant usage, select on all sequences in schema platform to service_role;

@@ -16,6 +16,33 @@ describe("check-supabase-exposure", () => {
     );
   });
 
+  test("treats unqualified create table statements as public tables", () => {
+    const issues = analyzeSupabaseExposure(`
+      create table implicit_public_table (
+        id uuid primary key
+      );
+    `);
+
+    expect(issues).toContain(
+      "public.implicit_public_table is in an exposed schema but does not enable row level security",
+    );
+  });
+
+  test("ignores RLS statements inside block comments", () => {
+    const issues = analyzeSupabaseExposure(`
+      create table if not exists public.commented_rls_table (
+        id uuid primary key
+      );
+      /*
+        alter table public.commented_rls_table enable row level security;
+      */
+    `);
+
+    expect(issues).toContain(
+      "public.commented_rls_table is in an exposed schema but does not enable row level security",
+    );
+  });
+
   test("allows private platform tables with explicit private-schema revokes", () => {
     const issues = analyzeSupabaseExposure(`
       create schema if not exists platform;

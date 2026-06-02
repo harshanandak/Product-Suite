@@ -30,6 +30,7 @@ export function analyzeSupabaseExposure(sql) {
 
 function normalizeSql(sql) {
   return sql
+    .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/--.*$/gm, "")
     .replace(/\s+/g, " ")
     .trim()
@@ -38,15 +39,20 @@ function normalizeSql(sql) {
 
 function findCreatedTables(sql) {
   const tableNames = [];
-  const tablePattern = /create table if not exists ([a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*)/g;
+  const tablePattern = /create table(?: if not exists)? ((?:[a-z_][a-z0-9_]*\.)?[a-z_][a-z0-9_]*)/g;
   for (const match of sql.matchAll(tablePattern)) {
-    tableNames.push(match[1]);
+    const tableName = match[1];
+    tableNames.push(tableName.includes(".") ? tableName : `public.${tableName}`);
   }
   return tableNames;
 }
 
 function hasRlsEnabled(sql, tableName) {
-  return sql.includes(`alter table ${tableName} enable row level security`);
+  const [, unqualifiedName] = tableName.split(".");
+  return (
+    sql.includes(`alter table ${tableName} enable row level security`) ||
+    sql.includes(`alter table ${unqualifiedName} enable row level security`)
+  );
 }
 
 function runCli(paths) {

@@ -24,7 +24,6 @@ const pr19ArtifactPaths = [
   join(rootDir, "docs", "plans", "2026-06-02-pr19-unified-supabase-platform-schema-decisions.md"),
   join(rootDir, "docs", "plans", "2026-06-02-pr19-unified-supabase-platform-schema-tasks.md"),
 ];
-const pr19ResearchDoc = readFileSync(pr19ArtifactPaths[0], "utf8");
 const meetingWebEnvExample = readFileSync(
   join(rootDir, "apps", "meeting-web", ".env.example"),
   "utf8",
@@ -315,6 +314,8 @@ describe("repo tooling", () => {
     for (const artifactPath of pr19ArtifactPaths) {
       expect(existsSync(artifactPath)).toBe(true);
     }
+
+    const pr19ResearchDoc = readFileSync(pr19ArtifactPaths[0], "utf8");
 
     expect(pr19ResearchDoc).toContain(
       "docs/plans/2026-05-21-pr17-platform-auth-data-consolidation-design.md",
