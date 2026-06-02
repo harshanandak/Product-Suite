@@ -41,6 +41,10 @@ export interface AuthCoreContract {
     claimsKey: string;
     resultKey: string;
   };
+  supabaseRls: {
+    shape: "PlatformSupabaseRlsContract";
+    claimsKey: string;
+  };
 }
 
 export interface ClerkEnvironmentContract {
@@ -93,6 +97,24 @@ export interface ClerkJwtVerificationContract {
     keyIdClaim: string;
     cacheKey: string;
   };
+}
+
+export interface PlatformSupabaseRlsContract {
+  provider: "clerk";
+  jwtTemplate: string;
+  rlsIdentitySource: string;
+  claims: {
+    internalUserId: string;
+    internalWorkspaceId: string;
+    internalMembershipId: string;
+    externalSubject: string;
+    externalOrganizationId: string;
+    issuer: string;
+    audience: string;
+  };
+  allowedBrowserSchemas: readonly string[];
+  privateSchemas: readonly string[];
+  disallowedAssumptions: readonly string[];
 }
 
 export interface PlatformIdentitySyncContract {
@@ -360,6 +382,7 @@ export const clerkEnvironmentContract: ClerkEnvironmentContract;
 export const clerkJwtVerificationContract: ClerkJwtVerificationContract;
 export const platformIdentitySyncContract: PlatformIdentitySyncContract;
 export const platformEventIdentityContract: PlatformEventIdentityContract;
+export const platformSupabaseRlsContract: PlatformSupabaseRlsContract;
 export function extractClerkSessionToken(input: unknown): ClerkSessionTokenExtractionResult;
 export function validateAuthClaims(
   input: unknown,

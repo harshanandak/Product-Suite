@@ -8,6 +8,7 @@ export {
   extractClerkSessionToken,
   platformEventIdentityContract,
   platformIdentitySyncContract,
+  platformSupabaseRlsContract,
   validateAuthClaims,
   validateAuthReturnIntent,
   validateClerkEnvironment,
