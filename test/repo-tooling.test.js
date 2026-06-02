@@ -368,6 +368,15 @@ describe("repo tooling", () => {
     );
   });
 
+  test("Roadmap Supabase CI permits PR migrations that are not applied remotely yet", () => {
+    expect(roadmapSupabaseWorkflow).toContain(
+      "remote_version != \"\" && local_version != remote_version",
+    );
+    expect(roadmapSupabaseWorkflow).toContain(
+      "local_version == \"\" && remote_version != \"\"",
+    );
+  });
+
   test("roadmap Playwright CI reflects the full e2e environment contract", () => {
     expect(roadmapWebPlaywrightWorkflow).toContain("name: Roadmap Web Playwright");
     expect(roadmapWebPlaywrightWorkflow).toContain("Run Playwright tests");

@@ -97,7 +97,10 @@ jobs:
               remote_version=$2
               gsub(/[[:space:]]/, "", local_version)
               gsub(/[[:space:]]/, "", remote_version)
-              if (local_version != remote_version) {
+              if (remote_version != "" && local_version != remote_version) {
+                mismatch=1
+              }
+              if (local_version == "" && remote_version != "") {
                 mismatch=1
               }
             }
