@@ -1,4 +1,5 @@
-import { create as createAxiosClient } from "axios";
+/* eslint-disable import/no-named-as-default-member */
+import axios from "axios";
 import { createAuthClient } from "@neondatabase/neon-js/auth";
 import { BetterAuthReactAdapter } from "@neondatabase/neon-js/auth/react/adapters";
 import { createMeetingApiClient } from "@product-suite/sdk";
@@ -58,7 +59,7 @@ async function getHostedAuthClient() {
   return hostedAuthClient;
 }
 
-const api = createAxiosClient({ timeout: 45000 });
+const api = axios.create({ timeout: 45000 });
 const meetingApi = createMeetingApiClient({ transport: api });
 
 api.interceptors.request.use(async (config) => {
