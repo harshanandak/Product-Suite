@@ -18,6 +18,7 @@
   "scripts": {
     "prepare": "lefthook install",
     "check:source-test": "node scripts/check-source-test-coupling.mjs",
+    "check:supabase-exposure": "node scripts/check-supabase-exposure.mjs infra/supabase/migrations/20260602120000_create_platform_schema.sql",
     "verify:deployment": "node scripts/deployment/verify-monorepo-rebinding.mjs",
     "install:meeting-api": "node scripts/meeting-api-validation.mjs install apps/meeting-api/backend/requirements.txt",
     "test:contracts": "bun run --cwd packages/contracts test",
@@ -30,7 +31,7 @@
     "test:hocuspocus": "bun run --cwd services/hocuspocus test",
     "start:hocuspocus": "bun run --cwd services/hocuspocus start",
     "test:roadmap-canvas-boundary": "bun run --cwd apps/roadmap-web test src/components/blocksuite/__tests__/canvas-boundary.test.ts",
-    "test:repo-tooling": "bun test test/repo-tooling.test.js test/domain-inventory.test.js test/check-source-test-coupling.test.js",
+    "test:repo-tooling": "bun test test/repo-tooling.test.js test/domain-inventory.test.js test/check-source-test-coupling.test.js test/check-supabase-exposure.test.js test/supabase-platform-schema.test.js",
     "test:prepush": "bun run check:source-test && bun run test:ui-chat && bun run test:ui-canvas && bun run test:ui-meeting && bun run test:ui-planning && bun run test:ui-charting && bun run test:agent-core && bun run test:hocuspocus && bun run test:roadmap-canvas-boundary && bun run test:repo-tooling && bun run ci:meeting-web && bun run ci:roadmap-web && bun run ci:meeting-api",
     "test": "bun run test:repo-tooling",
     "ci:meeting-web": "bun run --cwd apps/meeting-web lint && bun run --cwd apps/meeting-web test && bun run --cwd apps/meeting-web build",
