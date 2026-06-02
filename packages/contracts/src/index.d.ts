@@ -60,7 +60,7 @@ export interface ClerkEnvironmentContract {
     publicRoutes: string[];
     protectedPrefixes: string[];
     callbackPath: string;
-    allowedRedirectPrefixes: string[];
+    allowedRedirectPrefixes: readonly string[];
   };
   runtimeModes: {
     local: string;
@@ -77,7 +77,7 @@ export interface AuthRedirectContract {
   callbackPath: string;
   signInPath: string;
   signUpPath: string;
-  allowedRedirectPrefixes: string[];
+  allowedRedirectPrefixes: readonly string[];
 }
 
 export interface ClerkJwtVerificationContract {
@@ -377,7 +377,7 @@ export function validateClerkJwtPayload(
   payload: unknown,
   options?: {
     issuer?: string;
-    audience?: string;
+    audience?: string | string[];
     authorizedParties?: string[];
     now?: number;
   },

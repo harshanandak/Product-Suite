@@ -407,6 +407,30 @@ describe("authCoreContract", () => {
     });
   });
 
+  test("accepts Clerk JWT audiences from a configured audience allowlist", () => {
+    const result = validateClerkJwtPayload(
+      {
+        iss: "https://clerk.example.com",
+        aud: ["legacy-suite", "product-suite"],
+        sub: "user_123",
+        azp: "https://app.example.com",
+        exp: 200,
+        nbf: 50,
+        iat: 100,
+        jti: "jwt_123",
+      },
+      {
+        issuer: "https://clerk.example.com",
+        audience: ["meeting-agent", "product-suite"],
+        authorizedParties: ["https://app.example.com"],
+        now: 100,
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.claims.audience).toEqual(["legacy-suite", "product-suite"]);
+  });
+
   test("rejects mismatched Clerk JWT issuer audience or authorized party without token leakage", () => {
     const result = validateClerkJwtPayload(
       {
@@ -486,5 +510,12 @@ describe("authCoreContract", () => {
       "pricing_variant",
     );
     expect(platformEventIdentityContract.scope.implementsAnalyticsSink).toBe(false);
+  });
+
+  test("keeps Clerk environment and return intent redirect policies on one shared prefix list", () => {
+    expect(clerkEnvironmentContract.routes.allowedRedirectPrefixes).toBe(
+      authRedirectContract.allowedRedirectPrefixes,
+    );
+    expect(Object.isFrozen(authRedirectContract.allowedRedirectPrefixes)).toBe(true);
   });
 });
