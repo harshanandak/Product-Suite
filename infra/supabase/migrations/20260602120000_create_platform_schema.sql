@@ -1,5 +1,6 @@
 -- PR19 unified Product Suite platform schema.
 -- Creates shared platform identity tables and reserves private module schemas.
+-- Supabase owns the built-in realtime schema; PR19 does not alter it.
 -- Meeting data remains on Neon until PR20.
 
 create extension if not exists pgcrypto with schema extensions;
@@ -8,25 +9,21 @@ create schema if not exists platform;
 create schema if not exists meeting;
 create schema if not exists roadmap;
 create schema if not exists agent;
-create schema if not exists realtime;
 
 comment on schema platform is 'Private Product Suite platform identity, workspace, membership, auth identity, and audit schema.';
 comment on schema meeting is 'Private Meeting module schema reserved from the live Neon baseline; PR20 owns table cutover.';
 comment on schema roadmap is 'Roadmap compatibility schema reservation; current Roadmap public-schema tables stay public during PR19.';
 comment on schema agent is 'Private Agent module schema reservation for agent runtime and invocation ownership.';
-comment on schema realtime is 'Private realtime collaboration schema reservation for service-owned transport state.';
 
 revoke all on schema platform from public, anon, authenticated;
 revoke all on schema meeting from public, anon, authenticated;
 revoke all on schema roadmap from public, anon, authenticated;
 revoke all on schema agent from public, anon, authenticated;
-revoke all on schema realtime from public, anon, authenticated;
 
 grant usage on schema platform to postgres, service_role;
 grant usage on schema meeting to postgres, service_role;
 grant usage on schema roadmap to postgres, service_role;
 grant usage on schema agent to postgres, service_role;
-grant usage on schema realtime to postgres, service_role;
 
 create table if not exists platform.users (
   id uuid primary key default gen_random_uuid(),
