@@ -37,6 +37,10 @@ export const authCoreContract = {
     claimsKey: "auth_claims",
     resultKey: "workspace_access",
   },
+  supabaseRls: {
+    shape: "PlatformSupabaseRlsContract",
+    claimsKey: "platform_rls_claims",
+  },
 };
 
 const AUTH_ALLOWED_REDIRECT_PREFIXES = Object.freeze([
@@ -98,6 +102,24 @@ export const clerkJwtVerificationContract = {
     keyIdClaim: "kid",
     cacheKey: "clerk_jwks",
   },
+};
+
+export const platformSupabaseRlsContract = {
+  provider: "clerk",
+  jwtTemplate: "product_suite_supabase",
+  rlsIdentitySource: "jwt_claims",
+  claims: {
+    internalUserId: "platform_user_id",
+    internalWorkspaceId: "platform_workspace_id",
+    internalMembershipId: "platform_membership_id",
+    externalSubject: "sub",
+    externalOrganizationId: "org_id",
+    issuer: "iss",
+    audience: "aud",
+  },
+  allowedBrowserSchemas: ["public"],
+  privateSchemas: ["platform", "meeting", "roadmap", "agent", "realtime"],
+  disallowedAssumptions: ["auth.uid() equals Clerk sub"],
 };
 
 export const platformIdentitySyncContract = {

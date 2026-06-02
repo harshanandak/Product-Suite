@@ -36,5 +36,9 @@
     "workspaceIdKey": "workspace_id",
     "claimsKey": "auth_claims",
     "resultKey": "workspace_access"
+  },
+  "supabaseRls": {
+    "shape": "PlatformSupabaseRlsContract",
+    "claimsKey": "platform_rls_claims"
   }
 }

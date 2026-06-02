@@ -1,6 +1,6 @@
 # Building Blocks Transformation PR Plan
 
-Last updated: 2026-05-31
+Last updated: 2026-06-02
 
 This file is the durable execution plan for the multi-PR transformation of Product Suite into a clearer building-blocks architecture. It exists so the team can return to the sequence and continue execution without depending on chat history.
 
@@ -47,8 +47,9 @@ This file is the durable execution plan for the multi-PR transformation of Produ
 - `PR15 Hocuspocus Provider Cutover Readiness`: merged and verified
 - `PR16 Hocuspocus Provider Controlled Rollout`: merged and verified
 - `PR17 Platform Auth And Data Consolidation Plan`: merged via GitHub PR #18 and verified on `origin/main`
-- `PR18 Clerk Auth Foundation`: active on `feat/pr18-clerk-auth-foundation`
-- `PR19+`: planned below and must be executed as separate reviewable slices
+- `PR18 Clerk Auth Foundation`: merged via GitHub PR #19 and verified on `origin/main`
+- `PR19 Unified Supabase Platform Schema`: active on `feat/pr19-unified-supabase-platform-schema`
+- `PR20+`: planned below and must be executed as separate reviewable slices
 
 ## Global Rules
 - Roll back the PR if it breaks a prior gate.
@@ -438,6 +439,11 @@ This file is the durable execution plan for the multi-PR transformation of Produ
 
 ### PR19 Unified Supabase Platform Schema
 - Goal: create the single physical database shape in Supabase before cutting Meeting over.
+- Active artifacts:
+  - `docs/research/pr19-unified-supabase-platform-schema.md`
+  - `docs/plans/2026-06-02-pr19-unified-supabase-platform-schema-design.md`
+  - `docs/plans/2026-06-02-pr19-unified-supabase-platform-schema-tasks.md`
+  - `docs/plans/2026-06-02-pr19-unified-supabase-platform-schema-decisions.md`
 - Checklist:
   - define `platform`, `meeting`, `roadmap`, `agent`, and `realtime` schema/table ownership
   - add migrations for platform identity/workspace tables

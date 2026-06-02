@@ -9,6 +9,7 @@ import {
   extractClerkSessionToken,
   platformEventIdentityContract,
   platformIdentitySyncContract,
+  platformSupabaseRlsContract,
   validateAuthClaims,
   validateAuthReturnIntent,
   validateClerkEnvironment,
@@ -517,5 +518,30 @@ describe("authCoreContract", () => {
       authRedirectContract.allowedRedirectPrefixes,
     );
     expect(Object.isFrozen(authRedirectContract.allowedRedirectPrefixes)).toBe(true);
+  });
+
+  test("defines Clerk-to-Supabase RLS claims with internal platform identity", () => {
+    expect(platformSupabaseRlsContract.provider).toBe("clerk");
+    expect(platformSupabaseRlsContract.jwtTemplate).toBe("product_suite_supabase");
+    expect(platformSupabaseRlsContract.claims.internalUserId).toBe("platform_user_id");
+    expect(platformSupabaseRlsContract.claims.internalWorkspaceId).toBe(
+      "platform_workspace_id",
+    );
+    expect(platformSupabaseRlsContract.claims.internalMembershipId).toBe(
+      "platform_membership_id",
+    );
+    expect(platformSupabaseRlsContract.claims.externalSubject).toBe("sub");
+    expect(platformSupabaseRlsContract.rlsIdentitySource).toBe("jwt_claims");
+    expect(platformSupabaseRlsContract.disallowedAssumptions).toContain(
+      "auth.uid() equals Clerk sub",
+    );
+    expect(platformSupabaseRlsContract.allowedBrowserSchemas).toEqual(["public"]);
+    expect(platformSupabaseRlsContract.privateSchemas).toEqual([
+      "platform",
+      "meeting",
+      "roadmap",
+      "agent",
+      "realtime",
+    ]);
   });
 });

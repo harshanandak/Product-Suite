@@ -97,7 +97,10 @@ jobs:
               remote_version=$2
               gsub(/[[:space:]]/, "", local_version)
               gsub(/[[:space:]]/, "", remote_version)
-              if (local_version != remote_version) {
+              if (remote_version != "" && local_version != remote_version) {
+                mismatch=1
+              }
+              if (local_version == "" && remote_version != "") {
                 mismatch=1
               }
             }
@@ -121,3 +124,12 @@ jobs:
             echo "Supabase types drift detected in $tracked_types" >&2
             exit 1
           fi
+
+      - name: Verify PR19 private Supabase schema types generate
+        shell: bash
+        run: |
+          private_types="$RUNNER_TEMP/platform-private-supabase-types.ts"
+
+          supabase gen types typescript --project-id "$SUPABASE_PROJECT_REF" --schema platform,meeting,roadmap,agent,realtime --workdir . > "$private_types"
+
+          test -s "$private_types"

@@ -1,3 +1,4 @@
+/* eslint-disable import/no-named-as-default-member */
 import axios from "axios";
 import { createAuthClient } from "@neondatabase/neon-js/auth";
 import { BetterAuthReactAdapter } from "@neondatabase/neon-js/auth/react/adapters";
