@@ -61,6 +61,10 @@ const roadmapWebPlaywrightWorkflow = readFileSync(
   join(rootDir, ".github", "workflows", "roadmap-web-playwright.yml"),
   "utf8",
 );
+const roadmapSupabaseWorkflow = readFileSync(
+  join(rootDir, ".github", "workflows", "roadmap-supabase.yml"),
+  "utf8",
+);
 const repoToolingWorkflow = readFileSync(
   join(rootDir, ".github", "workflows", "repo-tooling-ci.yml"),
   "utf8",
@@ -345,6 +349,22 @@ describe("repo tooling", () => {
   test("roadmap CI reflects the local validation baseline", () => {
     expect(roadmapWebWorkflow).toContain("Roadmap unit tests");
     expect(roadmapWebWorkflow).toContain("bun run test");
+  });
+
+  test("Roadmap Supabase CI validates PR19 private schema type generation", () => {
+    expect(roadmapSupabaseWorkflow).toContain(
+      "Verify Roadmap Supabase types are current",
+    );
+    expect(roadmapSupabaseWorkflow).toContain("--schema public");
+    expect(roadmapSupabaseWorkflow).toContain(
+      "Verify PR19 private Supabase schema types generate",
+    );
+    expect(roadmapSupabaseWorkflow).toContain(
+      "--schema platform,meeting,roadmap,agent,realtime",
+    );
+    expect(roadmapSupabaseWorkflow).toContain(
+      "platform-private-supabase-types.ts",
+    );
   });
 
   test("roadmap Playwright CI reflects the full e2e environment contract", () => {

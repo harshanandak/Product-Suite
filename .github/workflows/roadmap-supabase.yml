@@ -121,3 +121,12 @@ jobs:
             echo "Supabase types drift detected in $tracked_types" >&2
             exit 1
           fi
+
+      - name: Verify PR19 private Supabase schema types generate
+        shell: bash
+        run: |
+          private_types="$RUNNER_TEMP/platform-private-supabase-types.ts"
+
+          supabase gen types typescript --project-id "$SUPABASE_PROJECT_REF" --schema platform,meeting,roadmap,agent,realtime --workdir . > "$private_types"
+
+          test -s "$private_types"
