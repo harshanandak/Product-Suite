@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const rootDir = join(import.meta.dir, "..");
@@ -18,6 +18,13 @@ const pr6ResearchDoc = readFileSync(
   join(rootDir, "docs", "research", "pr6-auth-provider-rollout.md"),
   "utf8",
 );
+const pr19ArtifactPaths = [
+  join(rootDir, "docs", "research", "pr19-unified-supabase-platform-schema.md"),
+  join(rootDir, "docs", "plans", "2026-06-02-pr19-unified-supabase-platform-schema-design.md"),
+  join(rootDir, "docs", "plans", "2026-06-02-pr19-unified-supabase-platform-schema-decisions.md"),
+  join(rootDir, "docs", "plans", "2026-06-02-pr19-unified-supabase-platform-schema-tasks.md"),
+];
+const pr19ResearchDoc = readFileSync(pr19ArtifactPaths[0], "utf8");
 const meetingWebEnvExample = readFileSync(
   join(rootDir, "apps", "meeting-web", ".env.example"),
   "utf8",
@@ -177,7 +184,7 @@ describe("repo tooling", () => {
     expect(buildingBlocksPlan).toContain("docs/research/pr5-auth-contracts-and-adapters.md");
   });
 
-  test("building blocks plan marks PR17 verified and PR18 active", () => {
+  test("building blocks plan marks PR18 verified and PR19 active", () => {
     expect(buildingBlocksPlan).toContain("PR5 Auth Contracts And Adapters`: merged and verified");
     expect(buildingBlocksPlan).toContain("PR6 Auth Provider Rollout`: merged and verified");
     expect(buildingBlocksPlan).toContain("PR7 SDK / Typed Client Layer`: merged and verified");
@@ -203,7 +210,10 @@ describe("repo tooling", () => {
       "docs/plans/2026-05-21-pr17-platform-auth-data-consolidation-decisions.md",
     );
     expect(buildingBlocksPlan).toContain(
-      "PR18 Clerk Auth Foundation`: active on `feat/pr18-clerk-auth-foundation`",
+      "PR18 Clerk Auth Foundation`: merged via GitHub PR #19 and verified on `origin/main`",
+    );
+    expect(buildingBlocksPlan).toContain(
+      "PR19 Unified Supabase Platform Schema`: active on `feat/pr19-unified-supabase-platform-schema`",
     );
     expect(buildingBlocksPlan).toContain("docs/research/pr18-clerk-auth-foundation.md");
     expect(buildingBlocksPlan).toContain(
@@ -285,6 +295,33 @@ describe("repo tooling", () => {
     expect(buildingBlocksPlan).not.toContain("PR13 Realtime Transport Split`: active");
     expect(buildingBlocksPlan).not.toContain("PR14 Realtime Service Runtime Wiring`: active");
     expect(buildingBlocksPlan).not.toContain("PR15 Hocuspocus Provider Cutover Readiness`: active");
+  });
+
+  test("PR19 unified Supabase platform schema plan artifacts are durable", () => {
+    for (const artifactPath of pr19ArtifactPaths) {
+      expect(existsSync(artifactPath)).toBe(true);
+    }
+
+    expect(pr19ResearchDoc).toContain(
+      "docs/plans/2026-05-21-pr17-platform-auth-data-consolidation-design.md",
+    );
+    expect(pr19ResearchDoc).toContain("Live Neon baseline");
+    expect(pr19ResearchDoc).toContain("Checked-in Supabase baseline");
+    expect(buildingBlocksPlan).toContain(
+      "PR19 Unified Supabase Platform Schema`: active on `feat/pr19-unified-supabase-platform-schema`",
+    );
+    expect(buildingBlocksPlan).toContain(
+      "docs/research/pr19-unified-supabase-platform-schema.md",
+    );
+    expect(buildingBlocksPlan).toContain(
+      "docs/plans/2026-06-02-pr19-unified-supabase-platform-schema-design.md",
+    );
+    expect(buildingBlocksPlan).toContain(
+      "docs/plans/2026-06-02-pr19-unified-supabase-platform-schema-tasks.md",
+    );
+    expect(buildingBlocksPlan).toContain(
+      "docs/plans/2026-06-02-pr19-unified-supabase-platform-schema-decisions.md",
+    );
   });
 
   test("meeting-api CI reflects the local validation baseline", () => {
