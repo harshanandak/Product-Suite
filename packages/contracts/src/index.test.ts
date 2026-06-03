@@ -53,6 +53,7 @@ describe("@product-suite/contracts", () => {
       extractClerkSessionToken,
       platformEventIdentityContract,
       platformIdentitySyncContract,
+      platformSupabaseRlsContract,
       validateAuthReturnIntent,
       validateClerkEnvironment,
       validateClerkJwtPayload,
@@ -77,5 +78,9 @@ describe("@product-suite/contracts", () => {
     expect(validateClerkJwtPayload).toBeTypeOf("function");
     expect(platformIdentitySyncContract.scope.createsSchemaMigrations).toBe(false);
     expect(platformEventIdentityContract.scope.implementsAnalyticsSink).toBe(false);
+    expect(platformSupabaseRlsContract.supabaseManagedSchemas).toContain("realtime");
+
+    const typeDeclarations = readFileSync(new URL("./index.d.ts", import.meta.url), "utf8");
+    expect(typeDeclarations).toContain("supabaseManagedSchemas: readonly string[]");
   });
 });
