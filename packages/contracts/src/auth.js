@@ -118,7 +118,8 @@ export const platformSupabaseRlsContract = {
     audience: "aud",
   },
   allowedBrowserSchemas: ["public"],
-  privateSchemas: ["platform", "meeting", "roadmap", "agent", "realtime"],
+  privateSchemas: ["platform", "meeting", "roadmap", "agent"],
+  supabaseManagedSchemas: ["realtime"],
   disallowedAssumptions: ["auth.uid() equals Clerk sub"],
 };
 

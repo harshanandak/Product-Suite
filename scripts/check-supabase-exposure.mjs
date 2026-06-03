@@ -1,8 +1,13 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
 
+import { platformSupabaseRlsContract } from "../packages/contracts/src/auth.js";
+
 const EXPOSED_SCHEMAS = new Set(["public", "graphql_public"]);
-const PRIVATE_SCHEMAS = new Set(["platform", "meeting", "roadmap", "agent", "realtime"]);
+const PRODUCT_SUITE_PRIVATE_SCHEMAS = new Set(platformSupabaseRlsContract.privateSchemas);
+const SUPABASE_MANAGED_SCHEMAS = new Set(
+  platformSupabaseRlsContract.supabaseManagedSchemas ?? [],
+);
 
 export function analyzeSupabaseExposure(sql) {
   const normalized = normalizeSql(sql);
@@ -16,7 +21,10 @@ export function analyzeSupabaseExposure(sql) {
     }
   }
 
-  for (const schemaName of PRIVATE_SCHEMAS) {
+  for (const schemaName of PRODUCT_SUITE_PRIVATE_SCHEMAS) {
+    if (SUPABASE_MANAGED_SCHEMAS.has(schemaName)) {
+      continue;
+    }
     if (
       normalized.includes(`create schema if not exists ${schemaName}`) &&
       !normalized.includes(`revoke all on schema ${schemaName} from public, anon, authenticated`)

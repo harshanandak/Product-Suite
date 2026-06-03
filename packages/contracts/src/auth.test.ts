@@ -541,7 +541,7 @@ describe("authCoreContract", () => {
       "meeting",
       "roadmap",
       "agent",
-      "realtime",
     ]);
+    expect(platformSupabaseRlsContract.supabaseManagedSchemas).toEqual(["realtime"]);
   });
 });

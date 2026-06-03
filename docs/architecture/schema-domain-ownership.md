@@ -17,7 +17,7 @@ This document is the durable ownership inventory for shared Product Suite domain
 | `meeting` | `meeting-api on Neon` | `meeting-api in Supabase schema` | `Neon Postgres to Supabase Postgres` | `apps/meeting-api/backend/alembic/versions/0001_multi_user_jobs.py` and `infra/supabase/migrations/20260602120000_create_platform_schema.sql` | PR19 reserves the private `meeting` schema from the live Neon baseline; PR20 performs cutover and table migration. |
 | `roadmap` | `roadmap-web public schema` | `roadmap-web public compatibility during PR19` | `Supabase Postgres` | `infra/supabase/migrations` and `apps/roadmap-web/supabase/migrations` | Existing Roadmap tables stay in `public` during PR19 to avoid breaking generated types and route code. |
 | `agent` | `services/agent-core` | `agent module schema` | `Supabase Postgres` | `infra/supabase/migrations/20260602120000_create_platform_schema.sql` | PR19 reserves the private `agent` schema for agent runtime and invocation ownership. |
-| `realtime` | `services/hocuspocus` | `realtime module schema` | `Supabase Postgres` | `infra/supabase/migrations/20260602120000_create_platform_schema.sql` | PR19 reserves the private `realtime` schema for collaboration transport state. |
+| `realtime` | `services/hocuspocus` | Supabase-managed built-in schema | `Supabase Postgres` | Supabase platform ownership; `infra/supabase/migrations/20260602120000_create_platform_schema.sql` documents the exception | PR19 does not create, comment on, revoke, grant, or otherwise alter the built-in `realtime` schema. Product Suite realtime transport state must use a future non-conflicting schema if it needs Product Suite-owned tables. |
 
 ## Roadmap Domain-Local Scope
 
@@ -52,7 +52,7 @@ For PR3, the canonical source-of-truth schema path for meeting ownership is the 
 
 PR19 changes the target database shape, not runtime ownership. Meeting stays on Neon until PR20, and the live Neon baseline remains the source for Meeting table names during PR19 design and migration planning.
 
-The `platform`, `meeting`, `agent`, and `realtime` schemas are private by default and must not be added to the Supabase Data API exposed schema list in PR19. Existing Roadmap tables remain in `public` for compatibility until a later PR can move them with generated type and route updates.
+The `platform`, `meeting`, and `agent` schemas are Product Suite private schemas by default and must not be added to the Supabase Data API exposed schema list in PR19. The built-in `realtime` schema is Supabase-managed and explicitly excluded from the Product Suite private-schema contract. Existing Roadmap tables remain in `public` for compatibility until a later PR can move them with generated type and route updates.
 
 The canonical migration owner for new unified platform shape is `infra/supabase/migrations`. Meeting Alembic remains read-only source evidence until PR20 reconciles or retires it.
 

@@ -361,7 +361,7 @@ describe("repo tooling", () => {
       "Verify PR19 private Supabase schema types generate",
     );
     expect(roadmapSupabaseWorkflow).toContain(
-      "--schema platform,meeting,roadmap,agent,realtime",
+      "--schema platform,meeting,roadmap,agent",
     );
     expect(roadmapSupabaseWorkflow).toContain(
       "platform-private-supabase-types.ts",

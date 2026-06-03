@@ -114,6 +114,7 @@ export interface PlatformSupabaseRlsContract {
   };
   allowedBrowserSchemas: readonly string[];
   privateSchemas: readonly string[];
+  supabaseManagedSchemas: readonly string[];
   disallowedAssumptions: readonly string[];
 }
 

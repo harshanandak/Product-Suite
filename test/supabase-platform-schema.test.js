@@ -41,10 +41,14 @@ describe("PR19 Supabase platform schema", () => {
 
     const migration = compactSql(readFileSync(migrationPath, "utf8"));
 
-    for (const schemaName of ["meeting", "roadmap", "agent", "realtime"]) {
+    for (const schemaName of ["meeting", "roadmap", "agent"]) {
       expect(migration).toContain(`create schema if not exists ${schemaName}`);
       expect(migration).toContain(`comment on schema ${schemaName}`);
     }
+    expect(migration).toContain(
+      "supabase owns the built-in realtime schema; pr19 does not alter it",
+    );
+    expect(migration).not.toContain("create schema if not exists realtime");
     expect(migration).not.toContain("create table if not exists meeting.meetings");
   });
 });

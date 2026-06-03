@@ -83,10 +83,13 @@ describe("schema domain inventory", () => {
       "| `agent` | `services/agent-core` | `agent module schema` | `Supabase Postgres` | `infra/supabase/migrations/20260602120000_create_platform_schema.sql` |",
     );
     expect(inventoryDoc).toContain(
-      "| `realtime` | `services/hocuspocus` | `realtime module schema` | `Supabase Postgres` | `infra/supabase/migrations/20260602120000_create_platform_schema.sql` |",
+      "| `realtime` | `services/hocuspocus` | Supabase-managed built-in schema | `Supabase Postgres` | Supabase platform ownership; `infra/supabase/migrations/20260602120000_create_platform_schema.sql` documents the exception |",
     );
     expect(inventoryDoc).toContain("## PR19 Unified Schema Boundaries");
     expect(inventoryDoc).toContain("Meeting stays on Neon until PR20");
+    expect(inventoryDoc).toContain(
+      "The built-in `realtime` schema is Supabase-managed and explicitly excluded from the Product Suite private-schema contract.",
+    );
   });
 
   test("shared-entity collision rules are explicit", () => {
