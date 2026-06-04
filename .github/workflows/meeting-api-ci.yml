@@ -14,15 +14,6 @@ on:
       - "scripts/meeting-api-validation.mjs"
       - ".github/workflows/meeting-api-ci.yml"
   pull_request:
-    paths:
-      - "apps/meeting-api/*.py"
-      - "apps/meeting-api/backend/**"
-      - "apps/meeting-api/tests/**"
-      - "packages/contracts/**"
-      - "packages/sdk/**"
-      - "test/**"
-      - "scripts/meeting-api-validation.mjs"
-      - ".github/workflows/meeting-api-ci.yml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
