@@ -128,6 +128,9 @@ describe("repo tooling", () => {
     expect(packageJson.scripts["test:repo-tooling"]).toContain(
       "meeting-cutover-preflight.test.js",
     );
+    expect(packageJson.scripts["test:repo-tooling"]).toContain(
+      "meeting-supabase-cutover-docs.test.js",
+    );
     expect(packageJson.scripts["test:prepush"]).toContain("check:source-test");
     expect(packageJson.scripts["test:prepush"]).toContain("test:agent-core");
     expect(packageJson.scripts["test:prepush"]).toContain("test:hocuspocus");
