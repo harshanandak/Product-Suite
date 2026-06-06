@@ -201,6 +201,19 @@ def test_load_settings_rejects_clerk_until_hosted_exchange_supports_it(monkeypat
         load_settings()
 
 
+def test_load_settings_rejects_local_auth_in_hosted_mode(monkeypatch):
+    monkeypatch.setenv("DEPLOYMENT_MODE", "hosted")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
+    monkeypatch.setenv("AUTH_PROVIDER", "local")
+    monkeypatch.setenv("CANONICAL_AUTH_ISSUER", "https://issuer.example.com")
+    monkeypatch.setenv("CANONICAL_AUTH_AUDIENCE", "meeting-api")
+    monkeypatch.setenv("CANONICAL_AUTH_JWKS_URL", "https://issuer.example.com/.well-known/jwks.json")
+
+    with pytest.raises(ValueError, match="Unsupported hosted auth provider: local"):
+        load_settings()
+
+
 def test_load_settings_rejects_unknown_history_ranking_profile(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
     monkeypatch.setenv("HISTORY_RANKING_PROFILE", "typo-profile")

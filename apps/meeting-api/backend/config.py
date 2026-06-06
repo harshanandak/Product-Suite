@@ -184,12 +184,7 @@ def load_settings() -> Settings:
     if deployment_mode == "hosted" and auth_provider == "neon" and not neon_auth_url:
         raise KeyError("NEON_AUTH_URL")
     if deployment_mode == "hosted" and auth_provider != "neon":
-        if not canonical_auth_issuer:
-            raise KeyError("CANONICAL_AUTH_ISSUER")
-        if not canonical_auth_audience:
-            raise KeyError("CANONICAL_AUTH_AUDIENCE")
-        if not canonical_auth_jwks_url:
-            raise KeyError("CANONICAL_AUTH_JWKS_URL")
+        raise ValueError(f"Unsupported hosted auth provider: {auth_provider}")
     if deployment_mode == "hosted" and storage_backend == "r2":
         if not r2_account_id:
             raise KeyError("R2_ACCOUNT_ID")
