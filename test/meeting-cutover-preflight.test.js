@@ -13,10 +13,12 @@ describe("Meeting cutover preflight", () => {
     const sql = buildSourceRowCountSql({ schemaName: "public" }).replace(/\s+/g, " ").toLowerCase();
 
     for (const tableName of MEETING_SOURCE_TABLES) {
-      expect(sql).toContain(`'${tableName}' as table_name`);
-      expect(sql).toContain(`to_regclass('public.${tableName}')`);
-      expect(sql).toContain(`from public.${tableName}`);
+      expect(sql).toContain(`('${tableName}')`);
+      expect(sql).not.toContain(`from public.${tableName}`);
     }
+    expect(sql).toContain("left join pg_class c");
+    expect(sql).toContain("c.relkind in ('r', 'p')");
+    expect(sql).toContain("query_to_xml(format('select count(*)::bigint as count from %i.%i'");
   });
 
   test("checks every Supabase target table and required extension", () => {

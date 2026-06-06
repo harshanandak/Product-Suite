@@ -20,7 +20,7 @@ load_dotenv(ROOT_DIR / ".env")
 
 
 ALLOWED_DEPLOYMENT_MODES = {"oss", "hosted"}
-ALLOWED_AUTH_PROVIDERS = {"local", "neon", "clerk"}
+ALLOWED_AUTH_PROVIDERS = {"local", "neon"}
 LOCAL_DEV_CORS_ORIGINS = (
     "http://localhost:3000,http://127.0.0.1:3000,"
     "http://localhost:4173,http://127.0.0.1:4173,"

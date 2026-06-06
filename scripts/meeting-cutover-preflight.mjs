@@ -32,25 +32,42 @@ function quoteLiteral(value) {
   return `'${String(value).replaceAll("'", "''")}'`;
 }
 
-function qualifiedRegclass(schemaName, tableName) {
-  return `${schemaName}.${tableName}`;
-}
-
 export function buildSourceRowCountSql({ schemaName = "public" } = {}) {
   const selects = MEETING_SOURCE_TABLES.map(
-    (tableName) => `
-select
-  ${quoteLiteral(tableName)} as table_name,
-  coalesce(to_regclass(${quoteLiteral(qualifiedRegclass(schemaName, tableName))})::text, '') as source_relation,
-  case
-    when to_regclass(${quoteLiteral(qualifiedRegclass(schemaName, tableName))}) is null then null
-    else (select count(*)::bigint from ${schemaName}.${tableName})
-  end as row_count`,
+    (tableName) => `(${quoteLiteral(tableName)})`,
   );
 
   return `
-with source_counts as (
-${selects.join("\nunion all\n")}
+with expected_tables(table_name) as (
+  values
+    ${selects.join(",\n    ")}
+),
+source_relations as (
+  select
+    expected_tables.table_name,
+    c.oid,
+    coalesce(format('%I.%I', n.nspname, c.relname), '') as source_relation
+  from expected_tables
+  left join pg_namespace n on n.nspname = ${quoteLiteral(schemaName)}
+  left join pg_class c
+    on c.relnamespace = n.oid
+   and c.relname = expected_tables.table_name
+   and c.relkind in ('r', 'p')
+),
+source_counts as (
+  select
+    table_name,
+    source_relation,
+    case
+      when oid is null then null
+      else (
+        xpath(
+          '/row/count/text()',
+          query_to_xml(format('select count(*)::bigint as count from %I.%I', ${quoteLiteral(schemaName)}, table_name), false, true, '')
+        )
+      )[1]::text::bigint
+    end as row_count
+  from source_relations
 )
 select coalesce(jsonb_agg(source_counts order by table_name), '[]'::jsonb) as result
 from source_counts;

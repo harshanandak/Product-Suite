@@ -192,6 +192,15 @@ def test_load_settings_rejects_unsupported_auth_provider(monkeypatch):
         load_settings()
 
 
+def test_load_settings_rejects_clerk_until_hosted_exchange_supports_it(monkeypatch):
+    monkeypatch.setenv("DEPLOYMENT_MODE", "hosted")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+    monkeypatch.setenv("AUTH_PROVIDER", "clerk")
+
+    with pytest.raises(ValueError, match="Unsupported auth provider: clerk"):
+        load_settings()
+
+
 def test_load_settings_rejects_unknown_history_ranking_profile(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
     monkeypatch.setenv("HISTORY_RANKING_PROFILE", "typo-profile")
