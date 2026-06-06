@@ -5,6 +5,7 @@ import {
   evaluatePreflight,
   MEETING_SOURCE_TABLES,
   REQUIRED_TARGET_EXTENSIONS,
+  resolvePsqlTimeoutMs,
 } from "../scripts/meeting-cutover-preflight.mjs";
 
 describe("Meeting cutover preflight", () => {
@@ -23,8 +24,11 @@ describe("Meeting cutover preflight", () => {
 
     for (const tableName of MEETING_SOURCE_TABLES) {
       expect(sql).toContain(`('${tableName}')`);
-      expect(sql).toContain("'meeting' || '.' || table_name");
     }
+    expect(sql).toContain("from pg_class c");
+    expect(sql).toContain("join pg_namespace n on n.oid = c.relnamespace");
+    expect(sql).toContain("n.nspname = 'meeting'");
+    expect(sql).toContain("c.relkind in ('r', 'p')");
 
     for (const extensionName of REQUIRED_TARGET_EXTENSIONS) {
       expect(sql).toContain(`('${extensionName}')`);
@@ -74,5 +78,11 @@ describe("Meeting cutover preflight", () => {
     });
 
     expect(result).toEqual({ ok: true, failures: [] });
+  });
+
+  test("bounds psql calls with a configurable positive timeout", () => {
+    expect(resolvePsqlTimeoutMs()).toBe(30_000);
+    expect(resolvePsqlTimeoutMs("15000")).toBe(15_000);
+    expect(() => resolvePsqlTimeoutMs("0")).toThrow("PR20_PREFLIGHT_PSQL_TIMEOUT_MS");
   });
 });

@@ -22,6 +22,7 @@ comment on schema meeting is 'Private Meeting module schema. Meeting API owns wr
 
 revoke all on schema meeting from public, anon, authenticated;
 grant usage on schema meeting to postgres, service_role;
+-- No anon/authenticated policies are defined here by design. Meeting API runtime access uses the privileged Postgres DATABASE_URL.
 
 create table if not exists meeting.tenants (
   id text primary key,

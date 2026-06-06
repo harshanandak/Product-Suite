@@ -26,6 +26,7 @@ export const MEETING_SOURCE_TABLES = Object.freeze([
 ]);
 
 export const REQUIRED_TARGET_EXTENSIONS = Object.freeze(["vector"]);
+export const DEFAULT_PSQL_TIMEOUT_MS = 30_000;
 
 function quoteLiteral(value) {
   return `'${String(value).replaceAll("'", "''")}'`;
@@ -72,7 +73,14 @@ required_extensions(extension_name) as (
 target_tables as (
   select
     table_name,
-    to_regclass(${quoteLiteral(schemaName)} || '.' || table_name) is not null as exists_in_target
+    exists (
+      select 1
+      from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = ${quoteLiteral(schemaName)}
+        and c.relname = table_name
+        and c.relkind in ('r', 'p')
+    ) as exists_in_target
   from expected_tables
 ),
 target_extensions as (
@@ -121,11 +129,33 @@ export function evaluatePreflight({ sourceRows, targetTables, targetExtensions, 
   };
 }
 
+export function resolvePsqlTimeoutMs(rawValue = process.env.PR20_PREFLIGHT_PSQL_TIMEOUT_MS) {
+  if (!rawValue) {
+    return DEFAULT_PSQL_TIMEOUT_MS;
+  }
+
+  const parsed = Number(rawValue);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error("PR20_PREFLIGHT_PSQL_TIMEOUT_MS must be a positive number of milliseconds");
+  }
+  return parsed;
+}
+
 function runPsqlJson(databaseUrl, sql) {
+  const timeoutMs = resolvePsqlTimeoutMs();
   const result = spawnSync("psql", [databaseUrl, "--no-align", "--tuples-only", "--command", sql], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
+    timeout: timeoutMs,
+    killSignal: "SIGKILL",
   });
+
+  if (result.error) {
+    if (result.error.code === "ETIMEDOUT") {
+      throw new Error(`psql timed out after ${timeoutMs}ms during Meeting cutover preflight`);
+    }
+    throw result.error;
+  }
 
   if (result.status !== 0) {
     throw new Error(result.stderr.trim() || `psql exited with status ${result.status}`);
