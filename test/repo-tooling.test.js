@@ -115,12 +115,18 @@ describe("repo tooling", () => {
     expect(packageJson.scripts["check:supabase-exposure"]).toContain(
       "check-supabase-exposure",
     );
+    expect(packageJson.scripts["preflight:meeting-cutover"]).toContain(
+      "meeting-cutover-preflight.mjs",
+    );
     expect(packageJson.scripts["test:repo-tooling"]).toContain("check-source-test-coupling.test.js");
     expect(packageJson.scripts["test:repo-tooling"]).toContain(
       "check-supabase-exposure.test.js",
     );
     expect(packageJson.scripts["test:repo-tooling"]).toContain(
       "supabase-platform-schema.test.js",
+    );
+    expect(packageJson.scripts["test:repo-tooling"]).toContain(
+      "meeting-cutover-preflight.test.js",
     );
     expect(packageJson.scripts["test:prepush"]).toContain("check:source-test");
     expect(packageJson.scripts["test:prepush"]).toContain("test:agent-core");
