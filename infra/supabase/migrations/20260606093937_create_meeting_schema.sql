@@ -5,6 +5,17 @@
 
 create extension if not exists vector with schema extensions;
 
+create table if not exists public.alembic_version (
+  version_num varchar(32) not null primary key
+);
+
+alter table public.alembic_version enable row level security;
+
+delete from public.alembic_version;
+
+insert into public.alembic_version (version_num)
+values ('0005_remove_workos_session_id');
+
 create schema if not exists meeting;
 
 comment on schema meeting is 'Private Meeting module schema. Meeting API owns writes; Supabase migrations own hosted schema after PR20.';

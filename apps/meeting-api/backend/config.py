@@ -134,7 +134,7 @@ def load_settings() -> Settings:
         "CORS_ORIGINS",
         LOCAL_DEV_CORS_ORIGINS if deployment_mode == "oss" else "",
     )
-    auth_provider = (os.environ.get("AUTH_PROVIDER") or ("clerk" if deployment_mode == "hosted" else "local")).strip().lower()
+    auth_provider = (os.environ.get("AUTH_PROVIDER") or ("neon" if deployment_mode == "hosted" else "local")).strip().lower()
     if auth_provider not in ALLOWED_AUTH_PROVIDERS:
         raise ValueError(f"Unsupported auth provider: {auth_provider}")
     tenant_mode = (os.environ.get("TENANT_MODE") or ("organization" if deployment_mode == "hosted" else "single")).strip().lower()

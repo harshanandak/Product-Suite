@@ -52,7 +52,7 @@ The preflight captures:
 3. If source rows exist, complete and record the approved data migration route before continuing.
 4. Set hosted Meeting API `DATABASE_PROVIDER=supabase`.
 5. Set hosted Meeting API `DATABASE_URL` to the selected Supabase runtime URL.
-6. Set hosted auth variables to the canonical provider, normally Clerk, while keeping Neon auth variables only for rollback compatibility.
+6. Keep hosted auth variables on Neon until the Clerk hosted-token exchange lands; this PR20 cutover only moves the Meeting database to Supabase.
 7. Run Meeting create/read smoke tests against the Supabase runtime URL.
 
 ## Rollback

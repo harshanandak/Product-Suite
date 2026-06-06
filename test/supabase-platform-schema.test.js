@@ -86,5 +86,8 @@ describe("PR20 Meeting Supabase schema cutover", () => {
 
     expect(compactedMigrationSql).toContain("create extension if not exists vector");
     expect(compactedMigrationSql).toContain("alembic baseline is read-only history");
+    expect(compactedMigrationSql).toContain("create table if not exists public.alembic_version");
+    expect(compactedMigrationSql).toContain("alter table public.alembic_version enable row level security");
+    expect(compactedMigrationSql).toContain("values ('0005_remove_workos_session_id')");
   });
 });

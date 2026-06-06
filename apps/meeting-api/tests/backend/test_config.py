@@ -68,9 +68,7 @@ def test_load_settings_uses_hosted_mode_defaults(monkeypatch):
     monkeypatch.setenv("DEPLOYMENT_MODE", "hosted")
     monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
-    monkeypatch.setenv("CANONICAL_AUTH_ISSUER", "https://clerk.example.com")
-    monkeypatch.setenv("CANONICAL_AUTH_AUDIENCE", "meeting-api")
-    monkeypatch.setenv("CANONICAL_AUTH_JWKS_URL", "https://clerk.example.com/.well-known/jwks.json")
+    monkeypatch.setenv("NEON_AUTH_URL", "https://project-123.neon.tech/auth")
     monkeypatch.setenv("FRONTEND_RUNTIME_BACKEND_URL", "http://localhost:8000")
     monkeypatch.setenv("R2_ACCOUNT_ID", "account-123")
     monkeypatch.setenv("R2_BUCKET_NAME", "meeting-agent-audio")
@@ -83,18 +81,18 @@ def test_load_settings_uses_hosted_mode_defaults(monkeypatch):
     assert settings.database_url == "postgresql://localhost/test"
     assert settings.database_provider == "supabase"
     assert settings.auth_required is True
-    assert settings.auth_provider == "clerk"
+    assert settings.auth_provider == "neon"
     assert settings.tenant_mode == "organization"
     assert settings.organization_required is True
     assert settings.onboarding_required is True
     assert settings.storage_backend == "r2"
-    assert settings.neon_auth_url == ""
-    assert settings.neon_issuer == ""
-    assert settings.neon_jwks_url == ""
-    assert settings.canonical_auth_provider == "clerk"
-    assert settings.canonical_auth_issuer == "https://clerk.example.com"
-    assert settings.canonical_auth_audience == "meeting-api"
-    assert settings.canonical_auth_jwks_url == "https://clerk.example.com/.well-known/jwks.json"
+    assert settings.neon_auth_url == "https://project-123.neon.tech/auth"
+    assert settings.neon_issuer == "https://project-123.neon.tech"
+    assert settings.neon_jwks_url == "https://project-123.neon.tech/auth/.well-known/jwks.json"
+    assert settings.canonical_auth_provider == "neon"
+    assert settings.canonical_auth_issuer == "https://project-123.neon.tech"
+    assert settings.canonical_auth_audience == "https://project-123.neon.tech"
+    assert settings.canonical_auth_jwks_url == "https://project-123.neon.tech/auth/.well-known/jwks.json"
     assert settings.raw_audio_retention_days == 30
     assert settings.transcript_retention_days == -1
     assert settings.derived_retention_days == -1
