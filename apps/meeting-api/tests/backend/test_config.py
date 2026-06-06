@@ -79,7 +79,7 @@ def test_load_settings_uses_hosted_mode_defaults(monkeypatch):
 
     assert settings.deployment_mode == "hosted"
     assert settings.database_url == "postgresql://localhost/test"
-    assert settings.database_provider == "neon"
+    assert settings.database_provider == "supabase"
     assert settings.auth_required is True
     assert settings.auth_provider == "neon"
     assert settings.tenant_mode == "organization"
@@ -110,6 +110,7 @@ def test_load_settings_does_not_accept_redirect_uris_as_neon_auth_url(monkeypatc
     monkeypatch.setenv("DEPLOYMENT_MODE", "hosted")
     monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
+    monkeypatch.setenv("AUTH_PROVIDER", "neon")
     monkeypatch.setenv("R2_ACCOUNT_ID", "account-123")
     monkeypatch.setenv("R2_BUCKET_NAME", "meeting-agent-audio")
     monkeypatch.setenv("R2_ACCESS_KEY_ID", "r2-key")
@@ -123,6 +124,7 @@ def test_load_settings_prefers_explicit_canonical_auth_config(monkeypatch):
     monkeypatch.setenv("DEPLOYMENT_MODE", "hosted")
     monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
+    monkeypatch.setenv("AUTH_PROVIDER", "neon")
     monkeypatch.setenv("NEON_AUTH_URL", "https://project-123.neon.tech/auth")
     monkeypatch.setenv("CANONICAL_AUTH_PROVIDER", "neon")
     monkeypatch.setenv("CANONICAL_AUTH_ISSUER", "https://issuer.example.com")
@@ -150,6 +152,7 @@ def test_load_settings_requires_neon_auth_url_in_hosted_mode(monkeypatch):
     monkeypatch.setenv("DEPLOYMENT_MODE", "hosted")
     monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
+    monkeypatch.setenv("AUTH_PROVIDER", "neon")
     monkeypatch.setenv("R2_ACCOUNT_ID", "account-123")
     monkeypatch.setenv("R2_BUCKET_NAME", "meeting-agent-audio")
     monkeypatch.setenv("R2_ACCESS_KEY_ID", "r2-key")
@@ -186,6 +189,28 @@ def test_load_settings_rejects_unsupported_auth_provider(monkeypatch):
     monkeypatch.setenv("AUTH_PROVIDER", "legacy")
 
     with pytest.raises(ValueError, match="Unsupported auth provider: legacy"):
+        load_settings()
+
+
+def test_load_settings_rejects_clerk_until_hosted_exchange_supports_it(monkeypatch):
+    monkeypatch.setenv("DEPLOYMENT_MODE", "hosted")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+    monkeypatch.setenv("AUTH_PROVIDER", "clerk")
+
+    with pytest.raises(ValueError, match="Unsupported auth provider: clerk"):
+        load_settings()
+
+
+def test_load_settings_rejects_local_auth_in_hosted_mode(monkeypatch):
+    monkeypatch.setenv("DEPLOYMENT_MODE", "hosted")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
+    monkeypatch.setenv("AUTH_PROVIDER", "local")
+    monkeypatch.setenv("CANONICAL_AUTH_ISSUER", "https://issuer.example.com")
+    monkeypatch.setenv("CANONICAL_AUTH_AUDIENCE", "meeting-api")
+    monkeypatch.setenv("CANONICAL_AUTH_JWKS_URL", "https://issuer.example.com/.well-known/jwks.json")
+
+    with pytest.raises(ValueError, match="Unsupported hosted auth provider: local"):
         load_settings()
 
 

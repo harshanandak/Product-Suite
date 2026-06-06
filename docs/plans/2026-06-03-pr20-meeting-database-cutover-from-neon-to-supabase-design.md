@@ -2,7 +2,7 @@
 
 Feature: `pr20-meeting-database-cutover-from-neon-to-supabase`
 Date: 2026-06-03
-Status: plan
+Status: dev
 
 ## Purpose
 
@@ -46,7 +46,7 @@ Use a staged cutover:
 - `infra/supabase/migrations` is the canonical hosted migration owner after PR20.
 - Direct/unpooled URLs are required for migration, backup, dump, and restore operations.
 - Transaction pooler URLs must not be used with clients that require prepared statements.
-- Existing root checkout is dirty; PR20 work must stay in `.worktrees/pr20-meeting-database-cutover-from-neon-to-supabase`.
+- Existing root checkout is dirty; PR20 implementation work must stay in `.worktrees/pr20-meeting-database-cutover-implementation`.
 
 ## Edge Cases
 

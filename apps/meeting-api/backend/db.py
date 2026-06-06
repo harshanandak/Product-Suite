@@ -6,6 +6,7 @@ from sqlalchemy import JSON, MetaData, Table, Column, DateTime, Float, Integer, 
 from sqlalchemy.engine import Engine
 
 EXPECTED_ALEMBIC_VERSION = "0005_remove_workos_session_id"
+MEETING_SCHEMA_SEARCH_PATH = "-c search_path=meeting,public"
 
 metadata = MetaData()
 
@@ -111,11 +112,28 @@ def normalize_sqlalchemy_database_url(database_url: str) -> str:
     return database_url
 
 
-def create_db_engine(database_url: str) -> Engine:
+def should_use_meeting_schema_search_path(settings) -> bool:
+    return str(getattr(settings, "database_provider", "")).strip().lower() == "supabase"
+
+
+def build_db_connection_kwargs(settings) -> dict[str, str]:
+    if should_use_meeting_schema_search_path(settings):
+        return {"options": MEETING_SCHEMA_SEARCH_PATH}
+    return {}
+
+
+def build_db_engine_connect_args(settings) -> dict[str, str]:
+    if should_use_meeting_schema_search_path(settings):
+        return {"options": MEETING_SCHEMA_SEARCH_PATH}
+    return {}
+
+
+def create_db_engine(database_url: str, settings=None) -> Engine:
     return create_engine(
         normalize_sqlalchemy_database_url(database_url),
         future=True,
         pool_pre_ping=True,
+        connect_args=build_db_engine_connect_args(settings) if settings is not None else {},
     )
 
 _db_pool: ConnectionPool | None = None
@@ -129,11 +147,11 @@ def init_db_pool(settings) -> None:
             conninfo=settings.database_url,
             min_size=settings.db_pool_min_size,
             max_size=settings.db_pool_max_size,
-            kwargs={"row_factory": dict_row},
+            kwargs={"row_factory": dict_row, **build_db_connection_kwargs(settings)},
             open=True,
         )
     if _db_engine is None:
-        _db_engine = create_db_engine(settings.database_url)
+        _db_engine = create_db_engine(settings.database_url, settings)
 
 
 def get_db_pool() -> ConnectionPool:

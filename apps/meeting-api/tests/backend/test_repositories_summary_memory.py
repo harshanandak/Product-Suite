@@ -58,7 +58,7 @@ def test_init_db_pool_uses_connection_pool(monkeypatch):
             created["disposed"] = True
 
     monkeypatch.setattr(db_module, "ConnectionPool", DummyPool)
-    monkeypatch.setattr(db_module, "create_db_engine", lambda database_url: DummyEngine())
+    monkeypatch.setattr(db_module, "create_db_engine", lambda database_url, settings=None: DummyEngine())
     monkeypatch.setattr(db_module, "_db_pool", None)
     monkeypatch.setattr(db_module, "_db_engine", None)
 

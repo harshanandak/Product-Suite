@@ -125,7 +125,7 @@ def load_settings() -> Settings:
     if not database_url:
         raise KeyError("DATABASE_URL")
 
-    database_provider = (os.environ.get("DATABASE_PROVIDER") or ("neon" if deployment_mode == "hosted" else "postgres")).strip().lower()
+    database_provider = (os.environ.get("DATABASE_PROVIDER") or ("supabase" if deployment_mode == "hosted" else "postgres")).strip().lower()
     auth_secret = os.environ.get("AUTH_SECRET", "meeting-agent-dev-secret")
     auth_algorithm = (os.environ.get("AUTH_ALGORITHM") or "HS256").strip()
     if auth_algorithm != "HS256":
@@ -137,8 +137,6 @@ def load_settings() -> Settings:
     auth_provider = (os.environ.get("AUTH_PROVIDER") or ("neon" if deployment_mode == "hosted" else "local")).strip().lower()
     if auth_provider not in ALLOWED_AUTH_PROVIDERS:
         raise ValueError(f"Unsupported auth provider: {auth_provider}")
-    if deployment_mode == "hosted" and auth_provider != "neon":
-        raise ValueError("Hosted deployments require AUTH_PROVIDER=neon")
     tenant_mode = (os.environ.get("TENANT_MODE") or ("organization" if deployment_mode == "hosted" else "single")).strip().lower()
     organization_required = parse_bool_env(
         "AUTH_ORGANIZATION_REQUIRED",
@@ -154,7 +152,7 @@ def load_settings() -> Settings:
         or ""
     ).strip().rstrip("/")
     neon_issuer = (os.environ.get("NEON_ISSUER") or derive_neon_issuer(neon_auth_url)).strip()
-    neon_jwks_url = (os.environ.get("NEON_JWKS_URL") or f"{neon_auth_url}/.well-known/jwks.json").strip()
+    neon_jwks_url = (os.environ.get("NEON_JWKS_URL") or (f"{neon_auth_url}/.well-known/jwks.json" if neon_auth_url else "")).strip()
     canonical_auth_provider = (os.environ.get("CANONICAL_AUTH_PROVIDER") or auth_provider).strip().lower()
     canonical_auth_issuer = (os.environ.get("CANONICAL_AUTH_ISSUER") or neon_issuer).strip()
     canonical_auth_audience = (
@@ -183,8 +181,10 @@ def load_settings() -> Settings:
     if deployment_mode == "hosted" and not os.environ.get("OPENAI_API_KEY", "").strip():
         raise KeyError("OPENAI_API_KEY")
 
-    if deployment_mode == "hosted" and not neon_auth_url:
+    if deployment_mode == "hosted" and auth_provider == "neon" and not neon_auth_url:
         raise KeyError("NEON_AUTH_URL")
+    if deployment_mode == "hosted" and auth_provider != "neon":
+        raise ValueError(f"Unsupported hosted auth provider: {auth_provider}")
     if deployment_mode == "hosted" and storage_backend == "r2":
         if not r2_account_id:
             raise KeyError("R2_ACCOUNT_ID")
