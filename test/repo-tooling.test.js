@@ -24,6 +24,12 @@ const pr19ArtifactPaths = [
   join(rootDir, "docs", "plans", "2026-06-02-pr19-unified-supabase-platform-schema-decisions.md"),
   join(rootDir, "docs", "plans", "2026-06-02-pr19-unified-supabase-platform-schema-tasks.md"),
 ];
+const pr20ArtifactPaths = [
+  join(rootDir, "docs", "research", "pr20-meeting-database-cutover-from-neon-to-supabase.md"),
+  join(rootDir, "docs", "plans", "2026-06-03-pr20-meeting-database-cutover-from-neon-to-supabase-design.md"),
+  join(rootDir, "docs", "plans", "2026-06-03-pr20-meeting-database-cutover-from-neon-to-supabase-decisions.md"),
+  join(rootDir, "docs", "plans", "2026-06-03-pr20-meeting-database-cutover-from-neon-to-supabase-tasks.md"),
+];
 const meetingWebEnvExample = readFileSync(
   join(rootDir, "apps", "meeting-web", ".env.example"),
   "utf8",
@@ -197,7 +203,7 @@ describe("repo tooling", () => {
     expect(buildingBlocksPlan).toContain("docs/research/pr5-auth-contracts-and-adapters.md");
   });
 
-  test("building blocks plan marks PR18 verified and PR19 active", () => {
+  test("building blocks plan marks PR19 verified and PR20 active", () => {
     expect(buildingBlocksPlan).toContain("PR5 Auth Contracts And Adapters`: merged and verified");
     expect(buildingBlocksPlan).toContain("PR6 Auth Provider Rollout`: merged and verified");
     expect(buildingBlocksPlan).toContain("PR7 SDK / Typed Client Layer`: merged and verified");
@@ -226,7 +232,10 @@ describe("repo tooling", () => {
       "PR18 Clerk Auth Foundation`: merged via GitHub PR #19 and verified on `origin/main`",
     );
     expect(buildingBlocksPlan).toContain(
-      "PR19 Unified Supabase Platform Schema`: active on `feat/pr19-unified-supabase-platform-schema`",
+      "PR19 Unified Supabase Platform Schema`: merged via GitHub PR #21 and verified on `origin/main`",
+    );
+    expect(buildingBlocksPlan).toContain(
+      "PR20 Meeting Database Cutover From Neon To Supabase`: active on `feat/pr20-meeting-database-cutover-implementation`",
     );
     expect(buildingBlocksPlan).toContain("docs/research/pr18-clerk-auth-foundation.md");
     expect(buildingBlocksPlan).toContain(
@@ -323,7 +332,7 @@ describe("repo tooling", () => {
     expect(pr19ResearchDoc).toContain("Live Neon baseline");
     expect(pr19ResearchDoc).toContain("Checked-in Supabase baseline");
     expect(buildingBlocksPlan).toContain(
-      "PR19 Unified Supabase Platform Schema`: active on `feat/pr19-unified-supabase-platform-schema`",
+      "PR19 Unified Supabase Platform Schema`: merged via GitHub PR #21 and verified on `origin/main`",
     );
     expect(buildingBlocksPlan).toContain(
       "docs/research/pr19-unified-supabase-platform-schema.md",
@@ -336,6 +345,32 @@ describe("repo tooling", () => {
     );
     expect(buildingBlocksPlan).toContain(
       "docs/plans/2026-06-02-pr19-unified-supabase-platform-schema-decisions.md",
+    );
+  });
+
+  test("PR20 Meeting database cutover plan artifacts are durable", () => {
+    for (const artifactPath of pr20ArtifactPaths) {
+      expect(existsSync(artifactPath)).toBe(true);
+    }
+
+    const pr20ResearchDoc = readFileSync(pr20ArtifactPaths[0], "utf8");
+    const pr20DesignDoc = readFileSync(pr20ArtifactPaths[1], "utf8");
+    const pr20TasksDoc = readFileSync(pr20ArtifactPaths[3], "utf8");
+
+    expect(pr20ResearchDoc).toContain(
+      "docs/plans/2026-05-21-pr17-platform-auth-data-consolidation-design.md",
+    );
+    expect(pr20ResearchDoc).toContain(
+      "docs/plans/2026-06-02-pr19-unified-supabase-platform-schema-design.md",
+    );
+    expect(pr20ResearchDoc).toContain("docs/architecture/schema-domain-ownership.md");
+    expect(pr20DesignDoc).toContain("Status: dev");
+    expect(pr20DesignDoc).toContain("Meeting API's hosted database target from Neon Postgres to Supabase Postgres");
+    expect(pr20TasksDoc).toContain("Task 2: Meeting Schema Migration Into Supabase");
+    expect(pr20TasksDoc).toContain("Task 3: Cutover Preflight");
+    expect(pr20TasksDoc).toContain("Task 4: Meeting Runtime Config");
+    expect(buildingBlocksPlan).toContain(
+      "PR20 Meeting Database Cutover From Neon To Supabase`: active on `feat/pr20-meeting-database-cutover-implementation`",
     );
   });
 
