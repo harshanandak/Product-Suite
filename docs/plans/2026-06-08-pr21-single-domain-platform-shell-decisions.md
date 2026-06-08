@@ -29,3 +29,6 @@ Date: 2026-06-08
 
 8. `/dev` conflict detection could not run from the documented script path.
    - Reason: `forge dev` succeeded, but `bash scripts/conflict-detect.sh --issue product-suite-a49` timed out and `scripts/conflict-detect.sh` does not exist in this checkout. This was treated as a tooling gap, not a reported overlap.
+
+9. Meeting deep links remain platform-shell owned but compatibility-marked in PR21.
+   - Reason: `/meetings/new` and `/meetings/:meetingId` should be machine-checkable as Meeting-compatible paths while the shell owns the user-facing module entry.
