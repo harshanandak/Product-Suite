@@ -44,10 +44,10 @@ describe("platform module routes", () => {
   });
 
   it.each([
-    ["/roadmap", <RoadmapPage />, "Roadmap", "Roadmap module"],
-    ["/canvas", <CanvasPage />, "Canvas", "Canvas module"],
-    ["/agents", <AgentsPage />, "Agents", "Agents module"],
-    ["/settings", <SettingsPage />, "Settings", "Settings module"],
+    ["/roadmap", <RoadmapPage key="roadmap" />, "Roadmap", "Roadmap module"],
+    ["/canvas", <CanvasPage key="canvas" />, "Canvas", "Canvas module"],
+    ["/agents", <AgentsPage key="agents" />, "Agents", "Agents module"],
+    ["/settings", <SettingsPage key="settings" />, "Settings", "Settings module"],
   ])("renders %s as a shell-native module route", (pathname, page, title, content) => {
     mockedPathname = pathname;
 

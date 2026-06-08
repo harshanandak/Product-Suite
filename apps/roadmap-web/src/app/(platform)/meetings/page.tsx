@@ -1,5 +1,7 @@
 import { WorkspaceMeetingSurface } from "@/components/meetings/workspace-meeting-surface";
 
+export const dynamic = "force-dynamic";
+
 export default function MeetingsPage() {
   return (
     <div className="grid gap-4">
