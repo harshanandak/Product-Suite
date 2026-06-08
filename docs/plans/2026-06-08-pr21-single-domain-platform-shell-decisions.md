@@ -26,3 +26,6 @@ Date: 2026-06-08
 
 7. PR21 plan exit stops at user task-list review.
    - Reason: the plan workflow requires user confirmation before `/dev`; this branch should not begin implementation until the task list is accepted or adjusted.
+
+8. `/dev` conflict detection could not run from the documented script path.
+   - Reason: `forge dev` succeeded, but `bash scripts/conflict-detect.sh --issue product-suite-a49` timed out and `scripts/conflict-detect.sh` does not exist in this checkout. This was treated as a tooling gap, not a reported overlap.
