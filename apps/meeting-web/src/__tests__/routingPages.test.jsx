@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { RouterProvider, createMemoryRouter } from "react-router-dom";
 
-import { createAppRouter } from "../app/router";
+import { createAppRouter, meetingRouteCompatibility } from "../app/router";
 
 function renderPath(pathname) {
   const router = createMemoryRouter(createAppRouter(), {
@@ -60,5 +60,26 @@ describe("frontend route pages", () => {
     expect(html).toContain("Opening meeting workspace...");
     expect(html).toContain("Restoring the selected meeting, transcript, summary, and action panels.");
     expect(html).toContain("Focused workspace");
+  });
+
+  test("documents standalone routes and platform shell compatibility", () => {
+    expect(createAppRouter().map((route) => route.path)).toEqual([
+      "/",
+      "/auth/sign-in",
+      "/auth/callback",
+      "/auth/signed-out",
+      "/app",
+      "/meetings",
+      "/meetings/new",
+      "/meetings/:meetingId",
+    ]);
+    expect(meetingRouteCompatibility).toEqual({
+      standaloneBasePath: "/",
+      platformShellBasePath: "/meetings",
+      shellOwnedEntryPath: "/meetings",
+      runtimeOwner: "meeting-web",
+      dataOwner: "meeting-api",
+      preservesStandaloneRoutes: true,
+    });
   });
 });

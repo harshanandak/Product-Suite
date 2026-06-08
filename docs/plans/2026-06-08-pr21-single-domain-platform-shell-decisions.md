@@ -32,3 +32,6 @@ Date: 2026-06-08
 
 9. Meeting deep links remain platform-shell owned but compatibility-marked in PR21.
    - Reason: `/meetings/new` and `/meetings/:meetingId` should be machine-checkable as Meeting-compatible paths while the shell owns the user-facing module entry.
+
+10. Meeting keeps standalone Vite route ownership in PR21.
+   - Reason: `meeting-web` remains independently deployable and exports compatibility metadata; the platform shell owns `/meetings` as the Product Suite entry without importing the full Meeting runtime.
