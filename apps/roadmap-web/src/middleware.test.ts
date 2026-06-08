@@ -55,4 +55,22 @@ describe('middleware canonical auth wiring', () => {
     expect(legacyResponse.status).toBe(307)
     expect(legacyResponse.headers.get('location')).toBe('https://roadmap.example.com/canvas/abc')
   })
+
+  it('preserves platform module return intent and avoids auth-only return loops', async () => {
+    const moduleResponse = await middleware(
+      new NextRequest('https://roadmap.example.com/meetings?tab=upcoming'),
+    )
+
+    expect(moduleResponse.status).toBe(307)
+    expect(moduleResponse.headers.get('location')).toBe(
+      'https://roadmap.example.com/login?returnTo=%2Fmeetings%3Ftab%3Dupcoming',
+    )
+
+    const authOnlyResponse = await middleware(
+      new NextRequest('https://roadmap.example.com/auth/callback?code=abc'),
+    )
+
+    expect(authOnlyResponse.status).toBe(200)
+    expect(authOnlyResponse.headers.get('location')).toBeNull()
+  })
 })
