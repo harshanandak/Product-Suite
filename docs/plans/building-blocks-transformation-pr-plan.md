@@ -49,8 +49,9 @@ This file is the durable execution plan for the multi-PR transformation of Produ
 - `PR17 Platform Auth And Data Consolidation Plan`: merged via GitHub PR #18 and verified on `origin/main`
 - `PR18 Clerk Auth Foundation`: merged via GitHub PR #19 and verified on `origin/main`
 - `PR19 Unified Supabase Platform Schema`: merged via GitHub PR #21 and verified on `origin/main`
-- `PR20 Meeting Database Cutover From Neon To Supabase`: active on `feat/pr20-meeting-database-cutover-implementation`
-- `PR21+`: planned below and must be executed as separate reviewable slices
+- `PR20 Meeting Database Cutover From Neon To Supabase`: merged via GitHub PR #24 and verified on `origin/main`
+- `PR21 Single Domain Platform Shell`: active on `feat/pr21-single-domain-platform-shell`
+- `PR22+`: planned below and must be executed as separate reviewable slices
 
 ## Global Rules
 - Roll back the PR if it breaks a prior gate.
