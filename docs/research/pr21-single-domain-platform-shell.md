@@ -51,7 +51,7 @@ Meeting remains a Vite/React Router app:
 
 ## External guidance
 
-- Next.js App Router supports route groups and nested layouts for section-specific UI, but navigation across multiple root layouts triggers a full page load. PR21 should use one root shell layout for platform modules instead of multiple root layouts when module switching should feel like one product. Source: Context7 `/vercel/next.js`, Next.js layout docs.
+- Next.js App Router supports route groups and nested layouts for section-specific UI, but navigation across multiple root layouts triggers a full-page load. PR21 should use one root shell layout for platform modules instead of multiple root layouts when module switching should feel like one product. Source: Context7 `/vercel/next.js`, Next.js layout docs.
 - Next.js supports `loading.tsx` and `error.tsx` route-level boundaries in the App Router. PR21 should add boundaries around module routes so one module load failure does not break the shell. Source: Context7 `/vercel/next.js`, App Router docs.
 - Next.js redirects can be declared in `next.config.ts` with wildcard source/destination pairs. PR21 should use explicit redirects or shell-level compatibility routes for old top-level paths rather than accidental route shadowing. Source: Context7 `/vercel/next.js`, redirecting docs.
 - React Router `basename` strips the configured prefix during matching and prepends it for generated links. If Meeting stays independently deployable, it can be configured for `/meetings` without rewriting all route definitions. Source: Context7 `/remix-run/react-router`, basename docs.
@@ -92,4 +92,3 @@ Recommended: option 2. It satisfies the PR21 goal of one Product Suite shell and
 5. Roadmap route test fails until `/meetings` renders a shell-hosted Meeting module entry without importing the Vite `App`.
 6. Error-boundary test fails until a module load failure renders a module-scoped fallback instead of breaking the whole shell.
 7. Auth-routing test fails until protected module paths preserve return intent and public auth paths do not redirect-loop.
-

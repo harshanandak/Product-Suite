@@ -81,6 +81,11 @@ const routeOwnershipRules: readonly RouteOwnershipRule[] = Object.freeze([
     owner: "auth",
     compatibility: "auth-only",
   }),
+  defineRoute({
+    pathPrefix: "/signup",
+    owner: "auth",
+    compatibility: "auth-only",
+  }),
 ]);
 
 export function listRouteOwnershipRules(): readonly RouteOwnershipRule[] {

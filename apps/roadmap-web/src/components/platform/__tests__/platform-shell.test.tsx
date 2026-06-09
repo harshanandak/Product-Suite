@@ -26,9 +26,9 @@ describe("platform shell", () => {
 
     expect(html).toContain('href="/meetings"');
     expect(html).toContain('href="/roadmap"');
-    expect(html).toContain('href="/canvas"');
-    expect(html).toContain('href="/agents"');
-    expect(html).toContain('href="/settings"');
+    expect(html).not.toContain('href="/canvas"');
+    expect(html).not.toContain('href="/agents"');
+    expect(html).not.toContain('href="/settings"');
     expect(html).toContain('aria-current="page"');
     expect(html).toContain("Meetings");
     expect(html).toContain("Roadmap");

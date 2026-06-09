@@ -2,10 +2,10 @@
 
 import { ModuleFailureState } from "@/components/platform/module-boundary";
 
-type PlatformErrorProps = {
+type PlatformErrorProps = Readonly<{
   error: Error;
   reset: () => void;
-};
+}>;
 
 export default function PlatformError({ error, reset }: PlatformErrorProps) {
   return (

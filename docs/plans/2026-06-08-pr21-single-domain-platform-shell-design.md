@@ -23,12 +23,12 @@ PR21 should make module navigation, route ownership, compatibility paths, and mo
 
 ## Out Of Scope
 
-- No PR22 permission hardening or role model changes.
-- No billing, analytics sink, or conversion event implementation.
-- No full Meeting Vite runtime merge into Next.js.
-- No Meeting API ownership changes.
-- No broad Roadmap route rewrite or schema move.
-- No new production auth provider cutover beyond the existing PR18/PR19 contracts.
+- PR22 permission hardening and role model changes remain out of scope.
+- Billing, analytics sink, and conversion event implementation stay deferred.
+- Meeting Vite runtime merge into Next.js is not part of this slice.
+- Meeting API ownership changes stay unchanged.
+- Broad Roadmap route rewrites and schema moves are excluded.
+- Production auth provider cutover remains limited to the existing PR18/PR19 contracts.
 
 ## Approach Selected
 
@@ -101,4 +101,3 @@ Key conclusions:
 5. `/meetings` shell route test that renders a shell-native Meeting entry without importing the Vite `App`.
 6. Module error boundary test that renders a scoped fallback when content fails.
 7. Auth-route compatibility test for protected return intent and auth-only loop prevention.
-

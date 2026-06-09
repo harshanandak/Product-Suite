@@ -7,7 +7,7 @@ describe("module switcher", () => {
   it("marks the active module and reserved modules from the registry", () => {
     const html = renderToStaticMarkup(<ModuleSwitcher activePath="/canvas/doc_123" />);
 
-    expect(html).toContain('href="/canvas"');
+    expect(html).not.toContain('href="/canvas"');
     expect(html).toContain('aria-current="page"');
     expect(html).toContain("Canvas");
     expect(html).toContain("Coming soon");

@@ -2,13 +2,13 @@ import type { ReactNode } from "react";
 
 import { ModuleSwitcher } from "./module-switcher";
 
-type PlatformShellProps = {
+type PlatformShellProps = Readonly<{
   activePath: string;
   title: string;
   eyebrow?: string;
   description?: string;
   children: ReactNode;
-};
+}>;
 
 export function PlatformShell({
   activePath,

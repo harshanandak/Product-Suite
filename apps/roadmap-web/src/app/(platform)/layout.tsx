@@ -9,9 +9,9 @@ import {
   resolvePlatformModule,
 } from "@/lib/platform/module-registry";
 
-type PlatformLayoutProps = {
+type PlatformLayoutProps = Readonly<{
   children: ReactNode;
-};
+}>;
 
 export default function PlatformLayout({ children }: PlatformLayoutProps) {
   const pathname = usePathname() ?? "/roadmap";

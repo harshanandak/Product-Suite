@@ -1,14 +1,15 @@
 "use client";
 
-import { Component, type ErrorInfo, type ReactNode } from "react";
+import { Component, Fragment, type ErrorInfo, type ReactNode } from "react";
 
-type ModuleBoundaryProps = {
+type ModuleBoundaryProps = Readonly<{
   moduleName: string;
   children: ReactNode;
-};
+}>;
 
 type ModuleBoundaryState = {
   error: Error | null;
+  resetKey: number;
 };
 
 export class ModuleBoundary extends Component<
@@ -17,9 +18,12 @@ export class ModuleBoundary extends Component<
 > {
   state: ModuleBoundaryState = {
     error: null,
+    resetKey: 0,
   };
 
-  static getDerivedStateFromError(error: Error): ModuleBoundaryState {
+  static getDerivedStateFromError(
+    error: Error,
+  ): Pick<ModuleBoundaryState, "error"> {
     return { error };
   }
 
@@ -28,29 +32,39 @@ export class ModuleBoundary extends Component<
     // local; logging/monitoring policy is handled in the later observability PR.
   }
 
+  handleRetry = () => {
+    this.setState((state) => ({
+      error: null,
+      resetKey: state.resetKey + 1,
+    }));
+  };
+
   render() {
     if (this.state.error) {
       return (
         <ModuleFailureState
           moduleName={this.props.moduleName}
           errorMessage={this.state.error.message}
+          onRetry={this.handleRetry}
         />
       );
     }
 
-    return this.props.children;
+    return <Fragment key={this.state.resetKey}>{this.props.children}</Fragment>;
   }
 }
+
+type ModuleFailureStateProps = Readonly<{
+  moduleName: string;
+  errorMessage?: string;
+  onRetry?: () => void;
+}>;
 
 export function ModuleFailureState({
   moduleName,
   errorMessage,
   onRetry,
-}: {
-  moduleName: string;
-  errorMessage?: string;
-  onRetry?: () => void;
-}) {
+}: ModuleFailureStateProps) {
   return (
     <section className="rounded-md border border-red-200 bg-red-50 p-5 text-red-950">
       <p className="text-sm font-semibold">{moduleName} module could not load</p>
@@ -68,7 +82,11 @@ export function ModuleFailureState({
   );
 }
 
-export function ModuleLoadingState({ moduleName }: { moduleName: string }) {
+type ModuleLoadingStateProps = Readonly<{
+  moduleName: string;
+}>;
+
+export function ModuleLoadingState({ moduleName }: ModuleLoadingStateProps) {
   return (
     <section className="rounded-md border border-slate-200 bg-white p-5">
       <p className="text-sm font-semibold text-slate-950">

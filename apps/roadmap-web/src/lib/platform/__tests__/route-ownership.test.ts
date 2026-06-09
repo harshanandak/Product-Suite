@@ -24,6 +24,7 @@ describe("platform route ownership", () => {
     expectRoute("/auth/sign-in", "auth", "auth-only");
     expectRoute("/auth/callback", "auth", "auth-only");
     expectRoute("/login", "auth", "auth-only");
+    expectRoute("/signup", "auth", "auth-only");
     expect(getRouteOwnership("/unknown/path")).toBeNull();
   });
 
@@ -40,6 +41,7 @@ describe("platform route ownership", () => {
       "/workspaces",
       "/auth",
       "/login",
+      "/signup",
     ]);
   });
 });

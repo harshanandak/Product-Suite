@@ -23,10 +23,10 @@ const moduleIcons: Record<PlatformModuleId, LucideIcon> = {
   settings: Settings,
 };
 
-type ModuleSwitcherProps = {
+type ModuleSwitcherProps = Readonly<{
   activePath: string;
   className?: string;
-};
+}>;
 
 export function ModuleSwitcher({ activePath, className }: ModuleSwitcherProps) {
   const activeModule = resolvePlatformModule(activePath);
@@ -50,20 +50,14 @@ export function ModuleSwitcher({ activePath, className }: ModuleSwitcherProps) {
         const Icon = moduleIcons[module.id];
         const isActive = activeModule?.id === module.id;
         const isReserved = module.status === "reserved";
-
-        return (
-          <a
-            key={module.id}
-            href={module.href}
-            aria-current={isActive ? "page" : undefined}
-            aria-disabled={isReserved ? "true" : undefined}
-            className={cn(
-              "flex min-h-11 items-center gap-3 rounded-md px-2 py-2 text-slate-700 transition-colors",
-              isActive && "bg-slate-950 text-white",
-              !isActive && "hover:bg-slate-100 hover:text-slate-950",
-              isReserved && "text-slate-500",
-            )}
-          >
+        const itemClassName = cn(
+          "flex min-h-11 items-center gap-3 rounded-md px-2 py-2 text-slate-700 transition-colors",
+          isActive && "bg-slate-950 text-white",
+          !isActive && !isReserved && "hover:bg-slate-100 hover:text-slate-950",
+          isReserved && "cursor-not-allowed text-slate-500",
+        );
+        const itemContent = (
+          <>
             <Icon aria-hidden="true" className="size-4 shrink-0" />
             <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
               <span className="truncate">{module.label}</span>
@@ -73,6 +67,26 @@ export function ModuleSwitcher({ activePath, className }: ModuleSwitcherProps) {
                 </span>
               ) : null}
             </span>
+          </>
+        );
+
+        return isReserved ? (
+          <span
+            key={module.id}
+            aria-current={isActive ? "page" : undefined}
+            aria-disabled="true"
+            className={itemClassName}
+          >
+            {itemContent}
+          </span>
+        ) : (
+          <a
+            key={module.id}
+            href={module.href}
+            aria-current={isActive ? "page" : undefined}
+            className={itemClassName}
+          >
+            {itemContent}
           </a>
         );
       })}
