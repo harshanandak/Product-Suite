@@ -16,77 +16,38 @@ export type RouteOwnershipRule = Readonly<{
   moduleId?: PlatformModuleId;
 }>;
 
-const routeOwnershipRules: readonly RouteOwnershipRule[] = Object.freeze([
-  defineRoute({
-    pathPrefix: "/meetings/new",
-    owner: "platform-shell",
-    compatibility: "meeting-compatible",
-    moduleId: "meetings",
-  }),
-  defineRoute({
-    pathPrefix: "/meetings/:meetingId",
-    owner: "platform-shell",
-    compatibility: "meeting-compatible",
-    moduleId: "meetings",
-  }),
-  defineRoute({
-    pathPrefix: "/meetings",
-    owner: "platform-shell",
-    compatibility: "shell-native",
-    moduleId: "meetings",
-  }),
-  defineRoute({
-    pathPrefix: "/roadmap",
-    owner: "platform-shell",
-    compatibility: "shell-native",
-    moduleId: "roadmap",
-  }),
-  defineRoute({
-    pathPrefix: "/canvas",
-    owner: "platform-shell",
-    compatibility: "reserved",
-    moduleId: "canvas",
-  }),
-  defineRoute({
-    pathPrefix: "/agents",
-    owner: "platform-shell",
-    compatibility: "reserved",
-    moduleId: "agents",
-  }),
-  defineRoute({
-    pathPrefix: "/settings",
-    owner: "platform-shell",
-    compatibility: "reserved",
-    moduleId: "settings",
-  }),
-  defineRoute({
-    pathPrefix: "/dashboard",
-    owner: "roadmap-web",
-    compatibility: "preserved",
-    moduleId: "roadmap",
-  }),
-  defineRoute({
-    pathPrefix: "/workspaces",
-    owner: "roadmap-web",
-    compatibility: "preserved",
-    moduleId: "roadmap",
-  }),
-  defineRoute({
-    pathPrefix: "/auth",
-    owner: "auth",
-    compatibility: "auth-only",
-  }),
-  defineRoute({
-    pathPrefix: "/login",
-    owner: "auth",
-    compatibility: "auth-only",
-  }),
-  defineRoute({
-    pathPrefix: "/signup",
-    owner: "auth",
-    compatibility: "auth-only",
-  }),
-]);
+type RouteOwnershipSeed = readonly [
+  pathPrefix: string,
+  owner: RouteOwner,
+  compatibility: RouteCompatibility,
+  moduleId?: PlatformModuleId,
+];
+
+const routeOwnershipSeeds = [
+  ["/meetings/new", "platform-shell", "meeting-compatible", "meetings"],
+  ["/meetings/:meetingId", "platform-shell", "meeting-compatible", "meetings"],
+  ["/meetings", "platform-shell", "shell-native", "meetings"],
+  ["/roadmap", "platform-shell", "shell-native", "roadmap"],
+  ["/canvas", "platform-shell", "reserved", "canvas"],
+  ["/agents", "platform-shell", "reserved", "agents"],
+  ["/settings", "platform-shell", "reserved", "settings"],
+  ["/dashboard", "roadmap-web", "preserved", "roadmap"],
+  ["/workspaces", "roadmap-web", "preserved", "roadmap"],
+  ["/auth", "auth", "auth-only"],
+  ["/login", "auth", "auth-only"],
+  ["/signup", "auth", "auth-only"],
+] as const satisfies readonly RouteOwnershipSeed[];
+
+const routeOwnershipRules: readonly RouteOwnershipRule[] = Object.freeze(
+  routeOwnershipSeeds.map(([pathPrefix, owner, compatibility, moduleId]) =>
+    defineRoute({
+      pathPrefix,
+      owner,
+      compatibility,
+      ...(moduleId ? { moduleId } : {}),
+    }),
+  ),
+);
 
 export function listRouteOwnershipRules(): readonly RouteOwnershipRule[] {
   return routeOwnershipRules;
