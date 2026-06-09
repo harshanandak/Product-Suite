@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { act, type ReactNode } from "react";
-import { createRoot } from "react-dom/client";
+import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ModuleBoundary } from "../module-boundary";
@@ -12,18 +12,26 @@ function ThrowingModule(): ReactNode {
 
 describe("module boundary", () => {
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+  let roots: Root[];
 
   beforeEach(() => {
     consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    roots = [];
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    for (const root of roots) {
+      await act(async () => {
+        root.unmount();
+      });
+    }
+
     consoleErrorSpy.mockRestore();
   });
 
   it("contains module child failures inside a scoped fallback", async () => {
     const container = document.createElement("div");
-    const root = createRoot(container);
+    const root = createTrackedRoot(container, roots);
 
     await act(async () => {
       root.render(
@@ -40,7 +48,7 @@ describe("module boundary", () => {
 
   it("clears the scoped failure state when retry succeeds", async () => {
     const container = document.createElement("div");
-    const root = createRoot(container);
+    const root = createTrackedRoot(container, roots);
     let shouldThrow = true;
 
     function RecoverableModule(): ReactNode {
@@ -73,3 +81,10 @@ describe("module boundary", () => {
     expect(container.textContent).not.toContain("Canvas module could not load");
   });
 });
+
+function createTrackedRoot(container: Element, roots: Root[]) {
+  const root = createRoot(container);
+  roots.push(root);
+
+  return root;
+}
