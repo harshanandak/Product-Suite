@@ -6,6 +6,7 @@ const rootDir = join(import.meta.dir, "..");
 const packageJson = JSON.parse(
   readFileSync(join(rootDir, "package.json"), "utf8"),
 );
+const agentInstructions = readFileSync(join(rootDir, "AGENTS.md"), "utf8");
 const rootReadme = readFileSync(join(rootDir, "README.md"), "utf8");
 const validationDocPath = join(rootDir, "docs", "VALIDATION.md");
 const validationDoc = readFileSync(validationDocPath, "utf8");
@@ -199,6 +200,21 @@ describe("repo tooling", () => {
     expect(validationDoc).toContain("bun run install:meeting-api");
     expect(validationDoc).toContain("bun run validate:meeting-api");
     expect(validationDoc).toContain("python -m alembic");
+  });
+
+  test("agent workflow docs reference checked-in command surfaces", () => {
+    expect(agentInstructions).not.toContain(".claude/commands");
+    expect(agentInstructions).not.toContain("docs/TOOLCHAIN.md");
+    expect(agentInstructions).toContain("[AGENTS.md](AGENTS.md)");
+    expect(agentInstructions).toContain("[package.json](package.json)");
+    expect(agentInstructions).toContain(
+      "[scripts/beads-context.sh](scripts/beads-context.sh)",
+    );
+    expect(agentInstructions).toContain("[docs/VALIDATION.md](docs/VALIDATION.md)");
+
+    for (const target of markdownLinkTargets(agentInstructions)) {
+      expect(existsSync(join(rootDir, target))).toBe(true);
+    }
   });
 
   test("building blocks plan points to the active PR5 artifacts", () => {
@@ -582,3 +598,9 @@ describe("repo tooling", () => {
     expect(servicesReadme).toContain("canonical canvas collaboration transport");
   });
 });
+
+function markdownLinkTargets(markdown) {
+  return [...markdown.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)]
+    .map((match) => match[1].split("#", 1)[0])
+    .filter((target) => target && !target.includes("://"));
+}

@@ -73,7 +73,10 @@ When the user requests work, **you MUST automatically classify** the change type
 
 **Dynamic commands — no hardcoded examples:**
 
-Command files (`.claude/commands/*.md` and agent equivalents) must never hardcode example output when a script generates that output dynamically. Reference the script and describe what it does — don't duplicate its output with fake data that becomes stale.
+Generated or agent-specific command files must never hardcode example output
+when a script generates that output dynamically. Reference the script and
+describe what it does -- don't duplicate its output with fake data that becomes
+stale.
 
 ## TDD Development (Stage 2: /dev)
 
@@ -112,7 +115,8 @@ Task 2: Validation logic
 
 ## State Management (Single Source of Truth)
 
-> GitHub issue lifecycle may sync to Beads via CI -- see [docs/BEADS_GITHUB_SYNC.md](docs/BEADS_GITHUB_SYNC.md).
+> GitHub issue lifecycle may sync to Beads via CI when a repo-specific sync
+> workflow is configured.
 
 **All workflow state stored in Beads metadata** (survives compaction):
 
@@ -152,15 +156,12 @@ Task 2: Validation logic
 
 ## Documentation Index (Context Pointers)
 
-**Detailed command instructions** are located in:
-- [.claude/commands/status.md](.claude/commands/status.md) - How to check current context (utility)
-- [.claude/commands/plan.md](.claude/commands/plan.md) - How to plan features (3 phases: design intent + research + branch/worktree/tasks)
-- [.claude/commands/dev.md](.claude/commands/dev.md) - How to implement with subagent-driven TDD and decision gate
-- [.claude/commands/validate.md](.claude/commands/validate.md) - How to run validation (with HARD-GATE exit)
-- [.claude/commands/ship.md](.claude/commands/ship.md) - How to create PRs
-- [.claude/commands/review.md](.claude/commands/review.md) - How to address PR feedback (with HARD-GATE exit)
-- [.claude/commands/premerge.md](.claude/commands/premerge.md) - How to complete docs and hand off PR for merge
-- [.claude/commands/verify.md](.claude/commands/verify.md) - How to verify post-merge health
+**Detailed command instructions** are maintained by the checked-in workflow
+surfaces:
+- [AGENTS.md](AGENTS.md) - Stage order, classification rules, and stage-exit context requirements.
+- [package.json](package.json) - Root validation and CI command entrypoints.
+- [scripts/beads-context.sh](scripts/beads-context.sh) - Stage-transition and context-validation wrapper.
+- [docs/VALIDATION.md](docs/VALIDATION.md) - Validation command details and enforcement notes.
 
 **Planning documents** (created by `/plan`, consumed by `/dev`):
 - `docs/plans/YYYY-MM-DD-<slug>-design.md` - Design intent + technical research
@@ -169,7 +170,6 @@ Task 2: Validation logic
 
 **Comprehensive workflow guide:**
 - This file (AGENTS.md) is the single source of truth for the complete workflow
-- [docs/TOOLCHAIN.md](docs/TOOLCHAIN.md) - Tool setup and configuration
 - [docs/VALIDATION.md](docs/VALIDATION.md) - Enforcement and validation details
 
 **Load these files when you need detailed instructions for a specific stage.**
@@ -240,7 +240,7 @@ forge close <id>      # Complete work
 
 ### Rules
 
-- Use `forge` as the routine command surface for bd-backed issue tracking and sync workflows — do NOT use TodoWrite, TaskCreate, or markdown TODO lists. Exception: `/plan` Phase 3 generates task lists at `docs/plans/YYYY-MM-DD-<slug>-tasks.md` — these are approved artifacts consumed by `/dev`, but Beads (`bd`) remains the source of truth for issue state and IDs. Use `bd` directly only for operations Forge does not wrap yet, such as `bd init`, `bd comments`, `bd dep`, and `bd dolt *`. GitHub issues may be used for external/public tracking; CI may sync GitHub issue lifecycle to Beads (see `docs/BEADS_GITHUB_SYNC.md`).
+- Use `forge` as the routine command surface for bd-backed issue tracking and sync workflows — do NOT use TodoWrite, TaskCreate, or markdown TODO lists. Exception: `/plan` Phase 3 generates task lists at `docs/plans/YYYY-MM-DD-<slug>-tasks.md` — these are approved artifacts consumed by `/dev`, but Beads (`bd`) remains the source of truth for issue state and IDs. Use `bd` directly only for operations Forge does not wrap yet, such as `bd init`, `bd comments`, `bd dep`, and `bd dolt *`. GitHub issues may be used for external/public tracking when a repo-specific sync workflow is configured.
 - Run `bd prime` for detailed command reference and session close protocol
 - Use `bd remember` for persistent knowledge — do NOT use MEMORY.md files
 
