@@ -96,6 +96,25 @@ Fixed: Cloudflare Workers Paid $5 · Railway ~$10–20 (FastAPI + pooled agent w
 **Adopt (all MIT/free):** React Flow, perfect-freehand, TipTap core, y-prosemirror, partyserver/y-durableobjects, AI SDK v6 + @openrouter/ai-sdk-provider, pgmq/pg_cron, FastMCP, official GitHub/Meta MCP servers, Uppy, TanStack Table/Virtual, dnd-kit, cmdk, react-virtuoso, recharts.
 **Exit:** BlockSuite (+patches), Hocuspocus-on-Railway service, Supabase Realtime usage, custom FB n8n product workflow.
 
+## 7. Portability and dependency posture (added 2026-06-12)
+
+**AI SDK ≠ Vercel dependency.** The AI SDK is an Apache-2.0 library with no Vercel runtime coupling — it runs on Node, Bun, and Workers (Cloudflare maintains its own `workers-ai-provider` for it). Exposure is confined to the agent loop; all run state (runs, proposals, messages) is ours in Postgres, so the loop library is swappable (Mastra / LangGraph-lib / Pydantic AI) without touching data.
+
+**Cloudflare dependency map — one real lock-in, by choice:**
+
+| Piece | Lock-in | Exit |
+| --- | --- | --- |
+| Durable Objects (doc rooms, chat fanout, invalidation pings) | **Real — the only one** | Yjs CRDT updates are portable → Hocuspocus/y-sweet on a VM; chat truth is Postgres, only fanout needs rebuilding |
+| Workers + Hono API | Low | Hono runs unchanged on Node/Bun/Railway |
+| R2 | Low | S3-compatible → S3/MinIO (loses free egress) |
+| Static hosting · Image Transformations · McpAgent | Trivial/low | Any static host · imgproxy · FastMCP on Railway |
+
+Principle: **compute on Cloudflare is replaceable; all state (Postgres, S3-compatible R2, Yjs CRDTs) is portable.**
+
+**Next.js exit = rebuild, not port.** New shell is born on Vite + TanStack Router (PR21a); old Next app serves on Vercel until parity, then DNS cutover and retirement. True migration work is only: ~30 Next API routes → Hono/Railway (opportunistically, per rebuilt surface); middleware auth → route guards + API-layer Clerk verification; public/marketing pages → separate static site.
+
+**TanStack posture: libraries deep, Start deferred.** Adopt Router + **Query (the SPA's entire server-state layer: caching, optimistic updates, invalidation-ping consumer)** + Table v8 + Virtual. Deliberate exceptions: react-virtuoso (chat/transcripts reverse-scroll), react-hook-form (shadcn form primitives are RHF-based; revisit TanStack Form when battle-tested). TanStack Start remains a future non-breaking opt-in (builds on Router) — currently RC with a beta Clerk SDK, and a logged-in SPA needs no SSR. TanStack DB: watch-list only, too young.
+
 ## Top cross-cutting risks
 
 1. React Flow-as-whiteboard ergonomics is the largest unknown — timebox the spike; tldraw trial is the named escape hatch.
