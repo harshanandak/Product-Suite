@@ -1,0 +1,1066 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Product Suite — clickable prototype</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono&display=swap" rel="stylesheet">
+<style>
+:root{
+  --background: oklch(0.9851 0 0);
+  --foreground: oklch(0 0 0);
+  --card: oklch(1 0 267.51);
+  --card-foreground: oklch(0.2103 0 267.51);
+  --primary: oklch(0.5144 0.1605 267.44);
+  --primary-foreground: oklch(0.97 0.014 254.604);
+  --secondary: oklch(0.94 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.44 0 0);
+  --accent: oklch(0.9214 0.0248 257.65);
+  --accent-foreground: oklch(0.2571 0.1161 272.24);
+  --destructive: oklch(0.58 0.22 27);
+  --border: oklch(0.92 0 0);
+  --sidebar: oklch(1 0 267.51);
+  --sidebar-accent: oklch(0.9214 0.0248 257.65);
+  --sidebar-accent-foreground: oklch(0.2571 0.1161 272.24);
+  --ok: oklch(0.55 0.15 155);
+  --ok-bg: oklch(0.95 0.04 155);
+  --warn: oklch(0.55 0.13 75);
+  --warn-bg: oklch(0.96 0.05 95);
+  --danger-bg: oklch(0.95 0.03 27);
+  --radius: .5rem;
+  --font-sans: Geist, system-ui, sans-serif;
+  --font-mono: "Geist Mono", monospace;
+}
+.dark{
+  --background: oklch(0 0 0); --foreground: oklch(1 0 0);
+  --card: oklch(0.2103 0 267.51); --card-foreground: oklch(0.9461 0 0);
+  --secondary: oklch(0.25 0 0); --muted: oklch(0.23 0 0); --muted-foreground: oklch(0.72 0 0);
+  --accent: oklch(0.32 0 0); --accent-foreground: oklch(0.9214 0.0248 257.65);
+  --destructive: oklch(0.704 0.191 22.216); --border: oklch(0.26 0 0);
+  --sidebar: oklch(0.2103 0 267.51); --sidebar-accent: oklch(0.32 0 0); --sidebar-accent-foreground: oklch(0.9214 0.0248 257.65);
+  --ok-bg: oklch(0.28 0.05 155); --warn-bg: oklch(0.3 0.05 95); --danger-bg: oklch(0.3 0.05 27);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font-sans);background:var(--background);color:var(--foreground);line-height:1.5;padding:1.2rem}
+.bar{max-width:1120px;margin:0 auto .8rem;display:flex;align-items:center;gap:.8rem}
+.bar h1{font-size:.95rem;font-weight:600}
+.bar .hint{font-size:.72rem;color:var(--muted-foreground)}
+.bar button{margin-left:auto;font:inherit;font-size:.72rem;border:1px solid var(--border);background:var(--card);color:var(--foreground);padding:.3rem .65rem;border-radius:.4rem;cursor:pointer}
+.stage{max-width:1120px;margin:0 auto;border:1px solid var(--border);border-radius:.75rem;overflow:hidden;background:var(--card)}
+.screen{display:none}
+.screen.on{display:block}
+.shell{display:flex;min-height:580px}
+.clk{cursor:pointer}
+.clk:hover{filter:brightness(0.97)}
+.dark .clk:hover{filter:brightness(1.15)}
+.sb{width:198px;flex-shrink:0;background:var(--sidebar);border-right:1px solid var(--border);display:flex;flex-direction:column}
+.ws{display:flex;align-items:center;gap:.5rem;padding:.7rem .75rem;border-bottom:1px solid var(--border);font-size:.8rem;font-weight:500;cursor:pointer}
+.ws .av{width:1.6rem;height:1.6rem;border-radius:.4rem;background:var(--primary);color:var(--primary-foreground);display:flex;align-items:center;justify-content:center;font-size:.65rem;font-weight:600}
+.ws i{margin-left:auto;color:var(--muted-foreground);font-size:.85rem}
+.sb-body{flex:1;padding:.6rem .5rem;display:flex;flex-direction:column;gap:2px;overflow:auto}
+.sb-label{font-size:.62rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted-foreground);margin:.5rem 0 .25rem .5rem}
+.sb-item{display:flex;align-items:center;gap:.5rem;font-size:.8rem;color:var(--muted-foreground);padding:.35rem .5rem;border-radius:.4rem;cursor:pointer}
+.sb-item.on{background:var(--sidebar-accent);color:var(--sidebar-accent-foreground);font-weight:500}
+.sb-item .count{margin-left:auto;background:var(--accent);color:var(--accent-foreground);font-size:.62rem;padding:0 .45rem;border-radius:999px}
+.dock{display:flex;justify-content:space-between;padding:.5rem;border-top:1px solid var(--border)}
+.dock span{width:2rem;height:2rem;border-radius:.5rem;display:flex;align-items:center;justify-content:center;color:var(--muted-foreground);font-size:1rem}
+.dock span.on{background:var(--sidebar-accent);color:var(--sidebar-accent-foreground)}
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.top{display:flex;align-items:center;gap:.7rem;padding:.55rem 1rem;border-bottom:1px solid var(--border);font-size:.78rem;color:var(--muted-foreground)}
+.top b{color:var(--foreground);font-weight:500}
+.top .grow{flex:1}
+.cmdk{display:flex;align-items:center;gap:.35rem;border:1px solid var(--border);border-radius:.4rem;padding:.2rem .6rem;font-size:.7rem}
+.body{flex:1;padding:1rem;display:flex;flex-direction:column;gap:.75rem;min-width:0;overflow:auto}
+.btn{display:inline-flex;align-items:center;gap:.4rem;font-size:.76rem;font-weight:500;border-radius:.45rem;padding:.4rem .8rem;border:1px solid var(--border);background:var(--card);color:var(--foreground)}
+.btn.pri{background:var(--primary);border-color:var(--primary);color:var(--primary-foreground)}
+.btn.sm{padding:.22rem .55rem;font-size:.7rem}
+.pill{display:inline-flex;align-items:center;gap:.3rem;font-size:.64rem;font-weight:500;padding:.08rem .5rem;border-radius:999px;white-space:nowrap}
+.pill.ind{background:var(--accent);color:var(--accent-foreground)}
+.pill.ok{background:var(--ok-bg);color:var(--ok)}
+.pill.warn{background:var(--warn-bg);color:var(--warn)}
+.pill.bad{background:var(--danger-bg);color:var(--destructive)}
+.pill.mut{background:var(--secondary);color:var(--muted-foreground)}
+.avx{width:1.3rem;height:1.3rem;border-radius:50%;background:var(--accent);color:var(--accent-foreground);display:inline-flex;align-items:center;justify-content:center;font-size:.58rem;font-weight:600;flex-shrink:0}
+table{width:100%;border-collapse:collapse;font-size:.76rem}
+th{text-align:left;font-size:.64rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted-foreground);font-weight:500;padding:.45rem .6rem;border-bottom:1px solid var(--border)}
+td{padding:.5rem .6rem;border-bottom:1px solid var(--border);vertical-align:middle}
+tr.clk:hover td{background:var(--muted)}
+.views{display:flex;gap:.25rem;background:var(--secondary);padding:.2rem;border-radius:.5rem;width:fit-content}
+.views span{font-size:.72rem;padding:.25rem .7rem;border-radius:.35rem;color:var(--muted-foreground);cursor:pointer}
+.views span.on{background:var(--card);color:var(--foreground);font-weight:500}
+.banner{display:flex;align-items:center;gap:.7rem;border:1px solid var(--accent);background:color-mix(in oklab,var(--accent) 35%,var(--card));border-radius:var(--radius);padding:.65rem .8rem}
+.card-x{border:1px solid var(--border);border-radius:var(--radius);padding:.75rem;background:var(--card)}
+.sect{font-size:.64rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted-foreground);font-weight:500;margin-bottom:.4rem}
+.prop{display:flex;gap:.6rem;border:1px solid var(--border);border-radius:var(--radius);padding:.7rem;align-items:flex-start}
+.prop.low{border-style:dashed}
+.prop .t{font-size:.8rem;font-weight:500}
+.prop .meta{display:flex;gap:.4rem;align-items:center;margin-top:.3rem;flex-wrap:wrap}
+.prop .acts{margin-left:auto;display:flex;gap:.3rem;flex-shrink:0}
+.iconbtn{width:1.7rem;height:1.7rem;border:1px solid var(--border);border-radius:.4rem;display:inline-flex;align-items:center;justify-content:center;color:var(--muted-foreground);font-size:.85rem;cursor:pointer;background:var(--card)}
+.iconbtn.yes{color:var(--ok)}
+.iconbtn.no{color:var(--destructive)}
+.canvas{position:relative;flex:1;min-height:330px;border:1px solid var(--border);border-radius:var(--radius);background-image:radial-gradient(color-mix(in oklab,var(--border) 70%,transparent) 1px,transparent 1px);background-size:18px 18px;background-color:var(--muted);overflow:hidden}
+.node{position:absolute;width:158px;background:var(--card);border:1px solid var(--border);border-radius:.55rem;padding:.5rem .6rem;font-size:.7rem;cursor:pointer}
+.node:hover{border-color:var(--primary)}
+.node .nt{font-weight:500;display:flex;gap:.4rem;align-items:flex-start;line-height:1.3}
+.node .dot{width:.5rem;height:.5rem;border-radius:50%;flex-shrink:0;margin-top:.22rem}
+.node .nm{display:flex;align-items:center;gap:.35rem;margin-top:.4rem;color:var(--muted-foreground);font-size:.62rem}
+.field{display:flex;align-items:center;gap:.6rem;font-size:.76rem;padding:.3rem 0}
+.field .k{width:90px;color:var(--muted-foreground);font-size:.7rem;flex-shrink:0}
+select,input[type=text]{font:inherit;font-size:.74rem;border:1px solid var(--border);border-radius:.4rem;padding:.28rem .5rem;background:var(--card);color:var(--foreground)}
+.run{display:flex;gap:.7rem;border:1px solid var(--border);border-radius:var(--radius);padding:.7rem;align-items:center}
+.run .ric{width:2rem;height:2rem;border-radius:.5rem;background:var(--accent);color:var(--accent-foreground);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.run .t{font-size:.8rem;font-weight:500}
+.run .s{font-size:.68rem;color:var(--muted-foreground);margin-top:.1rem}
+.run .right{margin-left:auto;text-align:right;flex-shrink:0}
+.prog{height:.3rem;width:120px;background:var(--secondary);border-radius:999px;overflow:hidden;margin-top:.3rem}
+.prog i{display:block;height:100%;background:var(--primary)}
+.drow{display:flex;align-items:center;gap:.6rem;padding:.55rem .7rem;font-size:.76rem;border-bottom:1px solid var(--border)}
+.drow:last-child{border-bottom:none}
+.drow .when{margin-left:auto;color:var(--muted-foreground);font-size:.64rem;flex-shrink:0}
+.dgroup{border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.dgroup .gh{display:flex;align-items:center;gap:.5rem;padding:.5rem .7rem;background:var(--muted);font-size:.72rem;font-weight:500;border-bottom:1px solid var(--border)}
+.center-wrap{display:flex;align-items:center;justify-content:center;min-height:580px;background:var(--muted);gap:1.5rem;flex-wrap:wrap;padding:2rem}
+.auth-card{width:280px;background:var(--card);border:1px solid var(--border);border-radius:.75rem;padding:1.4rem;text-align:center}
+.auth-card h3{font-size:.92rem;margin-bottom:.2rem}
+.auth-card p{font-size:.74rem;color:var(--muted-foreground);margin-bottom:.9rem}
+.auth-card .btn{width:100%;justify-content:center;margin-bottom:.45rem}
+#toast{position:fixed;bottom:1.2rem;left:50%;transform:translateX(-50%);background:var(--foreground);color:var(--background);font-size:.76rem;padding:.5rem .9rem;border-radius:.5rem;opacity:0;transition:opacity .2s;pointer-events:none;z-index:99}
+.kbd{font-family:var(--font-mono);font-size:.62rem;border:1px solid var(--border);border-radius:.25rem;padding:0 .3rem;color:var(--muted-foreground)}
+.filters{display:flex;gap:.4rem;flex-wrap:wrap;align-items:center}
+.fchip{display:inline-flex;align-items:center;gap:.3rem;font-size:.68rem;border:1px dashed var(--border);border-radius:999px;padding:.15rem .6rem;color:var(--muted-foreground);cursor:pointer}
+.kan{display:flex;gap:.6rem;flex:1;min-height:0}
+.kcol{flex:1;background:var(--muted);border:1px solid var(--border);border-radius:.55rem;padding:.5rem;display:flex;flex-direction:column;gap:.45rem;min-width:0}
+.kcol .kh{display:flex;align-items:center;gap:.4rem;font-size:.68rem;font-weight:500;padding:0 .2rem}
+.kcol .kh .count{margin-left:auto;color:var(--muted-foreground);font-size:.64rem}
+.kcard{background:var(--card);border:1px solid var(--border);border-radius:.5rem;padding:.5rem .6rem;font-size:.72rem;cursor:pointer}
+.kcard:hover{border-color:var(--primary)}
+.kcard .t{font-weight:500;line-height:1.3}
+.kcard .m{display:flex;align-items:center;gap:.35rem;margin-top:.4rem;flex-wrap:wrap}
+.player{display:flex;align-items:center;gap:.6rem;border:1px solid var(--border);border-radius:var(--radius);padding:.5rem .7rem;background:var(--card)}
+.ptrack{flex:1;height:.3rem;background:var(--secondary);border-radius:999px;position:relative}
+.ptrack i{position:absolute;top:0;left:0;height:100%;width:34%;background:var(--primary);border-radius:999px}
+.ptrack s{position:absolute;top:-2px;width:.45rem;height:.45rem;border-radius:50%;background:var(--accent-foreground);opacity:.55}
+.chat{display:flex;flex-direction:column;gap:.5rem;flex:1;min-height:0;overflow:auto}
+.msg{max-width:88%;border-radius:.6rem;padding:.5rem .65rem;font-size:.74rem;line-height:1.45}
+.msg.user{align-self:flex-end;background:var(--primary);color:var(--primary-foreground)}
+.msg.ai{align-self:flex-start;background:var(--secondary);color:var(--foreground)}
+.gridcards{display:grid;grid-template-columns:repeat(3,1fr);gap:.6rem}
+.gcard{border:1px solid var(--border);border-radius:var(--radius);padding:.7rem;background:var(--card);cursor:pointer}
+.gcard:hover{border-color:var(--primary)}
+.gcard .gi{width:1.9rem;height:1.9rem;border-radius:.45rem;background:var(--accent);color:var(--accent-foreground);display:flex;align-items:center;justify-content:center;margin-bottom:.5rem}
+.gcard .t{font-size:.78rem;font-weight:500}
+.gcard .s{font-size:.66rem;color:var(--muted-foreground);margin-top:.15rem}
+.toolcard{border:1px solid var(--accent);border-radius:var(--radius);padding:.6rem .7rem;background:color-mix(in oklab,var(--accent) 30%,var(--card));font-size:.72rem}
+.hrow{display:flex;gap:.5rem;font-size:.7rem;align-items:flex-start;padding:.35rem 0;border-bottom:1px solid var(--border)}
+.hrow:last-child{border-bottom:none}
+.seg{display:inline-flex;gap:2px;vertical-align:middle}
+.seg i{width:12px;height:5px;border-radius:3px;background:var(--secondary)}
+.seg i.f{background:var(--primary)}
+</style>
+</head>
+<body>
+<div class="bar">
+  <h1>Product Suite — clickable prototype</h1>
+  <span class="hint">v5 · evaluator-driven cleanup · 20 screens · phase pills · project page · chat · visibility · connectors</span>
+  <button onclick="go('signin')"><i class="ti ti-restore"></i> Restart</button>
+  <button onclick="document.documentElement.classList.toggle('dark')"><i class="ti ti-moon"></i> Dark</button>
+</div>
+
+<div class="stage">
+
+<div class="screen on" id="signin">
+  <div class="center-wrap">
+    <div class="auth-card">
+      <div style="width:2.4rem;height:2.4rem;border-radius:.6rem;background:var(--primary);color:var(--primary-foreground);display:inline-flex;align-items:center;justify-content:center;font-weight:600;margin-bottom:.8rem">PS</div>
+      <h3>Welcome to Product Suite</h3>
+      <p>One login for meetings, work, canvas and agents.</p>
+      <span class="btn clk" onclick="go('pickws')"><i class="ti ti-brand-google"></i> Continue with Google</span>
+      <span class="btn clk" onclick="go('pickws')"><i class="ti ti-mail"></i> Continue with email</span>
+    </div>
+  </div>
+</div>
+
+<div class="screen" id="pickws">
+  <div class="center-wrap">
+    <div class="auth-card" style="text-align:left">
+      <h3>Choose a workspace</h3>
+      <p>You belong to 1 workspace.</p>
+      <div class="clk" onclick="go('home')" style="display:flex;align-items:center;gap:.6rem;border:1px solid var(--border);border-radius:.5rem;padding:.6rem;font-size:.8rem;margin-bottom:.5rem">
+        <span class="avx" style="border-radius:.4rem">BF</span>
+        <span><b style="font-weight:500">Befach HQ</b><br><span style="font-size:.66rem;color:var(--muted-foreground)">3 members</span></span>
+        <i class="ti ti-chevron-right" style="margin-left:auto;color:var(--muted-foreground)"></i>
+      </div>
+      <span class="btn" style="width:100%;justify-content:center"><i class="ti ti-plus"></i> Create new workspace</span>
+    </div>
+  </div>
+</div>
+
+<div class="screen" id="home">
+  <div class="shell">
+    <div class="sb" data-board="home" data-active="digest"></div>
+    <div class="main">
+      <div class="top"><b>Home</b><span class="grow"></span><span class="cmdk"><i class="ti ti-search"></i> Cmd+K</span><i class="ti ti-bell clk" onclick="go('queue')"></i></div>
+      <div class="body">
+        <span style="font-size:.92rem;font-weight:600">Overview</span>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:.6rem">
+          <div class="card-x clk" onclick="go('plan-table')"><div class="sect"><i class="ti ti-layout-kanban"></i> Workboard</div><span style="font-size:1.2rem;font-weight:600">12</span><span style="font-size:.66rem;color:var(--muted-foreground)"> done · 7d</span><br><span class="pill bad" style="margin-top:.3rem">1 on hold</span></div>
+          <div class="card-x clk" onclick="go('meetings')"><div class="sect"><i class="ti ti-video"></i> Meetings</div><span style="font-size:1.2rem;font-weight:600">3</span><span style="font-size:.66rem;color:var(--muted-foreground)"> this week</span><br><span class="pill ind" style="margin-top:.3rem">9 tasks created</span></div>
+          <div class="card-x clk" onclick="go('docs')"><div class="sect"><i class="ti ti-artboard"></i> Canvas</div><span style="font-size:1.2rem;font-weight:600">4</span><span style="font-size:.66rem;color:var(--muted-foreground)"> boards updated</span><br><span class="pill mut" style="margin-top:.3rem">2 shared</span></div>
+          <div class="card-x clk" onclick="go('agents')"><div class="sect"><i class="ti ti-robot"></i> Agents</div><span style="font-size:1.2rem;font-weight:600">3</span><span style="font-size:.66rem;color:var(--muted-foreground)"> running</span><br><span class="pill warn" style="margin-top:.3rem">1 awaiting review</span></div>
+        </div>
+        <span style="font-size:.92rem;font-weight:600">Since you left · Tuesday 18:40</span>
+        <div class="dgroup">
+          <div class="gh"><i class="ti ti-video"></i> Meetings</div>
+          <div class="drow clk" onclick="go('meeting')"><i class="ti ti-file-text"></i> Weekly product sync · summary ready <span class="pill ind">4 proposed tasks</span><span class="when">2h ago</span></div>
+        </div>
+        <div class="dgroup">
+          <div class="gh"><i class="ti ti-layout-kanban"></i> Workboard</div>
+          <div class="drow clk" onclick="go('plan-table')"><i class="ti ti-arrow-right"></i> 3 items moved to Completed by Priya<span class="when">today</span></div>
+          <div class="drow clk" onclick="go('feedback')"><i class="ti ti-message-2"></i> 2 new feedback votes on public portal<span class="when">today</span></div>
+        </div>
+        <div class="dgroup">
+          <div class="gh"><i class="ti ti-robot"></i> Agents</div>
+          <div class="drow clk" onclick="go('agent-run')"><i class="ti ti-check" style="color:var(--ok)"></i> Competitor pricing summary finished <span class="pill warn">awaiting review</span><span class="when">14m ago</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="screen" id="meetings">
+  <div class="shell">
+    <div class="sb" data-board="meetings" data-active="all-meetings"></div>
+    <div class="main">
+      <div class="top"><b>Meeting board</b><span class="grow"></span><span class="cmdk"><i class="ti ti-search"></i> Cmd+K</span><i class="ti ti-bell clk" onclick="go('queue')"></i></div>
+      <div class="body">
+        <div style="display:flex;gap:.5rem;align-items:center">
+          <span style="font-size:.92rem;font-weight:600;flex:1">All meetings</span>
+          <span class="btn sm"><i class="ti ti-microphone"></i> Record live</span>
+          <span class="btn pri sm"><i class="ti ti-upload"></i> Upload recording</span>
+        </div>
+        <div class="filters">
+          <span class="fchip"><i class="ti ti-calendar"></i> Date: all</span>
+          <span class="fchip"><i class="ti ti-user"></i> Participant: all</span>
+          <span class="fchip"><i class="ti ti-loader"></i> Status: all</span>
+        </div>
+        <table>
+          <tr><th>Meeting</th><th>Date</th><th>Length</th><th>Participants</th><th>Tasks created</th><th>Status</th></tr>
+          <tr class="clk" onclick="go('meeting')"><td style="font-weight:500">Weekly product sync</td><td>Today 11:00</td><td>42 min</td><td><span class="avx">PK</span> <span class="avx">AR</span> <span class="avx">HN</span></td><td><span class="pill ind">4 proposed</span></td><td><span class="pill ok">Summarized</span></td></tr>
+          <tr class="clk" onclick="go('meeting')"><td style="font-weight:500">Supplier call — Chennai</td><td>Today 09:30</td><td>28 min</td><td><span class="avx">PK</span> <span class="avx">HN</span></td><td><span class="pill mut">3 accepted</span></td><td><span class="pill ok">Summarized</span></td></tr>
+          <tr><td style="font-weight:500">Design review</td><td>Yesterday</td><td>51 min</td><td><span class="avx">AR</span> <span class="avx">SN</span></td><td><span class="pill mut">—</span></td><td><span class="pill warn"><i class="ti ti-loader"></i> Transcribing · 71%</span></td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="screen" id="meeting">
+  <div class="shell">
+    <div class="sb" data-board="meetings" data-active="all-meetings"></div>
+    <div class="main">
+      <div class="top"><span class="clk" onclick="go('meetings')">Meeting board</span> / <b>Weekly product sync</b><span class="grow"></span><span class="cmdk"><i class="ti ti-search"></i> Cmd+K</span><i class="ti ti-bell clk" onclick="go('queue')"></i></div>
+      <div class="body">
+        <div style="display:flex;align-items:center;gap:.6rem">
+          <span style="font-size:.92rem;font-weight:600">Weekly product sync</span>
+          <span class="pill mut">42 min</span><span class="avx">PK</span><span class="avx" style="margin-left:-8px">AR</span><span class="avx" style="margin-left:-8px">HN</span>
+          <span style="flex:1"></span>
+          <div class="views"><span class="on">Summary</span><span onclick="toast('Transcript tab — shown below at wireframe fidelity')">Transcript</span><span class="clk" onclick="go('proposals')">Action items</span><span onclick="toast('Ask tab — panel shown right')">Ask</span></div>
+        </div>
+        <div class="player">
+          <i class="ti ti-player-play" style="font-size:1rem"></i>
+          <span style="font-family:var(--font-mono);font-size:.66rem;color:var(--muted-foreground)">14:32</span>
+          <span class="ptrack"><i></i><s style="left:34%"></s><s style="left:50%"></s><s style="left:68%"></s></span>
+          <span style="font-family:var(--font-mono);font-size:.66rem;color:var(--muted-foreground)">42:10</span>
+          <span class="pill mut">1.5×</span>
+        </div>
+        <div class="banner clk" onclick="go('proposals')">
+          <i class="ti ti-sparkles" style="color:var(--primary);font-size:1.05rem"></i>
+          <span style="flex:1;font-size:.78rem"><b style="font-weight:500;color:var(--accent-foreground)">4 proposed tasks from this meeting</b><br><span style="font-size:.7rem;color:var(--muted-foreground)">2 auto-assigned · 2 need triage</span></span>
+          <span class="btn pri sm">Review</span>
+        </div>
+        <div style="display:flex;gap:.75rem;flex:1;min-height:0">
+          <div style="flex:1.5;display:flex;flex-direction:column;gap:.6rem;min-width:0">
+            <div class="card-x">
+              <div class="sect">Summary</div>
+              <p style="font-size:.76rem">Q3 packaging supplier shortlist narrowed to Chennai vendor. Pricing sheet must be refreshed before Q3 planning. Launch readiness review scheduled once contract closes.</p>
+              <div class="sect" style="margin-top:.6rem">Decisions</div>
+              <div style="font-size:.74rem">· Move to the Chennai supplier for Q3 packaging</div>
+              <div style="font-size:.74rem">· Hold pricing until the new sheet is reviewed</div>
+            </div>
+            <div class="card-x" style="flex:1">
+              <div class="sect">Transcript <span class="pill mut" style="margin-left:.3rem">searchable</span></div>
+              <div style="display:flex;gap:.5rem;font-size:.73rem;align-items:baseline"><span class="pill ind clk" style="font-family:var(--font-mono)" onclick="toast('Player jumps to 14:32')">14:32</span><b style="font-weight:500">Priya</b><span style="color:var(--muted-foreground)">…I'll chase the supplier on the MOQ question this week…</span></div>
+              <div style="display:flex;gap:.5rem;font-size:.73rem;align-items:baseline;margin-top:.35rem"><span class="pill ind clk" style="font-family:var(--font-mono)" onclick="toast('Player jumps to 21:08')">21:08</span><b style="font-weight:500">Arjun</b><span style="color:var(--muted-foreground)">…the pricing sheet needs updating before Q3 planning…</span></div>
+            </div>
+          </div>
+          <div class="card-x" style="width:300px;flex-shrink:0;display:flex;flex-direction:column">
+            <div class="sect"><i class="ti ti-message"></i> Ask this meeting</div>
+            <div class="chat">
+              <div class="msg user">What did we decide about pricing?</div>
+              <div class="msg ai">Pricing is on hold until the new sheet is reviewed — Arjun owns the update before Q3 planning. <span class="pill ind clk" onclick="toast('Player jumps to 21:08')"><i class="ti ti-link"></i> 21:08</span></div>
+            </div>
+            <input type="text" placeholder="Ask anything about this meeting…" style="width:100%;margin-top:.5rem">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="screen" id="proposals">
+  <div class="shell">
+    <div class="sb" data-board="meetings" data-active="all-meetings"></div>
+    <div class="main">
+      <div class="top"><span class="clk" onclick="go('meetings')">Meeting board</span> / <span class="clk" onclick="go('meeting')">Weekly product sync</span> / <b>Proposed tasks</b><span class="grow"></span><span class="cmdk"><i class="ti ti-search"></i> Cmd+K</span></div>
+      <div class="body">
+        <span style="font-size:.85rem;color:var(--muted-foreground)">Accepting creates a work item in the Workboard — one record, shown in both places.</span>
+        <div class="prop">
+          <i class="ti ti-sparkles" style="color:var(--primary)"></i>
+          <span style="flex:1"><span class="t">Follow up with Chennai supplier on MOQ</span>
+            <span class="meta"><span class="avx">PK</span><span style="font-size:.68rem">Priya</span><span class="pill ok">92% match</span><span class="pill ind clk" onclick="go('meeting')"><i class="ti ti-link"></i> 14:32</span><span class="pill mut">type: task</span><span class="pill mut">priority: high</span></span>
+          </span>
+          <span class="acts"><span class="iconbtn yes" onclick="toast('Accepted — work item created in Workboard');this.closest('.prop').style.opacity=.45"><i class="ti ti-check"></i></span><span class="iconbtn"><i class="ti ti-edit"></i></span><span class="iconbtn no"><i class="ti ti-x"></i></span></span>
+        </div>
+        <div class="prop">
+          <i class="ti ti-sparkles" style="color:var(--primary)"></i>
+          <span style="flex:1"><span class="t">Update pricing sheet for Q3</span>
+            <span class="meta"><span class="avx">AR</span><span style="font-size:.68rem">Arjun</span><span class="pill ok">81% match</span><span class="pill ind clk" onclick="go('meeting')"><i class="ti ti-link"></i> 21:08</span><span class="pill mut">type: feature</span><span class="pill mut">priority: medium</span></span>
+          </span>
+          <span class="acts"><span class="iconbtn yes" onclick="toast('Accepted — work item created in Workboard');this.closest('.prop').style.opacity=.45"><i class="ti ti-check"></i></span><span class="iconbtn"><i class="ti ti-edit"></i></span><span class="iconbtn no"><i class="ti ti-x"></i></span></span>
+        </div>
+        <div class="prop low">
+          <i class="ti ti-sparkles" style="color:var(--primary)"></i>
+          <span style="flex:1"><span class="t">Review new packaging vendor shortlist</span>
+            <span class="meta"><span class="pill warn">Unassigned — needs triage</span><span class="pill ind clk" onclick="go('meeting')"><i class="ti ti-link"></i> 28:51</span></span>
+          </span>
+          <span class="acts"><span class="iconbtn"><i class="ti ti-user-plus"></i></span><span class="iconbtn no"><i class="ti ti-x"></i></span></span>
+        </div>
+        <div style="display:flex;gap:.5rem">
+          <span class="btn pri sm clk" onclick="toast('2 work items created');go('plan-table')"><i class="ti ti-checks"></i> Accept all high-confidence</span>
+          <span class="btn sm clk" onclick="go('plan-table')">Open Workboard</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="screen" id="plan-table">
+  <div class="shell">
+    <div class="sb" data-board="workboard" data-active="work-items"></div>
+    <div class="main">
+      <div class="top"><b>Workboard</b> / Work items<span class="grow"></span><span class="cmdk"><i class="ti ti-search"></i> Cmd+K</span><i class="ti ti-bell clk" onclick="go('queue')"></i></div>
+      <div class="body">
+        <div style="display:flex;align-items:center;gap:.7rem">
+          <div class="views"><span class="on">Table</span><span class="clk" onclick="go('plan-kanban')">Kanban</span><span onclick="toast('Timeline not in prototype')">Timeline</span><span class="clk" onclick="go('plan-graph')">Graph</span></div>
+          <span style="flex:1"></span>
+          <span class="btn pri sm"><i class="ti ti-plus"></i> New item</span>
+        </div>
+        <div class="filters">
+          <span class="pill" style="background:var(--primary);color:var(--primary-foreground)">All projects</span>
+          <span class="pill mut clk" onclick="toast('Filtered to v2.0 release — its items, milestones and ship date')"><i class="ti ti-code"></i> v2.0 release</span>
+          <span class="pill mut clk" onclick="go('project')"><i class="ti ti-handshake"></i> Q3 sourcing</span>
+          <span class="pill mut clk" onclick="toast('Filtered to Diwali campaign — the marketing project')"><i class="ti ti-speakerphone"></i> Diwali campaign</span>
+          <span class="pill mut clk" onclick="toast('Create a project: name, kind, playbook, target date')"><i class="ti ti-plus"></i></span>
+        </div>
+        <div class="filters">
+          <span class="fchip"><i class="ti ti-filter"></i> Type: all</span>
+          <span class="fchip"><i class="ti ti-user"></i> Owner: all</span>
+          <span class="fchip"><i class="ti ti-building"></i> Department: all</span>
+          <span class="fchip"><i class="ti ti-flag"></i> Status: all</span>
+          <span class="fchip"><i class="ti ti-stack-2"></i> Group by: status</span>
+          <span class="pill mut" style="margin-left:auto">2 selected · <b class="clk" style="font-weight:500" onclick="toast('Bulk: change status / owner / priority')">bulk actions</b></span>
+        </div>
+        <table>
+          <tr><th></th><th>Name</th><th>Type</th><th>Status</th><th>Priority</th><th>Owner</th><th>Due</th><th>Tags</th><th>Source</th></tr>
+          <tr class="clk" onclick="go('item')"><td><i class="ti ti-square-check" style="color:var(--primary)"></i></td><td style="font-weight:500">Negotiate packaging contract</td><td><span class="pill mut">feature</span></td><td><span class="pill warn">On hold</span></td><td><span class="pill bad">critical</span></td><td><span class="avx">HN</span></td><td>Jun 20</td><td><span class="pill mut">supplier</span></td><td><span class="pill ind"><i class="ti ti-video"></i></span></td></tr>
+          <tr class="clk" onclick="go('item')"><td><i class="ti ti-square-check" style="color:var(--primary)"></i></td><td style="font-weight:500">Update pricing sheet for Q3 <span class="pill warn" style="margin-left:.3rem"><i class="ti ti-lock"></i> restricted</span></td><td><span class="pill mut">feature</span></td><td><span class="pill ind">In progress</span></td><td><span class="pill warn">high</span></td><td><span class="avx">AR</span></td><td>Jun 16</td><td><span class="pill mut">pricing</span></td><td><span class="pill ind"><i class="ti ti-video"></i></span></td></tr>
+          <tr class="clk" onclick="go('item')"><td><i class="ti ti-square"></i></td><td style="font-weight:500">Follow up with Chennai supplier on MOQ</td><td><span class="pill mut">task</span></td><td><span class="pill ok">Completed</span></td><td><span class="pill warn">high</span></td><td><span class="avx">PK</span></td><td>—</td><td><span class="pill mut">supplier</span></td><td><span class="pill ind"><i class="ti ti-video"></i></span></td></tr>
+          <tr class="clk" onclick="go('item')"><td><i class="ti ti-square"></i></td><td style="font-weight:500">Q3 launch readiness review</td><td><span class="pill mut">feature</span></td><td><span class="pill mut">Planned</span></td><td><span class="pill mut">medium</span></td><td><span style="font-size:.68rem;color:var(--muted-foreground)">Unassigned</span></td><td>Jul 02</td><td><span class="pill mut">launch</span></td><td><span class="pill mut"><i class="ti ti-user"></i></span></td></tr>
+          <tr class="clk" onclick="go('item')"><td><i class="ti ti-square"></i></td><td style="font-weight:500">Export reports to PDF</td><td><span class="pill mut">enhancement</span></td><td><span class="pill mut">Planned</span></td><td><span class="pill mut">low</span></td><td><span class="avx">SN</span></td><td>—</td><td><span class="pill mut">reports</span></td><td><span class="pill ind"><i class="ti ti-message-2"></i></span></td></tr>
+        </table>
+        <span style="font-size:.68rem;color:var(--muted-foreground)">Source: <i class="ti ti-video"></i> meeting · <i class="ti ti-robot"></i> agent · <i class="ti ti-message-2"></i> feedback · <i class="ti ti-user"></i> manual — inline edit any cell, select rows for bulk actions</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="screen" id="plan-kanban">
+  <div class="shell">
+    <div class="sb" data-board="workboard" data-active="work-items"></div>
+    <div class="main">
+      <div class="top"><b>Workboard</b> / Work items<span class="grow"></span><span class="cmdk"><i class="ti ti-search"></i> Cmd+K</span><i class="ti ti-bell clk" onclick="go('queue')"></i></div>
+      <div class="body">
+        <div style="display:flex;align-items:center;gap:.7rem">
+          <div class="views"><span class="clk" onclick="go('plan-table')">Table</span><span class="on">Kanban</span><span onclick="toast('Timeline not in prototype')">Timeline</span><span class="clk" onclick="go('plan-graph')">Graph</span></div>
+          <span style="flex:1"></span>
+          <span class="btn pri sm"><i class="ti ti-plus"></i> New item</span>
+        </div>
+        <div class="filters">
+          <span class="pill" style="background:var(--primary);color:var(--primary-foreground)">All projects</span>
+          <span class="pill mut clk" onclick="toast('Filtered to v2.0 release project')"><i class="ti ti-code"></i> v2.0 release</span>
+          <span class="pill mut clk" onclick="toast('Filtered to Q3 sourcing project')"><i class="ti ti-handshake"></i> Q3 sourcing</span>
+          <span class="pill mut clk" onclick="toast('Filtered to Diwali campaign project')"><i class="ti ti-speakerphone"></i> Diwali campaign</span>
+        </div>
+        <div class="filters">
+          <span class="fchip"><i class="ti ti-filter"></i> Type: all</span>
+          <span class="fchip"><i class="ti ti-user"></i> Owner: all</span>
+          <span class="fchip"><i class="ti ti-building"></i> Department: all</span>
+        </div>
+        <div class="kan">
+          <div class="kcol">
+            <div class="kh"><span class="pill mut">Planned</span><span class="count">2</span></div>
+            <div class="kcard" onclick="go('item')"><span class="t">Q3 launch readiness review</span><span class="m"><span class="seg"><i class="f"></i><i></i><i></i><i></i></span><span class="pill mut">medium</span><span style="font-size:.62rem;color:var(--muted-foreground)">Jul 02</span></span></div>
+            <div class="kcard" onclick="go('item')"><span class="t">Export reports to PDF</span><span class="m"><span class="seg"><i class="f"></i><i></i><i></i><i></i></span><span class="pill mut">low</span><span class="avx">SN</span><span class="pill ind"><i class="ti ti-message-2"></i></span></span></div>
+          </div>
+          <div class="kcol">
+            <div class="kh"><span class="pill ind">In progress</span><span class="count">1</span></div>
+            <div class="kcard" onclick="go('item')"><span class="t">Update pricing sheet for Q3</span><span class="m"><span class="seg"><i class="f"></i><i class="f"></i><i></i><i></i></span><span class="pill warn">high</span><span class="avx">AR</span><span class="pill ind"><i class="ti ti-video"></i></span></span></div>
+          </div>
+          <div class="kcol">
+            <div class="kh"><span class="pill warn">On hold</span><span class="count">1</span></div>
+            <div class="kcard" onclick="go('item')"><span class="t">Negotiate packaging contract</span><span class="m"><span class="seg"><i class="f"></i><i class="f"></i><i></i><i></i></span><span class="pill bad">critical</span><span class="avx">HN</span><span class="pill ind"><i class="ti ti-message-circle"></i> 2</span></span></div>
+          </div>
+          <div class="kcol">
+            <div class="kh"><span class="pill ok">Completed</span><span class="count">1</span></div>
+            <div class="kcard" onclick="go('item')"><span class="t">Follow up with Chennai supplier on MOQ</span><span class="m"><span class="seg"><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i></span><span class="pill warn">high</span><span class="avx">PK</span></span></div>
+          </div>
+        </div>
+        <span style="font-size:.68rem;color:var(--muted-foreground)">Drag a card between columns to change status — same record, instantly true in every view</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="screen" id="plan-graph">
+  <div class="shell">
+    <div class="sb" data-board="workboard" data-active="work-items"></div>
+    <div class="main">
+      <div class="top"><b>Workboard</b> / Work items<span class="grow"></span><span class="cmdk"><i class="ti ti-search"></i> Cmd+K</span><i class="ti ti-bell clk" onclick="go('queue')"></i></div>
+      <div class="body">
+        <div style="display:flex;align-items:center;gap:.7rem">
+          <div class="views"><span class="clk" onclick="go('plan-table')">Table</span><span class="clk" onclick="go('plan-kanban')">Kanban</span><span onclick="toast('Timeline not in prototype')">Timeline</span><span class="on">Graph</span></div>
+          <span style="flex:1"></span>
+          <span class="btn sm" onclick="toast('Auto-arranged by dependency order — layout only, no data changed')"><i class="ti ti-wand"></i> Auto-arrange</span>
+          <span class="btn pri sm"><i class="ti ti-plus"></i> New item</span>
+        </div>
+        <div class="filters">
+          <span class="pill" style="background:var(--primary);color:var(--primary-foreground)">All projects</span>
+          <span class="pill mut clk" onclick="toast('Graph filtered to v2.0 release — cross-project dependencies stay visible as dashed edges')"><i class="ti ti-code"></i> v2.0 release</span>
+          <span class="pill mut clk" onclick="toast('Graph filtered to Q3 sourcing')"><i class="ti ti-handshake"></i> Q3 sourcing</span>
+          <span class="fchip" style="margin-left:auto"><i class="ti ti-stack-2"></i> Arrange by: dependencies</span>
+        </div>
+        <div class="canvas">
+          <svg style="position:absolute;inset:0;width:100%;height:100%" aria-hidden="true">
+            <defs><marker id="arr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="oklch(0.6 0.05 267)"/></marker></defs>
+            <path d="M 192 86 C 240 86 240 70 280 70" stroke="oklch(0.6 0.05 267)" stroke-width="1.5" fill="none" marker-end="url(#arr)"/>
+            <path d="M 192 104 C 250 104 250 196 294 196" stroke="oklch(0.6 0.05 267)" stroke-width="1.5" fill="none" marker-end="url(#arr)"/>
+            <path d="M 442 80 C 496 80 496 112 536 112" stroke="oklch(0.6 0.05 267)" stroke-width="1.5" fill="none" marker-end="url(#arr)"/>
+            <path d="M 454 214 C 506 214 506 136 536 126" stroke="oklch(0.6 0.05 267)" stroke-width="1.5" fill="none" stroke-dasharray="4 3" marker-end="url(#arr)"/>
+          </svg>
+          <div class="node" style="left:26px;top:60px" onclick="go('item')"><span class="nt"><i class="dot" style="background:var(--ok)"></i>Follow up with Chennai supplier on MOQ</span><span class="nm"><span class="avx">PK</span> Completed</span></div>
+          <div class="node" style="left:282px;top:42px" onclick="go('item')"><span class="nt"><i class="dot" style="background:var(--primary)"></i>Update pricing sheet for Q3</span><span class="nm"><span class="avx">AR</span> In progress</span></div>
+          <div class="node" style="left:296px;top:168px" onclick="go('item')"><span class="nt"><i class="dot" style="background:var(--destructive)"></i>Negotiate packaging contract</span><span class="nm"><span class="avx">HN</span> On hold · <i class="ti ti-message-circle"></i> 2</span></div>
+          <div class="node" style="left:538px;top:88px" onclick="go('item')"><span class="nt"><i class="dot" style="background:color-mix(in oklab,var(--muted-foreground) 55%,transparent)"></i>Q3 launch readiness review</span><span class="nm">Unassigned · Planned</span></div>
+        </div>
+        <span style="font-size:.68rem;color:var(--muted-foreground)">Click a node to open the same editor as the table row · drag between nodes to create a dependency (not in prototype) · dashed edge = cross-project dependency</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="screen" id="feedback">
+  <div class="shell">
+    <div class="sb" data-board="workboard" data-active="feedback"></div>
+    <div class="main">
+      <div class="top"><b>Workboard</b> / Feedback<span class="grow"></span><span class="cmdk"><i class="ti ti-search"></i> Cmd+K</span></div>
+      <div class="body">
+        <div style="display:flex;align-items:center;gap:.6rem">
+          <span style="font-size:.92rem;font-weight:600;flex:1">Feedback intake</span>
+          <span class="pill mut">public portal + voting enabled</span>
+          <span class="btn sm"><i class="ti ti-external-link"></i> Open public portal</span>
+        </div>
+        <div class="filters">
+          <span class="fchip"><i class="ti ti-arrow-big-up"></i> Sort: most votes</span>
+          <span class="fchip"><i class="ti ti-filter"></i> Status: open</span>
+        </div>
+        <div class="prop">
+          <i class="ti ti-message-2" style="color:var(--primary)"></i>
+          <span style="flex:1"><span class="t">Export reports to PDF</span>
+            <span class="meta"><span class="pill ind"><i class="ti ti-arrow-big-up"></i> 14 votes</span><span class="pill mut">via public portal</span><span class="pill ok">converted</span></span>
+          </span>
+          <span class="acts"><span class="btn sm clk" onclick="go('item')">View work item</span></span>
+        </div>
+        <div class="prop">
+          <i class="ti ti-message-2" style="color:var(--primary)"></i>
+          <span style="flex:1"><span class="t">Mobile app for field teams</span>
+            <span class="meta"><span class="pill ind"><i class="ti ti-arrow-big-up"></i> 9 votes</span><span class="pill mut">via public portal</span></span>
+          </span>
+          <span class="acts"><span class="btn pri sm" onclick="toast('Converted — work item created with feedback provenance')">Convert to work item</span><span class="iconbtn no"><i class="ti ti-x"></i></span></span>
+        </div>
+        <div class="prop">
+          <i class="ti ti-message-2" style="color:var(--primary)"></i>
+          <span style="flex:1"><span class="t">Slack notifications on status change</span>
+            <span class="meta"><span class="pill ind"><i class="ti ti-arrow-big-up"></i> 5 votes</span><span class="pill mut">via widget</span></span>
+          </span>
+          <span class="acts"><span class="btn pri sm" onclick="toast('Converted — work item created with feedback provenance')">Convert to work item</span><span class="iconbtn no"><i class="ti ti-x"></i></span></span>
+        </div>
+        <span style="font-size:.68rem;color:var(--muted-foreground)">Feedback is intake for the Workboard — converting creates a work item with feedback provenance, the same way meetings and agents do</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="screen" id="item">
+  <div class="shell">
+    <div class="sb" data-board="workboard" data-active="work-items"></div>
+    <div class="main">
+      <div class="top"><span class="clk" onclick="go('plan-table')">Workboard</span> / <b>Negotiate packaging contract</b><span class="grow"></span><span class="cmdk"><i class="ti ti-search"></i> Cmd+K</span></div>
+      <div class="body" style="flex-direction:row;gap:1rem">
+        <div style="flex:1.4;display:flex;flex-direction:column;gap:.7rem;min-width:0">
+          <span style="font-size:.95rem;font-weight:600">Negotiate packaging contract <span class="seg" style="margin-left:.4rem"><i class="f"></i><i class="f"></i><i></i><i></i></span> <span style="font-size:.66rem;color:var(--muted-foreground);font-weight:400">Execute</span> <span class="pill bad" style="font-weight:400"><i class="ti ti-alert-triangle"></i> at risk · derived</span></span>
+          <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+            <span class="pill mut"><i class="ti ti-checkbox"></i> 2 tasks</span>
+            <span class="pill mut"><i class="ti ti-video"></i> 2 meetings</span>
+            <span class="pill mut"><i class="ti ti-robot"></i> 1 agent thread</span>
+            <span class="pill mut"><i class="ti ti-bulb"></i> 2 insights</span>
+            <span class="pill mut"><i class="ti ti-message-2"></i> 3 feedback</span>
+          </div>
+          <div class="card-x">
+            <div class="sect">Description</div>
+            <p style="font-size:.78rem">Close the Q3 packaging contract with the Chennai supplier once MOQ is confirmed.</p>
+          </div>
+          <div class="card-x">
+            <div class="sect">Evidence — insights &amp; inspiration (3)</div>
+            <div style="display:flex;gap:.5rem;font-size:.74rem;align-items:center"><i class="ti ti-bulb" style="color:var(--primary)"></i> Chennai suppliers 18% cheaper at equal MOQ <span class="pill ind clk" onclick="go('agent-run')"><i class="ti ti-robot"></i> agent · 12 sources</span><span class="pill mut">relevance 9/10</span></div>
+            <div style="display:flex;gap:.5rem;font-size:.74rem;align-items:center;margin-top:.35rem"><i class="ti ti-bulb" style="color:var(--primary)"></i> "Packaging costs are killing our margin" <span class="pill mut">interview</span><span class="pill mut">relevance 8/10</span></div>
+            <div style="display:flex;gap:.5rem;font-size:.74rem;align-items:center;margin-top:.35rem"><i class="ti ti-external-link" style="color:var(--muted-foreground)"></i> Competitor packaging teardown <span class="pill mut">inspiration · reference</span></div>
+            <div style="display:flex;gap:.4rem;margin-top:.5rem">
+              <span class="btn sm clk" onclick="go('research')"><i class="ti ti-link"></i> Link insight</span>
+              <span class="btn sm clk" onclick="toast('Agent research run launched for this item')"><i class="ti ti-robot"></i> Launch research run</span>
+            </div>
+          </div>
+          <div class="card-x">
+            <div class="sect">Connected (1) <span class="pill mut" style="margin-left:.3rem">live · via connectors</span></div>
+            <div style="display:flex;gap:.5rem;font-size:.74rem;align-items:center"><i class="ti ti-plug" style="color:var(--primary)"></i> ERP purchase order PO-1042 <span class="pill warn">awaiting supplier</span><span class="pill mut">updated 20m ago</span></div>
+            <span style="font-size:.64rem;color:var(--muted-foreground);display:block;margin-top:.4rem">Bindings follow the project kind: tech items show GitHub PRs and checks; marketing items show live ad-campaign cards.</span>
+          </div>
+          <div class="card-x">
+            <div class="sect">Plan — milestones · risks · prerequisites</div>
+            <div style="display:flex;gap:.5rem;font-size:.74rem;align-items:center"><i class="ti ti-flag" style="color:var(--ok)"></i> Milestone: contract signed <span class="pill mut">target Jun 20</span><span class="pill warn">at risk</span></div>
+            <div style="display:flex;gap:.5rem;font-size:.74rem;align-items:center;margin-top:.35rem"><i class="ti ti-alert-triangle" style="color:var(--destructive)"></i> Risk: supplier delays response <span class="pill bad">high · likely</span></div>
+            <div style="display:flex;gap:.5rem;font-size:.74rem;align-items:center;margin-top:.35rem"><i class="ti ti-lock" style="color:var(--muted-foreground)"></i> Prerequisite: MOQ confirmed in writing <span class="pill ok">completed</span></div>
+          </div>
+          <div class="card-x">
+            <div class="sect">Linked tasks (2)</div>
+            <div style="display:flex;gap:.5rem;font-size:.76rem;align-items:center"><i class="ti ti-square-check" style="color:var(--ok)"></i> Get MOQ confirmation in writing <span class="pill mut">done</span></div>
+            <div style="display:flex;gap:.5rem;font-size:.76rem;align-items:center;margin-top:.35rem"><i class="ti ti-square" style="color:var(--muted-foreground)"></i> Legal review of contract draft <span class="pill ind">in progress</span></div>
+            <span class="btn sm" style="margin-top:.5rem"><i class="ti ti-plus"></i> Add task</span>
+          </div>
+          <div class="card-x">
+            <div class="sect">Meetings (2)</div>
+            <div style="display:flex;gap:.5rem;font-size:.74rem;align-items:center"><i class="ti ti-video" style="color:var(--primary)"></i> <span class="clk" onclick="go('meeting')">Weekly product sync</span> <span class="pill ind">created this item · 28:51</span></div>
+            <div style="display:flex;gap:.5rem;font-size:.74rem;align-items:center;margin-top:.35rem"><i class="ti ti-video" style="color:var(--primary)"></i> <span class="clk" onclick="go('meetings')">Supplier call — Chennai</span> <span class="pill mut">discussed · 2 segments</span></div>
+          </div>
+          <div class="card-x">
+            <div class="sect">Agent conversations (1)</div>
+            <div style="display:flex;gap:.5rem;font-size:.74rem;align-items:center"><i class="ti ti-robot" style="color:var(--primary)"></i> <span class="clk" onclick="go('agent-run')">Research alternative packaging suppliers</span> <span class="pill ok">finished · 12 sources</span><span class="pill mut">for Harsha</span></div>
+            <span class="btn sm clk" style="margin-top:.5rem" onclick="toast('Agent thread opened — linked to: Negotiate packaging contract')"><i class="ti ti-sparkles"></i> Ask about this item</span>
+          </div>
+          <div class="card-x">
+            <div class="sect">Comments (2)</div>
+            <div style="display:flex;gap:.5rem;font-size:.74rem"><span class="avx">PK</span><span><b style="font-weight:500">Priya</b> · 2m — Waiting on supplier reply, escalating Friday.</span></div>
+            <div style="display:flex;gap:.5rem;font-size:.74rem;margin-top:.4rem"><span class="avx">HN</span><span><b style="font-weight:500">Harsha</b> · 1d — Contract draft attached to canvas.</span></div>
+            <input type="text" placeholder="Comment — visible in every view…" style="width:100%;margin-top:.5rem">
+          </div>
+        </div>
+        <div style="width:230px;flex-shrink:0">
+          <div class="card-x">
+            <div class="field"><span class="k">Type</span><select><option>feature</option><option>task</option><option>bug</option><option>enhancement</option></select></div>
+            <div class="field"><span class="k">Health</span><span class="pill bad"><i class="ti ti-alert-triangle"></i> at risk</span><span style="font-size:.6rem;color:var(--muted-foreground)" class="clk" onclick="toast('Derived from tasks, dependencies, due dates — never set by hand')">derived · why?</span></div>
+            <div class="field"><span class="k">Priority</span><select><option>critical</option><option>high</option><option>medium</option><option>low</option></select></div>
+            <div class="field"><span class="k">Owner</span><span class="avx">HN</span><span style="font-size:.74rem">Harsha</span></div>
+            <div class="field"><span class="k">Due</span><span style="font-size:.74rem">Jun 20</span></div>
+            <div class="field"><span class="k">Department</span><span class="pill mut">Sourcing</span></div>
+            <div class="field"><span class="k">Strategy</span><span class="pill ind clk" onclick="go('strategy')"><i class="ti ti-target"></i> Cut Q3 packaging cost</span></div>
+            <div class="field"><span class="k">Also aligns</span><span class="pill mut clk" onclick="go('strategy')">Operational efficiency · strong</span></div>
+            <div class="field"><span class="k">Tags</span><span class="pill mut">supplier</span><span class="pill mut">q3</span></div>
+            <div class="field"><span class="k">Project</span><span class="pill ind clk" onclick="go('project')"><i class="ti ti-handshake"></i> Q3 sourcing</span></div>
+            <div class="field"><span class="k">Phase</span><span class="pill ind">Execute</span><span style="font-size:.66rem;color:var(--muted-foreground)">plan → execute → review → done</span></div>
+            <div class="field"><span class="k">Source</span><span class="pill ind clk" onclick="go('meeting')"><i class="ti ti-video"></i> Weekly sync 28:51</span></div>
+            <div class="field"><span class="k">Visibility</span><span class="pill mut">workspace</span><span style="font-size:.62rem;color:var(--muted-foreground)" class="clk" onclick="toast('workspace · department · restricted (named people)')">change</span></div>
+            <div class="field"><span class="k">Depends on</span><span class="pill mut clk" onclick="go('plan-graph')">1 item · view graph</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="screen" id="docs">
+  <div class="shell">
+    <div class="sb" data-board="canvas" data-active="all-canvases"></div>
+    <div class="main">
+      <div class="top"><b>Canvas board</b><span class="grow"></span><span class="cmdk"><i class="ti ti-search"></i> Cmd+K</span></div>
+      <div class="body">
+        <div style="display:flex;align-items:center;gap:.7rem"><span style="font-size:.92rem;font-weight:600;flex:1">All canvases</span><span class="btn pri sm"><i class="ti ti-plus"></i> New canvas</span></div>
+        <div class="filters">
+          <span class="fchip"><i class="ti ti-filter"></i> Kind: all</span>
+          <span class="fchip"><i class="ti ti-clock"></i> Sort: recent</span>
+        </div>
+        <div class="gridcards">
+          <div class="gcard" onclick="go('canvas-edit')"><span class="gi"><i class="ti ti-artboard"></i></span><span class="t">Q3 planning canvas</span><br><span class="s">board · edited 1h ago · <span class="avx">PK</span> editing now</span></div>
+          <div class="gcard" onclick="toast('Doc mode editor — not in prototype')"><span class="gi"><i class="ti ti-file-text"></i></span><span class="t">Q3 strategy notes</span><br><span class="s">doc · edited yesterday</span></div>
+          <div class="gcard" onclick="toast('Doc mode editor — not in prototype')"><span class="gi"><i class="ti ti-file-text"></i></span><span class="t">Supplier evaluation criteria</span><br><span class="s">doc · edited 3d ago</span></div>
+          <div class="gcard" onclick="go('canvas-edit')"><span class="gi"><i class="ti ti-artboard"></i></span><span class="t">Launch war room</span><br><span class="s">board · edited 5d ago</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="screen" id="canvas-edit">
+  <div class="shell">
+    <div class="sb" data-board="canvas" data-active="all-canvases"></div>
+    <div class="main">
+      <div class="top"><span class="clk" onclick="go('docs')">Canvas board</span> / <b>Q3 planning canvas</b><span class="grow"></span><span style="display:flex"><span class="avx">PK</span><span class="avx" style="margin-left:-6px">HN</span></span><span class="pill ok">live</span><span class="cmdk"><i class="ti ti-search"></i> Cmd+K</span></div>
+      <div class="body">
+        <div style="display:flex;align-items:center;gap:.7rem">
+          <div class="views"><span onclick="toast('Doc mode — rich text editing')">Doc</span><span class="on">Board</span></div>
+          <span style="flex:1"></span>
+          <span class="btn sm"><i class="ti ti-history"></i> History</span>
+          <span class="btn sm"><i class="ti ti-plus"></i> Insert block</span>
+          <span class="btn sm"><i class="ti ti-share"></i> Share</span>
+        </div>
+        <div class="canvas">
+          <div class="node" style="left:30px;top:40px;width:190px" onclick="toast('Opens the doc inline')"><span class="nt"><i class="ti ti-file-text" style="color:var(--primary)"></i>Q3 strategy notes</span><span class="nm">doc · live</span></div>
+          <div class="node" style="left:260px;top:120px" onclick="go('item')"><span class="nt"><i class="dot" style="background:var(--destructive)"></i>Negotiate packaging contract</span><span class="nm">work item · live reference</span></div>
+          <div class="node" style="left:60px;top:210px;width:190px" onclick="go('meeting')"><span class="nt"><i class="ti ti-video" style="color:var(--primary)"></i>Weekly sync summary</span><span class="nm">meeting · live reference</span></div>
+          <div class="node" style="left:300px;top:280px;width:160px"><span class="nt"><i class="ti ti-bulb" style="color:var(--warn)"></i>Sticky: ask legal re exclusivity</span><span class="nm">note · PK</span></div>
+        </div>
+        <span style="font-size:.68rem;color:var(--muted-foreground)">Freeform canvas — work items, meetings and docs are live references to the one record; layout is the only thing stored here. Two people editing now.</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="screen" id="agents">
+  <div class="shell">
+    <div class="sb" data-board="agents" data-active="runs"></div>
+    <div class="main">
+      <div class="top"><b>Agent board</b> / Runs<span class="grow"></span><span class="cmdk"><i class="ti ti-search"></i> Cmd+K</span><i class="ti ti-bell clk" onclick="go('queue')"></i></div>
+      <div class="body">
+        <div style="display:flex;align-items:center;gap:.6rem"><span style="font-size:.92rem;font-weight:600;flex:1">3 sessions running</span><span class="btn pri sm"><i class="ti ti-plus"></i> New run</span></div>
+        <div class="filters">
+          <span class="fchip"><i class="ti ti-filter"></i> Status: all</span>
+          <span class="fchip"><i class="ti ti-user"></i> Started by: all</span>
+        </div>
+        <div class="run clk" onclick="go('agent-run')">
+          <span class="ric"><i class="ti ti-search"></i></span>
+          <span><span class="t">Research alternative packaging suppliers</span><br><span class="s">3 researchers in parallel · 12 sources · for Harsha</span></span>
+          <span class="right"><span class="pill ind">Running</span><span class="prog"><i style="width:64%"></i></span></span>
+        </div>
+        <div class="run clk" onclick="go('agent-run')">
+          <span class="ric"><i class="ti ti-file-text"></i></span>
+          <span><span class="t">Draft Q3 roadmap from meeting decisions</span><br><span class="s">Reading 4 meetings · drafting structure · for Harsha</span></span>
+          <span class="right"><span class="pill ind">Running</span><span class="prog"><i style="width:31%"></i></span></span>
+        </div>
+        <div class="run clk" onclick="go('agent-run')">
+          <span class="ric" style="background:var(--ok-bg);color:var(--ok)"><i class="ti ti-check"></i></span>
+          <span><span class="t">Competitor pricing summary</span><br><span class="s">Finished 14m ago · 1 artifact · ₹38 in tokens</span></span>
+          <span class="right"><span class="btn sm"><i class="ti ti-eye"></i> Review artifact</span></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="screen" id="agent-run">
+  <div class="shell">
+    <div class="sb" data-board="agents" data-active="runs"></div>
+    <div class="main">
+      <div class="top"><span class="clk" onclick="go('agents')">Agent board</span> / <b>Draft Q3 roadmap from meeting decisions</b><span class="grow"></span><span class="pill ind">Running · 31%</span><span class="pill mut">model: auto</span></div>
+      <div class="body">
+        <div style="display:flex;align-items:center;gap:.7rem">
+          <div class="views"><span class="on">Thread</span><span onclick="toast('Actions tab — full action log')">Actions</span><span onclick="toast('Artifacts tab — outputs of this run')">Artifacts</span></div>
+        </div>
+        <div style="display:flex;gap:.75rem;flex:1;min-height:0">
+          <div style="flex:1.5;display:flex;flex-direction:column;gap:.5rem;min-width:0">
+            <div class="chat" style="flex:1">
+              <div class="msg user">Draft a Q3 roadmap from the last month's meeting decisions and propose work items.</div>
+              <div class="msg ai">Plan: 1) read 4 meeting summaries → 2) cluster decisions into themes → 3) propose work items with owners. Reading meetings now. <span class="pill ind"><i class="ti ti-file-text"></i> Weekly sync</span> <span class="pill ind"><i class="ti ti-file-text"></i> Supplier call</span></div>
+              <div class="msg ai" style="max-width:100%;background:transparent;padding:0">
+                <div class="toolcard">
+                  <b style="font-weight:500;color:var(--accent-foreground)"><i class="ti ti-tool"></i> create_work_items</b> — wants to create <b style="font-weight:500">9 work items</b> in the Workboard
+                  <div style="margin-top:.3rem;color:var(--muted-foreground)">Negotiate packaging contract · Update pricing sheet · Q3 launch readiness… <span class="clk" style="text-decoration:underline" onclick="toast('Preview shows all 9 items with fields')">preview all</span></div>
+                  <div style="display:flex;gap:.4rem;margin-top:.5rem">
+                    <span class="btn pri sm" onclick="toast('Approved — 9 items created with agent provenance')">Approve</span>
+                    <span class="btn sm" onclick="toast('Denied — agent will revise')">Deny</span>
+                    <span class="pill mut" style="margin-left:auto">runs only after your approval</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <input type="text" placeholder="Reply or refine the request…" style="width:100%">
+          </div>
+          <div style="width:250px;flex-shrink:0;display:flex;flex-direction:column;gap:.6rem">
+            <div class="card-x">
+              <div class="sect">Action history</div>
+              <div class="hrow"><i class="ti ti-check" style="color:var(--ok)"></i><span>Read 4 meeting summaries<br><span style="color:var(--muted-foreground)">sources cited · 2m ago</span></span></div>
+              <div class="hrow"><i class="ti ti-check" style="color:var(--ok)"></i><span>Clustered 11 decisions into 4 themes<br><span style="color:var(--muted-foreground)">3m ago</span></span></div>
+              <div class="hrow"><i class="ti ti-loader" style="color:var(--primary)"></i><span>Drafting work item proposals<br><span style="color:var(--muted-foreground)">now</span></span></div>
+            </div>
+            <div class="card-x">
+              <div class="sect">Run info</div>
+              <div class="field"><span class="k">On behalf of</span><span class="avx">HN</span><span style="font-size:.72rem">Harsha</span></div>
+              <div class="field"><span class="k">Cost so far</span><span style="font-size:.72rem">₹21 in tokens</span></div>
+              <div class="field"><span class="k">Sources</span><span class="pill ind clk" onclick="go('meeting')">4 meetings</span></div>
+              <div class="field"><span class="k">Context</span><span class="pill ind clk" onclick="go('strategy')"><i class="ti ti-target"></i> strategy memory loaded</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="screen" id="strategy">
+  <div class="shell">
+    <div class="sb" data-board="workboard" data-active="strategy"></div>
+    <div class="main">
+      <div class="top"><b>Workboard</b> / Strategy<span class="grow"></span><span class="cmdk"><i class="ti ti-search"></i> Cmd+K</span><i class="ti ti-bell clk" onclick="go('queue')"></i></div>
+      <div class="body">
+        <div style="display:flex;align-items:center;gap:.6rem">
+          <span style="font-size:.92rem;font-weight:600;flex:1">Strategy</span>
+          <div class="views"><span class="on">Hierarchy</span><span onclick="toast('Alignment dashboard — 4 visualizations')">Dashboard</span><span onclick="toast('AI suggests objectives and alignments')">AI suggestions</span></div>
+          <span class="btn pri sm"><i class="ti ti-plus"></i> New strategy</span>
+        </div>
+        <span style="font-size:.78rem;color:var(--muted-foreground)">Pillar → objective → key result → initiative. Pillars hold the company's durable intent; progress rolls up automatically. Work items align to strategies — they are never inside them. Agents load this hierarchy as standing context.</span>
+        <div class="card-x" style="border-color:var(--accent)">
+          <div style="display:flex;align-items:center;gap:.6rem">
+            <i class="ti ti-building-arch" style="color:var(--primary)"></i>
+            <span style="font-size:.84rem;font-weight:600;flex:1">Operational efficiency</span>
+            <span class="pill ind">pillar</span><span class="avx">HN</span>
+            <span class="prog" style="width:120px;margin:0"><i style="width:38%"></i></span>
+            <span style="font-size:.66rem;color:var(--muted-foreground)">38% auto</span>
+          </div>
+          <div style="border-left:2px solid var(--accent);margin:.6rem 0 0 .55rem;padding-left:.8rem;display:flex;flex-direction:column;gap:.55rem">
+            <div>
+              <div style="display:flex;align-items:center;gap:.6rem">
+                <i class="ti ti-target" style="color:var(--primary)"></i>
+                <span style="font-size:.8rem;font-weight:500;flex:1">Cut Q3 packaging cost by 15%</span>
+                <span class="pill mut">objective</span>
+                <span class="prog" style="width:120px;margin:0"><i style="width:45%"></i></span>
+                <span style="font-size:.66rem;color:var(--muted-foreground)">45% auto</span>
+              </div>
+              <div style="border-left:2px solid var(--border);margin:.5rem 0 0 .5rem;padding-left:.8rem;display:flex;flex-direction:column;gap:.45rem">
+                <div style="display:flex;align-items:center;gap:.6rem;font-size:.76rem">
+                  <i class="ti ti-chart-line" style="color:var(--muted-foreground)"></i>
+                  <span style="flex:1">Packaging cost per unit ≤ ₹36</span>
+                  <span class="pill mut">key result</span>
+                  <span class="pill ind">₹42 → ₹38 of ₹36</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:.6rem;font-size:.76rem">
+                  <i class="ti ti-flag" style="color:var(--muted-foreground)"></i>
+                  <span style="flex:1">Chennai supplier transition</span>
+                  <span class="pill mut">initiative</span>
+                  <span class="pill ok">on track</span>
+                </div>
+                <div class="sect" style="margin:.3rem 0 0">Aligned work items</div>
+                <div class="drow clk" onclick="go('item')" style="border:none;padding:.2rem 0"><i class="ti ti-point" style="color:var(--destructive)"></i> Negotiate packaging contract <span class="pill ind">primary</span><span class="pill mut">strong</span></div>
+                <div class="drow clk" onclick="go('plan-table')" style="border:none;padding:.2rem 0"><i class="ti ti-point" style="color:var(--primary)"></i> Update pricing sheet for Q3 <span class="pill mut">secondary · medium</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="card-x clk" onclick="toast('Expands like the pillar above')">
+          <div style="display:flex;align-items:center;gap:.6rem">
+            <i class="ti ti-building-arch" style="color:var(--primary)"></i>
+            <span style="font-size:.84rem;font-weight:600;flex:1">Field-first product experience</span>
+            <span class="pill ind">pillar</span><span class="avx">AR</span>
+            <span class="prog" style="width:120px;margin:0"><i style="width:12%"></i></span>
+            <span style="font-size:.66rem;color:var(--muted-foreground)">12% · 1 objective · evidence: 2 insights</span>
+          </div>
+        </div>
+        <span style="font-size:.68rem;color:var(--muted-foreground)">Alignment, not containment: a work item has one primary strategy plus weighted secondary alignments (weak / medium / strong)</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="screen" id="research">
+  <div class="shell">
+    <div class="sb" data-board="workboard" data-active="research"></div>
+    <div class="main">
+      <div class="top"><b>Workboard</b> / Insights<span class="grow"></span><span class="cmdk"><i class="ti ti-search"></i> Cmd+K</span></div>
+      <div class="body">
+        <div style="display:flex;align-items:center;gap:.6rem">
+          <span style="font-size:.92rem;font-weight:600;flex:1">Insights — voice of customer</span>
+          <div class="views"><span class="on">All</span><span onclick="toast('Triage: new insights awaiting review')">Triage</span><span onclick="toast('Linked: insights attached to work items')">Linked</span></div>
+        </div>
+        <div class="filters">
+          <span class="fchip"><i class="ti ti-filter"></i> Source: all</span>
+          <span class="fchip"><i class="ti ti-mood-smile"></i> Sentiment: all</span>
+          <span class="fchip"><i class="ti ti-arrow-big-up"></i> Sort: impact</span>
+        </div>
+        <div class="prop">
+          <i class="ti ti-bulb" style="color:var(--primary)"></i>
+          <span style="flex:1"><span class="t">"We end up re-exporting every report by hand for the client"</span>
+            <span class="meta"><span class="pill mut">pain: report export broken at PDF step</span><span class="pill mut">source: interview</span><span class="pill bad">negative</span><span class="pill ind">impact 8/10</span><span class="pill ind"><i class="ti ti-arrow-big-up"></i> 11</span></span>
+          </span>
+          <span class="acts"><span class="pill ok clk" onclick="go('item')" style="align-self:center"><i class="ti ti-link"></i> linked · relevance 8/10</span></span>
+        </div>
+        <div class="prop">
+          <i class="ti ti-bulb" style="color:var(--primary)"></i>
+          <span style="flex:1"><span class="t">"Field teams can't use it without offline access"</span>
+            <span class="meta"><span class="pill mut">pain: no offline mode</span><span class="pill mut">source: feedback</span><span class="pill ind">impact 7/10</span><span class="pill ind"><i class="ti ti-sparkles"></i> AI-extracted · 0.91</span><span class="pill ind"><i class="ti ti-arrow-big-up"></i> 9</span></span>
+          </span>
+          <span class="acts"><span class="btn pri sm" onclick="toast('Pick a work item — linked with relevance score')"><i class="ti ti-link"></i> Link to work item</span><span class="btn sm" onclick="toast('New work item created, insight linked')">New item</span></span>
+        </div>
+        <div class="prop low">
+          <i class="ti ti-bulb" style="color:var(--primary)"></i>
+          <span style="flex:1"><span class="t">"Pricing page confused two of our resellers"</span>
+            <span class="meta"><span class="pill mut">source: support</span><span class="pill warn">status: new — in triage</span><span class="pill mut">frequency: 2</span></span>
+          </span>
+          <span class="acts"><span class="btn sm" onclick="toast('Marked reviewed')">Review</span><span class="iconbtn no" onclick="toast('Archived')"><i class="ti ti-x"></i></span></span>
+        </div>
+        <span style="font-size:.68rem;color:var(--muted-foreground)">Insights come from feedback, interviews, surveys, support and AI extraction. They attach to the work items they justify (relevance-scored) — evidence lives with the work. The AI Research module feeds this same stream.</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="screen" id="project">
+  <div class="shell">
+    <div class="sb" data-board="workboard" data-active="work-items"></div>
+    <div class="main">
+      <div class="top"><span class="clk" onclick="go('plan-table')">Workboard</span> / Projects / <b>Q3 sourcing</b><span class="grow"></span><span class="cmdk"><i class="ti ti-search"></i> Cmd+K</span><i class="ti ti-bell clk" onclick="go('queue')"></i></div>
+      <div class="body">
+        <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
+          <span style="font-size:.95rem;font-weight:600"><i class="ti ti-handshake" style="color:var(--primary)"></i> Q3 sourcing</span>
+          <span class="pill mut">business project</span>
+          <span class="pill ind">target Jun 20</span>
+          <span class="avx">HN</span>
+          <span style="flex:1"></span>
+          <span class="prog" style="width:140px;margin:0"><i style="width:45%"></i></span>
+          <span style="font-size:.66rem;color:var(--muted-foreground)">45%</span>
+        </div>
+        <div style="display:flex;gap:.75rem;flex-wrap:wrap">
+          <div class="card-x" style="flex:1;min-width:240px">
+            <div class="sect">Departments in this project</div>
+            <div style="display:flex;gap:.35rem;flex-wrap:wrap">
+              <span class="pill ind"><i class="ti ti-building"></i> Sourcing · 2 items</span>
+              <span class="pill ind"><i class="ti ti-building"></i> Legal · 1 item</span>
+              <span class="pill mut"><i class="ti ti-building"></i> Finance · 1 item</span>
+            </div>
+            <span style="font-size:.64rem;color:var(--muted-foreground);display:block;margin-top:.4rem">Assign to a department → its triage queue; a lead routes it. Or assign a person directly.</span>
+          </div>
+          <div class="card-x" style="flex:1;min-width:240px">
+            <div class="sect">Playbook &amp; milestones</div>
+            <div class="field" style="padding:.15rem 0"><span class="k">Playbook</span><span class="pill ind clk" onclick="go('strategy')"><i class="ti ti-target"></i> Supplier negotiation</span></div>
+            <div style="display:flex;gap:.5rem;font-size:.74rem;align-items:center;margin-top:.2rem"><i class="ti ti-flag" style="color:var(--destructive)"></i> Contract signed — Jun 20 <span class="pill bad">at risk</span></div>
+          </div>
+        </div>
+        <div class="card-x">
+          <div class="sect">Work items (4)</div>
+          <div class="drow clk" onclick="go('item')"><span class="seg"><i class="f"></i><i class="f"></i><i></i><i></i></span> Negotiate packaging contract <span class="pill bad">critical</span><span class="avx">HN</span><span class="when">Sourcing</span></div>
+          <div class="drow clk" onclick="go('item')"><span class="seg"><i class="f"></i><i class="f"></i><i class="f"></i><i></i></span> Update pricing sheet for Q3 <span class="pill warn">high</span><span class="avx">AR</span><span class="when">Finance</span></div>
+          <div class="drow clk" onclick="go('item')"><span class="seg"><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i></span> Follow up with Chennai supplier on MOQ <span class="pill warn">high</span><span class="avx">PK</span><span class="when">Sourcing</span></div>
+          <div class="drow"><span class="seg"><i class="f"></i><i></i><i></i><i></i></span> Contract legal review <span class="pill mut">medium</span><span class="pill ind"><i class="ti ti-building"></i> Legal queue</span><span class="when">unrouted</span></div>
+        </div>
+        <span style="font-size:.68rem;color:var(--muted-foreground)">A project = goal + date + playbook + the work items aiming at it. Progress rolls up from the items; the last row shows department-queue assignment awaiting a lead.</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="screen" id="chat">
+  <div class="shell">
+    <div class="sb" data-board="home" data-active="chat"></div>
+    <div class="main">
+      <div class="top"><b>Chat</b> / #sourcing<span class="grow"></span><span class="cmdk"><i class="ti ti-search"></i> Cmd+K</span><i class="ti ti-bell clk" onclick="go('queue')"></i></div>
+      <div class="body" style="flex-direction:row;gap:.75rem">
+        <div style="width:150px;flex-shrink:0">
+          <div class="sect">Channels</div>
+          <div class="sb-item on" style="font-size:.74rem"># sourcing</div>
+          <div class="sb-item" style="font-size:.74rem"># general</div>
+          <div class="sb-item" style="font-size:.74rem"># marketing</div>
+          <div class="sect" style="margin-top:.7rem">Direct</div>
+          <div class="sb-item" style="font-size:.74rem"><span class="avx">PK</span> Priya</div>
+          <div class="sb-item" style="font-size:.74rem"><span class="avx" style="background:var(--ok-bg);color:var(--ok)"><i class="ti ti-robot" style="font-size:.7rem"></i></span> sourcing-scout</div>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;gap:.5rem;min-width:0">
+          <div class="chat" style="flex:1">
+            <div class="msg ai" style="background:var(--secondary)"><b style="font-weight:500">Priya</b> · 10:12 — Chennai vendor finally replied on MOQ. We should move on the contract this week.</div>
+            <div class="msg user"><b style="font-weight:500">Harsha</b> · 10:14 — Agreed. Here's the item:</div>
+            <div class="msg user" style="background:transparent;padding:0;max-width:100%">
+              <div class="card-x clk" onclick="go('item')" style="max-width:340px">
+                <div style="font-size:.76rem;font-weight:500;display:flex;align-items:center;gap:.4rem"><i class="ti ti-list-check" style="color:var(--primary)"></i> Negotiate packaging contract <span class="seg" style="margin-left:auto"><i class="f"></i><i class="f"></i><i></i><i></i></span></div>
+                <div style="display:flex;gap:.35rem;margin-top:.35rem"><span class="pill bad">critical</span><span class="pill warn">On hold</span><span class="avx">HN</span><span class="pill mut">Q3 sourcing</span></div>
+                <span style="font-size:.6rem;color:var(--muted-foreground)">live card — one record, updates here as it changes</span>
+              </div>
+            </div>
+            <div class="msg user"><b style="font-weight:500">Harsha</b> · 10:15 — <span style="background:color-mix(in oklab,var(--primary-foreground) 25%,transparent);border-radius:.25rem;padding:0 .25rem">@sourcing-scout</span> verify the MOQ terms against our two-quote minimum and summarize risks.</div>
+            <div class="msg ai"><b style="font-weight:500"><i class="ti ti-robot"></i> sourcing-scout</b> · 10:15 — Run started — comparing MOQ terms across 3 vendor quotes. I'll report here. <span class="pill ind clk" onclick="go('agent-run')"><i class="ti ti-activity"></i> watch run</span></div>
+          </div>
+          <div style="display:flex;gap:.4rem;align-items:center">
+            <input type="text" placeholder="Message #sourcing — drop any item, doc or meeting as a live card…" style="flex:1">
+            <span class="iconbtn" title="Promote selection to a comment on the item"><i class="ti ti-pin"></i></span>
+          </div>
+          <span style="font-size:.64rem;color:var(--muted-foreground)">One thread system: channels, DMs, item threads and agent runs are all threads — mention an agent anywhere; pin an exchange to promote it to an on-the-record comment on the object.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="screen" id="queue">
+  <div class="shell">
+    <div class="sb" data-board="home" data-active="review-queue"></div>
+    <div class="main">
+      <div class="top"><b>Review queue</b><span class="grow"></span><span class="kbd">A</span><span style="font-size:.66rem">accept</span><span class="kbd">R</span><span style="font-size:.66rem">reject</span><span class="kbd">↑↓</span><span style="font-size:.66rem">move</span></div>
+      <div class="body">
+        <div class="prop">
+          <i class="ti ti-sparkles" style="color:var(--primary)"></i>
+          <span style="flex:1"><span class="t">Review packaging vendor shortlist</span><span class="meta"><span class="pill mut">meeting task</span><span class="pill warn">needs assignee</span><span class="pill ind clk" onclick="go('meeting')"><i class="ti ti-link"></i> Weekly sync</span></span></span>
+          <span class="acts"><span class="iconbtn yes" onclick="toast('Accepted')"><i class="ti ti-check"></i></span><span class="iconbtn no" onclick="toast('Rejected')"><i class="ti ti-x"></i></span></span>
+        </div>
+        <div class="prop">
+          <i class="ti ti-robot" style="color:var(--primary)"></i>
+          <span style="flex:1"><span class="t">Competitor pricing summary</span><span class="meta"><span class="pill mut">agent artifact</span><span class="pill ind clk" onclick="go('agent-run')"><i class="ti ti-link"></i> run detail</span></span></span>
+          <span class="acts"><span class="iconbtn yes" onclick="toast('Approved into workspace')"><i class="ti ti-check"></i></span><span class="iconbtn no" onclick="toast('Rejected')"><i class="ti ti-x"></i></span></span>
+        </div>
+        <div class="prop">
+          <i class="ti ti-robot" style="color:var(--primary)"></i>
+          <span style="flex:1"><span class="t">Q3 roadmap draft — 9 proposed items</span><span class="meta"><span class="pill mut">agent artifact</span><span class="pill ind clk" onclick="go('plan-table')"><i class="ti ti-link"></i> preview in Workboard</span></span></span>
+          <span class="acts"><span class="iconbtn yes" onclick="toast('9 items created in Workboard')"><i class="ti ti-check"></i></span><span class="iconbtn no" onclick="toast('Rejected')"><i class="ti ti-x"></i></span></span>
+        </div>
+        <div class="prop">
+          <i class="ti ti-user-plus" style="color:var(--primary)"></i>
+          <span style="flex:1"><span class="t">Sneha requested to join Befach HQ</span><span class="meta"><span class="pill mut">invite</span><span class="pill mut">via arjun@befach.com</span></span></span>
+          <span class="acts"><span class="iconbtn yes" onclick="toast('Member added')"><i class="ti ti-check"></i></span><span class="iconbtn no" onclick="toast('Declined')"><i class="ti ti-x"></i></span></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div>
+<div id="toast"></div>
+
+<script>
+function go(id){
+  document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('on')});
+  document.getElementById(id).classList.add('on');
+  window.scrollTo({top:0});
+}
+function toast(msg){
+  var t=document.getElementById('toast');
+  t.textContent=msg;t.style.opacity=1;
+  clearTimeout(t._h);t._h=setTimeout(function(){t.style.opacity=0},1900);
+}
+var APPS=[
+  ['home','ti-home',['home','queue','chat'],'Home'],
+  ['plan-table','ti-layout-kanban',['plan-table','plan-kanban','plan-graph','item','feedback','strategy','research','project'],'Workboard'],
+  ['meetings','ti-video',['meetings','meeting','proposals'],'Meeting board'],
+  ['docs','ti-artboard',['docs','canvas-edit'],'Canvas board'],
+  ['agents','ti-robot',['agents','agent-run'],'Agent board']
+];
+var SIDEBARS={
+  home:{title:'Home',items:[
+    {key:'digest',icon:'ti-home',label:'Digest',go:'home'},
+    {key:'review-queue',icon:'ti-inbox',label:'Review queue',go:'queue',count:4},
+    {key:'chat',icon:'ti-message-circle',label:'Chat',go:'chat',count:2}
+  ]},
+  workboard:{title:'Workboard',items:[
+    {key:'work-items',icon:'ti-list-check',label:'Work items',go:'plan-table'},
+    {key:'strategy',icon:'ti-target',label:'Strategy',go:'strategy'},
+    {key:'research',icon:'ti-bulb',label:'Insights',go:'research',count:2},
+    {key:'tasks',icon:'ti-checkbox',label:'Tasks'},
+    {key:'triage',icon:'ti-inbox',label:'Triage',go:'queue',count:2},
+    {label:'Intake',section:true},
+    {key:'feedback',icon:'ti-message-2',label:'Feedback',go:'feedback',count:3}
+  ]},
+  meetings:{title:'Meeting board',items:[
+    {key:'all-meetings',icon:'ti-list',label:'All meetings',go:'meetings'},
+    {key:'this-week',icon:'ti-calendar',label:'This week'},
+    {key:'action-items',icon:'ti-checkbox',label:'Action items',go:'queue',count:4},
+    {key:'triage',icon:'ti-inbox',label:'Triage queue',go:'queue',count:2},
+    {label:'Processing',section:true},
+    {key:'jobs',icon:'ti-loader',label:'Jobs',count:1}
+  ]},
+  canvas:{title:'Canvas board',items:[
+    {key:'all-canvases',icon:'ti-artboard',label:'All canvases',go:'docs'},
+    {key:'starred',icon:'ti-star',label:'Starred'},
+    {key:'shared',icon:'ti-users',label:'Shared with me'}
+  ]},
+  agents:{title:'Agent board',items:[
+    {key:'runs',icon:'ti-activity',label:'Runs',go:'agents'},
+    {key:'approvals',icon:'ti-inbox',label:'Approvals',go:'queue',count:1},
+    {key:'history',icon:'ti-history',label:'Action history'},
+    {label:'Your agents',section:true},
+    {key:'scout',icon:'ti-robot',label:'sourcing-scout',go:'agent-run'},
+    {key:'qabot',icon:'ti-robot',label:'qa-bot'},
+    {key:'newagent',icon:'ti-plus',label:'New agent…'}
+  ]}
+};
+document.querySelectorAll('.sb').forEach(function(sb){
+  var board=sb.getAttribute('data-board');
+  var active=sb.getAttribute('data-active');
+  var cfg=SIDEBARS[board];
+  var ws=document.createElement('div');
+  ws.className='ws';
+  ws.innerHTML='<span class="av">BF</span> Befach HQ <i class="ti ti-chevron-down"></i>';
+  ws.onclick=function(){go('home')};
+  sb.appendChild(ws);
+  var body=document.createElement('div');
+  body.className='sb-body';
+  var lbl=document.createElement('div');
+  lbl.className='sb-label';
+  lbl.textContent=cfg.title;
+  body.appendChild(lbl);
+  cfg.items.forEach(function(it){
+    if(it.section){
+      var l=document.createElement('div');
+      l.className='sb-label';
+      l.textContent=it.label;
+      body.appendChild(l);
+      return;
+    }
+    var d=document.createElement('div');
+    d.className='sb-item'+(it.key===active?' on':'');
+    d.innerHTML='<i class="ti '+it.icon+'"></i> '+it.label+(it.count?'<span class="count">'+it.count+'</span>':'');
+    d.onclick=function(){ if(it.go){go(it.go)} else {toast(it.label+' — not in prototype')} };
+    body.appendChild(d);
+  });
+  sb.appendChild(body);
+  var dock=document.createElement('div');
+  dock.className='dock';
+  APPS.forEach(function(a){
+    var s=document.createElement('span');
+    var boardScreens=a[2];
+    var screenId=sb.closest('.screen').id;
+    s.className='clk'+(boardScreens.indexOf(screenId)>=0?' on':'');
+    s.innerHTML='<i class="ti '+a[1]+'"></i>';
+    s.title=a[3];
+    s.onclick=function(){go(a[0])};
+    dock.appendChild(s);
+  });
+  sb.appendChild(dock);
+});
+document.querySelectorAll('.screen .top').forEach(function(t){
+  var b=document.createElement('span');
+  b.className='btn sm clk';
+  b.innerHTML='<i class="ti ti-sparkles"></i> Ask agent';
+  b.onclick=function(){
+    var crumbs=t.querySelectorAll('b');
+    var obj=crumbs.length?crumbs[crumbs.length-1].textContent:'this page';
+    toast('Agent thread opened — linked to: '+obj+' (will appear in its coalition)');
+  };
+  t.appendChild(b);
+});
+</script>
+</body>
+</html>

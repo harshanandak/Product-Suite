@@ -1,0 +1,186 @@
+# DESIGN.md — Product Suite Design Reference
+
+This is the durable design contract for Product Suite. Anyone — human or agent — building UI follows this document. Dated planning docs live in `docs/plans/`; this file holds only the standing rules. When a rule here changes, change it here in the same PR.
+
+Status of open items is marked `TBD(...)`. Everything else is decided.
+
+## 1. Product shape
+
+Product Suite is one platform where a team's meetings turn into plans, documents, insight, and delegated agent work — for both people and AI agents as first-class users.
+
+- **One shell, one login, one design language.** No module looks or behaves like a separate product.
+- **The workspace is the container.** Every product surface lives inside a workspace. URL shape: `/w/[workspace]/{meetings|plan|docs|insights|agents|settings}`, plus account-level `/settings`.
+- **Four boards + Home, fixed (revised 2026-06-11):** Workboard, Meeting board, Canvas board, Agent board (+ Settings). **Home is a meta-view, not a fifth board** — it owns no objects; it aggregates: digest, review queue, chat, and each board's analytics grouped in one place. Deeper analytics live inside the board they describe. New boards require a decision PR, not a nav addition.
+- **Canonical names (2026-06-12):** Workboard · Meeting board · Canvas board · Agent board · Home. Superseded vocabulary that must not appear in UI or new docs: "Plan", "Docs" (as board name), "Insights" (as an app), "stream", "five apps". Where older docs (e.g. `user-flows-evaluation-2026-06-11.md`) conflict with DESIGN.md, **DESIGN.md is canonical**.
+- **Strategy, research, and methodology (verified against schema, 2026-06-11):**
+  - *Strategy is hierarchical intent, aligned-to, never containing.* `product_strategies` is a tree: **Pillar** (durable company intent/ideology) → **Objective** → **Key Result** (metric: current → target) → **Initiative**. Progress auto-rolls up from children/metrics or is manually set. Work items **align to** strategies — a primary alignment (`work_items.strategy_id`) plus weighted secondary alignments (`work_item_strategies.alignment_strength: weak|medium|strong`). The strategy hierarchy doubles as the team's durable memory of intent, and agents load it as standing context before runs.
+  - *Research/insight is evidence attached to work.* `customer_insights` (quote, pain point, source: feedback/interview/survey/analytics, sentiment, impact score, votes, AI-extracted) link to the work items they justify via relevance-scored junctions (`work_item_insights`). Feedback attaches to work items; each item also carries its own `inspiration_items` (references), `milestones`, `risks`, `prerequisites`, and `execution_steps`. The dedicated Research surface is an AI-research module feeding these same structures — never a parallel object world.
+  - *Methodology lives in the structure, not in prose.* (Corrected against schema 2026-06-12:) the workspace carries a **mode** (`development|launch|growth|maintenance`, with `mode_settings.phase_emphasis`) that shapes UI emphasis — there is NO workspace lifecycle-phase column; earlier text claiming one was wrong. `workspaces.enabled_modules` (JSONB) exists and backs progressive depth. Work items currently use **type-aware phases** (`design|build|refine|launch` for features, etc.) — to be replaced by the universal loop below — and break into typed dependencies (`linked_items`, `feature_connections`).
+- **The coherence model (decided 2026-06-11)** — visual reference: [`docs/design/mental-model.html`](docs/design/mental-model.html). Business work, software work, and daily tasks share one skeleton of four layers:
+  - **WHY — Strategy** (pillar → objective → key result): direction, measured.
+  - **WHAT — Work items with ONE universal phase loop: `Plan → Execute → Review → Done`.** This replaces type-aware phase vocabularies — the loop is identical for a feature, a supplier deal, or a campaign; the *playbook for that kind of work* supplies what each phase means (its checklist), not a different loop. **Precisely, to kill the apparent contradiction: phases are homogeneous (same four names, same order, everywhere); only the checklist inside each phase is heterogeneous per kind, supplied by the playbook. No per-type phase vocabulary may appear anywhere in the UI.** Small tasks are exempt: `To do → Doing → Done`, no phases. Every card in every view shows the same 4-segment phase pill. Plan = design-thinking discover/define; Execute/Review/Done = agile delivery — the methodology is embedded in the loop. (Schema note: current `work_items.phase` is type-aware `design|build|refine|launch` etc.; migration = value mapping to the universal four + a `playbooks` checklist table.)
+  - **WHERE/WHEN — Projects (final naming 2026-06-11; briefly called "streams" the same day — "project" wins because users already know the word):** a **project is a category of work as one switchable thing** — "v2.0 release" (software), "Diwali campaign" (marketing), "Q3 sourcing" (supplier), "Warehouse setup" (ops). Each project bundles: its work items (all walking the universal loop), the playbook that defines what each phase means there, an optional target date + milestones (a software release IS a project of kind software), an owner, and roll-up progress. **The project switcher is the Workboard's primary filter**; "All projects" is the cross-cutting view. Projects interconnect at the higher level: each aligns to strategy objectives, items can depend across projects (graph view keeps cross-project edges visible as dashed), and Home reports progress per project. Schema: add `projects` (name, kind, playbook_ref, target_date, status, owner) + `work_items.project_id`; milestones hang off projects.
+- **The object ladder (decided 2026-06-11)** — three levels, three words, taught by the UI itself:
+  1. **Project** — what we're trying to achieve together, by when. A coalition of work items.
+  2. **Work item — the coalition hub.** One meaningful piece of work, gathering *everything about it in one place*: its tasks, the meetings that discussed it, its evidence (insights/research), its agent conversations, its feedback, its milestones/risks. The work item page is that coalition made visible — every section is a live link into the owning board. Work item cards show coalition counts (tasks · meetings · threads · insights) so the hub nature is learned at a glance.
+  3. **Task — the atom.** One action one person takes: `To do → Doing → Done`. Lives inside a work item; standalone quick to-dos allowed (promotable to work items, as the current two-track task system already supports). **Implementation mapping (decided 2026-06-12): "Task" = `product_tasks`; `timeline_items` are absorbed into tasks at migration — one task object, optionally hierarchical under a work item. Two task tables must not survive the rebuild.**
+  - Rule of thumb shown in onboarding/empty states: *deadline and many parts → project · discussion and evidence → work item · just do it → task.* "Release" is never a fourth concept — it is a project of kind software.
+  - **Containment is optional at every level (decided 2026-06-12).** The ladder defines *levels*, not mandatory nesting: a work item can exist with no project; a task can exist with no work item; a task can sit **directly under a project** with no work item in between ("book the venue" under "Diwali campaign" needs no invented item). A work item is *nothing but a coalition formed to make things simpler* — you create one when a piece of work accumulates enough (discussion, evidence, phases) to deserve a hub, and the agent's "group these 14 tasks into a work item?" proposal is exactly that formation moment in reverse. Parent rule: a task has at most one parent (work item OR project; under a work item it inherits the project through it); `work_items.project_id` and task parent fields are nullable. Project views show both work items and loose tasks.
+  - **Agent conversations are object-linked:** an agent can be invoked from any page (top bar / Cmd+K); the resulting thread attaches to the object in context — project, work item, task, or meeting — and appears permanently in that object's coalition. No orphan chats.
+- **Departments and cross-department projects (2026-06-12):**
+  - Departments are **workspace-defined** — users create their own (Sourcing, QC, Logistics, Marketing…). The Workboard offers "Group by: department," rendering collapsible department sections showing what each owns. Departments are *who owns*, never a fourth ladder level.
+  - **Projects span departments — this is the product thesis.** A project's page shows every participating department. Work can be assigned two ways: directly to a member, or **to a department**, landing in that department's triage queue for a lead to route. Auto-assignment below the confidence threshold routes to the responsible department's queue, never to "unassigned."
+  - A work item is an *outcome-sized piece of a project*. Do not rename it "objective" in the UI — the strategy tree owns that word; one word, one meaning.
+- **Configurability architecture (direction set 2026-06-12): fixed skeleton, configurable vocabulary, agent as configurator.**
+  - **Invariant skeleton (never configurable):** the object ladder, the universal phase loop, one-record/many-lenses, the review queue, provenance, object-linked agent threads. These keep the product learnable for people and predictable for agents — the deliberate contrast with Notion's blank-page flexibility.
+  - **Configurable layer (per workspace):** departments, project kinds, playbooks (phase checklists), custom fields/tags, views, dashboards.
+  - **Templates are saved configurations** of the configurable layer ("Design-thinking product team," "Import/export operations," "Agency"). Picking one at onboarding configures the workspace instantly; everything stays editable.
+  - **The agent is the configurator:** users describe their business in conversation and the agent creates departments, project kinds, and playbooks — delivered as proposals through the standard review queue. A manual settings UI exists as the escape hatch, not the primary path.
+  - **Progressive depth (2026-06-12): the ladder unlocks bottom-up, agent-driven.** A team can live on any prefix of the ladder — tasks only; tasks + projects; just a scrum/agile board; the full ladder with departments and strategy. New workspaces start minimal (task management works standalone — the existing two-track task system with promotion is the migration path). **Dormant capability is discoverable, not hidden:** unused blocks (Research, Strategy, phase pills, department grouping…) appear small and quiet at the edge of the UI — visible enough to try with one click, never loud enough to burden a team that doesn't want them (`workspaces.enabled_modules` already anticipates this). **Growth is proposed by the agent from usage, not configured by the user**: "you have 14 tasks about the supplier contract — group them into a work item?" / "three deadlines mention Diwali — create a campaign project?" Each unlock is a ProposalCard through the review queue; declining costs nothing. The invariant skeleton is never different per team — only how much of it is awake.
+  - **Bounded infinity (2026-06-12): a big ceiling, a tiny floor.** We build the full extent of what is possible — the ceiling is curated, finite, and ours. Users compose freely *within* it and start near zero. This is the deliberate contrast with unbounded builders: every composition inside our bounds remains coherent for users and predictable for agents. Methodologies (agile, design thinking) are available compositions, never requirements.
+  - **Connector blocks (MCP) (2026-06-12): integrations are blocks too.** Google Analytics, Facebook/Meta Ads, Search Console, CRMs, etc. ship as connector blocks backed by MCP servers we build and host. Setup is "paste your key"; the agent pulls data through the connector and feeds it into the **existing structures** — connector data lands as insights/evidence, Home/board dashboards, and planning context, never as a parallel object world. Departments map to relevant connector sets (marketing → GA/FB/GSC; sales → CRM; sourcing → logistics/ERP), so enabling a department can suggest its connectors. This is also the productization of the Agent Access Surface: the same MCP layer serves our agents internally and external agents later.
+  - **Connector bindings join the coalition (2026-06-12):** connectors also bind at the work-item level — a tech item shows its linked GitHub PRs (status, checks, merge state); a marketing item shows its live ad-campaign cards (spend, results). Live references in the item's coalition, same one-record rule, surfaced by the project/department kind.
+- **Visibility (2026-06-12):** items and tasks carry a visibility property — `workspace` (default) | `department` | `restricted` (named people). Default stays open; restricted objects are visibly badged. **Agents must respect visibility when loading context** — designed in from day one, never retrofitted.
+- **Automations (2026-06-12):** cron and event triggers ("on hold 5 days → escalate"; "Fridays 17:00 → weekly digest"), **authored by the agent through conversation** — no visual workflow-builder UI to learn. Automation runs are audited in the Agent board like any run. n8n/external engines can back them as connectors.
+- **Chat = threads with members, unified with agent conversations (2026-06-12):** one thread system (`chat_threads` and `packages/ui-chat` already exist): a thread has members — humans and/or agents — and optionally binds to an object. Team channel = many humans; "Ask agent" = a thread with an agent; item discussion = a thread bound to the item. **Objects drop into chat as live cards** (one record, many lenses — never pasted copies); any exchange can be promoted to a comment on the object it discussed (comments remain the on-the-record layer). Chat is a summonable right panel on every screen plus a full view under Home — nobody leaves their context to talk.
+- **Known gaps watchlist (2026-06-12):** files/attachments on objects (R2 exists, no files story) · global search across items, transcripts, docs, chats (Cmd+K) · guest/external access (a supplier or client sees one project, limited) · notifications/mentions unified with the review queue and digest (avoid three competing inboxes).
+  - **LEARN — Evidence** (insights, research runs, meeting decisions, feedback) attached to the items they justify, as the schema already does.
+  - The user-facing contract: *pick an item → see its phase → know its release → trust its why.* Any surface that can't answer those four in one glance is under-designed.
+- **Phase ownership and board grammar (decided 2026-06-12):**
+  - **Phases live on work items only.** Projects never carry a manually-set phase — a project's stage is *derived*: the distribution of its items' phases, shown as a stacked phase strip ("3 Plan · 5 Do · 2 Review · 4 Done"). No dual truth, no second status to maintain. Version-level shaping work ("Plan v2.0") is a work item in Plan-phase inside the project. Tasks: `To do → Doing → Done` only.
+  - **Work items have NO status field (decided 2026-06-12).** Phase is the only stored lifecycle on a work item; status exists only on tasks. "On hold / blocked / at risk" is **derived health** — computed from task statuses, unmet dependencies, overdue dates, and milestone risk — shown as a badge beside the phase pill, never manually set. (Schema: drop `work_items.status`; existing values map to phase + derived health.) Kanban therefore has no configuration question: work-item boards = phase columns, task boards = status columns.
+  - **How one loop fits every department and company:** the four phases are fixed **semantic anchors at altitude** — Plan = decide, Execute = do the work, Review = verify, Done = delivered. Playbooks localize them: per-kind checklists, optional entry/exit criteria, and an optional **subtitle** under the label ("Plan — vendor discovery"). A playbook may leave a phase's checklist empty (instant pass-through) so light kinds of work use fewer phases without changing the shape. The anchors are what keep cross-department projects comparable and agents able to reason uniformly ("what's stuck in Review across this project") — configurability lives in checklists and subtitles, never in the anchors.
+  - **Phase naming (revised 2026-06-12):** canonical machine IDs are `plan|execute|review|done` with fixed semantics; **default display labels are Plan → Execute → Review → Done** — chosen over the earlier Shape/Build/Refine/Ship for being one-point and universal ("Done", not "Ship"). **Workspace-level label remapping is allowed and agent-configured** ("we say Discovery / Production / QA / Delivered" → mapped onto the four slots). Guardrails: labels are workspace-wide, never per department or kind (boards stay comparable inside the company); agents, API, templates, and docs always use canonical IDs, never display labels; reordering, removing, or adding slots is impossible.
+  - **Board grammar rule: columns = the card's lifecycle; rows and filters = its belonging. Never the reverse.** Work-item kanban columns are always Plan/Execute/Review/Done; task kanban columns are always To do/Doing/Done. Scoping to a project or grouping by department changes which cards appear (and may add swimlane rows), but **columns never change meaning per context** — every kanban in the product is the same board, scoped.
+  - **Timeline is a project-level view.** Lanes = projects, diamonds = milestones, today-line. Inside one project, dated work items render as bars in that lane. Tasks never appear on timelines.
+  - **Milestone ≠ due date ≠ target:** a *due date* is when one item/task should finish (private to it). A *milestone* is a named, shared checkpoint several items aim at — owned by the **project** (its target date is simply its final milestone). A *target* is a metric goal and lives in strategy key results. Dates → projects; numbers → strategy. Schema note: the existing `milestones` table is item-bound; migrate to project-bound, items optionally referencing the milestone they aim at.
+
+## 2. Navigation model (Zen-style sidebar, decided 2026-06-11)
+
+The sidebar follows the Zen Browser workspace pattern, adapted so the thing being switched is the **app**, not a browser workspace:
+
+- **App dock — bottom of the sidebar:** a compact icon row with Home + the four boards. The active board is highlighted (indigo accent pill, `--sidebar-accent`). Clicking an icon swaps the entire sidebar body to that board's context with a quick crossfade. Icons show labels on hover; the dock is always visible.
+- **Sidebar body — owned entirely by the active board, and stable within it (2026-06-11):** the sidebar shows the board's sections and gets the full sidebar height. It is rendered from one definition per board — navigating to any object inside the board (a work item, a meeting, a canvas, a run) must NOT change the sidebar's options; only switching boards swaps it. Object-level navigation (a meeting's Summary/Transcript, a run's Thread/Actions) lives as tabs inside the content area, never as sidebar mutations.
+- **Filters are not navigation:** filters, grouping, and view options live in the content area's filter bar next to the data they affect. The sidebar contains only places (views, queues, intake), never query state.
+- **Workspace switcher — top of the sidebar:** workspace avatar + name dropdown. Switching workspace keeps the active app.
+- **Top bar:** breadcrumb (`workspace / app / object`), global search, review-queue bell, user menu.
+- **Command palette (Cmd+K)** ships in every build: navigation, actions, and agent delegation. App switching is also `Cmd+1…5`.
+- The bottom dock maps directly to a mobile bottom tab bar — the same five icons, same order, on small screens.
+- Old routes redirect into the workspace-scoped shape; never present two navigation systems at once.
+
+## 3. Design principles
+
+1. **Orientation is the chrome's job.** A user should never need memory to answer "where am I, what can I do here."
+2. **Review, don't surprise.** Anything created on the user's behalf (meeting auto-tasks, agent artifacts) arrives as a *proposal* — badge, provenance, accept/edit/reject. Nothing auto-created mutates workspace state silently.
+3. **Provenance builds trust.** Every generated object links back to its source: transcript segment, agent run, originating document.
+4. **One object, many lenses — never copies.** A meeting's "action items" ARE Plan work items (same record, filtered by meeting provenance), not a synced duplicate. Accepting a proposed task creates one work item owned by Plan; the Meetings app renders that same work item in the meeting's context, and a status change made in either app is instantly true in both because there is only one record. This rule generalizes: no app may keep its own shadow copy of another app's objects — cross-app views are queries with provenance filters, and "sync" between apps is a design smell.
+   **The canvas is the spatial case of this rule** (founder, 2026-06-11): Docs is an infinite space for arranging docs and information freely, and anything placed there that represents a workspace object — a work item card, a meeting summary, a doc — is a **live reference to the one record**, never a snapshot. The canvas persists layout (position, size, grouping) plus object references; content always comes from the owning app. A work item's status change is immediately visible on every canvas it's pinned to.
+5. **Empty states are the onboarding.** There are no dedicated onboarding routes; every screen's empty state teaches the first action.
+6. **Calm density.** Information-dense like Linear, visually calm like Notion. Motion is micro-interaction only — never decorative animation on the critical path.
+7. **Views are lenses with full action parity.** When a collection has multiple views (Plan: table, kanban, timeline, graph), every view exposes the same actions — open, edit, create, assign, change status. Clicking a graph node opens the same work-item editor as clicking a table row; creating an item works in every view. A view that can only read is incomplete. Views differ in *arrangement*, never in *capability*.
+8. **Agent-legible UI is user-legible UI.** Consistent component grammar, predictable routes, and typed APIs serve both audiences; if an agent can't operate a surface through the SDK, the surface is not done.
+
+## 4. Required states — no screen merges without all four
+
+| State | Rule |
+| --- | --- |
+| Loaded | The designed surface. |
+| Loading | Skeletons mirroring final layout. Spinners only for sub-element refreshes. |
+| Empty | Teaches the first action; doubles as onboarding. Never a bare "No data". |
+| Error | Says what failed, offers retry or a path out. Never a dead end. |
+
+## 5. Component rules
+
+- **Single source: `packages/ui`.** No raw Radix primitives, bare HTML form controls, or one-off styled components in app code. A pattern needed twice goes into `packages/ui` first.
+- **Foundation:** Tailwind v4 (tokens via `@theme`), shadcn/ui conventions over Radix, lucide-react icons, recharts for charts, framer-motion for micro-interactions only.
+- **Suite-specific components** (own these, never improvise them inline):
+  - `ProposalCard` — the universal accept/edit/reject surface for generated content.
+  - `ProvenanceChip` — links any object to its source.
+  - `AssigneePicker` — with confidence display for auto-assignment.
+  - `RunProgress` / `StatusPill` — agent-run and work-item status grammar.
+  - `EmptyState` / `ErrorState` — the only way to render those states.
+- **Tokens, not values.** No hex colors, raw px spacing, or ad hoc font sizes in app code. If a token is missing, add the token.
+
+### Visual identity (decided 2026-06-11)
+
+Clean shadcn/ui style. The canonical token sheet is [`docs/design/tokens.css`](docs/design/tokens.css) (moves into `packages/ui` at PR21a). Summary:
+
+- **Color:** near-white background / near-black foreground; **indigo primary** (`oklch(0.5144 0.1605 267.44)`) with a light indigo accent; neutral grays for secondary/muted; warm red destructive. Full light + dark palettes defined; same primary in both themes.
+- **Type:** Geist (sans, default), Geist Mono (code/data), Noto Serif Georgian (serif, rare/editorial use).
+- **Shape:** `--radius: 0.5rem` base with sm/md/lg/xl derived steps.
+- **Depth:** subtle indigo-tinted shadow ramp (2xs→2xl) — soft elevation, never heavy drop shadows.
+- **Charts:** 5-step indigo scale (`--chart-1`…`--chart-5`) — recharts must use these, not its defaults.
+- **Sidebar:** dedicated sidebar token group — the two-level sidebar uses these, not the generic surface tokens.
+- Theme switching is class-based (`.dark`); components reference only the semantic token names (`bg-background`, `text-muted-foreground`, …), never the oklch values.
+
+## 6. The review queue
+
+One inbox for everything awaiting a human decision: meeting auto-tasks, agent proposals, invites, approvals. Producers feed it; nothing ships its own bespoke approval UI. Reachable from the top bar everywhere; keyboard-operable end to end (approve/reject/skip without mouse).
+
+## 7. Agent surfaces
+
+- **Delegation is ambient and object-linked:** every screen exposes "Ask agent" (top bar + command palette + contextual affordances). The thread that opens is bound to the object in view and lives in that object's coalition afterward — discussing a work item with an agent and assigning it work happen in the same gesture, from wherever the user already is.
+- **Supervision is centralized:** the Agents app shows runs (parallel sessions, status, cost, artifacts); artifacts route into the review queue.
+- **Attribution is visible:** agent-created or agent-modified objects always show actor identity (which agent, on behalf of whom).
+- **Custom agents are named workspace members (2026-06-12):** users create their own agents for their own purposes — composed entirely from existing primitives. Creation is conversational (describe the job → the platform drafts the agent's config — name, instructions, playbooks, allowed connectors — as a ProposalCard). Once approved, the agent is **mentionable in any thread** (`@sourcing-scout …` spawns a run bound to that thread's object, posts progress back into the thread, routes artifacts through the review queue) and **assignable like a person** (the AssigneePicker offers person · department · agent). Capabilities are bounded-infinity compositions (playbooks + connector blocks + platform API), scoped by visibility rules — a custom agent never sees restricted objects it wasn't granted. Every custom agent is its own permission-scoped principal: the audit trail reads "agent X, on behalf of user Y."
+
+## 8. Interaction and quality floor
+
+- Keyboard: full nav, palette, and review queue operable without a mouse; visible focus states; focus trapped and restored in dialogs.
+- Accessibility: WCAG AA contrast; semantic landmarks; labels on all controls.
+- Dark mode: every screen, both themes, before merge.
+- Performance: route-level code splitting; optimistic updates on common writes; skeletons over blocking loads.
+- Copy: sentence case everywhere; verbs for actions ("Create task", not "New task creation"); errors state the problem and the next step; `TBD(voice)` pending visual-identity work.
+
+## 9. Measurement
+
+Every screen instruments its flow's success events (`first_value`, `meeting_to_workitem_created`, `agent_proposal_accepted`, `invite_activated_in_workspace`, `return_visit_engaged`, `agent_run_artifact_approved`) **in the same PR as the screen**. A surface without its events is incomplete.
+
+## 10. Stack (decided)
+
+- Shell: Vite SPA + TanStack Router (library) + Clerk GA React SDK.
+- Hosting: Cloudflare (shell assets + Hono platform API); meeting-api and agent-core on Railway.
+- Data access: backend-mediated only — the browser talks to platform APIs, never directly to the database.
+- `TBD(canvas)`: canvas/editor technology. Docs app is gated on this; read-only rendering is the acceptable interim.
+  - **Vision (decided):** infinite canvases whose elements are our own live components — work-item cards, meeting summaries, doc embeds — as first-class canvas objects (§3 principle 4).
+  - **Two canvas surfaces (decided 2026-06-11):**
+    1. **Graph view (in Plan's view switcher, peer of table/kanban/timeline):** every work item laid out visually with dependency edges and status — a *derived* view with **full action parity** (§3 principle 7): click a node to open the same work-item editor, edit inline, create new items and dependencies directly on the graph. Nodes = work items, edges = existing dependency records; auto-layout via dagre/elkjs; no canvas-owned storage beyond optional pinned positions. React Flow (MIT) is the default fit here.
+       **Direct-manipulation grammar (2026-06-11, updated 2026-06-12):** spatial gestures are real mutations on the one record, never canvas-local state — drag an edge between nodes = create a dependency; drop a node into a phase/assignee group = change phase/assignee; notes and comments open directly on the node and are the work item's own comment thread (visible in every other view instantly); one-click auto-layout/organize re-arranges by dependency order, phase, or assignee without changing any data. Layout is presentation; gestures are data.
+    2. **Freeform planning canvas (a Docs document):** infinite space to arrange docs, notes, and object cards. Persists layout only (element ref, position, size, grouping); content stays in the owning apps.
+  - **Storage rule:** canvases never store object content. A prior React Flow attempt failed because task data lived only in component state — the lesson is the data layer (backend-owned objects + reference-only canvas docs), not the rendering library.
+  - **Selection criterion:** quality of the custom-shape/embedded-component model, since canvas components are React components from `packages/ui`. License cost is a first-class criterion: tldraw is $6k/yr commercial; React Flow and BlockSuite are MIT.
+  - **Validation gate:** time-boxed spike building the same live work-item card three ways — BlockSuite custom block (Lit wrapper), React Flow custom node (native React), tldraw custom shape (trial license). Compare build effort, live-update behavior, freehand/ink support, license cost, and upgrade risk (BlockSuite is pre-1.0 and requires `patches/`). The two surfaces may legitimately use different libraries (e.g. React Flow for the work graph, BlockSuite/tldraw for freeform if ink matters). Record the outcome here and delete losing dependencies.
+
+## 11. Schema deltas and machine rules (consolidated 2026-06-12)
+
+Everything DESIGN.md promises that the current schema does NOT have, in one list — so no bullet above hides a migration. Evaluator-verified against `infra/supabase/migrations/`.
+
+**New tables required:**
+- `projects` (name, kind, playbook_ref, target_date, status, owner) + `project_departments` junction + `work_items.project_id`
+- `playbooks` (kind, per-phase checklists as JSONB)
+- `agents` (workspace agent principals: name, instructions, allowed connectors, scopes) — membership/roles must admit non-human members
+- Thread unification: `chat_threads.object_type/object_id` (binds ≤1 object) + thread members with `kind: human|agent`
+- `proposals` (the review queue sink: kind, source ref, state) — states `proposed → accepted | rejected | expired`, **idempotent on (source_type, source_id, target_kind)** so retried agents never double-create
+- `automations` + `automation_runs` (cron/event triggers, audited)
+- `connectors` + `connector_bindings` (object-level: which PR/campaign binds to which work item)
+- Visibility: `visibility` column on items/tasks + `visibility_grants` (named people)
+- Files/attachments (object-bound, R2-backed) · global search index · releases-as-projects need no extra table
+
+**Value migrations:** type-aware phases → universal `plan|execute|review|done`; `timeline_items` → `product_tasks` consolidation; **drop `work_items.status`** (existing values map to phase + derived health); `milestones` rebind item → project.
+
+**Machine rules (so agents act without asking):**
+- Auto-assignment: confidence ≥ 0.8 → assign person · 0.5–0.8 → propose with person prefilled · < 0.5 → route to department queue. Department resolved from `item.department_id`, else the project's kind→department default. Thresholds live in workspace config, these are defaults.
+- Playbook resolution: item → its project's `playbook_ref` → kind default → none (loop without checklists).
+- Visibility: enforced at the platform-API layer on every read; agent context loading uses the same filter — never a separate code path.
+- Every auto-created object carries provenance (source type + id) and enters via a `proposals` row; direct writes by agents are limited to objects they were explicitly assigned.
+
+## 12. Reference documents
+
+- `docs/design/user-flow-wireframes.html` — living clickable prototype (18 screens, canonical tokens, light/dark). Open in a browser. This is the execution reference for PR21 screens: build to these layouts, update the file when a flow decision changes.
+- `docs/design/mental-model.html` — the coherence model visualized: four layers (WHY/WHAT/WHEN/LEARN), the universal Plan→Execute→Review→Done loop, parallel projects timeline.
+- `docs/design/tokens.css` — canonical design tokens
+- `docs/plans/ui-revamp-plan-2026-06-11.md` — rebuild execution plan
+- `docs/plans/user-flows-evaluation-2026-06-11.md` — flows, personas, IA rationale, founder decisions
+- `docs/plans/stack-evaluation-2026-06-11.md` — stack decision and alternatives
+- `docs/plans/plan-evaluation-2026-06-11.md` — overall plan assessment
+- `docs/plans/building-blocks-transformation-pr-plan.md` — durable PR sequence
