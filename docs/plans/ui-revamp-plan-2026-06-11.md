@@ -1,5 +1,7 @@
 # UI Revamp Plan — Product Suite Platform Shell
 
+> **Supersession banner (2026-06-12): `DESIGN.md` is canonical.** This plan predates the final IA. Where it says **Meetings / Plan / Docs / Insights / Agents (five groups)**, build the canonical **four boards + Home** instead: Plan → **Workboard**, Docs → **Canvas board**, Insights → **folded into Home** (a meta-view, not a board), Meetings → **Meeting board**, Agents → **Agent board**. The build order, workstreams, and process rules below remain valid after this renaming; PR21a implements the DESIGN.md §2 navigation (workspace switcher → board dock → stable per-board sidebar), not the five-group switcher described here.
+
 Date: 2026-06-11
 Companion to: `plan-evaluation-2026-06-11.md`, `user-flows-evaluation-2026-06-11.md`, `stack-evaluation-2026-06-11.md`
 Status: proposed (feeds the pre-PR21 decision slice and re-scoped PR21+)
