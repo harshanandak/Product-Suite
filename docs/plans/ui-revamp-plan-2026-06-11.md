@@ -49,7 +49,7 @@ The chrome is the product's skeleton; it ships before any app content:
 - **Command palette (Cmd+K)**: navigation + actions from day one. Cheap to add now, defining for power users, and a natural agent-invocation surface later ("ask agent…" as a palette action).
 - **Review queue drawer**: the single inbox for everything awaiting human approval (meeting auto-tasks, agent proposals, invites). One pattern, every producer feeds it.
 - **Home digest** (default landing): what changed since last visit — new summaries, completed agent runs, moved items. v1 can be a simple grouped feed.
-- Route skeleton: `/w/[workspace]/{meetings|plan|docs|insights|agents|settings}` + account-level `/settings`. Old paths 302 here.
+- Route skeleton (updated 2026-06-12 to the canonical DESIGN.md §1 shape): `/w/[workspace]` lands on **Home**; boards at `/w/[workspace]/{workboard|meetings|canvas|agents}` + workspace `/settings` + account-level `/settings`. There are no `/plan`, `/docs`, or `/insights` routes. Old paths 302 to their canonical equivalents.
 
 ## 5. Workstream C — Apps, in flow order
 
