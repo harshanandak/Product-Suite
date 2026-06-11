@@ -411,24 +411,24 @@ select,input[type=text]{font:inherit;font-size:.74rem;border:1px solid var(--bor
         </div>
         <div class="kan">
           <div class="kcol">
-            <div class="kh"><span class="pill mut">Planned</span><span class="count">2</span></div>
+            <div class="kh"><span class="pill mut">Plan</span><span style="font-size:.6rem;color:var(--muted-foreground)">decide</span><span class="count">2</span></div>
             <div class="kcard" onclick="go('item')"><span class="t">Q3 launch readiness review</span><span class="m"><span class="seg"><i class="f"></i><i></i><i></i><i></i></span><span class="pill mut">medium</span><span style="font-size:.62rem;color:var(--muted-foreground)">Jul 02</span></span></div>
             <div class="kcard" onclick="go('item')"><span class="t">Export reports to PDF</span><span class="m"><span class="seg"><i class="f"></i><i></i><i></i><i></i></span><span class="pill mut">low</span><span class="avx">SN</span><span class="pill ind"><i class="ti ti-message-2"></i></span></span></div>
           </div>
           <div class="kcol">
-            <div class="kh"><span class="pill ind">In progress</span><span class="count">1</span></div>
-            <div class="kcard" onclick="go('item')"><span class="t">Update pricing sheet for Q3</span><span class="m"><span class="seg"><i class="f"></i><i class="f"></i><i></i><i></i></span><span class="pill warn">high</span><span class="avx">AR</span><span class="pill ind"><i class="ti ti-video"></i></span></span></div>
+            <div class="kh"><span class="pill ind">Execute</span><span style="font-size:.6rem;color:var(--muted-foreground)">do the work</span><span class="count">1</span></div>
+            <div class="kcard" onclick="go('item')"><span class="t">Negotiate packaging contract</span><span class="m"><span class="seg"><i class="f"></i><i class="f"></i><i></i><i></i></span><span class="pill bad"><i class="ti ti-alert-triangle"></i> at risk</span><span class="pill bad">critical</span><span class="avx">HN</span></span></div>
           </div>
           <div class="kcol">
-            <div class="kh"><span class="pill warn">On hold</span><span class="count">1</span></div>
-            <div class="kcard" onclick="go('item')"><span class="t">Negotiate packaging contract</span><span class="m"><span class="seg"><i class="f"></i><i class="f"></i><i></i><i></i></span><span class="pill bad">critical</span><span class="avx">HN</span><span class="pill ind"><i class="ti ti-message-circle"></i> 2</span></span></div>
+            <div class="kh"><span class="pill ind">Review</span><span style="font-size:.6rem;color:var(--muted-foreground)">verify</span><span class="count">1</span></div>
+            <div class="kcard" onclick="go('item')"><span class="t">Update pricing sheet for Q3</span><span class="m"><span class="seg"><i class="f"></i><i class="f"></i><i class="f"></i><i></i></span><span class="pill warn">high</span><span class="avx">AR</span><span class="pill ind"><i class="ti ti-video"></i></span></span></div>
           </div>
           <div class="kcol">
-            <div class="kh"><span class="pill ok">Completed</span><span class="count">1</span></div>
+            <div class="kh"><span class="pill ok">Done</span><span style="font-size:.6rem;color:var(--muted-foreground)">delivered</span><span class="count">1</span></div>
             <div class="kcard" onclick="go('item')"><span class="t">Follow up with Chennai supplier on MOQ</span><span class="m"><span class="seg"><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i></span><span class="pill warn">high</span><span class="avx">PK</span></span></div>
           </div>
         </div>
-        <span style="font-size:.68rem;color:var(--muted-foreground)">Drag a card between columns to change status — same record, instantly true in every view</span>
+        <span style="font-size:.68rem;color:var(--muted-foreground)">Columns are the universal phase loop — drag a card to change its phase (one record, true in every view). "At risk" is derived health on the card, never a column. Task boards use To do / Doing / Done instead.</span>
       </div>
     </div>
   </div>
@@ -1006,14 +1006,20 @@ var SIDEBARS={
     {key:'newagent',icon:'ti-plus',label:'New agent…'}
   ]}
 };
+function act(el,fn){
+  el.onclick=fn;
+  el.tabIndex=0;
+  el.setAttribute('role','button');
+  el.onkeydown=function(e){ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); fn(); } };
+}
 document.querySelectorAll('.sb').forEach(function(sb){
-  var board=sb.getAttribute('data-board');
-  var active=sb.getAttribute('data-active');
+  var board=sb.dataset.board;
+  var active=sb.dataset.active;
   var cfg=SIDEBARS[board];
   var ws=document.createElement('div');
   ws.className='ws';
   ws.innerHTML='<span class="av">BF</span> Befach HQ <i class="ti ti-chevron-down"></i>';
-  ws.onclick=function(){go('home')};
+  act(ws,function(){go('home')});
   sb.appendChild(ws);
   var body=document.createElement('div');
   body.className='sb-body';
@@ -1032,7 +1038,7 @@ document.querySelectorAll('.sb').forEach(function(sb){
     var d=document.createElement('div');
     d.className='sb-item'+(it.key===active?' on':'');
     d.innerHTML='<i class="ti '+it.icon+'"></i> '+it.label+(it.count?'<span class="count">'+it.count+'</span>':'');
-    d.onclick=function(){ if(it.go){go(it.go)} else {toast(it.label+' — not in prototype')} };
+    act(d,function(){ if(it.go){go(it.go)} else {toast(it.label+' — not in prototype')} });
     body.appendChild(d);
   });
   sb.appendChild(body);
@@ -1042,10 +1048,11 @@ document.querySelectorAll('.sb').forEach(function(sb){
     var s=document.createElement('span');
     var boardScreens=a[2];
     var screenId=sb.closest('.screen').id;
-    s.className='clk'+(boardScreens.indexOf(screenId)>=0?' on':'');
+    s.className='clk'+(boardScreens.includes(screenId)?' on':'');
     s.innerHTML='<i class="ti '+a[1]+'"></i>';
     s.title=a[3];
-    s.onclick=function(){go(a[0])};
+    s.setAttribute('aria-label',a[3]);
+    act(s,function(){go(a[0])});
     dock.appendChild(s);
   });
   sb.appendChild(dock);
@@ -1054,11 +1061,11 @@ document.querySelectorAll('.screen .top').forEach(function(t){
   var b=document.createElement('span');
   b.className='btn sm clk';
   b.innerHTML='<i class="ti ti-sparkles"></i> Ask agent';
-  b.onclick=function(){
+  act(b,function(){
     var crumbs=t.querySelectorAll('b');
     var obj=crumbs.length?crumbs[crumbs.length-1].textContent:'this page';
     toast('Agent thread opened — linked to: '+obj+' (will appear in its coalition)');
-  };
+  });
   t.appendChild(b);
 });
 </script>

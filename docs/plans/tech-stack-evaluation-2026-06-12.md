@@ -1,7 +1,7 @@
 # Tech Stack Evaluation — Consolidated Decisions
 
 Date: 2026-06-12
-Method: six parallel research agents, each verifying current (June 2026) licenses, prices, versions, and maintenance status via web sources. Constraints applied uniformly: decided foundation (Vite + React 19 + TanStack Router, shadcn/Tailwind v4, Clerk, Cloudflare Workers/R2, Supabase Postgres, Bun monorepo, FastAPI on Railway), pre-revenue budget, open-source-first, agent-first architecture, fewest moving parts.
+Method: six parallel research passes (agent-assisted), each verifying current (June 2026) licenses, prices, versions, and maintenance status against the web — **the primary-source URLs are cited inline in each section below and are the auditable evidence; run transcripts were session-local and are not archived in the repo.** Constraints applied uniformly: decided foundation (Vite + React 19 + TanStack Router, shadcn/Tailwind v4, Clerk, Cloudflare Workers/R2, Supabase Postgres, Bun monorepo, FastAPI on Railway), pre-revenue budget, open-source-first, agent-first architecture, fewest moving parts.
 
 > **Status: recommended stack, pending founder sign-off.** Where this conflicts with older docs, this file + DESIGN.md §10 win.
 

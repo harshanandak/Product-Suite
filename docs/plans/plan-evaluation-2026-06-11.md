@@ -48,7 +48,7 @@ By the plan's own slicing standards, PR21 bundles: module registry + app switche
 
 ### 5. Dual realtime paths must not survive launch
 
-PR14–16 carefully built Hocuspocus behind flags with Supabase Realtime as permanent fallback. Correct for rollout; wrong to keep forever — two transports means two sets of sync bugs and doubled test surface. Add an explicit "PR: remove Supabase Realtime fallback" (or the reverse — remove Hocuspocus if usage doesn't justify running a service) with a deadline tied to launch. Carrying both indefinitely is the worst option.
+PR14–16 carefully built Hocuspocus behind flags with Supabase Realtime as permanent fallback. Correct for rollout; wrong to keep forever — two transports means two sets of sync bugs and doubled test surface. **(Superseded 2026-06-12 by tech-stack-evaluation §2:** the convergence target is **Cloudflare Durable Objects as the single realtime transport** — migrate all sessions and **retire BOTH Hocuspocus-on-Railway and Supabase Realtime** via a "PR: deprecate Hocuspocus and Supabase Realtime" tied to launch.) Carrying multiple transports indefinitely is the worst option.
 
 ### 6. Package count is ahead of consumer count
 
@@ -70,7 +70,7 @@ Also: the open decision "default landing page after login" should be answered by
 | Single Supabase Postgres, schema-per-module | Right call pre-revenue. Keep schemas private at launch (see #2). Close the still-open Alembic question now: `infra/supabase/migrations` is canonical, Alembic read-only — the docs already lean this way, so state it as decided. |
 | FastAPI/Python for meeting-api | Keep. Transcription/ML ecosystem justifies the second language. |
 | Hocuspocus + Yjs | Fine, but converge to one transport (see #5). |
-| BlockSuite canvas | Riskiest dependency in the suite — needs patched deps and Next config hacks, upstream churns fast. The plan's own "after PR10: rebuild candidate?" checkpoint is never recorded as answered. Answer it before `/canvas` becomes top-level nav. If confidence is low, ship canvas as a capability inside roadmap documents rather than promising it as a peer module. |
+| BlockSuite canvas | **RESOLVED 2026-06-12: BlockSuite is exiting; do not use** (tech-stack-evaluation §1). React Flow + TipTap core is the canvas stack; `patches/` removed with it. (Original concern stands as the rationale: patched deps, Next config hacks, fast upstream churn, unanswered PR10 rebuild checkpoint.) |
 | Next.js shell + Vite meeting shell | Consolidate to one shell (see #1). |
 
 ### 9. Process weight (developer + agent ergonomics)

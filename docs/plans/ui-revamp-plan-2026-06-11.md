@@ -10,7 +10,7 @@ Status: proposed (feeds the pre-PR21 decision slice and re-scoped PR21+)
 - Stack: Vite SPA + TanStack Router (library) + Clerk GA React SDK, deployed on Cloudflare; Hono platform API (stack-evaluation, accepted).
 - IA: workspace is the container; two-level sidebar — persistent app switcher (Meetings, Plan, Docs, Insights, Agents) + contextual per-app options; 13 sub-apps collapse into 5 groups.
 - Product gate: meeting → auto-tasks → assignment review seam (Flow 2).
-- Still open: canvas/editor technology (BlockSuite vs tldraw/TipTap). Blocks only the Docs app, nothing else.
+- ~~Still open: canvas/editor technology~~ **Canvas technology: decided 2026-06-12** (tech-stack-evaluation §1) — React Flow for graph + freeform canvas; TipTap core for docs; BlockSuite exits with `patches/`. **Docs is no longer blocked or on the critical path** — it can land independently once shell and Meetings are ready.
 
 ## 1. Goals and quality bar
 
@@ -56,7 +56,7 @@ Build order follows the flows, not the org chart of old screens:
 | Order | App | Screens (each with 4 states) | Flow it serves |
 | --- | --- | --- | --- |
 | 1 | **Meetings** | meetings list, meeting detail (player + transcript + summary), upload/record entry, action-items panel | Flow 1 first value |
-| 2 | **The seam** | summary → proposed tasks list → AssigneePicker w/ confidence → accept/edit/reject → "sent to Plan" confirmation; triage queue for low-confidence | Flow 2 (PR21 product gate) |
+| 2 | **Meeting detail seam (part of the Meetings app, NOT a separate app)** | summary → proposed tasks list → AssigneePicker w/ confidence → accept/edit/reject → "sent to Workboard" confirmation; triage queue for low-confidence. Lives inside the Meeting detail screen, rendered with `packages/ui-meeting` components (built in PR8); the Meeting backend (meeting-api) is its data source | Flow 2 (PR21 product gate) |
 | 3 | **Plan** | work-items table/board, timeline view, item detail panel; absorbs execution/strategies as views or filters, not nav items | Flow 2 track half |
 | 4 | **Agents** | run dashboard (parallel sessions, status, cost), run detail (artifacts, log), approval handoff into review queue; ambient "delegate" affordance in other apps lands here | Flows 3 + 6 |
 | 5 | **Insights** | one dashboard composing analytics/insights/review/research as tabs/cards | Flow 5 support |

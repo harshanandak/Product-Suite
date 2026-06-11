@@ -31,7 +31,7 @@ For a logged-in B2B tool, Next is mostly complexity without payoff — and it is
 | Next + Vercel (status quo) | Highest cost at scale, deepest lock-in, complexity stays. Only wins if the rebuild were cancelled. |
 | Next + Cloudflare (OpenNext adapter) | Works in production and matured through the Next.js Adapter API (stable in Next 16.2, Mar 2026), but Workers runtime constraints + less-mature ISR = you keep Next's complexity AND gain adapter quirks. Weakest combination. |
 | **Vite SPA + Cloudflare** | **Recommended.** All-stable dependencies, simplest mental model, cheapest, most agent-legible. |
-| TanStack Start + Cloudflare | Most modern; official Cloudflare and Clerk partnerships. But Start is v1.0-RC (not yet stable) and `@clerk/tanstack-react-start` is explicitly beta/"not recommended for production yet". Two beta deps under the platform shell contradicts the de-risking posture. Revisit post-1.0. |
+| TanStack Start + Cloudflare | Most modern; official Cloudflare and Clerk partnerships. But Start is v1.0-RC (not yet stable) and `@clerk/tanstack-react-start` is explicitly beta/"not recommended for production yet". Two beta deps under the platform shell contradicts the de-risking posture. **Revisit at PR21a kickoff: if Start and the Clerk SDK are both 1.0-stable by then, a spike may be warranted** (adoption is non-breaking — Start builds on Router). |
 
 ## Recommended target architecture
 
