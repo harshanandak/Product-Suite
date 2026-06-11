@@ -7,7 +7,7 @@ Method: six parallel research agents, each verifying current (June 2026) license
 
 ## The one-line architecture
 
-**Supabase Postgres is the only database; Cloudflare is the only realtime transport; Railway runs the two container workloads (FastAPI meetings, Claude Agent SDK workers); everything else is a library, not a service.**
+**Supabase Postgres is the only database; Cloudflare is the only realtime transport; Railway runs the two container workloads (FastAPI meetings, AI SDK agent workers); everything else is a library, not a service.**
 
 Net new infrastructure: **zero servers** beyond what already runs.
 
@@ -38,17 +38,21 @@ Cost: ~$5/mo Workers Paid, hibernation ≈ zero idle. Electric SQL / Zero (1.0 J
 
 ## 3. Agent runtime, automations, MCP
 
+> **Revised 2026-06-12 (founder decision): model flexibility is a HARD requirement.** Claude Agent SDK rejected — the SDK is free but its main loop only drives Anthropic models, locking every agent-second to Claude pricing. OpenAI Agents SDK rejected on the same principle.
+
 | Layer | Decision | Why |
 | --- | --- | --- |
-| Agent runtime (long runs) | **Claude Agent SDK workers on Railway** (containers, ~1 GiB each, pooled) | Subagents = parallel research runs; `canUseTool` hook = our proposal gate; resumable sessions = pause-on-approval without a workflow engine; first-class MCP client |
-| Light/synchronous AI in API | **Vercel AI SDK v6** in the Hono Worker | Type-safe streaming `useChat`, `needsApproval` HITL, provider-agnostic (OpenRouter models) |
+| Agent runtime (ALL runs) | **Vercel AI SDK v6 Agent + `@openrouter/ai-sdk-provider`** — same code in the Hono Worker (light calls) and Node workers on Railway (long runs) | Total model freedom: per-role routing via OpenRouter (cheap defaults — Kimi K2.5 / GLM / Gemini Flash — premium opt-in per run), proven by the founder's existing n8n pipeline; `needsApproval` HITL → proposals row; MCP client built in; type-safe `useChat` streaming |
+| Resumability (we build it) | Run state persisted in `agent.runs` (messages + step cursor); pending gated tool → `proposals`; resume = rehydrate + continue loop | ~1–2 days on the pgmq spine; the price of zero model lock-in (Claude Agent SDK gave this free but Anthropic-only) |
+| Python-side option | **Pydantic AI** inside FastAPI if agent logic ever belongs server-side in Python | Provider-agnostic, OpenRouter-ready, MIT |
+| Named alternatives (not deps) | Mastra (AI-SDK-based, prebuilt memory/workflows, adds framework lock) · LangGraph **MIT library only** (platform billing was the rejection, not the library) | Revisit only if hand-rolled loop grows painful |
 | Durable spine | **Supabase pgmq + pg_cron + `agent.runs`/`proposals` tables** | Zero new infra; cron + event triggers + retries + audit rows next to the data. Upgrade path: Trigger.dev v4 (Apache-2.0, real self-host) when orchestration outgrows pgmq; Inngest second option |
 | Run flow | Hono/pg_cron enqueues pgmq → Railway worker claims, runs SDK session, streams to UI → gated tool writes proposal row, parks run `awaiting_approval` → approval re-enqueues resume | State in Postgres; SDK session is the resumable unit |
 | MCP hosting | **Reuse official remote servers**: GitHub (`api.githubcopilot.com/mcp/`), Meta Ads (`mcp.facebook.com/ads`, 29 tools, free beta Apr 2026). GA: wrap official stdio server with FastMCP on Railway. Custom connectors: Cloudflare `McpAgent` + workers-oauth-provider | Zero hosting for the big two; replaces the custom FB n8n workflow |
 | n8n | **Stays for founder back-office automations; is NOT the product engine** | Product automations must be agent-authored Postgres rows with audit trails |
 | Rejected | LangGraph (platform billing), Temporal (ops burden), OpenAI Agents SDK/Mastra (weaker fit), Cloudflare Workflows as primary (can't execute Railway steps) | |
 
-Risk: Claude Agent SDK couples the main loop to Anthropic models — AI SDK v6 covers non-Claude paths via OpenRouter.
+Model routing policy: OpenRouter is the single gateway (one key, all providers, fallbacks). Per-task-kind defaults live in workspace config — e.g. extraction/parsing → Gemini Flash or GLM-Flash; drafting/research → Kimi K2.5; judge/verify → GLM; premium models opt-in per run. This mirrors the founder's proven n8n model stack.
 
 ## 4. Meetings pipeline — ~$0.20 per meeting-hour
 
@@ -89,13 +93,13 @@ Fixed: Cloudflare Workers Paid $5 · Railway ~$10–20 (FastAPI + pooled agent w
 ## Build vs adopt (the short list)
 
 **Build:** freeform-canvas ergonomics on React Flow (ink/marquee/snapping — timeboxed), custom Gantt lanes, run-queue worker, proposals UX, notifications table, events table, Yjs↔React Flow binding (transaction-origin filtering + scoped UndoManager).
-**Adopt (all MIT/free):** React Flow, perfect-freehand, TipTap core, y-prosemirror, partyserver/y-durableobjects, Claude Agent SDK, AI SDK v6, pgmq/pg_cron, FastMCP, official GitHub/Meta MCP servers, Uppy, TanStack Table/Virtual, dnd-kit, cmdk, react-virtuoso, recharts.
+**Adopt (all MIT/free):** React Flow, perfect-freehand, TipTap core, y-prosemirror, partyserver/y-durableobjects, AI SDK v6 + @openrouter/ai-sdk-provider, pgmq/pg_cron, FastMCP, official GitHub/Meta MCP servers, Uppy, TanStack Table/Virtual, dnd-kit, cmdk, react-virtuoso, recharts.
 **Exit:** BlockSuite (+patches), Hocuspocus-on-Railway service, Supabase Realtime usage, custom FB n8n product workflow.
 
 ## Top cross-cutting risks
 
 1. React Flow-as-whiteboard ergonomics is the largest unknown — timebox the spike; tldraw trial is the named escape hatch.
-2. Claude Agent SDK ↔ Anthropic coupling — AI SDK v6 is the deliberate second path.
+2. Hand-rolled run resumability on AI SDK (messages + step cursor in `agent.runs`) — keep it boring; Mastra/LangGraph-lib are the named fallbacks if it grows hairy.
 3. y-durableobjects is small/single-maintainer — partyserver (Cloudflare-owned) is the room layer; validate Hocuspocus-v4-on-Workers under load.
 4. Hand-rolled pgmq durability — Trigger.dev v4 is the named upgrade, don't improvise a workflow engine.
 5. Pricing churn (AssemblyAI/Recall cut prices this year) — keep vendor clients behind interfaces.
