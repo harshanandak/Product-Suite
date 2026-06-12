@@ -162,7 +162,7 @@ Everything DESIGN.md promises that the current schema does NOT have, in one list
 - `playbooks` (kind, per-phase checklists as JSONB)
 - `agents` (workspace agent principals: name, instructions, allowed connectors, scopes) — membership/roles must admit non-human members
 - Thread unification: `chat_threads.object_type/object_id` (binds ≤1 object) + thread members with `kind: human|agent`
-- `proposals` (the review queue sink: kind, source ref, state) — states `proposed → accepted | rejected | expired`, **idempotent on (source_type, source_id, target_kind)** so retried agents never double-create
+- `proposals` (the review queue sink: kind, source ref, state) — states `proposed → accepted | rejected | expired`, **idempotent on (source_type, source_id, source_candidate_id, target_kind)**: one source routinely yields many proposals of the same kind (a single meeting extracts four action items), so each candidate carries a stable per-candidate identifier (meeting extraction → the action-item/transcript-span id; agent artifact → the artifact item id) — distinct candidates never collide, while true retries of the same candidate dedupe
 - `automations` + `automation_runs` (cron/event triggers, audited)
 - `connectors` + `connector_bindings` (object-level: which PR/campaign binds to which work item)
 - MCP Gateway: `workspace_mcp_servers` registry + per-user **encrypted** credentials + `tool_schemas` cache (FTS-indexed; refreshed via `tools/list`/`listChanged` with polling fallback)
