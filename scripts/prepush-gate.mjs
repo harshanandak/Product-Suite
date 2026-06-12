@@ -16,7 +16,8 @@ const DOCS_ONLY = [
 ];
 
 function git(args) {
-  return execFileSync("git", args, { encoding: "utf8" }).trim();
+  // PATH lookup is intended: this is a local git hook running in a dev shell.
+  return execFileSync("git", args, { encoding: "utf8" }).trim(); // NOSONAR(S4036)
 }
 
 function changedFiles() {
@@ -53,7 +54,7 @@ if (docsOnly) {
   console.log(
     `prepush-gate: docs-only push (${files.length} file${files.length === 1 ? "" : "s"}) — skipping app suites, running fast checks only.`
   );
-  const fast = spawnSync("bun", ["run", "check:source-test"], {
+  const fast = spawnSync("bun", ["run", "check:source-test"], { // NOSONAR(S4036) — dev tooling, PATH lookup intended
     stdio: "inherit",
     shell: true,
   });
@@ -65,7 +66,7 @@ if (files === null) {
 } else {
   console.log("prepush-gate: non-docs changes detected — running the full suite.");
 }
-const full = spawnSync("bun", ["run", "test:prepush"], {
+const full = spawnSync("bun", ["run", "test:prepush"], { // NOSONAR(S4036) — dev tooling, PATH lookup intended
   stdio: "inherit",
   shell: true,
 });
