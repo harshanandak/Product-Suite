@@ -160,7 +160,8 @@ Every screen instruments its flow's success events (`first_value`, `meeting_to_w
 Everything DESIGN.md promises that the current schema does NOT have, in one list — so no bullet above hides a migration. Evaluator-verified against `infra/supabase/migrations/`.
 
 **New tables required:**
-- `projects` (name, kind, playbook_ref, target_date, status, owner) + `project_departments` junction + `work_items.project_id`
+- `projects` (name, kind, playbook_ref, target_date, status, owner) + `project_departments` junction + `work_items.project_id` (nullable)
+- `product_tasks.project_id` (nullable) — required by optional containment: a task's parent is `work_item_id` XOR `project_id` XOR neither (loose task); enforce the at-most-one-parent rule with a check constraint (current schema has only `work_item_id`, see `20251125000001_create_product_tasks_table.sql`)
 - `playbooks` (kind, per-phase checklists as JSONB)
 - `agents` (workspace agent principals: name, instructions, allowed connectors, scopes) — membership/roles must admit non-human members
 - Thread unification: `chat_threads.object_type/object_id` (binds ≤1 object) + thread members with `kind: human|agent`

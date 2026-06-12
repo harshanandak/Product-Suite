@@ -26,7 +26,7 @@ Rule: keep board/doc state in **our own Yjs schema**, never library-native forma
 
 ## 2. Realtime — resolves the dual-transport convergence
 
-**One transport: Cloudflare Durable Objects (partyserver, Cloudflare-owned since the PartyKit acquisition).** Retire BOTH the Hocuspocus-on-Railway service and Supabase Realtime.
+**One `RealtimeTransport` interface; Cloudflare Durable Objects (partyserver, Cloudflare-owned since the PartyKit acquisition) is the SaaS implementation — Hocuspocus-on-Node is the self-host implementation (DESIGN.md §12 seam 2).** What retires: the current Hocuspocus-on-Railway *service* and all Supabase Realtime usage. Hocuspocus the library survives as the self-host transport that `docker compose` ships.
 
 | Room type | Mechanism |
 | --- | --- |
