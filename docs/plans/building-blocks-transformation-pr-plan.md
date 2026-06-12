@@ -50,7 +50,7 @@ This file is the durable execution plan for the multi-PR transformation of Produ
 - `PR18 Clerk Auth Foundation`: merged via GitHub PR #19 and verified on `origin/main`
 - `PR19 Unified Supabase Platform Schema`: merged via GitHub PR #21 and verified on `origin/main`
 - `PR20 Meeting Database Cutover From Neon To Supabase`: active on `feat/pr20-meeting-database-cutover-implementation`
-- `PR21+`: planned below and must be executed as separate reviewable slices
+- `PR21+`: **superseded 2026-06-12** — the platform direction was re-decided (see `DESIGN.md`, canonical) and PR21–PR23 are replaced by the phased rebuild in [`docs/plans/implementation-plan-2026-06-12.md`](implementation-plan-2026-06-12.md) (Phase 0 foundations → Phase 1 four parallel board lanes → Phase 2 cutover → Phase 3 deferred list). The PR21–PR23 sections below remain as historical record only.
 
 ## Global Rules
 - Roll back the PR if it breaks a prior gate.

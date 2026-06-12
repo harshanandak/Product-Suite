@@ -206,7 +206,8 @@ Everything DESIGN.md promises that the current schema does NOT have, in one list
 - `docs/design/user-flow-wireframes.html` — living clickable prototype (18 screens, canonical tokens, light/dark). Open in a browser. This is the execution reference for PR21 screens: build to these layouts, update the file when a flow decision changes.
 - `docs/design/mental-model.html` — the coherence model visualized: four layers (WHY/WHAT/WHEN/LEARN), the universal Plan→Execute→Review→Done loop, parallel projects timeline.
 - `docs/design/tokens.css` — canonical design tokens
-- `docs/plans/ui-revamp-plan-2026-06-11.md` — rebuild execution plan
+- `docs/plans/implementation-plan-2026-06-12.md` — **the rebuild execution plan** (Phase 0 foundations → Phase 1 parallel board lanes → Phase 2 cutover → Phase 3 deferred); supersedes PR21–PR23 of the building-blocks plan
+- `docs/plans/ui-revamp-plan-2026-06-11.md` — earlier revamp plan (workstreams/process rules still valid; see its supersession banner)
 - `docs/plans/user-flows-evaluation-2026-06-11.md` — flows, personas, IA rationale, founder decisions
 - `docs/plans/stack-evaluation-2026-06-11.md` — stack decision and alternatives
 - `docs/plans/plan-evaluation-2026-06-11.md` — overall plan assessment
