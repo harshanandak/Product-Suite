@@ -2,7 +2,7 @@
   "framework": "nextjs",
   "installCommand": "bun install",
   "buildCommand": "bun run build",
-  "ignoreCommand": "bash -c 'cd ../.. && git diff --quiet HEAD^ HEAD -- apps/roadmap-web packages services infra/supabase package.json bun.lock'",
+  "ignoreCommand": "bash -c 'cd ../.. && git diff --quiet HEAD^ HEAD -- apps/roadmap-web packages services patches infra/supabase package.json bun.lock'",
   "functions": {
     "app/api/ai/**/*.ts": {
       "maxDuration": 300,
