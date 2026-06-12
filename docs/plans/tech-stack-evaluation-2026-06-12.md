@@ -140,6 +140,22 @@ Principle: **compute on Cloudflare is replaceable; all state (Postgres, S3-compa
 
 **TanStack posture: libraries deep, Start deferred.** Adopt Router + **Query (the SPA's entire server-state layer: caching, optimistic updates, invalidation-ping consumer)** + Table v8 + Virtual. Deliberate exceptions: react-virtuoso (chat/transcripts reverse-scroll), react-hook-form (shadcn form primitives are RHF-based; revisit TanStack Form when battle-tested). TanStack Start remains a future non-breaking opt-in (builds on Router) — currently RC with a beta Clerk SDK, and a logged-in SPA needs no SSR. TanStack DB: watch-list only, too young.
 
+### 7a. Postgres host: Neon (decided 2026-06-12, executed at F2)
+
+The cost doctrine called Supabase "a replaceable Postgres host, not a platform dependency" — this decision exercises the exit. **Verified dependency inventory** (what Supabase provides beyond Postgres, from the actual repo):
+
+| Dependency | Evidence | Fate |
+| --- | --- | --- |
+| Postgres + pgvector (all 100+ migrations, knowledge_base / collective_intelligence RAG substrate) | `infra/supabase/migrations/` | → **Neon** — stock pgvector/HNSW/plain-SQL functions, runs unchanged |
+| One pg_cron job (daily resource purge) | `20251130000002_schedule_resource_purge_job.sql` | → jobs seam (Cron Trigger), or pg_cron on Neon (supported) |
+| One Edge Function | `infra/supabase/functions/purge-deleted-resources/` | → trivial Worker port |
+| Storage bucket (BlockSuite snapshots) | `20260107110001_create_blocksuite_storage_bucket.sql` | Legacy — BlockSuite exits; new design is R2 |
+| Auth + `auth.uid()` RLS policies | legacy migrations throughout | Legacy — new plane is Clerk + backend-mediated, app-layer authz; F2 schema is written without the `auth` schema |
+| supabase-js / Data API / Realtime | `apps/roadmap-web` only | Legacy app, dies at Phase 2 cutover |
+| Supabase CLI (typegen, drift CI, local dev) | `roadmap-supabase.yml`, `config.toml` | The only durable swap: neutral migration runner + codegen at F2 (~1–2 days) |
+
+**Why Neon:** usage-priced with always-on scale-to-zero (free tier 0.5 GB storage + 100 compute-hours/mo) and post-Databricks price *cuts* (compute −25%, storage −80%, free compute doubled) — no $25/project fixed floor; Workers connect via the serverless HTTP driver or Hyperdrive; **branch-per-PR databases pair with preview deploys** (schema/RAG experiments get isolated copies of real data). pgmq is self-host-only (own Postgres container), so it never constrains the hosted choice. Cloudflare cannot absorb this layer itself (D1 = SQLite, no pgvector). **Sequencing — nothing migrates twice:** F2's migration pack targets Neon from day one, host-neutral SQL; meeting-api moves by connection string (the PR20 cutover runbook, reversed); legacy roadmap-web rides the Supabase free tier until Phase 2 retirement, then the project is deleted. Accepted caveat: cold start on first query after idle — a latency dial (idle-timeout/min-compute settings), not a rearchitecture. End-state surface: **Cloudflare + Neon + Clerk + pay-per-use keys — all usage-priced, zero fixed floors.**
+
 ## Sources (primary references per section, verified June 2026)
 
 **§1 Canvas/docs:** https://tldraw.dev/community/license · https://tldraw.dev/pricing · https://biggo.com/news/202509190115_tldraw_SDK_4.0_Licensing_Debate · https://github.com/xyflow/xyflow · https://github.com/excalidraw/excalidraw/issues/8424 · https://github.com/toeverything/blocksuite · https://tiptap.dev/pricing · https://tiptap.dev/docs/hocuspocus/getting-started/overview · https://platejs.org/docs/yjs · https://www.npmjs.com/package/react-konva · https://lexical.dev/docs/packages/lexical-yjs
@@ -151,6 +167,8 @@ Principle: **compute on Cloudflare is replaceable; all state (Postgres, S3-compa
 **§4 Meetings:** https://www.assemblyai.com/pricing · https://deepgram.com/pricing · https://groq.com/pricing · https://platform.openai.com/docs/models/gpt-4o-transcribe-diarize · https://www.gladia.io/pricing · https://replicate.com/rafaelgalle/whisper-diarization-advanced · https://modal.com/blog/choosing-whisper-variants · https://www.recall.ai/blog/new-recall-ai-pricing-for-2026 · https://developers.openai.com/api/docs/models/text-embedding-3-small · https://openrouter.ai/models · https://brasstranscripts.com/blog/openai-whisper-api-pricing-2025-self-hosted-vs-managed
 
 **§5 Platform services:** https://supabase.com/docs/guides/ai/hybrid-search · https://www.meilisearch.com/pricing · https://cloud.typesense.org/pricing · https://orama.com/ · https://github.com/transloadit/uppy/blob/main/LICENSE · https://uppy.io/docs/aws-s3/ · https://developers.cloudflare.com/images/pricing/ · https://docs.novu.co/community/self-hosting-novu/overview · https://knock.app/pricing · https://posthog.com/pricing · https://posthog.com/docs/self-host · https://sentry.io/pricing/ · https://glitchtip.com/
+
+**§7a Postgres host:** https://neon.com/pricing · https://vela.simplyblock.io/articles/neon-serverless-postgres-pricing-2026/ · https://developers.cloudflare.com/workers/databases/connecting-to-databases/ · https://www.closefuture.io/blogs/neon-vs-supabase · https://neon.com/docs/extensions/pgvector · https://neon.com/docs/extensions/pg_cron
 
 **§6 UI libraries:** https://tanstack.com/blog/tanstack-table-v9-taking-form · https://github.com/clauderic/dnd-kit/releases · https://www.npmjs.com/package/@atlaskit/pragmatic-drag-and-drop · https://svar.dev/react/gantt/ · https://www.npmjs.com/package/gantt-task-react · https://www.npmjs.com/package/@xyflow/react · https://reactflow.dev/learn/layouting/layouting · https://github.com/TanStack/virtual/discussions/195 · https://github.com/petyosi/react-virtuoso · https://www.ag-grid.com/react-data-grid/grouping-data/ · https://github.com/glideapps/glide-data-grid/issues/958 · https://github.com/pacocoursey/cmdk/releases
 

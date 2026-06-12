@@ -22,7 +22,7 @@ packages/ui            ← tokens + design system (Ladle catalog)
 packages/contracts     ← zod schemas/types shared web↔api (extend existing)
 packages/transport     ← RealtimeTransport interface + DO impl + node-ws impl (seam 2)
 packages/jobs          ← queue/cron interface + CF Queues/Cron impl + pgmq impl (seam 5)
-infra/supabase/migrations
+infra/supabase/migrations ← legacy (frozen with the old apps); F2 starts infra/db/ — host-neutral SQL on Neon, neutral runner + codegen
 apps/roadmap-web, apps/meeting-web ← frozen (bugfix-only), deleted at cutover
 ```
 
@@ -33,7 +33,7 @@ Sub-applications = the boards = route groups in ONE app. No separate deployables
 | Slice | Contents | Merge gate |
 | --- | --- | --- |
 | F1 Shell scaffold | platform-web (Vite/TanStack Router/Clerk/tokens) + `packages/ui` core components + shell chrome (dock, stable sidebars, Cmd+K stub, top bar) + Cloudflare preview deploy + CI wiring | Sign in works; chrome matches wireframes; deployed preview URL |
-| F2 Data plane | Migration pack #1 per §11 **with pre-written migration specs** (projects, `product_tasks.project_id` + parent constraint, proposals w/ candidate-id idempotency, connections w/ scope, visibility, drop `work_items.status` mapping) + typed contracts + platform-api CRUD for the ladder | API tests green; drift/type checks; rollback notes per spec |
+| F2 Data plane | Migration pack #1 per §11 **with pre-written migration specs** (projects, `product_tasks.project_id` + parent constraint, proposals w/ candidate-id idempotency, connections w/ scope, visibility, drop `work_items.status` mapping) + typed contracts + platform-api CRUD for the ladder. **Targets Neon from day one** (DESIGN §12 / tech-stack eval §7a): host-neutral SQL (no `auth`/`storage` schemas; app-layer authz instead of `auth.uid()` RLS), neutral migration runner + codegen replacing the Supabase CLI, meeting-api DB moved by connection string (PR20 runbook reversed) | API tests green; drift/type checks; rollback notes per spec; **new schema live on Neon** |
 | F3 Seams | `packages/transport` (DO rooms + invalidation→TanStack Query) + `packages/jobs` (Queues HTTP-pull + Cron) wired end-to-end | Live-update demo test passes through the interface only |
 
 ## Phase 1 — Four parallel lanes (after F3)
@@ -51,7 +51,7 @@ Cross-lane rule: anything generated lands as a `proposals` row → review queue.
 
 ## Phase 2 — Convergence and cutover
 
-Canvas board (React Flow freeform + TipTap docs; old BlockSuite docs readable-only first, then migrated) · Settings (members + skills/roles, departments, connections w/ scope badges) · old-route 302 compatibility layer · **parity gate = the five flows, NOT the old 13 tabs** · perf/a11y pass (DESIGN §8 floor) · DNS cutover · delete roadmap-web, meeting-web, BlockSuite + `patches/`, Vercel projects, Railway hocuspocus.
+Canvas board (React Flow freeform + TipTap docs; old BlockSuite docs readable-only first, then migrated) · Settings (members + skills/roles, departments, connections w/ scope badges) · old-route 302 compatibility layer · **parity gate = the five flows, NOT the old 13 tabs** · perf/a11y pass (DESIGN §8 floor) · DNS cutover · delete roadmap-web, meeting-web, BlockSuite + `patches/`, Vercel projects, Railway hocuspocus, **and the Supabase project** (legacy DB + Storage bucket + Edge Function retire with it — the platform DB has been on Neon since F2; see tech-stack eval §7a).
 
 ## Phase 3 — Deferred by decision (the scope shield)
 
