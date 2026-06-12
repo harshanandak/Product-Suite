@@ -708,6 +708,7 @@ select,input[type=text]{font:inherit;font-size:.74rem;border:1px solid var(--bor
           <div style="width:250px;flex-shrink:0;display:flex;flex-direction:column;gap:.6rem">
             <div class="card-x">
               <div class="sect">Action history</div>
+              <div class="hrow"><i class="ti ti-search" style="color:var(--primary)"></i><span>search_tools("vendor quotes ERP") → loaded erp.get_purchase_orders<br><span style="color:var(--muted-foreground)">tool search — schema loaded on demand via the gateway</span></span></div>
               <div class="hrow"><i class="ti ti-check" style="color:var(--ok)"></i><span>Read 4 meeting summaries<br><span style="color:var(--muted-foreground)">sources cited · 2m ago</span></span></div>
               <div class="hrow"><i class="ti ti-check" style="color:var(--ok)"></i><span>Clustered 11 decisions into 4 themes<br><span style="color:var(--muted-foreground)">3m ago</span></span></div>
               <div class="hrow"><i class="ti ti-loader" style="color:var(--primary)"></i><span>Drafting work item proposals<br><span style="color:var(--muted-foreground)">now</span></span></div>
@@ -869,6 +870,7 @@ select,input[type=text]{font:inherit;font-size:.74rem;border:1px solid var(--bor
           <div class="drow clk" onclick="go('item')"><span class="seg"><i class="f"></i><i class="f"></i><i class="f"></i><i></i></span> Update pricing sheet for Q3 <span class="pill warn">high</span><span class="avx">AR</span><span class="when">Finance</span></div>
           <div class="drow clk" onclick="go('item')"><span class="seg"><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i></span> Follow up with Chennai supplier on MOQ <span class="pill warn">high</span><span class="avx">PK</span><span class="when">Sourcing</span></div>
           <div class="drow"><span class="seg"><i class="f"></i><i></i><i></i><i></i></span> Contract legal review <span class="pill mut">medium</span><span class="pill ind"><i class="ti ti-building"></i> Legal queue</span><span class="when">unrouted</span></div>
+          <div class="drow"><i class="ti ti-square" style="color:var(--muted-foreground)"></i> Book vendor site visit <span class="pill mut">task · To do</span><span class="pill mut">no work item — directly under the project</span><span class="when"><span class="avx">PK</span></span></div>
         </div>
         <span style="font-size:.68rem;color:var(--muted-foreground)">A project = goal + date + playbook + the work items aiming at it. Progress rolls up from the items; the last row shows department-queue assignment awaiting a lead.</span>
       </div>
@@ -911,6 +913,38 @@ select,input[type=text]{font:inherit;font-size:.74rem;border:1px solid var(--bor
           </div>
           <span style="font-size:.64rem;color:var(--muted-foreground)">One thread system: channels, DMs, item threads and agent runs are all threads — mention an agent anywhere; pin an exchange to promote it to an on-the-record comment on the object.</span>
         </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="screen" id="connections">
+  <div class="shell">
+    <div class="sb" data-board="agents" data-active="connectors"></div>
+    <div class="main">
+      <div class="top"><b>Agent board</b> / Connectors<span class="grow"></span><span class="cmdk"><i class="ti ti-search"></i> Cmd+K</span></div>
+      <div class="body">
+        <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
+          <span style="font-size:.92rem;font-weight:600;flex:1">Connectors &amp; MCP servers</span>
+          <span class="pill mut">catalog synced from the official MCP Registry · 9,600+ servers</span>
+        </div>
+        <input type="text" placeholder="Search the catalog — CRM, helpdesk, analytics, anything…" style="width:100%">
+        <div class="sect">Verified — one-click connect</div>
+        <div class="gridcards">
+          <div class="gcard"><span class="gi"><i class="ti ti-brand-github"></i></span><span class="t">GitHub <span class="pill ok">connected</span></span><br><span class="s"><span class="pill ind"><i class="ti ti-building"></i> workspace</span> shared by admin · PRs bind to tech items</span></div>
+          <div class="gcard"><span class="gi"><i class="ti ti-brand-meta"></i></span><span class="t">Meta Ads <span class="pill ok">connected</span></span><br><span class="s"><span class="pill mut"><i class="ti ti-user"></i> only me</span> Priya's system-user token · agent-first</span></div>
+          <div class="gcard" onclick="toast('Connect dialog opens — paste service-account JSON, pick scope')"><span class="gi"><i class="ti ti-chart-line"></i></span><span class="t">Google Analytics</span><br><span class="s">paste service-account JSON · no OAuth</span></div>
+        </div>
+        <div class="sect">From the registry (indexed)</div>
+        <div class="drow"><i class="ti ti-plug" style="color:var(--muted-foreground)"></i> Linear MCP <span class="pill warn">community — connect at your own risk</span><span class="when"><span class="btn sm">Connect</span></span></div>
+        <div class="card-x" style="border-color:var(--accent)">
+          <div class="sect">Connect GitHub — choose scope</div>
+          <div style="font-size:.76rem;display:flex;flex-direction:column;gap:.35rem">
+            <label style="display:flex;gap:.5rem;align-items:flex-start"><input type="radio" name="scope" checked> <span><b style="font-weight:500">Only me</b> — uses my identity; agents can use it only in runs on my behalf</span></label>
+            <label style="display:flex;gap:.5rem;align-items:flex-start"><input type="radio" name="scope"> <span><b style="font-weight:500">Whole workspace</b> (admin only) — <span class="pill warn"><i class="ti ti-alert-triangle"></i> shares this account's data with every member and agent</span></span></label>
+          </div>
+        </div>
+        <span style="font-size:.68rem;color:var(--muted-foreground)">Agents never preload these tools — the gateway exposes search_tools / load_tool / call_tool, so add hundreds of connectors without drowning any agent's context. Every call is audited with the connection it used.</span>
       </div>
     </div>
   </div>
@@ -966,7 +1000,7 @@ var APPS=[
   ['plan-table','ti-layout-kanban',['plan-table','plan-kanban','plan-graph','item','feedback','strategy','research','project'],'Workboard'],
   ['meetings','ti-video',['meetings','meeting','proposals'],'Meeting board'],
   ['docs','ti-artboard',['docs','canvas-edit'],'Canvas board'],
-  ['agents','ti-robot',['agents','agent-run'],'Agent board']
+  ['agents','ti-robot',['agents','agent-run','connections'],'Agent board']
 ];
 var SIDEBARS={
   home:{title:'Home',items:[
@@ -999,6 +1033,7 @@ var SIDEBARS={
   agents:{title:'Agent board',items:[
     {key:'runs',icon:'ti-activity',label:'Runs',go:'agents'},
     {key:'approvals',icon:'ti-inbox',label:'Approvals',go:'queue',count:1},
+    {key:'connectors',icon:'ti-plug',label:'Connectors',go:'connections'},
     {key:'history',icon:'ti-history',label:'Action history'},
     {label:'Your agents',section:true},
     {key:'scout',icon:'ti-robot',label:'sourcing-scout',go:'agent-run'},
