@@ -7,7 +7,7 @@ Method: six parallel research passes (agent-assisted), each verifying current (J
 
 ## The one-line architecture
 
-**Supabase Postgres is the only database; Cloudflare is the only realtime transport; Railway runs the two container workloads (FastAPI meetings, AI SDK agent workers); everything else is a library, not a service.**
+**Supabase Postgres is the only database (a swappable host); one `RealtimeTransport` interface is the only realtime path (Durable Objects in SaaS, Hocuspocus-on-Node in self-host); Cloudflare Containers run the two container workloads (FastAPI meetings, AI SDK agent workers — Railway is the named fallback; superseded 2026-06-12 wherever "Railway" appears in rows below); everything else is a library, not a service.**
 
 Net new infrastructure: **zero servers** beyond what already runs.
 
