@@ -176,7 +176,23 @@ Everything DESIGN.md promises that the current schema does NOT have, in one list
 - Visibility: enforced at the platform-API layer on every read; agent context loading uses the same filter — never a separate code path.
 - Every auto-created object carries provenance (source type + id) and enters via a `proposals` row; direct writes by agents are limited to objects they were explicitly assigned.
 
-## 12. Reference documents
+## 12. Deployment model: one codebase, two editions (2026-06-12)
+
+**SaaS edition (primary): multi-tenant pool.** Self-serve signup (Clerk orgs → platform workspaces); one Supabase Postgres with `workspace_id` scoping on every row (already the schema's shape); Durable Objects scale per-room (natural tenant isolation); Railway workers scale horizontally off pgmq. Tenant rules: **per-workspace rate limits and agent-concurrency caps** (noisy-neighbor control); **per-workspace metering** (tokens, transcription minutes, storage) built early — PR23 billing depends on it; **tenant export (full workspace JSON + files) and hard-delete jobs are first-class features**, never afterthoughts. Scaling ladder when needed: indexes → partition high-volume tables (events, transcript chunks) → read replicas → dedicated DB for an outlier tenant (pool→silo escape hatch).
+
+**Self-host edition: single-tenant Docker Compose.** `docker compose up` yields: web (static) + Hono API (Node/Bun) + Postgres (pgmq/pg_cron/pgvector) + realtime server (Hocuspocus/y-sweet on Node) + MinIO (S3) + meeting-api + agent worker. Bring-your-own keys: LLMs (OpenRouter, or LiteLLM/Ollama for local), STT, SMTP.
+
+**The four seams that make both editions possible (binding rules):**
+1. **Auth adapter:** every auth flow passes through the PR5 contracts (`AuthClaims`/`TokenVerifier`/`SessionBridge`). Clerk is the SaaS provider — **Clerk has no self-host**, so the open edition ships a second provider (Keycloak/Zitadel/better-auth — pick one) that **CI tests continuously**; an untested seam rots. Internal IDs ≠ provider IDs (already law).
+2. **Realtime transport interface:** room semantics (join/broadcast/presence/persist) behind one `RealtimeTransport` interface — partyserver/DO implements SaaS, Hocuspocus-on-Node implements self-host. No DO-specific API may leak outside the adapter.
+3. **Storage = S3 API only** (R2 SaaS ↔ MinIO self-host); previews behind an image-proxy interface (CF transforms ↔ imgproxy).
+4. **Vendor clients behind interfaces with env-configured endpoints** (LLM, STT, email — already decided individually; this makes it the standing rule).
+
+**Open-core boundary (initial):** open = the entire product runtime above. Cloud-only = billing/metering service, managed connector OAuth apps (self-hosters register their own GitHub/Meta apps), the hosted MCP fleet, multi-tenant ops tooling. **`TBD(license)`** — AGPLv3 (resell protection) vs FSL/BUSL (time-delayed open) vs MIT (max adoption); decide before the repo goes public.
+
+**Accepted difficulties, with mitigations:** dual-edition drift → CI builds and smoke-tests the compose stack on every release; self-host upgrades → versioned releases + idempotent migration runner (Supabase migrations qualify); the permanent Clerk seam → second provider in CI; DO lock-in → confined by seam 2; per-tenant data-residency/dedicated-silo requests → deferred until a customer pays for them.
+
+## 13. Reference documents
 
 - `docs/design/user-flow-wireframes.html` — living clickable prototype (18 screens, canonical tokens, light/dark). Open in a browser. This is the execution reference for PR21 screens: build to these layouts, update the file when a flow decision changes.
 - `docs/design/mental-model.html` — the coherence model visualized: four layers (WHY/WHAT/WHEN/LEARN), the universal Plan→Execute→Review→Done loop, parallel projects timeline.
