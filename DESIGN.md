@@ -101,7 +101,8 @@ The sidebar follows the Zen Browser workspace pattern, adapted so the thing bein
   - `ProposalCard` — the universal accept/edit/reject surface for generated content.
   - `ProvenanceChip` — links any object to its source.
   - `AssigneePicker` — with confidence display for auto-assignment.
-  - `RunProgress` / `StatusPill` — agent-run and work-item status grammar.
+  - `PhasePill` / `HealthBadge` — work-item phase (`plan|execute|review|done`) and derived health (at risk/blocked — computed, never set by hand).
+  - `RunProgress` / `StatusPill` — agent-run and task status grammar; status never appears on work items (§3 principle, §11 drops `work_items.status`).
   - `EmptyState` / `ErrorState` — the only way to render those states.
 - **Tokens, not values.** No hex colors, raw px spacing, or ad hoc font sizes in app code. If a token is missing, add the token.
 
