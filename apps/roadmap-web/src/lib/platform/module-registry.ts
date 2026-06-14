@@ -12,6 +12,7 @@ export type PlatformModuleDefinition = Readonly<{
   label: string;
   shortLabel: string;
   href: `/${string}`;
+  workspaceRouteSegment: string;
   description: string;
   status: PlatformModuleStatus;
   owner: "platform-shell";
@@ -26,6 +27,7 @@ const modules: readonly PlatformModuleDefinition[] = Object.freeze([
     label: "Meetings",
     shortLabel: "Meet",
     href: "/meetings",
+    workspaceRouteSegment: "meetings",
     description: "Meeting preparation, capture, and follow-up workspace.",
     status: "active",
     owner: "platform-shell",
@@ -35,10 +37,11 @@ const modules: readonly PlatformModuleDefinition[] = Object.freeze([
   }),
   defineModule({
     id: "roadmap",
-    label: "Roadmap",
-    shortLabel: "Roadmap",
+    label: "Workboard",
+    shortLabel: "Work",
     href: "/roadmap",
-    description: "Product planning, backlog, and roadmap workspace.",
+    workspaceRouteSegment: "workboard",
+    description: "Projects, work items, tasks, and roadmap execution.",
     status: "active",
     owner: "platform-shell",
     accent: "blue",
@@ -50,6 +53,7 @@ const modules: readonly PlatformModuleDefinition[] = Object.freeze([
     label: "Canvas",
     shortLabel: "Canvas",
     href: "/canvas",
+    workspaceRouteSegment: "canvas",
     description: "Shared visual canvas and structured collaboration surface.",
     status: "reserved",
     owner: "platform-shell",
@@ -62,6 +66,7 @@ const modules: readonly PlatformModuleDefinition[] = Object.freeze([
     label: "Agents",
     shortLabel: "Agents",
     href: "/agents",
+    workspaceRouteSegment: "agents",
     description: "Automation agents, runs, and operational review queues.",
     status: "reserved",
     owner: "platform-shell",
@@ -74,6 +79,7 @@ const modules: readonly PlatformModuleDefinition[] = Object.freeze([
     label: "Settings",
     shortLabel: "Settings",
     href: "/settings",
+    workspaceRouteSegment: "settings",
     description: "Account, workspace, billing, and administration settings.",
     status: "reserved",
     owner: "platform-shell",
@@ -101,6 +107,11 @@ export function resolvePlatformModule(
   pathname: string,
 ): PlatformModuleDefinition | null {
   const normalizedPath = normalizePathname(pathname);
+  const workspaceModule = resolveWorkspaceScopedModule(normalizedPath);
+
+  if (workspaceModule) {
+    return workspaceModule;
+  }
 
   return (
     modules.find((module) =>
@@ -113,6 +124,19 @@ export function resolvePlatformModule(
 
 export function isPlatformModulePath(pathname: string): boolean {
   return resolvePlatformModule(pathname) !== null;
+}
+
+export function resolvePlatformModuleHref(
+  module: PlatformModuleDefinition,
+  activePath: string,
+): `/${string}` {
+  const workspaceSlug = resolveWorkspaceSlug(activePath);
+
+  if (!workspaceSlug) {
+    return module.href;
+  }
+
+  return `/w/${workspaceSlug}/${module.workspaceRouteSegment}` as `/${string}`;
 }
 
 function normalizePathname(pathname: string): string {
@@ -129,6 +153,31 @@ function normalizePathname(pathname: string): string {
 
 function pathMatchesPrefix(pathname: string, prefix: `/${string}`): boolean {
   return pathname === prefix || pathname.startsWith(`${prefix}/`);
+}
+
+function resolveWorkspaceScopedModule(
+  pathname: string,
+): PlatformModuleDefinition | null {
+  const segments = pathname.split("/").filter(Boolean);
+
+  if (segments[0] !== "w" || !segments[1] || !segments[2]) {
+    return null;
+  }
+
+  return (
+    modules.find((module) => module.workspaceRouteSegment === segments[2]) ??
+    null
+  );
+}
+
+function resolveWorkspaceSlug(pathname: string): string | null {
+  const segments = normalizePathname(pathname).split("/").filter(Boolean);
+
+  if (segments[0] !== "w" || !segments[1]) {
+    return null;
+  }
+
+  return segments[1];
 }
 
 function defineModule(

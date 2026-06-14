@@ -24,6 +24,14 @@ type RouteOwnershipSeed = readonly [
 ];
 
 const routeOwnershipSeeds = [
+  ["/w/:workspace/meetings/new", "platform-shell", "meeting-compatible", "meetings"],
+  ["/w/:workspace/meetings/:meetingId", "platform-shell", "meeting-compatible", "meetings"],
+  ["/w/:workspace/meetings", "platform-shell", "shell-native", "meetings"],
+  ["/w/:workspace/workboard", "platform-shell", "shell-native", "roadmap"],
+  ["/w/:workspace/canvas", "platform-shell", "reserved", "canvas"],
+  ["/w/:workspace/agents", "platform-shell", "reserved", "agents"],
+  ["/w/:workspace/settings", "platform-shell", "reserved", "settings"],
+  ["/w/:workspace", "platform-shell", "shell-native"],
   ["/meetings/new", "platform-shell", "meeting-compatible", "meetings"],
   ["/meetings/:meetingId", "platform-shell", "meeting-compatible", "meetings"],
   ["/meetings", "platform-shell", "shell-native", "meetings"],
@@ -64,12 +72,20 @@ export function getRouteOwnership(pathname: string): RouteOwnershipRule | null {
 }
 
 function pathMatchesRule(pathname: string, pathPrefix: string): boolean {
-  if (pathPrefix.includes(":")) {
-    const prefixBeforeParam = pathPrefix.slice(0, pathPrefix.indexOf("/:"));
-    return pathname.startsWith(`${prefixBeforeParam}/`);
+  const pathnameSegments = pathname.split("/").filter(Boolean);
+  const ruleSegments = pathPrefix.split("/").filter(Boolean);
+
+  if (ruleSegments.length > pathnameSegments.length) {
+    return false;
   }
 
-  return pathname === pathPrefix || pathname.startsWith(`${pathPrefix}/`);
+  return ruleSegments.every((segment, index) => {
+    if (segment.startsWith(":")) {
+      return Boolean(pathnameSegments[index]);
+    }
+
+    return pathnameSegments[index] === segment;
+  });
 }
 
 function normalizePathname(pathname: string): string {

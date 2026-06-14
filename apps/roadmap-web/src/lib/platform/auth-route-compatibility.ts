@@ -1,4 +1,5 @@
 const protectedPlatformPrefixes = [
+  "/w",
   "/meetings",
   "/roadmap",
   "/canvas",

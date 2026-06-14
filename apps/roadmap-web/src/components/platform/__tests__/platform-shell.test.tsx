@@ -15,7 +15,7 @@ describe("platform shell", () => {
   it("renders module navigation, active state, reserved states, and page content", () => {
     const html = renderToStaticMarkup(
       <PlatformShell
-        activePath="/meetings/new"
+        activePath="/w/acme/meetings/new"
         title="Meeting workspace"
         eyebrow="Product Suite"
         description="Plan and follow up on customer calls."
@@ -24,14 +24,15 @@ describe("platform shell", () => {
       </PlatformShell>,
     );
 
-    expect(html).toContain('href="/meetings"');
-    expect(html).toContain('href="/roadmap"');
+    expect(html).toContain('href="/w/acme/meetings"');
+    expect(html).toContain('href="/w/acme/workboard"');
+    expect(html).toContain('href="/w/acme"');
     expect(html).not.toContain('href="/canvas"');
     expect(html).not.toContain('href="/agents"');
     expect(html).not.toContain('href="/settings"');
     expect(html).toContain('aria-current="page"');
     expect(html).toContain("Meetings");
-    expect(html).toContain("Roadmap");
+    expect(html).toContain("Workboard");
     expect(html).toContain("Canvas");
     expect(html).toContain("Agents");
     expect(html).toContain("Settings");

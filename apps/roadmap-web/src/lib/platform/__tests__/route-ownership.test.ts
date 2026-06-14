@@ -9,6 +9,19 @@ import {
 
 describe("platform route ownership", () => {
   it("classifies platform module routes with owners, module IDs, and compatibility behavior", () => {
+    expectRoute("/w/acme/meetings", "platform-shell", "shell-native", "meetings");
+    expectRoute("/w/acme/meetings/new", "platform-shell", "meeting-compatible", "meetings");
+    expectRoute(
+      "/w/acme/meetings/meeting_123",
+      "platform-shell",
+      "meeting-compatible",
+      "meetings",
+    );
+    expectRoute("/w/acme/workboard", "platform-shell", "shell-native", "roadmap");
+    expectRoute("/w/acme/canvas", "platform-shell", "reserved", "canvas");
+    expectRoute("/w/acme/agents", "platform-shell", "reserved", "agents");
+    expectRoute("/w/acme/settings", "platform-shell", "reserved", "settings");
+    expectRoute("/w/acme", "platform-shell", "shell-native");
     expectRoute("/meetings", "platform-shell", "shell-native", "meetings");
     expectRoute("/meetings/new", "platform-shell", "meeting-compatible", "meetings");
     expectRoute("/meetings/meeting_123", "platform-shell", "meeting-compatible", "meetings");
@@ -30,6 +43,14 @@ describe("platform route ownership", () => {
 
   it("keeps the matrix ordered from specific module paths to broader preserved routes", () => {
     expect(listRouteOwnershipRules().map((rule) => rule.pathPrefix)).toEqual([
+      "/w/:workspace/meetings/new",
+      "/w/:workspace/meetings/:meetingId",
+      "/w/:workspace/meetings",
+      "/w/:workspace/workboard",
+      "/w/:workspace/canvas",
+      "/w/:workspace/agents",
+      "/w/:workspace/settings",
+      "/w/:workspace",
       "/meetings/new",
       "/meetings/:meetingId",
       "/meetings",

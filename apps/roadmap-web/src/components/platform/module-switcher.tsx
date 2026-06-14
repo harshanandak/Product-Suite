@@ -11,6 +11,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   getPlatformModules,
   resolvePlatformModule,
+  resolvePlatformModuleHref,
   type PlatformModuleId,
 } from "@/lib/platform/module-registry";
 import { cn } from "@/lib/utils";
@@ -30,6 +31,7 @@ type ModuleSwitcherProps = Readonly<{
 
 export function ModuleSwitcher({ activePath, className }: ModuleSwitcherProps) {
   const activeModule = resolvePlatformModule(activePath);
+  const homeHref = resolveWorkspaceHomeHref(activePath);
 
   return (
     <nav
@@ -40,7 +42,7 @@ export function ModuleSwitcher({ activePath, className }: ModuleSwitcherProps) {
       )}
     >
       <a
-        href="/roadmap"
+        href={homeHref}
         className="mb-3 flex items-center gap-2 rounded-md px-2 py-2 font-semibold text-slate-950"
       >
         <LayoutDashboard aria-hidden="true" className="size-4" />
@@ -50,6 +52,7 @@ export function ModuleSwitcher({ activePath, className }: ModuleSwitcherProps) {
         const Icon = moduleIcons[module.id];
         const isActive = activeModule?.id === module.id;
         const isReserved = module.status === "reserved";
+        const moduleHref = resolvePlatformModuleHref(module, activePath);
         const itemClassName = cn(
           "flex min-h-11 items-center gap-3 rounded-md px-2 py-2 text-slate-700 transition-colors",
           isActive && "bg-slate-950 text-white",
@@ -82,7 +85,7 @@ export function ModuleSwitcher({ activePath, className }: ModuleSwitcherProps) {
         ) : (
           <a
             key={module.id}
-            href={module.href}
+            href={moduleHref}
             aria-current={isActive ? "page" : undefined}
             className={itemClassName}
           >
@@ -92,4 +95,10 @@ export function ModuleSwitcher({ activePath, className }: ModuleSwitcherProps) {
       })}
     </nav>
   );
+}
+
+function resolveWorkspaceHomeHref(activePath: string): string {
+  const [, workspaceSlug] = activePath.match(/^\/w\/([^/]+)/) ?? [];
+
+  return workspaceSlug ? `/w/${workspaceSlug}` : "/roadmap";
 }

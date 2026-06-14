@@ -17,6 +17,13 @@ import PlatformLayout from "../layout";
 import MeetingsPage from "../meetings/page";
 import RoadmapPage from "../roadmap/page";
 import SettingsPage from "../settings/page";
+import WorkspaceAgentsPage from "../w/[workspace]/agents/page";
+import WorkspaceCanvasPage from "../w/[workspace]/canvas/page";
+import WorkspaceHomePage from "../w/[workspace]/page";
+import WorkspaceMeetingsPage from "../w/[workspace]/meetings/page";
+import WorkspaceMeetingPathPage from "../w/[workspace]/meetings/[...meetingPath]/page";
+import WorkspaceSettingsPage from "../w/[workspace]/settings/page";
+import WorkspaceWorkboardPage from "../w/[workspace]/workboard/page";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const meetingsPageSource = readFileSync(
@@ -44,7 +51,7 @@ describe("platform module routes", () => {
   });
 
   it.each([
-    ["/roadmap", <RoadmapPage key="roadmap" />, "Roadmap", "Roadmap module"],
+    ["/roadmap", <RoadmapPage key="roadmap" />, "Workboard", "Roadmap module"],
     ["/canvas", <CanvasPage key="canvas" />, "Canvas", "Canvas module"],
     ["/agents", <AgentsPage key="agents" />, "Agents", "Agents module"],
     ["/settings", <SettingsPage key="settings" />, "Settings", "Settings module"],
@@ -57,6 +64,31 @@ describe("platform module routes", () => {
     expect(html).toContain(title);
     expect(html).toContain(content);
     expect(html).toContain('aria-current="page"');
+  });
+
+  it.each([
+    ["/w/acme", <WorkspaceHomePage key="home" />, "Product Suite", "Home"],
+    ["/w/acme/workboard", <WorkspaceWorkboardPage key="workboard" />, "Workboard", "Roadmap module"],
+    ["/w/acme/meetings", <WorkspaceMeetingsPage key="workspace-meetings" />, "Meetings", "Meeting module"],
+    [
+      "/w/acme/meetings/meeting_123",
+      <WorkspaceMeetingPathPage key="workspace-meeting-path" />,
+      "Meetings",
+      "Meeting module",
+    ],
+    ["/w/acme/canvas", <WorkspaceCanvasPage key="workspace-canvas" />, "Canvas", "Canvas module"],
+    ["/w/acme/agents", <WorkspaceAgentsPage key="workspace-agents" />, "Agents", "Agents module"],
+    ["/w/acme/settings", <WorkspaceSettingsPage key="workspace-settings" />, "Settings", "Settings module"],
+  ])("renders %s as a workspace-scoped platform route", (pathname, page, title, content) => {
+    mockedPathname = pathname;
+
+    const html = renderRoute(page);
+
+    expect(html).toContain("Product Suite");
+    expect(html).toContain(title);
+    expect(html).toContain(content);
+    expect(html).toContain('href="/w/acme/meetings"');
+    expect(html).toContain('href="/w/acme/workboard"');
   });
 });
 
