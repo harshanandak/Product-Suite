@@ -33,8 +33,7 @@ export async function updateCanonicalAuthSession(
     request.nextUrl.pathname.startsWith('/workspaces') ||
     request.nextUrl.pathname.startsWith('/teams') ||
     isProtectedPlatformRoute(request.nextUrl.pathname)
-  const isIncomingAuthCallback =
-    request.nextUrl.pathname === '/auth/callback' && request.nextUrl.searchParams.has('code')
+  const isAuthCallback = request.nextUrl.pathname === '/auth/callback'
   const authCompatibilityRedirectPath = getAuthCompatibilityRedirectPath(request.nextUrl.pathname)
 
   if (!isAuthenticated && isProtectedRoute) {
@@ -54,7 +53,7 @@ export async function updateCanonicalAuthSession(
     return preserveResponseCookies(NextResponse.redirect(url), options.response)
   }
 
-  if (isAuthenticated && isAuthPage && !isIncomingAuthCallback) {
+  if (isAuthenticated && isAuthPage && !isAuthCallback) {
     const url = request.nextUrl.clone()
     url.pathname = '/dashboard'
     return preserveResponseCookies(NextResponse.redirect(url), options.response)

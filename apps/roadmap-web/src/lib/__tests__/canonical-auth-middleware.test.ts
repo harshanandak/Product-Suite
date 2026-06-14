@@ -63,7 +63,7 @@ describe('roadmap canonical auth middleware', () => {
     )
   })
 
-  it('lets authenticated auth callbacks with provider codes reach the callback handler', async () => {
+  it('lets authenticated auth callbacks reach the callback handler', async () => {
     const sealed = await sealCanonicalAuthClaims(
       {
         provider: 'neon',
@@ -72,7 +72,7 @@ describe('roadmap canonical auth middleware', () => {
       },
       { secret: 'session-secret' },
     )
-    const response = await updateCanonicalAuthSession(
+    const codedResponse = await updateCanonicalAuthSession(
       new NextRequest('https://roadmap.example.com/auth/callback?code=fresh-code', {
         headers: {
           cookie: buildCanonicalAuthCookieHeader(sealed),
@@ -80,9 +80,19 @@ describe('roadmap canonical auth middleware', () => {
       }),
       { secret: 'session-secret' },
     )
+    const codeLessResponse = await updateCanonicalAuthSession(
+      new NextRequest('https://roadmap.example.com/auth/callback?returnTo=%2Fmeetings', {
+        headers: {
+          cookie: buildCanonicalAuthCookieHeader(sealed),
+        },
+      }),
+      { secret: 'session-secret' },
+    )
 
-    expect(response.status).toBe(200)
-    expect(response.headers.get('location')).toBeNull()
+    expect(codedResponse.status).toBe(200)
+    expect(codedResponse.headers.get('location')).toBeNull()
+    expect(codeLessResponse.status).toBe(200)
+    expect(codeLessResponse.headers.get('location')).toBeNull()
   })
 
   it('keeps the legacy mind maps redirect independent from auth', async () => {
