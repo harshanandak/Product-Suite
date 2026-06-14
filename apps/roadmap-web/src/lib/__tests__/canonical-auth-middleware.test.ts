@@ -37,6 +37,64 @@ describe('roadmap canonical auth middleware', () => {
     expect(response.headers.get('location')).toBe('https://roadmap.example.com/dashboard')
   })
 
+  it('redirects legacy Meeting auth paths to Roadmap auth pages for anonymous users', async () => {
+    const signInResponse = await updateCanonicalAuthSession(
+      new NextRequest('https://roadmap.example.com/auth/sign-in?returnTo=%2Fmeetings'),
+      { secret: 'session-secret' },
+    )
+    const signedOutResponse = await updateCanonicalAuthSession(
+      new NextRequest('https://roadmap.example.com/auth/signed-out'),
+      { secret: 'session-secret' },
+    )
+    const signUpResponse = await updateCanonicalAuthSession(
+      new NextRequest('https://roadmap.example.com/auth/sign-up?returnTo=%2Fmeetings'),
+      { secret: 'session-secret' },
+    )
+
+    expect(signInResponse.status).toBe(307)
+    expect(signInResponse.headers.get('location')).toBe(
+      'https://roadmap.example.com/login?returnTo=%2Fmeetings',
+    )
+    expect(signedOutResponse.status).toBe(307)
+    expect(signedOutResponse.headers.get('location')).toBe('https://roadmap.example.com/login')
+    expect(signUpResponse.status).toBe(307)
+    expect(signUpResponse.headers.get('location')).toBe(
+      'https://roadmap.example.com/signup?returnTo=%2Fmeetings',
+    )
+  })
+
+  it('lets authenticated auth callbacks reach the callback handler', async () => {
+    const sealed = await sealCanonicalAuthClaims(
+      {
+        provider: 'neon',
+        subject: 'user_123',
+        email: 'user@example.com',
+      },
+      { secret: 'session-secret' },
+    )
+    const codedResponse = await updateCanonicalAuthSession(
+      new NextRequest('https://roadmap.example.com/auth/callback?code=fresh-code', {
+        headers: {
+          cookie: buildCanonicalAuthCookieHeader(sealed),
+        },
+      }),
+      { secret: 'session-secret' },
+    )
+    const codeLessResponse = await updateCanonicalAuthSession(
+      new NextRequest('https://roadmap.example.com/auth/callback?returnTo=%2Fmeetings', {
+        headers: {
+          cookie: buildCanonicalAuthCookieHeader(sealed),
+        },
+      }),
+      { secret: 'session-secret' },
+    )
+
+    expect(codedResponse.status).toBe(200)
+    expect(codedResponse.headers.get('location')).toBeNull()
+    expect(codeLessResponse.status).toBe(200)
+    expect(codeLessResponse.headers.get('location')).toBeNull()
+  })
+
   it('keeps the legacy mind maps redirect independent from auth', async () => {
     const response = await updateCanonicalAuthSession(
       new NextRequest('https://roadmap.example.com/mind-maps/abc'),

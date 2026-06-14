@@ -8,6 +8,15 @@ import { MeetingWorkspacePage } from "@/pages/MeetingWorkspacePage";
 import { SignedOutPage } from "@/pages/SignedOutPage";
 import { SignInPage } from "@/pages/SignInPage";
 
+export const meetingRouteCompatibility = {
+  standaloneBasePath: "/",
+  platformShellBasePath: "/meetings",
+  shellOwnedEntryPath: "/meetings",
+  runtimeOwner: "meeting-web",
+  dataOwner: "meeting-api",
+  preservesStandaloneRoutes: true,
+};
+
 export function createAppRouter() {
   return [
     {

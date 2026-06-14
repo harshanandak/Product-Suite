@@ -21,6 +21,7 @@ This inventory records the current verified live deploy inputs after cutover to 
 - The root Bun workspace currently covers only the JavaScript web apps.
 - `meeting-api` is a first-class deployable service in repo tooling and deployment docs, but it is not a Bun workspace package.
 - `packages/` and `services/` are reserved for future shared blocks and standalone runtimes; they do not change current deploy roots.
+- PR21 adds shell-native module entries in `roadmap-web`; `meeting-web` remains an independently deployed Vite runtime with standalone routes while `/meetings` is the platform shell-owned user-facing entry path.
 
 See also [../architecture/schema-domain-ownership.md](../architecture/schema-domain-ownership.md) for canonical shared-domain ownership before contract extraction work.
 

@@ -1,6 +1,11 @@
 import { NextResponse, type NextRequest } from 'next/server'
 
 import { readCanonicalAuthClaimsFromRequest } from './canonical-auth'
+import {
+  buildPlatformLoginRedirectPath,
+  isAuthOnlyRoute,
+  isProtectedPlatformRoute,
+} from './platform/auth-route-compatibility'
 
 type CanonicalAuthMiddlewareOptions = {
   response?: NextResponse
@@ -21,19 +26,34 @@ export async function updateCanonicalAuthSession(
   const isAuthenticated = authResult.ok
   const isAuthPage =
     request.nextUrl.pathname.startsWith('/login') ||
-    request.nextUrl.pathname.startsWith('/signup')
+    request.nextUrl.pathname.startsWith('/signup') ||
+    isAuthOnlyRoute(request.nextUrl.pathname)
   const isProtectedRoute =
     request.nextUrl.pathname.startsWith('/dashboard') ||
     request.nextUrl.pathname.startsWith('/workspaces') ||
-    request.nextUrl.pathname.startsWith('/teams')
+    request.nextUrl.pathname.startsWith('/teams') ||
+    isProtectedPlatformRoute(request.nextUrl.pathname)
+  const isAuthCallback = request.nextUrl.pathname === '/auth/callback'
+  const authCompatibilityRedirectPath = getAuthCompatibilityRedirectPath(request.nextUrl.pathname)
 
   if (!isAuthenticated && isProtectedRoute) {
     const url = request.nextUrl.clone()
-    url.pathname = '/login'
+    const loginPath = buildPlatformLoginRedirectPath(
+      request.nextUrl.pathname,
+      request.nextUrl.search,
+    )
+    url.pathname = loginPath.split('?')[0] ?? '/login'
+    url.search = loginPath.includes('?') ? `?${loginPath.split('?')[1]}` : ''
     return preserveResponseCookies(NextResponse.redirect(url), options.response)
   }
 
-  if (isAuthenticated && isAuthPage) {
+  if (!isAuthenticated && authCompatibilityRedirectPath) {
+    const url = request.nextUrl.clone()
+    url.pathname = authCompatibilityRedirectPath
+    return preserveResponseCookies(NextResponse.redirect(url), options.response)
+  }
+
+  if (isAuthenticated && isAuthPage && !isAuthCallback) {
     const url = request.nextUrl.clone()
     url.pathname = '/dashboard'
     return preserveResponseCookies(NextResponse.redirect(url), options.response)
@@ -53,4 +73,24 @@ function preserveResponseCookies(response: NextResponse, sourceResponse?: NextRe
   })
 
   return response
+}
+
+function getAuthCompatibilityRedirectPath(pathname: string): string | null {
+  if (pathname === '/auth/callback' || pathname.startsWith('/auth/callback/')) {
+    return null
+  }
+
+  if (pathname === '/auth/signup' || pathname.startsWith('/auth/signup/')) {
+    return '/signup'
+  }
+
+  if (pathname === '/auth/sign-up' || pathname.startsWith('/auth/sign-up/')) {
+    return '/signup'
+  }
+
+  if (pathname === '/auth' || pathname.startsWith('/auth/')) {
+    return '/login'
+  }
+
+  return null
 }
