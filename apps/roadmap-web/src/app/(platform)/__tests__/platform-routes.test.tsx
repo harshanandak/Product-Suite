@@ -70,12 +70,6 @@ describe("platform module routes", () => {
     ["/w/acme", <WorkspaceHomePage key="home" />, "Product Suite", "Home"],
     ["/w/acme/workboard", <WorkspaceWorkboardPage key="workboard" />, "Workboard", "Roadmap module"],
     ["/w/acme/meetings", <WorkspaceMeetingsPage key="workspace-meetings" />, "Meetings", "Meeting module"],
-    [
-      "/w/acme/meetings/meeting_123",
-      <WorkspaceMeetingPathPage key="workspace-meeting-path" />,
-      "Meetings",
-      "Meeting module",
-    ],
     ["/w/acme/canvas", <WorkspaceCanvasPage key="workspace-canvas" />, "Canvas", "Canvas module"],
     ["/w/acme/agents", <WorkspaceAgentsPage key="workspace-agents" />, "Agents", "Agents module"],
     ["/w/acme/settings", <WorkspaceSettingsPage key="workspace-settings" />, "Settings", "Settings module"],
@@ -87,6 +81,24 @@ describe("platform module routes", () => {
     expect(html).toContain("Product Suite");
     expect(html).toContain(title);
     expect(html).toContain(content);
+    expect(html).toContain('href="/w/acme/meetings"');
+    expect(html).toContain('href="/w/acme/workboard"');
+  });
+
+  it("renders workspace meeting deep links with their target", async () => {
+    mockedPathname = "/w/acme/meetings/meeting_123";
+
+    const page = await WorkspaceMeetingPathPage({
+      params: Promise.resolve({
+        workspace: "acme",
+        meetingPath: ["meeting_123"],
+      }),
+    });
+    const html = renderRoute(page);
+
+    expect(html).toContain("Product Suite");
+    expect(html).toContain("Selected meeting");
+    expect(html).toContain("meeting 123");
     expect(html).toContain('href="/w/acme/meetings"');
     expect(html).toContain('href="/w/acme/workboard"');
   });
