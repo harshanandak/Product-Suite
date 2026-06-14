@@ -37,6 +37,28 @@ describe('roadmap canonical auth middleware', () => {
     expect(response.headers.get('location')).toBe('https://roadmap.example.com/dashboard')
   })
 
+  it('lets authenticated auth callbacks with provider codes reach the callback handler', async () => {
+    const sealed = await sealCanonicalAuthClaims(
+      {
+        provider: 'neon',
+        subject: 'user_123',
+        email: 'user@example.com',
+      },
+      { secret: 'session-secret' },
+    )
+    const response = await updateCanonicalAuthSession(
+      new NextRequest('https://roadmap.example.com/auth/callback?code=fresh-code', {
+        headers: {
+          cookie: buildCanonicalAuthCookieHeader(sealed),
+        },
+      }),
+      { secret: 'session-secret' },
+    )
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('location')).toBeNull()
+  })
+
   it('keeps the legacy mind maps redirect independent from auth', async () => {
     const response = await updateCanonicalAuthSession(
       new NextRequest('https://roadmap.example.com/mind-maps/abc'),
