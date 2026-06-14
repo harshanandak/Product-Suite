@@ -35,6 +35,7 @@ export async function updateCanonicalAuthSession(
     isProtectedPlatformRoute(request.nextUrl.pathname)
   const isIncomingAuthCallback =
     request.nextUrl.pathname === '/auth/callback' && request.nextUrl.searchParams.has('code')
+  const authCompatibilityRedirectPath = getAuthCompatibilityRedirectPath(request.nextUrl.pathname)
 
   if (!isAuthenticated && isProtectedRoute) {
     const url = request.nextUrl.clone()
@@ -44,6 +45,12 @@ export async function updateCanonicalAuthSession(
     )
     url.pathname = loginPath.split('?')[0] ?? '/login'
     url.search = loginPath.includes('?') ? `?${loginPath.split('?')[1]}` : ''
+    return preserveResponseCookies(NextResponse.redirect(url), options.response)
+  }
+
+  if (!isAuthenticated && authCompatibilityRedirectPath) {
+    const url = request.nextUrl.clone()
+    url.pathname = authCompatibilityRedirectPath
     return preserveResponseCookies(NextResponse.redirect(url), options.response)
   }
 
@@ -67,4 +74,24 @@ function preserveResponseCookies(response: NextResponse, sourceResponse?: NextRe
   })
 
   return response
+}
+
+function getAuthCompatibilityRedirectPath(pathname: string): string | null {
+  if (pathname === '/auth/callback' || pathname.startsWith('/auth/callback/')) {
+    return null
+  }
+
+  if (pathname === '/auth/signup' || pathname.startsWith('/auth/signup/')) {
+    return '/signup'
+  }
+
+  if (pathname === '/auth/sign-up' || pathname.startsWith('/auth/sign-up/')) {
+    return '/signup'
+  }
+
+  if (pathname === '/auth' || pathname.startsWith('/auth/')) {
+    return '/login'
+  }
+
+  return null
 }

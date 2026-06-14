@@ -37,6 +37,32 @@ describe('roadmap canonical auth middleware', () => {
     expect(response.headers.get('location')).toBe('https://roadmap.example.com/dashboard')
   })
 
+  it('redirects legacy Meeting auth paths to Roadmap auth pages for anonymous users', async () => {
+    const signInResponse = await updateCanonicalAuthSession(
+      new NextRequest('https://roadmap.example.com/auth/sign-in?returnTo=%2Fmeetings'),
+      { secret: 'session-secret' },
+    )
+    const signedOutResponse = await updateCanonicalAuthSession(
+      new NextRequest('https://roadmap.example.com/auth/signed-out'),
+      { secret: 'session-secret' },
+    )
+    const signUpResponse = await updateCanonicalAuthSession(
+      new NextRequest('https://roadmap.example.com/auth/sign-up?returnTo=%2Fmeetings'),
+      { secret: 'session-secret' },
+    )
+
+    expect(signInResponse.status).toBe(307)
+    expect(signInResponse.headers.get('location')).toBe(
+      'https://roadmap.example.com/login?returnTo=%2Fmeetings',
+    )
+    expect(signedOutResponse.status).toBe(307)
+    expect(signedOutResponse.headers.get('location')).toBe('https://roadmap.example.com/login')
+    expect(signUpResponse.status).toBe(307)
+    expect(signUpResponse.headers.get('location')).toBe(
+      'https://roadmap.example.com/signup?returnTo=%2Fmeetings',
+    )
+  })
+
   it('lets authenticated auth callbacks with provider codes reach the callback handler', async () => {
     const sealed = await sealCanonicalAuthClaims(
       {
