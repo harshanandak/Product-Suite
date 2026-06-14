@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Product Suite — the mental model</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --background: oklch(0.9851 0 0); --foreground: oklch(0 0 0);
+  --card: oklch(1 0 267.51); --primary: oklch(0.5144 0.1605 267.44);
+  --primary-foreground: oklch(0.97 0.014 254.604);
+  --secondary: oklch(0.94 0 0); --muted: oklch(0.97 0 0); --muted-foreground: oklch(0.44 0 0);
+  --accent: oklch(0.9214 0.0248 257.65); --accent-foreground: oklch(0.2571 0.1161 272.24);
+  --destructive: oklch(0.58 0.22 27); --border: oklch(0.92 0 0);
+  --ok: oklch(0.55 0.15 155); --ok-bg: oklch(0.95 0.04 155);
+  --warn: oklch(0.55 0.13 75); --warn-bg: oklch(0.96 0.05 95);
+}
+.dark{
+  --background: oklch(0 0 0); --foreground: oklch(1 0 0);
+  --card: oklch(0.2103 0 267.51); --secondary: oklch(0.25 0 0); --muted: oklch(0.23 0 0);
+  --muted-foreground: oklch(0.72 0 0); --accent: oklch(0.32 0 0);
+  --accent-foreground: oklch(0.9214 0.0248 257.65); --border: oklch(0.26 0 0);
+  --ok-bg: oklch(0.28 0.05 155); --warn-bg: oklch(0.3 0.05 95);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Geist,system-ui,sans-serif;background:var(--background);color:var(--foreground);line-height:1.55;padding:2.5rem 1.5rem 6rem}
+.page{max-width:880px;margin:0 auto}
+h1{font-size:1.4rem;font-weight:600;margin-bottom:.2rem}
+h2{font-size:1rem;font-weight:600;margin:2.6rem 0 .3rem}
+.sub{color:var(--muted-foreground);font-size:.86rem;margin-bottom:.9rem}
+.bar{display:flex;gap:.5rem;margin-bottom:1rem}
+.bar button{margin-left:auto;font:inherit;font-size:.74rem;border:1px solid var(--border);background:var(--card);color:var(--foreground);padding:.3rem .7rem;border-radius:.4rem;cursor:pointer}
+.frame{border:1px solid var(--border);border-radius:.75rem;background:var(--card);padding:1.4rem}
+.pill{display:inline-flex;align-items:center;gap:.3rem;font-size:.64rem;font-weight:500;padding:.08rem .5rem;border-radius:999px;background:var(--accent);color:var(--accent-foreground)}
+.pill.mut{background:var(--secondary);color:var(--muted-foreground)}
+.seg{display:inline-flex;gap:2px;vertical-align:middle}
+.seg i{width:14px;height:6px;border-radius:3px;background:var(--secondary)}
+.seg i.f{background:var(--primary)}
+table{width:100%;border-collapse:collapse;font-size:.76rem;margin-top:.6rem}
+th{text-align:left;font-size:.64rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted-foreground);font-weight:500;padding:.45rem .6rem;border-bottom:1px solid var(--border)}
+td{padding:.5rem .6rem;border-bottom:1px solid var(--border);vertical-align:top}
+td:first-child{font-weight:500;white-space:nowrap}
+.loop{display:flex;align-items:center;gap:.5rem;margin:.8rem 0 .4rem}
+.ph{flex:1;text-align:center;border:1px solid var(--border);border-radius:.6rem;padding:.7rem .4rem}
+.ph.on{background:var(--accent);border-color:var(--primary)}
+.ph b{font-size:.84rem;font-weight:600;display:block}
+.ph span{font-size:.64rem;color:var(--muted-foreground)}
+.ph.on b,.ph.on span{color:var(--accent-foreground)}
+.arr{color:var(--muted-foreground)}
+.layer{display:flex;align-items:stretch;gap:.8rem;margin-bottom:.55rem}
+.layer .q{width:118px;flex-shrink:0;display:flex;flex-direction:column;justify-content:center;align-items:flex-end;text-align:right}
+.layer .q b{font-size:.78rem;font-weight:600;letter-spacing:.05em}
+.layer .q span{font-size:.66rem;color:var(--muted-foreground)}
+.layer .box{flex:1;border:1px solid var(--border);border-radius:.6rem;padding:.6rem .8rem;display:flex;align-items:center;gap:.8rem}
+.layer .box .t{font-size:.8rem;font-weight:500;width:120px;flex-shrink:0}
+.layer .box .ex{font-size:.7rem;color:var(--muted-foreground);flex:1}
+.layer .box .ex b{color:var(--foreground);font-weight:500}
+.lk{display:flex;justify-content:center;color:var(--muted-foreground);font-size:.9rem;margin:-2px 0 .4rem 126px}
+.lane{display:flex;align-items:center;gap:.6rem;margin-bottom:.7rem}
+.lane .nm{width:130px;flex-shrink:0;font-size:.74rem;font-weight:500;text-align:right}
+.lane .nm span{display:block;font-size:.62rem;font-weight:400;color:var(--muted-foreground)}
+.track{flex:1;position:relative;height:30px;background:var(--muted);border-radius:.4rem}
+.bar2{position:absolute;top:5px;height:20px;border-radius:.35rem;background:var(--accent);border:1px solid var(--primary);font-size:.62rem;display:flex;align-items:center;padding:0 .5rem;color:var(--accent-foreground);font-weight:500;white-space:nowrap;overflow:hidden}
+.ms{position:absolute;top:-4px;width:10px;height:10px;transform:rotate(45deg);background:var(--primary)}
+.ms.warn{background:var(--destructive)}
+.axis{display:flex;margin-left:142px;font-size:.62rem;color:var(--muted-foreground);justify-content:space-between;padding:0 .2rem;margin-top:.2rem}
+.today{position:absolute;top:-6px;bottom:-6px;width:2px;background:var(--destructive);opacity:.5}
+.note{font-size:.72rem;color:var(--muted-foreground);margin-top:.8rem}
+.grow{display:grid;grid-template-columns:repeat(3,1fr);gap:.7rem}
+.gcell{border:1px solid var(--border);border-radius:.6rem;padding:.7rem}
+.gcell .gt{font-size:.78rem;font-weight:600;display:flex;align-items:center;gap:.4rem;margin-bottom:.35rem}
+.gcell .gs{font-size:.7rem;color:var(--muted-foreground)}
+.chip{display:inline-flex;align-items:center;gap:.3rem;font-size:.66rem;border:1px dashed var(--border);border-radius:999px;padding:.12rem .5rem;color:var(--muted-foreground);margin:.15rem .15rem 0 0}
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="bar">
+    <div><h1>The mental model</h1><p class="sub">One skeleton for business work, software work, and daily tasks — for people and agents.</p></div>
+    <button onclick="document.documentElement.classList.toggle('dark')"><i class="ti ti-moon"></i> Dark</button>
+  </div>
+
+  <h2>1 · Three words: project → work item → task</h2>
+  <p class="sub">The whole system is one ladder. A <b style="font-weight:500">project</b> is a goal with a date. A <b style="font-weight:500">work item</b> is one piece of it — a <b style="font-weight:500">coalition</b> of everything about that piece. A <b style="font-weight:500">task</b> is one action.</p>
+  <div class="frame">
+    <div style="border:1px solid var(--primary);border-radius:.7rem;padding:.8rem;background:color-mix(in oklab,var(--accent) 25%,var(--card))">
+      <div style="display:flex;align-items:center;gap:.5rem;font-size:.8rem;font-weight:600"><i class="ti ti-layers-subtract" style="color:var(--primary)"></i> Project: Q3 sourcing <span class="pill mut" style="margin-left:.4rem">spans: Sourcing · Legal · Finance</span><span class="pill" style="margin-left:auto">target Jun 20</span></div>
+      <div style="display:flex;gap:.7rem;margin-top:.7rem;flex-wrap:wrap">
+        <div style="flex:1.6;min-width:300px;border:1px solid var(--border);border-radius:.6rem;padding:.7rem;background:var(--card)">
+          <div style="font-size:.78rem;font-weight:600;display:flex;align-items:center;gap:.4rem"><i class="ti ti-list-check" style="color:var(--primary)"></i> Work item: Negotiate packaging contract <span class="seg" style="margin-left:auto"><i class="f"></i><i class="f"></i><i></i><i></i></span></div>
+          <div style="font-size:.64rem;color:var(--muted-foreground);margin:.15rem 0 .5rem">the coalition — everything about this one piece of work, all live references</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:.35rem;font-size:.68rem">
+            <span><i class="ti ti-checkbox" style="color:var(--primary)"></i> 2 tasks</span>
+            <span><i class="ti ti-video" style="color:var(--primary)"></i> 2 meetings</span>
+            <span><i class="ti ti-bulb" style="color:var(--primary)"></i> 2 insights</span>
+            <span><i class="ti ti-robot" style="color:var(--primary)"></i> 1 agent thread</span>
+            <span><i class="ti ti-message-2" style="color:var(--primary)"></i> 3 feedback</span>
+            <span><i class="ti ti-plug" style="color:var(--primary)"></i> 1 connector binding</span>
+          </div>
+          <div style="border-top:1px solid var(--border);margin-top:.55rem;padding-top:.5rem;font-size:.68rem">
+            <div><i class="ti ti-square-check" style="color:var(--ok)"></i> Task: get MOQ confirmation in writing <span style="color:var(--muted-foreground)">— done</span></div>
+            <div style="margin-top:.25rem"><i class="ti ti-square" style="color:var(--muted-foreground)"></i> Task: legal review of contract draft <span style="color:var(--muted-foreground)">— doing</span></div>
+          </div>
+        </div>
+        <div style="flex:1;min-width:200px;border:1px solid var(--border);border-radius:.6rem;padding:.7rem;background:var(--card);opacity:.75">
+          <div style="font-size:.78rem;font-weight:600;display:flex;align-items:center;gap:.4rem"><i class="ti ti-list-check" style="color:var(--primary)"></i> Work item: Update pricing sheet <span class="seg" style="margin-left:auto"><i class="f"></i><i class="f"></i><i class="f"></i><i></i></span></div>
+          <div style="font-size:.64rem;color:var(--muted-foreground);margin-top:.15rem">another coalition in the same project…</div>
+        </div>
+      </div>
+    </div>
+    <table>
+      <tr><th>Level</th><th>It is…</th><th>Use it when…</th><th>Progress shows as…</th></tr>
+      <tr><td><i class="ti ti-layers-subtract"></i> Project</td><td>a goal with a date — coalition of work items, can span departments</td><td>deadline + many parts</td><td>roll-up bar + milestones</td></tr>
+      <tr><td><i class="ti ti-list-check"></i> Work item</td><td>one piece of work — coalition of everything about it</td><td>needs discussion, evidence, phases</td><td>4-segment phase pill</td></tr>
+      <tr><td><i class="ti ti-checkbox"></i> Task</td><td>one action, one assignee (person, department, or agent)</td><td>just do it</td><td>To do → Doing → Done</td></tr>
+    </table>
+    <p class="note">"Release" is never a fourth word — a software release is a project of kind software. Everything in a coalition is a <b style="font-weight:500">live reference to one record</b> — change it anywhere, it changes everywhere.</p>
+    <p class="note"><b style="font-weight:500">Every level is optional.</b> Tasks can live alone, or directly under a project with no work item in between; work items can live outside any project. A work item is just a coalition you form when one piece of work deserves a hub — structure is earned, never demanded.</p>
+  </div>
+
+  <h2>2 · One phase loop for everything</h2>
+  <p class="sub">Four phases, learned once. The loop never changes — the playbook for that kind of work supplies what each phase's checklist contains.</p>
+  <div class="frame">
+    <div class="loop">
+      <div class="ph"><b>Plan</b><span>understand &amp; decide</span></div>
+      <span class="arr"><i class="ti ti-arrow-right"></i></span>
+      <div class="ph on"><b>Execute</b><span>do the work</span></div>
+      <span class="arr"><i class="ti ti-arrow-right"></i></span>
+      <div class="ph"><b>Review</b><span>test &amp; improve</span></div>
+      <span class="arr"><i class="ti ti-arrow-right"></i></span>
+      <div class="ph"><b>Done</b><span>deliver &amp; close</span></div>
+    </div>
+    <p class="note" style="margin-top:0">On every card, in every view, the same pill:
+      &nbsp;<span class="seg"><i class="f"></i><i></i><i></i><i></i></span> Plan
+      &nbsp;<span class="seg"><i class="f"></i><i class="f"></i><i></i><i></i></span> Execute
+      &nbsp;<span class="seg"><i class="f"></i><i class="f"></i><i class="f"></i><i></i></span> Review
+      &nbsp;<span class="seg"><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i></span> Done
+    </p>
+    <table>
+      <tr><th>Kind of work</th><th>Plan</th><th>Execute</th><th>Review</th><th>Done</th></tr>
+      <tr><td><i class="ti ti-code"></i> Software feature</td><td>research, spec, design</td><td>implement</td><td>test, polish</td><td>release</td></tr>
+      <tr><td><i class="ti ti-handshake"></i> Supplier deal</td><td>research vendors, MOQ</td><td>negotiate</td><td>legal review terms</td><td>sign contract</td></tr>
+      <tr><td><i class="ti ti-speakerphone"></i> Campaign</td><td>audience, message</td><td>produce assets</td><td>A/B test</td><td>launch</td></tr>
+      <tr><td><i class="ti ti-checkbox"></i> Small task</td><td colspan="4">no phases — just <b style="font-weight:500">To do → Doing → Done</b></td></tr>
+    </table>
+    <p class="note">Plan = design-thinking discover/define · Execute/Review/Done = agile delivery. The methodology lives inside the loop, so nobody has to think about it — and it is never required: a team can run a plain scrum board and ignore phases entirely. Workspaces can rename the labels in their own words (the agent maps them); the four slots and their meanings never change.</p>
+  </div>
+
+  <h2>3 · Four layers, one question each</h2>
+  <p class="sub">Where the ladder sits in the bigger picture. Business and software follow the same skeleton — only the example words change.</p>
+  <div class="frame">
+    <div class="layer">
+      <div class="q"><b>WHY</b><span>direction</span></div>
+      <div class="box" style="border-color:var(--primary)">
+        <span class="t"><i class="ti ti-target" style="color:var(--primary)"></i> Strategy</span>
+        <span class="ex">pillar → objective → key result · software: <b>grow weekly active teams 20%</b> · business: <b>cut Q3 packaging cost 15%</b></span>
+      </div>
+    </div>
+    <div class="lk"><i class="ti ti-arrow-down"></i></div>
+    <div class="layer">
+      <div class="q"><b>WHERE</b><span>the project</span></div>
+      <div class="box">
+        <span class="t"><i class="ti ti-layers-subtract" style="color:var(--primary)"></i> Projects</span>
+        <span class="ex">switchable things with dates: <b>v2.0 release — Jul 15</b> · <b>Diwali campaign</b> · <b>Q3 sourcing</b></span>
+      </div>
+    </div>
+    <div class="lk"><i class="ti ti-arrow-down"></i></div>
+    <div class="layer">
+      <div class="q"><b>WHAT</b><span>the work</span></div>
+      <div class="box">
+        <span class="t"><i class="ti ti-list-check" style="color:var(--primary)"></i> Work items</span>
+        <span class="ex">coalitions walking the loop · <b>offline mode</b> · <b>negotiate packaging contract</b> · tasks inside</span>
+      </div>
+    </div>
+    <div class="lk"><i class="ti ti-arrow-down"></i></div>
+    <div class="layer">
+      <div class="q"><b>LEARN</b><span>the evidence</span></div>
+      <div class="box">
+        <span class="t"><i class="ti ti-bulb" style="color:var(--primary)"></i> Evidence</span>
+        <span class="ex">insights · research runs · meeting decisions · feedback · connector data — attached to the items they justify</span>
+      </div>
+    </div>
+    <p class="note">Work items <b style="font-weight:500">align to</b> strategy (primary + weighted secondary) — strategy never contains them. Every object links up and down; nothing floats.</p>
+  </div>
+
+  <h2>4 · Projects: shift between kinds of work, one calendar</h2>
+  <p class="sub">Each department lives in its projects; the founder sees all lanes at once. A project can span departments — assign work to a department's queue or straight to a person. Diamonds are milestones; the red line is today.</p>
+  <div class="frame">
+    <div style="display:flex;gap:.4rem;flex-wrap:wrap;margin-bottom:1rem">
+      <span class="pill" style="background:var(--primary);color:var(--primary-foreground)">All projects</span>
+      <span class="pill"><i class="ti ti-code"></i> v2.0 release</span>
+      <span class="pill"><i class="ti ti-code"></i> v2.1 release</span>
+      <span class="pill"><i class="ti ti-handshake"></i> Q3 sourcing</span>
+      <span class="pill"><i class="ti ti-speakerphone"></i> Diwali campaign</span>
+    </div>
+    <div style="position:relative">
+      <div class="lane">
+        <div class="nm">v2.0 <span>software project</span></div>
+        <div class="track"><div class="bar2" style="left:4%;width:52%">Offline mode · Export PDF · 12 items</div><div class="ms" style="left:34%"></div><div class="ms" style="left:56%"></div></div>
+      </div>
+      <div class="lane">
+        <div class="nm">v2.1 <span>software project</span></div>
+        <div class="track"><div class="bar2" style="left:40%;width:44%">Mobile app · 6 items</div><div class="ms" style="left:84%"></div></div>
+      </div>
+      <div class="lane">
+        <div class="nm">Q3 sourcing <span>business project</span></div>
+        <div class="track"><div class="bar2" style="left:4%;width:30%">Contract · pricing · 4 items</div><div class="ms warn" style="left:30%"></div></div>
+      </div>
+      <div class="lane">
+        <div class="nm">Diwali campaign <span>marketing project</span></div>
+        <div class="track"><div class="bar2" style="left:36%;width:48%">Creatives · ads · landing · 7 items</div><div class="ms" style="left:70%"></div></div>
+      </div>
+      <div class="today" style="left:calc(142px + 26%)"></div>
+    </div>
+    <div class="axis"><span>Jun</span><span>Jul</span><span>Aug</span><span>Sep</span></div>
+    <p class="note">Items can depend across projects — "Diwali landing page" can wait on "v2.0 export feature"; the graph view draws that as a dashed edge crossing project lanes.</p>
+  </div>
+
+  <h2>5 · It grows with you — and agents do the growing</h2>
+  <p class="sub">Big ceiling, tiny floor. Start with just tasks; the rest sits quiet at the edge until it earns its place. Nobody configures anything — they say yes or no.</p>
+  <div class="frame">
+    <div class="grow">
+      <div class="gcell">
+        <div class="gt"><i class="ti ti-stairs-up" style="color:var(--primary)"></i> Progressive depth</div>
+        <div class="gs">Day 1 is a task list. The agent proposes the next rung from usage: "14 tasks mention the supplier contract — group them into a work item?" Declining costs nothing. Dormant blocks stay visible-but-quiet:</div>
+        <div style="margin-top:.4rem"><span class="chip"><i class="ti ti-target"></i> Strategy</span><span class="chip"><i class="ti ti-bulb"></i> Insights</span><span class="chip"><i class="ti ti-building"></i> Departments</span></div>
+      </div>
+      <div class="gcell">
+        <div class="gt"><i class="ti ti-plug" style="color:var(--primary)"></i> Connector blocks</div>
+        <div class="gs">A catalog of thousands (synced from the official MCP Registry) — paste a key, pick the scope: <b style="font-weight:500">only me</b> (my identity, my runs) or <b style="font-weight:500">whole workspace</b> (admin, clearly badged). Data lands in existing structures — PRs bind to tech items, campaigns to marketing items — never a parallel world.</div>
+        <div style="margin-top:.4rem"><span class="chip"><i class="ti ti-brand-github"></i> GitHub</span><span class="chip"><i class="ti ti-brand-meta"></i> Meta Ads</span><span class="chip"><i class="ti ti-chart-line"></i> GA</span><span class="chip"><i class="ti ti-plus"></i> 9,600 more</span></div>
+      </div>
+      <div class="gcell">
+        <div class="gt"><i class="ti ti-robot" style="color:var(--primary)"></i> Custom agents</div>
+        <div class="gs">Describe a job → the platform drafts a named agent (a real workspace member). Then: <b style="font-weight:500">@sourcing-scout check MOQs</b> in any thread — it runs, reports back in-thread, artifacts arrive in the review queue. Agents <b style="font-weight:500">search</b> tools instead of preloading them, so hundreds of connectors never crowd their thinking.</div>
+        <div style="margin-top:.4rem"><span class="chip"><i class="ti ti-robot"></i> @sourcing-scout</span><span class="chip"><i class="ti ti-robot"></i> @qa-bot</span></div>
+      </div>
+    </div>
+    <p class="note">Everything generated — by meetings, agents, or automations — arrives as a <b style="font-weight:500">proposal</b> in one review queue: badge, provenance, accept / edit / reject. Nothing changes the workspace silently. The skeleton (ladder, loop, one-record rule) is never configurable — that's what keeps every workspace learnable for people and predictable for agents.</p>
+  </div>
+
+  <h2>The whole model in one sentence</h2>
+  <p class="sub" style="margin-bottom:.4rem"><b style="font-weight:500">Pick a project, pick an item, see its phase, trust its why</b> — and anything done on your behalf waits for your yes.</p>
+</div>
+</body>
+</html>

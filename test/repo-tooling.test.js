@@ -218,7 +218,7 @@ describe("repo tooling", () => {
     expect(buildingBlocksPlan).toContain("docs/research/pr5-auth-contracts-and-adapters.md");
   });
 
-  test("building blocks plan marks PR20 verified and PR21 active", () => {
+  test("building blocks plan marks PR20 verified and PR21+ superseded", () => {
     expect(buildingBlocksPlan).toContain("PR5 Auth Contracts And Adapters`: merged and verified");
     expect(buildingBlocksPlan).toContain("PR6 Auth Provider Rollout`: merged and verified");
     expect(buildingBlocksPlan).toContain("PR7 SDK / Typed Client Layer`: merged and verified");
@@ -252,7 +252,10 @@ describe("repo tooling", () => {
     expect(buildingBlocksPlan).toContain(
       "PR20 Meeting Database Cutover From Neon To Supabase`: merged via GitHub PR #24 and verified on `origin/main`",
     );
-    expect(buildingBlocksPlan).toContain(
+    expect(buildingBlocksPlan).toContain("PR21+`: **superseded 2026-06-12**");
+    expect(buildingBlocksPlan).toContain("DESIGN.md");
+    expect(buildingBlocksPlan).toContain("docs/plans/implementation-plan-2026-06-12.md");
+    expect(buildingBlocksPlan).not.toContain(
       "PR21 Single Domain Platform Shell`: active on `feat/pr21-single-domain-platform-shell`",
     );
     expect(buildingBlocksPlan).toContain("docs/research/pr18-clerk-auth-foundation.md");

@@ -6,4 +6,4 @@ pre-commit:
 pre-push:
   jobs:
     - name: pre-push validation
-      run: bun run test:prepush
+      run: node scripts/prepush-gate.mjs
