@@ -6,11 +6,11 @@ import { afterEach } from "vitest";
 // jsdom implements scrollTo as a stub that throws "Not implemented"; TanStack
 // Router's scroll restoration calls it on every navigation. Replace with a noop.
 if (typeof window !== "undefined") {
-  window.scrollTo = (() => {}) as typeof window.scrollTo;
+  window.scrollTo = () => {};
 
   // jsdom does not implement matchMedia, which ThemeProvider relies on.
   if (typeof window.matchMedia !== "function") {
-    window.matchMedia = ((query: string): MediaQueryList =>
+    window.matchMedia = (query: string) =>
       ({
         matches: false,
         media: query,
@@ -20,7 +20,7 @@ if (typeof window !== "undefined") {
         addEventListener: () => {},
         removeEventListener: () => {},
         dispatchEvent: () => false,
-      }) as unknown as MediaQueryList) as typeof window.matchMedia;
+      }) as unknown as MediaQueryList;
   }
 }
 

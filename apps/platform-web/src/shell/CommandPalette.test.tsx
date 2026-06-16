@@ -8,11 +8,17 @@ import { renderWithRouter } from "../test/harness";
 // cmdk relies on ResizeObserver, Element.scrollIntoView, and window.scrollTo,
 // none of which jsdom implements.
 beforeAll(() => {
-  if (typeof globalThis.ResizeObserver === "undefined") {
+  if (globalThis.ResizeObserver === undefined) {
     globalThis.ResizeObserver = class {
-      observe(): void {}
-      unobserve(): void {}
-      disconnect(): void {}
+      observe(): void {
+        /* noop: jsdom stub */
+      }
+      unobserve(): void {
+        /* noop: jsdom stub */
+      }
+      disconnect(): void {
+        /* noop: jsdom stub */
+      }
     };
   }
   Element.prototype.scrollIntoView = () => {};

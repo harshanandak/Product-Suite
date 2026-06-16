@@ -19,11 +19,11 @@ export function Sidebar({
   board,
   workspace,
   pathname,
-}: {
+}: Readonly<{
   board: BoardDef;
   workspace: string;
   pathname: string;
-}) {
+}>) {
   return (
     <nav
       aria-label={`${board.title} navigation`}

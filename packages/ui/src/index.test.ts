@@ -41,7 +41,7 @@ describe("@product-suite/ui barrel", () => {
 
   test("cn merges classes and resolves Tailwind conflicts", () => {
     expect(cn("px-2", "px-4")).toBe("px-4");
-    expect(cn("text-sm", false, "font-medium")).toBe("text-sm font-medium");
+    expect(cn("text-sm", undefined, "font-medium")).toBe("text-sm font-medium");
   });
 
   test("applyTheme is a no-op without a document and never throws", () => {
@@ -98,7 +98,7 @@ describe("@product-suite/ui barrel", () => {
         action: createElement("button", null, "Create"),
       }),
     );
-    expect(html).toContain('role="status"');
+    expect(html).toContain("<output");
     expect(html).toContain("No work items yet");
     expect(html).toContain("Create your first work item to get started.");
     expect(html).toContain("Create");

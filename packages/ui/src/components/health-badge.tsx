@@ -31,7 +31,11 @@ export interface HealthBadgeProps extends React.HTMLAttributes<HTMLSpanElement> 
   health: Health;
 }
 
-export function HealthBadge({ health, className, ...props }: HealthBadgeProps) {
+export function HealthBadge({
+  health,
+  className,
+  ...props
+}: Readonly<HealthBadgeProps>) {
   return (
     <span
       data-health={health}

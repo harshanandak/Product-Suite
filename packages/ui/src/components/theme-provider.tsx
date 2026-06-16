@@ -37,10 +37,10 @@ export function applyTheme(resolved: ResolvedTheme): void {
 export function ThemeProvider({
   children,
   defaultTheme = "system",
-}: {
+}: Readonly<{
   children: React.ReactNode;
   defaultTheme?: Theme;
-}) {
+}>) {
   const [theme, setThemeState] = React.useState<Theme>(() => {
     if (typeof window === "undefined") return defaultTheme;
     return (localStorage.getItem(STORAGE_KEY) as Theme | null) ?? defaultTheme;

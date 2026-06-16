@@ -20,13 +20,13 @@ describe("BoardDock", () => {
 
     // Only the active board's highlight moves: Workboard is current.
     const workboardLink = screen.getByRole("link", { name: "Workboard" });
-    expect(workboardLink.getAttribute("data-active")).toBe("true");
+    expect(workboardLink.dataset.active).toBe("true");
     expect(workboardLink.getAttribute("aria-current")).toBe("page");
 
     // Inactive boards carry no component-owned active marker. (Only data-active
     // is asserted here: aria-current is also managed by the router's own active
     // matching, so it is not a reliable signal of this component's behavior.)
     const homeLink = screen.getByRole("link", { name: "Home" });
-    expect(homeLink.getAttribute("data-active")).toBeNull();
+    expect(homeLink.dataset.active).toBeUndefined();
   });
 });

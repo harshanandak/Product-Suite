@@ -16,11 +16,11 @@ export function TopBar({
   workspace,
   pathname,
   onOpenPalette,
-}: {
+}: Readonly<{
   workspace: string;
   pathname: string;
   onOpenPalette: () => void;
-}) {
+}>) {
   const { board, title } = resolveScreen(pathname, workspace);
 
   return (

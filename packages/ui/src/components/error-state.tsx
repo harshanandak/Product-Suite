@@ -18,7 +18,7 @@ export function ErrorState({
   action,
   className,
   ...props
-}: ErrorStateProps) {
+}: Readonly<ErrorStateProps>) {
   return (
     <div
       role="alert"

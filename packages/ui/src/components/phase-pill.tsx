@@ -27,7 +27,11 @@ export interface PhasePillProps extends React.HTMLAttributes<HTMLSpanElement> {
   phase: Phase;
 }
 
-export function PhasePill({ phase, className, ...props }: PhasePillProps) {
+export function PhasePill({
+  phase,
+  className,
+  ...props
+}: Readonly<PhasePillProps>) {
   return (
     <span
       data-phase={phase}

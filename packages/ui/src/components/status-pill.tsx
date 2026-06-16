@@ -25,7 +25,11 @@ export interface StatusPillProps extends React.HTMLAttributes<HTMLSpanElement> {
   status: TaskStatus;
 }
 
-export function StatusPill({ status, className, ...props }: StatusPillProps) {
+export function StatusPill({
+  status,
+  className,
+  ...props
+}: Readonly<StatusPillProps>) {
   return (
     <span
       data-status={status}

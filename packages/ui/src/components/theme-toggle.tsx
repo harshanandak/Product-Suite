@@ -6,7 +6,7 @@ import { useTheme } from "./theme-provider";
 /**
  * Dark/light toggle for the top bar (DESIGN §8: dark mode on every surface).
  */
-export function ThemeToggle({ className }: { className?: string }) {
+export function ThemeToggle({ className }: Readonly<{ className?: string }>) {
   const { resolvedTheme, toggle } = useTheme();
   const next = resolvedTheme === "dark" ? "light" : "dark";
   return (

@@ -16,11 +16,11 @@ export function CommandPalette({
   open,
   onOpenChange,
   workspace,
-}: {
+}: Readonly<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
   workspace: string;
-}) {
+}>) {
   const navigate = useNavigate();
   const { toggle } = useTheme();
 
@@ -35,18 +35,22 @@ export function CommandPalette({
   if (!open) return null;
 
   return (
-    <div
-      role="presentation"
-      onClick={() => onOpenChange(false)}
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 pt-[12vh]"
-    >
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 pt-[12vh]">
+      <button
+        type="button"
+        aria-label="Close command palette"
+        tabIndex={-1}
+        onClick={() => onOpenChange(false)}
+        className="absolute inset-0 h-full w-full cursor-default"
+      />
       <div
-        role="presentation"
-        onClick={(event) => event.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Command palette"
         onKeyDown={(event) => {
           if (event.key === "Escape") onOpenChange(false);
         }}
-        className="w-full max-w-lg overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-lg"
+        className="relative w-full max-w-lg overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-lg"
       >
         <Command label="Command palette" className="flex flex-col">
           <Command.Input

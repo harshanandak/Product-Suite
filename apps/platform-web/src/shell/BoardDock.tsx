@@ -13,10 +13,10 @@ import { BOARDS, type BoardId, href } from "./boards";
 export function BoardDock({
   workspace,
   activeBoard,
-}: {
+}: Readonly<{
   workspace: string;
   activeBoard: BoardId | null;
-}) {
+}>) {
   return (
     <nav
       aria-label="Boards"

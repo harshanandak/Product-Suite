@@ -24,7 +24,7 @@ describe("Sidebar", () => {
 
     // "Work items" maps to /w/$workspace/workboard, so it is the active item.
     const activeLink = screen.getByText("Work items").closest("a");
-    expect(activeLink?.getAttribute("data-active")).toBe("true");
+    expect(activeLink?.dataset.active).toBe("true");
   });
 
   it("does not change items on content navigation within the same board (DESIGN §2)", async () => {

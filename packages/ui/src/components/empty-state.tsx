@@ -6,7 +6,8 @@ import { cn } from "../lib/cn";
  * EmptyState (DESIGN §4). One of the four required screen states. The empty
  * state TEACHES the first action — title + guidance + an optional primary action.
  */
-export interface EmptyStateProps extends React.HTMLAttributes<HTMLDivElement> {
+export interface EmptyStateProps
+  extends React.HTMLAttributes<HTMLOutputElement> {
   title: string;
   description?: string;
   icon?: React.ReactNode;
@@ -20,10 +21,9 @@ export function EmptyState({
   action,
   className,
   ...props
-}: EmptyStateProps) {
+}: Readonly<EmptyStateProps>) {
   return (
-    <div
-      role="status"
+    <output
       className={cn(
         "flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border p-8 text-center",
         className,
@@ -36,6 +36,6 @@ export function EmptyState({
         <p className="max-w-sm text-xs text-muted-foreground">{description}</p>
       ) : null}
       {action ? <div className="mt-2">{action}</div> : null}
-    </div>
+    </output>
   );
 }
