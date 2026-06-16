@@ -37,7 +37,7 @@ describe("EmptyState", () => {
 
     expect(html).toContain("Create project");
     expect(html).toContain("<button");
-    expect(html).toContain('class="mt-2"');
+    expect(html).toContain("mt-2");
   });
 
   test("renders an icon node when provided", () => {

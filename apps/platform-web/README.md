@@ -41,9 +41,11 @@ Copy `.env.example` → `.env.local` and set:
 ## Deploy (Cloudflare)
 
 Hosted as a Workers Static Assets site (see [`wrangler.jsonc`](./wrangler.jsonc)).
-The `Platform Web Deploy` GitHub workflow deploys production on push to `main`
-and a versioned preview URL on PRs — but only once these repo secrets are set
-(otherwise it skips and stays green):
+The `Platform Web Deploy` GitHub workflow gives a Vercel-style DX: production on
+push to `main`, and a per-PR preview (`wrangler versions upload`) whose URL is
+surfaced as a GitHub Deployment (transient `preview` environment) **and a sticky
+PR comment** — but only once these repo secrets are set (otherwise it skips and
+stays green):
 
 - `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`
 - `VITE_CLERK_PUBLISHABLE_KEY` (build-time, for sign-in on the deployed preview)
