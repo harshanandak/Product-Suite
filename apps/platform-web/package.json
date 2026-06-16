@@ -17,8 +17,6 @@
   },
   "dependencies": {
     "@clerk/clerk-react": "^5.0.0",
-    "@fontsource-variable/geist": "^5.0.0",
-    "@fontsource-variable/geist-mono": "^5.0.0",
     "@product-suite/ui": "workspace:*",
     "@tanstack/react-router": "^1.0.0",
     "class-variance-authority": "^0.7.1",
