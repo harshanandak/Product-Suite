@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Product Suite — Architecture &amp; Decision Reference</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --background: oklch(0.9851 0 0); --foreground: oklch(0 0 0);
+  --card: oklch(1 0 267.51); --primary: oklch(0.5144 0.1605 267.44);
+  --primary-foreground: oklch(0.97 0.014 254.604);
+  --secondary: oklch(0.94 0 0); --muted: oklch(0.97 0 0); --muted-foreground: oklch(0.44 0 0);
+  --accent: oklch(0.9214 0.0248 257.65); --accent-foreground: oklch(0.2571 0.1161 272.24);
+  --destructive: oklch(0.58 0.22 27); --destructive-bg: oklch(0.94 0.05 27); --border: oklch(0.92 0 0);
+  --ok: oklch(0.55 0.15 155); --ok-bg: oklch(0.95 0.04 155);
+  --warn: oklch(0.55 0.13 75); --warn-bg: oklch(0.96 0.05 95);
+  --radius: 0.5rem;
+}
+.dark{
+  --background: oklch(0 0 0); --foreground: oklch(1 0 0);
+  --card: oklch(0.2103 0 267.51); --secondary: oklch(0.25 0 0); --muted: oklch(0.23 0 0);
+  --muted-foreground: oklch(0.72 0 0); --accent: oklch(0.32 0 0);
+  --accent-foreground: oklch(0.9214 0.0248 257.65); --border: oklch(0.26 0 0);
+  --ok-bg: oklch(0.28 0.05 155); --warn-bg: oklch(0.3 0.05 95); --destructive-bg: oklch(0.3 0.06 27);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Geist,system-ui,sans-serif;background:var(--background);color:var(--foreground);line-height:1.55}
+.wrap{max-width:1080px;margin:0 auto;padding:0 1.5rem 6rem;display:grid;grid-template-columns:200px 1fr;gap:2rem}
+header{grid-column:1/-1;position:sticky;top:0;z-index:10;background:color-mix(in oklab,var(--background) 88%,transparent);backdrop-filter:blur(8px);padding:1.4rem 0 .9rem;border-bottom:1px solid var(--border);display:flex;align-items:flex-end;gap:1rem}
+header h1{font-size:1.3rem;font-weight:600}
+header .sub{color:var(--muted-foreground);font-size:.8rem;margin-top:.15rem}
+header button{margin-left:auto;font:inherit;font-size:.74rem;border:1px solid var(--border);background:var(--card);color:var(--foreground);padding:.35rem .75rem;border-radius:.4rem;cursor:pointer;display:inline-flex;gap:.35rem;align-items:center;white-space:nowrap}
+nav{position:sticky;top:84px;align-self:start;font-size:.76rem;max-height:calc(100vh - 100px);overflow:auto}
+nav a{display:block;color:var(--muted-foreground);text-decoration:none;padding:.25rem .5rem;border-radius:.35rem;border-left:2px solid transparent}
+nav a:hover{background:var(--muted);color:var(--foreground)}
+nav a .n{font-variant-numeric:tabular-nums;color:var(--primary);font-weight:500;margin-right:.4rem}
+main{min-width:0}
+section{scroll-margin-top:90px;margin-bottom:2.4rem}
+h2{font-size:1.05rem;font-weight:600;margin:0 0 .15rem;display:flex;align-items:center;gap:.5rem}
+h2 .n{color:var(--primary);font-variant-numeric:tabular-nums}
+.lead{color:var(--muted-foreground);font-size:.84rem;margin-bottom:.8rem}
+.frame{border:1px solid var(--border);border-radius:.75rem;background:var(--card);padding:1.2rem;margin-bottom:.7rem}
+.frame h3{font-size:.82rem;font-weight:600;margin-bottom:.4rem;display:flex;align-items:center;gap:.4rem}
+.frame h3 i{color:var(--primary)}
+p.t{font-size:.8rem;margin-bottom:.5rem}
+p.t b{font-weight:500}
+.pill{display:inline-flex;align-items:center;gap:.3rem;font-size:.64rem;font-weight:500;padding:.1rem .5rem;border-radius:999px;background:var(--accent);color:var(--accent-foreground)}
+.pill.mut{background:var(--secondary);color:var(--muted-foreground)}
+.pill.ok{background:var(--ok-bg);color:var(--ok)}
+.pill.warn{background:var(--warn-bg);color:var(--warn)}
+.pill.bad{background:var(--destructive-bg);color:var(--destructive)}
+.seg{display:inline-flex;gap:2px;vertical-align:middle}
+.seg i{width:15px;height:6px;border-radius:3px;background:var(--secondary)}
+.seg i.f{background:var(--primary)}
+table{width:100%;border-collapse:collapse;font-size:.76rem;margin-top:.3rem}
+th{text-align:left;font-size:.62rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted-foreground);font-weight:500;padding:.4rem .55rem;border-bottom:1px solid var(--border)}
+td{padding:.45rem .55rem;border-bottom:1px solid var(--border);vertical-align:top}
+td:first-child{font-weight:500;white-space:nowrap}
+td code,p code,li code{font-family:Geist Mono,monospace;font-size:.72rem;background:var(--muted);padding:.05rem .3rem;border-radius:.25rem}
+.note{font-size:.72rem;color:var(--muted-foreground);margin-top:.6rem}
+.note b{color:var(--foreground);font-weight:500}
+ul.t{font-size:.78rem;margin:.2rem 0 0 1rem}
+ul.t li{margin-bottom:.25rem}
+.loop{display:flex;align-items:center;gap:.45rem;margin:.5rem 0;flex-wrap:wrap}
+.ph{flex:1;min-width:90px;text-align:center;border:1px solid var(--border);border-radius:.6rem;padding:.6rem .3rem}
+.ph.on{background:var(--accent);border-color:var(--primary)}
+.ph b{font-size:.82rem;font-weight:600;display:block}
+.ph span{font-size:.62rem;color:var(--muted-foreground)}
+.ph.on b,.ph.on span{color:var(--accent-foreground)}
+.arr{color:var(--muted-foreground)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:.7rem}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:.7rem}
+.cell{border:1px solid var(--border);border-radius:.6rem;padding:.7rem;background:var(--card)}
+.cell .ct{font-size:.78rem;font-weight:600;display:flex;align-items:center;gap:.4rem;margin-bottom:.3rem}
+.cell .ct i{color:var(--primary)}
+.cell .cs{font-size:.72rem;color:var(--muted-foreground)}
+.swatch{height:42px;border-radius:.45rem;border:1px solid var(--border);display:flex;align-items:flex-end;padding:.25rem .4rem;font-size:.58rem;font-weight:500}
+.tiers{display:flex;flex-direction:column;gap:.45rem}
+.tier{display:flex;gap:.7rem;align-items:center;border:1px solid var(--border);border-radius:.6rem;padding:.6rem .8rem}
+.tier .tn{width:150px;flex-shrink:0;font-size:.78rem;font-weight:600;display:flex;align-items:center;gap:.4rem}
+.tier .tn i{color:var(--primary)}
+.tier .td{font-size:.72rem;color:var(--muted-foreground)}
+.seam{display:flex;gap:.6rem;align-items:flex-start;border:1px solid var(--border);border-radius:.6rem;padding:.55rem .75rem;margin-bottom:.4rem}
+.seam .si{color:var(--primary);font-size:1rem;margin-top:.1rem}
+.seam .sb{font-size:.76rem}
+.seam .sb b{font-weight:600}
+.chip{display:inline-flex;align-items:center;gap:.3rem;font-size:.66rem;border:1px dashed var(--border);border-radius:999px;padding:.12rem .5rem;color:var(--muted-foreground);margin:.15rem .15rem 0 0}
+.proposal{border:1px solid var(--primary);border-radius:.6rem;padding:.6rem .7rem;background:color-mix(in oklab,var(--accent) 22%,var(--card))}
+.proposal .ph2{font-size:.74rem;font-weight:600;display:flex;align-items:center;gap:.4rem}
+.proposal .pa{display:flex;gap:.4rem;margin-top:.5rem}
+.btn{font:inherit;font-size:.68rem;font-weight:500;border-radius:.35rem;padding:.25rem .6rem;border:1px solid var(--border);background:var(--card);color:var(--foreground);cursor:default}
+.btn.pri{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary)}
+.avx{width:20px;height:20px;border-radius:999px;background:var(--primary);color:var(--primary-foreground);font-size:.58rem;font-weight:600;display:inline-flex;align-items:center;justify-content:center}
+.prog{height:7px;border-radius:999px;background:var(--muted);overflow:hidden;margin:.3rem 0}
+.prog i{display:block;height:100%;background:var(--primary)}
+.screens{display:grid;grid-template-columns:repeat(2,1fr);gap:.5rem}
+.scol{border:1px solid var(--border);border-radius:.6rem;padding:.6rem .7rem}
+.scol .sh{font-size:.76rem;font-weight:600;display:flex;align-items:center;gap:.4rem;margin-bottom:.35rem}
+.scol .sh i{color:var(--primary)}
+.scol a{display:inline-flex;align-items:center;gap:.25rem;font-size:.68rem;text-decoration:none;color:var(--muted-foreground);border:1px solid var(--border);border-radius:.35rem;padding:.12rem .45rem;margin:.12rem .12rem 0 0}
+.scol a:hover{color:var(--foreground);border-color:var(--primary)}
+.callout{border-left:3px solid var(--primary);background:var(--muted);border-radius:.4rem;padding:.6rem .8rem;font-size:.76rem;margin-top:.6rem}
+.ml{display:inline-flex;align-items:center;gap:.3rem;font-size:.78rem;text-decoration:none;color:var(--primary);font-weight:500;border:1px solid var(--primary);border-radius:.4rem;padding:.35rem .7rem;margin-top:.3rem}
+@media(max-width:760px){.wrap{grid-template-columns:1fr}nav{display:none}.grid2,.grid3,.screens{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Architecture &amp; Decision Reference</h1>
+      <div class="sub">The whole system on one page — model, boards, the revamped UI, stack, data plane, deployment, and the research behind each call. Open this first.</div>
+    </div>
+    <button onclick="document.documentElement.classList.toggle('dark')"><i class="ti ti-moon"></i> Dark</button>
+  </header>
+
+  <nav aria-label="Sections">
+    <a href="#product-model"><span class="n">1</span>Product model</a>
+    <a href="#boards"><span class="n">2</span>Four boards + Home</a>
+    <a href="#phase-loop"><span class="n">3</span>Phase loop &amp; status</a>
+    <a href="#navigation"><span class="n">4</span>Navigation</a>
+    <a href="#ui"><span class="n">5</span>The revamped UI</a>
+    <a href="#canvas"><span class="n">6</span>Canvas &amp; docs</a>
+    <a href="#review"><span class="n">7</span>Review queue</a>
+    <a href="#agents"><span class="n">8</span>Agents &amp; memory</a>
+    <a href="#mcp"><span class="n">9</span>MCP gateway</a>
+    <a href="#stack"><span class="n">10</span>Stack</a>
+    <a href="#execution"><span class="n">11</span>Agent execution</a>
+    <a href="#data"><span class="n">12</span>Data plane</a>
+    <a href="#deployment"><span class="n">13</span>Deployment &amp; seams</a>
+    <a href="#cost"><span class="n">14</span>Cost doctrine</a>
+    <a href="#roadmap"><span class="n">15</span>Implementation</a>
+    <a href="#decisions"><span class="n">16</span>Decisions &amp; research</a>
+  </nav>
+
+  <main>
+    <!-- 1 -->
+    <section id="product-model">
+      <h2><span class="n">1</span> Product model</h2>
+      <p class="lead">The whole system is one ladder, and every level is optional.</p>
+      <div class="frame">
+        <div class="loop">
+          <div class="ph"><b>Project</b><span>a goal with a date</span></div>
+          <span class="arr"><i class="ti ti-arrow-right"></i></span>
+          <div class="ph on"><b>Work item</b><span>a coalition hub</span></div>
+          <span class="arr"><i class="ti ti-arrow-right"></i></span>
+          <div class="ph"><b>Task</b><span>one action</span></div>
+        </div>
+        <table>
+          <tr><th>Level</th><th>It is…</th><th>Maps to</th><th>Progress shows as…</th></tr>
+          <tr><td><i class="ti ti-layers-subtract"></i> Project</td><td>a goal + date; can span departments</td><td><code>projects</code> (new)</td><td>roll-up bar + milestones</td></tr>
+          <tr><td><i class="ti ti-list-check"></i> Work item</td><td>one piece of work — a coalition of everything about it</td><td><code>work_items</code></td><td>4-segment phase pill</td></tr>
+          <tr><td><i class="ti ti-checkbox"></i> Task</td><td>one action, one assignee (person · department · agent)</td><td><code>product_tasks</code></td><td>To-do → In progress → Completed</td></tr>
+        </table>
+        <p class="note"><b>Containment is optional at every level.</b> Tasks can live alone or directly under a project; work items can live outside any project. A work item is a coalition you form when one piece of work deserves a hub — structure is earned, never demanded. <b>One record, many lenses:</b> action items <i>are</i> work items; canvas nodes and chat cards are live references to the one record — change it anywhere, it changes everywhere.</p>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section id="boards">
+      <h2><span class="n">2</span> Four boards + Home</h2>
+      <p class="lead">Sub-apps are boards are route groups in one app — never separate deployables.</p>
+      <div class="grid3">
+        <div class="cell"><div class="ct"><i class="ti ti-home"></i> Home</div><div class="cs">Meta-view: digest, review queue, chat. Overview, never a board.</div></div>
+        <div class="cell"><div class="ct"><i class="ti ti-layout-kanban"></i> Workboard</div><div class="cs">Work items across table · kanban · graph · timeline; projects, strategy, insights, tasks, feedback.</div></div>
+        <div class="cell"><div class="ct"><i class="ti ti-video"></i> Meeting board</div><div class="cs">Capture → summary/decisions → the seam → work items; ask-meeting RAG.</div></div>
+        <div class="cell"><div class="ct"><i class="ti ti-artboard"></i> Canvas board</div><div class="cs">Freeform planning canvases + docs; element references, never object content.</div></div>
+        <div class="cell"><div class="ct"><i class="ti ti-robot"></i> Agent board</div><div class="cs">Runs, approvals, connections; the MCP gateway and custom agents live here.</div></div>
+        <div class="cell"><div class="ct"><i class="ti ti-vocabulary"></i> Naming law</div><div class="cs">Canonical names ban "Plan"/"Docs"/"Insights"/"stream" as board names. Vocabulary is fixed.</div></div>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section id="phase-loop">
+      <h2><span class="n">3</span> Phase loop &amp; status</h2>
+      <p class="lead">One loop learned once; the playbook for that kind of work supplies each phase's checklist.</p>
+      <div class="frame">
+        <div class="loop">
+          <div class="ph on"><b>Plan</b><span>understand &amp; decide</span></div>
+          <span class="arr"><i class="ti ti-arrow-right"></i></span>
+          <div class="ph"><b>Execute</b><span>do the work</span></div>
+          <span class="arr"><i class="ti ti-arrow-right"></i></span>
+          <div class="ph"><b>Review</b><span>check &amp; refine</span></div>
+          <span class="arr"><i class="ti ti-arrow-right"></i></span>
+          <div class="ph"><b>Done</b><span>shipped</span></div>
+        </div>
+        <ul class="t">
+          <li><b>Machine IDs</b> <code>plan|execute|review|done</code> are fixed; default labels are Plan/Execute/Review/Done; workspaces may rename labels (agent maps them), but never reorder, add, or remove slots.</li>
+          <li><b>Phase lives on work items only.</b> A project's stage is derived from its items' phase distribution — no dual truth.</li>
+          <li><b>Status lives on tasks only:</b> <span class="pill mut">To-do</span> <span class="pill">In progress</span> <span class="pill ok">Completed</span>. Task and phase vocabularies are deliberately distinct.</li>
+          <li><b>Health is always derived</b> — <span class="pill warn">at risk</span> <span class="pill bad">blocked</span> are computed, never hand-set, never a column.</li>
+          <li><b>Board grammar rule:</b> columns = lifecycle; rows/filters = belonging. Never swapped. Every kanban is the same board, scoped.</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section id="navigation">
+      <h2><span class="n">4</span> Navigation</h2>
+      <p class="lead">Zen-style: the chrome is stable, the content changes.</p>
+      <div class="frame">
+        <ul class="t">
+          <li>Workspace switcher top, board dock bottom; sidebars are <b>stable per board</b> and never mutate on a content click.</li>
+          <li>Filters live in the content area, never the sidebar. Object navigation is content tabs, not sidebar swaps.</li>
+          <li><b>Four required states</b> on every screen before merge: empty · loading · error · populated. No screen merges without all four.</li>
+          <li>Keyboard-complete, WCAG AA contrast, dark mode on every screen.</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- 5 — THE REVAMPED UI -->
+    <section id="ui">
+      <h2><span class="n">5</span> The revamped UI</h2>
+      <p class="lead">Clean shadcn/ui aesthetic — indigo primary, Geist type, 0.5rem radius. The design language, the component system, and the screens, all from <code>docs/design/tokens.css</code>.</p>
+
+      <div class="frame">
+        <h3><i class="ti ti-palette"></i> Design language</h3>
+        <div class="grid3" style="margin-bottom:.6rem">
+          <div class="swatch" style="background:var(--primary);color:var(--primary-foreground)">Primary</div>
+          <div class="swatch" style="background:var(--accent);color:var(--accent-foreground)">Accent</div>
+          <div class="swatch" style="background:var(--card);color:var(--foreground)">Card</div>
+          <div class="swatch" style="background:var(--muted);color:var(--muted-foreground)">Muted</div>
+          <div class="swatch" style="background:var(--ok-bg);color:var(--ok)">OK</div>
+          <div class="swatch" style="background:var(--destructive);color:var(--primary-foreground)">Destructive</div>
+        </div>
+        <p class="note"><b>Type</b> Geist (sans) + Geist Mono · <b>Primary</b> <code>oklch(0.5144 0.1605 267.44)</code> indigo · <b>Radius</b> 0.5rem · subtle shadow scale. <b>Tokens, not values</b> — no hex, raw px, or ad-hoc sizes in app code; if a token is missing, add the token. Single source: <code>packages/ui</code>.</p>
+      </div>
+
+      <div class="frame">
+        <h3><i class="ti ti-components"></i> Component gallery</h3>
+        <p class="note" style="margin-top:0;margin-bottom:.6rem">Suite-specific components are owned, never improvised inline.</p>
+        <div class="grid2">
+          <div class="cell"><div class="cs"><b style="color:var(--foreground)">PhasePill</b> — work-item phase</div><div style="margin-top:.4rem"><span class="seg"><i class="f"></i><i class="f"></i><i></i><i></i></span> <span style="font-size:.7rem;color:var(--muted-foreground)">Execute</span></div></div>
+          <div class="cell"><div class="cs"><b style="color:var(--foreground)">HealthBadge</b> — derived, never set</div><div style="margin-top:.4rem"><span class="pill warn"><i class="ti ti-alert-triangle"></i> at risk</span> <span class="pill bad"><i class="ti ti-ban"></i> blocked</span></div></div>
+          <div class="cell"><div class="cs"><b style="color:var(--foreground)">StatusPill</b> — tasks &amp; runs only</div><div style="margin-top:.4rem"><span class="pill mut">To-do</span> <span class="pill">In progress</span> <span class="pill ok">Completed</span></div></div>
+          <div class="cell"><div class="cs"><b style="color:var(--foreground)">ProvenanceChip</b> — links to source</div><div style="margin-top:.4rem"><span class="chip"><i class="ti ti-video"></i> from: Q3 sourcing call</span></div></div>
+          <div class="cell"><div class="cs"><b style="color:var(--foreground)">AssigneePicker</b> — with confidence</div><div style="margin-top:.4rem;display:flex;align-items:center;gap:.4rem;font-size:.72rem"><span class="avx">PK</span> Priya K. <span class="pill ok">0.86</span></div></div>
+          <div class="cell"><div class="cs"><b style="color:var(--foreground)">RunProgress</b> — agent run</div><div class="prog" style="margin-top:.5rem"><i style="width:62%"></i></div><div style="font-size:.64rem;color:var(--muted-foreground)">step 5/8 · ₹21 tokens</div></div>
+        </div>
+        <div style="margin-top:.6rem" class="proposal">
+          <div class="ph2"><i class="ti ti-sparkles" style="color:var(--primary)"></i> ProposalCard — the universal accept / edit / reject surface</div>
+          <div style="font-size:.72rem;color:var(--muted-foreground);margin-top:.2rem">New work item: "Negotiate packaging contract" <span class="chip"><i class="ti ti-robot"></i> agent · sourcing-scout</span></div>
+          <div class="pa"><span class="btn pri">Accept</span><span class="btn">Edit</span><span class="btn">Reject</span></div>
+        </div>
+        <div class="grid2" style="margin-top:.6rem">
+          <div class="cell" style="text-align:center;padding:1rem"><i class="ti ti-inbox" style="font-size:1.4rem;color:var(--muted-foreground)"></i><div class="cs" style="margin-top:.3rem"><b style="color:var(--foreground)">EmptyState</b> — the only way to render empty</div></div>
+          <div class="cell" style="text-align:center;padding:1rem"><i class="ti ti-alert-circle" style="font-size:1.4rem;color:var(--destructive)"></i><div class="cs" style="margin-top:.3rem"><b style="color:var(--foreground)">ErrorState</b> — problem + next step</div></div>
+        </div>
+      </div>
+
+      <div class="frame">
+        <h3><i class="ti ti-layout-2"></i> The screens — by board</h3>
+        <p class="note" style="margin-top:0;margin-bottom:.6rem">The revamped UI is a working clickable prototype. Each chip opens that screen.</p>
+        <div class="screens">
+          <div class="scol"><div class="sh"><i class="ti ti-home"></i> Home</div>
+            <a href="user-flow-wireframes.html">Digest</a><a href="user-flow-wireframes.html">Review queue</a><a href="user-flow-wireframes.html">Chat</a></div>
+          <div class="scol"><div class="sh"><i class="ti ti-layout-kanban"></i> Workboard</div>
+            <a href="user-flow-wireframes.html">Table</a><a href="user-flow-wireframes.html">Kanban</a><a href="user-flow-wireframes.html">Graph</a><a href="user-flow-wireframes.html">Work item</a><a href="user-flow-wireframes.html">Project</a><a href="user-flow-wireframes.html">Strategy</a><a href="user-flow-wireframes.html">Insights</a><a href="user-flow-wireframes.html">Feedback</a></div>
+          <div class="scol"><div class="sh"><i class="ti ti-video"></i> Meeting board</div>
+            <a href="user-flow-wireframes.html">All meetings</a><a href="user-flow-wireframes.html">Meeting detail</a><a href="user-flow-wireframes.html">Proposals</a></div>
+          <div class="scol"><div class="sh"><i class="ti ti-artboard"></i> Canvas board</div>
+            <a href="user-flow-wireframes.html">All canvases</a><a href="user-flow-wireframes.html">Canvas edit</a><a href="user-flow-wireframes.html">Docs</a></div>
+          <div class="scol"><div class="sh"><i class="ti ti-robot"></i> Agent board</div>
+            <a href="user-flow-wireframes.html">Runs</a><a href="user-flow-wireframes.html">Agent run</a><a href="user-flow-wireframes.html">Connections</a></div>
+          <div class="scol"><div class="sh"><i class="ti ti-door-enter"></i> Entry</div>
+            <a href="user-flow-wireframes.html">Sign in</a><a href="user-flow-wireframes.html">Workspace picker</a></div>
+        </div>
+        <a class="ml" href="user-flow-wireframes.html"><i class="ti ti-external-link"></i> Open the full clickable prototype</a>
+        &nbsp;<a class="ml" href="mental-model.html"><i class="ti ti-bulb"></i> The mental model</a>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section id="canvas">
+      <h2><span class="n">6</span> Canvas &amp; docs</h2>
+      <p class="lead">Our own live components as first-class canvas objects — all MIT libraries.</p>
+      <div class="frame">
+        <ul class="t">
+          <li><b>React Flow</b> for both surfaces — the Workboard graph view and the freeform planning canvas; <code>perfect-freehand</code> for ink.</li>
+          <li><b>TipTap core + y-prosemirror</b> for docs. <b>BlockSuite exits</b> along with <code>patches/</code> — do not use it in new code.</li>
+          <li><b>Graph view</b> is a peer of table/kanban/timeline with full action parity: drag an edge = create a dependency; drop into a phase group = change phase. Layout is presentation; gestures are data.</li>
+          <li><b>Storage rule:</b> canvases never store object content — only element references, positions, grouping. A prior React Flow attempt failed because data lived only in component state; the lesson is the data layer, not the library.</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- 7 -->
+    <section id="review">
+      <h2><span class="n">7</span> Review queue</h2>
+      <p class="lead">One pipeline, all producers. Anything generated lands as a proposal.</p>
+      <div class="frame">
+        <ul class="t">
+          <li>The <code>proposals</code> table is the review-queue sink: states <code>proposed → accepted | rejected | expired</code>.</li>
+          <li><b>Idempotent on</b> <code>(source_type, source_id, source_candidate_id, target_kind)</code> — one source routinely yields many proposals (a meeting extracts four action items), so each candidate carries a stable id; true retries dedupe, distinct candidates never collide.</li>
+          <li>Every auto-created object carries provenance and enters via a proposal; agents write directly only to objects they were explicitly assigned.</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section id="agents">
+      <h2><span class="n">8</span> Agents &amp; memory</h2>
+      <p class="lead">Agents are first-class members; memory is Postgres truth, served tiered.</p>
+      <div class="frame">
+        <h3><i class="ti ti-robot"></i> Agent surfaces</h3>
+        <ul class="t">
+          <li><b>Ambient delegation</b> — "Ask agent" everywhere; the thread binds to the object in view. <b>Centralized supervision</b> in the Agent board. <b>Visible attribution</b> always (agent X, on behalf of user Y).</li>
+          <li><b>Agent API contract:</b> workspace-scoped machine auth (never browser tokens), idempotency keys, attribution, per-principal rate limits, server-side permission checks — one code path.</li>
+          <li><b>Custom agents</b> are named, permission-scoped workspace members — created conversationally, mentionable in any thread, assignable like a person.</li>
+        </ul>
+      </div>
+      <div class="frame">
+        <h3><i class="ti ti-brain"></i> Memory &amp; context economy</h3>
+        <ul class="t">
+          <li><b>Truth in Postgres objects</b>, never loose files: <code>product_strategies</code>, <code>playbooks</code>, <code>workspaces.custom_instructions</code>/<code>ai_memory</code>. A deterministic compiler renders a <b>versioned, read-only context bundle</b>; every run records <code>memory_version</code>.</li>
+          <li><b>Tiered loading:</b> Tier A core preloaded (~1–2k tokens); Tier B reached via a <code>search_memory</code> tool — exactly like <code>search_tools</code>. Memory grows only through proposals.</li>
+          <li><b>Context economy</b> (4 disciplines): tool schemas searched not preloaded · memory tiered · data processed in code (Code Mode) · large results spilled to a run-scoped indexed store with <code>search_results</code>/<code>read_result</code>, never inlined.</li>
+          <li><b>Tier B substrate already exists in schema</b> — the <code>knowledge_base</code> (pgvector-1536 HNSW + <code>search_documents()</code>) and <code>collective_intelligence</code> (<code>get_compressed_context()</code>) migrations. Transform = wiring, not migration.</li>
+          <li><b>RAG hardening (5):</b> hybrid RRF retrieval (tsvector + vector) · halfvec-1024 for new collections · <code>compression_jobs</code> on the jobs seam · TTL-purged run-scoped collections · a golden-question eval loop. All stock pgvector — runs unchanged on Neon.</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section id="mcp">
+      <h2><span class="n">9</span> MCP gateway</h2>
+      <p class="lead">Hundreds of servers, model-portable tool search.</p>
+      <div class="frame">
+        <ul class="t">
+          <li>Three meta-tools — <code>search_tools</code> / <code>load_tool</code> / <code>call_tool</code> — with Hermes-Agent BM25 + ≥10%-context auto-mode (MIT, adopted). Router-level search is model-portable; vendor <code>defer_loading</code> is locked-in.</li>
+          <li>Catalog synced from the official MCP Registry (~9,600 servers), three tiers: Verified · Indexed · Custom.</li>
+          <li><b>Connection scope</b> is <code>user | workspace</code> (workspace = admin-only, badged); remote-transport-first.</li>
+          <li>Connectors are API-key-first (no OAuth apps we own): Meta system-user token · GA service-account JSON · GitHub PAT — direct API → snapshot cache → recharts.</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- 10 -->
+    <section id="stack">
+      <h2><span class="n">10</span> Stack</h2>
+      <p class="lead">Postgres is the only database; one realtime interface; everything else is a library.</p>
+      <div class="frame">
+        <table>
+          <tr><th>Layer</th><th>Choice</th><th>Note</th></tr>
+          <tr><td>Shell</td><td>Vite SPA + TanStack Router (library) + Clerk GA SDK</td><td>Start deferred; logged-in SPA needs no SSR</td></tr>
+          <tr><td>API</td><td>Hono on Cloudflare Workers</td><td>backend-mediated; browser never hits DB</td></tr>
+          <tr><td>Agent runtime</td><td>AI SDK v6 + <code>@openrouter/ai-sdk-provider</code></td><td>model flexibility is a hard requirement; Claude/OpenAI agent SDKs rejected for lock-in</td></tr>
+          <tr><td>Realtime</td><td>one <code>RealtimeTransport</code> seam</td><td>partyserver/DO (SaaS) · Hocuspocus-on-Node (self-host)</td></tr>
+          <tr><td>Canvas/docs</td><td>React Flow + perfect-freehand + TipTap/y-prosemirror</td><td>all MIT; BlockSuite exits</td></tr>
+          <tr><td>State</td><td>TanStack Query</td><td>caching, optimistic updates, invalidation-ping consumer</td></tr>
+          <tr><td>UI libs</td><td>TanStack Table v8 + Virtual, dnd-kit, custom Gantt, cmdk, react-virtuoso, recharts</td><td>Table v8 not v9 beta</td></tr>
+          <tr><td>Meetings</td><td>AssemblyAI + Gemini Flash + pgvector RAG</td><td>≈ $0.20 / meeting-hour</td></tr>
+        </table>
+        <p class="note">Full matrix + ~70 sources: <code>docs/plans/tech-stack-evaluation-2026-06-12.md</code>. Fallbacks named: Mastra (Apache) then LangGraph-JS lib (MIT) for the agent loop; tldraw 100-day trial as the canvas escape hatch.</p>
+      </div>
+    </section>
+
+    <!-- 11 -->
+    <section id="execution">
+      <h2><span class="n">11</span> Agent execution tiers</h2>
+      <p class="lead">Three tiers, escalate by workload — Railway is the named container fallback.</p>
+      <div class="frame">
+        <div class="tiers">
+          <div class="tier"><div class="tn"><i class="ti ti-bolt"></i> Hono Worker</div><div class="td">Light synchronous LLM calls in the API path.</div></div>
+          <div class="tier"><div class="tn"><i class="ti ti-windmill"></i> Dynamic Workers</div><div class="td">Instant &lt;5ms throwaway isolates: sub-agent fan-out, MCP Code Mode scripts, sandboxing agent-authored code. ~$0.002/unique worker/day.</div></div>
+          <div class="tier"><div class="tn"><i class="ti ti-server-2"></i> Containers</div><div class="td">Long durable runs with pause-on-approval; scale-to-zero. Also runs the FastAPI meeting-api. Railway = fallback.</div></div>
+        </div>
+        <p class="note">Durable spine = the jobs seam + <code>proposals</code>; run resumability persisted in <code>agent.runs</code> (messages + step cursor).</p>
+      </div>
+    </section>
+
+    <!-- 12 -->
+    <section id="data">
+      <h2><span class="n">12</span> Data plane</h2>
+      <p class="lead">Relational truth on a swappable, usage-priced host.</p>
+      <div class="frame">
+        <div class="loop">
+          <div class="ph"><b>Browser</b><span>no DB access</span></div>
+          <span class="arr"><i class="ti ti-arrow-right"></i></span>
+          <div class="ph"><b>Hono API</b><span>Workers</span></div>
+          <span class="arr"><i class="ti ti-arrow-right"></i></span>
+          <div class="ph on"><b>Neon Postgres</b><span>+ pgvector</span></div>
+          <span class="arr"><i class="ti ti-arrow-right"></i></span>
+          <div class="ph"><b>Jobs seam</b><span>Queues + Cron</span></div>
+        </div>
+        <ul class="t">
+          <li><b>Postgres host = Neon from F2</b> (Supabase hosts the legacy DB only until Phase 2 cutover). Verified Supabase deps beyond Postgres: one pg_cron job + one Edge Function (→ jobs seam); everything else is legacy that dies at cutover. CLI tooling → neutral runner + codegen at F2.</li>
+          <li>Workers connect via Neon's serverless HTTP driver or Hyperdrive; branch-per-PR pairs with preview deploys.</li>
+          <li><b>Jobs seam:</b> Cloudflare Queues (HTTP-pull) + Cron Triggers in SaaS · pgmq + pg_cron in self-host. Neither implementation leaks past the interface.</li>
+          <li>pgvector memory/RAG substrate is stock pgvector (HNSW + SQL functions) — runs unchanged on Neon. Vectorize/Electric are watch-list upgrades.</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- 13 -->
+    <section id="deployment">
+      <h2><span class="n">13</span> Deployment &amp; seams</h2>
+      <p class="lead">One codebase, two editions — SaaS multi-tenant pool + single-tenant self-host. Five seams make it possible.</p>
+      <div class="frame">
+        <div class="seam"><i class="ti ti-key si"></i><div class="sb"><b>1 · Auth adapter</b> — Clerk in both editions for v1 (self-host brings its own Clerk); the seam stays the permanent escape hatch. Internal IDs ≠ provider IDs.</div></div>
+        <div class="seam"><i class="ti ti-broadcast si"></i><div class="sb"><b>2 · Realtime transport</b> — partyserver/DO (SaaS) ↔ Hocuspocus-on-Node (self-host). No DO-specific API leaks out.</div></div>
+        <div class="seam"><i class="ti ti-folder si"></i><div class="sb"><b>3 · Storage = S3 API only</b> — R2 ↔ MinIO; previews behind an image-proxy interface (CF transforms ↔ imgproxy).</div></div>
+        <div class="seam"><i class="ti ti-plug-connected si"></i><div class="sb"><b>4 · Vendor clients behind interfaces</b> — LLM, STT, email with env-configured endpoints.</div></div>
+        <div class="seam"><i class="ti ti-clock-play si"></i><div class="sb"><b>5 · Jobs seam</b> — CF Queues + Cron (SaaS) ↔ pgmq + pg_cron (self-host).</div></div>
+        <p class="note"><b>Open-core:</b> open = the entire product runtime; cloud-only = billing/metering, managed connector OAuth, the hosted MCP fleet, multi-tenant ops. <code>TBD(license)</code> — AGPLv3 vs FSL/BUSL vs MIT, decide before public.</p>
+      </div>
+    </section>
+
+    <!-- 14 -->
+    <section id="cost">
+      <h2><span class="n">14</span> Cost doctrine</h2>
+      <p class="lead">Cloudflare-first for primitives, Postgres for relational truth only, nothing provider-proprietary in the data layer.</p>
+      <div class="frame">
+        <ul class="t">
+          <li>Cloudflare prices by usage; Supabase Pro is a fixed ~$25/project once free limits hit — so queues, cron, KV, files, realtime live on Cloudflare.</li>
+          <li><b>Consolidation is itself the goal:</b> every platform removed is an endpoint, a bill, a deploy pipeline, a credentials set, and a failure mode we stop carrying.</li>
+          <li><b>End-state operational surface:</b> Cloudflare + Neon + Clerk + pay-per-use keys — all usage-priced, zero fixed floors. Every primitive has a named exit through the seams; one-vendor simplicity, no one-way doors.</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- 15 -->
+    <section id="roadmap">
+      <h2><span class="n">15</span> Implementation</h2>
+      <p class="lead">Skeleton once (sequential), boards in parallel. Parity = the five flows, not the old 13 tabs.</p>
+      <div class="frame">
+        <div class="loop">
+          <div class="ph"><b>Phase 0</b><span>F1 shell · F2 data plane · F3 seams</span></div>
+          <span class="arr"><i class="ti ti-arrow-right"></i></span>
+          <div class="ph on"><b>Phase 1</b><span>4 parallel lanes</span></div>
+          <span class="arr"><i class="ti ti-arrow-right"></i></span>
+          <div class="ph"><b>Phase 2</b><span>convergence + cutover</span></div>
+          <span class="arr"><i class="ti ti-arrow-right"></i></span>
+          <div class="ph"><b>Phase 3</b><span>deferred</span></div>
+        </div>
+        <table>
+          <tr><th>Lane</th><th>Scope</th><th>Default owner</th></tr>
+          <tr><td>F1 Shell</td><td>platform-web (Vite/TanStack/Clerk) + packages/ui + chrome</td><td>Claude</td></tr>
+          <tr><td>F2 Data plane</td><td>migration pack on Neon, contracts, CRUD</td><td>Codex / GPT-5.5</td></tr>
+          <tr><td>F3 Seams</td><td>RealtimeTransport + jobs interfaces</td><td>Codex / GPT-5.5</td></tr>
+          <tr><td>L1 Workboard</td><td>table · kanban · graph · coalition · projects</td><td>Claude</td></tr>
+          <tr><td>L2 Meetings</td><td>capture → seam → ask-meeting RAG</td><td>split</td></tr>
+          <tr><td>L3 Agents + MCP</td><td>agent-worker, runs, gateway v1</td><td>Codex / GPT-5.5</td></tr>
+          <tr><td>L4 Home + chat</td><td>digest, review queue, threads, notifications</td><td>Claude</td></tr>
+          <tr><td>Phase 2</td><td>canvas, settings, compat routes, cutover</td><td>Claude</td></tr>
+        </table>
+        <p class="note"><b>Crossed-review discipline:</b> a different model family reviews each lane before merge. <b>Session bootstrap:</b> <code>bd ready</code> → <code>bd show &lt;id&gt;</code> — issue notes carry the binding constraints.</p>
+        <div class="callout"><b>Open F1 fork (settle at execution, not before):</b> PR&nbsp;#25 shipped a transitional <code>(platform)</code> route group inside the Next.js app — not the planned Vite app. <b>(A)</b> Vite rebuild now <i>(recommended — Next-on-Vercel is an exit)</i> vs <b>(B)</b> evolve the in-Next shell. Decision gate: founder sign-off before any lane code; fallback to (B) only if the Vite skeleton stalls (~3 days) — and then a dated migration slice is filed.</div>
+      </div>
+    </section>
+
+    <!-- 16 -->
+    <section id="decisions">
+      <h2><span class="n">16</span> Decisions &amp; research</h2>
+      <p class="lead">The canonical decision log is <code>DESIGN.md §14</code>; the research behind each call is preserved below and in the stack evaluation.</p>
+      <div class="frame">
+        <table>
+          <tr><th>Question</th><th>Chosen</th><th>Why</th></tr>
+          <tr><td>Framework</td><td>Vite + TanStack Router</td><td>Next-on-Vercel is an exit; SPA needs no SSR; libraries deep, Start deferred</td></tr>
+          <tr><td>Canvas / docs</td><td>React Flow + TipTap (MIT)</td><td>BlockSuite still 0.x with React friction; tldraw license-gated ($6k/yr)</td></tr>
+          <tr><td>Realtime</td><td>partyserver/DO + Hocuspocus seam</td><td>CRDTs portable; Supabase Realtime + Railway hocuspocus service retire</td></tr>
+          <tr><td>Agent runtime</td><td>AI SDK v6 + OpenRouter</td><td>parallel fan-out + write tools + approval gates; model-flexible; works on CF</td></tr>
+          <tr><td>Postgres host</td><td>Neon (at F2)</td><td>usage-priced + scale-to-zero, stock pgvector, branch-per-PR; no $25 floor</td></tr>
+          <tr><td>Meetings</td><td>AssemblyAI + Gemini Flash</td><td>≈ $0.20/meeting-hr; pgvector hybrid RAG</td></tr>
+          <tr><td>MCP tool search</td><td>Hermes-Agent router</td><td>nothing OSS is multi-tenant tool-search; router-level = model-portable</td></tr>
+        </table>
+        <p class="note">Sources of truth: <code>DESIGN.md</code> (contract) · <code>docs/plans/implementation-plan-2026-06-12.md</code> (execution) · <code>docs/plans/tech-stack-evaluation-2026-06-12.md</code> (stack + ~70 sources) · <code>docs/design/user-flow-wireframes.html</code> (UI) · <code>docs/design/mental-model.html</code> (coherence model).</p>
+      </div>
+    </section>
+  </main>
+</div>
+</body>
+</html>

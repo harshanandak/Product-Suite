@@ -219,7 +219,8 @@ Everything DESIGN.md promises that the current schema does NOT have, in one list
 
 ## 13. Reference documents
 
-- `docs/design/user-flow-wireframes.html` — living clickable prototype (18 screens, canonical tokens, light/dark). Open in a browser. This is the execution reference for PR21 screens: build to these layouts, update the file when a flow decision changes.
+- `docs/design/architecture-reference.html` — **the single-page overview: open this first.** The whole system on one navigable page (16 sections + TOC, light/dark): product model, the four boards, phase loop, the **revamped UI** (design language + rendered component gallery + board-by-board screen map linking the prototype), canvas/docs, review queue, agents & memory, MCP gateway, stack matrix, agent-execution tiers, data plane (Neon), deployment seams, cost doctrine, implementation phases + execution assignment, and a decisions/research appendix. Built from the canonical docs; on any disagreement the source doc/section it cites wins.
+- `docs/design/user-flow-wireframes.html` — living clickable prototype (canonical tokens, light/dark). Open in a browser. This is the execution reference for PR21 screens: build to these layouts, update the file when a flow decision changes.
 - `docs/design/mental-model.html` — the coherence model visualized: four layers (WHY/WHAT/WHEN/LEARN), the universal Plan→Execute→Review→Done loop, parallel projects timeline.
 - `docs/design/tokens.css` — canonical design tokens
 - `docs/plans/implementation-plan-2026-06-12.md` — **the rebuild execution plan** (Phase 0 foundations → Phase 1 parallel board lanes → Phase 2 cutover → Phase 3 deferred); supersedes PR21–PR23 of the building-blocks plan
