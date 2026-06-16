@@ -65,3 +65,41 @@ Anything not in phases 0–2 and not on this list requires a decision PR — tha
 - The wireframe is the acceptance test: every screen PR links its prototype screen; reviewer compares.
 - Schema changes only with pre-written migration spec + rollback (per §11 discipline) — production data is still effectively empty; the preflight row-count check (PR17 rule) guards the assumption.
 - Weekly: update this plan's checkboxes, re-run an evaluator pass on drift between code and DESIGN.md.
+
+## Execution assignment — which model/agent owns which lane (decided 2026-06-12)
+
+The plan is contract-driven, so lanes can be assigned to the model best suited to each, with CI as the shared safety net. Rule of thumb: **frontend/contract-sensitive lanes → Claude (Opus/Fable); backend/schema/infra lanes → GPT-5.5 (Codex) or equivalent frontier model.** Phase 0 foundations always use a frontier model regardless of family — a seam or schema mistake costs every lane built on it.
+
+| Lane | Owner (default) | Why |
+| --- | --- | --- |
+| F1 Shell scaffold | **Claude** | Most contract-sensitive: matches wireframes + §5 component grammar (`PhasePill`/`HealthBadge`, tokens-not-values) |
+| F2 Data plane (Neon) | **GPT-5.5 / Codex** | Migrations, host-neutral SQL, idempotency rules, contracts — backend correctness |
+| F3 Seams | **GPT-5.5 / Codex** | `RealtimeTransport` + jobs interfaces — infra-shaped |
+| L1 Workboard | **Claude** | Table/kanban/graph/coalition UI — frontend-heavy |
+| L2 Meetings | **split** | FastAPI pipeline → Codex; new board UI → Claude |
+| L3 Agents + MCP | **GPT-5.5 / Codex** | agent-worker, runs, MCP gateway meta-tools — backend/infra |
+| L4 Home + chat | **Claude** | digest, review-queue surface, threads — frontend-heavy |
+| Phase 2 Canvas | **Claude** | React Flow + TipTap surfaces — frontend-heavy |
+
+**Crossed-review discipline (non-negotiable):** whoever writes a lane, a *different* model family reviews the diff before merge. The Codex bot already reviews every PR regardless of author (it caught the idempotency bug, schema gaps, and IA drift on PR26); for Codex-authored backend PRs, run a Claude pass over anything touching §11 schema rules or §12 seams. Diversity catches what self-review misses — this is why PR26 converged clean.
+
+**Session bootstrap (any model, any shell):** start with `bd ready` → `bd show <id>` before writing code. The Beads issue notes now carry the binding constraints (Neon rules on F2, Tier B hardening on L3, component grammar everywhere), so even a cheaper model starts inside the contract instead of rediscovering it. DESIGN.md settles any dispute.
+
+## Checkpoint — state as of this PR (2026-06-12)
+
+What is on `main` right now, so the next lanes plan from reality, not from the original sketch:
+
+- **PR #26 (`8406b71`, squash-merged):** the design contract — DESIGN.md, the clickable prototype + mental model, the tech-stack evaluation, the **Neon Postgres decision** (F2 onward), and the build-hygiene gate (`prepush-gate.mjs` + Vercel/Railway scoping).
+- **PR #25 (`0579823`, merged after):** a **transitional `(platform)` route group inside the existing `apps/roadmap-web` Next.js app** — board placeholder pages (agents/canvas/meetings/roadmap/settings), workspace-scoped `w/[workspace]/...` routing, and layout/error/loading shells. **This is NOT the planned `apps/platform-web` Vite + TanStack app** — it consolidates the boards under one domain inside the current Next stack as a stopgap.
+- **Beads:** `product-suite-7kl` (merge PR26) closed; **`product-suite-dlz` (F1) is the single ready issue**; F2→F3→lanes→Phase 2 chained behind it.
+
+**Open decision to settle at the start of execution (the next PR, not this one) — the F1 fork:** PR #25 created an in-Next-app platform shell, while F1 as written calls for a fresh `apps/platform-web` on Vite + TanStack Router (DESIGN §10, repo topology above). Recorded here so it is not lost; the call is made when F1 execution begins. Two coherent paths:
+  - **(A) Vite rebuild now, as planned** — treat PR #25's `(platform)` group as a throwaway demo of the IA; start `apps/platform-web` clean. Honors the stack decision; the route placeholders become a reference for routing structure only.
+  - **(B) Evolve the in-Next shell, defer the Vite cutover** — keep building boards in the `(platform)` route group on Next for now, and schedule the Vite migration as its own later slice. Faster to first pixels; risks growing throwaway code against a stack we've decided to leave.
+
+Recommendation: **(A)** — the whole rebuild rationale (DESIGN §10, tech-stack eval §7/§7a) is that Next-on-Vercel is an exit, not a destination; building lane UI on it now compounds migration debt. This stays a founder/architecture call for the execution PR — this PR only records the fork so it is decided deliberately, not by default.
+
+**Decision gate (so the next PR resolves this actively, never by drift):**
+- **Checkpoint:** the F1 execution PR opens with the fork as its first item — founder sign-off on (A) or (B) **before any `apps/platform-web` or `(platform)`-lane code is written**. No board lane starts until the fork is recorded as resolved (a one-line decision note in this section + the F1 Beads issue).
+- **Fallback criteria — what would justify (B) over the recommended (A):** the Vite + TanStack Router + Clerk + tokens skeleton fails to render a signed-in shell within a short timebox (≈3 days), OR a hard dependency (a library with no Vite/Workers story) blocks it. If (B) is taken, it is explicitly temporary: a dated Vite-migration slice is filed in Beads in the same PR, so "defer" never becomes "forget."
+- **Throwaway validation (if (A) is chosen):** the reviewer of the F1 PR confirms PR #25's `(platform)` route group is consumed as a routing-structure reference only — no new feature code is added to it after the fork is set, and it is deleted at the Phase 2 cutover alongside the rest of `roadmap-web`.

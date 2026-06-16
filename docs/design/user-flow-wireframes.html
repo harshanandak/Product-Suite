@@ -428,7 +428,7 @@ select,input[type=text]{font:inherit;font-size:.74rem;border:1px solid var(--bor
             <div class="kcard" onclick="go('item')"><span class="t">Follow up with Chennai supplier on MOQ</span><span class="m"><span class="seg"><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i></span><span class="pill warn">high</span><span class="avx">PK</span></span></div>
           </div>
         </div>
-        <span style="font-size:.68rem;color:var(--muted-foreground)">Columns are the universal phase loop — drag a card to change its phase (one record, true in every view). "At risk" is derived health on the card, never a column. Task boards use To do / Doing / Done instead.</span>
+        <span style="font-size:.68rem;color:var(--muted-foreground)">Columns are the universal phase loop — drag a card to change its phase (one record, true in every view). "At risk" is derived health on the card, never a column. Task boards use To-do / In progress / Completed instead.</span>
       </div>
     </div>
   </div>
@@ -870,7 +870,7 @@ select,input[type=text]{font:inherit;font-size:.74rem;border:1px solid var(--bor
           <div class="drow clk" onclick="go('item')"><span class="seg"><i class="f"></i><i class="f"></i><i class="f"></i><i></i></span> Update pricing sheet for Q3 <span class="pill warn">high</span><span class="avx">AR</span><span class="when">Finance</span></div>
           <div class="drow clk" onclick="go('item')"><span class="seg"><i class="f"></i><i class="f"></i><i class="f"></i><i class="f"></i></span> Follow up with Chennai supplier on MOQ <span class="pill warn">high</span><span class="avx">PK</span><span class="when">Sourcing</span></div>
           <div class="drow"><span class="seg"><i class="f"></i><i></i><i></i><i></i></span> Contract legal review <span class="pill mut">medium</span><span class="pill ind"><i class="ti ti-building"></i> Legal queue</span><span class="when">unrouted</span></div>
-          <div class="drow"><i class="ti ti-square" style="color:var(--muted-foreground)"></i> Book vendor site visit <span class="pill mut">task · To do</span><span class="pill mut">no work item — directly under the project</span><span class="when"><span class="avx">PK</span></span></div>
+          <div class="drow"><i class="ti ti-square" style="color:var(--muted-foreground)"></i> Book vendor site visit <span class="pill mut">task · To-do</span><span class="pill mut">no work item — directly under the project</span><span class="when"><span class="avx">PK</span></span></div>
         </div>
         <span style="font-size:.68rem;color:var(--muted-foreground)">A project = goal + date + playbook + the work items aiming at it. Progress rolls up from the items; the last row shows department-queue assignment awaiting a lead.</span>
       </div>
@@ -986,8 +986,11 @@ select,input[type=text]{font:inherit;font-size:.74rem;border:1px solid var(--bor
 
 <script>
 function go(id){
+  var el=document.getElementById(id);
+  if(!el||!el.classList.contains('screen')){return}
   document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('on')});
-  document.getElementById(id).classList.add('on');
+  el.classList.add('on');
+  try{ if(location.hash!=='#'+id){history.replaceState(null,'','#'+id)} }catch(e){}
   window.scrollTo({top:0});
 }
 function toast(msg){
@@ -1103,6 +1106,17 @@ document.querySelectorAll('.screen .top').forEach(function(t){
   });
   t.appendChild(b);
 });
+// Deep-linking: open a specific screen via URL hash (e.g. user-flow-wireframes.html#plan-table)
+// so the architecture reference can link straight to any of the 20 screens; keeps the URL in sync.
+(function(){
+  function fromHash(){
+    var id=location.hash.slice(1);
+    var el=id&&document.getElementById(id);
+    if(el&&el.classList&&el.classList.contains('screen')){go(id)}
+  }
+  fromHash();
+  window.addEventListener('hashchange',fromHash);
+})();
 </script>
 </body>
 </html>
