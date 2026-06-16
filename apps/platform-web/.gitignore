@@ -1,0 +1,7 @@
+dist
+dev-dist
+coverage
+*.local
+.env
+.env.local
+.env.*.local

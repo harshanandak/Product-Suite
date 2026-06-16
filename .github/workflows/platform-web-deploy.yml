@@ -1,0 +1,76 @@
+name: Platform Web Deploy
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/platform-web/**"
+      - "packages/ui/**"
+      - "package.json"
+      - "bun.lock"
+      - ".github/workflows/platform-web-deploy.yml"
+  pull_request:
+    paths:
+      - "apps/platform-web/**"
+      - "packages/ui/**"
+      - ".github/workflows/platform-web-deploy.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      # Deploys require the user's Cloudflare credentials. Until they are set the
+      # job stays green and simply skips — CI never hard-fails for missing secrets.
+      - name: Check Cloudflare credentials
+        id: guard
+        shell: bash
+        run: |
+          if [ -n "${{ secrets.CLOUDFLARE_API_TOKEN }}" ] && [ -n "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Cloudflare secrets (CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID) not set — skipping deploy. Add them, plus VITE_CLERK_PUBLISHABLE_KEY, in repo Settings → Secrets and variables → Actions to enable preview/production deploys."
+          fi
+
+      - name: Setup Bun
+        if: steps.guard.outputs.ready == 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.6
+
+      - name: Install dependencies
+        if: steps.guard.outputs.ready == 'true'
+        run: bun install --frozen-lockfile
+
+      - name: Build
+        if: steps.guard.outputs.ready == 'true'
+        run: bun run --cwd apps/platform-web build
+        env:
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
+
+      - name: Deploy production (workers.dev)
+        if: steps.guard.outputs.ready == 'true' && github.event_name == 'push'
+        run: bun run --cwd apps/platform-web deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Deploy preview (versioned URL)
+        if: steps.guard.outputs.ready == 'true' && github.event_name == 'pull_request'
+        run: bun run --cwd apps/platform-web deploy:preview
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

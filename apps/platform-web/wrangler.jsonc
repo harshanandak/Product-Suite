@@ -1,0 +1,16 @@
+{
+  // Cloudflare Workers Static Assets — serves the built SPA (DESIGN §10:
+  // shell assets on Cloudflare). Assets-only Worker (no server script): the
+  // SPA fallback routes unknown paths to index.html so TanStack Router handles
+  // client-side routing. Deployed via `bun run deploy` (wrangler deploy).
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "platform-web",
+  "compatibility_date": "2026-06-01",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application"
+  },
+  "observability": {
+    "enabled": true
+  }
+}
