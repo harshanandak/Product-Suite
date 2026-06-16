@@ -41,9 +41,7 @@ describe("@product-suite/ui barrel", () => {
 
   test("cn merges classes and resolves Tailwind conflicts", () => {
     expect(cn("px-2", "px-4")).toBe("px-4");
-    expect(cn("text-sm", false && "hidden", "font-medium")).toBe(
-      "text-sm font-medium",
-    );
+    expect(cn("text-sm", false, "font-medium")).toBe("text-sm font-medium");
   });
 
   test("applyTheme is a no-op without a document and never throws", () => {

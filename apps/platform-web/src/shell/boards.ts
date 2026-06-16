@@ -291,10 +291,12 @@ export function workspaceDisplayName(slug: string): string {
 }
 
 function normalize(pathname: string): string {
-  if (pathname.length > 1 && pathname.endsWith("/")) {
-    return pathname.replace(/\/+$/, "");
+  // Trim trailing slashes without a backtracking-prone regex (keeps "/" as-is).
+  let end = pathname.length;
+  while (end > 1 && pathname.charCodeAt(end - 1) === 47 /* "/" */) {
+    end -= 1;
   }
-  return pathname;
+  return pathname.slice(0, end);
 }
 
 /**
