@@ -98,7 +98,7 @@ describe("@product-suite/ui barrel", () => {
         action: createElement("button", null, "Create"),
       }),
     );
-    expect(html).toContain("<output");
+    expect(html).toContain('role="status"');
     expect(html).toContain("No work items yet");
     expect(html).toContain("Create your first work item to get started.");
     expect(html).toContain("Create");

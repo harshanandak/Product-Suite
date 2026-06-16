@@ -34,13 +34,13 @@ export function PhasePill({
 }: Readonly<PhasePillProps>) {
   return (
     <span
+      {...props}
       data-phase={phase}
       className={cn(
         "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
         PHASE_STYLES[phase],
         className,
       )}
-      {...props}
     >
       {PHASE_LABELS[phase]}
     </span>

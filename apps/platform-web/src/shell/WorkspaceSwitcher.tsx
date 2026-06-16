@@ -8,8 +8,10 @@ import { href, workspaceDisplayName } from "./boards";
 
 /**
  * Workspace switcher — top of the left rail (DESIGN §2). Identity affordance:
- * avatar + name + chevron. Stable on every screen; switching workspace keeps
- * the active board. (The switch menu is a later lane; the chevron advertises it.)
+ * avatar + name + chevron, stable on every screen. In F1 it links to the
+ * workspace home (per the wireframe's go('home')); the full workspace-switch
+ * menu — which keeps the active board across workspaces — is a later lane that
+ * the chevron advertises.
  */
 export function WorkspaceSwitcher() {
   const { workspace } = useParams({ strict: false }) as { workspace?: string };

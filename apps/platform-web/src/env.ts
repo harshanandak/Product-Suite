@@ -13,8 +13,11 @@ declare global {
 export const CLERK_PUBLISHABLE_KEY: string =
   import.meta.env.VITE_CLERK_PUBLISHABLE_KEY ?? "";
 
+const configuredWorkspace = import.meta.env.VITE_DEFAULT_WORKSPACE?.trim();
 export const DEFAULT_WORKSPACE: string =
-  import.meta.env.VITE_DEFAULT_WORKSPACE ?? "befach-hq";
+  configuredWorkspace && configuredWorkspace.length > 0
+    ? configuredWorkspace
+    : "befach-hq";
 
 /** Whether a Clerk publishable key is configured (gates real sign-in). */
 export function hasClerkKey(): boolean {

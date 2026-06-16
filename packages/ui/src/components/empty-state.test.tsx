@@ -13,7 +13,7 @@ describe("EmptyState", () => {
       />,
     );
 
-    expect(html).toContain("<output");
+    expect(html).toContain('role="status"');
     expect(html).toContain("No invoices yet");
     expect(html).toContain("Create your first invoice to start tracking revenue.");
   });
@@ -21,7 +21,7 @@ describe("EmptyState", () => {
   test("omits the description paragraph when no description is provided", () => {
     const html = renderToStaticMarkup(<EmptyState title="Nothing here" />);
 
-    expect(html).toContain("<output");
+    expect(html).toContain('role="status"');
     expect(html).toContain("Nothing here");
     expect(html).not.toContain("text-muted-foreground");
   });
@@ -54,7 +54,7 @@ describe("EmptyState", () => {
       <EmptyState title="Custom" className="custom-empty" id="empty-1" />,
     );
 
-    expect(html).toContain("<output");
+    expect(html).toContain('role="status"');
     expect(html).toContain('id="empty-1"');
     expect(html).toContain("custom-empty");
   });

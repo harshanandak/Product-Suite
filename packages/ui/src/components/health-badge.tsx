@@ -38,13 +38,13 @@ export function HealthBadge({
 }: Readonly<HealthBadgeProps>) {
   return (
     <span
+      {...props}
       data-health={health}
       className={cn(
         "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium",
         HEALTH_STYLES[health],
         className,
       )}
-      {...props}
     >
       <span
         aria-hidden="true"
