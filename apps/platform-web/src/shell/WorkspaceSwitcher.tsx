@@ -14,7 +14,7 @@ import { href, workspaceDisplayName } from "./boards";
  * the chevron advertises.
  */
 export function WorkspaceSwitcher() {
-  const { workspace } = useParams({ strict: false }) as { workspace?: string };
+  const { workspace } = useParams({ strict: false });
   const slug = workspace ?? DEFAULT_WORKSPACE;
   const name = workspaceDisplayName(slug);
   const initials = name

@@ -57,7 +57,7 @@ export function TopBar({
       >
         <Search className="size-3.5" />
         <span>Search</span>
-        <kbd className="rounded bg-muted px-1 font-mono text-[0.65rem]">⌘K</kbd>
+        <kbd className="rounded bg-muted px-1 font-mono text-xs">⌘K</kbd>
       </button>
 
       <Link

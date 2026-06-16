@@ -32,10 +32,47 @@ export function CommandPalette({
     [navigate, onOpenChange, workspace],
   );
 
+  const dialogRef = React.useRef<HTMLDivElement>(null);
+
+  // Restore focus to the invoking control when the palette closes (DESIGN §8).
+  React.useEffect(() => {
+    if (!open) return;
+    const trigger = document.activeElement as HTMLElement | null;
+    return () => trigger?.focus?.();
+  }, [open]);
+
+  // Escape closes; Tab is trapped within the dialog so focus cannot reach the
+  // inert chrome behind the backdrop (DESIGN §8: focus trapped in dialogs).
+  const onDialogKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === "Escape") {
+        onOpenChange(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const root = dialogRef.current;
+      if (!root) return;
+      const focusable = root.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    },
+    [onOpenChange],
+  );
+
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 pt-[12vh]">
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-overlay/40 p-4 pt-[12vh]">
       <button
         type="button"
         aria-label="Close command palette"
@@ -44,12 +81,11 @@ export function CommandPalette({
         className="absolute inset-0 h-full w-full cursor-default"
       />
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label="Command palette"
-        onKeyDown={(event) => {
-          if (event.key === "Escape") onOpenChange(false);
-        }}
+        onKeyDown={onDialogKeyDown}
         className="relative w-full max-w-lg overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-lg"
       >
         <Command label="Command palette" className="flex flex-col">

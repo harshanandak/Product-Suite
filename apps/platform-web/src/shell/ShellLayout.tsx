@@ -36,7 +36,7 @@ export function ShellLayout() {
 }
 
 function ShellChrome() {
-  const { workspace } = useParams({ strict: false }) as { workspace?: string };
+  const { workspace } = useParams({ strict: false });
   const slug = workspace ?? DEFAULT_WORKSPACE;
   const { pathname } = useLocation();
   const navigate = useNavigate();
@@ -47,23 +47,32 @@ function ShellChrome() {
 
   React.useEffect(() => {
     function onKey(event: KeyboardEvent) {
+      const node = event.target as HTMLElement | null;
+      if (
+        node &&
+        (node.tagName === "INPUT" ||
+          node.tagName === "TEXTAREA" ||
+          node.isContentEditable)
+      ) {
+        return;
+      }
       const mod = event.metaKey || event.ctrlKey;
       if (mod && event.key.toLowerCase() === "k") {
         event.preventDefault();
         setPaletteOpen((open) => !open);
         return;
       }
-      if (mod && event.key >= "1" && event.key <= "5") {
-        const target = BOARDS[Number(event.key) - 1];
-        if (target) {
+      if (mod && !paletteOpen && event.key >= "1" && event.key <= "5") {
+        const board = BOARDS[Number(event.key) - 1];
+        if (board) {
           event.preventDefault();
-          navigate({ to: href(target.entry, slug) });
+          navigate({ to: href(board.entry, slug) });
         }
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [navigate, slug]);
+  }, [navigate, slug, paletteOpen]);
 
   return (
     <div className="grid h-screen grid-cols-[220px_1fr] overflow-hidden bg-background text-foreground">

@@ -42,6 +42,11 @@ describe("interpolate", () => {
       "/w/acme/workboard",
     );
   });
+
+  it("inserts a slug containing '$' literally, not as a replacement pattern", () => {
+    expect(interpolate("/w/$workspace/inbox", "a$$b")).toBe("/w/a$$b/inbox");
+    expect(interpolate("/w/$workspace/inbox", "x$&y")).toBe("/w/x$&y/inbox");
+  });
 });
 
 describe("href", () => {

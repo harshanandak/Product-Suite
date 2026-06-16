@@ -265,7 +265,9 @@ export function getBoard(id: BoardId): BoardDef {
 
 /** Interpolate a `$workspace` route template into a concrete pathname. */
 export function interpolate(to: string, workspace: string): string {
-  return to.replace("$workspace", workspace);
+  // split/join (not String.replace) so a "$" in the slug is inserted literally
+  // rather than interpreted as a replacement-pattern token ($&, $$, $`).
+  return to.split("$workspace").join(workspace);
 }
 
 /**
@@ -274,7 +276,7 @@ export function interpolate(to: string, workspace: string): string {
  * targets to TanStack Router's typed `to` — every nav surface passes a resolved
  * path, so no per-call `params` are required.
  */
-export function href(template: string, workspace: string): To {
+export function href(template: To, workspace: string): To {
   return interpolate(template, workspace) as To;
 }
 
@@ -290,7 +292,7 @@ export function workspaceDisplayName(slug: string): string {
   return name || slug;
 }
 
-function normalize(pathname: string): string {
+export function normalize(pathname: string): string {
   // Trim trailing slashes without a backtracking-prone regex (keeps "/" as-is).
   let end = pathname.length;
   while (end > 1 && pathname.charCodeAt(end - 1) === 47 /* "/" */) {

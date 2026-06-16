@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 
 import { cn } from "@product-suite/ui";
 
-import { type BoardDef, href, interpolate } from "./boards";
+import { type BoardDef, href, interpolate, normalize } from "./boards";
 import { toast } from "./toast";
 
 const ITEM_BASE =
@@ -38,7 +38,7 @@ export function Sidebar({
             return (
               <li
                 key={item.key}
-                className="px-2 pb-1 pt-3 text-[0.65rem] font-semibold uppercase tracking-wide text-muted-foreground"
+                className="px-2 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
               >
                 {item.label}
               </li>
@@ -62,7 +62,7 @@ export function Sidebar({
             );
           }
 
-          const active = interpolate(item.to, workspace) === pathname;
+          const active = interpolate(item.to, workspace) === normalize(pathname);
 
           return (
             <li key={item.key}>
