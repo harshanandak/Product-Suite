@@ -986,8 +986,11 @@ select,input[type=text]{font:inherit;font-size:.74rem;border:1px solid var(--bor
 
 <script>
 function go(id){
+  var el=document.getElementById(id);
+  if(!el||!el.classList.contains('screen')){return}
   document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('on')});
-  document.getElementById(id).classList.add('on');
+  el.classList.add('on');
+  try{ if(location.hash!=='#'+id){history.replaceState(null,'','#'+id)} }catch(e){}
   window.scrollTo({top:0});
 }
 function toast(msg){
@@ -1103,6 +1106,17 @@ document.querySelectorAll('.screen .top').forEach(function(t){
   });
   t.appendChild(b);
 });
+// Deep-linking: open a specific screen via URL hash (e.g. user-flow-wireframes.html#plan-table)
+// so the architecture reference can link straight to any of the 20 screens; keeps the URL in sync.
+(function(){
+  function fromHash(){
+    var id=location.hash.slice(1);
+    var el=id&&document.getElementById(id);
+    if(el&&el.classList&&el.classList.contains('screen')){go(id)}
+  }
+  fromHash();
+  window.addEventListener('hashchange',fromHash);
+})();
 </script>
 </body>
 </html>
