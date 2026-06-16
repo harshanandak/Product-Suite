@@ -228,3 +228,55 @@ Everything DESIGN.md promises that the current schema does NOT have, in one list
 - `docs/plans/stack-evaluation-2026-06-11.md` — stack decision and alternatives
 - `docs/plans/plan-evaluation-2026-06-11.md` — overall plan assessment
 - `docs/plans/building-blocks-transformation-pr-plan.md` — durable PR sequence
+
+## 14. Decision log — what we decided and where it lives
+
+A single followable index of every binding decision in this document, so execution PRs can confirm "is this still the rule?" at a glance. Each line points to the section that holds the full reasoning. This is a save-the-record index, not new policy — if a line here ever disagrees with its section, the section wins.
+
+**Product shape & information architecture**
+- Four boards + a Home meta-view — Workboard, Meeting, Canvas, Agent; Home is overview, never a board (§1, 2026-06-12).
+- Object ladder is project → work item (coalition hub) → task; **containment is optional at every level** (loose tasks, loose work items allowed) (§1 / §11).
+- **Phase lives on work items only; status lives on tasks only; health (at risk/blocked) is always derived, never hand-set** (§1 / §3 / §11, hardened 2026-06-12).
+- Universal phase loop `plan|execute|review|done` as machine IDs, workspace-renameable labels, per-kind playbook checklists (§1).
+- Board grammar is fixed: columns = lifecycle, rows/filters = belonging — never swapped (§1).
+- One record, many lenses: action items ARE work items; canvas nodes and chat cards are live references, not copies (§1 / §3).
+
+**Navigation & interaction**
+- Zen-style sidebar: workspace switcher top, board dock bottom; sidebars are stable per board and never mutate on content clicks; filters live in the content area, never the sidebar (§2, decided 2026-06-11).
+- Four required states (empty/loading/error/populated) — no screen merges without all four (§4).
+- Keyboard-complete, WCAG AA, dark mode on every screen before merge (§8).
+
+**Design system & UI components**
+- shadcn/ui conventions over Radix, Tailwind v4 with `@theme` tokens, lucide icons, recharts, framer-motion for micro-interactions only (§5, decided 2026-06-11).
+- Canonical oklch token set (indigo primary, Geist fonts) in `docs/design/tokens.css`; tokens-not-values is law — no hex/raw px/ad-hoc sizes in app code (§5 / visual identity).
+- Single source `packages/ui`; a pattern needed twice goes there first (§5).
+- Suite-specific components owned, never improvised: `ProposalCard`, `ProvenanceChip`, `AssigneePicker`, `RunProgress`, `EmptyState`/`ErrorState`, and **`PhasePill`/`HealthBadge` for work-item grammar — `StatusPill` is reserved for tasks and agent runs** (§5, corrected 2026-06-12).
+
+**Canvas & docs**
+- React Flow (MIT) for both canvas surfaces — the Workboard graph view and the freeform planning canvas — with perfect-freehand for ink; TipTap core + y-prosemirror for docs; **BlockSuite exits along with `patches/`** (§10, decided 2026-06-12).
+- Graph view is a peer of table/kanban/timeline with full action parity; spatial gestures are real mutations on the one record, never canvas-local state (§10).
+- Storage rule: canvases never store object content — only references/positions; the prior React Flow failure was a data-layer lesson, not a library one (§10).
+
+**Agents & memory**
+- Delegation is ambient and object-linked ("Ask agent" everywhere); supervision is centralized in the Agent board; attribution is always visible (§7).
+- Agent API contract: machine auth, idempotency keys, attribution, per-principal rate limits, server-side permission checks — one code path (§7, 2026-06-12).
+- Context economy — four disciplines: tool schemas searched, memory tiered, data processed in code, large results spilled-and-indexed (§7, 2026-06-12).
+- Workspace memory: Postgres objects are truth; a compiled, versioned, read-only context bundle is the "memory.md"; Tier A core preloaded + Tier B `search_memory`; **memory grows only through proposals** (§7).
+- Tier B substrate already exists in schema (`knowledge_base` + `collective_intelligence`); wiring not migration; five hardening upgrades recorded — hybrid RRF retrieval, halfvec-1024, `compression_jobs` on the jobs seam, TTL-purged run-scoped collections, golden-question eval loop (§7, 2026-06-12).
+- Custom agents are named, permission-scoped workspace members — mentionable and assignable like people (§7, 2026-06-12).
+
+**Stack**
+- Shell: Vite SPA + TanStack Router (library, not Start) + Clerk GA SDK (§10).
+- Cloudflare end-to-end — Hono on Workers, three-tier agent execution (Worker → Dynamic Workers → Containers), Containers for the FastAPI + agent workloads, Railway as named fallback (§10).
+- Agent runtime: **AI SDK v6 + OpenRouter provider** — model flexibility is a hard requirement; Claude/OpenAI agent SDKs rejected for model lock-in (§10).
+- Realtime behind one `RealtimeTransport` seam — Durable Objects (SaaS) / Hocuspocus-on-Node (self-host) (§10 / §12).
+- **Postgres is the only database; host = Neon from F2** (Supabase hosts the legacy DB only until Phase 2 cutover) (§10 / §12, decided 2026-06-12).
+
+**Deployment & cost**
+- One codebase, two editions (multi-tenant SaaS + single-tenant self-host) across five seams: auth (BYO-Clerk v1), realtime transport, S3-only storage, vendor interfaces, jobs (§12).
+- Cost doctrine: Cloudflare-first for primitives, Postgres for relational truth only, nothing provider-proprietary in the data layer; consolidation itself is the goal; every primitive has a named exit (§12, 2026-06-12).
+- End-state operational surface: **Cloudflare + Neon + Clerk + pay-per-use keys** — all usage-priced, zero fixed floors (§12).
+- `TBD(license)` — AGPLv3 vs FSL/BUSL vs MIT, decide before the repo goes public (§12).
+
+**Schema & machine rules**
+- All schema deltas DESIGN.md requires beyond the current database are enumerated in §11 (new tables, value migrations, idempotency rule, machine rules for auto-assignment/playbook resolution/visibility/provenance) — each ships as a pre-written migration spec with rollback (§11).
