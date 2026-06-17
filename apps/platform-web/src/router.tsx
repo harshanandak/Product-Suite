@@ -209,10 +209,10 @@ export const router = createRouter({
   defaultPreload: "intent",
   scrollRestoration: true,
   defaultPendingComponent: () => (
-    <div className="space-y-3 p-6" role="status" aria-label="Loading">
+    <output className="block space-y-3 p-6" aria-label="Loading">
       <div className="h-6 w-40 animate-pulse rounded-md bg-muted" />
       <div className="h-32 w-full animate-pulse rounded-lg bg-muted" />
-    </div>
+    </output>
   ),
   defaultErrorComponent: ({ error }) => (
     <div className="flex min-h-screen items-center justify-center bg-background p-6">

@@ -105,8 +105,8 @@ function SidebarProvider({
       }
     }
 
-    window.addEventListener("keydown", handleKeyDown)
-    return () => window.removeEventListener("keydown", handleKeyDown)
+    globalThis.addEventListener("keydown", handleKeyDown)
+    return () => globalThis.removeEventListener("keydown", handleKeyDown)
   }, [toggleSidebar])
 
   // We add a state so that we can do data-state="expanded" or "collapsed".
@@ -611,11 +611,11 @@ function SidebarMenuSkeleton({
   // (avoids the weak-PRNG security hotspot, typescript:S2245).
   const id = React.useId()
   const width = React.useMemo(() => {
-    let hash = 0
-    for (let i = 0; i < id.length; i += 1) {
-      hash = (hash * 31 + id.charCodeAt(i)) | 0
+    let sum = 0
+    for (const char of id) {
+      sum += char.codePointAt(0) ?? 0
     }
-    return `${50 + (Math.abs(hash) % 41)}%`
+    return `${50 + (sum % 41)}%`
   }, [id])
 
   return (

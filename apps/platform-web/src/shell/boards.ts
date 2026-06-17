@@ -295,7 +295,7 @@ export function workspaceDisplayName(slug: string): string {
 export function normalize(pathname: string): string {
   // Trim trailing slashes without a backtracking-prone regex (keeps "/" as-is).
   let end = pathname.length;
-  while (end > 1 && pathname.charCodeAt(end - 1) === 47 /* "/" */) {
+  while (end > 1 && pathname.codePointAt(end - 1) === 47 /* "/" */) {
     end -= 1;
   }
   return pathname.slice(0, end);

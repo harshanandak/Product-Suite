@@ -19,8 +19,8 @@ const ThemeContext = React.createContext<ThemeContextValue | null>(null);
 const STORAGE_KEY = "ps-theme";
 
 function getSystemTheme(): ResolvedTheme {
-  if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
-    return window.matchMedia("(prefers-color-scheme: dark)").matches
+  if (typeof globalThis.window !== "undefined" && typeof globalThis.matchMedia === "function") {
+    return globalThis.matchMedia("(prefers-color-scheme: dark)").matches
       ? "dark"
       : "light";
   }
@@ -42,7 +42,7 @@ export function ThemeProvider({
   defaultTheme?: Theme;
 }>) {
   const [theme, setThemeState] = React.useState<Theme>(() => {
-    if (typeof window === "undefined") return defaultTheme;
+    if (typeof globalThis.window === "undefined") return defaultTheme;
     const stored = localStorage.getItem(STORAGE_KEY);
     return stored === "light" || stored === "dark" || stored === "system"
       ? stored
@@ -57,8 +57,8 @@ export function ThemeProvider({
   }, [resolvedTheme]);
 
   React.useEffect(() => {
-    if (theme !== "system" || typeof window === "undefined") return;
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    if (theme !== "system" || typeof globalThis.window === "undefined") return;
+    const mq = globalThis.matchMedia("(prefers-color-scheme: dark)");
     const handler = () => applyTheme(getSystemTheme());
     mq.addEventListener("change", handler);
     return () => mq.removeEventListener("change", handler);
@@ -66,7 +66,7 @@ export function ThemeProvider({
 
   const setTheme = React.useCallback((next: Theme) => {
     setThemeState(next);
-    if (typeof window !== "undefined") localStorage.setItem(STORAGE_KEY, next);
+    if (typeof globalThis.window !== "undefined") localStorage.setItem(STORAGE_KEY, next);
   }, []);
 
   const toggle = React.useCallback(() => {

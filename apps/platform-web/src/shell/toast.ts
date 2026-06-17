@@ -23,7 +23,7 @@ export function toast(message: string, timeoutMs = 2600): void {
   toastEl.textContent = message;
   host.appendChild(toastEl);
 
-  window.setTimeout(() => {
+  globalThis.setTimeout(() => {
     toastEl.remove();
   }, timeoutMs);
 }

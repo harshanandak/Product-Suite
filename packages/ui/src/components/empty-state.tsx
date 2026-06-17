@@ -7,7 +7,7 @@ import { cn } from "../lib/cn";
  * state TEACHES the first action — title + guidance + an optional primary action.
  */
 export interface EmptyStateProps
-  extends React.HTMLAttributes<HTMLDivElement> {
+  extends React.HTMLAttributes<HTMLElement> {
   title: string;
   description?: string;
   icon?: React.ReactNode;
@@ -23,9 +23,8 @@ export function EmptyState({
   ...props
 }: Readonly<EmptyStateProps>) {
   return (
-    <div
+    <output
       {...props}
-      role="status"
       className={cn(
         "flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border p-8 text-center",
         className,
@@ -37,6 +36,6 @@ export function EmptyState({
         <p className="max-w-sm text-xs text-muted-foreground">{description}</p>
       ) : null}
       {action ? <div className="mt-2">{action}</div> : null}
-    </div>
+    </output>
   );
 }
