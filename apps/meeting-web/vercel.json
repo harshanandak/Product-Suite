@@ -1,5 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": { "deploymentEnabled": false },
   "installCommand": "bun install",
   "buildCommand": "bun run build",
   "ignoreCommand": "bash -c 'cd ../.. && git diff --quiet HEAD^ HEAD -- apps/meeting-web packages package.json bun.lock'",
