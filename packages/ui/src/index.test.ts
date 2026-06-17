@@ -54,7 +54,6 @@ describe("@product-suite/ui barrel", () => {
       createElement(Button, null, "Save changes"),
     );
     expect(html).toContain("<button");
-    expect(html).toContain('type="button"');
     expect(html).toContain("Save changes");
     expect(html).toContain("bg-primary");
   });

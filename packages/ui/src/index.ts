@@ -1,11 +1,27 @@
 export { cn } from "./lib/cn";
 
-export { Button, buttonVariants } from "./components/button";
-export type { ButtonProps } from "./components/button";
+// shadcn registry components (UI-revamp Workstream A — product-suite-o1g)
+export * from "./components/avatar";
+export * from "./components/badge";
+export * from "./components/button";
+export * from "./components/card";
+export * from "./components/command";
+export * from "./components/dialog";
+export * from "./components/dropdown-menu";
+export * from "./components/input";
+export * from "./components/label";
+export * from "./components/scroll-area";
+export * from "./components/select";
+export * from "./components/separator";
+export * from "./components/sheet";
+export * from "./components/sidebar";
+export * from "./components/skeleton";
+export * from "./components/sonner";
+export * from "./components/table";
+export * from "./components/tabs";
+export * from "./components/tooltip";
 
-export { Badge, badgeVariants } from "./components/badge";
-export type { BadgeProps } from "./components/badge";
-
+// Suite-specific components (owned, not from a registry)
 export { PhasePill, PHASE_LABELS } from "./components/phase-pill";
 export type { Phase, PhasePillProps } from "./components/phase-pill";
 
@@ -25,3 +41,4 @@ export { ThemeProvider, useTheme, applyTheme } from "./components/theme-provider
 export type { Theme, ResolvedTheme } from "./components/theme-provider";
 
 export { ThemeToggle } from "./components/theme-toggle";
+export { useIsMobile } from "./hooks/use-mobile";

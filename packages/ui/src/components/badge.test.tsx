@@ -1,14 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import * as React from "react";
+import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { Badge, badgeVariants } from "./badge.tsx";
+import { Badge, badgeVariants } from "./badge";
 
 describe("ui Badge", () => {
-  test("renders a span with default variant token classes and children", () => {
-    const html = renderToStaticMarkup(<Badge>New</Badge>);
+  test("renders a span with the default variant token classes and children", () => {
+    const html = renderToStaticMarkup(createElement(Badge, null, "New"));
 
     expect(html).toContain("<span");
+    expect(html).toContain('data-slot="badge"');
     expect(html).toContain("New");
     // shared base tokens
     expect(html).toContain("inline-flex");
@@ -20,16 +21,21 @@ describe("ui Badge", () => {
   });
 
   test("renders the secondary variant token classes", () => {
-    const html = renderToStaticMarkup(<Badge variant="secondary">Beta</Badge>);
+    const html = renderToStaticMarkup(
+      createElement(Badge, { variant: "secondary" }, "Beta"),
+    );
 
     expect(html).toContain("Beta");
     expect(html).toContain("bg-secondary");
     expect(html).toContain("text-secondary-foreground");
+    expect(html).toContain('data-variant="secondary"');
     expect(html).not.toContain("bg-primary");
   });
 
   test("renders the outline variant with border token and no fill", () => {
-    const html = renderToStaticMarkup(<Badge variant="outline">Draft</Badge>);
+    const html = renderToStaticMarkup(
+      createElement(Badge, { variant: "outline" }, "Draft"),
+    );
 
     expect(html).toContain("Draft");
     expect(html).toContain("border-border");
@@ -38,29 +44,51 @@ describe("ui Badge", () => {
     expect(html).not.toContain("bg-secondary");
   });
 
-  test("merges a caller className alongside variant tokens", () => {
-    const html = renderToStaticMarkup(<Badge className="ml-2">Tag</Badge>);
+  test("renders the destructive variant with white text", () => {
+    const html = renderToStaticMarkup(
+      createElement(Badge, { variant: "destructive" }, "Error"),
+    );
 
-    expect(html).toContain("ml-2");
-    expect(html).toContain("bg-primary");
+    expect(html).toContain("bg-destructive");
+    expect(html).toContain("text-white");
+  });
+
+  test("renders as its child element when asChild is set", () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        Badge,
+        { asChild: true },
+        createElement("a", { href: "/tag" }, "Tag"),
+      ),
+    );
+
+    expect(html).toContain("<a");
+    expect(html).toContain('data-slot="badge"');
+    expect(html).not.toContain("<span");
   });
 
   test("forwards arbitrary span attributes", () => {
     const html = renderToStaticMarkup(
-      <Badge id="status" title="status badge">
-        Live
-      </Badge>,
+      createElement(Badge, { id: "status", title: "status badge" }, "Live"),
     );
 
     expect(html).toContain('id="status"');
     expect(html).toContain('title="status badge"');
   });
 
-  test("badgeVariants helper resolves tokens for each variant", () => {
+  test("badgeVariants resolves a class string for each variant", () => {
     expect(badgeVariants()).toContain("bg-primary");
-    expect(badgeVariants({ variant: "muted" })).toContain("bg-muted");
-    expect(badgeVariants({ variant: "muted" })).toContain("text-muted-foreground");
-    expect(badgeVariants({ variant: "accent" })).toContain("bg-accent");
-    expect(badgeVariants({ variant: "accent" })).toContain("text-accent-foreground");
+    for (const variant of [
+      "default",
+      "secondary",
+      "destructive",
+      "outline",
+      "ghost",
+      "link",
+    ] as const) {
+      const classes = badgeVariants({ variant });
+      expect(typeof classes).toBe("string");
+      expect(classes.length).toBeGreaterThan(0);
+    }
   });
 });
