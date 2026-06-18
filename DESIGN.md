@@ -252,6 +252,7 @@ A single followable index of every binding decision in this document, so executi
 - Canonical oklch token set (indigo primary, Geist fonts) in `docs/design/tokens.css`; tokens-not-values is law — no hex/raw px/ad-hoc sizes in app code (§5 / visual identity).
 - Single source `packages/ui`; a pattern needed twice goes there first (§5).
 - Suite-specific components owned, never improvised: `ProposalCard`, `ProvenanceChip`, `AssigneePicker`, `RunProgress`, `EmptyState`/`ErrorState`, and **`PhasePill`/`HealthBadge` for work-item grammar — `StatusPill` is reserved for tasks and agent runs** (§5, corrected 2026-06-12).
+- Component sourcing finalized: shadcn/ui base + **Vercel AI Elements (Apache-2.0)** for chat/agent + **shadcn Charts/Recharts** for data-viz + Kibo/DiceUI blocks on the §6 engines — all vendored as owned source into `packages/ui*`; the AI SDK ships data hooks, **not** charts; Open WebUI is inspiration-only (Svelte/non-OSI). Free OSI top-ups to standardize on: `@evilcharts`, `@kibo-ui`, `@reui`, `@diceui`, `@originui`, `@magicui` (number-ticker). Strategy in `docs/design/component-source-strategy-2026-06-17.md`; **build-ready per-surface × per-registry matrix (216-registry sweep) in `docs/design/component-sourcing-matrix-2026-06-17.md`** (§5, decided 2026-06-17).
 
 **Canvas & docs**
 - React Flow (MIT) for both canvas surfaces — the Workboard graph view and the freeform planning canvas — with perfect-freehand for ink; TipTap core + y-prosemirror for docs; **BlockSuite exits along with `patches/`** (§10, decided 2026-06-12).

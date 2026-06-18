@@ -1,0 +1,16 @@
+@import "tailwindcss";
+@import "@product-suite/ui/tokens.css";
+
+/*
+ * Tailwind v4 content sources. node_modules is not scanned by default, so the
+ * linked design system package is declared explicitly (its real path, not the
+ * symlink). The app's own src is auto-detected but listed for clarity.
+ */
+@source "../src";
+@source "../../../packages/ui/src";
+
+html,
+body,
+#root {
+  height: 100%;
+}

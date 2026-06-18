@@ -6,6 +6,12 @@
       "runtimeExecutable": "python",
       "runtimeArgs": ["-m", "http.server", "4173", "--directory", "docs/design"],
       "port": 4173
+    },
+    {
+      "name": "platform-web",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["run", "--cwd", "apps/platform-web", "dev"],
+      "port": 5180
     }
   ]
 }

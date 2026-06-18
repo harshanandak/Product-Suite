@@ -1,11 +1,12 @@
 /*
  * Product Suite — canonical design tokens (decided 2026-06-11).
- * This file seeds `packages/ui` when PR21a scaffolds it; until then it is the
- * single source of truth for theme values. See DESIGN.md §5.
+ * Seeded into `packages/ui` from docs/design/tokens.css (DESIGN §5).
  * Style: clean shadcn/ui, indigo primary, Geist type, 0.5rem radius.
+ *
+ * NOTE: `@import "tailwindcss"` lives in the consuming app's entry CSS, which
+ * imports this file. Keep tokens-not-values: never hard-code these oklch/hsl
+ * values in app code — reference the semantic token names instead.
  */
-
-@import "tailwindcss";
 
 @custom-variant dark (&:is(.dark *));
 
