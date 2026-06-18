@@ -135,9 +135,11 @@ specific reason Mastra-as-the-agent-framework is a poor fit *right now*:
 
 1. **AI SDK v6 + OpenRouter stays the foundation** for the agent runtime and
    chat transport. Reconfirmed; no change.
-2. **Do not adopt Mastra as the agent framework now** — for the four
-   constraint-specific reasons above (run-state ownership, HITL approval-path
-   bugs, Workers bundle/CPU vs cost doctrine, TS-only vs the Python half).
+2. **Do not adopt Mastra as the agent framework now** — for the constraint-
+   specific reasons above (run-state ownership, Workers bundle/CPU vs cost
+   doctrine, TS-only vs the Python half), and because the HITL approval path —
+   our core mechanic — is unproven for our gate and must be spike-verified (its
+   original blockers are now closed, so this is a "verify", not a known defect).
 3. **Evaluate `@mastra/evals` at L2/L3 — do not pull it in now.** When the
    golden-question loop is actually built, first confirm the scorer *shape* fits
    retrieval-recall (likely `context-precision`/`context-relevance`, **not**
