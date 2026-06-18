@@ -30,7 +30,7 @@ exactly the layers Mastra is *strongest* at (agent runtime, memory/RAG). What's
 left for Mastra is the low-value, cheap-to-own slice (evals). So the accurate
 one-liner is: **decision confirmed; our constraints block the parts of Mastra
 that would have helped most — keep AI SDK, and only reconsider Mastra's agent
-spine at L3 if the approval bugs and the Workers bundle both clear.**
+spine at L3 if a spike shows the approval path and the Workers bundle both clear.**
 
 **One thing to keep open (not adopt):** keep Mastra as documented fallback #1
 for the agent loop (already true) and attach a **concrete re-eval spike at L3**
@@ -67,11 +67,17 @@ specific reason Mastra-as-the-agent-framework is a poor fit *right now*:
    messages, step cursor, memory_version) must live in our Postgres so the loop
    stays swappable. Mastra bundles its own persistence (`mastra_*` tables); using
    it in state-external mode fights the framework.
-2. **HITL approval is our core mechanic — and it's exactly where Mastra broke.**
-   The original rejection cited open bugs on the agent↔suspendable-workflow
-   **approval** path (`mastra#11015`/`#11283`). That gate (gated tool → proposal
-   → park run → resume) *is* the product. Re-confirmed as still the load-bearing
-   risk.
+2. **HITL approval is our core mechanic, so it gets the most scrutiny — but the
+   original blocker is now stale.** The June-12 eval rejected Mastra citing
+   *open* bugs on the agent↔suspendable-workflow **approval** path
+   (`mastra#11015`/`#11283`). Both are now **closed** (Dec 2025), and Mastra
+   ships a documented approval API (`approveToolCall` → `resumeStream`,
+   `autoResumeSuspendedTools`, supervisor propagation). So this is **no longer a
+   confirmed blocker** — the L3 spike must *empirically* re-test whether the
+   approval path holds for our exact gate (gated tool → proposal → park →
+   resume), not assume it's broken (recent usage friction exists, e.g.
+   `mastra#12042`). It stays the highest-risk item precisely because it *is* the
+   product.
 3. **Cost doctrine = Cloudflare-first, no fixed platform bill.** Mastra *does*
    have a first-class Cloudflare Workers deployer (`@mastra/deployer-cloudflare`
    v1.1.45, deploys as a real `*.workers.dev` Worker) — but bundle size is the
@@ -142,8 +148,11 @@ specific reason Mastra-as-the-agent-framework is a poor fit *right now*:
    **re-eval spike at L3**, *before* hand-rolling the durable approval spine:
    spend ~1 day wiring Mastra agent + suspend/resume against our real approval
    gate and measure — **(a)** compressed Workers bundle vs the 10 MB paid limit
-   (`mastra build` + `wrangler deploy`), **(b)** whether `mastra#11015/#11283`
-   (approval path) are fixed, **(c)** a CPU-time test of a multi-call loop on
+   (`mastra build` + `wrangler deploy`), **(b)** whether the approval path
+   actually holds for our gate end-to-end (the original blockers
+   `mastra#11015/#11283` are now closed and `approveToolCall`/`resumeStream` are
+   documented — verify, don't assume; cf. `mastra#12042`), **(c)** a CPU-time
+   test of a multi-call loop on
    Workers, and **(d) supply-chain provenance** — pin a known-good, post-incident
    version, verify npm provenance/signatures and a clean `easy-day-js`-free
    dependency tree, and scan with Socket/Snyk before any install (see the
