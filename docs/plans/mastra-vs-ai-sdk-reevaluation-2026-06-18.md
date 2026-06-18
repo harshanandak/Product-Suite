@@ -45,7 +45,7 @@ before hand-rolling the durable approval spine (criteria below). Treat
 
 | Capability | Need | State today |
 |---|---|---|
-| Agent runtime / tool-calling | heavy | not built (`services/agent-core` is a TS type stub; AI SDK only in legacy `roadmap-web`) |
+| Agent runtime / tool-calling | heavy | **partly built**: `services/agent-core` is a tested, model-agnostic `executeTaskPlan` engine (plan validation, retry, cancel, timeout guards, dep resolution) with a dependency-injected tool executor — but the AI-SDK wiring / agent worker that drives it is not built; its only current caller is the legacy `roadmap-web` adapter (`src/lib/ai/agent-core-adapter.ts`). **L3 should extend this service boundary + its tests, not rebuild it.** |
 | Multi-tenant MCP gateway + catalog | heavy | not built — **bespoke differentiator** |
 | Workspace/agent memory (tiered) | heavy | not built |
 | Semantic recall / RAG (pgvector) | heavy | schema-only; live meeting retrieval is still lexical |
@@ -144,12 +144,16 @@ specific reason Mastra-as-the-agent-framework is a poor fit *right now*:
    gate and measure — **(a)** compressed Workers bundle vs the 10 MB paid limit
    (`mastra build` + `wrangler deploy`), **(b)** whether `mastra#11015/#11283`
    (approval path) are fixed, **(c)** a CPU-time test of a multi-call loop on
-   Workers. If all three pass, Mastra may save the most expensive piece (the
-   durable workflow spine). If any fails, hand-roll as planned.
+   Workers, and **(d) supply-chain provenance** — pin a known-good, post-incident
+   version, verify npm provenance/signatures and a clean `easy-day-js`-free
+   dependency tree, and scan with Socket/Snyk before any install (see the
+   supply-chain note below). If all four pass, Mastra may save the most expensive
+   piece (the durable workflow spine). If any fails, hand-roll as planned.
 
-This costs nothing today (all AI lanes are unstarted; the only AI SDK install is
-in the legacy app being deleted) and is the cheapest possible moment to have
-verified the seam.
+This costs nothing today (the net-new AI lanes — agent worker, MCP gateway, RAG
+wiring — are unstarted; the `agent-core` engine exists but its only caller is the
+legacy app, and AI SDK is installed only in that legacy app being deleted) and is
+the cheapest possible moment to have verified the seam.
 
 ## License note
 
@@ -159,6 +163,24 @@ proprietary/source-available, not OSI. GitHub reports the repo as `NOASSERTION`
 because `LICENSE.md` is a custom dual-license file. For us this is fine — we use
 Clerk for auth and would not touch `ee/` — but "it's open source, no issue" is
 slightly overstated: it's Apache-2.0 *except* the enterprise auth modules.
+
+## Supply-chain note (npm scope takeover, 2026-06-17)
+
+The day before this memo, the **entire `@mastra` npm scope was compromised**: a
+hijacked former-contributor account republished ~143 packages — **including
+`@mastra/core`** (~4M downloads/month) — each with a malicious `easy-day-js`
+dependency (a `dayjs` clone that drops a crypto-stealing cross-platform RAT),
+across an ~88-minute automated campaign. Root cause was a never-revoked
+contributor account, not a flaw in Mastra's code. This does **not** change the
+architectural verdict (we're not installing Mastra now), but it hardens the L3
+spike gate: **never install `@mastra/*` without a known-good post-incident
+version pin, npm provenance/signature verification, an `easy-day-js`-free lockfile
+audit, and a Socket/Snyk scan.** Sources: [The Hacker
+News](https://thehackernews.com/2026/06/144-mastra-npm-packages-compromised-via.html),
+[Snyk](https://snyk.io/blog/a-forgotten-contributor-account-compromised-the-entire-mastra-npm-package-scope/),
+[StepSecurity](https://www.stepsecurity.io/blog/mastra-npm-packages-compromised-using-easy-day-js),
+[Socket](https://socket.dev/blog/mastra-npm-packages-compromised),
+[SafeDep](https://safedep.io/mastra-npm-scope-takeover-supply-chain-attack/).
 
 ## Primary sources
 
