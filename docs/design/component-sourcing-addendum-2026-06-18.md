@@ -44,9 +44,12 @@ So the real filter is **design quality + fit to our surfaces + motion discipline
    accepted cost. The only *source*-token shortcuts are the OSI lane (vendor +
    retoken) and *scaffold-then-gut* for layout (`sidebar-07`/`dashboard-01`).
    Everything paid, we recreate.
-5. **One thing to avoid even as inspiration: Skiper UI** — its components are
-   themselves reverse-engineered clones of other (often paid) libraries; recreate
-   from the *original* sources, not from a copy-of-a-copy.
+5. **Skiper UI — prefer the originals, but not disqualifying.** By its own docs
+   its components are *"recreations of the best out there… reverse-engineer,
+   replicate"* of other libraries (it credits them) — so where it names an
+   original, recreate from that. Deprioritized anyway: non-OSI (attribution-
+   required free tier) and duplicates @magicui. (Under our recreate-from-rendered-
+   design rule its provenance doesn't actually affect us.)
 
 ---
 
@@ -66,7 +69,7 @@ it is **not** a gate. The decision is in **Design value** + **Use it for**.
 | 6 | **Shadcn Space** | vendor (free MIT) / recreate (Pro) | **Good** dashboard shells + multi-column sidebars | **Recreate** for shell / sidebar / dashboard |
 | 7 | **Magic UI** | vendor (core MIT) / recreate (Pro) | Number Ticker, Bento (in-app); rest decorative; Pro = marketing | **Vendor** core subset (already in); recreate Pro only for a marketing page |
 | 8 | **Shadcn UI Kit** | recreate-from-design (paid; free repo unlicensed) | **Cohesive, complete** admin dashboards + app templates | **Recreate** — best full admin/dashboard template reference |
-| 9 | **Skiper UI** | avoid | Decorative; **itself reverse-engineered** from other libs | **Avoid** — go to the original sources it cloned |
+| 9 | **Skiper UI** | recreate-from-design (non-OSI) | Decorative; **by its own docs, "recreations… reverse-engineer, replicate"** of other libs (credited) | Low priority — dups @magicui; if used, recreate from the original it credits |
 | 10 | **UI Layouts** | vendor (free MIT) / recreate (Pro) | Form primitives (datetime/multi-select/file/phone) + decorative dups | **Vendor** the MIT form primitives we lack; recreate Pro blocks if the design wins |
 
 ### Recreate-worthy shortlist (by our surface)
@@ -80,8 +83,9 @@ it is **not** a gate. The decision is in **Design value** + **Use it for**.
 - **Data tables:** recreate Shadcn Studio's datatable design **on our decided
   engine** (TanStack Table v8 + dnd-kit) — design from them, mechanics ours.
 - **Charts:** unchanged — @evilcharts + Recharts (no new resource beats these).
-- **Avoid as inspiration:** Skiper UI (copy-of-a-copy); the spectacle/marketing
-  motion tiers across all of them (our `prefers-reduced-motion` gate).
+- **Lowest priority:** Skiper UI (its own docs call its components recreations of
+  other libraries — prefer those originals); and the spectacle/marketing motion
+  tiers across all of them (our `prefers-reduced-motion` gate).
 
 ---
 
@@ -140,7 +144,8 @@ and accept the build cost. The shortlist above is where that's worth doing.
   Studio, Shadcn UI Kit, Shadcn Space, Shadcn Blocks** and rebuild on our
   primitives/engines. Work from rendered demos; never paste their source.
 - **Park:** **Tailark (MIT)** for a future public marketing page (not in scope).
-- **Avoid:** **Skiper UI** (copy-of-a-copy — use its originals instead).
+- **Deprioritize:** **Skiper UI** — non-OSI + dups @magicui; its own docs describe
+  its components as recreations of other libraries, so prefer those originals.
 - **Matrix corrections (APPLIED in this change):** Aceternity free tier corrected
   from "free=MIT" to inspiration-only (proprietary; MIT is folklore) — matrix
   lines 16/195/267 + strategy line 89; Shadcn UI Kit free Starter clarified as
@@ -172,3 +177,9 @@ GitHub org has no licensed component repo; Shadcn UI Kit free repo
 `bundui/shadcn-admin-dashboard-free` → GitHub API `license: null`; React Bits /
 Shadcn Studio `LICENSE.md` → MIT + Commons Clause; Tailark / Shadcn Space / UI
 Layouts → clean MIT repos; Shadcn Blocks `shadcnblocks.com/license` → proprietary.
+Skiper UI: free tier is non-OSI (custom attribution license) per
+`skiper-ui.com/docs/quick-start` → "License & Usage"; the same page's "Keep in
+mind" states verbatim: *"Most components here are recreations of the best out
+there… This is my attempt to reverse-engineer, replicate, and often add a few
+extra features. I've tried to credit everyone."* — the source for the
+recreations characterization above.
