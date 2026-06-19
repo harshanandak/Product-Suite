@@ -86,7 +86,7 @@ the *look* only — the review-queue/provenance contract is proprietary.
   Kibo UI, DiceUI, prompt-kit, shadcn Charts/Recharts, TanStack Table (all MIT); **AI Elements + AI SDK
   (Apache-2.0** — keep the NOTICE).
 - **(B) Design-inspiration only — re-implement on our free primitives, never paste source:** Tailwind
-  Plus/Catalyst ($299), Aceternity Pro ($199, has a separate free MIT tier that *is* usable), shadcnblocks
+  Plus/Catalyst ($299), Aceternity ($199 Pro; **free tier also proprietary — NOT MIT, inspiration-only**, corrected 2026-06-18), shadcnblocks
   ($79), shadcnuikit (paid), **Open WebUI** (non-OSI + Svelte).
 
 No paid/proprietary verbatim source enters the codebase.

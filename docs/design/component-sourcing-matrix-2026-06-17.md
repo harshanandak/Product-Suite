@@ -13,7 +13,7 @@
 
 - **(A) MIT / Apache-2.0 / OSI-permissive** → we **VENDOR** the copied source into `packages/ui*` (we own it), editable, with the license/copyright notice preserved. Re-theme to tokens (tokens-not-values law).
 - **(B) Paid / "Pro" / non-OSI / license-key-gated / license-unverified** → **INSPIRATION ONLY**. We may re-implement the *design* on our own free shadcn primitives. We never paste their source. This covers all `mixed`-tier Pro catalogs and every `unknown`-tier registry until its license is verified from the homepage/repo.
-- **"Free" inside a mixed-tier registry is not automatically vendorable** — confirm per-item SPDX (e.g. Aceternity free=MIT but Pro proprietary; Efferd free-block license unverified).
+- **"Free" inside a mixed-tier registry is not automatically vendorable** — confirm per-item SPDX (e.g. **Aceternity's "free=MIT" is folklore — its terms reserve all rights → inspiration-only**, corrected 2026-06-18; Efferd free-block license unverified). See `component-sourcing-addendum-2026-06-18.md` for verified license lanes of 10 founder-suggested registries.
 - **Suite grammar is never imported:** ProposalCard, ProvenanceChip, AssigneePicker, PhasePill/HealthBadge, StatusPill, RunProgress, EmptyState, ErrorState are built in-house.
 
 ## 2. Surface — Shell, sidebar & navigation (chrome)
@@ -190,9 +190,9 @@ Derived from the 216-registry catalog + verdicts. `usable directly` = may be ven
 | @shadcn-editor | Rich-text editor (Lexical) | free | yes | reference only (we use TipTap) |
 | @prosekit | ProseMirror editor (multi-framework) | free | no | reference only |
 | @gpt-vis | AntV AI-native vis (vis-spec → chart) | free | no (AntV) | concept reference only |
-| @shadcnuikit | Commercial dashboard/template kit | mixed (Pro $79-$129/seat, key-gated; free Starter OSI-unverified) | yes | no — inspiration only |
+| @shadcnuikit | Commercial dashboard/template kit | mixed (Pro $79-$129/seat, key-gated; free Starter ships NO license = all-rights-reserved) | yes | no — inspiration only |
 | @efferd | Dashboard/app-shell blocks | mixed (Pro $147; free-block license UNVERIFIED) | yes | no — inspiration only |
-| @aceternity | Animated Tailwind + Motion components | mixed (free=MIT, Pro ~$169 proprietary) | yes | partial — only verified-MIT free items; Pro inspiration |
+| @aceternity | Animated Tailwind + Motion components | proprietary — **free tier NOT MIT** (terms reserve all rights; "MIT" is folklore), Pro ~$169 proprietary | no | **no — inspiration only** (corrected 2026-06-18; dups @magicui which is clean-MIT) |
 | @uitripled | Notification-center / metrics blocks | mixed/unknown | yes | no — inspiration only |
 | @bundui | 150+ handcrafted UI components | mixed | yes | partial — free items only after per-item check |
 | @uselayouts / @ui-layouts | Premium animated components/blocks | mixed | yes | partial — non-premium only |
@@ -264,7 +264,7 @@ Derived from the 216-registry catalog + verdicts. `usable directly` = may be ven
 - **@magicui** (MIT free) — `npx shadcn@latest add @magicui/number-ticker @magicui/blur-fade @magicui/animated-list @magicui/border-beam`. Number Ticker already greenlit (§4). Add reduced-motion guard on each (ships none).
 - **@motion-primitives** (MIT) — vendor `in-view`, `animated-group`, `sliding-number`, `transition-panel`, `morphing-dialog/popover` from the copy-paste registry. Retoken (5/33 token-native; 8 hardcode zinc/neutral) + add reduced-motion gate (0/33 honor it).
 - **@cult-ui** free (MIT) — `npx shadcn@latest add https://cult-ui.com/r/dynamic-island.json` (+ `toolbar-expandable.json`). Reduced-motion UNKNOWN → add gate; cut to ~150ms; never `pro.cult-ui.com`.
-- **@aceternity** free item — `npx shadcn@latest add @aceternity/animated-tooltip` (assignee stacks). Retoken hex + `--active/--start`; add gate; skip all spectacle/Pro.
+- **@aceternity** — **NOT vendorable** (free tier is proprietary/all-rights-reserved despite "MIT" folklore, corrected 2026-06-18). Inspiration-only: re-create the assignee-stack/tooltip *design* on @magicui (clean-MIT) or our own primitives; never `shadcn add` Aceternity source. Skip all spectacle/Pro.
 
 ### Inspiration-only (paid / non-OSI / Commons Clause — re-implement, do not paste)
 
