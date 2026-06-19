@@ -3,19 +3,33 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "types": "./src/index.d.ts",
+  "types": "./src/index.ts",
+  "imports": {
+    "#components/*": "./src/components/*.tsx",
+    "#lib/*": "./src/lib/*.ts",
+    "#hooks/*": "./src/hooks/*.ts"
+  },
   "exports": {
     ".": {
-      "types": "./src/index.d.ts",
-      "default": "./dist/index.js"
-    }
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./components/*": "./src/components/*.tsx",
+    "./lib/*": "./src/lib/*.ts",
+    "./hooks/*": "./src/hooks/*.ts"
   },
   "scripts": {
-    "build": "bun build src/index.jsx --outfile dist/index.js --target=browser --format=esm --external react --production",
-    "test": "bun run build && bun test"
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@product-suite/ui": "workspace:*"
   },
   "peerDependencies": {
     "react": ">=19",
     "react-dom": ">=19"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0"
   }
 }

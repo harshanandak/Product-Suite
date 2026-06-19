@@ -92,9 +92,15 @@ agent **confirmed**). Actions:
 2. **`packages/ui-chat` restructure + AI Elements vendor.** Shadcn-shape the
    package (Q1: `src/{components,lib,hooks}`, `package.json` `imports`/`exports`
    + `@product-suite/ui` dep, `tsconfig` `moduleResolution: bundler`,
-   `components.json`). **Migration risk (it's a `.jsx` bun-build stub today):**
-   switch `exports` to TS source, add `@product-suite/ui-chat` to platform-web's
-   vitest `deps.inline`, and retire the old `dist/` + `index.test.jsx`. Vendor
+   `components.json`). **Premise correction (2026-06-20):** ui-chat is NOT an
+   unconsumed stub — roadmap-web (Next, via `transpilePackages`) imports
+   `createChatRecordId`/`sortChatThreadsByUpdatedAt`/`ChatMessage`/`ChatThread`
+   and meeting-web (Vite) imports `ChatMessageList`. No customers (pre-launch) and
+   both legacy apps die at Phase 2, so the only risk is keeping the dev workspace
+   green. **Approach = restructure in place:** switch `exports` to TS source (both
+   consumers transpile TS), **preserve that legacy export surface**, retire
+   `dist/`, add `@product-suite/ui-chat` to platform-web's vitest `deps.inline`,
+   and verify roadmap-web + meeting-web still compile. Vendor
    `conversation`, `message`, `prompt-input`, `response`, `reasoning` on oklch
    tokens; build `useWorkspaceChat` (Q2 client) + thin dev-stub transport.
    **Coupling gate:** every vendored `.tsx` + the hook needs a colocated test in

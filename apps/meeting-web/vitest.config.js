@@ -8,9 +8,12 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   esbuild: {
+    // No forced `loader: "jsx"`: it would apply the JSX loader to workspace TS
+    // source (e.g. @product-suite/ui-chat's .ts) and choke on `export type`.
+    // Extension defaults are correct here — .jsx -> jsx (automatic), .ts -> ts,
+    // .js -> js — because meeting-web has no JSX in plain .js files.
     include: /src[\\/].*\.[jt]sx?$/,
     jsx: "automatic",
-    loader: "jsx",
   },
   resolve: {
     alias: {
