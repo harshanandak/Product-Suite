@@ -4,11 +4,14 @@ export { cn } from "./lib/cn";
 export * from "./components/avatar";
 export * from "./components/badge";
 export * from "./components/button";
+export * from "./components/button-group";
 export * from "./components/card";
 export * from "./components/command";
 export * from "./components/dialog";
 export * from "./components/dropdown-menu";
+export * from "./components/hover-card";
 export * from "./components/input";
+export * from "./components/input-group";
 export * from "./components/label";
 export * from "./components/scroll-area";
 export * from "./components/select";
@@ -17,8 +20,10 @@ export * from "./components/sheet";
 export * from "./components/sidebar";
 export * from "./components/skeleton";
 export * from "./components/sonner";
+export * from "./components/spinner";
 export * from "./components/table";
 export * from "./components/tabs";
+export * from "./components/textarea";
 export * from "./components/tooltip";
 
 // Suite-specific components (owned, not from a registry)
