@@ -10,7 +10,7 @@ describe("workspaceSlugFromOrg", () => {
 
   it("falls back to the default workspace when there is no org or slug", () => {
     expect(workspaceSlugFromOrg(null)).toBe(DEFAULT_WORKSPACE);
-    expect(workspaceSlugFromOrg(undefined)).toBe(DEFAULT_WORKSPACE);
+    expect(workspaceSlugFromOrg()).toBe(DEFAULT_WORKSPACE);
     expect(workspaceSlugFromOrg({ slug: null })).toBe(DEFAULT_WORKSPACE);
     expect(workspaceSlugFromOrg({ slug: "   " })).toBe(DEFAULT_WORKSPACE);
   });

@@ -30,8 +30,8 @@ describe("WorkspaceHomeRedirect", () => {
     render(<WorkspaceHomeRedirect />);
 
     const nav = screen.getByTestId("navigate");
-    expect(nav.getAttribute("data-to")).toBe("/w/$workspace");
-    expect(nav.getAttribute("data-workspace")).toBe("acme-inc");
+    expect(nav.dataset.to).toBe("/w/$workspace");
+    expect(nav.dataset.workspace).toBe("acme-inc");
   });
 
   it("falls back to the default workspace when there is no active org", () => {
@@ -40,9 +40,7 @@ describe("WorkspaceHomeRedirect", () => {
     render(<WorkspaceHomeRedirect />);
 
     // DEFAULT_WORKSPACE ("befach-hq") — no VITE_DEFAULT_WORKSPACE in tests.
-    expect(screen.getByTestId("navigate").getAttribute("data-workspace")).toBe(
-      "befach-hq",
-    );
+    expect(screen.getByTestId("navigate").dataset.workspace).toBe("befach-hq");
   });
 
   it("shows a loading state until Clerk resolves the session", () => {

@@ -11,5 +11,5 @@ export function workspaceSlugFromOrg(
   organization?: { slug?: string | null } | null,
 ): string {
   const slug = organization?.slug?.trim();
-  return slug ? slug : DEFAULT_WORKSPACE;
+  return slug || DEFAULT_WORKSPACE;
 }
