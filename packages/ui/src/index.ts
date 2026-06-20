@@ -6,6 +6,7 @@ export * from "./components/badge";
 export * from "./components/button";
 export * from "./components/button-group";
 export * from "./components/card";
+export * from "./components/checkbox";
 export * from "./components/command";
 export * from "./components/dialog";
 export * from "./components/dropdown-menu";
@@ -29,6 +30,9 @@ export * from "./components/tooltip";
 // Suite-specific components (owned, not from a registry)
 export { PhasePill, PHASE_LABELS } from "./components/phase-pill";
 export type { Phase, PhasePillProps } from "./components/phase-pill";
+
+export { PhaseSelect, PHASE_SELECT_OPTIONS } from "./components/phase-select";
+export type { PhaseSelectProps } from "./components/phase-select";
 
 export { StatusPill, STATUS_LABELS } from "./components/status-pill";
 export type { TaskStatus, StatusPillProps } from "./components/status-pill";

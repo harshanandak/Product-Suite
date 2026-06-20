@@ -8,6 +8,7 @@ import {
 
 import { Button, EmptyState, ErrorState } from "@product-suite/ui";
 
+import { WorkboardScreen } from "./boards/workboard/WorkboardScreen";
 import { BoardScreen } from "./shell/BoardScreen";
 import { ShellLayout } from "./shell/ShellLayout";
 import { SignInPage } from "./shell/SignInPage";
@@ -72,7 +73,9 @@ const homeInboxRoute = createRoute({
 const workboardRoute = createRoute({
   getParentRoute: () => workspaceRoute,
   path: "workboard",
-  component: BoardScreen,
+  // The Workboard index renders the live work-items screen; all other board
+  // routes (incl. the workboard sub-routes) remain on the BoardScreen placeholder.
+  component: WorkboardScreen,
 });
 const workboardStrategyRoute = createRoute({
   getParentRoute: () => workspaceRoute,
