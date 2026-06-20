@@ -83,10 +83,14 @@ let lastTimestamp = -1;
 let sequence = 0;
 
 export function createChatRecordId(now: () => number = Date.now): string {
-  const timestamp = Number(now());
-  if (!Number.isFinite(timestamp)) {
+  const rawTimestamp = Number(now());
+  if (!Number.isFinite(rawTimestamp)) {
     throw new TypeError("createChatRecordId: now() must return a finite number");
   }
+  // Never let the clock move backward: a rollback would otherwise reset the
+  // sequence and regenerate an id we already handed out (these ids are persisted
+  // thread keys downstream). Monotonic timestamp + sequence keeps them unique.
+  const timestamp = Math.max(rawTimestamp, lastTimestamp);
 
   if (timestamp === lastTimestamp) {
     sequence += 1;

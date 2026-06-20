@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const hookSource = readFileSync(resolve(currentDir, "../use-chat-threads.ts"), "utf8");
 const packageSource = readFileSync(
-  resolve(currentDir, "../../../../../packages/ui-chat/src/lib/chat-helpers.ts"),
+  resolve(currentDir, "../../../../../packages/ui-chat/src/index.ts"),
   "utf8",
 );
 

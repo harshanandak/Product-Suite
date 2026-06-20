@@ -47,6 +47,12 @@ describe("main entrypoint", () => {
     expect(createRootSpy).toHaveBeenCalledTimes(1);
     expect(createRootSpy).toHaveBeenCalledWith(document.getElementById("root"));
     expect(renderSpy).toHaveBeenCalledTimes(1);
+
+    // The app root must wrap the tree in <MotionConfig reducedMotion="user"> so
+    // motion honors the OS reduced-motion preference (DESIGN §8). render() is a
+    // spy no-op, so assert the prop on the element tree handed to it.
+    const rootElement = renderSpy.mock.calls[0][0];
+    expect(rootElement.props.children.props.reducedMotion).toBe("user");
     // Generous timeout: this dynamically imports the entry, which cold-transforms
     // the @product-suite/ui source graph (deps.inline) — variable under suite load.
   }, 20000);

@@ -34,8 +34,8 @@ export function UserMenu() {
   const { user } = useUser();
   const { signOut } = useClerk();
 
-  const email = user?.primaryEmailAddress?.emailAddress ?? "";
-  const name = user?.fullName ?? email ?? "Account";
+  const email = user?.primaryEmailAddress?.emailAddress;
+  const name = user?.fullName || email || "Account";
 
   return (
     <DropdownMenu>

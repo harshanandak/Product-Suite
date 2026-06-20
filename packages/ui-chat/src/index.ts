@@ -2,8 +2,9 @@
 //
 // Legacy surface (consumed by roadmap-web + meeting-web until Phase 2): the pure
 // chat helpers, their shared types, and the hand-rolled ChatMessageList /
-// ChatThreadList. AI Elements (vendored, oklch-tokened) + useWorkspaceChat are
-// added alongside in the following sub-steps and re-exported here.
+// ChatThreadList. Vendored AI Elements (oklch-tokened) live under
+// ./components/ai-elements/* and are intentionally NOT re-exported from this
+// root barrel — see the note below.
 
 export {
   getChatMessageText,
