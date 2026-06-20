@@ -22,6 +22,13 @@ vi.mock("@clerk/clerk-react", () => ({
 vi.mock("./router", () => ({ router: {} }));
 vi.mock("./shell/SetupNotice", () => ({ SetupNotice: () => null }));
 
+// motion/react is a sizable module; the entrypoint only needs MotionConfig to
+// pass its children through. Mocking it keeps the dynamic import() fast and
+// deterministic (the real lib can exceed the 5s test timeout under suite load).
+vi.mock("motion/react", () => ({
+  MotionConfig: ({ children }: { children: React.ReactNode }) => children,
+}));
+
 describe("main entrypoint", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -40,5 +47,7 @@ describe("main entrypoint", () => {
     expect(createRootSpy).toHaveBeenCalledTimes(1);
     expect(createRootSpy).toHaveBeenCalledWith(document.getElementById("root"));
     expect(renderSpy).toHaveBeenCalledTimes(1);
-  });
+    // Generous timeout: this dynamically imports the entry, which cold-transforms
+    // the @product-suite/ui source graph (deps.inline) — variable under suite load.
+  }, 20000);
 });
