@@ -62,17 +62,31 @@ function InputGroupAddon({
   align = "inline-start",
   ...props
 }: React.ComponentProps<"div"> & VariantProps<typeof inputGroupAddonVariants>) {
+  // Focus the sibling input when the addon padding is activated. Provided for
+  // both pointer and keyboard so the convenience is keyboard-reachable too
+  // (a11y: mouse events have keyboard equivalents — SonarQube S1082).
+  const focusInput = (
+    event:
+      | React.MouseEvent<HTMLDivElement>
+      | React.KeyboardEvent<HTMLDivElement>
+  ) => {
+    if ((event.target as HTMLElement).closest("button")) {
+      return
+    }
+    event.currentTarget.parentElement?.querySelector("input")?.focus()
+  }
+
   return (
     <div
       role="group"
       data-slot="input-group-addon"
       data-align={align}
       className={cn(inputGroupAddonVariants({ align }), className)}
-      onClick={(e) => {
-        if ((e.target as HTMLElement).closest("button")) {
-          return
+      onClick={focusInput}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          focusInput(event)
         }
-        e.currentTarget.parentElement?.querySelector("input")?.focus()
       }}
       {...props}
     />
