@@ -4,15 +4,14 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
-  redirect,
 } from "@tanstack/react-router";
 
 import { Button, EmptyState, ErrorState } from "@product-suite/ui";
 
-import { DEFAULT_WORKSPACE } from "./env";
 import { BoardScreen } from "./shell/BoardScreen";
 import { ShellLayout } from "./shell/ShellLayout";
 import { SignInPage } from "./shell/SignInPage";
+import { WorkspaceHomeRedirect } from "./shell/WorkspaceHomeRedirect";
 
 const rootRoute = createRootRoute({
   component: () => <Outlet />,
@@ -42,12 +41,7 @@ const signInRoute = createRoute({
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
-  beforeLoad: () => {
-    throw redirect({
-      to: "/w/$workspace",
-      params: { workspace: DEFAULT_WORKSPACE },
-    });
-  },
+  component: WorkspaceHomeRedirect,
 });
 
 const workspaceRoute = createRoute({
