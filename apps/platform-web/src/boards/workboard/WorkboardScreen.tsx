@@ -62,7 +62,7 @@ export function WorkboardScreen({
   const [tasks, setTasks] = useState<ReadonlyArray<Task>>([]);
   useEffect(() => {
     let cancelled = false;
-    void repo
+    repo
       .listTasks()
       .then((loaded) => {
         if (!cancelled) setTasks(loaded);

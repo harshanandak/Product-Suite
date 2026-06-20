@@ -15,9 +15,15 @@ import { WorkItemEditor } from "./WorkItemEditor";
 // which jsdom implements — stub them so the listbox can open under test.
 beforeAll(() => {
   globalThis.ResizeObserver ??= class {
-    observe(): void {}
-    unobserve(): void {}
-    disconnect(): void {}
+    observe(): void {
+      /* no-op: jsdom has no ResizeObserver */
+    }
+    unobserve(): void {
+      /* no-op: jsdom has no ResizeObserver */
+    }
+    disconnect(): void {
+      /* no-op: jsdom has no ResizeObserver */
+    }
   };
   const proto = globalThis.Element.prototype as unknown as {
     hasPointerCapture?: () => boolean;

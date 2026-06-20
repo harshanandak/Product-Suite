@@ -145,9 +145,10 @@ function groupByDepartment(rows: WorkItemRow[]): FlatRow[] {
 
 /**
  * Inline phase editor: the shared, fully keyboard-accessible {@link PhaseSelect}
- * (DESIGN §5 — never a bare `<select>`). Stops propagation so editing never
- * triggers row selection. When no mutator is wired, falls back to a read-only
- * `PhasePill`.
+ * (DESIGN §5 — never a bare `<select>`). The row exposes no row-level click
+ * handler (selection flows through the title `<button>` only), so the editor
+ * needs no propagation guard. When no mutator is wired, falls back to a
+ * read-only `PhasePill`.
  */
 function PhaseEditCell({
   row,
@@ -160,15 +161,7 @@ function PhaseEditCell({
     return <PhasePill phase={row.phase} />;
   }
   return (
-    <span
-      className="inline-flex items-center"
-      onClick={(event) => {
-        event.stopPropagation();
-      }}
-      onKeyDown={(event) => {
-        event.stopPropagation();
-      }}
-    >
+    <span className="inline-flex items-center">
       <PhaseSelect
         size="sm"
         value={row.phase}
@@ -302,11 +295,12 @@ export function WorkboardTable({
   const allSelected = items.length > 0 && selection.size === items.length;
   const someSelected = selection.size > 0 && !allSelected;
   /** Tri-state for the select-all header: minus glyph when partial. */
-  const selectAllState: boolean | "indeterminate" = allSelected
-    ? true
-    : someSelected
-      ? "indeterminate"
-      : false;
+  let selectAllState: boolean | "indeterminate" = false;
+  if (allSelected) {
+    selectAllState = true;
+  } else if (someSelected) {
+    selectAllState = "indeterminate";
+  }
 
   const toggleAll = React.useCallback(() => {
     setSelection((current) =>

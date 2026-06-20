@@ -17,11 +17,9 @@ import type { Health, Phase, TaskStatus } from "@product-suite/ui";
  */
 export type { Health, Phase, TaskStatus };
 
-/**
- * ISO-8601 timestamp string (e.g. `2026-06-20T09:30:00.000Z`). Strings keep the
- * model JSON-friendly across the transport seam — no `Date` instances cross it.
- */
-export type IsoTimestamp = string;
+// Timestamp fields below are ISO-8601 strings (e.g. `2026-06-20T09:30:00.000Z`).
+// Plain `string` keeps the model JSON-friendly across the transport seam — no
+// `Date` instances cross it.
 
 /**
  * A project — top of the object ladder (§1). A "category of work as one
@@ -36,8 +34,8 @@ export interface Project {
   name: string;
   /** Project kind drives playbook/department defaults (§1 / §11). */
   kind: string;
-  readonly created_at: IsoTimestamp;
-  readonly updated_at: IsoTimestamp;
+  readonly created_at: string;
+  readonly updated_at: string;
 }
 
 /**
@@ -63,15 +61,15 @@ export interface WorkItem {
   /** Owner of the item, or `null` when routed to a department queue (§1). */
   assignee_id: string | null;
   /** Optional due date; feeds derived health (overdue → at risk/blocked). */
-  due_date: IsoTimestamp | null;
-  readonly created_at: IsoTimestamp;
-  readonly updated_at: IsoTimestamp;
+  due_date: string | null;
+  readonly created_at: string;
+  readonly updated_at: string;
 }
 
 /**
  * A task — the atom (§1, bottom of the object ladder). One action one person
- * takes, with the fixed status triad `todo → in_progress → completed`. Lives
- * under a work item (its `work_item_id`).
+ * takes, with the fixed three-state lifecycle defined by {@link TaskStatus}.
+ * Lives under a work item (its `work_item_id`).
  */
 export interface Task {
   readonly id: string;
@@ -80,9 +78,9 @@ export interface Task {
   /** Task status triad (§1 / §11) — never appears on work items. */
   status: TaskStatus;
   /** Optional due date; an overdue incomplete task raises item health. */
-  due_date: IsoTimestamp | null;
-  readonly created_at: IsoTimestamp;
-  readonly updated_at: IsoTimestamp;
+  due_date: string | null;
+  readonly created_at: string;
+  readonly updated_at: string;
 }
 
 /**
@@ -139,7 +137,7 @@ export function deriveHealth(
   now: number = Date.now(),
 ): Health {
   const isComplete = (status: TaskStatus): boolean => status === "completed";
-  const isOverdue = (due: IsoTimestamp | null): boolean =>
+  const isOverdue = (due: string | null): boolean =>
     due !== null && Date.parse(due) < now;
 
   const incompleteTasks = tasks.filter((task) => !isComplete(task.status));

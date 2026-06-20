@@ -42,27 +42,27 @@ const RAW_PROJECTS: ReadonlyArray<Project> = [
 const RAW_WORK_ITEMS: ReadonlyArray<WorkItem> = [
   // --- Engineering (proj_v2) ---
   // future due, no overdue tasks → on_track
-  workItemOf("wi_auth", "Workspace auth hardening", "execute", "Engineering", "proj_v2", "user_amara", "2026-07-10T00:00:00.000Z", "2026-05-01T09:00:00.000Z", "2026-06-19T09:00:00.000Z"),
+  workItemOf("wi_auth", "Workspace auth hardening", "execute", "Engineering", { projectId: "proj_v2", assigneeId: "user_amara", dueDate: "2026-07-10T00:00:00.000Z", createdAt: "2026-05-01T09:00:00.000Z", updatedAt: "2026-06-19T09:00:00.000Z" }),
   // item overdue + open task → blocked
-  workItemOf("wi_realtime", "Realtime transport seam", "plan", "Engineering", "proj_v2", "user_dev", "2026-06-12T00:00:00.000Z", "2026-04-20T09:00:00.000Z", "2026-06-16T09:00:00.000Z"),
+  workItemOf("wi_realtime", "Realtime transport seam", "plan", "Engineering", { projectId: "proj_v2", assigneeId: "user_dev", dueDate: "2026-06-12T00:00:00.000Z", createdAt: "2026-04-20T09:00:00.000Z", updatedAt: "2026-06-16T09:00:00.000Z" }),
   // future due, but one task overdue+open → at_risk
-  workItemOf("wi_migration", "Neon migration runner", "review", "Engineering", "proj_v2", "user_amara", "2026-06-30T00:00:00.000Z", "2026-05-05T09:00:00.000Z", "2026-06-19T09:00:00.000Z"),
+  workItemOf("wi_migration", "Neon migration runner", "review", "Engineering", { projectId: "proj_v2", assigneeId: "user_amara", dueDate: "2026-06-30T00:00:00.000Z", createdAt: "2026-05-05T09:00:00.000Z", updatedAt: "2026-06-19T09:00:00.000Z" }),
   // overdue, but phase done + all tasks complete → on_track
-  workItemOf("wi_tabletoken", "Design token audit", "done", "Engineering", "proj_v2", "user_dev", "2026-06-01T00:00:00.000Z", "2026-04-15T09:00:00.000Z", "2026-06-02T09:00:00.000Z"),
+  workItemOf("wi_tabletoken", "Design token audit", "done", "Engineering", { projectId: "proj_v2", assigneeId: "user_dev", dueDate: "2026-06-01T00:00:00.000Z", createdAt: "2026-04-15T09:00:00.000Z", updatedAt: "2026-06-02T09:00:00.000Z" }),
   // --- Marketing (proj_diwali) ---
   // item overdue + open task → blocked
-  workItemOf("wi_creatives", "Diwali creative set", "execute", "Marketing", "proj_diwali", "user_priya", "2026-06-15T00:00:00.000Z", "2026-05-12T09:00:00.000Z", "2026-06-18T09:00:00.000Z"),
+  workItemOf("wi_creatives", "Diwali creative set", "execute", "Marketing", { projectId: "proj_diwali", assigneeId: "user_priya", dueDate: "2026-06-15T00:00:00.000Z", createdAt: "2026-05-12T09:00:00.000Z", updatedAt: "2026-06-18T09:00:00.000Z" }),
   // null assignee (department queue, §1); future, open tasks not overdue → on_track
-  workItemOf("wi_landing", "Campaign landing page", "plan", "Marketing", "proj_diwali", null, "2026-08-01T00:00:00.000Z", "2026-06-01T09:00:00.000Z", "2026-06-17T09:00:00.000Z"),
+  workItemOf("wi_landing", "Campaign landing page", "plan", "Marketing", { projectId: "proj_diwali", assigneeId: null, dueDate: "2026-08-01T00:00:00.000Z", createdAt: "2026-06-01T09:00:00.000Z", updatedAt: "2026-06-17T09:00:00.000Z" }),
   // item overdue + no tasks → at_risk
-  workItemOf("wi_adspend", "Ad spend forecast", "review", "Marketing", "proj_diwali", "user_priya", "2026-06-10T00:00:00.000Z", "2026-05-20T09:00:00.000Z", "2026-06-16T09:00:00.000Z"),
+  workItemOf("wi_adspend", "Ad spend forecast", "review", "Marketing", { projectId: "proj_diwali", assigneeId: "user_priya", dueDate: "2026-06-10T00:00:00.000Z", createdAt: "2026-05-20T09:00:00.000Z", updatedAt: "2026-06-16T09:00:00.000Z" }),
   // --- Sourcing (no project — loose work items, §1 containment optional) ---
   // future, but one task overdue+open → at_risk
-  workItemOf("wi_supplier", "Q3 supplier shortlist", "execute", "Sourcing", null, "user_kenji", "2026-07-20T00:00:00.000Z", "2026-05-25T09:00:00.000Z", "2026-06-19T09:00:00.000Z"),
+  workItemOf("wi_supplier", "Q3 supplier shortlist", "execute", "Sourcing", { projectId: null, assigneeId: "user_kenji", dueDate: "2026-07-20T00:00:00.000Z", createdAt: "2026-05-25T09:00:00.000Z", updatedAt: "2026-06-19T09:00:00.000Z" }),
   // no due date, all tasks complete → on_track
-  workItemOf("wi_samples", "Sample QC checklist", "done", "Sourcing", null, "user_kenji", null, "2026-04-30T09:00:00.000Z", "2026-06-05T09:00:00.000Z"),
+  workItemOf("wi_samples", "Sample QC checklist", "done", "Sourcing", { projectId: null, assigneeId: "user_kenji", dueDate: null, createdAt: "2026-04-30T09:00:00.000Z", updatedAt: "2026-06-05T09:00:00.000Z" }),
   // item overdue + open task → blocked
-  workItemOf("wi_logistics", "Warehouse intake flow", "plan", "Sourcing", null, null, "2026-06-05T00:00:00.000Z", "2026-05-15T09:00:00.000Z", "2026-06-14T09:00:00.000Z"),
+  workItemOf("wi_logistics", "Warehouse intake flow", "plan", "Sourcing", { projectId: null, assigneeId: null, dueDate: "2026-06-05T00:00:00.000Z", createdAt: "2026-05-15T09:00:00.000Z", updatedAt: "2026-06-14T09:00:00.000Z" }),
 ];
 
 const RAW_TASKS: ReadonlyArray<Task> = [
@@ -103,6 +103,19 @@ const RAW_TASKS: ReadonlyArray<Task> = [
 ];
 
 /**
+ * Optional/contextual fields for {@link workItemOf}. Grouped into one object so
+ * the factory stays at 5 params while every fixture value is still expressible.
+ * Defaults cover the loose-item cases (no project, no assignee, no due date).
+ */
+interface WorkItemOptions {
+  projectId?: string | null;
+  assigneeId?: string | null;
+  dueDate?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/**
  * Build a {@link WorkItem} from its distinguishing fields. Centralizes the record
  * shape so the fixture list stays a flat, low-noise table of values.
  */
@@ -111,12 +124,15 @@ function workItemOf(
   title: string,
   phase: WorkItem["phase"],
   department: string,
-  projectId: string | null,
-  assigneeId: string | null,
-  dueDate: string | null,
-  createdAt: string,
-  updatedAt: string,
+  options: WorkItemOptions = {},
 ): WorkItem {
+  const {
+    projectId = null,
+    assigneeId = null,
+    dueDate = null,
+    createdAt = "2026-05-01T09:00:00.000Z",
+    updatedAt = "2026-06-19T09:00:00.000Z",
+  } = options;
   return {
     id,
     title,

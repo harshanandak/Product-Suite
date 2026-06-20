@@ -55,7 +55,6 @@ export function createMockWorkItemRepository(
   const projects: Project[] = createProjectFixtures();
   const workItems: WorkItem[] = createWorkItemFixtures();
   const tasks: Task[] = createTaskFixtures();
-  const subscribers = new Set<() => void>();
 
   const settle = <T>(value: T): Promise<T> =>
     latencyMs > 0
@@ -97,10 +96,11 @@ export function createMockWorkItemRepository(
       return settle(clone(updated));
     },
 
-    subscribe(onInvalidate: () => void) {
-      subscribers.add(onInvalidate);
+    subscribe() {
+      // No-op until F2's RealtimeTransport drives invalidation (DESIGN §12 seam
+      // 2). The mock never fires on its own; this just satisfies the contract.
       return () => {
-        subscribers.delete(onInvalidate);
+        // Nothing to tear down while invalidation is inert.
       };
     },
   };

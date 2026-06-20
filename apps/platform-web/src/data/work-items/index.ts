@@ -7,7 +7,6 @@
  */
 export type {
   Health,
-  IsoTimestamp,
   Phase,
   Project,
   Task,

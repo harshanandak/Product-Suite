@@ -19,9 +19,15 @@ import { WorkboardScreen } from "./WorkboardScreen";
  * Scoped to this file (the shared test/setup.ts is out of this dir's ownership).
  */
 class ResizeObserverStub {
-  observe(): void {}
-  unobserve(): void {}
-  disconnect(): void {}
+  observe(): void {
+    /* no-op: jsdom has no ResizeObserver */
+  }
+  unobserve(): void {
+    /* no-op: jsdom has no ResizeObserver */
+  }
+  disconnect(): void {
+    /* no-op: jsdom has no ResizeObserver */
+  }
 }
 
 const originalOffsetHeight = Object.getOwnPropertyDescriptor(
