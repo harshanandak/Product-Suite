@@ -1,17 +1,22 @@
-import { useOrganization } from "@clerk/clerk-react";
+import {
+  RedirectToSignIn,
+  SignedIn,
+  SignedOut,
+  useOrganization,
+} from "@clerk/clerk-react";
 import { Navigate } from "@tanstack/react-router";
 
 import { workspaceSlugFromOrg } from "./workspace";
 
 /**
- * Index ("/") redirect: lands the signed-in user in their active workspace.
- * Model A (DESIGN §12: "Clerk orgs → platform workspaces"): the Clerk org IS
- * the workspace, 1:1, so route by the active org's slug rather than a hardcoded
- * default. Wait for Clerk to resolve before deciding — redirecting while the
- * session is still loading would bounce the user to the default and strand them
- * away from their own org.
+ * Resolves the active Clerk org to its workspace and redirects there. Model A
+ * (DESIGN §12: "Clerk orgs → platform workspaces"): the org IS the workspace,
+ * 1:1. Only mounted behind the SignedIn guard (see WorkspaceHomeRedirect) so
+ * useOrganization always has a session — calling it signed-out makes Clerk warn.
+ * Waits for org data to load before deciding; redirecting mid-load would bounce
+ * the user to the default and strand them away from their own org.
  */
-export function WorkspaceHomeRedirect() {
+export function ActiveWorkspaceRedirect() {
   const { organization, isLoaded } = useOrganization();
   if (!isLoaded) {
     return (
@@ -26,5 +31,23 @@ export function WorkspaceHomeRedirect() {
       params={{ workspace: workspaceSlugFromOrg(organization) }}
       replace
     />
+  );
+}
+
+/**
+ * Index ("/") route component. Signed-in users are routed to their active
+ * workspace; signed-out users go to sign-in. The org lookup lives behind the
+ * SignedIn guard so useOrganization is never invoked without a session.
+ */
+export function WorkspaceHomeRedirect() {
+  return (
+    <>
+      <SignedIn>
+        <ActiveWorkspaceRedirect />
+      </SignedIn>
+      <SignedOut>
+        <RedirectToSignIn />
+      </SignedOut>
+    </>
   );
 }
