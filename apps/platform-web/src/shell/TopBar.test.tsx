@@ -4,8 +4,8 @@ import { fireEvent, screen } from "@testing-library/react";
 import { renderWithRouter } from "../test/harness";
 import { TopBar } from "./TopBar";
 
-vi.mock("@clerk/clerk-react", () => ({
-  UserButton: () => null,
+vi.mock("./UserMenu", () => ({
+  UserMenu: () => null,
 }));
 
 describe("TopBar", () => {

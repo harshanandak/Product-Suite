@@ -8,6 +8,7 @@ vi.mock("@clerk/clerk-react", () => ({
   SignedOut: () => null,
   RedirectToSignIn: () => null,
   SignIn: () => <div data-testid="clerk-signin" />,
+  useOrganization: () => ({ organization: null, isLoaded: true }),
 }));
 
 import { router } from "./router";
