@@ -161,7 +161,7 @@ function PhaseEditCell({
   }
   return (
     <span
-      className="inline-flex items-center gap-2"
+      className="inline-flex items-center"
       onClick={(event) => {
         event.stopPropagation();
       }}
@@ -169,7 +169,6 @@ function PhaseEditCell({
         event.stopPropagation();
       }}
     >
-      <PhasePill phase={row.phase} aria-hidden="true" />
       <PhaseSelect
         size="sm"
         value={row.phase}
