@@ -1,11 +1,11 @@
 import { Link } from "@tanstack/react-router";
-import { UserButton } from "@clerk/clerk-react";
 import { Bell, Search, Sparkles } from "lucide-react";
 
 import { Button, ThemeToggle, cn } from "@product-suite/ui";
 
 import { href, resolveScreen, workspaceDisplayName } from "./boards";
 import { toast } from "./toast";
+import { UserMenu } from "./UserMenu";
 
 /**
  * Top bar (DESIGN §2): breadcrumb (workspace / board / screen), global search +
@@ -80,7 +80,7 @@ export function TopBar({
 
       <ThemeToggle />
 
-      <UserButton afterSignOutUrl="/sign-in" />
+      <UserMenu />
     </header>
   );
 }

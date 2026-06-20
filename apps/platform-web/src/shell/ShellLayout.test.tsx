@@ -9,8 +9,9 @@ vi.mock("@clerk/clerk-react", () => ({
   SignedIn: ({ children }: { children: React.ReactNode }) => children,
   SignedOut: () => null,
   RedirectToSignIn: () => null,
-  UserButton: () => null,
 }));
+
+vi.mock("./UserMenu", () => ({ UserMenu: () => null }));
 
 describe("ShellLayout", () => {
   it("composes the signed-in chrome: board dock, board sidebar, and breadcrumb", async () => {
