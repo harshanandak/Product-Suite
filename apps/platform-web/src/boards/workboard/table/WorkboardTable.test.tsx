@@ -104,6 +104,21 @@ async function loadRows(): Promise<WorkItemRow[]> {
   });
 }
 
+/**
+ * A `vi.fn` phase-update mock resolving the optimistically-patched row (the shape
+ * the table expects back). Shared by the inline- and bulk-edit tests.
+ */
+function makeUpdateMock(rows: WorkItemRow[]) {
+  return vi
+    .fn<(id: string, patch: WorkItemPatch) => Promise<WorkItem>>()
+    .mockImplementation((id, patch) =>
+      Promise.resolve({
+        ...(rows.find((r) => r.id === id) as WorkItem),
+        ...patch,
+      }),
+    );
+}
+
 describe("WorkboardTable", () => {
   it("renders a skeleton while loading", () => {
     render(
@@ -212,14 +227,7 @@ describe("WorkboardTable", () => {
 
   it("calls onUpdateItem when the inline phase select changes", async () => {
     const rows = await loadRows();
-    const onUpdateItem = vi
-      .fn<(id: string, patch: WorkItemPatch) => Promise<WorkItem>>()
-      .mockImplementation((id, patch) =>
-        Promise.resolve({
-          ...(rows.find((r) => r.id === id) as WorkItem),
-          ...patch,
-        }),
-      );
+    const onUpdateItem = makeUpdateMock(rows);
 
     render(
       <WorkboardTable
@@ -262,14 +270,7 @@ describe("WorkboardTable", () => {
 
   it("applies a bulk phase change to selected rows", async () => {
     const rows = await loadRows();
-    const onUpdateItem = vi
-      .fn<(id: string, patch: WorkItemPatch) => Promise<WorkItem>>()
-      .mockImplementation((id, patch) =>
-        Promise.resolve({
-          ...(rows.find((r) => r.id === id) as WorkItem),
-          ...patch,
-        }),
-      );
+    const onUpdateItem = makeUpdateMock(rows);
 
     render(
       <WorkboardTable

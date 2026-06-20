@@ -11,11 +11,13 @@ import type { Project, Task, WorkItem } from "./types";
  * Timestamps are fixed ISO strings (not `Date.now()`), so fixtures are stable;
  * `due_date`s straddle a reference "now" of 2026-06-20 so that
  * {@link deriveHealth} produces a deliberate spread of on_track / at_risk /
- * blocked when evaluated around that date.
+ * blocked when evaluated around that date. The per-item health outcome is noted
+ * inline; the authoritative assertions live in the deriveHealth tests.
  *
  * `WORK_ITEMS`, `TASKS`, and `PROJECTS` are exported deep-clone factories so the
  * mock repository can mutate freely without poisoning the source fixtures
- * (important for test isolation).
+ * (important for test isolation). Rows are built through the `workItemOf` /
+ * `taskOf` factories so the repeated record shape lives in one place.
  */
 
 const T = (iso: string): string => iso;
@@ -39,118 +41,28 @@ const RAW_PROJECTS: ReadonlyArray<Project> = [
 
 const RAW_WORK_ITEMS: ReadonlyArray<WorkItem> = [
   // --- Engineering (proj_v2) ---
-  {
-    id: "wi_auth",
-    title: "Workspace auth hardening",
-    phase: "execute",
-    project_id: "proj_v2",
-    department: "Engineering",
-    assignee_id: "user_amara",
-    due_date: T("2026-07-10T00:00:00.000Z"), // future → not overdue
-    created_at: T("2026-05-01T09:00:00.000Z"),
-    updated_at: T("2026-06-19T09:00:00.000Z"),
-  },
-  {
-    id: "wi_realtime",
-    title: "Realtime transport seam",
-    phase: "plan",
-    project_id: "proj_v2",
-    department: "Engineering",
-    assignee_id: "user_dev",
-    due_date: T("2026-06-12T00:00:00.000Z"), // past + open task → blocked
-    created_at: T("2026-04-20T09:00:00.000Z"),
-    updated_at: T("2026-06-16T09:00:00.000Z"),
-  },
-  {
-    id: "wi_migration",
-    title: "Neon migration runner",
-    phase: "review",
-    project_id: "proj_v2",
-    department: "Engineering",
-    assignee_id: "user_amara",
-    due_date: T("2026-06-30T00:00:00.000Z"), // future, but has an overdue task → at_risk
-    created_at: T("2026-05-05T09:00:00.000Z"),
-    updated_at: T("2026-06-19T09:00:00.000Z"),
-  },
-  {
-    id: "wi_tabletoken",
-    title: "Design token audit",
-    phase: "done",
-    project_id: "proj_v2",
-    department: "Engineering",
-    assignee_id: "user_dev",
-    due_date: T("2026-06-01T00:00:00.000Z"), // past, but phase done + all tasks complete → on_track
-    created_at: T("2026-04-15T09:00:00.000Z"),
-    updated_at: T("2026-06-02T09:00:00.000Z"),
-  },
+  // future due, no overdue tasks → on_track
+  workItemOf("wi_auth", "Workspace auth hardening", "execute", "Engineering", "proj_v2", "user_amara", "2026-07-10T00:00:00.000Z", "2026-05-01T09:00:00.000Z", "2026-06-19T09:00:00.000Z"),
+  // item overdue + open task → blocked
+  workItemOf("wi_realtime", "Realtime transport seam", "plan", "Engineering", "proj_v2", "user_dev", "2026-06-12T00:00:00.000Z", "2026-04-20T09:00:00.000Z", "2026-06-16T09:00:00.000Z"),
+  // future due, but one task overdue+open → at_risk
+  workItemOf("wi_migration", "Neon migration runner", "review", "Engineering", "proj_v2", "user_amara", "2026-06-30T00:00:00.000Z", "2026-05-05T09:00:00.000Z", "2026-06-19T09:00:00.000Z"),
+  // overdue, but phase done + all tasks complete → on_track
+  workItemOf("wi_tabletoken", "Design token audit", "done", "Engineering", "proj_v2", "user_dev", "2026-06-01T00:00:00.000Z", "2026-04-15T09:00:00.000Z", "2026-06-02T09:00:00.000Z"),
   // --- Marketing (proj_diwali) ---
-  {
-    id: "wi_creatives",
-    title: "Diwali creative set",
-    phase: "execute",
-    project_id: "proj_diwali",
-    department: "Marketing",
-    assignee_id: "user_priya",
-    due_date: T("2026-06-15T00:00:00.000Z"), // past + open task → blocked
-    created_at: T("2026-05-12T09:00:00.000Z"),
-    updated_at: T("2026-06-18T09:00:00.000Z"),
-  },
-  {
-    id: "wi_landing",
-    title: "Campaign landing page",
-    phase: "plan",
-    project_id: "proj_diwali",
-    department: "Marketing",
-    assignee_id: null, // routed to department queue (§1)
-    due_date: T("2026-08-01T00:00:00.000Z"), // future, open tasks not overdue → on_track
-    created_at: T("2026-06-01T09:00:00.000Z"),
-    updated_at: T("2026-06-17T09:00:00.000Z"),
-  },
-  {
-    id: "wi_adspend",
-    title: "Ad spend forecast",
-    phase: "review",
-    project_id: "proj_diwali",
-    department: "Marketing",
-    assignee_id: "user_priya",
-    due_date: T("2026-06-10T00:00:00.000Z"), // past + no tasks → at_risk
-    created_at: T("2026-05-20T09:00:00.000Z"),
-    updated_at: T("2026-06-16T09:00:00.000Z"),
-  },
+  // item overdue + open task → blocked
+  workItemOf("wi_creatives", "Diwali creative set", "execute", "Marketing", "proj_diwali", "user_priya", "2026-06-15T00:00:00.000Z", "2026-05-12T09:00:00.000Z", "2026-06-18T09:00:00.000Z"),
+  // null assignee (department queue, §1); future, open tasks not overdue → on_track
+  workItemOf("wi_landing", "Campaign landing page", "plan", "Marketing", "proj_diwali", null, "2026-08-01T00:00:00.000Z", "2026-06-01T09:00:00.000Z", "2026-06-17T09:00:00.000Z"),
+  // item overdue + no tasks → at_risk
+  workItemOf("wi_adspend", "Ad spend forecast", "review", "Marketing", "proj_diwali", "user_priya", "2026-06-10T00:00:00.000Z", "2026-05-20T09:00:00.000Z", "2026-06-16T09:00:00.000Z"),
   // --- Sourcing (no project — loose work items, §1 containment optional) ---
-  {
-    id: "wi_supplier",
-    title: "Q3 supplier shortlist",
-    phase: "execute",
-    project_id: null,
-    department: "Sourcing",
-    assignee_id: "user_kenji",
-    due_date: T("2026-07-20T00:00:00.000Z"), // future, has overdue task → at_risk
-    created_at: T("2026-05-25T09:00:00.000Z"),
-    updated_at: T("2026-06-19T09:00:00.000Z"),
-  },
-  {
-    id: "wi_samples",
-    title: "Sample QC checklist",
-    phase: "done",
-    project_id: null,
-    department: "Sourcing",
-    assignee_id: "user_kenji",
-    due_date: null, // no due date, all tasks complete → on_track
-    created_at: T("2026-04-30T09:00:00.000Z"),
-    updated_at: T("2026-06-05T09:00:00.000Z"),
-  },
-  {
-    id: "wi_logistics",
-    title: "Warehouse intake flow",
-    phase: "plan",
-    project_id: null,
-    department: "Sourcing",
-    assignee_id: null,
-    due_date: T("2026-06-05T00:00:00.000Z"), // past + open task → blocked
-    created_at: T("2026-05-15T09:00:00.000Z"),
-    updated_at: T("2026-06-14T09:00:00.000Z"),
-  },
+  // future, but one task overdue+open → at_risk
+  workItemOf("wi_supplier", "Q3 supplier shortlist", "execute", "Sourcing", null, "user_kenji", "2026-07-20T00:00:00.000Z", "2026-05-25T09:00:00.000Z", "2026-06-19T09:00:00.000Z"),
+  // no due date, all tasks complete → on_track
+  workItemOf("wi_samples", "Sample QC checklist", "done", "Sourcing", null, "user_kenji", null, "2026-04-30T09:00:00.000Z", "2026-06-05T09:00:00.000Z"),
+  // item overdue + open task → blocked
+  workItemOf("wi_logistics", "Warehouse intake flow", "plan", "Sourcing", null, null, "2026-06-05T00:00:00.000Z", "2026-05-15T09:00:00.000Z", "2026-06-14T09:00:00.000Z"),
 ];
 
 const RAW_TASKS: ReadonlyArray<Task> = [
@@ -189,6 +101,34 @@ const RAW_TASKS: ReadonlyArray<Task> = [
   // wi_logistics — plan, item overdue + open task → blocked
   taskOf("t_log_1", "wi_logistics", "Map intake stations", "in_progress", null),
 ];
+
+/**
+ * Build a {@link WorkItem} from its distinguishing fields. Centralizes the record
+ * shape so the fixture list stays a flat, low-noise table of values.
+ */
+function workItemOf(
+  id: string,
+  title: string,
+  phase: WorkItem["phase"],
+  department: string,
+  projectId: string | null,
+  assigneeId: string | null,
+  dueDate: string | null,
+  createdAt: string,
+  updatedAt: string,
+): WorkItem {
+  return {
+    id,
+    title,
+    phase,
+    project_id: projectId,
+    department,
+    assignee_id: assigneeId,
+    due_date: dueDate === null ? null : T(dueDate),
+    created_at: T(createdAt),
+    updated_at: T(updatedAt),
+  };
+}
 
 function taskOf(
   id: string,
