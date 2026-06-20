@@ -16,7 +16,7 @@ export function ChatMessageList({
   title = "Discussion Chat",
   emptyLabel = "No messages yet.",
   className = "",
-}: ChatMessageListProps) {
+}: Readonly<ChatMessageListProps>) {
   const hasMessages = messages.length > 0;
 
   return (

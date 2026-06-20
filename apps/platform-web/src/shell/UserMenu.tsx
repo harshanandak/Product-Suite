@@ -62,7 +62,11 @@ export function UserMenu() {
           ) : null}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => void signOut({ redirectUrl: "/sign-in" })}>
+        <DropdownMenuItem
+          onSelect={() => {
+            signOut({ redirectUrl: "/sign-in" }).catch(() => {});
+          }}
+        >
           <LogOut className="size-4" />
           Sign out
         </DropdownMenuItem>

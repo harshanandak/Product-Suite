@@ -20,7 +20,7 @@ export function ChatThreadList({
   emptyLabel = "No chat threads yet.",
   className = "",
   formatDate = formatChatTimestamp,
-}: ChatThreadListProps) {
+}: Readonly<ChatThreadListProps>) {
   const sortedThreads = sortChatThreadsByUpdatedAt(threads);
   const canSelectThread = typeof onSelectThread === "function";
 
