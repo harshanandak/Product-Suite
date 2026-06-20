@@ -102,6 +102,16 @@ export function createChatRecordId(now: () => number = Date.now): string {
   return `${timestamp}-${sequence}`;
 }
 
+/**
+ * Test-only: reset the module-level monotonic-id state so id-generation tests
+ * are order-independent. Not re-exported from the package root (see index.ts),
+ * so it is not part of the public API.
+ */
+export function __resetChatRecordIdStateForTests(): void {
+  lastTimestamp = -1;
+  sequence = 0;
+}
+
 export function formatChatTimestamp(
   timestamp?: string | number | null,
 ): string {

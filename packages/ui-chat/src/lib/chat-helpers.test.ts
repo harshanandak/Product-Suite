@@ -1,6 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
+  __resetChatRecordIdStateForTests,
   createChatRecordId,
   formatChatTimestamp,
   getChatMessageText,
@@ -8,6 +9,13 @@ import {
 } from "./chat-helpers";
 
 describe("chat-helpers", () => {
+  // createChatRecordId carries module-level monotonic state; reset before each
+  // test so the id cases are order-independent (no cross-test pollution — the
+  // rollback case below genuinely exercises 1000 -> 1001 -> 1000 from a clean
+  // clock, not a value clamped by a prior test).
+  beforeEach(() => {
+    __resetChatRecordIdStateForTests();
+  });
   test("getChatMessageText prefers content, falls back to text parts, else empty", () => {
     expect(
       getChatMessageText({ content: "primary", parts: [{ text: "fallback" }] }),
