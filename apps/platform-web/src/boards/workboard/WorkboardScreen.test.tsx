@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { createMockWorkItemRepository } from "@/data/work-items";
@@ -49,6 +49,11 @@ beforeAll(() => {
     configurable: true,
     get: () => 800,
   });
+  // Radix Select (toolbar facet/bulk dropdowns) needs pointer/scroll APIs jsdom omits.
+  Element.prototype.hasPointerCapture ??= () => false;
+  Element.prototype.setPointerCapture ??= () => {};
+  Element.prototype.releasePointerCapture ??= () => {};
+  Element.prototype.scrollIntoView ??= () => {};
 });
 
 afterAll(() => {
@@ -68,7 +73,28 @@ afterAll(() => {
   }
 });
 
+/** A Radix Select trigger → option click (the listbox is portalled). */
+function selectOption(combobox: HTMLElement, optionName: string | RegExp): void {
+  fireEvent.keyDown(combobox, { key: "Enter" });
+  const option = screen.getByRole("option", { name: optionName });
+  fireEvent.click(option);
+}
+
 describe("WorkboardScreen", () => {
+  it("renders the toolbar and the table together", async () => {
+    render(<WorkboardScreen repository={createMockWorkItemRepository()} />);
+
+    expect(
+      await screen.findByRole("toolbar", { name: "Workboard controls" }),
+    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+    expect(
+      screen.getByRole("table", { name: "Work items" }),
+    ).toBeInTheDocument();
+  });
+
   it("shows the table with items and opens the editor when a row is selected", async () => {
     const repository = createMockWorkItemRepository();
     render(<WorkboardScreen repository={repository} />);
@@ -95,6 +121,73 @@ describe("WorkboardScreen", () => {
     expect(screen.getByText("Token verifier interface")).toBeInTheDocument();
   });
 
+  it("narrows the rendered rows when the toolbar search changes", async () => {
+    render(<WorkboardScreen repository={createMockWorkItemRepository()} />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(1);
+    });
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search work items" }), {
+      target: { value: "Workspace auth hardening" },
+    });
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row")).toHaveLength(1);
+    });
+    expect(
+      screen.getByRole("button", { name: "Workspace auth hardening" }),
+    ).toBeInTheDocument();
+  });
+
+  it("bulk-applies a patch to the selected rows then clears the selection", async () => {
+    const repository = createMockWorkItemRepository();
+    render(<WorkboardScreen repository={repository} />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+
+    // Select one row, which reveals the toolbar's bulk-action cluster.
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Select Workspace auth hardening" }),
+    );
+    const bulkGroup = await screen.findByRole("group", { name: "Bulk actions" });
+    expect(within(bulkGroup).getByText("1 selected")).toBeInTheDocument();
+
+    // Apply a bulk phase; the change persists to the store…
+    selectOption(within(bulkGroup).getByRole("combobox", { name: "Set phase" }), "Done");
+
+    await waitFor(async () => {
+      const persisted = (await repository.list()).find(
+        (item) => item.id === "wi_auth",
+      );
+      expect(persisted?.phase).toBe("done");
+    });
+
+    // …and the selection clears (the bulk cluster disappears).
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("group", { name: "Bulk actions" }),
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  it("creates a work item from the New button and opens the editor on it", async () => {
+    render(<WorkboardScreen repository={createMockWorkItemRepository()} />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /new work item/i }));
+
+    // The editor opens, seeded from the freshly-created default item.
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toBeInTheDocument();
+    expect(screen.getByLabelText("Title")).toHaveValue("Untitled work item");
+  });
+
   it("renders the empty state when the repository has no work items", async () => {
     const repository = createMockWorkItemRepository();
     // Drain the fixture store so the loaded list is empty.
@@ -107,5 +200,29 @@ describe("WorkboardScreen", () => {
 
     expect(await screen.findByText("No work items yet")).toBeInTheDocument();
     expect(screen.queryByTestId("work-item-row")).not.toBeInTheDocument();
+  });
+
+  it("shows a clearable no-match state when filters hide every row", async () => {
+    render(<WorkboardScreen repository={createMockWorkItemRepository()} />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+
+    // A search that matches nothing hides every row.
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search work items" }), {
+      target: { value: "zzz-no-such-item" },
+    });
+
+    expect(await screen.findByText("No matching work items")).toBeInTheDocument();
+    expect(screen.queryByTestId("work-item-row")).not.toBeInTheDocument();
+
+    // Clearing filters (search included) restores the rows.
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+    expect(screen.queryByText("No matching work items")).not.toBeInTheDocument();
   });
 });

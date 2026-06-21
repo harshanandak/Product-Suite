@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createOwnerFixtures,
   createProjectFixtures,
   createTaskFixtures,
   createWorkItemFixtures,
@@ -56,10 +57,79 @@ describe("work-item fixtures", () => {
     expect(healthValues).toEqual(new Set(["on_track", "at_risk", "blocked"]));
   });
 
+  it("populates varied type / priority / source across items", () => {
+    const items = createWorkItemFixtures();
+
+    const types = new Set(items.map((item) => item.type));
+    const priorities = new Set(items.map((item) => item.priority));
+    const sources = new Set(items.map((item) => item.source));
+
+    // Several distinct values of each so columns/filters have real spread.
+    expect(types.size).toBeGreaterThanOrEqual(3);
+    expect(priorities.size).toBeGreaterThanOrEqual(3);
+    expect(sources.size).toBeGreaterThanOrEqual(3);
+
+    // Every value is a valid member of its enum.
+    expect(
+      items.every((item) =>
+        ["feature", "bug", "chore", "research"].includes(item.type),
+      ),
+    ).toBe(true);
+    expect(
+      items.every((item) =>
+        ["critical", "high", "medium", "low"].includes(item.priority),
+      ),
+    ).toBe(true);
+    expect(
+      items.every((item) =>
+        ["manual", "meeting", "agent", "feedback"].includes(item.source),
+      ),
+    ).toBe(true);
+  });
+
+  it("gives every item a tags array (some non-empty, never null)", () => {
+    const items = createWorkItemFixtures();
+    expect(items.every((item) => Array.isArray(item.tags))).toBe(true);
+    expect(items.some((item) => item.tags.length > 0)).toBe(true);
+  });
+
+  it("includes a couple of unassigned (department-queue) items", () => {
+    const items = createWorkItemFixtures();
+    const unassigned = items.filter((item) => item.assignee_id === null);
+    expect(unassigned.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("provides owners whose ids resolve every assigned item", () => {
+    const owners = createOwnerFixtures();
+    expect(owners.length).toBeGreaterThan(0);
+
+    const ownerIds = new Set(owners.map((owner) => owner.id));
+    const assignedIds = createWorkItemFixtures()
+      .map((item) => item.assignee_id)
+      .filter((id): id is string => id !== null);
+
+    // Every non-null assignee_id has a matching owner (lookup never misses).
+    expect(assignedIds.every((id) => ownerIds.has(id))).toBe(true);
+  });
+
+  it("returns isolated owner copies so callers cannot mutate the source", () => {
+    const first = createOwnerFixtures();
+    first[0].name = "mutated";
+    const second = createOwnerFixtures();
+    expect(second[0].name).not.toBe("mutated");
+  });
+
   it("returns isolated copies so callers cannot mutate the source", () => {
     const first = createWorkItemFixtures();
     first[0].title = "mutated";
     const second = createWorkItemFixtures();
     expect(second[0].title).not.toBe("mutated");
+  });
+
+  it("isolates the tags array per call (push must not poison the source)", () => {
+    const first = createWorkItemFixtures();
+    first[0].tags.push("__poison__");
+    const second = createWorkItemFixtures();
+    expect(second[0].tags).not.toContain("__poison__");
   });
 });

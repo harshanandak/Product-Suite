@@ -2,13 +2,19 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
+  COLUMN_IDS,
+  type ColumnId,
+} from "@/boards/workboard/filter-state";
+import {
   createMockWorkItemRepository,
+  createOwnerFixtures,
+  type Owner,
   type WorkItem,
   type WorkItemPatch,
   type WorkItemRow,
 } from "@/data/work-items";
 
-import { WorkboardTable } from "./WorkboardTable";
+import { WorkboardTable, type WorkItemTableProps } from "./WorkboardTable";
 
 /**
  * jsdom has no layout engine, so @tanstack/react-virtual sees a zero-height
@@ -17,10 +23,10 @@ import { WorkboardTable } from "./WorkboardTable";
  * `getBoundingClientRect` — and `ResizeObserver` is undefined. We stub both so
  * the virtualizer believes it has a 600px viewport.
  *
- * Radix Select (which backs the shared `PhaseSelect`) additionally needs the
- * Pointer-Capture and `scrollIntoView` APIs that jsdom omits; without these the
- * listbox never opens. Both groups of shims are scoped to this file (the shared
- * test/setup.ts is out of this dir's ownership).
+ * Radix Select (which backs the shared `*Select` / `AssigneePicker` controls)
+ * additionally needs the Pointer-Capture and `scrollIntoView` APIs that jsdom
+ * omits; without these the listbox never opens. Both groups of shims are scoped
+ * to this file (the shared test/setup.ts is out of this dir's ownership).
  */
 class ResizeObserverStub {
   observe(): void {
@@ -83,7 +89,7 @@ afterAll(() => {
  * Mirrors a real keyboard-then-pointer interaction; the listbox is portalled, so
  * we query the option from the document, not from within the trigger.
  */
-function selectPhaseOption(combobox: HTMLElement, optionName: string): void {
+function selectOption(combobox: HTMLElement, optionName: string | RegExp): void {
   fireEvent.keyDown(combobox, { key: "Enter" });
   const option = screen.getByRole("option", { name: optionName });
   fireEvent.click(option);
@@ -111,8 +117,8 @@ async function loadRows(): Promise<WorkItemRow[]> {
 }
 
 /**
- * A `vi.fn` phase-update mock resolving the optimistically-patched row (the shape
- * the table expects back). Shared by the inline- and bulk-edit tests.
+ * A `vi.fn` patch mock resolving the optimistically-patched row (the shape the
+ * table expects back). Shared by the inline- and bulk-edit tests.
  */
 function makeUpdateMock(rows: WorkItemRow[]) {
   return vi
@@ -125,16 +131,30 @@ function makeUpdateMock(rows: WorkItemRow[]) {
     );
 }
 
+/**
+ * Render the table with sane defaults for every REQUIRED prop, overridable per
+ * test. `rows` / `owners` default to empty/fixtures; `selection` is empty; the
+ * callbacks are spies. Pass `onUpdateItem` explicitly to exercise edit mode.
+ */
+function renderTable(overrides: Partial<WorkItemTableProps> = {}) {
+  const props: WorkItemTableProps = {
+    rows: [],
+    owners: createOwnerFixtures(),
+    loading: false,
+    error: null,
+    groupBy: "department",
+    visibleColumns: new Set<ColumnId>(COLUMN_IDS),
+    selection: new Set<string>(),
+    onSelectionChange: vi.fn(),
+    onSelectItem: vi.fn(),
+    ...overrides,
+  };
+  return { props, ...render(<WorkboardTable {...props} />) };
+}
+
 describe("WorkboardTable", () => {
   it("renders a skeleton while loading", () => {
-    render(
-      <WorkboardTable
-        items={[]}
-        loading
-        error={null}
-        onSelectItem={vi.fn()}
-      />,
-    );
+    renderTable({ loading: true });
     const skeleton = screen.getByTestId("workboard-table-skeleton");
     expect(skeleton).toBeInTheDocument();
     // a11y: the load is announced as a busy status region.
@@ -144,81 +164,90 @@ describe("WorkboardTable", () => {
 
   it("renders an error state with a retry path", () => {
     const onRetry = vi.fn();
-    render(
-      <WorkboardTable
-        items={[]}
-        loading={false}
-        error={new Error("boom")}
-        onRetry={onRetry}
-        onSelectItem={vi.fn()}
-      />,
-    );
+    renderTable({ error: new Error("boom"), onRetry });
     fireEvent.click(screen.getByRole("button", { name: /retry/i }));
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
   it("exposes explicit table roles for assistive tech", async () => {
     const rows = await loadRows();
-    render(
-      <WorkboardTable
-        items={rows}
-        loading={false}
-        error={null}
-        onSelectItem={vi.fn()}
-      />,
-    );
+    renderTable({ rows });
 
     await waitFor(() => {
       expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
     });
 
     const table = screen.getByRole("table", { name: "Work items" });
-    expect(table).toHaveAttribute("aria-colcount", "5");
-    // Column headers are announced (one per declared column).
-    expect(screen.getAllByRole("columnheader").length).toBe(5);
+    // Selection column + all 8 data columns.
+    expect(table).toHaveAttribute("aria-colcount", String(1 + COLUMN_IDS.length));
+    // One columnheader per visible data column plus the leading selection header.
+    expect(screen.getAllByRole("columnheader").length).toBe(1 + COLUMN_IDS.length);
     // Every row carries an explicit role despite the flex/absolute overrides.
     expect(screen.getAllByRole("row").length).toBeGreaterThan(0);
   });
 
-  it("renders rows with phase pills and department swimlanes", async () => {
+  it("renders every wireframe column header in canonical order", async () => {
     const rows = await loadRows();
-    render(
-      <WorkboardTable
-        items={rows}
-        loading={false}
-        error={null}
-        onSelectItem={vi.fn()}
-      />,
-    );
+    renderTable({ rows });
 
     await waitFor(() => {
       expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
     });
 
-    // Department swimlane headers render (group-by-department).
-    expect(screen.getAllByTestId("department-group").length).toBeGreaterThan(0);
+    const headers = screen
+      .getAllByRole("columnheader")
+      .map((h) => h.textContent?.trim());
+    expect(headers).toEqual([
+      "", // leading selection checkbox column has no text header
+      "Name",
+      "Type",
+      "Phase",
+      "Priority",
+      "Owner",
+      "Due",
+      "Tags",
+      "Source",
+    ]);
+  });
+
+  it("renders rows with phase pills and department swimlanes", async () => {
+    const rows = await loadRows();
+    renderTable({ rows });
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+
+    // Swimlane group headers render (group-by-department by default).
+    expect(screen.getAllByTestId("swimlane-group").length).toBeGreaterThan(0);
 
     // A known fixture title is shown.
     expect(
       screen.getByRole("button", { name: "Workspace auth hardening" }),
     ).toBeInTheDocument();
 
-    // PhasePill renders for displayed items (data-phase attribute from the pill).
-    const pills = document.querySelectorAll("[data-phase]");
-    expect(pills.length).toBeGreaterThan(0);
+    // Read-only phase still renders as a pill (data-phase attribute from it).
+    expect(document.querySelectorAll("[data-phase]").length).toBeGreaterThan(0);
+  });
+
+  it("renders read-only Due and Source cells", async () => {
+    const rows = await loadRows();
+    renderTable({ rows });
+
+    const row = await within(
+      (await screen.findAllByTestId("work-item-row"))[0],
+    );
+    // Source renders a ProvenanceChip carrying a data-source attribute.
+    expect(document.querySelectorAll("[data-source]").length).toBeGreaterThan(0);
+    // wi_auth's due_date 2026-07-10 surfaces as the sliced ISO date somewhere.
+    expect(screen.getByText("2026-07-10")).toBeInTheDocument();
+    expect(row).toBeTruthy();
   });
 
   it("fires onSelectItem when a row title is clicked", async () => {
     const rows = await loadRows();
     const onSelectItem = vi.fn();
-    render(
-      <WorkboardTable
-        items={rows}
-        loading={false}
-        error={null}
-        onSelectItem={onSelectItem}
-      />,
-    );
+    renderTable({ rows, onSelectItem });
 
     const titleButton = await screen.findByRole("button", {
       name: "Workspace auth hardening",
@@ -226,131 +255,219 @@ describe("WorkboardTable", () => {
     fireEvent.click(titleButton);
 
     expect(onSelectItem).toHaveBeenCalledTimes(1);
-    expect(onSelectItem.mock.calls[0][0]).toMatchObject({
-      id: "wi_auth",
-    });
+    expect(onSelectItem.mock.calls[0][0]).toMatchObject({ id: "wi_auth" });
   });
 
   it("calls onUpdateItem when the inline phase select changes", async () => {
     const rows = await loadRows();
     const onUpdateItem = makeUpdateMock(rows);
-
-    render(
-      <WorkboardTable
-        items={rows}
-        loading={false}
-        error={null}
-        onSelectItem={vi.fn()}
-        onUpdateItem={onUpdateItem}
-      />,
-    );
+    renderTable({ rows, onUpdateItem });
 
     const combobox = await screen.findByRole("combobox", {
       name: "Phase for Workspace auth hardening",
     });
-    selectPhaseOption(combobox, "Done");
+    selectOption(combobox, "Done");
 
     expect(onUpdateItem).toHaveBeenCalledWith("wi_auth", { phase: "done" });
+  });
+
+  it("calls onUpdateItem when the inline type select changes", async () => {
+    const rows = await loadRows();
+    const onUpdateItem = makeUpdateMock(rows);
+    renderTable({ rows, onUpdateItem });
+
+    const combobox = await screen.findByRole("combobox", {
+      name: "Type for Workspace auth hardening",
+    });
+    selectOption(combobox, "Bug");
+
+    expect(onUpdateItem).toHaveBeenCalledWith("wi_auth", { type: "bug" });
+  });
+
+  it("calls onUpdateItem when the inline priority select changes", async () => {
+    const rows = await loadRows();
+    const onUpdateItem = makeUpdateMock(rows);
+    renderTable({ rows, onUpdateItem });
+
+    const combobox = await screen.findByRole("combobox", {
+      name: "Priority for Workspace auth hardening",
+    });
+    selectOption(combobox, "Critical");
+
+    expect(onUpdateItem).toHaveBeenCalledWith("wi_auth", { priority: "critical" });
+  });
+
+  it("calls onUpdateItem when the inline owner picker changes", async () => {
+    const rows = await loadRows();
+    const onUpdateItem = makeUpdateMock(rows);
+    renderTable({ rows, onUpdateItem });
+
+    const combobox = await screen.findByRole("combobox", {
+      name: "Owner for Workspace auth hardening",
+    });
+    // wi_auth is owned by Amara; reassign to a different owner. The option's
+    // accessible name includes the avatar-fallback initials ("DP") alongside the
+    // display name, so match the name as a substring.
+    selectOption(combobox, /Dev Patel/);
+
+    expect(onUpdateItem).toHaveBeenCalledWith("wi_auth", {
+      assignee_id: "user_dev",
+    });
+  });
+
+  it("calls onUpdateItem when a tag is added inline", async () => {
+    const rows = await loadRows();
+    const onUpdateItem = makeUpdateMock(rows);
+    renderTable({ rows, onUpdateItem });
+
+    const tagInput = await screen.findByRole("textbox", {
+      name: "Tags for Workspace auth hardening",
+    });
+    fireEvent.change(tagInput, { target: { value: "urgent" } });
+    fireEvent.keyDown(tagInput, { key: "Enter" });
+
+    // wi_auth seeds ["security", "backend"]; the add appends "urgent".
+    expect(onUpdateItem).toHaveBeenCalledWith("wi_auth", {
+      tags: ["security", "backend", "urgent"],
+    });
   });
 
   it("does not fire onSelectItem when the inline phase select changes", async () => {
     const rows = await loadRows();
     const onSelectItem = vi.fn();
-    render(
-      <WorkboardTable
-        items={rows}
-        loading={false}
-        error={null}
-        onSelectItem={onSelectItem}
-        onUpdateItem={vi.fn().mockResolvedValue(rows[0])}
-      />,
-    );
+    renderTable({
+      rows,
+      onSelectItem,
+      onUpdateItem: vi.fn().mockResolvedValue(rows[0]),
+    });
 
     const combobox = await screen.findByRole("combobox", {
       name: "Phase for Workspace auth hardening",
     });
-    selectPhaseOption(combobox, "Review");
+    selectOption(combobox, "Review");
 
     expect(onSelectItem).not.toHaveBeenCalled();
   });
 
-  it("applies a bulk phase change to selected rows", async () => {
+  it("toggles a row's selection through the controlled callback", async () => {
     const rows = await loadRows();
-    const onUpdateItem = makeUpdateMock(rows);
-
-    render(
-      <WorkboardTable
-        items={rows}
-        loading={false}
-        error={null}
-        onSelectItem={vi.fn()}
-        onUpdateItem={onUpdateItem}
-      />,
-    );
+    const onSelectionChange = vi.fn();
+    renderTable({ rows, onSelectionChange });
 
     await screen.findAllByTestId("work-item-row");
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Select Workspace auth hardening" }),
+    );
 
-    // Select one row via the new Checkbox primitive.
-    const rowCheckbox = screen.getByRole("checkbox", {
-      name: "Select Workspace auth hardening",
-    });
-    fireEvent.click(rowCheckbox);
-
-    // Choose a bulk phase and apply.
-    const bulkCombobox = screen.getByRole("combobox", { name: "Bulk phase" });
-    selectPhaseOption(bulkCombobox, "Review");
-    fireEvent.click(screen.getByRole("button", { name: /apply phase/i }));
-
-    await waitFor(() => {
-      expect(onUpdateItem).toHaveBeenCalledWith("wi_auth", { phase: "review" });
-    });
+    expect(onSelectionChange).toHaveBeenCalledTimes(1);
+    expect([...onSelectionChange.mock.calls[0][0]]).toEqual(["wi_auth"]);
   });
 
   it("reflects a partial selection as an indeterminate select-all checkbox", async () => {
     const rows = await loadRows();
-    render(
-      <WorkboardTable
-        items={rows}
-        loading={false}
-        error={null}
-        onSelectItem={vi.fn()}
-        onUpdateItem={vi.fn().mockResolvedValue(rows[0])}
-      />,
-    );
+    // Pre-seed a single-row selection (controlled): header must read mixed.
+    renderTable({ rows, selection: new Set(["wi_auth"]) });
 
     await screen.findAllByTestId("work-item-row");
 
     const selectAll = screen.getByRole("checkbox", {
       name: "Select all work items",
     });
-    // Nothing selected → unchecked.
-    expect(selectAll).toHaveAttribute("aria-checked", "false");
-
-    // Select a single row → header goes tri-state (mixed).
-    fireEvent.click(
-      screen.getByRole("checkbox", { name: "Select Workspace auth hardening" }),
-    );
     expect(selectAll).toHaveAttribute("aria-checked", "mixed");
   });
 
-  it("does not render selection or inline controls without a mutator", async () => {
+  it("renders no bulk-actions toolbar (bulk lives in the screen toolbar)", async () => {
     const rows = await loadRows();
-    render(
-      <WorkboardTable
-        items={rows}
-        loading={false}
-        error={null}
-        onSelectItem={vi.fn()}
-      />,
-    );
+    renderTable({
+      rows,
+      onUpdateItem: makeUpdateMock(rows),
+      selection: new Set(["wi_auth"]),
+    });
 
     await screen.findAllByTestId("work-item-row");
 
-    // No checkboxes and no editable phase comboboxes in read-only mode.
-    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    // Selection no longer renders a "Bulk actions" toolbar or an Apply button.
+    expect(
+      screen.queryByRole("toolbar", { name: "Bulk actions" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /apply phase/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders selection checkboxes but no inline editors without a mutator", async () => {
+    const rows = await loadRows();
+    renderTable({ rows });
+
+    await screen.findAllByTestId("work-item-row");
+
+    // Selection is independent of the mutator — checkboxes still render.
+    expect(screen.getAllByRole("checkbox").length).toBeGreaterThan(0);
+    // …but no editable comboboxes / tag textboxes in read-only mode.
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("textbox", {
+        name: "Tags for Workspace auth hardening",
+      }),
+    ).not.toBeInTheDocument();
     // The read-only phase still renders as a pill.
     const firstRow = screen.getAllByTestId("work-item-row")[0];
     expect(within(firstRow).getByText(/plan|execute|review|done/i)).toBeTruthy();
+  });
+
+  it("groups rows by phase when groupBy is phase", async () => {
+    const rows = await loadRows();
+    renderTable({ rows, groupBy: "phase" });
+
+    await screen.findAllByTestId("work-item-row");
+
+    const groupLabels = screen
+      .getAllByTestId("swimlane-group")
+      .map((node) => node.getAttribute("data-group"));
+    // Phase labels (not departments) head the swimlanes.
+    expect(groupLabels).toContain("Plan");
+    expect(groupLabels).toContain("Execute");
+    expect(groupLabels).not.toContain("Engineering");
+  });
+
+  it("renders a flat list with no swimlanes when groupBy is none", async () => {
+    const rows = await loadRows();
+    renderTable({ rows, groupBy: "none" });
+
+    await screen.findAllByTestId("work-item-row");
+    expect(screen.queryByTestId("swimlane-group")).not.toBeInTheDocument();
+  });
+
+  it("shows only the columns in visibleColumns, in canonical order", async () => {
+    const rows = await loadRows();
+    renderTable({
+      rows,
+      visibleColumns: new Set<ColumnId>(["name", "priority"]),
+    });
+
+    await screen.findAllByTestId("work-item-row");
+
+    const headers = screen
+      .getAllByRole("columnheader")
+      .map((h) => h.textContent?.trim());
+    // Selection column + the two visible data columns only.
+    expect(headers).toEqual(["", "Name", "Priority"]);
+    expect(
+      screen.getByRole("table", { name: "Work items" }),
+    ).toHaveAttribute("aria-colcount", "3");
+    // A hidden column's header is absent.
+    expect(
+      screen.queryByRole("columnheader", { name: "Source" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("accepts an empty owners list", async () => {
+    const rows = await loadRows();
+    const owners: Owner[] = [];
+    renderTable({ rows, owners });
+
+    await screen.findAllByTestId("work-item-row");
+    // wi_auth's assignee cannot resolve → falls back to "Unassigned" text.
+    expect(screen.getAllByText("Unassigned").length).toBeGreaterThan(0);
   });
 });

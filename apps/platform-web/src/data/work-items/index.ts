@@ -7,20 +7,28 @@
  */
 export type {
   Health,
+  Owner,
   Phase,
+  Priority,
   Project,
   Task,
   TaskStatus,
   WorkItem,
   WorkItemPatch,
   WorkItemRow,
+  WorkItemSource,
+  WorkItemType,
 } from "./types";
 export { deriveHealth } from "./types";
 
-export type { WorkItemRepository } from "./repository";
+export type {
+  CreateWorkItemInput,
+  WorkItemRepository,
+} from "./repository";
 export { createMockWorkItemRepository } from "./repository";
 
 export {
+  createOwnerFixtures,
   createProjectFixtures,
   createTaskFixtures,
   createWorkItemFixtures,

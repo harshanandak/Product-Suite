@@ -2,10 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   createMockWorkItemRepository,
+  type CreateWorkItemInput,
   type WorkItemRepository,
 } from "./repository";
 import {
   deriveHealth,
+  type Owner,
   type Project,
   type Task,
   type WorkItem,
@@ -44,6 +46,8 @@ export interface UseWorkItemsResult {
   items: WorkItemRow[];
   /** All projects (for the project switcher / filter). */
   projects: Project[];
+  /** All owners; views resolve a row's `assignee_id` → display via this set. */
+  owners: Owner[];
   /** True while the initial load is in flight. */
   loading: boolean;
   /** Set if the initial load failed; `refetch` to retry. */
@@ -54,6 +58,13 @@ export interface UseWorkItemsResult {
    * rejection re-thrown so callers can surface it.
    */
   update: (id: string, patch: WorkItemPatch) => Promise<WorkItem>;
+  /**
+   * Create a new work item through the repository, optimistically prepend it to
+   * local state, and return the created record. Unlike {@link update} there is no
+   * rollback branch: the id is generated repository-side, so there is no prior
+   * value to revert — a rejection simply propagates with state untouched.
+   */
+  create: (input: CreateWorkItemInput) => Promise<WorkItem>;
   /** Force a fresh read from the repository. */
   refetch: () => void;
 }
@@ -102,6 +113,7 @@ export function useWorkItems(
   const [workItems, setWorkItems] = useState<WorkItem[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [owners, setOwners] = useState<Owner[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -130,12 +142,14 @@ export function useWorkItems(
       repository.list(),
       repository.listTasks(),
       repository.listProjects(),
+      repository.listOwners(),
     ])
-      .then(([loadedItems, loadedTasks, loadedProjects]) => {
+      .then(([loadedItems, loadedTasks, loadedProjects, loadedOwners]) => {
         if (cancelled || !mountedRef.current) return;
         setWorkItems(loadedItems);
         setTasks(loadedTasks);
         setProjects(loadedProjects);
+        setOwners(loadedOwners);
       })
       .catch((cause: unknown) => {
         if (cancelled || !mountedRef.current) return;
@@ -188,10 +202,23 @@ export function useWorkItems(
     [repository],
   );
 
+  const create = useCallback(
+    async (input: CreateWorkItemInput): Promise<WorkItem> => {
+      const created = await repository.create(input);
+      // Prepend so the new item is immediately visible at the top; no rollback —
+      // the repo owns the id, so there is nothing optimistic to revert.
+      if (mountedRef.current) {
+        setWorkItems((current) => [created, ...current]);
+      }
+      return created;
+    },
+    [repository],
+  );
+
   const items = useMemo(
     () => toRows(workItems, tasks, Date.now()),
     [workItems, tasks],
   );
 
-  return { items, projects, loading, error, update, refetch };
+  return { items, projects, owners, loading, error, update, create, refetch };
 }

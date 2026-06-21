@@ -1,18 +1,25 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { EmptyState } from "@product-suite/ui";
+import { Button, EmptyState } from "@product-suite/ui";
 
 import {
   getDefaultRepository,
   useWorkItems,
   type Task,
+  type WorkItem,
   type WorkItemPatch,
   type WorkItemRepository,
   type WorkItemRow,
 } from "@/data/work-items";
 
 import { WorkItemEditor } from "./editor/WorkItemEditor";
+import {
+  applyWorkboardFilters,
+  defaultWorkboardFilterState,
+  workboardDepartments,
+} from "./filter-state";
 import { WorkboardTable } from "./table/WorkboardTable";
+import { WorkboardToolbar } from "./toolbar/WorkboardToolbar";
 
 /**
  * Props for {@link WorkboardScreen}.
@@ -28,18 +35,25 @@ export interface WorkboardScreenProps {
 }
 
 /**
- * Workboard SCREEN — the live composition of the Table + Editor over the data
- * seam (DESIGN §2 / §4).
+ * Workboard SCREEN — the live composition of the Toolbar + Table + Editor over
+ * the data seam (DESIGN §2 / §4).
  *
- * Owns the selected-item state: a table row activation opens the editor Sheet;
- * saves flow through the hook's optimistic `update` (which the table also uses
- * for inline/bulk phase edits, so both surfaces share one store and never
- * desync). The table renders its own skeleton/error states from the
- * `loading`/`error` props; the screen adds only the loaded-but-empty state.
+ * Owns the shared {@link defaultWorkboardFilterState | WorkboardFilterState}: the
+ * toolbar mutates it (search, facet filters, group-by, columns, selection) and
+ * the screen derives the Table's already-filtered `rows` from it — the Table
+ * never filters, so the two surfaces can never desync. A table row activation
+ * opens the editor Sheet; saves and inline/bulk edits all flow through the hook's
+ * optimistic `update` (one store, never desynced). The New button creates through
+ * the hook's `create` and opens the editor on the fresh item.
+ *
+ * §4 states: the Table owns its loading skeleton and error panel. The screen
+ * adds two distinct empty states — "no work items at all" vs. "filters hide
+ * everything" (with a one-click clear that resets search AND facets so the user
+ * is never stranded in a no-match view).
  *
  * Tasks are read once from the repository (the hook surfaces only rows +
- * projects) and passed whole to the editor, which filters them per item — one
- * deterministic fetch, no per-selection race.
+ * projects + owners) and passed whole to the editor, which filters them per item
+ * — one deterministic fetch, no per-selection race.
  */
 export function WorkboardScreen({
   repository,
@@ -53,9 +67,8 @@ export function WorkboardScreen({
     () => repository ?? getDefaultRepository(),
   );
 
-  const { items, loading, error, update, refetch } = useWorkItems({
-    repository: repo,
-  });
+  const { items, owners, loading, error, update, create, refetch } =
+    useWorkItems({ repository: repo });
 
   // Tasks for the editor (derived health + the read-only task list). Loaded once;
   // tasks do not change on a work-item save, so no refetch is wired.
@@ -77,7 +90,21 @@ export function WorkboardScreen({
     };
   }, [repo]);
 
-  const [selected, setSelected] = useState<WorkItemRow | null>(null);
+  // The single shared toolbar ⇄ table view state.
+  const [filterState, setFilterState] = useState(defaultWorkboardFilterState());
+
+  // Department facet options + the already-filtered rows, both derived from the
+  // live items. The Table renders exactly `rows`; it never filters.
+  const departments = useMemo(() => workboardDepartments(items), [items]);
+  const rows = useMemo(
+    () => applyWorkboardFilters(items, filterState),
+    [items, filterState],
+  );
+
+  // Editor selection. Typed `WorkItem` (not `WorkItemRow`) so `create`'s return
+  // value assigns directly; a `WorkItemRow` from a table activation is assignable
+  // to `WorkItem`, so both paths type-check.
+  const [selected, setSelected] = useState<WorkItem | null>(null);
 
   const handleSelectItem = useCallback((row: WorkItemRow) => {
     setSelected(row);
@@ -86,6 +113,37 @@ export function WorkboardScreen({
   const handleOpenChange = useCallback((open: boolean) => {
     if (!open) setSelected(null);
   }, []);
+
+  const handleSelectionChange = useCallback((next: Set<string>) => {
+    setFilterState((state) => ({ ...state, selection: next }));
+  }, []);
+
+  // Apply one patch to every selected row, then clear the selection. Sequential
+  // awaits keep the optimistic store reconciling one row at a time; a per-item
+  // rejection is swallowed (the hook already rolled that row back), mirroring the
+  // inline-edit path so one bad write never aborts the batch.
+  const handleBulkApply = useCallback(
+    async (patch: WorkItemPatch): Promise<void> => {
+      const ids = [...filterState.selection];
+      for (const id of ids) {
+        try {
+          await update(id, patch);
+        } catch {
+          // Swallowed — the failed row's value simply never lands in `rows`.
+        }
+      }
+      setFilterState((state) => ({ ...state, selection: new Set() }));
+    },
+    [filterState.selection, update],
+  );
+
+  // Create a fresh item and open the editor on it. The hook prepends the created
+  // record to `items`, so `liveSelected` resolves it; `selected` is the
+  // one-render fallback until that reflow lands.
+  const handleNewItem = useCallback(async (): Promise<void> => {
+    const created = await create({});
+    setSelected(created);
+  }, [create]);
 
   // Editor's onSave returns void; the hook's update returns the saved WorkItem.
   // Await + discard, and let rejections propagate so the editor keeps the Sheet
@@ -100,7 +158,7 @@ export function WorkboardScreen({
   // Keep the open Sheet's snapshot fresh after an inline/bulk edit reflows
   // `items`, so a re-opened/derived view never shows a stale row.
   const selectedId = selected?.id ?? null;
-  const liveSelected = useMemo(
+  const liveSelected = useMemo<WorkItem | null>(
     () =>
       selectedId === null
         ? null
@@ -108,7 +166,29 @@ export function WorkboardScreen({
     [items, selectedId, selected],
   );
 
-  const isEmpty = !loading && !error && items.length === 0;
+  // Reset BOTH search and facets — a search string alone can hide every row, so
+  // clearing only the facets would strand the user in the no-match state.
+  const clearAllFilters = useCallback(() => {
+    setFilterState((state) => ({
+      ...state,
+      search: "",
+      filters: {
+        type: new Set(),
+        owner: new Set(),
+        department: new Set(),
+        phase: new Set(),
+        priority: new Set(),
+      },
+    }));
+  }, []);
+
+  // §4 body states (the toolbar always renders so New/filters stay reachable):
+  //  - loading || error → the Table owns the skeleton / error panel.
+  //  - no items at all   → the teaching empty state.
+  //  - items but no rows → filters hide everything → clearable no-match state.
+  const showTable = loading || error !== null;
+  const noItems = !showTable && items.length === 0;
+  const noMatches = !showTable && items.length > 0 && rows.length === 0;
 
   return (
     <section className="mx-auto flex max-w-6xl flex-col gap-6">
@@ -119,21 +199,55 @@ export function WorkboardScreen({
         <h1 className="text-xl font-semibold text-foreground">Work items</h1>
       </header>
 
-      {isEmpty ? (
+      <WorkboardToolbar
+        value={filterState}
+        onChange={setFilterState}
+        owners={owners}
+        departments={departments}
+        selectedCount={filterState.selection.size}
+        onNewItem={() => void handleNewItem()}
+        onBulkApply={(patch) => void handleBulkApply(patch)}
+      />
+
+      {noItems ? (
         <EmptyState
           title="No work items yet"
           description="Work items are the coalition hub — create one to plan, execute, and review work across departments."
+          action={
+            <Button size="sm" onClick={() => void handleNewItem()}>
+              New work item
+            </Button>
+          }
         />
-      ) : (
+      ) : null}
+
+      {noMatches ? (
+        <EmptyState
+          title="No matching work items"
+          description="No work items match the current search and filters. Clear them to see everything again."
+          action={
+            <Button size="sm" variant="outline" onClick={clearAllFilters}>
+              Clear filters
+            </Button>
+          }
+        />
+      ) : null}
+
+      {!noItems && !noMatches ? (
         <WorkboardTable
-          items={items}
+          rows={rows}
+          owners={owners}
           loading={loading}
           error={error}
           onRetry={refetch}
+          groupBy={filterState.groupBy}
+          visibleColumns={filterState.visibleColumns}
+          selection={filterState.selection}
+          onSelectionChange={handleSelectionChange}
           onSelectItem={handleSelectItem}
           onUpdateItem={update}
         />
-      )}
+      ) : null}
 
       <WorkItemEditor
         item={liveSelected}
@@ -141,6 +255,7 @@ export function WorkboardScreen({
         onOpenChange={handleOpenChange}
         onSave={handleSave}
         tasks={tasks}
+        owners={owners}
       />
     </section>
   );

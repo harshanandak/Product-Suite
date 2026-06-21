@@ -34,6 +34,8 @@ describe("work-items barrel (./index)", () => {
     expect(typeof workItemsSeam.createTaskFixtures).toBe("function");
     expect(workItemsSeam.createWorkItemFixtures).toBeDefined();
     expect(typeof workItemsSeam.createWorkItemFixtures).toBe("function");
+    expect(workItemsSeam.createOwnerFixtures).toBeDefined();
+    expect(typeof workItemsSeam.createOwnerFixtures).toBe("function");
   });
 
   it("re-exports the hook and the shared-singleton accessor", () => {

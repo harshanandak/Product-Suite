@@ -1,4 +1,4 @@
-import type { Project, Task, WorkItem } from "./types";
+import type { Owner, Project, Task, WorkItem } from "./types";
 
 /**
  * In-memory mock dataset for the Workboard data seam.
@@ -22,6 +22,19 @@ import type { Project, Task, WorkItem } from "./types";
 
 const T = (iso: string): string => iso;
 
+/**
+ * People who can own work items. Each `id` matches an `assignee_id` used in
+ * {@link RAW_WORK_ITEMS} so the owner lookup resolves; items with
+ * `assignee_id: null` route to a department queue (no owner) — they
+ * deliberately have NO entry here.
+ */
+const RAW_OWNERS: ReadonlyArray<Owner> = [
+  { id: "user_amara", name: "Amara Okafor", initials: "AO" },
+  { id: "user_dev", name: "Dev Patel", initials: "DP" },
+  { id: "user_priya", name: "Priya Sharma", initials: "PS" },
+  { id: "user_kenji", name: "Kenji Tanaka", initials: "KT" },
+];
+
 const RAW_PROJECTS: ReadonlyArray<Project> = [
   {
     id: "proj_v2",
@@ -42,27 +55,27 @@ const RAW_PROJECTS: ReadonlyArray<Project> = [
 const RAW_WORK_ITEMS: ReadonlyArray<WorkItem> = [
   // --- Engineering (proj_v2) ---
   // future due, no overdue tasks → on_track
-  workItemOf("wi_auth", "Workspace auth hardening", "execute", "Engineering", { projectId: "proj_v2", assigneeId: "user_amara", dueDate: "2026-07-10T00:00:00.000Z", createdAt: "2026-05-01T09:00:00.000Z", updatedAt: "2026-06-19T09:00:00.000Z" }),
+  workItemOf("wi_auth", "Workspace auth hardening", "execute", "Engineering", { type: "feature", priority: "high", tags: ["security", "backend"], source: "manual", projectId: "proj_v2", assigneeId: "user_amara", dueDate: "2026-07-10T00:00:00.000Z", createdAt: "2026-05-01T09:00:00.000Z", updatedAt: "2026-06-19T09:00:00.000Z" }),
   // item overdue + open task → blocked
-  workItemOf("wi_realtime", "Realtime transport seam", "plan", "Engineering", { projectId: "proj_v2", assigneeId: "user_dev", dueDate: "2026-06-12T00:00:00.000Z", createdAt: "2026-04-20T09:00:00.000Z", updatedAt: "2026-06-16T09:00:00.000Z" }),
+  workItemOf("wi_realtime", "Realtime transport seam", "plan", "Engineering", { type: "feature", priority: "critical", tags: ["infra", "realtime"], source: "agent", projectId: "proj_v2", assigneeId: "user_dev", dueDate: "2026-06-12T00:00:00.000Z", createdAt: "2026-04-20T09:00:00.000Z", updatedAt: "2026-06-16T09:00:00.000Z" }),
   // future due, but one task overdue+open → at_risk
-  workItemOf("wi_migration", "Neon migration runner", "review", "Engineering", { projectId: "proj_v2", assigneeId: "user_amara", dueDate: "2026-06-30T00:00:00.000Z", createdAt: "2026-05-05T09:00:00.000Z", updatedAt: "2026-06-19T09:00:00.000Z" }),
+  workItemOf("wi_migration", "Neon migration runner", "review", "Engineering", { type: "chore", priority: "high", tags: ["infra", "database"], source: "manual", projectId: "proj_v2", assigneeId: "user_amara", dueDate: "2026-06-30T00:00:00.000Z", createdAt: "2026-05-05T09:00:00.000Z", updatedAt: "2026-06-19T09:00:00.000Z" }),
   // overdue, but phase done + all tasks complete → on_track
-  workItemOf("wi_tabletoken", "Design token audit", "done", "Engineering", { projectId: "proj_v2", assigneeId: "user_dev", dueDate: "2026-06-01T00:00:00.000Z", createdAt: "2026-04-15T09:00:00.000Z", updatedAt: "2026-06-02T09:00:00.000Z" }),
+  workItemOf("wi_tabletoken", "Design token audit", "done", "Engineering", { type: "chore", priority: "low", tags: ["design-system"], source: "feedback", projectId: "proj_v2", assigneeId: "user_dev", dueDate: "2026-06-01T00:00:00.000Z", createdAt: "2026-04-15T09:00:00.000Z", updatedAt: "2026-06-02T09:00:00.000Z" }),
   // --- Marketing (proj_diwali) ---
   // item overdue + open task → blocked
-  workItemOf("wi_creatives", "Diwali creative set", "execute", "Marketing", { projectId: "proj_diwali", assigneeId: "user_priya", dueDate: "2026-06-15T00:00:00.000Z", createdAt: "2026-05-12T09:00:00.000Z", updatedAt: "2026-06-18T09:00:00.000Z" }),
+  workItemOf("wi_creatives", "Diwali creative set", "execute", "Marketing", { type: "feature", priority: "high", tags: ["campaign", "design"], source: "manual", projectId: "proj_diwali", assigneeId: "user_priya", dueDate: "2026-06-15T00:00:00.000Z", createdAt: "2026-05-12T09:00:00.000Z", updatedAt: "2026-06-18T09:00:00.000Z" }),
   // null assignee (department queue, §1); future, open tasks not overdue → on_track
-  workItemOf("wi_landing", "Campaign landing page", "plan", "Marketing", { projectId: "proj_diwali", assigneeId: null, dueDate: "2026-08-01T00:00:00.000Z", createdAt: "2026-06-01T09:00:00.000Z", updatedAt: "2026-06-17T09:00:00.000Z" }),
+  workItemOf("wi_landing", "Campaign landing page", "plan", "Marketing", { type: "feature", priority: "medium", tags: ["campaign", "web"], source: "meeting", projectId: "proj_diwali", assigneeId: null, dueDate: "2026-08-01T00:00:00.000Z", createdAt: "2026-06-01T09:00:00.000Z", updatedAt: "2026-06-17T09:00:00.000Z" }),
   // item overdue + no tasks → at_risk
-  workItemOf("wi_adspend", "Ad spend forecast", "review", "Marketing", { projectId: "proj_diwali", assigneeId: "user_priya", dueDate: "2026-06-10T00:00:00.000Z", createdAt: "2026-05-20T09:00:00.000Z", updatedAt: "2026-06-16T09:00:00.000Z" }),
+  workItemOf("wi_adspend", "Ad spend forecast", "review", "Marketing", { type: "research", priority: "medium", tags: ["budget"], source: "agent", projectId: "proj_diwali", assigneeId: "user_priya", dueDate: "2026-06-10T00:00:00.000Z", createdAt: "2026-05-20T09:00:00.000Z", updatedAt: "2026-06-16T09:00:00.000Z" }),
   // --- Sourcing (no project — loose work items, §1 containment optional) ---
   // future, but one task overdue+open → at_risk
-  workItemOf("wi_supplier", "Q3 supplier shortlist", "execute", "Sourcing", { projectId: null, assigneeId: "user_kenji", dueDate: "2026-07-20T00:00:00.000Z", createdAt: "2026-05-25T09:00:00.000Z", updatedAt: "2026-06-19T09:00:00.000Z" }),
+  workItemOf("wi_supplier", "Q3 supplier shortlist", "execute", "Sourcing", { type: "research", priority: "high", tags: ["sourcing", "q3"], source: "meeting", projectId: null, assigneeId: "user_kenji", dueDate: "2026-07-20T00:00:00.000Z", createdAt: "2026-05-25T09:00:00.000Z", updatedAt: "2026-06-19T09:00:00.000Z" }),
   // no due date, all tasks complete → on_track
-  workItemOf("wi_samples", "Sample QC checklist", "done", "Sourcing", { projectId: null, assigneeId: "user_kenji", dueDate: null, createdAt: "2026-04-30T09:00:00.000Z", updatedAt: "2026-06-05T09:00:00.000Z" }),
+  workItemOf("wi_samples", "Sample QC checklist", "done", "Sourcing", { type: "chore", priority: "low", tags: ["quality"], source: "manual", projectId: null, assigneeId: "user_kenji", dueDate: null, createdAt: "2026-04-30T09:00:00.000Z", updatedAt: "2026-06-05T09:00:00.000Z" }),
   // item overdue + open task → blocked
-  workItemOf("wi_logistics", "Warehouse intake flow", "plan", "Sourcing", { projectId: null, assigneeId: null, dueDate: "2026-06-05T00:00:00.000Z", createdAt: "2026-05-15T09:00:00.000Z", updatedAt: "2026-06-14T09:00:00.000Z" }),
+  workItemOf("wi_logistics", "Warehouse intake flow", "plan", "Sourcing", { type: "bug", priority: "critical", tags: ["ops", "logistics"], source: "feedback", projectId: null, assigneeId: null, dueDate: "2026-06-05T00:00:00.000Z", createdAt: "2026-05-15T09:00:00.000Z", updatedAt: "2026-06-14T09:00:00.000Z" }),
 ];
 
 const RAW_TASKS: ReadonlyArray<Task> = [
@@ -104,10 +117,16 @@ const RAW_TASKS: ReadonlyArray<Task> = [
 
 /**
  * Optional/contextual fields for {@link workItemOf}. Grouped into one object so
- * the factory stays at 5 params while every fixture value is still expressible.
- * Defaults cover the loose-item cases (no project, no assignee, no due date).
+ * the factory stays at 5 params (S107-clean) while every fixture value is still
+ * expressible. Defaults cover the loose-item cases (no project, no assignee, no
+ * due date) and a neutral descriptive baseline (`chore` / `medium` / no tags /
+ * `manual` provenance) that individual fixtures override.
  */
 interface WorkItemOptions {
+  type?: WorkItem["type"];
+  priority?: WorkItem["priority"];
+  tags?: string[];
+  source?: WorkItem["source"];
   projectId?: string | null;
   assigneeId?: string | null;
   dueDate?: string | null;
@@ -127,6 +146,10 @@ function workItemOf(
   options: WorkItemOptions = {},
 ): WorkItem {
   const {
+    type = "chore",
+    priority = "medium",
+    tags = [],
+    source = "manual",
     projectId = null,
     assigneeId = null,
     dueDate = null,
@@ -137,6 +160,10 @@ function workItemOf(
     id,
     title,
     phase,
+    type,
+    priority,
+    tags: [...tags],
+    source,
     project_id: projectId,
     department,
     assignee_id: assigneeId,
@@ -164,14 +191,23 @@ function taskOf(
   };
 }
 
+/** Deep-clone factory: fresh `Owner[]` per call (mutation-safe for the mock). */
+export function createOwnerFixtures(): Owner[] {
+  return RAW_OWNERS.map((owner) => ({ ...owner }));
+}
+
 /** Deep-clone factory: fresh `Project[]` per call (mutation-safe for the mock). */
 export function createProjectFixtures(): Project[] {
   return RAW_PROJECTS.map((project) => ({ ...project }));
 }
 
-/** Deep-clone factory: fresh `WorkItem[]` per call (mutation-safe for the mock). */
+/**
+ * Deep-clone factory: fresh `WorkItem[]` per call (mutation-safe for the mock).
+ * `tags` is copied too — a shallow spread would alias the source array, letting
+ * a caller's `tags.push(...)` / `.sort()` poison RAW and every other instance.
+ */
 export function createWorkItemFixtures(): WorkItem[] {
-  return RAW_WORK_ITEMS.map((item) => ({ ...item }));
+  return RAW_WORK_ITEMS.map((item) => ({ ...item, tags: [...item.tags] }));
 }
 
 /** Deep-clone factory: fresh `Task[]` per call (mutation-safe for the mock). */

@@ -1,6 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 
-import { deriveHealth, type Task, type WorkItem } from "./types";
+import {
+  deriveHealth,
+  type Task,
+  type WorkItem,
+  type WorkItemPatch,
+} from "./types";
 
 /** Fixed reference clock for deterministic health derivation. */
 const NOW = Date.parse("2026-06-20T00:00:00.000Z");
@@ -13,6 +18,10 @@ function workItem(overrides: Partial<WorkItem> = {}): WorkItem {
     id: "wi_test",
     title: "Test item",
     phase: "execute",
+    type: "feature",
+    priority: "medium",
+    tags: [],
+    source: "manual",
     project_id: null,
     department: "Engineering",
     assignee_id: null,
@@ -35,6 +44,40 @@ function task(overrides: Partial<Task> = {}): Task {
     ...overrides,
   };
 }
+
+describe("WorkItem schema", () => {
+  it("carries the richer descriptive fields with the right value sets", () => {
+    const item = workItem({
+      type: "bug",
+      priority: "critical",
+      tags: ["infra", "urgent"],
+      source: "agent",
+    });
+    expect(item.type).toBe("bug");
+    expect(item.priority).toBe("critical");
+    expect(item.tags).toEqual(["infra", "urgent"]);
+    expect(item.source).toBe("agent");
+  });
+
+  it("treats tags as a present-but-possibly-empty array (never null)", () => {
+    expect(workItem().tags).toEqual([]);
+    expectTypeOf<WorkItem["tags"]>().toEqualTypeOf<string[]>();
+  });
+
+  it("makes type/priority/tags editable in WorkItemPatch but NOT source", () => {
+    // Editable fields compile inside a patch.
+    const patch: WorkItemPatch = {
+      type: "chore",
+      priority: "low",
+      tags: ["x"],
+      phase: "review",
+    };
+    expect(patch.type).toBe("chore");
+    // `source` is display-only (provenance recorded once) — it is not a key of
+    // WorkItemPatch, so it must never be assignable.
+    expectTypeOf<WorkItemPatch>().not.toHaveProperty("source");
+  });
+});
 
 describe("deriveHealth", () => {
   it("returns on_track when nothing is overdue", () => {

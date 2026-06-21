@@ -1,4 +1,11 @@
-import type { Health, Phase, TaskStatus } from "@product-suite/ui";
+import type {
+  Health,
+  Phase,
+  Priority,
+  TaskStatus,
+  WorkItemSource,
+  WorkItemType,
+} from "@product-suite/ui";
 
 /**
  * Workboard data-seam types (DESIGN §1, §2, §11).
@@ -12,10 +19,11 @@ import type { Health, Phase, TaskStatus } from "@product-suite/ui";
  * - `health` is DERIVED client-side, never stored (see {@link deriveHealth}).
  * - `project_id` is nullable: a work item may have no project (§1 / §11).
  *
- * `Phase`, `TaskStatus`, and `Health` are re-exported from `@product-suite/ui`
- * (the single source — DESIGN §5). Do NOT redefine them here.
+ * `Phase`, `TaskStatus`, `Health`, plus the richer `WorkItemType`, `Priority`,
+ * and `WorkItemSource` enums are re-exported from `@product-suite/ui` (the
+ * single source — DESIGN §5). Do NOT redefine them here.
  */
-export type { Health, Phase, TaskStatus };
+export type { Health, Phase, Priority, TaskStatus, WorkItemSource, WorkItemType };
 
 // Timestamp fields below are ISO-8601 strings (e.g. `2026-06-20T09:30:00.000Z`).
 // Plain `string` keeps the model JSON-friendly across the transport seam — no
@@ -39,18 +47,47 @@ export interface Project {
 }
 
 /**
+ * A person who can own a work item — the resolved display target for an item's
+ * `assignee_id` (§1 owner concept). Structurally a subset of `@product-suite/ui`'s
+ * `Assignee`, so an `Owner[]` feeds `AssigneePicker` directly. The store holds
+ * only `assignee_id`; views resolve id → {@link Owner} via the `owners` lookup
+ * the repository/hook expose (never embed the owner on the row).
+ */
+export interface Owner {
+  /** Stable internal id — matches a work item's `assignee_id`. Never a provider id. */
+  readonly id: string;
+  /** Display name shown in pickers / the owner column. */
+  name: string;
+  /** Optional 1–2 char initials; the picker derives them from `name` when omitted. */
+  initials?: string;
+}
+
+/**
  * A work item — the coalition hub (§1, middle of the object ladder).
  *
  * Carries `phase` (the only stored lifecycle on a work item) and a
  * workspace-defined `department` for swimlanes. `project_id` is nullable
  * (containment is optional at every level — §1 / §11). There is deliberately
  * NO `status` field and NO stored `health`.
+ *
+ * Richer descriptive fields back the deeper Table view (wireframe `plan-table`
+ * columns): `type`, `priority`, `tags`, and `source` (provenance). These are
+ * always present — `type`/`priority`/`source` are non-null enums and `tags`
+ * defaults to `[]` — so a row never has to special-case a missing value.
  */
 export interface WorkItem {
   readonly id: string;
   title: string;
   /** Universal phase loop `plan → execute → review → done` (§1). */
   phase: Phase;
+  /** Kind of work — drives the Type column / filter (§11 playbook resolution). */
+  type: WorkItemType;
+  /** Severity used for the Priority column / sort (critical → low). */
+  priority: Priority;
+  /** Free-form labels shown in the Tags column; `[]` when none (never null). */
+  tags: string[];
+  /** Provenance — how the item entered the board (manual/meeting/agent/feedback). */
+  source: WorkItemSource;
   /** Nullable — a work item may belong to no project (§1 / §11). */
   project_id: string | null;
   /**
@@ -88,11 +125,24 @@ export interface Task {
  * (`update`), the hook (`update`), and the Editor (`onSave`). Excludes managed
  * fields (`id`, `created_at`, `updated_at`) and the derived `health` so they can
  * never drift across those three call sites.
+ *
+ * `source` is deliberately EXCLUDED: provenance is recorded once at creation and
+ * is display-only (the UI ships `ProvenanceChip`, not a source picker), so it is
+ * never patchable. `type`, `priority`, and `tags` ARE editable (their `*Select` /
+ * `TagInput` primitives exist).
  */
 export type WorkItemPatch = Partial<
   Pick<
     WorkItem,
-    "title" | "phase" | "project_id" | "department" | "assignee_id" | "due_date"
+    | "title"
+    | "phase"
+    | "type"
+    | "priority"
+    | "tags"
+    | "project_id"
+    | "department"
+    | "assignee_id"
+    | "due_date"
   >
 >;
 
