@@ -6,6 +6,7 @@ import {
   AssigneePicker,
   Button,
   Checkbox,
+  ErrorState,
   PHASE_LABELS,
   PRIORITY_LABELS,
   PhasePill,
@@ -323,8 +324,9 @@ function groupLabelFor(row: WorkItemRow, groupBy: GroupByField): string {
       return PRIORITY_LABELS[row.priority];
     case "type":
       return WORK_ITEM_TYPE_LABELS[row.type];
+    // `groupBy === "none"` never reaches here — flattenRows short-circuits on it
+    // before any label is computed — so "department" is the only remaining case.
     case "department":
-    case "none":
     default:
       return row.department;
   }
@@ -399,24 +401,6 @@ function LoadingSkeleton() {
   );
 }
 
-function ErrorPanel({ onRetry }: Readonly<{ onRetry?: () => void }>) {
-  return (
-    <div
-      role="alert"
-      className="flex flex-col items-center justify-center gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-8 text-center"
-    >
-      <p className="text-sm font-medium text-foreground">
-        Could not load work items
-      </p>
-      {onRetry ? (
-        <Button variant="outline" size="sm" onClick={onRetry}>
-          Retry
-        </Button>
-      ) : null}
-    </div>
-  );
-}
-
 /** Style for a header/body cell of the given width (flex layout, see jsdoc). */
 function cellStyle(width: string): React.CSSProperties {
   return width === "auto"
@@ -466,8 +450,13 @@ export function WorkboardTable({
   });
   const virtualItems = rowVirtualizer.getVirtualItems();
 
-  const allSelected = rows.length > 0 && selection.size === rows.length;
-  const someSelected = selection.size > 0 && !allSelected;
+  // Derive select-all state from VISIBLE membership, not raw set size: a filter
+  // change can leave ids in `selection` that no longer map to a visible row, so
+  // size-equality would falsely read "all selected" and drive bulk on hidden
+  // rows. Counting how many visible rows are selected keeps the header honest.
+  const visibleSelected = rows.filter((row) => selection.has(row.id)).length;
+  const allSelected = rows.length > 0 && visibleSelected === rows.length;
+  const someSelected = visibleSelected > 0 && !allSelected;
   /** Tri-state for the select-all header: minus glyph when partial. */
   let selectAllState: boolean | "indeterminate" = false;
   if (allSelected) {
@@ -477,10 +466,16 @@ export function WorkboardTable({
   }
 
   const toggleAll = React.useCallback(() => {
-    onSelectionChange(
-      selection.size === itemIds.size ? new Set() : new Set(itemIds),
-    );
-  }, [itemIds, onSelectionChange, selection.size]);
+    const next = new Set(selection);
+    if (allSelected) {
+      // Clear: remove exactly the visible ids, preserving any off-screen ones.
+      for (const id of itemIds) next.delete(id);
+    } else {
+      // Select: add every visible id, preserving any off-screen selection.
+      for (const id of itemIds) next.add(id);
+    }
+    onSelectionChange(next);
+  }, [allSelected, itemIds, onSelectionChange, selection]);
 
   const toggleOne = React.useCallback(
     (id: string) => {
@@ -499,7 +494,18 @@ export function WorkboardTable({
     return <LoadingSkeleton />;
   }
   if (error) {
-    return <ErrorPanel onRetry={onRetry} />;
+    return (
+      <ErrorState
+        title="Could not load work items"
+        action={
+          onRetry ? (
+            <Button variant="outline" size="sm" onClick={onRetry}>
+              Retry
+            </Button>
+          ) : undefined
+        }
+      />
+    );
   }
 
   // 1-based row count for assistive tech: header row + every flat (group/item)
@@ -512,13 +518,14 @@ export function WorkboardTable({
     <div className="flex flex-col gap-3">
       <div
         ref={scrollRef}
-        role="table"
-        aria-label="Work items"
-        aria-rowcount={ariaRowCount}
-        aria-colcount={ariaColCount}
         className="relative max-h-[75vh] overflow-auto rounded-lg border"
       >
-        <Table>
+        <Table
+          role="table"
+          aria-label="Work items"
+          aria-rowcount={ariaRowCount}
+          aria-colcount={ariaColCount}
+        >
           <TableHeader role="rowgroup" className="sticky top-0 z-10 bg-background">
             <TableRow role="row" aria-rowindex={1} className="flex w-full">
               <TableHead
@@ -581,6 +588,7 @@ export function WorkboardTable({
                     <TableCell
                       role="cell"
                       aria-colindex={1}
+                      aria-colspan={ariaColCount}
                       className="flex-1 font-medium"
                     >
                       {flat.label}{" "}
@@ -605,7 +613,7 @@ export function WorkboardTable({
                   style={offsetStyle}
                 >
                   <TableCell
-                    role="gridcell"
+                    role="cell"
                     aria-colindex={1}
                     style={cellStyle(SELECT_COLUMN_WIDTH)}
                   >
@@ -623,7 +631,7 @@ export function WorkboardTable({
                   {columns.map((column, columnIndex) => (
                     <TableCell
                       key={column.id}
-                      role="gridcell"
+                      role="cell"
                       aria-colindex={columnIndex + 2}
                       className={column.width === "auto" ? "overflow-hidden" : undefined}
                       style={cellStyle(column.width)}

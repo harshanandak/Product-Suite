@@ -1,5 +1,3 @@
-import * as React from "react";
-
 import { FilterIcon, PlusIcon, SlidersHorizontalIcon, XIcon } from "lucide-react";
 
 import {
@@ -7,6 +5,7 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
@@ -14,9 +13,8 @@ import {
   DropdownMenuTrigger,
   Input,
   PHASE_LABELS,
+  PRIORITY_LABELS,
   PRIORITY_ORDER,
-  PhaseSelect,
-  PrioritySelect,
   WORK_ITEM_TYPE_LABELS,
   WORK_ITEM_TYPE_ORDER,
   cn,
@@ -44,17 +42,18 @@ import {
  * the `WorkboardFilterState` and re-renders the Table from the same value), so
  * every change clones the touched collection and hands a NEW state object to
  * {@link WorkboardToolbarProps.onChange} — it never mutates the incoming `value`
- * or its `Set`s in place. The only local state is the two bulk pickers' bound
- * values: "set phase"/"set priority" are ACTIONS with no field on the row to
- * read back from, so each needs a controlled `value` of its own (mirroring the
- * Table's `bulkPhase`), and applies through {@link WorkboardToolbarProps.onBulkApply}.
+ * or its `Set`s in place. It holds NO local state at all: "set phase"/"set
+ * priority" are explicit per-click ACTIONS (each menu item applies its own value
+ * through {@link WorkboardToolbarProps.onBulkApply}), so there is no "current
+ * bulk value" to track.
  *
  * House grammar (DESIGN §5): every control is a `@product-suite/ui` primitive —
- * no bare `<select>`/`<button>`. The four facet filters are multi-select, so
+ * no bare `<select>`/`<button>`. The five facet filters are multi-select, so
  * they are built from `DropdownMenu` + `DropdownMenuCheckboxItem` (the single-
  * value suite `*Select`s cannot express an "all / none selected" facet); the
- * suite `PhaseSelect`/`PrioritySelect` back the bulk cluster, where a single
- * required value is exactly right.
+ * bulk cluster uses `DropdownMenu` + `DropdownMenuItem` so every item click is an
+ * unconditional action (a value-bound `*Select` would NOT fire on reselecting the
+ * already-chosen value, silently dropping the apply).
  */
 export interface WorkboardToolbarProps {
   /** The shared, fully-defaulted Workboard view state this toolbar mutates. */
@@ -139,14 +138,16 @@ function FacetFilterMenu<T extends string>({
   onToggle: (value: T) => void;
 }>) {
   const count = selected.size;
+  // Surface the active-selection count in the accessible name (it otherwise
+  // shows only as a visual badge) — mirror the Clear-filters `(N)` pattern.
+  const triggerLabel =
+    count > 0
+      ? `Filter by ${label.toLowerCase()} (${count})`
+      : `Filter by ${label.toLowerCase()}`;
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button
-          variant="outline"
-          size="sm"
-          aria-label={`Filter by ${label.toLowerCase()}`}
-        >
+        <Button variant="outline" size="sm" aria-label={triggerLabel}>
           {label}
           {count > 0 ? (
             <span
@@ -196,14 +197,6 @@ export function WorkboardToolbar({
   onNewItem,
   onBulkApply,
 }: Readonly<WorkboardToolbarProps>) {
-  // Bulk pickers are actions, not bound fields — they need their own controlled
-  // value (the suite selects require a non-null `value`). Default to the first
-  // option in canonical order.
-  const [bulkPhase, setBulkPhase] = React.useState<Phase>("plan");
-  const [bulkPriority, setBulkPriority] = React.useState<Priority>(
-    PRIORITY_ORDER[0],
-  );
-
   const { filters } = value;
   const activeFilterCount =
     filters.type.size +
@@ -225,6 +218,13 @@ export function WorkboardToolbar({
     onChange({
       ...value,
       filters: { ...filters, phase: toggledSet(filters.phase, phase) },
+    });
+  };
+
+  const togglePriority = (priority: Priority): void => {
+    onChange({
+      ...value,
+      filters: { ...filters, priority: toggledSet(filters.priority, priority) },
     });
   };
 
@@ -266,6 +266,10 @@ export function WorkboardToolbar({
   const phaseOptions = (["plan", "execute", "review", "done"] as const).map(
     (phase) => ({ value: phase, label: PHASE_LABELS[phase] }),
   );
+  const priorityOptions = PRIORITY_ORDER.map((priority) => ({
+    value: priority,
+    label: PRIORITY_LABELS[priority],
+  }));
   const ownerOptions: ReadonlyArray<{ value: string; label: string }> = [
     { value: FILTER_OWNER_UNASSIGNED, label: "Unassigned" },
     ...owners.map((owner) => ({ value: owner.id, label: owner.name })),
@@ -358,6 +362,12 @@ export function WorkboardToolbar({
         selected={filters.phase}
         onToggle={togglePhase}
       />
+      <FacetFilterMenu
+        label="Priority"
+        options={priorityOptions}
+        selected={filters.priority}
+        onToggle={togglePriority}
+      />
 
       {activeFilterCount > 0 ? (
         <Button
@@ -433,44 +443,61 @@ export function WorkboardToolbar({
 
       {/* Selection-scoped bulk actions */}
       {hasSelection ? (
-        <div
-          role="group"
+        <fieldset
           aria-label="Bulk actions"
           className={cn(
-            "flex flex-wrap items-center gap-2 rounded-md border bg-muted/40 px-2 py-1",
+            "m-0 flex min-w-0 flex-wrap items-center gap-2 rounded-md border bg-muted/40 px-2 py-1",
           )}
         >
           <span className="text-xs font-medium text-foreground" aria-live="polite">
             {selectedCount} selected
           </span>
 
-          <label className="sr-only" htmlFor="bulk-phase">
-            Set phase
-          </label>
-          <PhaseSelect
-            id="bulk-phase"
-            size="sm"
-            aria-label="Set phase"
-            value={bulkPhase}
-            onValueChange={(next) => {
-              setBulkPhase(next);
-              onBulkApply({ phase: next });
-            }}
-          />
+          {/* Set phase — every item click is an unconditional bulk apply. */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" aria-label="Set phase">
+                Set phase
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="min-w-40">
+              <DropdownMenuLabel>Set phase</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {phaseOptions.map((option) => (
+                <DropdownMenuItem
+                  key={option.value}
+                  onSelect={() => {
+                    onBulkApply({ phase: option.value });
+                  }}
+                >
+                  {option.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
 
-          <label className="sr-only" htmlFor="bulk-priority">
-            Set priority
-          </label>
-          <PrioritySelect
-            id="bulk-priority"
-            size="sm"
-            aria-label="Set priority"
-            value={bulkPriority}
-            onValueChange={(next) => {
-              setBulkPriority(next);
-              onBulkApply({ priority: next });
-            }}
-          />
+          {/* Set priority — every item click is an unconditional bulk apply. */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" aria-label="Set priority">
+                Set priority
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="min-w-40">
+              <DropdownMenuLabel>Set priority</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {priorityOptions.map((option) => (
+                <DropdownMenuItem
+                  key={option.value}
+                  onSelect={() => {
+                    onBulkApply({ priority: option.value });
+                  }}
+                >
+                  {option.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           <Button
             variant="ghost"
@@ -481,7 +508,7 @@ export function WorkboardToolbar({
             <XIcon className="size-4" />
             Clear selection
           </Button>
-        </div>
+        </fieldset>
       ) : null}
     </div>
   );

@@ -74,12 +74,6 @@ function renderToolbar(overrides?: {
   };
 }
 
-/** Open a `combobox` (Radix Select trigger) and click its option by name. */
-function selectComboOption(combobox: HTMLElement, optionName: string): void {
-  fireEvent.keyDown(combobox, { key: "Enter" });
-  fireEvent.click(screen.getByRole("option", { name: optionName }));
-}
-
 /**
  * Open a Radix `DropdownMenu` by its trigger's accessible name. The trigger
  * TOGGLES on pointer/click (unlike Radix Select), so a pointer-then-click
@@ -140,6 +134,32 @@ describe("WorkboardToolbar", () => {
     expect([...lastChange().filters.department]).toEqual(["Engineering"]);
   });
 
+  it("toggles a Priority facet into a fresh filter set", async () => {
+    const { onChange, lastChange } = renderToolbar();
+    openMenu(/filter by priority/i);
+    fireEvent.click(
+      await screen.findByRole("menuitemcheckbox", { name: "High" }),
+    );
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect([...lastChange().filters.priority]).toEqual(["high"]);
+  });
+
+  it("surfaces the active count in a facet trigger's accessible name", () => {
+    const value: Partial<WorkboardFilterState> = {
+      filters: {
+        type: new Set(),
+        owner: new Set(),
+        department: new Set(),
+        phase: new Set(),
+        priority: new Set(["high", "low"]),
+      },
+    };
+    renderToolbar({ value });
+    expect(
+      screen.getByRole("button", { name: "Filter by priority (2)" }),
+    ).toBeInTheDocument();
+  });
+
   it("shows an active-filter count and a Clear filters action when filters are set", () => {
     const value: Partial<WorkboardFilterState> = {
       filters: {
@@ -193,33 +213,29 @@ describe("WorkboardToolbar", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("shows the selected count and bulk pickers when rows are selected", () => {
+  it("shows the selected count and bulk action menus when rows are selected", () => {
     renderToolbar({ selectedCount: 3 });
     const cluster = screen.getByRole("group", { name: "Bulk actions" });
     expect(cluster).toHaveTextContent("3 selected");
     expect(
-      screen.getByRole("combobox", { name: "Set phase" }),
+      screen.getByRole("button", { name: "Set phase" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("combobox", { name: "Set priority" }),
+      screen.getByRole("button", { name: "Set priority" }),
     ).toBeInTheDocument();
   });
 
-  it("applies a bulk phase patch to the selection", () => {
+  it("applies a bulk phase patch via an explicit menu action", async () => {
     const { onBulkApply } = renderToolbar({ selectedCount: 2 });
-    selectComboOption(
-      screen.getByRole("combobox", { name: "Set phase" }),
-      "Review",
-    );
+    openMenu("Set phase");
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Review" }));
     expect(onBulkApply).toHaveBeenCalledWith({ phase: "review" });
   });
 
-  it("applies a bulk priority patch to the selection", () => {
+  it("applies a bulk priority patch via an explicit menu action", async () => {
     const { onBulkApply } = renderToolbar({ selectedCount: 2 });
-    selectComboOption(
-      screen.getByRole("combobox", { name: "Set priority" }),
-      "High",
-    );
+    openMenu("Set priority");
+    fireEvent.click(await screen.findByRole("menuitem", { name: "High" }));
     expect(onBulkApply).toHaveBeenCalledWith({ priority: "high" });
   });
 

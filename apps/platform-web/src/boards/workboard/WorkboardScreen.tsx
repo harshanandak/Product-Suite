@@ -123,16 +123,21 @@ export function WorkboardScreen({
   // rejection is swallowed (the hook already rolled that row back), mirroring the
   // inline-edit path so one bad write never aborts the batch.
   const handleBulkApply = useCallback(
-    async (patch: WorkItemPatch): Promise<void> => {
+    (patch: WorkItemPatch): void => {
       const ids = [...filterState.selection];
-      for (const id of ids) {
-        try {
-          await update(id, patch);
-        } catch {
-          // Swallowed — the failed row's value simply never lands in `rows`.
+      const run = async (): Promise<void> => {
+        for (const id of ids) {
+          try {
+            await update(id, patch);
+          } catch {
+            // Swallowed — the failed row's value simply never lands in `rows`.
+          }
         }
-      }
-      setFilterState((state) => ({ ...state, selection: new Set() }));
+        setFilterState((state) => ({ ...state, selection: new Set() }));
+      };
+      // Fire-and-forget: the handler is a void-returning click target; the
+      // trailing .catch keeps it from floating a promise (no `void` operator).
+      run().catch(() => undefined);
     },
     [filterState.selection, update],
   );
@@ -140,9 +145,13 @@ export function WorkboardScreen({
   // Create a fresh item and open the editor on it. The hook prepends the created
   // record to `items`, so `liveSelected` resolves it; `selected` is the
   // one-render fallback until that reflow lands.
-  const handleNewItem = useCallback(async (): Promise<void> => {
-    const created = await create({});
-    setSelected(created);
+  const handleNewItem = useCallback((): void => {
+    // Fire-and-forget create + open the editor on the fresh item. create()
+    // rejects only under a real backend (the mock never does); the trailing
+    // .catch keeps this void-returning click handler from floating a promise.
+    create({})
+      .then((created) => setSelected(created))
+      .catch(() => undefined);
   }, [create]);
 
   // Editor's onSave returns void; the hook's update returns the saved WorkItem.
@@ -205,8 +214,8 @@ export function WorkboardScreen({
         owners={owners}
         departments={departments}
         selectedCount={filterState.selection.size}
-        onNewItem={() => void handleNewItem()}
-        onBulkApply={(patch) => void handleBulkApply(patch)}
+        onNewItem={handleNewItem}
+        onBulkApply={handleBulkApply}
       />
 
       {noItems ? (
@@ -214,7 +223,7 @@ export function WorkboardScreen({
           title="No work items yet"
           description="Work items are the coalition hub — create one to plan, execute, and review work across departments."
           action={
-            <Button size="sm" onClick={() => void handleNewItem()}>
+            <Button size="sm" onClick={handleNewItem}>
               New work item
             </Button>
           }

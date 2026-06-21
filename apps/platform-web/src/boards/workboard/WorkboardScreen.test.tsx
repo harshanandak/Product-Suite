@@ -73,13 +73,6 @@ afterAll(() => {
   }
 });
 
-/** A Radix Select trigger → option click (the listbox is portalled). */
-function selectOption(combobox: HTMLElement, optionName: string | RegExp): void {
-  fireEvent.keyDown(combobox, { key: "Enter" });
-  const option = screen.getByRole("option", { name: optionName });
-  fireEvent.click(option);
-}
-
 describe("WorkboardScreen", () => {
   it("renders the toolbar and the table together", async () => {
     render(<WorkboardScreen repository={createMockWorkItemRepository()} />);
@@ -155,8 +148,13 @@ describe("WorkboardScreen", () => {
     const bulkGroup = await screen.findByRole("group", { name: "Bulk actions" });
     expect(within(bulkGroup).getByText("1 selected")).toBeInTheDocument();
 
-    // Apply a bulk phase; the change persists to the store…
-    selectOption(within(bulkGroup).getByRole("combobox", { name: "Set phase" }), "Done");
+    // Apply a bulk phase via the explicit "Set phase" menu action; the change
+    // persists to the store…
+    fireEvent.keyDown(
+      within(bulkGroup).getByRole("button", { name: "Set phase" }),
+      { key: "ArrowDown" },
+    );
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Done" }));
 
     await waitFor(async () => {
       const persisted = (await repository.list()).find(

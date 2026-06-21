@@ -141,7 +141,8 @@ function TagInput({
     }
     if (event.key === "Backspace" && draft === "" && value.length > 0) {
       event.preventDefault();
-      removeTag(value[value.length - 1]!);
+      const last = value.at(-1);
+      if (last !== undefined) removeTag(last);
     }
   };
 

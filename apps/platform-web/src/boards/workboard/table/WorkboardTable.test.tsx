@@ -376,6 +376,70 @@ describe("WorkboardTable", () => {
     expect(selectAll).toHaveAttribute("aria-checked", "mixed");
   });
 
+  it("does not read 'all selected' when selection holds ids not in visible rows", async () => {
+    const rows = await loadRows();
+    // Seed selection with EVERY visible id plus a stale off-screen id: raw
+    // size-equality would mis-read this as a partial (size > rows.length), but
+    // visible membership is full → the header must read fully checked.
+    const selection = new Set([...rows.map((r) => r.id), "wi_stale_offscreen"]);
+    renderTable({ rows, selection });
+
+    await screen.findAllByTestId("work-item-row");
+
+    const selectAll = screen.getByRole("checkbox", {
+      name: "Select all work items",
+    });
+    expect(selectAll).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("preserves off-screen selection when toggling select-all", async () => {
+    const rows = await loadRows();
+    const onSelectionChange = vi.fn();
+    // Nothing visible selected yet, but a stale off-screen id is held.
+    renderTable({
+      rows,
+      selection: new Set(["wi_stale_offscreen"]),
+      onSelectionChange,
+    });
+
+    await screen.findAllByTestId("work-item-row");
+
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Select all work items" }),
+    );
+
+    // Selecting all adds the visible ids while keeping the off-screen id.
+    const next = onSelectionChange.mock.calls[0][0] as Set<string>;
+    expect(next.has("wi_stale_offscreen")).toBe(true);
+    for (const row of rows) {
+      expect(next.has(row.id)).toBe(true);
+    }
+  });
+
+  it("clears only visible rows when un-toggling select-all, keeping off-screen ids", async () => {
+    const rows = await loadRows();
+    const onSelectionChange = vi.fn();
+    // All visible rows selected, plus a stale off-screen id → header reads "all".
+    renderTable({
+      rows,
+      selection: new Set([...rows.map((r) => r.id), "wi_stale_offscreen"]),
+      onSelectionChange,
+    });
+
+    await screen.findAllByTestId("work-item-row");
+
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Select all work items" }),
+    );
+
+    // Clearing removes the visible ids but preserves the off-screen selection.
+    const next = onSelectionChange.mock.calls[0][0] as Set<string>;
+    expect(next.has("wi_stale_offscreen")).toBe(true);
+    for (const row of rows) {
+      expect(next.has(row.id)).toBe(false);
+    }
+  });
+
   it("renders no bulk-actions toolbar (bulk lives in the screen toolbar)", async () => {
     const rows = await loadRows();
     renderTable({
@@ -423,7 +487,7 @@ describe("WorkboardTable", () => {
 
     const groupLabels = screen
       .getAllByTestId("swimlane-group")
-      .map((node) => node.getAttribute("data-group"));
+      .map((node) => node.dataset.group);
     // Phase labels (not departments) head the swimlanes.
     expect(groupLabels).toContain("Plan");
     expect(groupLabels).toContain("Execute");
