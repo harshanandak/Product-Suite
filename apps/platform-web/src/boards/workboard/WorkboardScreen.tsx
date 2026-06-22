@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { Button, EmptyState } from "@product-suite/ui";
+import { Button, EmptyState, Tabs, TabsList, TabsTrigger } from "@product-suite/ui";
 
 import {
   getDefaultRepository,
@@ -18,6 +18,7 @@ import {
   defaultWorkboardFilterState,
   workboardDepartments,
 } from "./filter-state";
+import { WorkboardKanban } from "./kanban/WorkboardKanban";
 import { WorkboardSummary } from "./summary/WorkboardSummary";
 import { WorkboardTable } from "./table/WorkboardTable";
 import { WorkboardToolbar } from "./toolbar/WorkboardToolbar";
@@ -192,8 +193,12 @@ export function WorkboardScreen({
     }));
   }, []);
 
+  // Active view — Table (default) or Kanban. Both consume the same filtered rows
+  // + handlers (action parity), so search/filters apply equally to both.
+  const [view, setView] = useState<"table" | "kanban">("table");
+
   // §4 body states (the toolbar always renders so New/filters stay reachable):
-  //  - loading || error → the Table owns the skeleton / error panel.
+  //  - loading || error → the active view owns the skeleton / error panel.
   //  - no items at all   → the teaching empty state.
   //  - items but no rows → filters hide everything → clearable no-match state.
   const showTable = loading || error !== null;
@@ -214,6 +219,16 @@ export function WorkboardScreen({
       {!showTable && items.length > 0 ? (
         <WorkboardSummary rows={items} />
       ) : null}
+
+      <Tabs
+        value={view}
+        onValueChange={(next) => setView(next === "kanban" ? "kanban" : "table")}
+      >
+        <TabsList aria-label="Workboard view">
+          <TabsTrigger value="table">Table</TabsTrigger>
+          <TabsTrigger value="kanban">Kanban</TabsTrigger>
+        </TabsList>
+      </Tabs>
 
       <WorkboardToolbar
         value={filterState}
@@ -250,19 +265,31 @@ export function WorkboardScreen({
       ) : null}
 
       {!noItems && !noMatches ? (
-        <WorkboardTable
-          rows={rows}
-          owners={owners}
-          loading={loading}
-          error={error}
-          onRetry={refetch}
-          groupBy={filterState.groupBy}
-          visibleColumns={filterState.visibleColumns}
-          selection={filterState.selection}
-          onSelectionChange={handleSelectionChange}
-          onSelectItem={handleSelectItem}
-          onUpdateItem={update}
-        />
+        view === "kanban" ? (
+          <WorkboardKanban
+            rows={rows}
+            owners={owners}
+            loading={loading}
+            error={error}
+            onRetry={refetch}
+            onSelectItem={handleSelectItem}
+            onUpdateItem={update}
+          />
+        ) : (
+          <WorkboardTable
+            rows={rows}
+            owners={owners}
+            loading={loading}
+            error={error}
+            onRetry={refetch}
+            groupBy={filterState.groupBy}
+            visibleColumns={filterState.visibleColumns}
+            selection={filterState.selection}
+            onSelectionChange={handleSelectionChange}
+            onSelectItem={handleSelectItem}
+            onUpdateItem={update}
+          />
+        )
       ) : null}
 
       <WorkItemEditor
