@@ -1,11 +1,16 @@
 import * as React from "react";
 
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { Copy, MoreHorizontal } from "lucide-react";
 
 import {
   AssigneePicker,
   Button,
   Checkbox,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
   ErrorState,
   PHASE_LABELS,
   PRIORITY_LABELS,
@@ -22,6 +27,10 @@ import {
   TableRow,
   TagInput,
   TagList,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
   WORK_ITEM_TYPE_LABELS,
   WorkItemTypeBadge,
   WorkItemTypeSelect,
@@ -142,6 +151,8 @@ interface ColumnSpec {
   readonly header: string;
   /** Fixed width; `"auto"` flexes to fill (the Name column). */
   readonly width: string;
+  /** When true, the header and cell are right-aligned (numeric/date columns). */
+  readonly alignRight?: boolean;
   readonly render: (ctx: ColumnRenderContext) => React.ReactNode;
 }
 
@@ -172,18 +183,39 @@ const COLUMN_SPECS: readonly ColumnSpec[] = [
     header: "Name",
     width: "auto",
     render: ({ row, onSelectItem }) => (
-      <button
-        type="button"
-        className={cn(
-          "truncate text-left font-medium text-foreground hover:underline",
-          "focus-visible:outline-2 focus-visible:outline-ring",
-        )}
-        onClick={() => {
-          onSelectItem(row);
-        }}
-      >
-        {row.title}
-      </button>
+      <div className="flex min-w-0 items-center gap-1.5">
+        <button
+          type="button"
+          className={cn(
+            "truncate text-left font-medium text-foreground hover:underline",
+            "focus-visible:outline-2 focus-visible:outline-ring",
+          )}
+          onClick={() => {
+            onSelectItem(row);
+          }}
+        >
+          {row.title}
+        </button>
+        {/* Copy-on-hover: progressive disclosure, revealed on row hover/focus. */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label="Copy title"
+              className="size-6 shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+              onClick={(event) => {
+                event.stopPropagation();
+                void navigator.clipboard?.writeText(row.title);
+              }}
+            >
+              <Copy className="size-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Copy title</TooltipContent>
+        </Tooltip>
+      </div>
     ),
   },
   {
@@ -273,8 +305,11 @@ const COLUMN_SPECS: readonly ColumnSpec[] = [
     id: "due",
     header: "Due",
     width: "8rem",
+    alignRight: true,
     render: ({ row }) => (
-      <span className="text-muted-foreground">{formatDue(row.due_date)}</span>
+      <span className="block w-full text-right text-muted-foreground">
+        {formatDue(row.due_date)}
+      </span>
     ),
   },
   {
@@ -298,7 +333,15 @@ const COLUMN_SPECS: readonly ColumnSpec[] = [
     id: "source",
     header: "Source",
     width: "9rem",
-    render: ({ row }) => <ProvenanceChip source={row.source} />,
+    // Tooltip surfaces the source name behind the otherwise icon-only chip.
+    render: ({ row }) => (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <ProvenanceChip source={row.source} />
+        </TooltipTrigger>
+        <TooltipContent>Source: {row.source}</TooltipContent>
+      </Tooltip>
+    ),
   },
 ];
 
@@ -408,6 +451,83 @@ function cellStyle(width: string): React.CSSProperties {
     : { width, flex: "0 0 auto" };
 }
 
+/** Width (rem) of the trailing row-actions column (only when a mutator wires). */
+const ACTIONS_COLUMN_WIDTH = "3rem";
+
+/**
+ * Trailing per-row "⋯" actions menu (progressive disclosure). The trigger stays
+ * invisible until the row is hovered OR the button receives keyboard focus, then
+ * opens a {@link DropdownMenu} of row-scoped actions. Only rendered when a
+ * mutator is wired (Open/Copy ID always make sense, but Archive needs the patch
+ * path), so read-only embeds keep their hardcoded column counts.
+ *
+ * Both the trigger and the menu content `stopPropagation` so interacting with
+ * the menu never bubbles up to open the row editor.
+ */
+function RowActionsCell({
+  row,
+  onSelectItem,
+  onUpdateItem,
+}: Readonly<{
+  row: WorkItemRow;
+  onSelectItem: (item: WorkItemRow) => void;
+  onUpdateItem: (id: string, patch: WorkItemPatch) => Promise<WorkItem>;
+}>) {
+  return (
+    <DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label={`Actions for ${row.title}`}
+              className="size-7 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+              onClick={(event) => {
+                event.stopPropagation();
+              }}
+            >
+              <MoreHorizontal className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent>Actions</TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent
+        align="end"
+        onClick={(event) => {
+          event.stopPropagation();
+        }}
+      >
+        <DropdownMenuItem
+          onSelect={() => {
+            onSelectItem(row);
+          }}
+        >
+          Open
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onSelect={() => {
+            void navigator.clipboard?.writeText(row.id);
+          }}
+        >
+          Copy ID
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onSelect={() => {
+            onUpdateItem(row.id, { archived: !row.archived }).catch(
+              () => undefined,
+            );
+          }}
+        >
+          {row.archived ? "Unarchive" : "Archive"}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 /**
  * Workboard table — virtualized, grouped, inline-editable view over work items.
  *
@@ -508,13 +628,19 @@ export function WorkboardTable({
     );
   }
 
+  // The trailing "⋯" actions cell only renders when a mutator is wired (its
+  // Archive action needs the patch path); read-only embeds keep their existing
+  // column counts. Header/colcount must mirror that so a11y stays honest.
+  const showActions = onUpdateItem !== undefined;
+
   // 1-based row count for assistive tech: header row + every flat (group/item)
   // row in the virtualized list, regardless of which are currently mounted.
   const ariaRowCount = flatRows.length + 1;
-  // Selection column + every visible data column.
-  const ariaColCount = 1 + columns.length;
+  // Selection column + every visible data column (+ the actions column, if shown).
+  const ariaColCount = 1 + columns.length + (showActions ? 1 : 0);
 
   return (
+    <TooltipProvider>
     <div className="flex flex-col gap-3">
       <div
         ref={scrollRef}
@@ -544,11 +670,21 @@ export function WorkboardTable({
                   key={column.id}
                   role="columnheader"
                   aria-colindex={columnIndex + 2}
+                  className={column.alignRight ? "text-right" : undefined}
                   style={cellStyle(column.width)}
                 >
                   {column.header}
                 </TableHead>
               ))}
+              {showActions ? (
+                // Presentational spacer aligned to the actions cell: NOT a
+                // columnheader, so the asserted columnheader count is unchanged.
+                <TableHead
+                  role="presentation"
+                  aria-hidden="true"
+                  style={cellStyle(ACTIONS_COLUMN_WIDTH)}
+                />
+              ) : null}
             </TableRow>
           </TableHeader>
 
@@ -602,6 +738,7 @@ export function WorkboardTable({
 
               const { row } = flat;
               const isSelected = selection.has(row.id);
+              const isArchived = row.archived === true;
               return (
                 <TableRow
                   key={flat.key}
@@ -610,6 +747,13 @@ export function WorkboardTable({
                   aria-selected={isSelected}
                   data-testid="work-item-row"
                   data-state={isSelected ? "selected" : undefined}
+                  data-archived={isArchived ? "true" : undefined}
+                  // `group` powers the hover/focus reveal of the row controls;
+                  // archived rows are de-emphasized but stay fully interactive.
+                  className={cn(
+                    "group",
+                    isArchived && "text-muted-foreground opacity-60",
+                  )}
                   style={offsetStyle}
                 >
                   <TableCell
@@ -636,14 +780,45 @@ export function WorkboardTable({
                       className={column.width === "auto" ? "overflow-hidden" : undefined}
                       style={cellStyle(column.width)}
                     >
-                      {column.render({
-                        row,
-                        owners,
-                        onSelectItem,
-                        onUpdateItem,
-                      })}
+                      {column.id === "name" && isArchived ? (
+                        <span className="flex min-w-0 items-center gap-2">
+                          {column.render({
+                            row,
+                            owners,
+                            onSelectItem,
+                            onUpdateItem,
+                          })}
+                          <span
+                            data-testid="archived-indicator"
+                            className="shrink-0 rounded-sm bg-muted px-1.5 py-0.5 text-xs font-medium"
+                          >
+                            Archived
+                          </span>
+                        </span>
+                      ) : (
+                        column.render({
+                          row,
+                          owners,
+                          onSelectItem,
+                          onUpdateItem,
+                        })
+                      )}
                     </TableCell>
                   ))}
+                  {showActions && onUpdateItem ? (
+                    <TableCell
+                      role="cell"
+                      aria-colindex={columns.length + 2}
+                      className="flex items-center justify-end"
+                      style={cellStyle(ACTIONS_COLUMN_WIDTH)}
+                    >
+                      <RowActionsCell
+                        row={row}
+                        onSelectItem={onSelectItem}
+                        onUpdateItem={onUpdateItem}
+                      />
+                    </TableCell>
+                  ) : null}
                 </TableRow>
               );
             })}
@@ -651,5 +826,6 @@ export function WorkboardTable({
         </Table>
       </div>
     </div>
+    </TooltipProvider>
   );
 }

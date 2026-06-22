@@ -99,6 +99,8 @@ export interface WorkItem {
   assignee_id: string | null;
   /** Optional due date; feeds derived health (overdue → at risk/blocked). */
   due_date: string | null;
+  /** Soft-archived (deactivated) flag. Archived items stay visible but de-emphasized; the row menu toggles it. Absent ⇒ active. NOT a lifecycle status — phase remains the only stored lifecycle. */
+  archived?: boolean;
   readonly created_at: string;
   readonly updated_at: string;
 }
@@ -143,6 +145,7 @@ export type WorkItemPatch = Partial<
     | "department"
     | "assignee_id"
     | "due_date"
+    | "archived"
   >
 >;
 

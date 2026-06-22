@@ -73,7 +73,7 @@ const RAW_WORK_ITEMS: ReadonlyArray<WorkItem> = [
   // future, but one task overdue+open → at_risk
   workItemOf("wi_supplier", "Q3 supplier shortlist", "execute", "Sourcing", { type: "research", priority: "high", tags: ["sourcing", "q3"], source: "meeting", projectId: null, assigneeId: "user_kenji", dueDate: "2026-07-20T00:00:00.000Z", createdAt: "2026-05-25T09:00:00.000Z", updatedAt: "2026-06-19T09:00:00.000Z" }),
   // no due date, all tasks complete → on_track
-  workItemOf("wi_samples", "Sample QC checklist", "done", "Sourcing", { type: "chore", priority: "low", tags: ["quality"], source: "manual", projectId: null, assigneeId: "user_kenji", dueDate: null, createdAt: "2026-04-30T09:00:00.000Z", updatedAt: "2026-06-05T09:00:00.000Z" }),
+  workItemOf("wi_samples", "Sample QC checklist", "done", "Sourcing", { type: "chore", priority: "low", tags: ["quality"], source: "manual", projectId: null, assigneeId: "user_kenji", dueDate: null, archived: true, createdAt: "2026-04-30T09:00:00.000Z", updatedAt: "2026-06-05T09:00:00.000Z" }),
   // item overdue + open task → blocked
   workItemOf("wi_logistics", "Warehouse intake flow", "plan", "Sourcing", { type: "bug", priority: "critical", tags: ["ops", "logistics"], source: "feedback", projectId: null, assigneeId: null, dueDate: "2026-06-05T00:00:00.000Z", createdAt: "2026-05-15T09:00:00.000Z", updatedAt: "2026-06-14T09:00:00.000Z" }),
 ];
@@ -130,6 +130,7 @@ interface WorkItemOptions {
   projectId?: string | null;
   assigneeId?: string | null;
   dueDate?: string | null;
+  archived?: boolean;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -153,6 +154,7 @@ function workItemOf(
     projectId = null,
     assigneeId = null,
     dueDate = null,
+    archived = false,
     createdAt = "2026-05-01T09:00:00.000Z",
     updatedAt = "2026-06-19T09:00:00.000Z",
   } = options;
@@ -168,6 +170,7 @@ function workItemOf(
     department,
     assignee_id: assigneeId,
     due_date: dueDate === null ? null : T(dueDate),
+    archived,
     created_at: T(createdAt),
     updated_at: T(updatedAt),
   };

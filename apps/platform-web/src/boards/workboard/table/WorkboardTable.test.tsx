@@ -64,6 +64,11 @@ beforeAll(() => {
   Element.prototype.setPointerCapture ??= () => {};
   Element.prototype.releasePointerCapture ??= () => {};
   Element.prototype.scrollIntoView ??= () => {};
+  // jsdom has no clipboard; the row menu + Name copy button write to it.
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText: vi.fn().mockResolvedValue(undefined) },
+  });
 });
 
 afterAll(() => {
@@ -533,5 +538,176 @@ describe("WorkboardTable", () => {
     await screen.findAllByTestId("work-item-row");
     // wi_auth's assignee cannot resolve → falls back to "Unassigned" text.
     expect(screen.getAllByText("Unassigned").length).toBeGreaterThan(0);
+  });
+
+  /**
+   * Open a row's "⋯" actions DropdownMenu. Radix opens its trigger on the
+   * pointerdown sequence (absent in jsdom) but also on keyboard activation, so
+   * we focus the trigger and press Enter — mirroring the `selectOption` pattern.
+   */
+  function openRowMenu(title: string): void {
+    const trigger = screen.getByRole("button", { name: `Actions for ${title}` });
+    fireEvent.keyDown(trigger, { key: "Enter" });
+  }
+
+  /** Locate the rendered `work-item-row` whose Name cell shows `title`. */
+  function rowByTitle(title: string): HTMLElement {
+    const titleButton = screen.getByRole("button", { name: title });
+    const row = titleButton.closest('[data-testid="work-item-row"]');
+    if (!(row instanceof HTMLElement)) {
+      throw new Error(`No row found for "${title}"`);
+    }
+    return row;
+  }
+
+  it("de-emphasizes an archived row and shows an Archived indicator", async () => {
+    const rows = await loadRows();
+    // Fixtures seed only active items; mark one archived by hand.
+    const archived = rows.map((row) =>
+      row.id === "wi_auth" ? { ...row, archived: true } : row,
+    );
+    renderTable({ rows: archived });
+
+    await screen.findAllByTestId("work-item-row");
+
+    const row = rowByTitle("Workspace auth hardening");
+    // Muted + dimmed styling marks the row as de-emphasized.
+    expect(row).toHaveClass("text-muted-foreground");
+    expect(row).toHaveClass("opacity-60");
+    expect(row).toHaveAttribute("data-archived", "true");
+    // A small "Archived" indicator renders in the row.
+    expect(within(row).getByTestId("archived-indicator")).toHaveTextContent(
+      "Archived",
+    );
+  });
+
+  it("keeps selection and inline edit working on an archived row", async () => {
+    const rows = await loadRows();
+    const archived = rows.map((row) =>
+      row.id === "wi_auth" ? { ...row, archived: true } : row,
+    );
+    const onSelectionChange = vi.fn();
+    const onUpdateItem = makeUpdateMock(archived);
+    renderTable({ rows: archived, onSelectionChange, onUpdateItem });
+
+    await screen.findAllByTestId("work-item-row");
+
+    // Selection still fires on the archived row.
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Select Workspace auth hardening" }),
+    );
+    expect([...onSelectionChange.mock.calls[0][0]]).toEqual(["wi_auth"]);
+
+    // Inline edit still fires on the archived row.
+    const combobox = screen.getByRole("combobox", {
+      name: "Phase for Workspace auth hardening",
+    });
+    selectOption(combobox, "Done");
+    expect(onUpdateItem).toHaveBeenCalledWith("wi_auth", { phase: "done" });
+  });
+
+  it("does not render the row actions menu without a mutator", async () => {
+    const rows = await loadRows();
+    renderTable({ rows });
+
+    await screen.findAllByTestId("work-item-row");
+    expect(
+      screen.queryByRole("button", {
+        name: "Actions for Workspace auth hardening",
+      }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("opens the row actions menu and Archive calls onUpdateItem with archived:true", async () => {
+    const rows = await loadRows();
+    const onUpdateItem = makeUpdateMock(rows);
+    renderTable({ rows, onUpdateItem });
+
+    await screen.findAllByTestId("work-item-row");
+
+    openRowMenu("Workspace auth hardening");
+
+    // Menu items render: Open, Copy ID, Archive (wi_auth is not archived).
+    expect(
+      await screen.findByRole("menuitem", { name: "Open" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Copy ID" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
+    expect(onUpdateItem).toHaveBeenCalledWith("wi_auth", { archived: true });
+  });
+
+  it("offers Unarchive on an archived row and calls onUpdateItem with archived:false", async () => {
+    const rows = await loadRows();
+    const archived = rows.map((row) =>
+      row.id === "wi_auth" ? { ...row, archived: true } : row,
+    );
+    const onUpdateItem = makeUpdateMock(archived);
+    renderTable({ rows: archived, onUpdateItem });
+
+    await screen.findAllByTestId("work-item-row");
+
+    openRowMenu("Workspace auth hardening");
+
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Unarchive" }));
+    expect(onUpdateItem).toHaveBeenCalledWith("wi_auth", { archived: false });
+  });
+
+  it("Open from the row actions menu fires onSelectItem", async () => {
+    const rows = await loadRows();
+    const onSelectItem = vi.fn();
+    renderTable({ rows, onSelectItem, onUpdateItem: makeUpdateMock(rows) });
+
+    await screen.findAllByTestId("work-item-row");
+
+    openRowMenu("Workspace auth hardening");
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Open" }));
+
+    expect(onSelectItem).toHaveBeenCalledTimes(1);
+    expect(onSelectItem.mock.calls[0][0]).toMatchObject({ id: "wi_auth" });
+  });
+
+  it("Copy ID writes the row id to the clipboard", async () => {
+    const rows = await loadRows();
+    const writeText = navigator.clipboard.writeText as ReturnType<typeof vi.fn>;
+    writeText.mockClear();
+    renderTable({ rows, onUpdateItem: makeUpdateMock(rows) });
+
+    await screen.findAllByTestId("work-item-row");
+
+    openRowMenu("Workspace auth hardening");
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Copy ID" }));
+
+    expect(writeText).toHaveBeenCalledWith("wi_auth");
+  });
+
+  it("exposes a Copy title button on the Name cell that copies the title", async () => {
+    const rows = await loadRows();
+    const writeText = navigator.clipboard.writeText as ReturnType<typeof vi.fn>;
+    writeText.mockClear();
+    renderTable({ rows });
+
+    await screen.findAllByTestId("work-item-row");
+
+    const row = rowByTitle("Workspace auth hardening");
+    fireEvent.click(within(row).getByRole("button", { name: "Copy title" }));
+
+    expect(writeText).toHaveBeenCalledWith("Workspace auth hardening");
+  });
+
+  it("does not open the row when the actions trigger is clicked", async () => {
+    const rows = await loadRows();
+    const onSelectItem = vi.fn();
+    renderTable({ rows, onSelectItem, onUpdateItem: makeUpdateMock(rows) });
+
+    await screen.findAllByTestId("work-item-row");
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Actions for Workspace auth hardening",
+      }),
+    );
+    // Opening the menu must not bubble to a row-open.
+    expect(onSelectItem).not.toHaveBeenCalled();
   });
 });

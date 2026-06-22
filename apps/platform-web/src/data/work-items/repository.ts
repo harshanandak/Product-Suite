@@ -120,6 +120,7 @@ export function createMockWorkItemRepository(
         department: input.department ?? workItems[0]?.department ?? "General",
         assignee_id: input.assignee_id ?? null,
         due_date: input.due_date ?? null,
+        archived: false,
         created_at: now,
         updated_at: now,
       };

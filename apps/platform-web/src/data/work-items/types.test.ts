@@ -77,6 +77,17 @@ describe("WorkItem schema", () => {
     // WorkItemPatch, so it must never be assignable.
     expectTypeOf<WorkItemPatch>().not.toHaveProperty("source");
   });
+
+  it("treats archived as an optional boolean flag the patch can toggle", () => {
+    // Absent ⇒ active; the flag is optional on the work item.
+    expectTypeOf<WorkItem["archived"]>().toEqualTypeOf<boolean | undefined>();
+    expect(workItem().archived).toBeUndefined();
+    expect(workItem({ archived: true }).archived).toBe(true);
+
+    // The row menu toggles archived via WorkItemPatch.
+    const patch: WorkItemPatch = { archived: true };
+    expect(patch.archived).toBe(true);
+  });
 });
 
 describe("deriveHealth", () => {

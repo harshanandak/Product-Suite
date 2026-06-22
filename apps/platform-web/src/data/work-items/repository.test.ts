@@ -62,6 +62,8 @@ describe("createMockWorkItemRepository", () => {
     expect(created.project_id).toBeNull();
     expect(created.assignee_id).toBeNull();
     expect(created.due_date).toBeNull();
+    // New items start active (not soft-archived).
+    expect(created.archived).toBe(false);
     // Department defaults to the first existing item's lane.
     expect(created.department).toBe(before[0]?.department);
     expect(Date.parse(created.created_at)).not.toBeNaN();
@@ -128,6 +130,21 @@ describe("createMockWorkItemRepository", () => {
     // Persisted across reads.
     const reloaded = await repo.list();
     expect(reloaded.find((item) => item.id === original.id)?.phase).toBe("done");
+  });
+
+  it("toggles the archived flag through update and persists it", async () => {
+    const repo = createMockWorkItemRepository();
+    const [original] = await repo.list();
+
+    const archived = await repo.update(original.id, { archived: true });
+    expect(archived.archived).toBe(true);
+
+    const reloaded = (await repo.list()).find((item) => item.id === original.id);
+    expect(reloaded?.archived).toBe(true);
+
+    // And back to active.
+    const reactivated = await repo.update(original.id, { archived: false });
+    expect(reactivated.archived).toBe(false);
   });
 
   it("rejects updating an unknown work item", async () => {

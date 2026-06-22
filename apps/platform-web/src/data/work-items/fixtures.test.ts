@@ -87,6 +87,20 @@ describe("work-item fixtures", () => {
     ).toBe(true);
   });
 
+  it("marks exactly the Sample QC checklist archived, leaving the rest active", () => {
+    const items = createWorkItemFixtures();
+
+    const archived = items.filter((item) => item.archived === true);
+    expect(archived.map((item) => item.id)).toEqual(["wi_samples"]);
+
+    // Every other item is active (archived is falsy — false here).
+    expect(
+      items
+        .filter((item) => item.id !== "wi_samples")
+        .every((item) => !item.archived),
+    ).toBe(true);
+  });
+
   it("gives every item a tags array (some non-empty, never null)", () => {
     const items = createWorkItemFixtures();
     expect(items.every((item) => Array.isArray(item.tags))).toBe(true);

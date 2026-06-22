@@ -18,6 +18,7 @@ import {
   defaultWorkboardFilterState,
   workboardDepartments,
 } from "./filter-state";
+import { WorkboardSummary } from "./summary/WorkboardSummary";
 import { WorkboardTable } from "./table/WorkboardTable";
 import { WorkboardToolbar } from "./toolbar/WorkboardToolbar";
 
@@ -207,6 +208,12 @@ export function WorkboardScreen({
         </p>
         <h1 className="text-xl font-semibold text-foreground">Work items</h1>
       </header>
+
+      {/* Glanceable overview strip (the video's "roll the data into a chart").
+          Stable header over ALL loaded items — phase + health distribution. */}
+      {!showTable && items.length > 0 ? (
+        <WorkboardSummary rows={items} />
+      ) : null}
 
       <WorkboardToolbar
         value={filterState}
