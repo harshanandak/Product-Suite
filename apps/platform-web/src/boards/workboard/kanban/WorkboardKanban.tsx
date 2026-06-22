@@ -218,8 +218,9 @@ function KanbanCard({ row, owners, draggable, onSelectItem }: KanbanCardProps) {
   // The card is a clickable + draggable element that cannot be a native <button>:
   // it nests an interactive descendant (the provenance tooltip trigger), which a
   // <button> may not contain. It therefore carries an explicit button role + full
-  // tab/keyboard/mouse/touch support; S6819 ("prefer <button>") is a false
-  // positive here and is suppressed for this file in .sonarcloud.properties.
+  // tab/keyboard/mouse/touch support. SonarCloud S6819 ("prefer <button>") is a
+  // known false positive here — dismiss it via "Mark as False Positive" in the
+  // SonarCloud UI (Automatic Analysis cannot suppress a rule on a file via config).
   return (
     <div
       ref={setNodeRef}

@@ -198,8 +198,9 @@ export function WorkboardSummary({ rows }: Readonly<WorkboardSummaryProps>) {
     >
       {/* Visually-hidden, machine-readable rollup — the single AT surface.
           role="img" presents the chart as one labelled image to AT; an <img>
-          cannot hold a text/SVG summary, so S6819 is a false positive here and
-          is suppressed for this file in .sonarcloud.properties. */}
+          cannot hold a text/SVG summary. SonarCloud S6819 is a known false
+          positive here — dismiss it via "Mark as False Positive" in the SonarCloud
+          UI (Automatic Analysis cannot suppress a rule on a file via config). */}
       <p role="img" aria-label={ariaLabel} className="sr-only">
         {ariaLabel}
       </p>
