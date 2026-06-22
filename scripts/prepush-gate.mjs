@@ -127,6 +127,15 @@ function readJSON(file) {
   }
 }
 
+// Internal (workspace:*) dependency names declared by a package manifest.
+// Spreading an undefined deps field is a no-op, so no `|| {}` guards are needed.
+function workspaceDepNames(pkg) {
+  const deps = { ...pkg.dependencies, ...pkg.devDependencies, ...pkg.peerDependencies };
+  return Object.entries(deps)
+    .filter(([, range]) => typeof range === "string" && range.startsWith("workspace:"))
+    .map(([name]) => name);
+}
+
 // Reverse dependency graph: dir -> set of dirs that depend on it. Internal
 // dependencies are declared with a `workspace:` version range, so the graph is
 // derived from the manifests at runtime (no hand-maintained list to drift).
@@ -141,16 +150,9 @@ function buildDependents() {
   }
   const dependents = new Map(WORKSPACE_DIRS.map((d) => [d, new Set()]));
   for (const [dir, pkg] of pkgByDir) {
-    const deps = {
-      ...(pkg.dependencies || {}),
-      ...(pkg.devDependencies || {}),
-      ...(pkg.peerDependencies || {}),
-    };
-    for (const [name, range] of Object.entries(deps)) {
-      if (typeof range === "string" && range.startsWith("workspace:")) {
-        const depDir = nameToDir.get(name);
-        if (depDir) dependents.get(depDir).add(dir);
-      }
+    for (const name of workspaceDepNames(pkg)) {
+      const depDir = nameToDir.get(name);
+      if (depDir) dependents.get(depDir).add(dir);
     }
   }
   return dependents;
@@ -183,44 +185,56 @@ function ownerDir(file) {
   return best;
 }
 
+// Attribute every non-docs file to an owning workspace. Returns the owner set,
+// or null if any file cannot be attributed (a root-level unknown → full suite).
+function collectOwners(files) {
+  const owners = new Set();
+  for (const f of files) {
+    if (DOCS_ONLY.some((re) => re.test(f))) continue; // docs riding along
+    const dir = ownerDir(f);
+    if (!dir) return null;
+    owners.add(dir);
+  }
+  return owners;
+}
+
+// The deduped, ordered suite list for a set of affected workspace dirs, prefixed
+// with the always-on cheap checks.
+function suitesFor(affected) {
+  const suites = [...ALWAYS];
+  for (const dir of WORKSPACE_DIRS) {
+    if (!affected.has(dir)) continue;
+    for (const s of SUITES[dir]) if (!suites.includes(s)) suites.push(s);
+  }
+  return suites;
+}
+
 function classify(files) {
-  if (files === null) {
-    return { kind: FULL, reason: "no upstream to diff against" };
-  }
-  if (files.length === 0) {
-    return { kind: FULL, reason: "empty change set" };
-  }
+  if (files === null) return { kind: FULL, reason: "no upstream to diff against" };
+  if (files.length === 0) return { kind: FULL, reason: "empty change set" };
   if (files.every((f) => DOCS_ONLY.some((re) => re.test(f)))) {
     return { kind: DOCS, reason: "docs/design only" };
   }
   if (files.some((f) => GLOBAL_FULL.some((re) => re.test(f)))) {
     return { kind: FULL, reason: "cross-cutting/infra change" };
   }
-  // Attribute every non-docs file to a workspace; an unattributable file is a
-  // root-level unknown → fall back to full.
-  const owners = new Set();
-  for (const f of files) {
-    if (DOCS_ONLY.some((re) => re.test(f))) continue; // docs riding along
-    const dir = ownerDir(f);
-    if (!dir) return { kind: FULL, reason: `unscoped file: ${f}` };
-    owners.add(dir);
-  }
+  const owners = collectOwners(files);
+  if (owners === null) return { kind: FULL, reason: "unscoped file" };
   const affected = withDependents(owners, buildDependents());
-  const suites = [];
-  const add = (s) => {
-    if (!suites.includes(s)) suites.push(s);
-  };
-  for (const s of ALWAYS) add(s);
-  for (const dir of WORKSPACE_DIRS) {
-    if (affected.has(dir)) for (const s of SUITES[dir]) add(s);
-  }
-  return { kind: SCOPED, suites, owners: [...owners] };
+  return { kind: SCOPED, suites: suitesFor(affected), owners: [...owners] };
 }
 
+// Run the selected suites SEQUENTIALLY, with live (inherited) output. Running
+// them concurrently was tried and reverted: each suite (vitest/tsc) already
+// spawns its own workers, so running several at once oversubscribes the machine
+// and surfaced a flaky test failure under load. A flaky gate that aborts a good
+// push is worse than one that is a bit slower, and parallelism only helped the
+// rare full/fan-out path (the common single-app push is one dominant suite
+// either way). `scripts` never contains an app build — those run in CI.
 function runScripts(scripts) {
-  // Static argument arrays only; shell:true resolves bun's .cmd shim on Windows
-  // and nothing user-controlled is interpolated.
   for (const s of scripts) {
+    // Static argument arrays only; shell:true resolves bun's .cmd shim on Windows
+    // and nothing user-controlled is interpolated.
     const r = spawnSync("bun", ["run", s], { stdio: "inherit", shell: true }); // NOSONAR(S4036)
     const status = r.status ?? 1;
     if (status !== 0) process.exit(status);
@@ -246,11 +260,13 @@ if (result.kind === DOCS) {
   runScripts(["check:source-test"]);
 } else if (result.kind === SCOPED) {
   console.log(
-    `prepush-gate: scoped push [${result.owners.join(", ")}] — running: ${result.suites.join(", ")}`
+    `prepush-gate: scoped push [${result.owners.join(", ")}] — running: ${result.suites.join(", ")}`,
   );
   runScripts(result.suites);
 } else {
-  console.log(`prepush-gate: ${result.reason} — running the full suite.`);
-  const full = spawnSync("bun", ["run", "test:prepush"], { stdio: "inherit", shell: true }); // NOSONAR(S4036)
-  process.exit(full.status ?? 1);
+  const suites = suitesFor(new Set(WORKSPACE_DIRS));
+  console.log(
+    `prepush-gate: ${result.reason} — running the full suite (${suites.length} suites, no app builds).`,
+  );
+  runScripts(suites);
 }
