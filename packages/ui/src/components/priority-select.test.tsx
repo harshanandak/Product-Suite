@@ -40,8 +40,7 @@ describe("PrioritySelect", () => {
 
   test("fires onValueChange with the typed Priority chosen by the user", () => {
     const onValueChange = mock<PrioritySelectProps["onValueChange"]>();
-    const handleSelectChange = (next: string) =>
-      onValueChange(next as Priority);
+    const handleSelectChange = (next: Priority) => onValueChange(next);
 
     for (const { value } of PRIORITY_SELECT_OPTIONS) {
       handleSelectChange(value);

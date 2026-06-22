@@ -17,6 +17,26 @@ import {
 import { WorkboardTable, type WorkItemTableProps } from "./WorkboardTable";
 
 /**
+ * Open a row's "⋯" actions DropdownMenu. Radix opens its trigger on the
+ * pointerdown sequence (absent in jsdom) but also on keyboard activation, so we
+ * focus the trigger and press Enter — mirroring the `selectOption` pattern.
+ */
+function openRowMenu(title: string): void {
+  const trigger = screen.getByRole("button", { name: `Actions for ${title}` });
+  fireEvent.keyDown(trigger, { key: "Enter" });
+}
+
+/** Locate the rendered `work-item-row` whose Name cell shows `title`. */
+function rowByTitle(title: string): HTMLElement {
+  const titleButton = screen.getByRole("button", { name: title });
+  const row = titleButton.closest('[data-testid="work-item-row"]');
+  if (!(row instanceof HTMLElement)) {
+    throw new TypeError(`No row found for "${title}"`);
+  }
+  return row;
+}
+
+/**
  * jsdom has no layout engine, so @tanstack/react-virtual sees a zero-height
  * scroll element and renders no rows. Its `getRect` reads `element.offsetWidth`
  * / `element.offsetHeight` (verified in virtual-core's source) — NOT
@@ -539,26 +559,6 @@ describe("WorkboardTable", () => {
     // wi_auth's assignee cannot resolve → falls back to "Unassigned" text.
     expect(screen.getAllByText("Unassigned").length).toBeGreaterThan(0);
   });
-
-  /**
-   * Open a row's "⋯" actions DropdownMenu. Radix opens its trigger on the
-   * pointerdown sequence (absent in jsdom) but also on keyboard activation, so
-   * we focus the trigger and press Enter — mirroring the `selectOption` pattern.
-   */
-  function openRowMenu(title: string): void {
-    const trigger = screen.getByRole("button", { name: `Actions for ${title}` });
-    fireEvent.keyDown(trigger, { key: "Enter" });
-  }
-
-  /** Locate the rendered `work-item-row` whose Name cell shows `title`. */
-  function rowByTitle(title: string): HTMLElement {
-    const titleButton = screen.getByRole("button", { name: title });
-    const row = titleButton.closest('[data-testid="work-item-row"]');
-    if (!(row instanceof HTMLElement)) {
-      throw new Error(`No row found for "${title}"`);
-    }
-    return row;
-  }
 
   it("de-emphasizes an archived row and shows an Archived indicator", async () => {
     const rows = await loadRows();

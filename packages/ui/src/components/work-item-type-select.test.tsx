@@ -39,8 +39,7 @@ describe("WorkItemTypeSelect", () => {
 
   test("fires onValueChange with the typed WorkItemType chosen", () => {
     const onValueChange = mock<WorkItemTypeSelectProps["onValueChange"]>();
-    const handleSelectChange = (next: string) =>
-      onValueChange(next as WorkItemType);
+    const handleSelectChange = (next: WorkItemType) => onValueChange(next);
 
     for (const { value } of WORK_ITEM_TYPE_SELECT_OPTIONS) {
       handleSelectChange(value);

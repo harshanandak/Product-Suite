@@ -196,8 +196,14 @@ export function WorkboardSummary({ rows }: Readonly<WorkboardSummaryProps>) {
       data-testid="workboard-summary"
       className="rounded-lg border border-border bg-card px-4 py-3 text-card-foreground"
     >
-      {/* Visually-hidden, machine-readable rollup — the single AT surface. */}
-      <p role="img" aria-label={ariaLabel} className="sr-only">
+      {/* Visually-hidden, machine-readable rollup — the single AT surface.
+          role="img" makes AT announce it as one labelled image; an <img> element
+          cannot hold a text/SVG chart summary, so S6819 is suppressed here. */}
+      <p
+        role="img" // NOSONAR(S6819): chart text-alternative; <img> can't hold a text summary
+        aria-label={ariaLabel}
+        className="sr-only"
+      >
         {ariaLabel}
       </p>
 

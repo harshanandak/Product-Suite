@@ -205,6 +205,35 @@ export function WorkboardScreen({
   const noItems = !showTable && items.length === 0;
   const noMatches = !showTable && items.length > 0 && rows.length === 0;
 
+  // The active view (table or kanban) over the same filtered rows + handlers.
+  // Resolved here so the body JSX below stays a single (non-nested) ternary.
+  const activeView =
+    view === "kanban" ? (
+      <WorkboardKanban
+        rows={rows}
+        owners={owners}
+        loading={loading}
+        error={error}
+        onRetry={refetch}
+        onSelectItem={handleSelectItem}
+        onUpdateItem={update}
+      />
+    ) : (
+      <WorkboardTable
+        rows={rows}
+        owners={owners}
+        loading={loading}
+        error={error}
+        onRetry={refetch}
+        groupBy={filterState.groupBy}
+        visibleColumns={filterState.visibleColumns}
+        selection={filterState.selection}
+        onSelectionChange={handleSelectionChange}
+        onSelectItem={handleSelectItem}
+        onUpdateItem={update}
+      />
+    );
+
   return (
     <section className="mx-auto flex max-w-6xl flex-col gap-6">
       <header>
@@ -264,33 +293,7 @@ export function WorkboardScreen({
         />
       ) : null}
 
-      {!noItems && !noMatches ? (
-        view === "kanban" ? (
-          <WorkboardKanban
-            rows={rows}
-            owners={owners}
-            loading={loading}
-            error={error}
-            onRetry={refetch}
-            onSelectItem={handleSelectItem}
-            onUpdateItem={update}
-          />
-        ) : (
-          <WorkboardTable
-            rows={rows}
-            owners={owners}
-            loading={loading}
-            error={error}
-            onRetry={refetch}
-            groupBy={filterState.groupBy}
-            visibleColumns={filterState.visibleColumns}
-            selection={filterState.selection}
-            onSelectionChange={handleSelectionChange}
-            onSelectItem={handleSelectItem}
-            onUpdateItem={update}
-          />
-        )
-      ) : null}
+      {!noItems && !noMatches ? activeView : null}
 
       <WorkItemEditor
         item={liveSelected}

@@ -215,6 +215,10 @@ function KanbanCard({ row, owners, draggable, onSelectItem }: KanbanCardProps) {
     zIndex: isDragging ? 50 : undefined,
   };
 
+  // dnd-kit's draggable `attributes` already supply role="button" + tabIndex=0
+  // (even when read-only/disabled), so they are NOT set explicitly here. A native
+  // <button> is impossible: the card nests an interactive descendant (the
+  // provenance tooltip trigger), which a <button> may not contain.
   return (
     <div
       ref={setNodeRef}
@@ -224,8 +228,6 @@ function KanbanCard({ row, owners, draggable, onSelectItem }: KanbanCardProps) {
       data-dragging={isDragging ? "true" : undefined}
       {...attributes}
       {...listeners}
-      role="button"
-      tabIndex={0}
       aria-label={`Open ${row.title}`}
       onClick={() => {
         onSelectItem(row);
@@ -306,8 +308,8 @@ function KanbanColumn({
       data-testid="kanban-column"
       data-phase={phase}
       data-over={isOver ? "true" : undefined}
-      // `group`/`region` semantics: AT announces the column as a labelled group.
-      role="group"
+      // A labelled <section> is a region landmark announcing this phase column to
+      // AT (the implicit region role carries the name — no explicit role needed).
       aria-label={`${label}, ${rows.length} items`}
       className={cn(
         "flex min-w-0 flex-col gap-3 rounded-lg border border-border bg-muted/30 p-3",
@@ -446,14 +448,13 @@ export function WorkboardKanban({
   }
 
   const board = (
-    <div
+    <ul
       data-testid="workboard-kanban"
-      role="list"
       aria-label="Work items by phase"
       className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4"
     >
       {PHASE_COLUMNS.map((phase) => (
-        <div key={phase} role="listitem">
+        <li key={phase}>
           <KanbanColumn
             phase={phase}
             rows={columns[phase]}
@@ -461,9 +462,19 @@ export function WorkboardKanban({
             draggable={draggable}
             onSelectItem={onSelectItem}
           />
-        </div>
+        </li>
       ))}
-    </div>
+    </ul>
+  );
+
+  // A draggable board is wrapped in the dnd context; a read-only board renders
+  // bare. Resolved up-front so the JSX below stays a single (non-nested) ternary.
+  const content = draggable ? (
+    <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+      {board}
+    </DndContext>
+  ) : (
+    board
   );
 
   return (
@@ -473,12 +484,8 @@ export function WorkboardKanban({
           title="No work items"
           description="Nothing matches the current filters yet."
         />
-      ) : draggable ? (
-        <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-          {board}
-        </DndContext>
       ) : (
-        board
+        content
       )}
     </TooltipProvider>
   );

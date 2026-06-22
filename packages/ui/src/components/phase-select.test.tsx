@@ -41,10 +41,8 @@ describe("PhaseSelect", () => {
   });
 
   test("fires onValueChange with the typed Phase chosen by the user", () => {
-    // Reproduce the exact adapter PhaseSelect installs on the Select root:
-    // Radix hands back a `string`, which we narrow to `Phase`.
     const onValueChange = mock<PhaseSelectProps["onValueChange"]>();
-    const handleSelectChange = (next: string) => onValueChange(next as Phase);
+    const handleSelectChange = (next: Phase) => onValueChange(next);
 
     for (const { value } of PHASE_SELECT_OPTIONS) {
       handleSelectChange(value);
