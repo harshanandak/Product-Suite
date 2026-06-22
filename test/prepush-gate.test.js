@@ -77,6 +77,14 @@ describe("prepush-gate classification", () => {
     expect(out).toContain("ci:platform-web");
   });
 
+  test("a packages/sdk change runs sdk's own suite (it is not orphaned)", () => {
+    const out = classify(["packages/sdk/src/meeting.js"]);
+    expect(out).toContain("scoped");
+    expect(out).toContain("test:sdk");
+    // sdk's only workspace dependent is meeting-web, which must also rebuild
+    expect(out).toContain("ci:meeting-web");
+  });
+
   test("scoped pushes always include the cheap cross-cutting checks", () => {
     const out = classify(["apps/platform-web/src/x.tsx"]);
     expect(out).toContain("check:source-test");

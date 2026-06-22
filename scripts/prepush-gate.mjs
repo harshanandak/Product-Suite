@@ -59,9 +59,7 @@ const SUITES = {
   "apps/roadmap-web": ["ci:roadmap-web", "test:roadmap-canvas-boundary"],
   "apps/meeting-api": ["ci:meeting-api"],
   "packages/contracts": ["test:contracts"],
-  // packages/sdk HAS its own tests (src/*.test.ts) but no root suite is wired
-  // into test:prepush / CI yet, so there is nothing to run here. Tracked separately.
-  "packages/sdk": [],
+  "packages/sdk": ["test:sdk"],
   "packages/ui": ["test:ui"],
   "packages/ui-chat": ["test:ui-chat"],
   "packages/ui-canvas": ["test:ui-canvas"],
