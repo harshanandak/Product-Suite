@@ -215,10 +215,11 @@ function KanbanCard({ row, owners, draggable, onSelectItem }: KanbanCardProps) {
     zIndex: isDragging ? 50 : undefined,
   };
 
-  // dnd-kit's draggable `attributes` already supply role="button" + tabIndex=0
-  // (even when read-only/disabled), so they are NOT set explicitly here. A native
-  // <button> is impossible: the card nests an interactive descendant (the
-  // provenance tooltip trigger), which a <button> may not contain.
+  // The card is a clickable + draggable element that cannot be a native <button>:
+  // it nests an interactive descendant (the provenance tooltip trigger), which a
+  // <button> may not contain. It therefore carries an explicit button role + full
+  // tab/keyboard/mouse/touch support; S6819 ("prefer <button>") is a false
+  // positive here and is suppressed for this file in .sonarcloud.properties.
   return (
     <div
       ref={setNodeRef}
@@ -228,6 +229,8 @@ function KanbanCard({ row, owners, draggable, onSelectItem }: KanbanCardProps) {
       data-dragging={isDragging ? "true" : undefined}
       {...attributes}
       {...listeners}
+      role="button"
+      tabIndex={0}
       aria-label={`Open ${row.title}`}
       onClick={() => {
         onSelectItem(row);
