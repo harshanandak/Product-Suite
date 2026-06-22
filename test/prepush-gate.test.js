@@ -56,33 +56,33 @@ describe("prepush-gate classification", () => {
   test("a single-app change is scoped to that app's suite only", () => {
     const out = classify(["apps/platform-web/src/x.tsx"]);
     expect(out).toContain("scoped");
-    expect(out).toContain("ci:platform-web");
+    expect(out).toContain("verify:platform-web");
     // a platform-web-only change must NOT drag in the other apps' suites
-    expect(out).not.toContain("ci:roadmap-web");
-    expect(out).not.toContain("ci:meeting-web");
+    expect(out).not.toContain("verify:roadmap-web");
+    expect(out).not.toContain("verify:meeting-web");
   });
 
   test("docs riding along with app code do not widen the scope", () => {
     const out = classify(["docs/a.md", "apps/roadmap-web/src/x.ts"]);
     expect(out).toContain("scoped");
-    expect(out).toContain("ci:roadmap-web");
-    expect(out).not.toContain("ci:platform-web");
+    expect(out).toContain("verify:roadmap-web");
+    expect(out).not.toContain("verify:platform-web");
   });
 
   test("a shared-package change fans out to its dependents", () => {
     const out = classify(["packages/ui/src/button.tsx"]);
     expect(out).toContain("scoped");
     expect(out).toContain("test:ui");
-    // platform-web declares @product-suite/ui as a workspace dep, so it is rebuilt
-    expect(out).toContain("ci:platform-web");
+    // platform-web declares @product-suite/ui as a workspace dep, so it is verified
+    expect(out).toContain("verify:platform-web");
   });
 
   test("a packages/sdk change runs sdk's own suite (it is not orphaned)", () => {
     const out = classify(["packages/sdk/src/meeting.js"]);
     expect(out).toContain("scoped");
     expect(out).toContain("test:sdk");
-    // sdk's only workspace dependent is meeting-web, which must also rebuild
-    expect(out).toContain("ci:meeting-web");
+    // sdk's only workspace dependent is meeting-web, which must also be verified
+    expect(out).toContain("verify:meeting-web");
   });
 
   test("scoped pushes always include the cheap cross-cutting checks", () => {
@@ -94,6 +94,13 @@ describe("prepush-gate classification", () => {
   test("a per-app markdown change is scoped to that app, not full", () => {
     const out = classify(["apps/roadmap-web/CLAUDE.md"]);
     expect(out).toContain("scoped");
-    expect(out).toContain("ci:roadmap-web");
+    expect(out).toContain("verify:roadmap-web");
+  });
+
+  test("the gate never runs an app BUILD — those belong to CI", () => {
+    // platform-web change runs verify (lint+typecheck+test), never the build step.
+    const out = classify(["apps/platform-web/src/x.tsx"]);
+    expect(out).not.toContain("ci:platform-web");
+    expect(out).toContain("verify:platform-web");
   });
 });

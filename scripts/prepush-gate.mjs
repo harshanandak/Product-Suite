@@ -1,6 +1,12 @@
 #!/usr/bin/env node
 // Pre-push gate: run only the validation suites a push actually affects.
 //
+// Philosophy: the pre-push hook is for FAST local feedback (lint + typecheck +
+// unit tests). It does NOT build apps — every app is built and tested by its own
+// CI workflow on pull_request, which is the real merge gate, so building locally
+// on every push only duplicates CI's slowest step. A build-only break is caught
+// by CI before merge, not here.
+//
 // Classification (each step only ever NARROWS, never hides work it cannot prove
 // is irrelevant):
 //   docs-only      → fast checks only (source/test coupling).
@@ -9,8 +15,8 @@
 //   scoped         → the suites for the changed workspaces + every workspace that
 //                    (transitively) depends on them, computed from the
 //                    `workspace:*` dependency graph, plus the always-on cheap
-//                    checks. This is what lets a platform-web-only change skip
-//                    rebuilding the entire monorepo (e.g. roadmap-web's Next build).
+//                    checks. This is what lets a platform-web-only change run only
+//                    platform-web's verify suite instead of the whole monorepo.
 //   unknown range  → the FULL suite (no upstream to diff against, empty set).
 import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -54,9 +60,14 @@ const GLOBAL_FULL = [
 // set of dirs a changed file can be attributed to (incl. the Python meeting-api,
 // which is not a bun workspace but still has a suite).
 const SUITES = {
-  "apps/platform-web": ["ci:platform-web"],
-  "apps/meeting-web": ["ci:meeting-web"],
-  "apps/roadmap-web": ["ci:roadmap-web", "test:roadmap-canvas-boundary"],
+  // Apps map to their no-build "verify" script (lint + typecheck + test). The
+  // BUILD step is deliberately NOT run here — every app is built by its own CI
+  // workflow on pull_request (the merge gate), so building locally on push is
+  // pure duplication and the slowest step. meeting-api has no build (Python), so
+  // its ci:* is already build-free.
+  "apps/platform-web": ["verify:platform-web"],
+  "apps/meeting-web": ["verify:meeting-web"],
+  "apps/roadmap-web": ["verify:roadmap-web", "test:roadmap-canvas-boundary"],
   "apps/meeting-api": ["ci:meeting-api"],
   "packages/contracts": ["test:contracts"],
   "packages/sdk": ["test:sdk"],
