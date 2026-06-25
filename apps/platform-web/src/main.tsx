@@ -11,11 +11,13 @@ import { CLERK_PUBLISHABLE_KEY, hasClerkKey } from "./env";
 import { router } from "./router";
 import { SetupNotice } from "./shell/SetupNotice";
 
-// React Grab — DEV ONLY. Hover any UI element and press ⌘/Ctrl-C to copy its
-// source context (file path · component · stack) to paste into an AI agent.
-// Dynamically imported behind `import.meta.env.DEV` so it is tree-shaken out of
-// production builds entirely — it must never ship (it exposes source structure).
-if (import.meta.env.DEV) {
+// React Grab — DEV + PREVIEW only. Hover any UI element and press ⌘/Ctrl-C to
+// copy its source context (file · component · stack) to paste into an AI agent.
+// Enabled in local dev AND on Cloudflare PREVIEW deploys (built with
+// `--mode preview` → import.meta.env.MODE === "preview"). Production builds
+// (mode "production") statically evaluate this to `false`, so React Grab is
+// tree-shaken out entirely — it must never ship to prod (it exposes source).
+if (import.meta.env.DEV || import.meta.env.MODE === "preview") {
   void import("react-grab");
 }
 
