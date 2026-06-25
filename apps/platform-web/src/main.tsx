@@ -11,6 +11,14 @@ import { CLERK_PUBLISHABLE_KEY, hasClerkKey } from "./env";
 import { router } from "./router";
 import { SetupNotice } from "./shell/SetupNotice";
 
+// React Grab — DEV ONLY. Hover any UI element and press ⌘/Ctrl-C to copy its
+// source context (file path · component · stack) to paste into an AI agent.
+// Dynamically imported behind `import.meta.env.DEV` so it is tree-shaken out of
+// production builds entirely — it must never ship (it exposes source structure).
+if (import.meta.env.DEV) {
+  void import("react-grab");
+}
+
 const rootElement = document.getElementById("root");
 if (!rootElement) {
   throw new Error("Root element #root not found");

@@ -12,6 +12,7 @@
     "lint": "eslint src",
     "test": "vitest run",
     "test:watch": "vitest",
+    "doctor": "npx react-doctor@latest",
     "deploy": "wrangler deploy",
     "deploy:preview": "wrangler versions upload"
   },
@@ -51,6 +52,8 @@
     "eslint-plugin-react-refresh": "^0.4.20",
     "globals": "15.15.0",
     "jsdom": "^25.0.1",
+    "react-doctor": "^0.5.8",
+    "react-grab": "^0.1.47",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.7.0",
     "typescript-eslint": "8.51.0",
