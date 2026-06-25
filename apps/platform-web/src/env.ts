@@ -7,6 +7,8 @@ declare global {
   interface ImportMetaEnv {
     readonly VITE_CLERK_PUBLISHABLE_KEY?: string;
     readonly VITE_DEFAULT_WORKSPACE?: string;
+    /** Set to "true" only on preview builds to enable the React Grab dev overlay. */
+    readonly VITE_ENABLE_REACT_GRAB?: string;
   }
 }
 

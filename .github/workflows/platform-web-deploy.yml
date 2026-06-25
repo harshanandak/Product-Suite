@@ -71,6 +71,9 @@ jobs:
         run: bun run --cwd apps/platform-web build
         env:
           VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
+          # Enable the React Grab dev overlay on per-PR PREVIEW builds only; left
+          # unset on push-to-main (production) so it is tree-shaken out.
+          VITE_ENABLE_REACT_GRAB: ${{ github.event_name == 'pull_request' && 'true' || '' }}
 
       - name: Deploy to Cloudflare
         id: deploy

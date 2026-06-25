@@ -14,7 +14,7 @@
     "test:watch": "vitest",
     "doctor": "npx react-doctor@latest",
     "deploy": "wrangler deploy",
-    "deploy:preview": "vite build --mode preview && wrangler versions upload"
+    "deploy:preview": "wrangler versions upload"
   },
   "dependencies": {
     "@clerk/clerk-react": "^5.0.0",

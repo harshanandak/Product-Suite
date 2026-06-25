@@ -13,11 +13,12 @@ import { SetupNotice } from "./shell/SetupNotice";
 
 // React Grab — DEV + PREVIEW only. Hover any UI element and press ⌘/Ctrl-C to
 // copy its source context (file · component · stack) to paste into an AI agent.
-// Enabled in local dev AND on Cloudflare PREVIEW deploys (built with
-// `--mode preview` → import.meta.env.MODE === "preview"). Production builds
-// (mode "production") statically evaluate this to `false`, so React Grab is
-// tree-shaken out entirely — it must never ship to prod (it exposes source).
-if (import.meta.env.DEV || import.meta.env.MODE === "preview") {
+// Enabled in local dev AND on Cloudflare PREVIEW deploys, where the deploy
+// workflow sets VITE_ENABLE_REACT_GRAB=true on the single (Clerk-keyed) build
+// for pull requests only. Production builds leave it unset, so this branch is
+// statically false and React Grab is tree-shaken out — it must never ship to
+// production (it exposes source structure).
+if (import.meta.env.DEV || import.meta.env.VITE_ENABLE_REACT_GRAB === "true") {
   void import("react-grab");
 }
 
