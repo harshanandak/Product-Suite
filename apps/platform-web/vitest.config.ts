@@ -18,10 +18,11 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     css: false,
-    // Heavy React component tests (the work-item table + editor sheet, and the
-    // React Flow graph) can exceed the 5s default when the monorepo pre-push
-    // gate runs workspace suites concurrently. Match the headroom the rest of
-    // the stack uses so the gate isn't load-flaky.
+    // The 5s default is too tight for this suite's heaviest component tests
+    // (React Flow canvas + Radix sheets/menus + userEvent simulate real
+    // interaction with internal delays) once a machine or CI runner is under
+    // load — they flake as timeouts despite being correct. 15s matches the
+    // project's own `bun test --timeout 15000` watcher convention.
     testTimeout: 15000,
     hookTimeout: 15000,
     include: ["src/**/*.test.{ts,tsx}"],

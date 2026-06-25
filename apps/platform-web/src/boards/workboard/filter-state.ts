@@ -1,6 +1,15 @@
-import type { Phase, Priority, WorkItemType } from "@product-suite/ui";
+import {
+  PHASE_LABELS,
+  PRIORITY_LABELS,
+  PRIORITY_ORDER,
+  WORK_ITEM_TYPE_LABELS,
+  WORK_ITEM_TYPE_ORDER,
+  type Phase,
+  type Priority,
+  type WorkItemType,
+} from "@product-suite/ui";
 
-import type { WorkItemRow } from "@/data/work-items";
+import type { Owner, WorkItemRow } from "@/data/work-items";
 
 /**
  * Shared Workboard view state (DESIGN §4 board grammar) — the single contract
@@ -196,4 +205,68 @@ export function workboardDepartments(rows: WorkItemRow[]): string[] {
   return [...new Set(rows.map((row) => row.department))].sort((a, b) =>
     a.localeCompare(b),
   );
+}
+
+/** Clone a `Set`, toggling `value`'s membership; returns the new `Set`. Shared by
+ * every facet control so a toggle always hands a fresh `Set` upward (controlled). */
+export function toggledSet<T>(source: ReadonlySet<T>, value: T): Set<T> {
+  const next = new Set(source);
+  if (next.has(value)) {
+    next.delete(value);
+  } else {
+    next.add(value);
+  }
+  return next;
+}
+
+/** One selectable facet option (value + human label). */
+export interface FacetOption<T extends string = string> {
+  readonly value: T;
+  readonly label: string;
+}
+
+/** The option lists for all five facets, derived from the live owners/departments. */
+export interface WorkboardFacetOptions {
+  type: ReadonlyArray<FacetOption<WorkItemType>>;
+  owner: ReadonlyArray<FacetOption>;
+  department: ReadonlyArray<FacetOption>;
+  phase: ReadonlyArray<FacetOption<Phase>>;
+  priority: ReadonlyArray<FacetOption<Priority>>;
+}
+
+/** Phase facet order — the canonical loop (§1). */
+const PHASE_FACET_ORDER: readonly Phase[] = ["plan", "execute", "review", "done"];
+
+/**
+ * Build the five facet option lists from the live `owners` + `departments`, so the
+ * toolbar and the graph's filter cluster render identical, in-sync facets without
+ * duplicating the label/order wiring. The owner facet leads with the
+ * {@link FILTER_OWNER_UNASSIGNED} "Unassigned" option.
+ */
+export function buildFacetOptions(
+  owners: ReadonlyArray<Owner>,
+  departments: ReadonlyArray<string>,
+): WorkboardFacetOptions {
+  return {
+    type: WORK_ITEM_TYPE_ORDER.map((type) => ({
+      value: type,
+      label: WORK_ITEM_TYPE_LABELS[type],
+    })),
+    owner: [
+      { value: FILTER_OWNER_UNASSIGNED, label: "Unassigned" },
+      ...owners.map((owner) => ({ value: owner.id, label: owner.name })),
+    ],
+    department: departments.map((department) => ({
+      value: department,
+      label: department,
+    })),
+    phase: PHASE_FACET_ORDER.map((phase) => ({
+      value: phase,
+      label: PHASE_LABELS[phase],
+    })),
+    priority: PRIORITY_ORDER.map((priority) => ({
+      value: priority,
+      label: PRIORITY_LABELS[priority],
+    })),
+  };
 }

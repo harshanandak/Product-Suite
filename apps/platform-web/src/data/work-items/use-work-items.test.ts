@@ -134,4 +134,91 @@ describe("useWorkItems", () => {
       expect(listSpy.mock.calls.length).toBeGreaterThan(callsBefore),
     );
   });
+
+  it("surfaces dependency edges on load", async () => {
+    const repository = createMockWorkItemRepository();
+    const { result } = renderHook(() => useWorkItems({ repository }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.dependencies.length).toBeGreaterThan(0);
+  });
+
+  it("appends a dependency once the repository confirms it (pessimistic)", async () => {
+    const repository = createMockWorkItemRepository();
+    const { result } = renderHook(() => useWorkItems({ repository }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const countBefore = result.current.dependencies.length;
+    await act(async () => {
+      await result.current.addDependency({
+        source_item_id: "wi_tabletoken",
+        target_item_id: "wi_adspend",
+      });
+    });
+
+    expect(result.current.dependencies.length).toBe(countBefore + 1);
+    expect(
+      result.current.dependencies.some(
+        (d) =>
+          d.source_item_id === "wi_tabletoken" &&
+          d.target_item_id === "wi_adspend",
+      ),
+    ).toBe(true);
+  });
+
+  it("propagates a rejected addDependency without adding an edge", async () => {
+    const repository = createMockWorkItemRepository();
+    const { result } = renderHook(() => useWorkItems({ repository }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const countBefore = result.current.dependencies.length;
+    await act(async () => {
+      await expect(
+        // wi_auth → wi_realtime already exists → duplicate, rejected.
+        result.current.addDependency({
+          source_item_id: "wi_auth",
+          target_item_id: "wi_realtime",
+        }),
+      ).rejects.toThrow(/already exists/);
+    });
+
+    expect(result.current.dependencies.length).toBe(countBefore);
+  });
+
+  it("optimistically removes a dependency", async () => {
+    const repository = createMockWorkItemRepository();
+    const { result } = renderHook(() => useWorkItems({ repository }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const target = result.current.dependencies[0];
+    await act(async () => {
+      await result.current.removeDependency(target.id);
+    });
+
+    expect(
+      result.current.dependencies.some((d) => d.id === target.id),
+    ).toBe(false);
+  });
+
+  it("rolls back an optimistic removal when the repository rejects", async () => {
+    const base = createMockWorkItemRepository();
+    const failing: WorkItemRepository = {
+      ...base,
+      removeDependency: vi.fn().mockRejectedValue(new Error("remove failed")),
+    };
+    const { result } = renderHook(() => useWorkItems({ repository: failing }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const target = result.current.dependencies[0];
+    await act(async () => {
+      await expect(result.current.removeDependency(target.id)).rejects.toThrow(
+        "remove failed",
+      );
+    });
+
+    // The edge is restored after the failed removal.
+    expect(
+      result.current.dependencies.some((d) => d.id === target.id),
+    ).toBe(true);
+  });
 });

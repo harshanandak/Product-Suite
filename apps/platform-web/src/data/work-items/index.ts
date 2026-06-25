@@ -6,6 +6,7 @@
  * underlying repository adapter swaps for F2 without touching callers.
  */
 export type {
+  DependencyRelationship,
   Health,
   Owner,
   Phase,
@@ -14,6 +15,7 @@ export type {
   Task,
   TaskStatus,
   WorkItem,
+  WorkItemDependency,
   WorkItemPatch,
   WorkItemRow,
   WorkItemSource,
@@ -22,12 +24,22 @@ export type {
 export { deriveHealth } from "./types";
 
 export type {
+  AddDependencyInput,
   CreateWorkItemInput,
+  ListGraphOptions,
+  WorkItemGraph,
   WorkItemRepository,
 } from "./repository";
-export { createMockWorkItemRepository } from "./repository";
+export { createMockWorkItemRepository, DEFAULT_GRAPH_DEPTH } from "./repository";
 
 export {
+  buildDependencyAdjacency,
+  dependencyExists,
+  wouldCreateCycle,
+} from "./dependency-graph";
+
+export {
+  createDependencyFixtures,
   createOwnerFixtures,
   createProjectFixtures,
   createTaskFixtures,

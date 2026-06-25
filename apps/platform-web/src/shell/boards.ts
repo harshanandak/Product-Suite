@@ -12,6 +12,7 @@ import {
   ListChecks,
   ListTodo,
   MessageSquare,
+  Network,
   Newspaper,
   Plug,
   Plus,
@@ -105,6 +106,12 @@ export const BOARDS: BoardDef[] = [
         label: "Work items",
         to: "/w/$workspace/workboard",
         icon: ListChecks,
+      },
+      {
+        key: "graph",
+        label: "Graph",
+        to: "/w/$workspace/workboard/graph",
+        icon: Network,
       },
       {
         key: "strategy",

@@ -8,6 +8,7 @@ import {
 
 import { Button, EmptyState, ErrorState } from "@product-suite/ui";
 
+import { WorkboardGraphScreen } from "./boards/workboard/graph/WorkboardGraphScreen";
 import { WorkboardScreen } from "./boards/workboard/WorkboardScreen";
 import { BoardScreen } from "./shell/BoardScreen";
 import { ShellLayout } from "./shell/ShellLayout";
@@ -76,6 +77,13 @@ const workboardRoute = createRoute({
   // The Workboard index renders the live work-items screen; all other board
   // routes (incl. the workboard sub-routes) remain on the BoardScreen placeholder.
   component: WorkboardScreen,
+});
+// The Graph is a real sub-board (the full-page dependency/phase canvas), not the
+// BoardScreen placeholder — it is an unbounded canvas, so it owns its own route.
+const workboardGraphRoute = createRoute({
+  getParentRoute: () => workspaceRoute,
+  path: "workboard/graph",
+  component: WorkboardGraphScreen,
 });
 const workboardStrategyRoute = createRoute({
   getParentRoute: () => workspaceRoute,
@@ -180,6 +188,7 @@ const routeTree = rootRoute.addChildren([
     homeReviewRoute,
     homeInboxRoute,
     workboardRoute,
+    workboardGraphRoute,
     workboardStrategyRoute,
     workboardInsightsRoute,
     workboardTasksRoute,

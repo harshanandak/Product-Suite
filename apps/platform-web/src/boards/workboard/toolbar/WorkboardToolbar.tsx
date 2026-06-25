@@ -28,10 +28,13 @@ import type { Owner, WorkItemPatch } from "@/data/work-items";
 import {
   COLUMN_IDS,
   FILTER_OWNER_UNASSIGNED,
+  toggledSet,
   type ColumnId,
   type GroupByField,
   type WorkboardFilterState,
 } from "../filter-state";
+
+import { FacetFilterMenu } from "./FacetFilterMenu";
 
 /**
  * Workboard TOOLBAR (DESIGN §2 / §4 / §5) — the single control surface that
@@ -108,79 +111,6 @@ const COLUMN_LABELS: Record<ColumnId, string> = {
   tags: "Tags",
   source: "Source",
 };
-
-/** Clone a `Set`, toggling `value`'s membership; returns the new `Set`. */
-function toggledSet<T>(source: ReadonlySet<T>, value: T): Set<T> {
-  const next = new Set(source);
-  if (next.has(value)) {
-    next.delete(value);
-  } else {
-    next.add(value);
-  }
-  return next;
-}
-
-/**
- * A single multi-select facet filter rendered as a checkbox dropdown. Generic
- * over the facet's value type so Type/Phase/Owner/Department all share one
- * keyboard-accessible, token-styled menu. Each toggle hands a brand-new `Set`
- * up via `onToggle` — the parent splices it into a fresh state object.
- */
-function FacetFilterMenu<T extends string>({
-  label,
-  options,
-  selected,
-  onToggle,
-}: Readonly<{
-  label: string;
-  options: ReadonlyArray<{ value: T; label: string }>;
-  selected: ReadonlySet<T>;
-  onToggle: (value: T) => void;
-}>) {
-  const count = selected.size;
-  // Surface the active-selection count in the accessible name (it otherwise
-  // shows only as a visual badge) — mirror the Clear-filters `(N)` pattern.
-  const triggerLabel =
-    count > 0
-      ? `Filter by ${label.toLowerCase()} (${count})`
-      : `Filter by ${label.toLowerCase()}`;
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" aria-label={triggerLabel}>
-          {label}
-          {count > 0 ? (
-            <span
-              data-slot="facet-count"
-              className="ml-1 rounded-full bg-primary px-1.5 text-xs font-medium text-primary-foreground"
-            >
-              {count}
-            </span>
-          ) : null}
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="min-w-44">
-        <DropdownMenuLabel>{label}</DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        {options.map((option) => (
-          <DropdownMenuCheckboxItem
-            key={option.value}
-            checked={selected.has(option.value)}
-            // Keep the menu open across multiple toggles.
-            onSelect={(event) => {
-              event.preventDefault();
-            }}
-            onCheckedChange={() => {
-              onToggle(option.value);
-            }}
-          >
-            {option.label}
-          </DropdownMenuCheckboxItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
 
 /**
  * The Workboard toolbar — search, facet filters, group-by, column visibility,
