@@ -1,0 +1,68 @@
+name: CodeRabbit After Tests
+
+# When Platform Web CI completes successfully on a pull request, ask CodeRabbit
+# to review it. CodeRabbit's app auto-review is disabled on non-default base
+# branches, so stacked PRs (base = a feat/* branch) are otherwise skipped; the
+# "@coderabbitai review" command below runs the review on them anyway, once
+# tests are green. Modeled on harshanandak/forge's coderabbit-after-tests.yml,
+# with harshanandak/scoreeasy's per-SHA dedup + stale-guard, and deliberately
+# NO base-branch filter so feature-base PRs are covered.
+
+on:
+  workflow_run:
+    workflows: ["Platform Web CI"]
+    types: [completed]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  request-review:
+    name: Request CodeRabbit review
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: coderabbit-after-tests-${{ github.event.workflow_run.head_sha }}
+      cancel-in-progress: false
+    steps:
+      - name: Trigger CodeRabbit after Platform Web CI passes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+
+          # Resolve the open PR whose head is this commit. Any base branch — so
+          # stacked PRs are included. (workflow_run.pull_requests can be empty.)
+          pr_number="$(gh api "/repos/$REPO/commits/$HEAD_SHA/pulls" \
+            -H "Accept: application/vnd.github+json" \
+            --jq '[.[] | select(.state == "open")] | first | .number // empty')"
+
+          if [ -z "$pr_number" ]; then
+            echo "No open PR for $HEAD_SHA; nothing to do."
+            exit 0
+          fi
+
+          # Skip stale runs: only act if the PR head is still this commit.
+          current_head="$(gh api "/repos/$REPO/pulls/$pr_number" --jq '.head.sha')"
+          if [ "$current_head" != "$HEAD_SHA" ]; then
+            echo "PR #$pr_number has moved past $HEAD_SHA (now $current_head); skipping."
+            exit 0
+          fi
+
+          # Dedup: request a review only once per commit, even if CI re-runs.
+          marker="<!-- coderabbit-after-tests:$HEAD_SHA -->"
+          if gh api --paginate "/repos/$REPO/issues/$pr_number/comments" \
+            --jq '.[].body' | grep -qF "$marker"; then
+            echo "CodeRabbit review already requested for $HEAD_SHA."
+            exit 0
+          fi
+
+          body="$marker"$'\n\n''@coderabbitai review'
+          gh api --method POST "/repos/$REPO/issues/$pr_number/comments" -f body="$body"
+          echo "Requested CodeRabbit review on PR #$pr_number for $HEAD_SHA."

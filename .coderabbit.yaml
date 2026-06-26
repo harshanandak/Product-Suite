@@ -1,0 +1,18 @@
+# CodeRabbit configuration.
+# Schema: https://storage.googleapis.com/coderabbit_public_assets/schema.v2.json
+#
+# Mirrors harshanandak/forge: auto-review + incremental review on each push.
+# `commit_status` is pinned on so the review lifecycle is visible as a status in
+# the PR checks list (pending "Review in progress" -> success "Review completed")
+# instead of only showing up as a comment.
+#
+# CodeRabbit's GitHub app skips auto-review on base branches other than the
+# default one, so stacked PRs (base != main) would otherwise never get reviewed.
+# The companion workflow .github/workflows/coderabbit-after-tests.yml comments
+# "@coderabbitai review" once CI passes — that command runs the review on those
+# PRs too, after tests are green.
+reviews:
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+  commit_status: true
