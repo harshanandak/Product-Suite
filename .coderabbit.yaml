@@ -16,3 +16,11 @@ reviews:
     enabled: true
     auto_incremental_review: true
   commit_status: true
+  # Solo-dev review gate. `main` requires one approving review, and GitHub won't
+  # let a PR author approve their own PR — so without a second human, every PR is
+  # permanently unmergeable. With this on, CodeRabbit submits a FORMAL review: it
+  # withholds approval (requests changes) while it has unresolved comments, and
+  # APPROVES once they're resolved and no pre-merge checks are failing. That
+  # approval counts toward the required-review rule, so PRs stay gated on a real
+  # review rather than being blocked forever.
+  request_changes_workflow: true
