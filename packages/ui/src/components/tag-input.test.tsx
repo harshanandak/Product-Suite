@@ -6,6 +6,7 @@ import {
   TagInput,
   TagList,
   addTagValue,
+  blurLeavesField,
   removeTagValue,
 } from "./tag-input";
 
@@ -37,6 +38,28 @@ describe("removeTagValue", () => {
 
   test("is a no-op for an absent tag", () => {
     expect(removeTagValue(["a"], "x")).toEqual(["a"]);
+  });
+});
+
+describe("blurLeavesField", () => {
+  const inside = {} as Node;
+  const outside = {} as Node;
+  const root = {
+    contains: (node: Node | null) => node === inside,
+  } as unknown as HTMLElement;
+
+  test("does not commit when focus moves to a control inside the field", () => {
+    // e.g. clicking a tag's remove button must not add the partial draft.
+    expect(blurLeavesField(root, inside)).toBe(false);
+  });
+
+  test("commits when focus leaves the field entirely", () => {
+    expect(blurLeavesField(root, outside)).toBe(true);
+    expect(blurLeavesField(root, null)).toBe(true);
+  });
+
+  test("commits when there is no root node", () => {
+    expect(blurLeavesField(null, inside)).toBe(true);
   });
 });
 

@@ -74,8 +74,14 @@ export function ProvenanceChip({
       )}
     >
       <Icon aria-hidden="true" className="size-3" />
-      <span className="sr-only">{sourceLabel}: </span>
-      {label ?? sourceLabel}
+      {label === undefined ? (
+        sourceLabel
+      ) : (
+        <>
+          <span className="sr-only">{sourceLabel}: </span>
+          {label}
+        </>
+      )}
     </span>
   );
 }

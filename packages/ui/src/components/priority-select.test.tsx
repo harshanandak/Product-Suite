@@ -1,8 +1,8 @@
 import { describe, expect, mock, test } from "bun:test";
-import { createElement } from "react";
+import { createElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { PRIORITY_LABELS, type Priority } from "./priority-badge";
+import { PRIORITY_LABELS } from "./priority-badge";
 import {
   PrioritySelect,
   PRIORITY_SELECT_OPTIONS,
@@ -38,12 +38,17 @@ describe("PrioritySelect", () => {
     }
   });
 
-  test("fires onValueChange with the typed Priority chosen by the user", () => {
+  test("forwards each Priority the underlying Select reports via onValueChange", () => {
     const onValueChange = mock<PrioritySelectProps["onValueChange"]>();
-    const handleSelectChange = (next: Priority) => onValueChange(next);
+    // Read the handler the real component wires onto Radix's `Select` (source
+    // line 67) instead of mounting the portal, then drive it with each option
+    // value — exactly what Radix calls when the user picks an item.
+    const tree = PrioritySelect({ value: "high", onValueChange }) as ReactElement<{
+      onValueChange: (value: string) => void;
+    }>;
 
     for (const { value } of PRIORITY_SELECT_OPTIONS) {
-      handleSelectChange(value);
+      tree.props.onValueChange(value);
     }
 
     expect(onValueChange).toHaveBeenCalledTimes(4);

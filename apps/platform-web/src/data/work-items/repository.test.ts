@@ -90,6 +90,15 @@ describe("createMockWorkItemRepository", () => {
     expect(created.tags).toEqual(["spike"]);
   });
 
+  it("honours the archived flag when creating a work item", async () => {
+    const repo = createMockWorkItemRepository();
+    const created = await repo.create({ archived: true });
+    expect(created.archived).toBe(true);
+
+    const reloaded = (await repo.list()).find((item) => item.id === created.id);
+    expect(reloaded?.archived).toBe(true);
+  });
+
   it("generates a unique id per created work item", async () => {
     const repo = createMockWorkItemRepository();
     const a = await repo.create({});

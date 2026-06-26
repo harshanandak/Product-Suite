@@ -135,7 +135,7 @@ function diffPatch(item: WorkItem, form: EditorForm): WorkItemPatch {
   const patch: WorkItemPatch = {};
 
   const title = form.title.trim();
-  if (title !== item.title) patch.title = title;
+  if (title !== "" && title !== item.title) patch.title = title;
 
   if (form.type !== item.type) patch.type = form.type;
   if (form.phase !== item.phase) patch.phase = form.phase;

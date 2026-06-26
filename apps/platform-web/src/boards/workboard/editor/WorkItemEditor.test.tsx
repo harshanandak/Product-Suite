@@ -212,6 +212,33 @@ describe("WorkItemEditor", () => {
     );
   });
 
+  it("does not patch the title when the field is cleared to empty", async () => {
+    const item = getFixtureItem(); // has a non-empty title
+    const onSave = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <WorkItemEditor
+        item={item}
+        open
+        onOpenChange={vi.fn()}
+        onSave={onSave}
+        owners={getOwners()}
+      />,
+    );
+
+    // Clear the title, then make an unrelated edit so a patch is produced.
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "  " } });
+    fireEvent.change(screen.getByLabelText("Department"), {
+      target: { value: "Platform" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const patch = onSave.mock.calls[0][1];
+    expect(patch).not.toHaveProperty("title");
+    expect(patch).toMatchObject({ department: "Platform" });
+  });
+
   it("closes via Cancel without saving", () => {
     const item = getFixtureItem();
     const onSave = vi.fn();

@@ -81,6 +81,19 @@ describe("AssigneePicker — trigger rendering", () => {
     expect(html).toContain("PK");
   });
 
+  test("rejects an assignee whose id collides with the reserved sentinel", () => {
+    expect(() =>
+      renderToStaticMarkup(
+        createElement(AssigneePicker, {
+          value: null,
+          onValueChange: noop,
+          assignees: [{ id: ASSIGNEE_UNASSIGNED_VALUE, name: "Collision" }],
+          "aria-label": "Owner",
+        }),
+      ),
+    ).toThrow(ASSIGNEE_UNASSIGNED_VALUE);
+  });
+
   test("supports a custom unassigned label", () => {
     const html = renderToStaticMarkup(
       createElement(AssigneePicker, {

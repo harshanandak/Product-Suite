@@ -26,6 +26,10 @@ export interface Assignee {
  * Radix `Select` forbids empty-string item values, so the "Unassigned" option
  * carries this sentinel and is mapped to/from `null` at the component boundary.
  * Exported so tests can assert the mapping without driving the portal.
+ *
+ * This value is reserved: no real {@link Assignee.id} may equal it (it would
+ * round-trip to `null` and become impossible to select). The component rejects
+ * any colliding `assignees` entry up front — see {@link AssigneePicker}.
  */
 export const ASSIGNEE_UNASSIGNED_VALUE = "__unassigned__";
 
@@ -105,6 +109,13 @@ function AssigneePicker({
   unassignedLabel = "Unassigned",
   className,
 }: Readonly<AssigneePickerProps>) {
+  if (assignees.some((a) => a.id === ASSIGNEE_UNASSIGNED_VALUE)) {
+    throw new Error(
+      `AssigneePicker: "${ASSIGNEE_UNASSIGNED_VALUE}" is reserved for the ` +
+        "unassigned option and cannot be used as an assignee id.",
+    );
+  }
+
   const selected = value === null
     ? null
     : (assignees.find((a) => a.id === value) ?? null);

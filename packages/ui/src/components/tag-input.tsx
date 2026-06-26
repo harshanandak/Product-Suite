@@ -82,6 +82,19 @@ export function removeTagValue(
   return tags.filter((t) => t !== tag);
 }
 
+/**
+ * Pure blur predicate: did focus leave the whole field? `false` when focus moved
+ * to a control *inside* `root` (e.g. a tag's remove button) so the draft is not
+ * committed as a stray tag mid-click. Exported for DOM-free unit testing,
+ * matching this package's SSR-only test style.
+ */
+export function blurLeavesField(
+  root: HTMLElement | null,
+  relatedTarget: Node | null,
+): boolean {
+  return root === null || !root.contains(relatedTarget);
+}
+
 export interface TagInputProps {
   /** Current tags (controlled). */
   value: ReadonlyArray<string>;
@@ -121,6 +134,7 @@ function TagInput({
   className,
 }: Readonly<TagInputProps>) {
   const [draft, setDraft] = React.useState("");
+  const rootRef = React.useRef<HTMLDivElement>(null);
 
   const addTag = (raw: string) => {
     const next = addTagValue(value, raw);
@@ -146,9 +160,19 @@ function TagInput({
     }
   };
 
+  // Commit the draft only when focus leaves the whole field — not when it moves
+  // to an internal control (e.g. a remove button), which would add a stray tag.
+  const handleBlur = (event: React.FocusEvent<HTMLDivElement>) => {
+    if (disabled) return;
+    if (!blurLeavesField(rootRef.current, event.relatedTarget)) return;
+    addTag(draft);
+  };
+
   return (
     <div
+      ref={rootRef}
       data-slot="tag-input"
+      onBlur={handleBlur}
       className={cn(
         "flex flex-wrap items-center gap-1 rounded-md border border-input bg-transparent p-1 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50",
         disabled && "cursor-not-allowed opacity-50",
@@ -178,7 +202,6 @@ function TagInput({
         placeholder={placeholder}
         onChange={(event) => setDraft(event.target.value)}
         onKeyDown={handleKeyDown}
-        onBlur={() => addTag(draft)}
         className="h-6 flex-1 border-0 bg-transparent px-1 py-0 shadow-none focus-visible:border-0 focus-visible:ring-0 dark:bg-transparent"
       />
     </div>

@@ -32,11 +32,15 @@ describe("ProvenanceChip", () => {
     }
   });
 
-  test("shows the source label when no custom label is given", () => {
+  test("shows the source label once (no sr-only duplicate) when no custom label is given", () => {
     const html = renderToStaticMarkup(
       createElement(ProvenanceChip, { source: "agent" }),
     );
     expect(html).toContain("Agent");
+    // The fallback must not also emit the sr-only prefix, otherwise screen
+    // readers announce the source twice (e.g. "Agent: Agent").
+    expect(html).not.toContain("sr-only");
+    expect(html).not.toContain("Agent: ");
   });
 
   test("shows the custom label, with the source name kept for screen readers", () => {

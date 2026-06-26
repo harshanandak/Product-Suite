@@ -2,7 +2,7 @@ import { describe, expect, mock, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { PHASE_LABELS, type Phase } from "./phase-pill";
+import { PHASE_LABELS } from "./phase-pill";
 import {
   PhaseSelect,
   PHASE_SELECT_OPTIONS,
@@ -40,12 +40,21 @@ describe("PhaseSelect", () => {
     }
   });
 
-  test("fires onValueChange with the typed Phase chosen by the user", () => {
+  test("forwards the chosen phase through the component's onValueChange boundary", () => {
     const onValueChange = mock<PhaseSelectProps["onValueChange"]>();
-    const handleSelectChange = (next: Phase) => onValueChange(next);
+
+    // `PhaseSelect` is a pure, hook-free component, so rendering it returns the
+    // `<Select>` root whose `onValueChange` is the real forwarding closure
+    // (`(next) => onValueChange(next as Phase)`). Invoking that closure drives
+    // the component boundary directly — the test fails if the source stops
+    // forwarding the selected value — without needing the Radix portal/DOM.
+    const root = PhaseSelect({ value: "plan", onValueChange });
+    const { onValueChange: forward } = root.props as {
+      onValueChange: (value: string) => void;
+    };
 
     for (const { value } of PHASE_SELECT_OPTIONS) {
-      handleSelectChange(value);
+      forward(value);
     }
 
     expect(onValueChange).toHaveBeenCalledTimes(4);
