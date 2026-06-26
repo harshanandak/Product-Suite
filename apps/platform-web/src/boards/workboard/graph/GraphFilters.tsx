@@ -1,4 +1,4 @@
-import { FilterIcon, XIcon } from "lucide-react";
+import { XIcon } from "lucide-react";
 
 import {
   Button,
@@ -102,63 +102,67 @@ export function GraphFilters({
     <div
       role="toolbar"
       aria-label="Graph filters"
-      aria-orientation="horizontal"
-      className="flex flex-wrap items-center gap-2 rounded-lg bg-background/85 p-1.5 shadow-md backdrop-blur supports-[backdrop-filter]:bg-background/65"
+      aria-orientation="vertical"
+      className="flex w-48 flex-col gap-1.5 rounded-lg bg-background/85 p-2 shadow-md backdrop-blur supports-[backdrop-filter]:bg-background/65"
     >
       <Input
         type="search"
         value={value.search}
         aria-label="Search work items"
         placeholder="Search"
-        className="w-44 border-0 bg-muted/60 shadow-none"
+        className="w-full border-0 bg-muted/60 shadow-none"
         onChange={(event) => {
           setSearch(event.target.value);
         }}
       />
-      <span className="inline-flex items-center text-muted-foreground" aria-hidden="true">
-        <FilterIcon className="size-4" />
-      </span>
-      <FacetFilterMenu
-        label="Type"
-        variant="ghost"
-        options={options.type}
-        selected={filters.type}
-        onToggle={toggleType}
-      />
-      <FacetFilterMenu
-        label="Owner"
-        variant="ghost"
-        options={options.owner}
-        selected={filters.owner}
-        onToggle={toggleOwner}
-      />
-      <FacetFilterMenu
-        label="Department"
-        variant="ghost"
-        options={options.department}
-        selected={filters.department}
-        onToggle={toggleDepartment}
-      />
-      <FacetFilterMenu
-        label="Phase"
-        variant="ghost"
-        options={options.phase}
-        selected={filters.phase}
-        onToggle={togglePhase}
-      />
-      <FacetFilterMenu
-        label="Priority"
-        variant="ghost"
-        options={options.priority}
-        selected={filters.priority}
-        onToggle={togglePriority}
-      />
+      {/* Facet triggers stack full-width (label left, count badge right) so the
+          cluster reads as a tidy vertical filter list, not a ragged button row.
+          The dropdown panels are portaled, so this descendant rule never reaches
+          their menu items. */}
+      <div className="flex flex-col gap-0.5 [&_button]:w-full [&_button]:justify-between">
+        <FacetFilterMenu
+          label="Type"
+          variant="ghost"
+          options={options.type}
+          selected={filters.type}
+          onToggle={toggleType}
+        />
+        <FacetFilterMenu
+          label="Owner"
+          variant="ghost"
+          options={options.owner}
+          selected={filters.owner}
+          onToggle={toggleOwner}
+        />
+        <FacetFilterMenu
+          label="Department"
+          variant="ghost"
+          options={options.department}
+          selected={filters.department}
+          onToggle={toggleDepartment}
+        />
+        <FacetFilterMenu
+          label="Phase"
+          variant="ghost"
+          options={options.phase}
+          selected={filters.phase}
+          onToggle={togglePhase}
+        />
+        <FacetFilterMenu
+          label="Priority"
+          variant="ghost"
+          options={options.priority}
+          selected={filters.priority}
+          onToggle={togglePriority}
+        />
+      </div>
       {isActive ? (
         <Button
           variant="ghost"
           size="sm"
           onClick={clearAll}
           aria-label={`Clear filters (${activeFilterCount} active)`}
+          className="w-full justify-start"
         >
           <XIcon className="size-4" />
           Clear

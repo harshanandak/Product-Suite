@@ -13,7 +13,9 @@ import { href, workspaceDisplayName } from "./boards";
  * menu — which keeps the active board across workspaces — is a later lane that
  * the chevron advertises.
  */
-export function WorkspaceSwitcher() {
+export function WorkspaceSwitcher({
+  collapsed = false,
+}: Readonly<{ collapsed?: boolean }> = {}) {
   const { workspace } = useParams({ strict: false });
   const slug = workspace ?? DEFAULT_WORKSPACE;
   const name = workspaceDisplayName(slug);
@@ -28,8 +30,10 @@ export function WorkspaceSwitcher() {
     <Link
       to={href("/w/$workspace", slug)}
       aria-label={`${name} workspace`}
+      title={collapsed ? name : undefined}
       className={cn(
         "flex items-center gap-2 border-b border-sidebar-border px-3 py-2.5 text-sm transition-colors hover:bg-sidebar-accent/50",
+        collapsed && "justify-center px-0",
       )}
     >
       <span
@@ -38,8 +42,14 @@ export function WorkspaceSwitcher() {
       >
         {initials}
       </span>
-      <span className="truncate font-medium text-sidebar-foreground">{name}</span>
-      <ChevronsUpDown className="ml-auto size-4 shrink-0 text-muted-foreground" />
+      {collapsed ? null : (
+        <>
+          <span className="truncate font-medium text-sidebar-foreground">
+            {name}
+          </span>
+          <ChevronsUpDown className="ml-auto size-4 shrink-0 text-muted-foreground" />
+        </>
+      )}
     </Link>
   );
 }

@@ -29,4 +29,16 @@ describe("BoardDock", () => {
     const homeLink = screen.getByRole("link", { name: "Home" });
     expect(homeLink.dataset.active).toBeUndefined();
   });
+
+  it("still renders all five board links when collapsed", async () => {
+    renderWithRouter(
+      <BoardDock workspace="test-ws" activeBoard="workboard" collapsed />,
+      { path: "/w/test-ws/workboard" },
+    );
+
+    const labels = ["Home", "Workboard", "Meeting board", "Canvas board", "Agent board"];
+    for (const label of labels) {
+      expect(await screen.findByRole("link", { name: label })).toBeDefined();
+    }
+  });
 });

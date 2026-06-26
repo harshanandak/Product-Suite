@@ -16,4 +16,13 @@ describe("WorkspaceSwitcher", () => {
     // The name lives inside the switcher's <Link>, which renders as an anchor.
     expect(name.closest("a")).not.toBeNull();
   });
+
+  it("hides the name when collapsed but keeps the link accessible", async () => {
+    renderWithRouter(<WorkspaceSwitcher collapsed />, { path: "/w/test-ws" });
+
+    // The collapsed rail shows only the avatar; the workspace name is dropped.
+    const link = await screen.findByRole("link", { name: "Test WS workspace" });
+    expect(link).toBeInTheDocument();
+    expect(screen.queryByText("Test WS")).not.toBeInTheDocument();
+  });
 });

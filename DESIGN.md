@@ -67,7 +67,8 @@ The sidebar follows the Zen Browser workspace pattern, adapted so the thing bein
 - **Sidebar body — owned entirely by the active board, and stable within it (2026-06-11):** the sidebar shows the board's sections and gets the full sidebar height. It is rendered from one definition per board — navigating to any object inside the board (a work item, a meeting, a canvas, a run) must NOT change the sidebar's options; only switching boards swaps it. Object-level navigation (a meeting's Summary/Transcript, a run's Thread/Actions) lives as tabs inside the content area, never as sidebar mutations.
 - **Filters are not navigation:** filters, grouping, and view options live in the content area's filter bar next to the data they affect. The sidebar contains only places (views, queues, intake), never query state.
 - **Workspace switcher — top of the sidebar:** workspace avatar + name dropdown. Switching workspace keeps the active app.
-- **Top bar:** breadcrumb (`workspace / app / object`), global search, review-queue bell, user menu.
+- **Collapsible rail (2026-06-25):** the whole left rail can be minimized to an icon-only strip via a toggle in the sidebar header. Collapsed entries keep tooltips + programmatic names (the active screen still carries `aria-current="page"`), and the preference persists across reloads (`localStorage` key `ps:sidebar-collapsed`).
+- **Top bar:** global search (Cmd+K palette), review-queue bell, "Ask agent", theme toggle, user menu. *(The breadcrumb originally specified here was removed 2026-06-25 — redundant with the workspace switcher + the active sidebar item.)*
 - **Command palette (Cmd+K)** ships in every build: navigation, actions, and agent delegation. App switching is also `Cmd+1…5`.
 - The bottom dock maps directly to a mobile bottom tab bar — the same five icons, same order, on small screens.
 - Old routes redirect into the workspace-scoped shape; never present two navigation systems at once.

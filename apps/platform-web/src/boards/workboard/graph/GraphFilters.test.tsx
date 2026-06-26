@@ -34,6 +34,11 @@ describe("GraphFilters", () => {
       />,
     );
 
+    // The cluster is a vertical toolbar (stacked filter list, not a button row).
+    expect(
+      screen.getByRole("toolbar", { name: "Graph filters" }),
+    ).toHaveAttribute("aria-orientation", "vertical");
+
     expect(screen.getByLabelText("Search work items")).toBeInTheDocument();
     for (const facet of ["type", "owner", "department", "phase", "priority"]) {
       expect(

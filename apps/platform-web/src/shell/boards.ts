@@ -345,11 +345,11 @@ export interface ResolvedScreen {
   board: BoardDef | null;
   /** The active sidebar item, if the path maps to one. */
   item: SidebarItem | null;
-  /** Breadcrumb title for the current screen. */
+  /** Display title for the current screen (top-bar agent thread + board screen). */
   title: string;
 }
 
-/** Resolve the current screen for breadcrumbs and active highlighting. */
+/** Resolve the current screen for titles and active highlighting. */
 export function resolveScreen(
   pathname: string,
   workspace: string,
