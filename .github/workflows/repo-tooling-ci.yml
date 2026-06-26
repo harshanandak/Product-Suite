@@ -27,30 +27,11 @@ on:
       - ".github/workflows/repo-tooling-ci.yml"
       - ".github/workflows/roadmap-web-ci.yml"
       - ".github/workflows/roadmap-web-playwright.yml"
+  # No `paths` filter here: `repo-tooling` is a REQUIRED status check on main, so
+  # it must run (and report) on EVERY PR. With a paths filter, a PR that touches
+  # none of these paths never starts this workflow, leaving the required check
+  # pending forever and blocking merge (e.g. config-only PRs). The job is fast.
   pull_request:
-    paths:
-      - "README.md"
-      - "CHANGELOG.md"
-      - "docs/**"
-      - "packages/contracts/**"
-      - "packages/sdk/**"
-      - "packages/ui-chat/**"
-      - "packages/ui-canvas/**"
-      - "packages/ui-meeting/**"
-      - "packages/ui-planning/**"
-      - "packages/ui-charting/**"
-      - "services/agent-core/**"
-      - "services/hocuspocus/**"
-      - "test/**"
-      - "scripts/**"
-      - "package.json"
-      - "bun.lock"
-      - ".github/workflows/meeting-api-ci.yml"
-      - ".github/workflows/meeting-api-railway-preview.yml"
-      - ".github/workflows/meeting-web-ci.yml"
-      - ".github/workflows/repo-tooling-ci.yml"
-      - ".github/workflows/roadmap-web-ci.yml"
-      - ".github/workflows/roadmap-web-playwright.yml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

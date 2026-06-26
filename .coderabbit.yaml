@@ -1,0 +1,26 @@
+# CodeRabbit configuration.
+# Schema: https://storage.googleapis.com/coderabbit_public_assets/schema.v2.json
+#
+# Mirrors harshanandak/forge: auto-review + incremental review on each push.
+# `commit_status` is pinned on so the review lifecycle is visible as a status in
+# the PR checks list (pending "Review in progress" -> success "Review completed")
+# instead of only showing up as a comment.
+#
+# CodeRabbit's GitHub app skips auto-review on base branches other than the
+# default one, so stacked PRs (base != main) would otherwise never get reviewed.
+# The companion workflow .github/workflows/coderabbit-after-tests.yml comments
+# "@coderabbitai review" once CI passes — that command runs the review on those
+# PRs too, after tests are green.
+reviews:
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+  commit_status: true
+  # Solo-dev review gate. `main` requires one approving review, and GitHub won't
+  # let a PR author approve their own PR — so without a second human, every PR is
+  # permanently unmergeable. With this on, CodeRabbit submits a FORMAL review: it
+  # withholds approval (requests changes) while it has unresolved comments, and
+  # APPROVES once they're resolved and no pre-merge checks are failing. That
+  # approval counts toward the required-review rule, so PRs stay gated on a real
+  # review rather than being blocked forever.
+  request_changes_workflow: true
