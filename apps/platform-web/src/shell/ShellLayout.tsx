@@ -57,6 +57,9 @@ function ShellChrome() {
   const navigate = useNavigate();
   const [paletteOpen, setPaletteOpen] = React.useState(false);
   const [collapsed, setCollapsed] = React.useState(readSidebarCollapsed);
+  // Transient: while collapsed, hovering or keyboard-focusing the rail flies it
+  // out. Not persisted — only the pinned (collapsed) preference is.
+  const [hovering, setHovering] = React.useState(false);
 
   React.useEffect(() => {
     try {
@@ -72,6 +75,12 @@ function ShellChrome() {
 
   const activeBoard = deriveActiveBoard(pathname, slug);
   const board = getBoard(activeBoard ?? "home");
+
+  // Visually expanded when pinned open (not collapsed) OR while the collapsed
+  // rail is hover/focus-revealed. `overlay` = revealed-but-not-pinned, so it
+  // floats over the content instead of pushing it (the grid column stays 64px).
+  const expanded = !collapsed || hovering;
+  const overlay = collapsed && hovering;
 
   React.useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -109,20 +118,43 @@ function ShellChrome() {
         collapsed ? "grid-cols-[64px_1fr]" : "grid-cols-[220px_1fr]",
       )}
     >
-      <aside className="flex h-screen min-h-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
-        <WorkspaceSwitcher collapsed={collapsed} />
-        <Sidebar
-          board={board}
-          workspace={slug}
-          pathname={pathname}
-          collapsed={collapsed}
-          onToggleCollapse={toggleCollapsed}
-        />
-        <BoardDock
-          workspace={slug}
-          activeBoard={activeBoard}
-          collapsed={collapsed}
-        />
+      {/* The aside is the grid cell (64px collapsed / 220px pinned); the rail
+          panel inside it is absolutely positioned so that, while collapsed, the
+          hover-flyout grows it to 220px OVER the content (the cell stays 64px,
+          so nothing reflows). Hover/focus on the aside drives `hovering`. */}
+      <aside
+        className="relative h-screen"
+        onMouseEnter={() => setHovering(true)}
+        onMouseLeave={() => setHovering(false)}
+        onFocus={() => setHovering(true)}
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            setHovering(false);
+          }
+        }}
+      >
+        <div
+          className={cn(
+            "absolute inset-y-0 left-0 flex h-screen min-h-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-150 ease-out",
+            overlay && "z-50 shadow-2xl",
+          )}
+          style={{ width: expanded ? 220 : 64 }}
+        >
+          <WorkspaceSwitcher collapsed={!expanded} />
+          <Sidebar
+            board={board}
+            workspace={slug}
+            pathname={pathname}
+            collapsed={!expanded}
+            pinned={!collapsed}
+            onToggleCollapse={toggleCollapsed}
+          />
+          <BoardDock
+            workspace={slug}
+            activeBoard={activeBoard}
+            collapsed={!expanded}
+          />
+        </div>
       </aside>
       <div className="flex min-w-0 flex-col">
         <TopBar

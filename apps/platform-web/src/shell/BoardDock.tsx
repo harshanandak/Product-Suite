@@ -5,10 +5,11 @@ import { cn } from "@product-suite/ui";
 import { BOARDS, type BoardId, href } from "./boards";
 
 /**
- * Board dock — bottom of the left rail (DESIGN §2, tier-1 navigation). The same
- * five icons in fixed order on every screen; only the highlight moves. Clicking
- * one switches the entire board (rail config + content). Maps to the mobile tab
- * bar (same icons, same order) on small screens.
+ * Board dock — bottom of the left rail (DESIGN §2, tier-1 navigation). Expanded,
+ * it's the five boards in fixed order with only the highlight moving. Collapsed
+ * (the resting icon rail), it shows ONLY the active board as an indicator; the
+ * other four are revealed when the rail expands (hover/pin) — so the rail stays
+ * calm at rest without a dropdown. Clicking a board switches the whole board.
  */
 export function BoardDock({
   workspace,
@@ -19,6 +20,12 @@ export function BoardDock({
   activeBoard: BoardId | null;
   collapsed?: boolean;
 }>) {
+  // At rest the dock is a single active-board indicator; expanded it's the full
+  // row. Filtering (rather than hiding via CSS) keeps the collapsed accessibility
+  // tree to just the current board.
+  const boards = collapsed
+    ? BOARDS.filter((board) => board.id === activeBoard)
+    : BOARDS;
   return (
     <nav
       aria-label="Boards"
@@ -26,12 +33,10 @@ export function BoardDock({
         // shrink-0 keeps the dock at its natural height; the flex-1 sidebar body
         // above it is the scroll region that absorbs a short viewport.
         "flex shrink-0 border-t border-sidebar-border px-2 py-2",
-        // The five size-9 icons don't fit side by side in the 64px collapsed
-        // rail, so stack them vertically there; spread them out when expanded.
-        collapsed ? "flex-col items-center gap-1" : "items-center justify-between",
+        collapsed ? "items-center justify-center" : "items-center justify-between",
       )}
     >
-      {BOARDS.map((board) => {
+      {boards.map((board) => {
         const Icon = board.icon;
         const active = board.id === activeBoard;
         return (

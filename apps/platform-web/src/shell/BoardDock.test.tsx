@@ -30,15 +30,21 @@ describe("BoardDock", () => {
     expect(homeLink.dataset.active).toBeUndefined();
   });
 
-  it("still renders all five board links when collapsed", async () => {
+  it("shows only the active board when collapsed (others appear on expand)", async () => {
     renderWithRouter(
       <BoardDock workspace="test-ws" activeBoard="workboard" collapsed />,
       { path: "/w/test-ws/workboard" },
     );
 
-    const labels = ["Home", "Workboard", "Meeting board", "Canvas board", "Agent board"];
-    for (const label of labels) {
-      expect(await screen.findByRole("link", { name: label })).toBeDefined();
-    }
+    // At rest the dock is a single active-board indicator; the other four are
+    // revealed only once the rail expands (hover/pin).
+    expect(
+      await screen.findByRole("link", { name: "Workboard" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Home" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "Meeting board" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getAllByRole("link")).toHaveLength(1);
   });
 });
