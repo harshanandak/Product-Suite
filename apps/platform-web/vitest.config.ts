@@ -18,6 +18,12 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     css: false,
+    // Heavy React component tests (the work-item table + editor sheet, and the
+    // React Flow graph) can exceed the 5s default when the monorepo pre-push
+    // gate runs workspace suites concurrently. Match the headroom the rest of
+    // the stack uses so the gate isn't load-flaky.
+    testTimeout: 15000,
+    hookTimeout: 15000,
     include: ["src/**/*.test.{ts,tsx}"],
     setupFiles: ["./src/test/setup.ts"],
     server: {
