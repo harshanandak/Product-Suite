@@ -20,12 +20,6 @@ export function BoardDock({
   activeBoard: BoardId | null;
   collapsed?: boolean;
 }>) {
-  // At rest the dock is a single active-board indicator; expanded it's the full
-  // row. Filtering (rather than hiding via CSS) keeps the collapsed accessibility
-  // tree to just the current board.
-  const boards = collapsed
-    ? BOARDS.filter((board) => board.id === activeBoard)
-    : BOARDS;
   return (
     <nav
       aria-label="Boards"
@@ -36,7 +30,7 @@ export function BoardDock({
         collapsed ? "items-center justify-center" : "items-center justify-between",
       )}
     >
-      {boards.map((board) => {
+      {BOARDS.map((board) => {
         const Icon = board.icon;
         const active = board.id === activeBoard;
         return (
@@ -52,6 +46,11 @@ export function BoardDock({
               active
                 ? "bg-sidebar-accent text-sidebar-accent-foreground"
                 : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",
+              // At rest only the active board shows; the rest stay in the DOM
+              // (accessibility tree + keyboard-focusable, which itself reveals
+              // the rail) but visually hidden until it expands. Keeping them
+              // mounted also means the dock is never empty on board-less routes.
+              collapsed && !active && "sr-only",
             )}
           >
             <Icon className="size-5" />

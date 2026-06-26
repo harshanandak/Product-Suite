@@ -51,8 +51,8 @@ Binding constraints (DESIGN §2, §3 principle 1):
   becomes pin/unpin (label stays "Collapse/Expand sidebar").
 - **`WorkspaceSwitcher`** — unchanged (compact when collapsed).
 - **`BoardDock` → board nav** — two renderings:
-  - *collapsed:* a single, non-interactive active-board indicator (the active board's icon +
-    `title`). Switching happens after expanding — there is no collapsed dropdown.
+  - *collapsed:* a single active-board indicator — the active board's own link (icon + `title`,
+    `aria-current="page"`); the other four are revealed on expand. No collapsed dropdown.
   - *expanded:* the existing five-icon `<nav aria-label="Boards">` row (Links, real navigation),
     active board highlighted. **No dropdown.**
 

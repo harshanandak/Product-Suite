@@ -168,4 +168,80 @@ describe("ShellLayout", () => {
       screen.queryByRole("button", { name: "Collapse sidebar" }),
     ).not.toBeInTheDocument();
   });
+
+  it("stays revealed on mouse-leave while keyboard focus is still inside", async () => {
+    globalThis.localStorage.setItem("ps:sidebar-collapsed", "true");
+    renderWithRouter(<ShellLayout />, { path: "/w/test-ws/workboard" });
+
+    const nav = await screen.findByRole("navigation", {
+      name: "Workboard navigation",
+    });
+    const rail = nav.closest("aside");
+    if (!rail) throw new Error("rail <aside> not found");
+
+    // Keyboard focus reveals the rail...
+    fireEvent.focusIn(screen.getByRole("button", { name: "Expand sidebar" }));
+    expect(within(rail).getByText("Work items")).toBeInTheDocument();
+
+    // ...and a stray mouse-leave must NOT yank it shut (it would drop focus to
+    // <body>). Mouse and focus reveal are tracked independently.
+    fireEvent.mouseLeave(rail);
+    expect(within(rail).getByText("Work items")).toBeInTheDocument();
+  });
+
+  it("collapses immediately when the toggle is clicked with the pointer over the rail", async () => {
+    renderWithRouter(<ShellLayout />, { path: "/w/test-ws/workboard" });
+
+    const nav = await screen.findByRole("navigation", {
+      name: "Workboard navigation",
+    });
+    const rail = nav.closest("aside");
+    if (!rail) throw new Error("rail <aside> not found");
+
+    // Pointer over the rail, then click Collapse: it must commit the collapse,
+    // not float open as an overlay until the mouse happens to leave.
+    fireEvent.mouseEnter(rail);
+    fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+    expect(within(rail).queryByText("Work items")).not.toBeInTheDocument();
+  });
+
+  it("sizes the rail panel and only overlays while hover-revealed", async () => {
+    globalThis.localStorage.setItem("ps:sidebar-collapsed", "true");
+    renderWithRouter(<ShellLayout />, { path: "/w/test-ws/workboard" });
+
+    const nav = await screen.findByRole("navigation", {
+      name: "Workboard navigation",
+    });
+    const rail = nav.closest("aside");
+    if (!rail) throw new Error("rail <aside> not found");
+    const panel = rail.firstElementChild as HTMLElement;
+
+    // Resting collapsed: narrow rail, in-flow (no overlay z-index/shadow).
+    expect(panel.style.width).toBe("64px");
+    expect(panel.className).not.toMatch(/z-50/);
+
+    // Hover-revealed: widened AND lifted to an overlay.
+    fireEvent.mouseEnter(rail);
+    expect(panel.style.width).toBe("220px");
+    expect(panel.className).toMatch(/z-50/);
+
+    // Leave: back to the narrow resting rail.
+    fireEvent.mouseLeave(rail);
+    expect(panel.style.width).toBe("64px");
+  });
+
+  it("pins open at full width without overlaying the content", async () => {
+    // Default (no stored preference) is expanded/pinned.
+    renderWithRouter(<ShellLayout />, { path: "/w/test-ws/workboard" });
+
+    const nav = await screen.findByRole("navigation", {
+      name: "Workboard navigation",
+    });
+    const rail = nav.closest("aside");
+    if (!rail) throw new Error("rail <aside> not found");
+    const panel = rail.firstElementChild as HTMLElement;
+
+    expect(panel.style.width).toBe("220px");
+    expect(panel.className).not.toMatch(/z-50/);
+  });
 });
