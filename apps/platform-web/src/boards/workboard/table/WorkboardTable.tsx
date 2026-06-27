@@ -218,18 +218,25 @@ function commitPatch(
 }
 
 /**
+ * Inline (ghost) select cells hide the dropdown chevron. It is invisible at rest
+ * yet still reserves ~24px (icon + gap) of the narrow cell, starving the badge
+ * value — that was the "Feature" → "Fe" clipping. The ghost hover background
+ * already signals the cell is editable, so in the dense table the chevron is pure
+ * chrome; dropping it returns that width to the value.
+ */
+const INLINE_SELECT_CLASS = "[&>svg]:hidden";
+
+/**
  * The canonical column registry, in {@link COLUMN_IDS} order.
  *
- * Sizing model (the layout fix): the table is a flex grid, so columns are sized
- * by explicit widths, not content. Name is the PRIMARY column — flexible with a
- * 16rem floor so it grows to fill spare space yet NEVER collapses. Tags is a
- * secondary flexible column. Everything else is a compact fixed width. The
- * minimum total stays within the screen's `max-w-6xl` (72rem) shell so nothing
- * clips at rest:
- *   select 2.5 + name 16 + type 6.5 + phase 6.75 + priority 7 + owner 10 +
- *   due 5 + tags 8 + source 6.5 + actions 3 = 71.25rem ≤ 72rem.
- * Narrower viewports scroll horizontally (fixed columns hold, Name/Tags shrink
- * only to their floors) — Name is always legible.
+ * Sizing model: the table is a flex grid, so columns are sized by explicit
+ * widths, not content. Name is the PRIMARY column — flexible with a 16rem floor
+ * so it grows to fill spare space yet NEVER collapses; Tags is a secondary
+ * flexible column. Each fixed column is wide enough for its LONGEST label once
+ * the inline chevron is dropped (Type fits "Research", Phase "Execute", Priority
+ * "Critical"), so values read in full at rest. The screen is full-width, so spare
+ * space flows to Name/Tags; narrower viewports scroll horizontally (fixed columns
+ * hold, Name/Tags shrink only to their floors) — Name is always legible.
  */
 const COLUMN_SPECS: readonly ColumnSpec[] = [
   {
@@ -277,12 +284,13 @@ const COLUMN_SPECS: readonly ColumnSpec[] = [
   {
     id: "type",
     header: "Type",
-    width: "6.5rem",
+    width: "8.5rem",
     render: ({ row, onUpdateItem, ...rest }) =>
       onUpdateItem ? (
         <WorkItemTypeSelect
           size="sm"
           variant="ghost"
+          className={INLINE_SELECT_CLASS}
           value={row.type}
           aria-label={`Type for ${row.title}`}
           onValueChange={(next) =>
@@ -296,12 +304,13 @@ const COLUMN_SPECS: readonly ColumnSpec[] = [
   {
     id: "phase",
     header: "Phase",
-    width: "6.75rem",
+    width: "7.5rem",
     render: ({ row, onUpdateItem, ...rest }) =>
       onUpdateItem ? (
         <PhaseSelect
           size="sm"
           variant="ghost"
+          className={INLINE_SELECT_CLASS}
           value={row.phase}
           aria-label={`Phase for ${row.title}`}
           onValueChange={(next) =>
@@ -315,12 +324,13 @@ const COLUMN_SPECS: readonly ColumnSpec[] = [
   {
     id: "priority",
     header: "Priority",
-    width: "7rem",
+    width: "8rem",
     render: ({ row, onUpdateItem, ...rest }) =>
       onUpdateItem ? (
         <PrioritySelect
           size="sm"
           variant="ghost"
+          className={INLINE_SELECT_CLASS}
           value={row.priority}
           aria-label={`Priority for ${row.title}`}
           onValueChange={(next) =>
@@ -334,7 +344,7 @@ const COLUMN_SPECS: readonly ColumnSpec[] = [
   {
     id: "owner",
     header: "Owner",
-    width: "10rem",
+    width: "11rem",
     render: ({ row, owners, onUpdateItem, ...rest }) => {
       if (onUpdateItem) {
         return (
@@ -342,10 +352,11 @@ const COLUMN_SPECS: readonly ColumnSpec[] = [
             size="sm"
             variant="ghost"
             // Drop AssigneePicker's intrinsic `min-w-40` (160px) floor: it would
-            // overflow the 10rem cell's 144px content box (minus the p-2 cell
-            // padding) and spill into Due. `min-w-0` lets the w-full ghost
-            // trigger fill the cell; long names truncate via the value clamp.
-            className="min-w-0"
+            // overflow the cell's content box (minus the p-2 cell padding) and
+            // spill into Due. `min-w-0` lets the w-full ghost trigger fill the
+            // cell; long names truncate via the value clamp. The shared inline
+            // class also hides the chevron so the avatar+name get the full width.
+            className={cn("min-w-0", INLINE_SELECT_CLASS)}
             value={row.assignee_id}
             assignees={owners}
             aria-label={`Owner for ${row.title}`}
