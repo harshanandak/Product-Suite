@@ -115,8 +115,13 @@ export interface WorkItemTableProps {
   onUpdateItem?: (id: string, patch: WorkItemPatch) => Promise<WorkItem>;
 }
 
-/** Estimated row height (px) for the virtualizer; rows are single-line. */
-const ROW_HEIGHT = 48;
+/**
+ * Row height (px) for the virtualizer; rows are single-line. Tightened for the
+ * compact Notion density: the tallest cell content is an `h-8` (32px) inline
+ * control, and the data cells use `py-1.5` (2×6px) → 32 + 12 = 44, so a row
+ * never exceeds this slot and overlaps its virtualized neighbour.
+ */
+const ROW_HEIGHT = 44;
 /** Extra rows rendered above/below the viewport to smooth fast scrolling. */
 const OVERSCAN = 8;
 /** Width (rem) of the always-present leading selection column. */
@@ -128,16 +133,36 @@ const SKELETON_KEYS = ["s1", "s2", "s3", "s4", "s5", "s6"] as const;
 /** Em-dash placeholder for empty read-only cells. */
 const EMPTY = "—";
 
+/** Month abbreviations for the compact Due display, indexed 0 = Jan. */
+const DUE_MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+] as const;
+
 /**
- * Format an ISO-8601 `due_date` for the read-only Due column. Slices the date
- * portion of the ISO string rather than `toLocaleDateString` so the rendered
- * text is locale-stable (CI / test determinism); `null` → em-dash.
+ * Format an ISO-8601 `due_date` for the read-only Due column as a compact
+ * "Mon D" label (e.g. `2026-07-10` → "Jul 10"). Parses the ISO date parts by
+ * hand rather than `toLocaleDateString` so the rendered text is locale-stable
+ * (CI / test determinism); `null` → em-dash, and any unexpected shape falls back
+ * to the sliced ISO date.
  */
 function formatDue(due: string | null): string {
   if (due === null) return EMPTY;
-  // ISO-8601 → `YYYY-MM-DD` (the substring before `T`); fall back to the raw
-  // value if it is not in the expected shape.
-  return due.slice(0, 10);
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(due);
+  if (match === null) return due.slice(0, 10);
+  const month = DUE_MONTHS[Number(match[2]) - 1];
+  if (month === undefined) return due.slice(0, 10);
+  return `${month} ${Number(match[3])}`;
 }
 
 /**
@@ -149,8 +174,24 @@ function formatDue(due: string | null): string {
 interface ColumnSpec {
   readonly id: ColumnId;
   readonly header: string;
-  /** Fixed width; `"auto"` flexes to fill (the Name column). */
+  /**
+   * Column width. For a content-sized (fixed) column this is the exact width.
+   * For a flexible column (`grow` set) it is the flex-basis the column starts
+   * from before growing into spare space.
+   */
   readonly width: string;
+  /**
+   * When set, the column flexes: `flex: <grow> 1 <width>`. The weight controls
+   * how aggressively it claims spare space relative to other flexible columns
+   * (Name uses 2, Tags 1, so Name grows twice as fast). Fixed columns omit this
+   * and never grow or shrink (`flex: 0 0 auto`).
+   */
+  readonly grow?: number;
+  /**
+   * Hard floor for a flexible column so it can never collapse (the Name column's
+   * raison d'être). Defaults to `width` when omitted.
+   */
+  readonly minWidth?: string;
   /** When true, the header and cell are right-aligned (numeric/date columns). */
   readonly alignRight?: boolean;
   readonly render: (ctx: ColumnRenderContext) => React.ReactNode;
@@ -176,12 +217,27 @@ function commitPatch(
   ctx.onUpdateItem?.(ctx.row.id, patch).catch(() => undefined);
 }
 
-/** The canonical column registry, in {@link COLUMN_IDS} order. */
+/**
+ * The canonical column registry, in {@link COLUMN_IDS} order.
+ *
+ * Sizing model (the layout fix): the table is a flex grid, so columns are sized
+ * by explicit widths, not content. Name is the PRIMARY column — flexible with a
+ * 16rem floor so it grows to fill spare space yet NEVER collapses. Tags is a
+ * secondary flexible column. Everything else is a compact fixed width. The
+ * minimum total stays within the screen's `max-w-6xl` (72rem) shell so nothing
+ * clips at rest:
+ *   select 2.5 + name 16 + type 6.5 + phase 6.75 + priority 7 + owner 10 +
+ *   due 5 + tags 8 + source 6.5 + actions 3 = 71.25rem ≤ 72rem.
+ * Narrower viewports scroll horizontally (fixed columns hold, Name/Tags shrink
+ * only to their floors) — Name is always legible.
+ */
 const COLUMN_SPECS: readonly ColumnSpec[] = [
   {
     id: "name",
     header: "Name",
-    width: "auto",
+    width: "16rem",
+    grow: 2,
+    minWidth: "16rem",
     render: ({ row, onSelectItem }) => (
       <div className="flex min-w-0 items-center gap-1.5">
         <button
@@ -221,11 +277,12 @@ const COLUMN_SPECS: readonly ColumnSpec[] = [
   {
     id: "type",
     header: "Type",
-    width: "9rem",
+    width: "6.5rem",
     render: ({ row, onUpdateItem, ...rest }) =>
       onUpdateItem ? (
         <WorkItemTypeSelect
           size="sm"
+          variant="ghost"
           value={row.type}
           aria-label={`Type for ${row.title}`}
           onValueChange={(next) =>
@@ -239,11 +296,12 @@ const COLUMN_SPECS: readonly ColumnSpec[] = [
   {
     id: "phase",
     header: "Phase",
-    width: "9rem",
+    width: "6.75rem",
     render: ({ row, onUpdateItem, ...rest }) =>
       onUpdateItem ? (
         <PhaseSelect
           size="sm"
+          variant="ghost"
           value={row.phase}
           aria-label={`Phase for ${row.title}`}
           onValueChange={(next) =>
@@ -257,11 +315,12 @@ const COLUMN_SPECS: readonly ColumnSpec[] = [
   {
     id: "priority",
     header: "Priority",
-    width: "9rem",
+    width: "7rem",
     render: ({ row, onUpdateItem, ...rest }) =>
       onUpdateItem ? (
         <PrioritySelect
           size="sm"
+          variant="ghost"
           value={row.priority}
           aria-label={`Priority for ${row.title}`}
           onValueChange={(next) =>
@@ -275,12 +334,18 @@ const COLUMN_SPECS: readonly ColumnSpec[] = [
   {
     id: "owner",
     header: "Owner",
-    width: "12rem",
+    width: "10rem",
     render: ({ row, owners, onUpdateItem, ...rest }) => {
       if (onUpdateItem) {
         return (
           <AssigneePicker
             size="sm"
+            variant="ghost"
+            // Drop AssigneePicker's intrinsic `min-w-40` (160px) floor: it would
+            // overflow the 10rem cell's 144px content box (minus the p-2 cell
+            // padding) and spill into Due. `min-w-0` lets the w-full ghost
+            // trigger fill the cell; long names truncate via the value clamp.
+            className="min-w-0"
             value={row.assignee_id}
             assignees={owners}
             aria-label={`Owner for ${row.title}`}
@@ -304,7 +369,7 @@ const COLUMN_SPECS: readonly ColumnSpec[] = [
   {
     id: "due",
     header: "Due",
-    width: "8rem",
+    width: "5rem",
     alignRight: true,
     render: ({ row }) => (
       <span className="block w-full text-right text-muted-foreground">
@@ -315,12 +380,19 @@ const COLUMN_SPECS: readonly ColumnSpec[] = [
   {
     id: "tags",
     header: "Tags",
-    width: "14rem",
+    width: "10rem",
+    grow: 1,
+    minWidth: "8rem",
     render: ({ row, onUpdateItem, ...rest }) =>
       onUpdateItem ? (
         <TagInput
           value={row.tags}
+          variant="ghost"
           aria-label={`Tags for ${row.title}`}
+          // Single-line in the cell: chips never wrap to a second row (which
+          // would exceed ROW_HEIGHT and overlap the virtualized neighbour);
+          // overflow is clipped, the editor shows the full set.
+          className="w-full flex-nowrap overflow-hidden"
           onValueChange={(next) =>
             commitPatch({ row, onUpdateItem, ...rest }, { tags: next })
           }
@@ -332,7 +404,7 @@ const COLUMN_SPECS: readonly ColumnSpec[] = [
   {
     id: "source",
     header: "Source",
-    width: "9rem",
+    width: "6.5rem",
     // Tooltip surfaces the source name behind the otherwise icon-only chip.
     render: ({ row }) => (
       <Tooltip>
@@ -444,11 +516,25 @@ function LoadingSkeleton() {
   );
 }
 
-/** Style for a header/body cell of the given width (flex layout, see jsdoc). */
+/** Fixed-width cell style (selection + actions columns never flex). */
 function cellStyle(width: string): React.CSSProperties {
-  return width === "auto"
-    ? { flex: "1 1 auto" }
-    : { width, flex: "0 0 auto" };
+  return { width, flex: "0 0 auto" };
+}
+
+/**
+ * Header/body cell style for a DATA column. Flexible columns (`grow` set) grow
+ * into spare space from their `width` basis but never shrink past `minWidth`;
+ * fixed columns hold their `width` exactly. The same style is applied to the
+ * header and every body cell of the column, so they stay perfectly aligned.
+ */
+function columnStyle(column: ColumnSpec): React.CSSProperties {
+  if (column.grow !== undefined) {
+    return {
+      flex: `${column.grow} 1 ${column.width}`,
+      minWidth: column.minWidth ?? column.width,
+    };
+  }
+  return { width: column.width, flex: "0 0 auto" };
 }
 
 /** Width (rem) of the trailing row-actions column (only when a mutator wires). */
@@ -642,9 +728,12 @@ export function WorkboardTable({
   return (
     <TooltipProvider>
     <div className="flex flex-col gap-3">
+      {/* Flat / borderless chrome (Notion-style): no outer card frame. Rows are
+          separated only by the primitives' hairline `border-b` and a light
+          hover highlight; the sticky header carries its own bottom hairline. */}
       <div
         ref={scrollRef}
-        className="relative max-h-[75vh] overflow-auto rounded-lg border"
+        className="relative max-h-[75vh] overflow-auto"
       >
         <Table
           role="table"
@@ -671,7 +760,7 @@ export function WorkboardTable({
                   role="columnheader"
                   aria-colindex={columnIndex + 2}
                   className={column.alignRight ? "text-right" : undefined}
-                  style={cellStyle(column.width)}
+                  style={columnStyle(column)}
                 >
                   {column.header}
                 </TableHead>
@@ -777,8 +866,14 @@ export function WorkboardTable({
                       key={column.id}
                       role="cell"
                       aria-colindex={columnIndex + 2}
-                      className={column.width === "auto" ? "overflow-hidden" : undefined}
-                      style={cellStyle(column.width)}
+                      // `py-1.5` tightens the row to the compact 44px slot.
+                      // Flexible columns (Name, Tags) clip overflow so a long
+                      // value truncates within the cell instead of pushing width.
+                      className={cn(
+                        "py-1.5",
+                        column.grow !== undefined && "overflow-hidden",
+                      )}
+                      style={columnStyle(column)}
                     >
                       {column.id === "name" && isArchived ? (
                         <span className="flex min-w-0 items-center gap-2">

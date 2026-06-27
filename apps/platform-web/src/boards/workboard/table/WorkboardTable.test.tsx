@@ -264,8 +264,8 @@ describe("WorkboardTable", () => {
     );
     // Source renders a ProvenanceChip carrying a data-source attribute.
     expect(document.querySelectorAll("[data-source]").length).toBeGreaterThan(0);
-    // wi_auth's due_date 2026-07-10 surfaces as the sliced ISO date somewhere.
-    expect(screen.getByText("2026-07-10")).toBeInTheDocument();
+    // wi_auth's due_date 2026-07-10 surfaces as the compact "Mon D" label.
+    expect(screen.getByText("Jul 10")).toBeInTheDocument();
     expect(row).toBeTruthy();
   });
 
@@ -709,5 +709,33 @@ describe("WorkboardTable", () => {
     );
     // Opening the menu must not bubble to a row-open.
     expect(onSelectItem).not.toHaveBeenCalled();
+  });
+
+  it("wires the inline editors as borderless ghost controls showing badges", async () => {
+    const rows = await loadRows();
+    renderTable({ rows, onUpdateItem: makeUpdateMock(rows) });
+
+    await screen.findAllByTestId("work-item-row");
+
+    // Ghost chrome is forwarded onto the inline select triggers…
+    const phase = screen.getByRole("combobox", {
+      name: "Phase for Workspace auth hardening",
+    });
+    expect(phase).toHaveAttribute("data-variant", "ghost");
+    // …and the phase value reads as the canonical PhasePill (a data-phase badge)
+    // rendered INSIDE the trigger rather than as bare combobox text.
+    expect(phase.querySelector("[data-phase]")).not.toBeNull();
+
+    // Type and priority cells likewise show their badges inside ghost triggers.
+    expect(
+      screen
+        .getByRole("combobox", { name: "Type for Workspace auth hardening" })
+        .querySelector("[data-type]"),
+    ).not.toBeNull();
+    expect(
+      screen
+        .getByRole("combobox", { name: "Priority for Workspace auth hardening" })
+        .querySelector("[data-priority]"),
+    ).not.toBeNull();
   });
 });

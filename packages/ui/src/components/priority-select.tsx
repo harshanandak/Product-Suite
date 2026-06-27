@@ -8,6 +8,7 @@ import {
 import {
   PRIORITY_LABELS,
   PRIORITY_ORDER,
+  PriorityBadge,
   type Priority,
 } from "#components/priority-badge";
 
@@ -34,6 +35,12 @@ export interface PrioritySelectProps {
   disabled?: boolean;
   /** Trigger height, forwarded to `SelectTrigger`. */
   size?: "sm" | "default";
+  /**
+   * Trigger chrome, forwarded to `SelectTrigger`. `ghost` renders the value as a
+   * borderless {@link PriorityBadge} (Notion-style inline table cell); `default`
+   * keeps the bordered control.
+   */
+  variant?: "default" | "ghost";
   /** Placeholder shown by `SelectValue` (rarely visible — `value` is required). */
   placeholder?: string;
   /** Extra classes merged onto the trigger. */
@@ -58,6 +65,7 @@ function PrioritySelect({
   "aria-label": ariaLabel,
   disabled,
   size = "default",
+  variant = "default",
   placeholder = "Select priority",
   className,
 }: Readonly<PrioritySelectProps>) {
@@ -72,9 +80,16 @@ function PrioritySelect({
         id={id}
         aria-label={ariaLabel}
         size={size}
+        variant={variant}
         className={className}
       >
-        <SelectValue placeholder={placeholder} />
+        {variant === "ghost" ? (
+          <SelectValue placeholder={placeholder}>
+            <PriorityBadge priority={value} />
+          </SelectValue>
+        ) : (
+          <SelectValue placeholder={placeholder} />
+        )}
       </SelectTrigger>
       <SelectContent data-slot="priority-select-content">
         {PRIORITY_SELECT_OPTIONS.map(({ value: priority, label }) => (

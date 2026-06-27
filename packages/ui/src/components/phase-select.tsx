@@ -5,7 +5,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "#components/select"
-import { PHASE_LABELS, type Phase } from "#components/phase-pill"
+import { PHASE_LABELS, PhasePill, type Phase } from "#components/phase-pill"
 
 /** Phases in canonical loop order: plan → execute → review → done. */
 const PHASE_ORDER: readonly Phase[] = ["plan", "execute", "review", "done"]
@@ -31,6 +31,12 @@ export interface PhaseSelectProps {
   disabled?: boolean
   /** Trigger height, forwarded to `SelectTrigger`. */
   size?: "sm" | "default"
+  /**
+   * Trigger chrome, forwarded to `SelectTrigger`. `ghost` renders the value as a
+   * borderless {@link PhasePill} (Notion-style inline table cell); `default`
+   * keeps the bordered control.
+   */
+  variant?: "default" | "ghost"
   /** Placeholder shown by `SelectValue` (rarely visible — `value` is required). */
   placeholder?: string
   /** Extra classes merged onto the trigger. */
@@ -55,6 +61,7 @@ function PhaseSelect({
   "aria-label": ariaLabel,
   disabled,
   size = "default",
+  variant = "default",
   placeholder = "Select phase",
   className,
 }: Readonly<PhaseSelectProps>) {
@@ -69,9 +76,16 @@ function PhaseSelect({
         id={id}
         aria-label={ariaLabel}
         size={size}
+        variant={variant}
         className={className}
       >
-        <SelectValue placeholder={placeholder} />
+        {variant === "ghost" ? (
+          <SelectValue placeholder={placeholder}>
+            <PhasePill phase={value} />
+          </SelectValue>
+        ) : (
+          <SelectValue placeholder={placeholder} />
+        )}
       </SelectTrigger>
       <SelectContent data-slot="phase-select-content">
         {PHASE_SELECT_OPTIONS.map(({ value: phase, label }) => (

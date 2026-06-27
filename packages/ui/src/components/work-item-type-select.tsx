@@ -8,6 +8,7 @@ import {
 import {
   WORK_ITEM_TYPE_LABELS,
   WORK_ITEM_TYPE_ORDER,
+  WorkItemTypeBadge,
   type WorkItemType,
 } from "#components/work-item-type-badge";
 
@@ -37,6 +38,12 @@ export interface WorkItemTypeSelectProps {
   disabled?: boolean;
   /** Trigger height, forwarded to `SelectTrigger`. */
   size?: "sm" | "default";
+  /**
+   * Trigger chrome, forwarded to `SelectTrigger`. `ghost` renders the value as a
+   * borderless {@link WorkItemTypeBadge} (Notion-style inline table cell);
+   * `default` keeps the bordered control.
+   */
+  variant?: "default" | "ghost";
   /** Placeholder shown by `SelectValue` (rarely visible — `value` is required). */
   placeholder?: string;
   /** Extra classes merged onto the trigger. */
@@ -61,6 +68,7 @@ function WorkItemTypeSelect({
   "aria-label": ariaLabel,
   disabled,
   size = "default",
+  variant = "default",
   placeholder = "Select type",
   className,
 }: Readonly<WorkItemTypeSelectProps>) {
@@ -75,9 +83,16 @@ function WorkItemTypeSelect({
         id={id}
         aria-label={ariaLabel}
         size={size}
+        variant={variant}
         className={className}
       >
-        <SelectValue placeholder={placeholder} />
+        {variant === "ghost" ? (
+          <SelectValue placeholder={placeholder}>
+            <WorkItemTypeBadge type={value} />
+          </SelectValue>
+        ) : (
+          <SelectValue placeholder={placeholder} />
+        )}
       </SelectTrigger>
       <SelectContent data-slot="work-item-type-select-content">
         {WORK_ITEM_TYPE_SELECT_OPTIONS.map(({ value: type, label }) => (

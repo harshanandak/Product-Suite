@@ -116,4 +116,34 @@ describe("TagInput", () => {
     );
     expect(html).toContain("disabled");
   });
+
+  test("default variant keeps the bordered field", () => {
+    const html = renderToStaticMarkup(
+      createElement(TagInput, {
+        value: ["supplier"],
+        onValueChange: noop,
+        "aria-label": "Tags",
+      }),
+    );
+    expect(html).toContain('data-variant="default"');
+    expect(html).toContain("border-input");
+  });
+
+  test("ghost variant is borderless and reveals each tag's ✕ on hover", () => {
+    const html = renderToStaticMarkup(
+      createElement(TagInput, {
+        value: ["supplier"],
+        onValueChange: noop,
+        "aria-label": "Tags",
+        variant: "ghost",
+      }),
+    );
+    expect(html).toContain('data-variant="ghost"');
+    // Flat chrome on the field: transparent border + subtle hover surface.
+    expect(html).toContain("border-transparent");
+    expect(html).toContain("hover:bg-accent/50");
+    // The remove control is present but hidden until the chip is hovered/focused.
+    expect(html).toContain('aria-label="Remove supplier"');
+    expect(html).toContain("group-hover/tag:opacity-100");
+  });
 });

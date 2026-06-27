@@ -106,4 +106,32 @@ describe("AssigneePicker — trigger rendering", () => {
     );
     expect(html).toContain("No owner");
   });
+
+  test("ghost variant renders a borderless trigger keeping the avatar+name", () => {
+    const html = renderToStaticMarkup(
+      createElement(AssigneePicker, {
+        value: "u1",
+        onValueChange: noop,
+        assignees: PEOPLE,
+        "aria-label": "Owner",
+        variant: "ghost",
+      }),
+    );
+    // Ghost chrome is advertised…
+    expect(html).toContain('data-variant="ghost"');
+    // …while the avatar+name display is unchanged.
+    expect(html).toContain("Harsha Nanda");
+  });
+
+  test("default variant keeps the bordered trigger chrome", () => {
+    const html = renderToStaticMarkup(
+      createElement(AssigneePicker, {
+        value: "u1",
+        onValueChange: noop,
+        assignees: PEOPLE,
+        "aria-label": "Owner",
+      }),
+    );
+    expect(html).toContain('data-variant="default"');
+  });
 });

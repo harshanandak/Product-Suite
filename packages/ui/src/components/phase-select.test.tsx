@@ -93,4 +93,29 @@ describe("PhaseSelect", () => {
 
     expect(html).toContain('data-size="sm"');
   });
+
+  test("ghost variant renders the value as a borderless PhasePill", () => {
+    const html = renderToStaticMarkup(
+      createElement(PhaseSelect, {
+        value: "review",
+        onValueChange: noop,
+        variant: "ghost",
+      }),
+    );
+
+    // The trigger advertises ghost chrome…
+    expect(html).toContain('data-variant="ghost"');
+    // …and shows the canonical PhasePill (its data-phase attribute + label).
+    expect(html).toContain('data-phase="review"');
+    expect(html).toContain("Review");
+  });
+
+  test("default variant stays bordered and renders no PhasePill", () => {
+    const html = renderToStaticMarkup(
+      createElement(PhaseSelect, { value: "review", onValueChange: noop }),
+    );
+
+    expect(html).toContain('data-variant="default"');
+    expect(html).not.toContain("data-phase=");
+  });
 });

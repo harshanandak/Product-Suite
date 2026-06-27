@@ -72,6 +72,12 @@ export interface AssigneePickerProps {
   disabled?: boolean;
   /** Trigger height, forwarded to `SelectTrigger`. */
   size?: "sm" | "default";
+  /**
+   * Trigger chrome, forwarded to `SelectTrigger`. `ghost` is flat/borderless for
+   * Notion-style inline table cells (the avatar+name display is unchanged);
+   * `default` keeps the bordered control.
+   */
+  variant?: "default" | "ghost";
   /** Label for the unassigned option / placeholder. */
   unassignedLabel?: string;
   /** Extra classes merged onto the trigger. */
@@ -106,6 +112,7 @@ function AssigneePicker({
   "aria-label": ariaLabel,
   disabled,
   size = "default",
+  variant = "default",
   unassignedLabel = "Unassigned",
   className,
 }: Readonly<AssigneePickerProps>) {
@@ -133,6 +140,7 @@ function AssigneePicker({
         id={id}
         aria-label={ariaLabel}
         size={size}
+        variant={variant}
         className={cn("min-w-40", className)}
       >
         <SelectValue placeholder={unassignedLabel}>

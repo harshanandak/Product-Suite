@@ -87,4 +87,27 @@ describe("PrioritySelect", () => {
 
     expect(html).toContain('data-size="sm"');
   });
+
+  test("ghost variant renders the value as a borderless PriorityBadge", () => {
+    const html = renderToStaticMarkup(
+      createElement(PrioritySelect, {
+        value: "critical",
+        onValueChange: noop,
+        variant: "ghost",
+      }),
+    );
+
+    expect(html).toContain('data-variant="ghost"');
+    expect(html).toContain('data-priority="critical"');
+    expect(html).toContain("Critical");
+  });
+
+  test("default variant stays bordered and renders no PriorityBadge", () => {
+    const html = renderToStaticMarkup(
+      createElement(PrioritySelect, { value: "critical", onValueChange: noop }),
+    );
+
+    expect(html).toContain('data-variant="default"');
+    expect(html).not.toContain("data-priority=");
+  });
 });
