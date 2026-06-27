@@ -13,14 +13,23 @@ import { BOARDS, type BoardId, href } from "./boards";
 export function BoardDock({
   workspace,
   activeBoard,
+  collapsed = false,
 }: Readonly<{
   workspace: string;
   activeBoard: BoardId | null;
+  collapsed?: boolean;
 }>) {
   return (
     <nav
       aria-label="Boards"
-      className="flex items-center justify-between border-t border-sidebar-border px-2 py-2"
+      className={cn(
+        // shrink-0 keeps the dock at its natural height; the flex-1 sidebar body
+        // above it is the scroll region that absorbs a short viewport.
+        "flex shrink-0 border-t border-sidebar-border px-2 py-2",
+        // The five size-9 icons don't fit side by side in the 64px collapsed
+        // rail, so stack them vertically there; spread them out when expanded.
+        collapsed ? "flex-col items-center gap-1" : "items-center justify-between",
+      )}
     >
       {BOARDS.map((board) => {
         const Icon = board.icon;
