@@ -255,7 +255,9 @@ export function WorkboardScreen({
         selectedCount={filterState.selection.size}
         onNewItem={handleNewItem}
         onBulkApply={handleBulkApply}
-        onResetColumnWidths={handleResetColumnWidths}
+        onResetColumnWidths={
+          view === "table" ? handleResetColumnWidths : undefined
+        }
       />
 
       {noItems ? (

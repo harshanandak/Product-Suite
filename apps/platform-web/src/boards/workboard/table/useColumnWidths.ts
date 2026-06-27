@@ -257,6 +257,11 @@ export function useColumnWidths(
     [commit, defaultWidthOf, minWidthOf],
   );
 
+  // Teardown for the in-flight drag, so an unmount mid-drag can detach the window
+  // listeners + restore page chrome (a drag that never releases otherwise leaks
+  // listeners and leaves document.body cursor:col-resize / userSelect:none).
+  const activeTeardownRef = React.useRef<(() => void) | null>(null);
+
   const onPointerResizeStart = React.useCallback(
     (id: ColumnId, event: React.PointerEvent): void => {
       const container = containerRef.current;
@@ -297,17 +302,39 @@ export function useColumnWidths(
       const handleUp = (): void => {
         window.removeEventListener("pointermove", handleMove);
         window.removeEventListener("pointerup", handleUp);
+        window.removeEventListener("pointercancel", handleUp);
         if (frame !== 0) cancelAnimationFrame(frame);
         dragRef.current = null;
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
+        activeTeardownRef.current = null;
         commit(id, latest);
       };
 
       window.addEventListener("pointermove", handleMove);
       window.addEventListener("pointerup", handleUp);
+      // A pointercancel (touch/pen interruption, or an OS gesture) never fires
+      // pointerup, so route it through the same teardown.
+      window.addEventListener("pointercancel", handleUp);
+      // Unmounting mid-drag detaches the listeners + restores chrome (no commit —
+      // the component is going away).
+      activeTeardownRef.current = (): void => {
+        window.removeEventListener("pointermove", handleMove);
+        window.removeEventListener("pointerup", handleUp);
+        window.removeEventListener("pointercancel", handleUp);
+        if (frame !== 0) cancelAnimationFrame(frame);
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+      };
     },
     [commit, defaultWidthOf, minWidthOf, tableWidth, widths],
+  );
+
+  React.useEffect(
+    () => () => {
+      activeTeardownRef.current?.();
+    },
+    [],
   );
 
   const onKeyResize = React.useCallback(
