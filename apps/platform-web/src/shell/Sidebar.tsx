@@ -143,6 +143,9 @@ export function Sidebar({
                   active
                     ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
                     : "text-sidebar-foreground hover:bg-sidebar-accent/50",
+                  // Nested items indent under their parent (e.g. Graph beneath
+                  // Work items). The collapsed `px-0` below intentionally wins.
+                  item.nested && "pl-7",
                   collapsed && "justify-center gap-0 px-0",
                 )}
               >

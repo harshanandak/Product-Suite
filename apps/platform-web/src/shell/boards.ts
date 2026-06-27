@@ -55,6 +55,13 @@ export interface SidebarItem {
   section?: boolean;
   /** Wired in the IA but not implemented in F1 — surfaces a toast. */
   prototypeOnly?: boolean;
+  /**
+   * Rendered indented beneath the item directly above it, to show it belongs to
+   * that item's subtree (e.g. Graph nested under Work items). Purely visual — the
+   * item still lives flat in `items`, so routing, active-matching, and
+   * {@link resolveScreen} titles are all unchanged.
+   */
+  nested?: boolean;
 }
 
 export interface BoardDef {
@@ -112,6 +119,9 @@ export const BOARDS: BoardDef[] = [
         label: "Graph",
         to: "/w/$workspace/workboard/graph",
         icon: Network,
+        // The dependency graph is a lens ON the work items, so it nests under
+        // "Work items" in the rail rather than reading as a sibling board screen.
+        nested: true,
       },
       {
         key: "strategy",
