@@ -1,5 +1,20 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import {
   COLUMN_IDS,
@@ -176,6 +191,12 @@ function renderTable(overrides: Partial<WorkItemTableProps> = {}) {
   };
   return { props, ...render(<WorkboardTable {...props} />) };
 }
+
+// Column-width persistence reads localStorage on mount; isolate every test from
+// any width a prior resize test committed so each seeds the canonical defaults.
+beforeEach(() => {
+  window.localStorage.clear();
+});
 
 describe("WorkboardTable", () => {
   it("renders a skeleton while loading", () => {
@@ -757,5 +778,78 @@ describe("WorkboardTable", () => {
         .getByRole("combobox", { name: "Priority for Workspace auth hardening" })
         .querySelector("[data-priority]"),
     ).not.toBeNull();
+  });
+
+  // --- Resizable columns --------------------------------------------------
+
+  it("renders a resize handle (separator) on a data column header", async () => {
+    const rows = await loadRows();
+    renderTable({ rows });
+
+    const handle = await screen.findByRole("separator", {
+      name: "Resize Name column",
+    });
+    expect(handle).toHaveAttribute("aria-orientation", "vertical");
+    // Seeded from the Name ColumnSpec default (16rem → 256px), floored at 256.
+    expect(handle).toHaveAttribute("aria-valuenow", "256");
+    expect(handle).toHaveAttribute("aria-valuemin", "256");
+    expect(handle).toHaveAttribute("aria-valuemax", "720");
+  });
+
+  it("widens a column on ArrowRight and persists the new width", async () => {
+    const rows = await loadRows();
+    renderTable({ rows });
+
+    const handle = await screen.findByRole("separator", {
+      name: "Resize Name column",
+    });
+    fireEvent.keyDown(handle, { key: "ArrowRight" });
+
+    // One +16 step from the 256px default; committed state drives aria-valuenow.
+    expect(handle).toHaveAttribute("aria-valuenow", "272");
+    expect(window.localStorage.getItem("workboard.table.colw.v1.name")).toBe(
+      "272",
+    );
+  });
+
+  it("clamps a column at its minimum width", async () => {
+    const rows = await loadRows();
+    renderTable({ rows });
+
+    // Tags has a min (8rem → 128) below its default (10rem → 160), so the floor
+    // is observable: Home snaps to the min, then ArrowLeft cannot go below it.
+    const handle = await screen.findByRole("separator", {
+      name: "Resize Tags column",
+    });
+    fireEvent.keyDown(handle, { key: "Home" });
+    expect(handle).toHaveAttribute("aria-valuenow", "128");
+    fireEvent.keyDown(handle, { key: "ArrowLeft" });
+    expect(handle).toHaveAttribute("aria-valuenow", "128");
+  });
+
+  it("reset() restores defaults and clears the persisted keys", async () => {
+    const rows = await loadRows();
+    const resetColumnWidthsRef: { current: (() => void) | null } = {
+      current: null,
+    };
+    renderTable({ rows, resetColumnWidthsRef });
+
+    const handle = await screen.findByRole("separator", {
+      name: "Resize Name column",
+    });
+    fireEvent.keyDown(handle, { key: "ArrowRight" });
+    expect(handle).toHaveAttribute("aria-valuenow", "272");
+    expect(window.localStorage.getItem("workboard.table.colw.v1.name")).toBe(
+      "272",
+    );
+
+    act(() => {
+      resetColumnWidthsRef.current?.();
+    });
+
+    expect(handle).toHaveAttribute("aria-valuenow", "256");
+    expect(
+      window.localStorage.getItem("workboard.table.colw.v1.name"),
+    ).toBeNull();
   });
 });
