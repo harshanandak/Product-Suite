@@ -12,6 +12,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   Input,
+  Tabs,
+  TabsList,
+  TabsTrigger,
   PHASE_LABELS,
   PRIORITY_LABELS,
   PRIORITY_ORDER,
@@ -63,6 +66,10 @@ export interface WorkboardToolbarProps {
   value: WorkboardFilterState;
   /** Fired with a NEW state object on every change (controlled contract). */
   onChange: (next: WorkboardFilterState) => void;
+  /** Active board view; drives the leading Table/Kanban segmented switcher. */
+  view: "table" | "kanban";
+  /** Fired when the user switches between the Table and Kanban views. */
+  onViewChange: (view: "table" | "kanban") => void;
   /** The pickable owners; feeds the Owner facet filter (plus "Unassigned"). */
   owners: ReadonlyArray<Owner>;
   /**
@@ -121,6 +128,8 @@ const COLUMN_LABELS: Record<ColumnId, string> = {
 export function WorkboardToolbar({
   value,
   onChange,
+  view,
+  onViewChange,
   owners,
   departments,
   selectedCount,
@@ -241,6 +250,20 @@ export function WorkboardToolbar({
       aria-orientation="horizontal"
       className="flex flex-wrap items-center gap-2"
     >
+      {/* View switcher — Table / Kanban. Leads the toolbar (the page header and
+          its standalone tabs row were removed; this is now the sole view control). */}
+      <Tabs
+        value={view}
+        onValueChange={(next) =>
+          onViewChange(next === "kanban" ? "kanban" : "table")
+        }
+      >
+        <TabsList aria-label="Workboard view">
+          <TabsTrigger value="table">Table</TabsTrigger>
+          <TabsTrigger value="kanban">Kanban</TabsTrigger>
+        </TabsList>
+      </Tabs>
+
       {/* Search */}
       <div className="relative">
         <Input
@@ -365,12 +388,6 @@ export function WorkboardToolbar({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {/* New work item */}
-      <Button size="sm" className="ml-auto" onClick={onNewItem}>
-        <PlusIcon className="size-4" />
-        New work item
-      </Button>
-
       {/* Selection-scoped bulk actions */}
       {hasSelection ? (
         <fieldset
@@ -440,6 +457,13 @@ export function WorkboardToolbar({
           </Button>
         </fieldset>
       ) : null}
+
+      {/* New work item — always the last (rightmost) control. ml-auto pins it to
+          the right edge regardless of whether the bulk cluster is present. */}
+      <Button size="sm" className="ml-auto" onClick={onNewItem}>
+        <PlusIcon className="size-4" />
+        New work item
+      </Button>
     </div>
   );
 }

@@ -132,6 +132,43 @@ describe("Sidebar", () => {
     expect(currentLinks).toHaveLength(1);
   });
 
+  it("indents a nested item (Graph) under its parent when expanded, not when collapsed", async () => {
+    const board = getBoard("workboard");
+
+    // Expanded: the nested Graph item is indented (pl-7) while a top-level
+    // sibling (Work items) is not — Graph reads as a child of Work items.
+    const expanded = renderWithRouter(
+      <Sidebar
+        board={board}
+        workspace="test-ws"
+        pathname="/w/test-ws/workboard"
+      />,
+      { path: "/w/test-ws/workboard" },
+    );
+    const graph = (await screen.findByText("Graph")).closest("a");
+    expect(graph?.className.split(" ")).toContain("pl-7");
+    expect(
+      screen.getByText("Work items").closest("a")?.className.split(" "),
+    ).not.toContain("pl-7");
+    expanded.unmount();
+
+    // Collapsed icon-only rail: the indent is dropped (the collapsed px-0 wins),
+    // so a nested item never indents in the rail.
+    renderWithRouter(
+      <Sidebar
+        board={board}
+        workspace="test-ws"
+        pathname="/w/test-ws/workboard"
+        collapsed
+        onToggleCollapse={vi.fn()}
+      />,
+      { path: "/w/test-ws/workboard" },
+    );
+    // Collapsed sets an explicit aria-label, so the link resolves by name here.
+    const graphCollapsed = await screen.findByRole("link", { name: "Graph" });
+    expect(graphCollapsed.className.split(" ")).not.toContain("pl-7");
+  });
+
   it("omits the collapse toggle when no onToggleCollapse handler is given", async () => {
     const board = getBoard("workboard");
     renderWithRouter(

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { Button, EmptyState, Tabs, TabsList, TabsTrigger } from "@product-suite/ui";
+import { Button, EmptyState } from "@product-suite/ui";
 
 import {
   getDefaultRepository,
@@ -236,27 +236,12 @@ export function WorkboardScreen({
     );
 
   return (
-    <section className="mx-auto flex max-w-6xl flex-col gap-6">
-      <header>
-        <p className="text-xs uppercase tracking-wide text-muted-foreground">
-          Workboard
-        </p>
-        <h1 className="text-xl font-semibold text-foreground">Work items</h1>
-      </header>
-
-      <Tabs
-        value={view}
-        onValueChange={(next) => setView(next === "kanban" ? "kanban" : "table")}
-      >
-        <TabsList aria-label="Workboard view">
-          <TabsTrigger value="table">Table</TabsTrigger>
-          <TabsTrigger value="kanban">Kanban</TabsTrigger>
-        </TabsList>
-      </Tabs>
-
+    <section className="flex flex-col gap-4">
       <WorkboardToolbar
         value={filterState}
         onChange={setFilterState}
+        view={view}
+        onViewChange={setView}
         owners={owners}
         departments={departments}
         selectedCount={filterState.selection.size}
