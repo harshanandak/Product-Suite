@@ -433,6 +433,45 @@ describe("WorkboardTable", () => {
     expect([...onSelectionChange.mock.calls[0][0]]).toEqual(["wi_auth"]);
   });
 
+  it("selects the inclusive range on a shift-click checkbox", async () => {
+    const rows = await loadRows();
+    const onSelectionChange = vi.fn();
+    // groupBy "none" → flatRows index == rows index == DOM order, so the range
+    // is deterministic.
+    renderTable({ rows, groupBy: "none", onSelectionChange });
+
+    const rowEls = await screen.findAllByTestId("work-item-row");
+    const checkboxOf = (el: HTMLElement): HTMLElement =>
+      within(el).getByRole("checkbox");
+
+    // A plain click sets the range anchor (and toggles the one row).
+    fireEvent.click(checkboxOf(rowEls[0]));
+    onSelectionChange.mockClear();
+
+    // Shift-click three rows down selects the inclusive 0..2 range, not a toggle.
+    fireEvent.click(checkboxOf(rowEls[2]), { shiftKey: true });
+
+    expect(onSelectionChange).toHaveBeenCalledTimes(1);
+    const next = onSelectionChange.mock.calls[0][0] as Set<string>;
+    expect(next.has(rows[0].id)).toBe(true);
+    expect(next.has(rows[1].id)).toBe(true);
+    expect(next.has(rows[2].id)).toBe(true);
+    expect(next.size).toBe(3);
+  });
+
+  it("treats a shift-click with no prior anchor as a single toggle", async () => {
+    const rows = await loadRows();
+    const onSelectionChange = vi.fn();
+    renderTable({ rows, groupBy: "none", onSelectionChange });
+
+    const rowEls = await screen.findAllByTestId("work-item-row");
+    // First-ever interaction is a shift-click → no live anchor → single toggle.
+    fireEvent.click(within(rowEls[1]).getByRole("checkbox"), { shiftKey: true });
+
+    expect(onSelectionChange).toHaveBeenCalledTimes(1);
+    expect([...onSelectionChange.mock.calls[0][0]]).toEqual([rows[1].id]);
+  });
+
   it("reflects a partial selection as an indeterminate select-all checkbox", async () => {
     const rows = await loadRows();
     // Pre-seed a single-row selection (controlled): header must read mixed.
