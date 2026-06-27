@@ -28,6 +28,26 @@
   --accent-foreground: oklch(0.2571 0.1161 272.2400);
   --destructive: oklch(0.5800 0.2200 27);
   --destructive-foreground: oklch(0.9700 0.0140 254.6040);
+  /*
+   * Workboard badge ramps (DESIGN §5). Chroma-bearing, dark-mode-durable hues
+   * so Type / Phase / Priority / Health never collapse to one gray pill. Each
+   * level owns a hue: surface = soft tint, `-foreground` = strong same-hue
+   * text/dot. NOT the overloaded neutral accent/secondary/muted tokens.
+   */
+  --priority-critical: oklch(0.9450 0.0400 27);
+  --priority-critical-foreground: oklch(0.5050 0.2050 27);
+  --priority-high: oklch(0.9550 0.0420 70);
+  --priority-high-foreground: oklch(0.5100 0.1250 58);
+  --priority-medium: oklch(0.9450 0.0360 245);
+  --priority-medium-foreground: oklch(0.5050 0.1450 250);
+  --priority-low: oklch(0.9450 0.0120 255);
+  --priority-low-foreground: oklch(0.4600 0.0260 256);
+  --phase-plan: oklch(0.9450 0.0150 255);
+  --phase-plan-foreground: oklch(0.4700 0.0420 256);
+  --phase-execute: oklch(0.9420 0.0340 267);
+  --phase-execute-foreground: oklch(0.5144 0.1605 267.4400);
+  --phase-review: oklch(0.9450 0.0360 300);
+  --phase-review-foreground: oklch(0.5050 0.1600 300);
   --border: oklch(0.9200 0 0);
   --input: oklch(0.9400 0 0);
   --ring: oklch(0.5144 0.1605 267.4400);
@@ -84,6 +104,25 @@
   --accent-foreground: oklch(0.9214 0.0248 257.6500);
   --destructive: oklch(0.7040 0.1910 22.2160);
   --destructive-foreground: oklch(0.9700 0.0140 254.6040);
+  /*
+   * Workboard badge ramps — dark. Surfaces darken, foregrounds lift so each
+   * hue stays legible (AA, ≥4.5:1) against the near-black canvas where the
+   * neutral tokens previously read as identical gray.
+   */
+  --priority-critical: oklch(0.3100 0.0850 25);
+  --priority-critical-foreground: oklch(0.7750 0.1500 24);
+  --priority-high: oklch(0.3150 0.0650 65);
+  --priority-high-foreground: oklch(0.8100 0.1300 75);
+  --priority-medium: oklch(0.3050 0.0700 248);
+  --priority-medium-foreground: oklch(0.7800 0.1150 250);
+  --priority-low: oklch(0.2950 0.0180 256);
+  --priority-low-foreground: oklch(0.7400 0.0300 256);
+  --phase-plan: oklch(0.2950 0.0220 256);
+  --phase-plan-foreground: oklch(0.7500 0.0420 256);
+  --phase-execute: oklch(0.3150 0.0850 267);
+  --phase-execute-foreground: oklch(0.7900 0.1250 267);
+  --phase-review: oklch(0.3050 0.0700 300);
+  --phase-review-foreground: oklch(0.7900 0.1300 300);
   --border: oklch(0.2600 0 0);
   --input: oklch(0.3200 0 0);
   --ring: oklch(0.5144 0.1605 267.4400);
@@ -137,6 +176,20 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-priority-critical: var(--priority-critical);
+  --color-priority-critical-foreground: var(--priority-critical-foreground);
+  --color-priority-high: var(--priority-high);
+  --color-priority-high-foreground: var(--priority-high-foreground);
+  --color-priority-medium: var(--priority-medium);
+  --color-priority-medium-foreground: var(--priority-medium-foreground);
+  --color-priority-low: var(--priority-low);
+  --color-priority-low-foreground: var(--priority-low-foreground);
+  --color-phase-plan: var(--phase-plan);
+  --color-phase-plan-foreground: var(--phase-plan-foreground);
+  --color-phase-execute: var(--phase-execute);
+  --color-phase-execute-foreground: var(--phase-execute-foreground);
+  --color-phase-review: var(--phase-review);
+  --color-phase-review-foreground: var(--phase-review-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);

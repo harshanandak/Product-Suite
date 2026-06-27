@@ -63,4 +63,32 @@ describe("PriorityBadge", () => {
     expect(html).toContain("ml-2");
     expect(html).toContain('title="Priority"');
   });
+
+  test("paints each level with its own chroma ramp, not a neutral surface", () => {
+    for (const priority of PRIORITY_ORDER) {
+      const html = renderToStaticMarkup(
+        createElement(PriorityBadge, { priority }),
+      );
+      // Distinct, chroma-bearing surface + foreground per level (survives dark
+      // mode) — never the overloaded neutral tokens that collapsed to gray.
+      expect(html).toContain(`bg-priority-${priority}`);
+      expect(html).toContain(`text-priority-${priority}-foreground`);
+      for (const neutral of ["bg-muted", "bg-secondary", "bg-accent"]) {
+        expect(html).not.toContain(neutral);
+      }
+    }
+  });
+
+  test("gives the icon-less levels a colored leading dot in the level hue", () => {
+    // Belt-and-suspenders: medium/low have no glyph, so a chroma dot encodes
+    // the level even if the surface reads low-contrast.
+    for (const priority of ["medium", "low"] as Priority[]) {
+      const html = renderToStaticMarkup(
+        createElement(PriorityBadge, { priority }),
+      );
+      expect(html).toContain(`bg-priority-${priority}-foreground`);
+      expect(html).toContain("rounded-full");
+      expect(html).not.toContain("<svg");
+    }
+  });
 });

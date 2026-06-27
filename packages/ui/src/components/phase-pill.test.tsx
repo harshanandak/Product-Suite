@@ -62,4 +62,29 @@ describe("PhasePill", () => {
     expect(html).toContain("custom-class");
     expect(html).toContain("rounded-full");
   });
+
+  test("paints the active phases with chroma ramps, never a gray surface", () => {
+    for (const phase of ["plan", "execute", "review"] as Phase[]) {
+      const html = renderToStaticMarkup(<PhasePill phase={phase} />);
+      expect(html).toContain(`bg-phase-${phase}`);
+      expect(html).toContain(`text-phase-${phase}-foreground`);
+    }
+  });
+
+  test("renders 'done' as the quietest chip: muted surface + check glyph", () => {
+    // Inverted hierarchy (§5): the finished phase recedes, the live one leads.
+    const html = renderToStaticMarkup(<PhasePill phase="done" />);
+    expect(html).toContain("bg-muted");
+    expect(html).toContain("text-muted-foreground");
+    expect(html).not.toContain("bg-primary");
+    expect(html).toContain("<svg"); // CheckIcon glyph
+  });
+
+  test("gives every active phase a colored leading dot in the phase hue", () => {
+    for (const phase of ["plan", "execute", "review"] as Phase[]) {
+      const html = renderToStaticMarkup(<PhasePill phase={phase} />);
+      expect(html).toContain(`bg-phase-${phase}-foreground`);
+      expect(html).not.toContain("<svg");
+    }
+  });
 });

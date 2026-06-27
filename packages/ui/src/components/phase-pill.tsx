@@ -1,4 +1,5 @@
 import * as React from "react";
+import { CheckIcon } from "lucide-react";
 
 import { cn } from "../lib/cn";
 
@@ -16,11 +17,27 @@ export const PHASE_LABELS: Record<Phase, string> = {
   done: "Done",
 };
 
+/**
+ * Inverted phase hierarchy (DESIGN §5): emphasis follows the LIVE work, not the
+ * finished work. The active `execute` phase carries the brand-indigo chroma;
+ * `done` recedes to the quietest muted chip (with a check glyph). Plan/execute/
+ * review own per-level `--phase-*` hues so phase never reads as a neutral gray.
+ */
 const PHASE_STYLES: Record<Phase, string> = {
-  plan: "bg-muted text-muted-foreground",
-  execute: "bg-accent text-accent-foreground",
-  review: "bg-secondary text-secondary-foreground",
-  done: "bg-primary text-primary-foreground",
+  plan: "bg-phase-plan text-phase-plan-foreground",
+  execute: "bg-phase-execute text-phase-execute-foreground",
+  review: "bg-phase-review text-phase-review-foreground",
+  done: "bg-muted text-muted-foreground",
+};
+
+/**
+ * Colored leading dot per active phase (the hue, `-foreground`), so the level
+ * survives a low-contrast surface. `done` uses a check glyph instead (below).
+ */
+const PHASE_DOT_STYLES: Record<Exclude<Phase, "done">, string> = {
+  plan: "bg-phase-plan-foreground",
+  execute: "bg-phase-execute-foreground",
+  review: "bg-phase-review-foreground",
 };
 
 export interface PhasePillProps extends React.HTMLAttributes<HTMLSpanElement> {
@@ -37,11 +54,19 @@ export function PhasePill({
       {...props}
       data-phase={phase}
       className={cn(
-        "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
+        "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium",
         PHASE_STYLES[phase],
         className,
       )}
     >
+      {phase === "done" ? (
+        <CheckIcon aria-hidden="true" className="size-3" />
+      ) : (
+        <span
+          aria-hidden="true"
+          className={cn("size-1.5 rounded-full", PHASE_DOT_STYLES[phase])}
+        />
+      )}
       {PHASE_LABELS[phase]}
     </span>
   );
