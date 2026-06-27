@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button, EmptyState } from "@product-suite/ui";
 
@@ -198,6 +198,13 @@ export function WorkboardScreen({
   // unbounded canvas — see boards/workboard/graph/WorkboardGraphScreen.tsx).
   const [view, setView] = useState<"table" | "kanban">("table");
 
+  // The table owns its column-width state (in useColumnWidths); it publishes its
+  // reset into this ref so the toolbar's "Reset column widths" item can fire it.
+  const resetColumnWidthsRef = useRef<(() => void) | null>(null);
+  const handleResetColumnWidths = useCallback(() => {
+    resetColumnWidthsRef.current?.();
+  }, []);
+
   // §4 body states (the toolbar always renders so New/filters stay reachable):
   //  - loading || error → the active view owns the skeleton / error panel.
   //  - no items at all   → the teaching empty state.
@@ -232,6 +239,7 @@ export function WorkboardScreen({
         onSelectionChange={handleSelectionChange}
         onSelectItem={handleSelectItem}
         onUpdateItem={update}
+        resetColumnWidthsRef={resetColumnWidthsRef}
       />
     );
 
@@ -247,6 +255,9 @@ export function WorkboardScreen({
         selectedCount={filterState.selection.size}
         onNewItem={handleNewItem}
         onBulkApply={handleBulkApply}
+        onResetColumnWidths={
+          view === "table" ? handleResetColumnWidths : undefined
+        }
       />
 
       {noItems ? (
