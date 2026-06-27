@@ -57,6 +57,12 @@ function ShellChrome() {
   const navigate = useNavigate();
   const [paletteOpen, setPaletteOpen] = React.useState(false);
   const [collapsed, setCollapsed] = React.useState(readSidebarCollapsed);
+  // Transient reveal of a collapsed rail. Pointer and keyboard focus are tracked
+  // independently and OR'd, so a stray mouse-leave can't yank a rail that still
+  // holds keyboard focus (and vice versa). Not persisted — only `collapsed` is.
+  const [mouseInside, setMouseInside] = React.useState(false);
+  const [focusInside, setFocusInside] = React.useState(false);
+  const hovering = mouseInside || focusInside;
 
   React.useEffect(() => {
     try {
@@ -67,11 +73,22 @@ function ShellChrome() {
   }, [collapsed]);
 
   const toggleCollapsed = React.useCallback(() => {
+    // Drop the transient reveal so a pin/unpin click made while the pointer or
+    // focus is over the rail commits immediately instead of leaving it floating
+    // open as an overlay; a genuine re-hover re-reveals.
+    setMouseInside(false);
+    setFocusInside(false);
     setCollapsed((value) => !value);
   }, []);
 
   const activeBoard = deriveActiveBoard(pathname, slug);
   const board = getBoard(activeBoard ?? "home");
+
+  // Visually expanded when pinned open (not collapsed) OR while the collapsed
+  // rail is hover/focus-revealed. `overlay` = revealed-but-not-pinned, so it
+  // floats over the content instead of pushing it (the grid column stays 64px).
+  const expanded = !collapsed || hovering;
+  const overlay = collapsed && hovering;
 
   React.useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -105,24 +122,47 @@ function ShellChrome() {
   return (
     <div
       className={cn(
-        "grid h-screen overflow-hidden bg-background text-foreground transition-[grid-template-columns] duration-200",
+        "grid h-screen overflow-hidden bg-background text-foreground transition-[grid-template-columns] duration-200 motion-reduce:transition-none",
         collapsed ? "grid-cols-[64px_1fr]" : "grid-cols-[220px_1fr]",
       )}
     >
-      <aside className="flex h-screen min-h-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
-        <WorkspaceSwitcher collapsed={collapsed} />
-        <Sidebar
-          board={board}
-          workspace={slug}
-          pathname={pathname}
-          collapsed={collapsed}
-          onToggleCollapse={toggleCollapsed}
-        />
-        <BoardDock
-          workspace={slug}
-          activeBoard={activeBoard}
-          collapsed={collapsed}
-        />
+      {/* The aside is the grid cell (64px collapsed / 220px pinned); the rail
+          panel inside it is absolutely positioned so that, while collapsed, the
+          hover-flyout grows it to 220px OVER the content (the cell stays 64px,
+          so nothing reflows). Hover/focus on the aside drives `hovering`. */}
+      <aside
+        className="relative h-screen"
+        onMouseEnter={() => setMouseInside(true)}
+        onMouseLeave={() => setMouseInside(false)}
+        onFocus={() => setFocusInside(true)}
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            setFocusInside(false);
+          }
+        }}
+      >
+        <div
+          className={cn(
+            "absolute inset-y-0 left-0 flex h-screen min-h-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-150 ease-out motion-reduce:transition-none",
+            overlay && "z-50 shadow-2xl",
+          )}
+          style={{ width: expanded ? 220 : 64 }}
+        >
+          <WorkspaceSwitcher collapsed={!expanded} />
+          <Sidebar
+            board={board}
+            workspace={slug}
+            pathname={pathname}
+            collapsed={!expanded}
+            pinned={!collapsed}
+            onToggleCollapse={toggleCollapsed}
+          />
+          <BoardDock
+            workspace={slug}
+            activeBoard={activeBoard}
+            collapsed={!expanded}
+          />
+        </div>
       </aside>
       <div className="flex min-w-0 flex-col">
         <TopBar

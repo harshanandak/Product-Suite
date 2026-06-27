@@ -5,10 +5,11 @@ import { cn } from "@product-suite/ui";
 import { BOARDS, type BoardId, href } from "./boards";
 
 /**
- * Board dock — bottom of the left rail (DESIGN §2, tier-1 navigation). The same
- * five icons in fixed order on every screen; only the highlight moves. Clicking
- * one switches the entire board (rail config + content). Maps to the mobile tab
- * bar (same icons, same order) on small screens.
+ * Board dock — bottom of the left rail (DESIGN §2, tier-1 navigation). Expanded,
+ * it's the five boards in fixed order with only the highlight moving. Collapsed
+ * (the resting icon rail), it shows ONLY the active board as an indicator; the
+ * other four are revealed when the rail expands (hover/pin) — so the rail stays
+ * calm at rest without a dropdown. Clicking a board switches the whole board.
  */
 export function BoardDock({
   workspace,
@@ -26,9 +27,7 @@ export function BoardDock({
         // shrink-0 keeps the dock at its natural height; the flex-1 sidebar body
         // above it is the scroll region that absorbs a short viewport.
         "flex shrink-0 border-t border-sidebar-border px-2 py-2",
-        // The five size-9 icons don't fit side by side in the 64px collapsed
-        // rail, so stack them vertically there; spread them out when expanded.
-        collapsed ? "flex-col items-center gap-1" : "items-center justify-between",
+        collapsed ? "items-center justify-center" : "items-center justify-between",
       )}
     >
       {BOARDS.map((board) => {
@@ -47,6 +46,11 @@ export function BoardDock({
               active
                 ? "bg-sidebar-accent text-sidebar-accent-foreground"
                 : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",
+              // At rest only the active board shows; the rest stay in the DOM
+              // (accessibility tree + keyboard-focusable, which itself reveals
+              // the rail) but visually hidden until it expands. Keeping them
+              // mounted also means the dock is never empty on board-less routes.
+              collapsed && !active && "sr-only",
             )}
           >
             <Icon className="size-5" />

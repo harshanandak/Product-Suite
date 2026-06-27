@@ -106,4 +106,142 @@ describe("ShellLayout", () => {
       screen.getByRole("button", { name: "Collapse sidebar" }),
     ).toBeInTheDocument();
   });
+
+  it("flies the collapsed rail out on hover and collapses it again on leave", async () => {
+    globalThis.localStorage.setItem("ps:sidebar-collapsed", "true");
+    renderWithRouter(<ShellLayout />, { path: "/w/test-ws/workboard" });
+
+    const nav = await screen.findByRole("navigation", {
+      name: "Workboard navigation",
+    });
+    const rail = nav.closest("aside");
+    if (!rail) throw new Error("rail <aside> not found");
+
+    // Resting collapsed: item labels are hidden.
+    expect(within(rail).queryByText("Work items")).not.toBeInTheDocument();
+
+    // Hover the rail → it flies out, revealing the labels.
+    fireEvent.mouseEnter(rail);
+    expect(within(rail).getByText("Work items")).toBeInTheDocument();
+
+    // Leave → it collapses back to icons.
+    fireEvent.mouseLeave(rail);
+    expect(within(rail).queryByText("Work items")).not.toBeInTheDocument();
+  });
+
+  it("flies the collapsed rail out when keyboard focus enters it", async () => {
+    globalThis.localStorage.setItem("ps:sidebar-collapsed", "true");
+    renderWithRouter(<ShellLayout />, { path: "/w/test-ws/workboard" });
+
+    const nav = await screen.findByRole("navigation", {
+      name: "Workboard navigation",
+    });
+    const rail = nav.closest("aside");
+    if (!rail) throw new Error("rail <aside> not found");
+
+    expect(within(rail).queryByText("Work items")).not.toBeInTheDocument();
+
+    // Tabbing into the rail (here: focusing the expand toggle) reveals it too.
+    // focusIn bubbles, which is what React's onFocus listens for.
+    fireEvent.focusIn(screen.getByRole("button", { name: "Expand sidebar" }));
+    expect(within(rail).getByText("Work items")).toBeInTheDocument();
+  });
+
+  it("keeps the toggle offering to pin (Expand) while the rail is only hover-revealed", async () => {
+    globalThis.localStorage.setItem("ps:sidebar-collapsed", "true");
+    renderWithRouter(<ShellLayout />, { path: "/w/test-ws/workboard" });
+
+    const nav = await screen.findByRole("navigation", {
+      name: "Workboard navigation",
+    });
+    const rail = nav.closest("aside");
+    if (!rail) throw new Error("rail <aside> not found");
+
+    fireEvent.mouseEnter(rail);
+
+    // Revealed by hover but NOT pinned: the control should still offer to pin it
+    // open ("Expand"), not to "Collapse" something that isn't pinned.
+    expect(
+      screen.getByRole("button", { name: "Expand sidebar" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Collapse sidebar" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("stays revealed on mouse-leave while keyboard focus is still inside", async () => {
+    globalThis.localStorage.setItem("ps:sidebar-collapsed", "true");
+    renderWithRouter(<ShellLayout />, { path: "/w/test-ws/workboard" });
+
+    const nav = await screen.findByRole("navigation", {
+      name: "Workboard navigation",
+    });
+    const rail = nav.closest("aside");
+    if (!rail) throw new Error("rail <aside> not found");
+
+    // Keyboard focus reveals the rail...
+    fireEvent.focusIn(screen.getByRole("button", { name: "Expand sidebar" }));
+    expect(within(rail).getByText("Work items")).toBeInTheDocument();
+
+    // ...and a stray mouse-leave must NOT yank it shut (it would drop focus to
+    // <body>). Mouse and focus reveal are tracked independently.
+    fireEvent.mouseLeave(rail);
+    expect(within(rail).getByText("Work items")).toBeInTheDocument();
+  });
+
+  it("collapses immediately when the toggle is clicked with the pointer over the rail", async () => {
+    renderWithRouter(<ShellLayout />, { path: "/w/test-ws/workboard" });
+
+    const nav = await screen.findByRole("navigation", {
+      name: "Workboard navigation",
+    });
+    const rail = nav.closest("aside");
+    if (!rail) throw new Error("rail <aside> not found");
+
+    // Pointer over the rail, then click Collapse: it must commit the collapse,
+    // not float open as an overlay until the mouse happens to leave.
+    fireEvent.mouseEnter(rail);
+    fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+    expect(within(rail).queryByText("Work items")).not.toBeInTheDocument();
+  });
+
+  it("sizes the rail panel and only overlays while hover-revealed", async () => {
+    globalThis.localStorage.setItem("ps:sidebar-collapsed", "true");
+    renderWithRouter(<ShellLayout />, { path: "/w/test-ws/workboard" });
+
+    const nav = await screen.findByRole("navigation", {
+      name: "Workboard navigation",
+    });
+    const rail = nav.closest("aside");
+    if (!rail) throw new Error("rail <aside> not found");
+    const panel = rail.firstElementChild as HTMLElement;
+
+    // Resting collapsed: narrow rail, in-flow (no overlay z-index/shadow).
+    expect(panel.style.width).toBe("64px");
+    expect(panel.className).not.toMatch(/z-50/);
+
+    // Hover-revealed: widened AND lifted to an overlay.
+    fireEvent.mouseEnter(rail);
+    expect(panel.style.width).toBe("220px");
+    expect(panel.className).toMatch(/z-50/);
+
+    // Leave: back to the narrow resting rail.
+    fireEvent.mouseLeave(rail);
+    expect(panel.style.width).toBe("64px");
+  });
+
+  it("pins open at full width without overlaying the content", async () => {
+    // Default (no stored preference) is expanded/pinned.
+    renderWithRouter(<ShellLayout />, { path: "/w/test-ws/workboard" });
+
+    const nav = await screen.findByRole("navigation", {
+      name: "Workboard navigation",
+    });
+    const rail = nav.closest("aside");
+    if (!rail) throw new Error("rail <aside> not found");
+    const panel = rail.firstElementChild as HTMLElement;
+
+    expect(panel.style.width).toBe("220px");
+    expect(panel.className).not.toMatch(/z-50/);
+  });
 });

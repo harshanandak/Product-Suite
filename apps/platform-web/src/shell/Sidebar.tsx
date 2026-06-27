@@ -25,14 +25,23 @@ export function Sidebar({
   workspace,
   pathname,
   collapsed = false,
+  pinned,
   onToggleCollapse,
 }: Readonly<{
   board: BoardDef;
   workspace: string;
   pathname: string;
   collapsed?: boolean;
+  /**
+   * Whether the rail is pinned open — drives the toggle's label/icon. Defaults
+   * to `!collapsed`; ShellLayout passes the persisted pin state explicitly so
+   * the control reads "Expand" (pin) rather than "Collapse" while a collapsed
+   * rail is only being hover-revealed.
+   */
+  pinned?: boolean;
   onToggleCollapse?: () => void;
 }>) {
+  const isPinned = pinned ?? !collapsed;
   return (
     <nav
       aria-label={`${board.title} navigation`}
@@ -53,15 +62,15 @@ export function Sidebar({
           <button
             type="button"
             onClick={onToggleCollapse}
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            aria-expanded={!collapsed}
-            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-label={isPinned ? "Collapse sidebar" : "Expand sidebar"}
+            aria-expanded={isPinned}
+            title={isPinned ? "Collapse sidebar" : "Expand sidebar"}
             className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
           >
-            {collapsed ? (
-              <PanelLeftOpen className="size-4" />
-            ) : (
+            {isPinned ? (
               <PanelLeftClose className="size-4" />
+            ) : (
+              <PanelLeftOpen className="size-4" />
             )}
           </button>
         ) : null}
