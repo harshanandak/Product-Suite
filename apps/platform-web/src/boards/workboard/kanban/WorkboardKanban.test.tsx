@@ -1,4 +1,10 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  PRIORITY_LABELS,
+  PRIORITY_ORDER,
+  WORK_ITEM_TYPE_LABELS,
+  WORK_ITEM_TYPE_ORDER,
+} from "@product-suite/ui";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
@@ -14,6 +20,8 @@ import {
 import {
   WorkboardKanban,
   type WorkboardKanbanProps,
+  encodeColumnId,
+  resolveDrop,
   resolvePhaseChange,
 } from "./WorkboardKanban";
 
@@ -84,6 +92,52 @@ describe("resolvePhaseChange", () => {
   it("returns null when there is no / an unknown drop target", () => {
     expect(resolvePhaseChange("plan", null)).toBeNull();
     expect(resolvePhaseChange("plan", "archived")).toBeNull();
+  });
+});
+
+describe("resolveDrop", () => {
+  it("returns the field-scoped patch when the column changed (per dimension)", () => {
+    // Each dimension patches ITS OWN key with the dropped column's value.
+    expect(resolveDrop("phase", "plan", encodeColumnId("phase", "done"))).toEqual(
+      { phase: "done" },
+    );
+    expect(
+      resolveDrop("priority", "low", encodeColumnId("priority", "high")),
+    ).toEqual({ priority: "high" });
+    expect(resolveDrop("type", "feature", encodeColumnId("type", "bug"))).toEqual(
+      { type: "bug" },
+    );
+    expect(
+      resolveDrop(
+        "department",
+        "Engineering",
+        encodeColumnId("department", "Marketing"),
+      ),
+    ).toEqual({ department: "Marketing" });
+  });
+
+  it("returns null for a same-column drop (no redundant patch)", () => {
+    expect(
+      resolveDrop("priority", "high", encodeColumnId("priority", "high")),
+    ).toBeNull();
+  });
+
+  it("returns null when there is no drop target", () => {
+    expect(resolveDrop("type", "feature", null)).toBeNull();
+  });
+
+  it("ignores a drop whose encoded field differs from the board's", () => {
+    // Encoding the field into the droppable id means a stray id from another
+    // dimension can never collide with this board's column values.
+    expect(
+      resolveDrop("priority", "high", encodeColumnId("phase", "done")),
+    ).toBeNull();
+  });
+
+  it("patches an empty department when dropped on the Unassigned column", () => {
+    expect(
+      resolveDrop("department", "Engineering", encodeColumnId("department", "")),
+    ).toEqual({ department: "" });
   });
 });
 
@@ -235,5 +289,121 @@ describe("WorkboardKanban", () => {
         screen.getByLabelText("Open Workspace auth hardening"),
       ).toBeInTheDocument();
     });
+  });
+
+  it("pivots to a Priority board when grouped by priority", async () => {
+    const rows = await loadRows();
+    renderKanban({ rows, groupBy: "priority" });
+
+    const columns = await screen.findAllByTestId("kanban-column");
+    // Columns follow the canonical PRIORITY_ORDER (critical → low).
+    expect(columns.map((node) => node.dataset.columnValue)).toEqual([
+      ...PRIORITY_ORDER,
+    ]);
+    // Header is the priority LABEL (heading role, so a card's PriorityBadge text
+    // inside the column does not steal the match).
+    expect(
+      within(columns[0]).getByRole("heading", {
+        name: PRIORITY_LABELS.critical,
+      }),
+    ).toBeInTheDocument();
+    // Each column's count equals the rows carrying that priority.
+    for (const column of columns) {
+      const value = column.dataset.columnValue;
+      const expected = rows.filter((row) => row.priority === value).length;
+      expect(within(column).getByTestId("kanban-column-count")).toHaveTextContent(
+        String(expected),
+      );
+    }
+  });
+
+  it("pivots to a Type board when grouped by type", async () => {
+    const rows = await loadRows();
+    renderKanban({ rows, groupBy: "type" });
+
+    const columns = await screen.findAllByTestId("kanban-column");
+    expect(columns.map((node) => node.dataset.columnValue)).toEqual([
+      ...WORK_ITEM_TYPE_ORDER,
+    ]);
+    expect(
+      within(columns[0]).getByRole("heading", {
+        name: WORK_ITEM_TYPE_LABELS.feature,
+      }),
+    ).toBeInTheDocument();
+    // Enum columns render even when populated by a single row.
+    const bugColumn = columns.find((node) => node.dataset.columnValue === "bug");
+    expect(bugColumn).toBeDefined();
+    expect(
+      within(bugColumn as HTMLElement).getByTestId("kanban-column-count"),
+    ).toHaveTextContent("1");
+  });
+
+  it("pivots to a Department board with one column per present department", async () => {
+    const rows = await loadRows();
+    renderKanban({ rows, groupBy: "department" });
+
+    const columns = await screen.findAllByTestId("kanban-column");
+    // Present departments only (dynamic), sorted alphabetically.
+    expect(columns.map((node) => node.dataset.columnValue)).toEqual([
+      "Engineering",
+      "Marketing",
+      "Sourcing",
+    ]);
+    expect(
+      within(columns[0]).getByRole("heading", { name: "Engineering" }),
+    ).toBeInTheDocument();
+    for (const column of columns) {
+      const value = column.dataset.columnValue;
+      const expected = rows.filter((row) => row.department === value).length;
+      expect(within(column).getByTestId("kanban-column-count")).toHaveTextContent(
+        String(expected),
+      );
+    }
+  });
+
+  it("buckets rows with no department into a trailing Unassigned column", async () => {
+    // Empty the department on one row → it falls into the Unassigned bucket.
+    const rows = (await loadRows()).map((row) =>
+      row.id === "wi_auth" ? { ...row, department: "" } : row,
+    );
+    renderKanban({ rows, groupBy: "department" });
+
+    const columns = await screen.findAllByTestId("kanban-column");
+    const values = columns.map((node) => node.dataset.columnValue);
+    // Unassigned ("") is appended AFTER the named, present departments.
+    expect(values[values.length - 1]).toBe("");
+    const unassigned = columns[columns.length - 1];
+    expect(
+      within(unassigned).getByRole("heading", { name: "Unassigned" }),
+    ).toBeInTheDocument();
+    expect(
+      within(unassigned).getByText("Workspace auth hardening"),
+    ).toBeInTheDocument();
+  });
+
+  it("falls back to a phase board when groupBy is none", async () => {
+    const rows = await loadRows();
+    renderKanban({ rows, groupBy: "none" });
+
+    const columns = await screen.findAllByTestId("kanban-column");
+    expect(columns.map((node) => node.dataset.phase)).toEqual([
+      "plan",
+      "execute",
+      "review",
+      "done",
+    ]);
+  });
+
+  it("renders a read-only non-phase board without a mutator", async () => {
+    const rows = await loadRows();
+    // No onUpdateItem → read-only, but the pivot still renders every column.
+    renderKanban({ rows, groupBy: "priority" });
+
+    const cards = await screen.findAllByTestId("kanban-card");
+    expect(cards).toHaveLength(rows.length);
+    const columns = screen.getAllByTestId("kanban-column");
+    expect(columns.map((node) => node.dataset.columnValue)).toEqual([
+      ...PRIORITY_ORDER,
+    ]);
   });
 });
