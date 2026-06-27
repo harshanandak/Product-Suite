@@ -102,6 +102,27 @@ export function WorkboardScreen({
     [items, filterState],
   );
 
+  // Prune the shared selection down to the CURRENTLY-VISIBLE rows whenever the
+  // filtered `rows` change, so the toolbar's "N selected" count and every bulk
+  // action only ever see ids the user can actually see. Without this, ids hidden
+  // by the active search/filters would linger in `selection` — inflating the
+  // count and letting `handleBulkApply` mutate filtered-out items (#2). The
+  // functional update returns the PRIOR state ref untouched when nothing is
+  // pruned, so React bails out and `rows` (memoized on `[items, filterState]`)
+  // stays stable — no re-prune, no render loop.
+  useEffect(() => {
+    setFilterState((state) => {
+      if (state.selection.size === 0) return state;
+      const visibleIds = new Set(rows.map((row) => row.id));
+      const pruned = new Set<string>();
+      for (const id of state.selection) {
+        if (visibleIds.has(id)) pruned.add(id);
+      }
+      if (pruned.size === state.selection.size) return state;
+      return { ...state, selection: pruned };
+    });
+  }, [rows]);
+
   // Editor selection. Typed `WorkItem` (not `WorkItemRow`) so `create`'s return
   // value assigns directly; a `WorkItemRow` from a table activation is assignable
   // to `WorkItem`, so both paths type-check.
