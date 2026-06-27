@@ -223,6 +223,7 @@ export function WorkboardScreen({
         loading={loading}
         error={error}
         onRetry={refetch}
+        groupBy={filterState.groupBy}
         onSelectItem={handleSelectItem}
         onUpdateItem={update}
       />
