@@ -53,4 +53,17 @@ describe("WorkItemTypeBadge", () => {
     expect(html).toContain("ml-2");
     expect(html).toContain('title="Type"');
   });
+
+  test("renders as an outlined tag (border, transparent fill), not a filled pill", () => {
+    // The Type family is the only OUTLINED badge so it never reads as one more
+    // gray status pill next to Phase/Priority/Health.
+    for (const type of WORK_ITEM_TYPE_ORDER) {
+      const html = renderToStaticMarkup(
+        createElement(WorkItemTypeBadge, { type }),
+      );
+      expect(html).toContain("border-border");
+      expect(html).toContain("bg-transparent");
+      expect(html).not.toContain("bg-muted");
+    }
+  });
 });

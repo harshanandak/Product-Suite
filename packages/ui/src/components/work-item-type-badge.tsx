@@ -50,9 +50,10 @@ export interface WorkItemTypeBadgeProps
 }
 
 /**
- * Read-only work-item-type pill with a per-type icon (DESIGN §5). Token-pure;
- * mirrors the {@link PhasePill} grammar. Uses the neutral `bg-muted` surface so
- * it reads as a category tag, not a status.
+ * Read-only work-item-type tag with a per-type icon (DESIGN §5). Token-pure.
+ * Rendered as an OUTLINED tag (border, transparent fill) — the only badge
+ * family that is not a filled pill — so Type never reads as one more gray
+ * status pill beside Phase / Priority / Health.
  *
  * @example
  * ```tsx
@@ -70,7 +71,7 @@ export function WorkItemTypeBadge({
       {...props}
       data-type={type}
       className={cn(
-        "inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground",
+        "inline-flex items-center gap-1 rounded-full border border-border bg-transparent px-2 py-0.5 text-xs font-medium text-foreground",
         className,
       )}
     >

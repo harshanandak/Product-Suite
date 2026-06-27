@@ -87,6 +87,12 @@ export interface WorkboardToolbarProps {
   onNewItem: () => void;
   /** Apply a patch to the parent's current selection (e.g. bulk phase/priority). */
   onBulkApply: (patch: WorkItemPatch) => void;
+  /**
+   * Optional handler for the Columns menu's global "Reset column widths" item.
+   * Threaded from the screen down to the table's `useColumnWidths` reset; the
+   * item only renders when wired, so read-only embeds stay unchanged.
+   */
+  onResetColumnWidths?: () => void;
 }
 
 /** Group-by options in canonical order — labels for the 5 {@link GroupByField}s. */
@@ -135,6 +141,7 @@ export function WorkboardToolbar({
   selectedCount,
   onNewItem,
   onBulkApply,
+  onResetColumnWidths,
 }: Readonly<WorkboardToolbarProps>) {
   const { filters } = value;
   const activeFilterCount =
@@ -385,6 +392,18 @@ export function WorkboardToolbar({
               {COLUMN_LABELS[column]}
             </DropdownMenuCheckboxItem>
           ))}
+          {onResetColumnWidths ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={() => {
+                  onResetColumnWidths();
+                }}
+              >
+                Reset column widths
+              </DropdownMenuItem>
+            </>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
 
