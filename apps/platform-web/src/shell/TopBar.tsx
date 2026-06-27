@@ -3,14 +3,15 @@ import { Bell, Search, Sparkles } from "lucide-react";
 
 import { Button, ThemeToggle, cn } from "@product-suite/ui";
 
-import { href, resolveScreen, workspaceDisplayName } from "./boards";
+import { href, resolveScreen } from "./boards";
 import { toast } from "./toast";
 import { UserMenu } from "./UserMenu";
 
 /**
- * Top bar (DESIGN §2): breadcrumb (workspace / board / screen), global search +
- * Cmd+K affordance, review-queue bell, "Ask agent" (opens an object-scoped
- * agent thread tied to the breadcrumb), theme toggle, and the user menu.
+ * Top bar (DESIGN §2): global search + Cmd+K affordance, review-queue bell,
+ * "Ask agent" (opens an object-scoped agent thread tied to the current screen),
+ * theme toggle, and the user menu. The breadcrumb was removed as redundant with
+ * the workspace switcher + the active sidebar item (product feedback 2026-06-25).
  */
 export function TopBar({
   workspace,
@@ -21,30 +22,13 @@ export function TopBar({
   pathname: string;
   onOpenPalette: () => void;
 }>) {
-  const { board, title } = resolveScreen(pathname, workspace);
+  // Breadcrumb removed (redundant with the workspace switcher + active sidebar
+  // item). `title` is still used to label the agent thread. DESIGN §2 lists a
+  // breadcrumb here; intentional deviation per product feedback (2026-06-25).
+  const { title } = resolveScreen(pathname, workspace);
 
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border bg-background px-4">
-      <nav
-        aria-label="Breadcrumb"
-        className="flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground"
-      >
-        <span className="truncate">{workspaceDisplayName(workspace)}</span>
-        {board ? (
-          <>
-            <span aria-hidden="true">/</span>
-            <Link
-              to={href(board.entry, workspace)}
-              className="truncate hover:text-foreground"
-            >
-              {board.label}
-            </Link>
-          </>
-        ) : null}
-        <span aria-hidden="true">/</span>
-        <span className="truncate font-medium text-foreground">{title}</span>
-      </nav>
-
       <div className="flex-1" />
 
       <button

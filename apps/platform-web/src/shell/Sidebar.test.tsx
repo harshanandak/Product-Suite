@@ -1,5 +1,5 @@
-import { screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
 import { renderWithRouter } from "../test/harness";
 import { Sidebar } from "./Sidebar";
@@ -62,5 +62,91 @@ describe("Sidebar", () => {
     expect(screen.getByText("Work items")).toBeDefined();
     expect(screen.getByText("Strategy")).toBeDefined();
     expect(screen.getByText("Feedback")).toBeDefined();
+  });
+
+  it("renders an icon-only rail when collapsed, keeping accessible names", async () => {
+    const board = getBoard("workboard");
+    renderWithRouter(
+      <Sidebar
+        board={board}
+        workspace="test-ws"
+        pathname="/w/test-ws/workboard"
+        collapsed
+        onToggleCollapse={vi.fn()}
+      />,
+      { path: "/w/test-ws/workboard" },
+    );
+
+    // The expand affordance is present and labels are hidden...
+    expect(
+      await screen.findByRole("button", { name: "Expand sidebar" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Work items")).not.toBeInTheDocument();
+
+    // ...but items remain reachable through their accessible name (title/aria).
+    expect(
+      screen.getByRole("link", { name: "Work items" }),
+    ).toBeInTheDocument();
+  });
+
+  it("invokes onToggleCollapse when the toggle button is clicked", async () => {
+    const board = getBoard("workboard");
+    const onToggleCollapse = vi.fn();
+    renderWithRouter(
+      <Sidebar
+        board={board}
+        workspace="test-ws"
+        pathname="/w/test-ws/workboard"
+        onToggleCollapse={onToggleCollapse}
+      />,
+      { path: "/w/test-ws/workboard" },
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Collapse sidebar" }),
+    );
+    expect(onToggleCollapse).toHaveBeenCalledTimes(1);
+  });
+
+  it("marks exactly one link as the current page on a nested screen", async () => {
+    const board = getBoard("workboard");
+    renderWithRouter(
+      <Sidebar
+        board={board}
+        workspace="test-ws"
+        pathname="/w/test-ws/workboard/strategy"
+      />,
+      { path: "/w/test-ws/workboard/strategy" },
+    );
+
+    // The exact screen ("Strategy") is the current page...
+    const strategy = await screen.findByRole("link", { name: "Strategy" });
+    expect(strategy).toHaveAttribute("aria-current", "page");
+
+    // ...and it is the ONLY one. Without activeOptions={{ exact: true }} the
+    // ancestor "Work items" (/workboard) would also match by prefix and claim
+    // aria-current="page", giving assistive tech two "current" locations.
+    const currentLinks = screen
+      .getAllByRole("link")
+      .filter((link) => link.getAttribute("aria-current") === "page");
+    expect(currentLinks).toHaveLength(1);
+  });
+
+  it("omits the collapse toggle when no onToggleCollapse handler is given", async () => {
+    const board = getBoard("workboard");
+    renderWithRouter(
+      <Sidebar
+        board={board}
+        workspace="test-ws"
+        pathname="/w/test-ws/workboard"
+      />,
+      { path: "/w/test-ws/workboard" },
+    );
+
+    expect(await screen.findByText("Work items")).toBeInTheDocument();
+    // No toggle handler → no collapse/expand affordance is rendered.
+    expect(
+      screen.queryByRole("button", { name: /sidebar/i }),
+    ).not.toBeInTheDocument();
   });
 });

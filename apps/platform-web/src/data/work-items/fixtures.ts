@@ -1,4 +1,11 @@
-import type { Owner, Project, Task, WorkItem } from "./types";
+import type {
+  DependencyRelationship,
+  Owner,
+  Project,
+  Task,
+  WorkItem,
+  WorkItemDependency,
+} from "./types";
 
 /**
  * In-memory mock dataset for the Workboard data seam.
@@ -116,6 +123,45 @@ const RAW_TASKS: ReadonlyArray<Task> = [
 ];
 
 /**
+ * Dependency edges across the seeded items (DESIGN §10 graph edges). Each is a
+ * directed `source → target` ("source depends on target"). Deliberately a valid
+ * DAG — no cycles, no self-edges, no duplicate pairs — so dagre lays it out and
+ * the cycle/self/duplicate guards have a clean baseline. Shapes:
+ *  - proj_v2: wi_auth → wi_migration → wi_realtime, plus wi_auth → wi_realtime
+ *    (a small diamond / multi-level chain); wi_tabletoken is an orphan (no edges).
+ *  - proj_diwali: wi_landing → wi_creatives; wi_adspend is an orphan.
+ *  - sourcing (no project): wi_logistics → wi_supplier → wi_samples.
+ */
+const RAW_DEPENDENCIES: ReadonlyArray<WorkItemDependency> = [
+  dependencyOf("dep_auth_realtime", "wi_auth", "wi_realtime"),
+  dependencyOf("dep_auth_migration", "wi_auth", "wi_migration"),
+  dependencyOf("dep_migration_realtime", "wi_migration", "wi_realtime"),
+  dependencyOf("dep_landing_creatives", "wi_landing", "wi_creatives"),
+  dependencyOf("dep_logistics_supplier", "wi_logistics", "wi_supplier"),
+  dependencyOf("dep_supplier_samples", "wi_supplier", "wi_samples"),
+];
+
+/**
+ * Build a {@link WorkItemDependency}. `relationship_type` defaults to
+ * `depends_on` (the only kind v1 renders); `created_at` is a fixed ISO string so
+ * fixtures stay stable.
+ */
+function dependencyOf(
+  id: string,
+  sourceItemId: string,
+  targetItemId: string,
+  relationshipType: DependencyRelationship = "depends_on",
+): WorkItemDependency {
+  return {
+    id,
+    source_item_id: sourceItemId,
+    target_item_id: targetItemId,
+    relationship_type: relationshipType,
+    created_at: T("2026-06-01T09:00:00.000Z"),
+  };
+}
+
+/**
  * Optional/contextual fields for {@link workItemOf}. Grouped into one object so
  * the factory stays at 5 params (S107-clean) while every fixture value is still
  * expressible. Defaults cover the loose-item cases (no project, no assignee, no
@@ -216,4 +262,12 @@ export function createWorkItemFixtures(): WorkItem[] {
 /** Deep-clone factory: fresh `Task[]` per call (mutation-safe for the mock). */
 export function createTaskFixtures(): Task[] {
   return RAW_TASKS.map((task) => ({ ...task }));
+}
+
+/**
+ * Deep-clone factory: fresh `WorkItemDependency[]` per call (mutation-safe for
+ * the mock — `addDependency`/`removeDependency` mutate this array in place).
+ */
+export function createDependencyFixtures(): WorkItemDependency[] {
+  return RAW_DEPENDENCIES.map((dependency) => ({ ...dependency }));
 }

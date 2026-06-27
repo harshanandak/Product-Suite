@@ -19,7 +19,6 @@ import {
   workboardDepartments,
 } from "./filter-state";
 import { WorkboardKanban } from "./kanban/WorkboardKanban";
-import { WorkboardSummary } from "./summary/WorkboardSummary";
 import { WorkboardTable } from "./table/WorkboardTable";
 import { WorkboardToolbar } from "./toolbar/WorkboardToolbar";
 
@@ -194,7 +193,9 @@ export function WorkboardScreen({
   }, []);
 
   // Active view — Table (default) or Kanban. Both consume the same filtered rows
-  // + handlers (action parity), so search/filters apply equally to both.
+  // + handlers (action parity), so search/filters apply equally to both. The
+  // Graph is its own full-page sub-board route, not an inline tab (it is an
+  // unbounded canvas — see boards/workboard/graph/WorkboardGraphScreen.tsx).
   const [view, setView] = useState<"table" | "kanban">("table");
 
   // §4 body states (the toolbar always renders so New/filters stay reachable):
@@ -242,12 +243,6 @@ export function WorkboardScreen({
         </p>
         <h1 className="text-xl font-semibold text-foreground">Work items</h1>
       </header>
-
-      {/* Glanceable overview strip (the video's "roll the data into a chart").
-          Stable header over ALL loaded items — phase + health distribution. */}
-      {!showTable && items.length > 0 ? (
-        <WorkboardSummary rows={items} />
-      ) : null}
 
       <Tabs
         value={view}

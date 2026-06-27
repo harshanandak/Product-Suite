@@ -29,4 +29,37 @@ describe("BoardDock", () => {
     const homeLink = screen.getByRole("link", { name: "Home" });
     expect(homeLink.dataset.active).toBeUndefined();
   });
+
+  it("keeps all five boards in the DOM when collapsed, hiding the non-active ones", async () => {
+    renderWithRouter(
+      <BoardDock workspace="test-ws" activeBoard="workboard" collapsed />,
+      { path: "/w/test-ws/workboard" },
+    );
+
+    // All five stay reachable (accessibility tree + keyboard) even at rest, so
+    // browse-mode screen-reader users can still discover the other boards...
+    const labels = ["Home", "Workboard", "Meeting board", "Canvas board", "Agent board"];
+    for (const label of labels) {
+      expect(await screen.findByRole("link", { name: label })).toBeInTheDocument();
+    }
+
+    // ...but only the active board is visible; the rest are sr-only until expand.
+    expect(
+      screen.getByRole("link", { name: "Workboard" }).className,
+    ).not.toMatch(/sr-only/);
+    expect(screen.getByRole("link", { name: "Home" }).className).toMatch(
+      /sr-only/,
+    );
+  });
+
+  it("never renders an empty dock when collapsed on a board-less route", async () => {
+    // Settings has no active board (activeBoard === null) — the dock must still
+    // carry the full board set rather than collapsing to nothing.
+    renderWithRouter(
+      <BoardDock workspace="test-ws" activeBoard={null} collapsed />,
+      { path: "/w/test-ws/settings" },
+    );
+
+    expect((await screen.findAllByRole("link")).length).toBe(5);
+  });
 });

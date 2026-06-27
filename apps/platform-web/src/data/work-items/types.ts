@@ -123,6 +123,45 @@ export interface Task {
 }
 
 /**
+ * The kind of relationship a {@link WorkItemDependency} records. Tracks the
+ * legacy `linked_items.relationship_type` value set (after
+ * `20250113000006_improve_timeline_dependencies.sql`) so the F2 adapter maps
+ * one-to-one. v1 renders only `depends_on`; the others ride the record so new
+ * kinds drop in without a shape change.
+ */
+export type DependencyRelationship = "depends_on" | "blocks" | "complements";
+
+/**
+ * A directed dependency edge between two work items — the graph view's edge
+ * record (DESIGN §10: "edges = existing dependency records"; gestures are real
+ * mutations on the one record, never canvas-local state).
+ *
+ * Grounded on the legacy `linked_items` table
+ * (`infra/supabase/migrations/20250101000000_initial_schema.sql`): the columns
+ * `source_item_id` / `target_item_id` / `relationship_type` are kept verbatim so
+ * the eventual F2 adapter is a rename, not a remodel. Two legacy columns are
+ * intentionally dropped for the new model:
+ *  - `direction` — redundant: a directed `source → target` edge encodes it.
+ *  - `reason` — no UI surfaces it in v1; add later without breaking the shape.
+ *
+ * Semantics: `source_item_id` **depends on** `target_item_id` (the source cannot
+ * finish until the target does). In the graph the arrow points source → target.
+ * The pair is unique (mirrors the table's `UNIQUE(source_item_id,
+ * target_item_id)`), self-edges are disallowed, and the directed graph must stay
+ * acyclic (dagre layout requires a DAG).
+ */
+export interface WorkItemDependency {
+  readonly id: string;
+  /** The dependent work item (the one that is blocked). */
+  source_item_id: string;
+  /** The prerequisite work item (`source` depends on this). */
+  target_item_id: string;
+  /** Relationship kind; v1 default `depends_on`. */
+  relationship_type: DependencyRelationship;
+  readonly created_at: string;
+}
+
+/**
  * The editable surface of a work item, shared VERBATIM by the repository
  * (`update`), the hook (`update`), and the Editor (`onSave`). Excludes managed
  * fields (`id`, `created_at`, `updated_at`) and the derived `health` so they can

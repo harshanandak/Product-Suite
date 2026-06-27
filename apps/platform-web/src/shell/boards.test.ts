@@ -68,6 +68,13 @@ describe("resolveScreen", () => {
     expect(resolveScreen("/w/x/workboard", "x").title).toBe("Work items");
   });
 
+  it("resolves the Graph sub-board item under the Workboard", () => {
+    const resolved = resolveScreen("/w/x/workboard/graph", "x");
+    expect(resolved.board?.id).toBe("workboard");
+    expect(resolved.item?.key).toBe("graph");
+    expect(resolved.title).toBe("Graph");
+  });
+
   it("titles the settings surface explicitly", () => {
     expect(resolveScreen("/w/x/settings", "x").title).toBe("Settings");
   });

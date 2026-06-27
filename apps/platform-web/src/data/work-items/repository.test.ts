@@ -216,3 +216,139 @@ describe("createMockWorkItemRepository", () => {
     expect(calls).toBe(0);
   });
 });
+
+describe("createMockWorkItemRepository — dependencies", () => {
+  it("lists the seeded dependency edges", async () => {
+    const repo = createMockWorkItemRepository();
+    const deps = await repo.listDependencies();
+    expect(deps.length).toBeGreaterThan(0);
+    expect(
+      deps.some(
+        (d) => d.source_item_id === "wi_auth" && d.target_item_id === "wi_realtime",
+      ),
+    ).toBe(true);
+  });
+
+  it("adds a new dependency with the default relationship and persists it", async () => {
+    const repo = createMockWorkItemRepository();
+    // wi_tabletoken and wi_adspend are orphans → a safe, cycle-free new edge.
+    const created = await repo.addDependency({
+      source_item_id: "wi_tabletoken",
+      target_item_id: "wi_adspend",
+    });
+    expect(created.id).toBeTruthy();
+    expect(created.relationship_type).toBe("depends_on");
+
+    const deps = await repo.listDependencies();
+    expect(
+      deps.some(
+        (d) =>
+          d.source_item_id === "wi_tabletoken" &&
+          d.target_item_id === "wi_adspend",
+      ),
+    ).toBe(true);
+  });
+
+  it("honours an explicit relationship_type", async () => {
+    const repo = createMockWorkItemRepository();
+    const created = await repo.addDependency({
+      source_item_id: "wi_tabletoken",
+      target_item_id: "wi_adspend",
+      relationship_type: "blocks",
+    });
+    expect(created.relationship_type).toBe("blocks");
+  });
+
+  it("rejects an edge to or from an unknown work item", async () => {
+    const repo = createMockWorkItemRepository();
+    await expect(
+      repo.addDependency({ source_item_id: "wi_ghost", target_item_id: "wi_auth" }),
+    ).rejects.toThrow(/Unknown work item/);
+    await expect(
+      repo.addDependency({ source_item_id: "wi_auth", target_item_id: "wi_ghost" }),
+    ).rejects.toThrow(/Unknown work item/);
+  });
+
+  it("rejects a self-dependency", async () => {
+    const repo = createMockWorkItemRepository();
+    await expect(
+      repo.addDependency({ source_item_id: "wi_auth", target_item_id: "wi_auth" }),
+    ).rejects.toThrow(/cannot depend on itself/);
+  });
+
+  it("rejects a duplicate edge", async () => {
+    const repo = createMockWorkItemRepository();
+    await expect(
+      repo.addDependency({
+        source_item_id: "wi_auth",
+        target_item_id: "wi_realtime",
+      }),
+    ).rejects.toThrow(/already exists/);
+  });
+
+  it("rejects an edge that would close a cycle", async () => {
+    const repo = createMockWorkItemRepository();
+    // wi_auth → wi_realtime exists, so wi_realtime → wi_auth would loop.
+    await expect(
+      repo.addDependency({
+        source_item_id: "wi_realtime",
+        target_item_id: "wi_auth",
+      }),
+    ).rejects.toThrow(/cycle/);
+  });
+
+  it("removes a dependency by id and persists the removal", async () => {
+    const repo = createMockWorkItemRepository();
+    const [first] = await repo.listDependencies();
+    await repo.removeDependency(first.id);
+    const after = await repo.listDependencies();
+    expect(after.some((d) => d.id === first.id)).toBe(false);
+  });
+
+  it("rejects removing an unknown dependency", async () => {
+    const repo = createMockWorkItemRepository();
+    await expect(repo.removeDependency("dep_ghost")).rejects.toThrow(
+      /Unknown dependency/,
+    );
+  });
+
+  it("listGraph without a focus returns every node and edge", async () => {
+    const repo = createMockWorkItemRepository();
+    const [graph, items, deps] = await Promise.all([
+      repo.listGraph(),
+      repo.list(),
+      repo.listDependencies(),
+    ]);
+    expect(graph.nodes.length).toBe(items.length);
+    expect(graph.dependencies.length).toBe(deps.length);
+  });
+
+  it("listGraph with a focus returns only the depth-bounded neighborhood", async () => {
+    const repo = createMockWorkItemRepository();
+    // wi_auth's 1-hop neighbors are wi_realtime + wi_migration.
+    const graph = await repo.listGraph({ focusId: "wi_auth", depth: 1 });
+    const ids = new Set(graph.nodes.map((n) => n.id));
+    expect(ids).toEqual(new Set(["wi_auth", "wi_realtime", "wi_migration"]));
+    // Every returned edge has both endpoints in scope.
+    expect(
+      graph.dependencies.every(
+        (d) => ids.has(d.source_item_id) && ids.has(d.target_item_id),
+      ),
+    ).toBe(true);
+  });
+
+  it("listGraph with an unknown focus returns an empty slice", async () => {
+    const repo = createMockWorkItemRepository();
+    const graph = await repo.listGraph({ focusId: "wi_ghost" });
+    expect(graph.nodes).toEqual([]);
+    expect(graph.dependencies).toEqual([]);
+  });
+
+  it("does not let a returned edge mutation poison the store", async () => {
+    const repo = createMockWorkItemRepository();
+    const first = await repo.listDependencies();
+    first[0].relationship_type = "blocks";
+    const second = await repo.listDependencies();
+    expect(second[0].relationship_type).toBe("depends_on");
+  });
+});

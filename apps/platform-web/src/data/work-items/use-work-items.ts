@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  type AddDependencyInput,
   createMockWorkItemRepository,
   type CreateWorkItemInput,
   type WorkItemRepository,
@@ -11,6 +12,7 @@ import {
   type Project,
   type Task,
   type WorkItem,
+  type WorkItemDependency,
   type WorkItemPatch,
   type WorkItemRow,
 } from "./types";
@@ -48,6 +50,8 @@ export interface UseWorkItemsResult {
   projects: Project[];
   /** All owners; views resolve a row's `assignee_id` → display via this set. */
   owners: Owner[];
+  /** All dependency edges (the graph view's edge set). */
+  dependencies: WorkItemDependency[];
   /** True while the initial load is in flight. */
   loading: boolean;
   /** Set if the initial load failed; `refetch` to retry. */
@@ -65,6 +69,18 @@ export interface UseWorkItemsResult {
    * value to revert — a rejection simply propagates with state untouched.
    */
   create: (input: CreateWorkItemInput) => Promise<WorkItem>;
+  /**
+   * Create a dependency edge through the repository and append it to local state.
+   * Pessimistic (await-then-append) like {@link create}: the repo owns the id and
+   * may legitimately REJECT (self-loop, duplicate, or cycle), so an edge is only
+   * shown once the store confirms it — never drawn optimistically then yanked.
+   */
+  addDependency: (input: AddDependencyInput) => Promise<WorkItemDependency>;
+  /**
+   * Optimistically remove a dependency edge: it disappears immediately and is
+   * restored if the repository rejects (mirrors {@link update}'s rollback).
+   */
+  removeDependency: (id: string) => Promise<void>;
   /** Force a fresh read from the repository. */
   refetch: () => void;
 }
@@ -114,6 +130,7 @@ export function useWorkItems(
   const [tasks, setTasks] = useState<Task[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [owners, setOwners] = useState<Owner[]>([]);
+  const [dependencies, setDependencies] = useState<WorkItemDependency[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -123,6 +140,11 @@ export function useWorkItems(
   // updater, so reading `previous` inside it would race the rollback).
   const workItemsRef = useRef<WorkItem[]>([]);
   workItemsRef.current = workItems;
+
+  // Mirror dependencies for the same reason — `removeDependency` captures the
+  // pre-removal record synchronously so its rollback restores the exact edge.
+  const dependenciesRef = useRef<WorkItemDependency[]>([]);
+  dependenciesRef.current = dependencies;
 
   // Guards against setState after unmount across the async load.
   const mountedRef = useRef(true);
@@ -143,14 +165,24 @@ export function useWorkItems(
       repository.listTasks(),
       repository.listProjects(),
       repository.listOwners(),
+      repository.listDependencies(),
     ])
-      .then(([loadedItems, loadedTasks, loadedProjects, loadedOwners]) => {
-        if (cancelled || !mountedRef.current) return;
-        setWorkItems(loadedItems);
-        setTasks(loadedTasks);
-        setProjects(loadedProjects);
-        setOwners(loadedOwners);
-      })
+      .then(
+        ([
+          loadedItems,
+          loadedTasks,
+          loadedProjects,
+          loadedOwners,
+          loadedDependencies,
+        ]) => {
+          if (cancelled || !mountedRef.current) return;
+          setWorkItems(loadedItems);
+          setTasks(loadedTasks);
+          setProjects(loadedProjects);
+          setOwners(loadedOwners);
+          setDependencies(loadedDependencies);
+        },
+      )
       .catch((cause: unknown) => {
         if (cancelled || !mountedRef.current) return;
         setError(cause instanceof Error ? cause : new Error(String(cause)));
@@ -215,10 +247,64 @@ export function useWorkItems(
     [repository],
   );
 
+  const addDependency = useCallback(
+    async (input: AddDependencyInput): Promise<WorkItemDependency> => {
+      // Pessimistic: the repo validates (self/duplicate/cycle) and owns the id, so
+      // only append once it confirms — never draw an edge we might have to retract.
+      const created = await repository.addDependency(input);
+      if (mountedRef.current) {
+        setDependencies((current) => [...current, created]);
+      }
+      return created;
+    },
+    [repository],
+  );
+
+  const removeDependency = useCallback(
+    async (id: string): Promise<void> => {
+      // Capture the pre-removal edge synchronously (before the deferred setState)
+      // so a rollback restores the exact record.
+      const previous = dependenciesRef.current.find(
+        (dependency) => dependency.id === id,
+      );
+      setDependencies((current) =>
+        current.filter((dependency) => dependency.id !== id),
+      );
+
+      try {
+        await repository.removeDependency(id);
+      } catch (cause) {
+        // Roll the optimistic removal back.
+        if (mountedRef.current && previous) {
+          const restored = previous;
+          setDependencies((current) =>
+            current.some((dependency) => dependency.id === restored.id)
+              ? current
+              : [...current, restored],
+          );
+        }
+        throw cause;
+      }
+    },
+    [repository],
+  );
+
   const items = useMemo(
     () => toRows(workItems, tasks, Date.now()),
     [workItems, tasks],
   );
 
-  return { items, projects, owners, loading, error, update, create, refetch };
+  return {
+    items,
+    projects,
+    owners,
+    dependencies,
+    loading,
+    error,
+    update,
+    create,
+    addDependency,
+    removeDependency,
+    refetch,
+  };
 }
