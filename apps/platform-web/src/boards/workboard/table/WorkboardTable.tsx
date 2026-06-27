@@ -19,7 +19,6 @@ import {
   PriorityBadge,
   PrioritySelect,
   ProvenanceChip,
-  Table,
   TableBody,
   TableCell,
   TableHead,
@@ -48,6 +47,8 @@ import type {
   WorkItemPatch,
   WorkItemRow,
 } from "@/data/work-items";
+
+import { MAX_COLUMN_WIDTH, useColumnWidths } from "./useColumnWidths";
 
 /**
  * Workboard TABLE view (DESIGN §2 / §4 / §5).
@@ -113,6 +114,12 @@ export interface WorkItemTableProps {
    * type-check and behave. (Bulk actions live in the toolbar, not the table.)
    */
   onUpdateItem?: (id: string, patch: WorkItemPatch) => Promise<WorkItem>;
+  /**
+   * Optional ref the parent reads to trigger a GLOBAL column-width reset (the
+   * toolbar's "Reset column widths" item). The table publishes its hook's
+   * `reset` into `ref.current`; the parent invokes it without owning the state.
+   */
+  resetColumnWidthsRef?: { current: (() => void) | null };
 }
 
 /**
@@ -126,6 +133,10 @@ const ROW_HEIGHT = 44;
 const OVERSCAN = 8;
 /** Width (rem) of the always-present leading selection column. */
 const SELECT_COLUMN_WIDTH = "2.5rem";
+/** The same selection column width in px, for the `--table-width` total. */
+const SELECT_COLUMN_WIDTH_PX = 40;
+/** The trailing actions column width in px (3rem), for the `--table-width` total. */
+const ACTIONS_COLUMN_WIDTH_PX = 48;
 
 /** Stable keys for the fixed-count loading skeleton placeholders. */
 const SKELETON_KEYS = ["s1", "s2", "s3", "s4", "s5", "s6"] as const;
@@ -533,20 +544,22 @@ function cellStyle(width: string): React.CSSProperties {
 }
 
 /**
- * Header/body cell style for a DATA column. Flexible columns (`grow` set) grow
- * into spare space from their `width` basis but never shrink past `minWidth`;
- * fixed columns hold their `width` exactly. The same style is applied to the
- * header and every body cell of the column, so they stay perfectly aligned.
+ * Header/body cell style for a DATA column. Every data column is now a resizable
+ * fixed px width carried by the `--col-<id>` CSS custom property on the scroll
+ * container, so the header and every body cell read the SAME live var (`flex:
+ * 0 0 var(--col-<id>)`) and a drag repaints by mutating the var — no re-render.
  */
-function columnStyle(column: ColumnSpec): React.CSSProperties {
-  if (column.grow !== undefined) {
-    return {
-      flex: `${column.grow} 1 ${column.width}`,
-      minWidth: column.minWidth ?? column.width,
-    };
-  }
-  return { width: column.width, flex: "0 0 auto" };
+function dataColumnStyle(id: ColumnId): React.CSSProperties {
+  return { width: `var(--col-${id})`, flex: `0 0 var(--col-${id})` };
 }
+
+/** Style applied to the header row, every body row, and the swimlane group row:
+ * span the full table width, but never shy of the viewport so the hairlines
+ * reach the right edge when Σ widths < viewport (correction 1). */
+const ROW_SPAN_STYLE: React.CSSProperties = {
+  width: "var(--table-width)",
+  minWidth: "100%",
+};
 
 /** Width (rem) of the trailing row-actions column (only when a mutator wires). */
 const ACTIONS_COLUMN_WIDTH = "3rem";
@@ -642,6 +655,7 @@ export function WorkboardTable({
   onSelectionChange,
   onSelectItem,
   onUpdateItem,
+  resetColumnWidthsRef,
 }: Readonly<WorkItemTableProps>) {
   const columns = React.useMemo(
     () => visibleColumnSpecs(visibleColumns),
@@ -658,10 +672,35 @@ export function WorkboardTable({
     [rows, groupBy],
   );
 
-  const scrollRef = React.useRef<HTMLDivElement>(null);
+  // The trailing "⋯" actions cell only renders when a mutator is wired (its
+  // Archive action needs the patch path); read-only embeds keep their existing
+  // column counts. Computed here (not after the early returns) so the resizable-
+  // width total can include the actions column.
+  const showActions = onUpdateItem !== undefined;
+
+  // Resizable px column widths exposed as `--col-<id>` / `--table-width` vars on
+  // the scroll container. `extraWidth` folds in the fixed selection + actions
+  // columns so the row span var covers the whole row.
+  const colWidths = useColumnWidths(
+    columns,
+    SELECT_COLUMN_WIDTH_PX + (showActions ? ACTIONS_COLUMN_WIDTH_PX : 0),
+  );
+  const { containerRef, reset: resetWidths } = colWidths;
+
+  // Publish the hook's reset so the toolbar's "Reset column widths" (threaded
+  // through the screen) can fire it without owning the width state.
+  React.useEffect(() => {
+    const ref = resetColumnWidthsRef;
+    if (ref === undefined) return undefined;
+    ref.current = resetWidths;
+    return () => {
+      ref.current = null;
+    };
+  }, [resetColumnWidthsRef, resetWidths]);
+
   const rowVirtualizer = useVirtualizer({
     count: flatRows.length,
-    getScrollElement: () => scrollRef.current,
+    getScrollElement: () => containerRef.current,
     estimateSize: () => ROW_HEIGHT,
     overscan: OVERSCAN,
   });
@@ -725,11 +764,6 @@ export function WorkboardTable({
     );
   }
 
-  // The trailing "⋯" actions cell only renders when a mutator is wired (its
-  // Archive action needs the patch path); read-only embeds keep their existing
-  // column counts. Header/colcount must mirror that so a11y stays honest.
-  const showActions = onUpdateItem !== undefined;
-
   // 1-based row count for assistive tech: header row + every flat (group/item)
   // row in the virtualized list, regardless of which are currently mounted.
   const ariaRowCount = flatRows.length + 1;
@@ -742,18 +776,31 @@ export function WorkboardTable({
       {/* Flat / borderless chrome (Notion-style): no outer card frame. Rows are
           separated only by the primitives' hairline `border-b` and a light
           hover highlight; the sticky header carries its own bottom hairline. */}
+      {/* BYPASS the shared <Table> primitive: render the <table> directly inside
+          this ONE scroll container so a single element scrolls BOTH axes (the
+          primitive parks an inner overflow-x-auto far below the virtualized
+          viewport). The `--col-*` / `--table-width` vars live here and are read
+          by every cell + row below. */}
       <div
-        ref={scrollRef}
+        ref={containerRef}
         className="relative max-h-[75vh] overflow-auto"
+        style={colWidths.cssVars}
       >
-        <Table
+        <table
+          className="w-max caption-bottom text-sm"
+          style={{ minWidth: "100%" }}
           role="table"
           aria-label="Work items"
           aria-rowcount={ariaRowCount}
           aria-colcount={ariaColCount}
         >
           <TableHeader role="rowgroup" className="sticky top-0 z-10 bg-background">
-            <TableRow role="row" aria-rowindex={1} className="flex w-full">
+            <TableRow
+              role="row"
+              aria-rowindex={1}
+              className="flex"
+              style={ROW_SPAN_STYLE}
+            >
               <TableHead
                 role="columnheader"
                 aria-colindex={1}
@@ -770,10 +817,40 @@ export function WorkboardTable({
                   key={column.id}
                   role="columnheader"
                   aria-colindex={columnIndex + 2}
-                  className={column.alignRight ? "text-right" : undefined}
-                  style={columnStyle(column)}
+                  data-col-id={column.id}
+                  className={cn(
+                    "relative",
+                    column.alignRight && "text-right",
+                  )}
+                  style={dataColumnStyle(column.id)}
                 >
                   {column.header}
+                  {/* Resize handle: a focusable separator at the right border.
+                      Pointer drag mutates the CSS var imperatively (no setState);
+                      keyboard / double-click commit through the hook. */}
+                  <span
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label={`Resize ${column.header} column`}
+                    aria-valuemin={colWidths.minWidthOf(column.id)}
+                    aria-valuemax={MAX_COLUMN_WIDTH}
+                    aria-valuenow={colWidths.widths[column.id]}
+                    tabIndex={0}
+                    className={cn(
+                      "absolute top-0 right-0 z-20 h-full w-1.5 cursor-col-resize touch-none select-none",
+                      "bg-transparent transition-colors hover:bg-border focus-visible:bg-ring active:bg-ring",
+                      "focus-visible:outline-none",
+                    )}
+                    onPointerDown={(event) => {
+                      colWidths.onPointerResizeStart(column.id, event);
+                    }}
+                    onKeyDown={(event) => {
+                      colWidths.onKeyResize(column.id, event);
+                    }}
+                    onDoubleClick={() => {
+                      colWidths.autofit(column.id);
+                    }}
+                  />
                 </TableHead>
               ))}
               {showActions ? (
@@ -799,10 +876,10 @@ export function WorkboardTable({
             {virtualItems.map((virtualRow) => {
               const flat = flatRows[virtualRow.index];
               const offsetStyle: React.CSSProperties = {
+                ...ROW_SPAN_STYLE,
                 position: "absolute",
                 top: 0,
                 left: 0,
-                width: "100%",
                 transform: `translateY(${virtualRow.start}px)`,
                 display: "flex",
               };
@@ -877,14 +954,14 @@ export function WorkboardTable({
                       key={column.id}
                       role="cell"
                       aria-colindex={columnIndex + 2}
-                      // `py-1.5` tightens the row to the compact 44px slot.
-                      // Flexible columns (Name, Tags) clip overflow so a long
-                      // value truncates within the cell instead of pushing width.
-                      className={cn(
-                        "py-1.5",
-                        column.grow !== undefined && "overflow-hidden",
-                      )}
-                      style={columnStyle(column)}
+                      data-col-id={column.id}
+                      // `py-1.5` tightens the row to the compact 44px slot. Now
+                      // every data column is a fixed resizable width, so all
+                      // cells clip + ellipsize; the component cells' own
+                      // min-w-0/truncate still drives their inner truncation, and
+                      // the 8px cell padding keeps the Name focus ring unclipped.
+                      className="overflow-hidden py-1.5 text-ellipsis"
+                      style={dataColumnStyle(column.id)}
                     >
                       {column.id === "name" && isArchived ? (
                         <span className="flex min-w-0 items-center gap-2">
@@ -929,7 +1006,7 @@ export function WorkboardTable({
               );
             })}
           </TableBody>
-        </Table>
+        </table>
       </div>
     </div>
     </TooltipProvider>
