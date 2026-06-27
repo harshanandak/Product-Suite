@@ -72,9 +72,11 @@ import { MAX_COLUMN_WIDTH, useColumnWidths } from "./useColumnWidths";
  *
  * Because virtualization overrides each element's `display` (flex/block/absolute)
  * — which strips the native `<table>`'s implicit ARIA roles — every structural
- * element re-declares an explicit role (`table`/`rowgroup`/`row`/`columnheader`/
- * `gridcell`) plus `aria-rowcount`/`aria-colcount`/`aria-colindex`, so assistive
- * tech still announces a real table with column headers.
+ * element re-declares an explicit role. The container is a `grid`
+ * (`aria-multiselectable` — rows carry `aria-selected`) rather than a plain
+ * `table`, over `rowgroup`/`row`/`columnheader`/`cell` plus `aria-rowcount`/
+ * `aria-colcount`/`aria-colindex`, so assistive tech announces a real,
+ * selectable grid with column headers.
  *
  * This component is presentational: the parent owns the data (`rows` arrive via
  * props, already searched + filtered) and the mutator (`onUpdateItem`). It never
@@ -789,7 +791,8 @@ export function WorkboardTable({
         <table
           className="w-max caption-bottom text-sm"
           style={{ minWidth: "100%" }}
-          role="table"
+          role="grid"
+          aria-multiselectable="true"
           aria-label="Work items"
           aria-rowcount={ariaRowCount}
           aria-colcount={ariaColCount}

@@ -215,7 +215,7 @@ describe("WorkboardTable", () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
-  it("exposes explicit table roles for assistive tech", async () => {
+  it("exposes an explicit selectable grid for assistive tech", async () => {
     const rows = await loadRows();
     renderTable({ rows });
 
@@ -223,9 +223,13 @@ describe("WorkboardTable", () => {
       expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
     });
 
-    const table = screen.getByRole("table", { name: "Work items" });
-    // Selection column + all 8 data columns.
-    expect(table).toHaveAttribute("aria-colcount", String(1 + COLUMN_IDS.length));
+    // The virtualization overrides strip the native table semantics, so the
+    // container re-declares a real, multi-selectable grid (rows carry
+    // aria-selected) — not a plain table.
+    const grid = screen.getByRole("grid", { name: "Work items" });
+    expect(grid).toHaveAttribute("aria-multiselectable", "true");
+    // grid still supports aria-colcount: selection column + all 8 data columns.
+    expect(grid).toHaveAttribute("aria-colcount", String(1 + COLUMN_IDS.length));
     // One columnheader per visible data column plus the leading selection header.
     expect(screen.getAllByRole("columnheader").length).toBe(1 + COLUMN_IDS.length);
     // Every row carries an explicit role despite the flex/absolute overrides.
@@ -583,7 +587,7 @@ describe("WorkboardTable", () => {
     // Selection column + the two visible data columns only.
     expect(headers).toEqual(["", "Name", "Priority"]);
     expect(
-      screen.getByRole("table", { name: "Work items" }),
+      screen.getByRole("grid", { name: "Work items" }),
     ).toHaveAttribute("aria-colcount", "3");
     // A hidden column's header is absent.
     expect(

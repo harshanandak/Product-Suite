@@ -84,7 +84,7 @@ describe("WorkboardScreen", () => {
       expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
     });
     expect(
-      screen.getByRole("table", { name: "Work items" }),
+      screen.getByRole("grid", { name: "Work items" }),
     ).toBeInTheDocument();
   });
 
