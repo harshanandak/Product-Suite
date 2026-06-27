@@ -43,10 +43,12 @@ const DEPARTMENTS: ReadonlyArray<string> = ["Engineering", "Design"];
 function renderToolbar(overrides?: {
   value?: Partial<WorkboardFilterState>;
   selectedCount?: number;
+  view?: "table" | "kanban";
 }) {
   const onChange = vi.fn<(next: WorkboardFilterState) => void>();
   const onNewItem = vi.fn();
   const onBulkApply = vi.fn<(patch: WorkItemPatch) => void>();
+  const onViewChange = vi.fn<(view: "table" | "kanban") => void>();
   const value: WorkboardFilterState = {
     ...defaultWorkboardFilterState(),
     ...overrides?.value,
@@ -56,6 +58,8 @@ function renderToolbar(overrides?: {
     <WorkboardToolbar
       value={value}
       onChange={onChange}
+      view={overrides?.view ?? "table"}
+      onViewChange={onViewChange}
       owners={OWNERS}
       departments={DEPARTMENTS}
       selectedCount={overrides?.selectedCount ?? 0}
@@ -68,6 +72,7 @@ function renderToolbar(overrides?: {
     onChange,
     onNewItem,
     onBulkApply,
+    onViewChange,
     /** The state object from the most recent `onChange` call. */
     lastChange: (): WorkboardFilterState =>
       onChange.mock.calls.at(-1)?.[0] as WorkboardFilterState,
@@ -87,6 +92,18 @@ function openMenu(triggerName: string | RegExp): void {
 }
 
 describe("WorkboardToolbar", () => {
+  it("renders the Table/Kanban view switcher and reports the picked view", () => {
+    const { onViewChange } = renderToolbar();
+    // The switcher leads the toolbar (the page header + standalone tabs row were
+    // removed), exposing both views as tabs…
+    expect(screen.getByRole("tab", { name: "Table" })).toBeInTheDocument();
+    // …and picking one reports the normalized view up to the screen. Radix tabs
+    // activate on mousedown (the left-button handler), not the synthetic click
+    // event, so drive mousedown to mirror a real pointer pick.
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Kanban" }));
+    expect(onViewChange).toHaveBeenCalledWith("kanban");
+  });
+
   it("renders the search input with placeholder and the '/' hint", () => {
     renderToolbar();
     const search = screen.getByRole("searchbox", { name: "Search work items" });
