@@ -29,17 +29,34 @@ export const PRIORITY_ORDER: readonly Priority[] = [
   "low",
 ];
 
+/**
+ * Per-level chroma ramp (DESIGN §5) — one hue each so priority never collapses
+ * into the neutral accent/secondary/muted grays, especially in dark mode. See
+ * the `--priority-*` tokens in `styles/tokens.css`.
+ */
 const PRIORITY_STYLES: Record<Priority, string> = {
-  critical: "bg-destructive text-destructive-foreground",
-  high: "bg-accent text-accent-foreground",
-  medium: "bg-secondary text-secondary-foreground",
-  low: "bg-muted text-muted-foreground",
+  critical: "bg-priority-critical text-priority-critical-foreground",
+  high: "bg-priority-high text-priority-high-foreground",
+  medium: "bg-priority-medium text-priority-medium-foreground",
+  low: "bg-priority-low text-priority-low-foreground",
 };
 
-/** Leading glyph for the louder priorities; quieter ones stay text-only. */
+/** Leading glyph for the louder priorities; quieter ones use a dot (below). */
 const PRIORITY_ICONS: Partial<Record<Priority, LucideIcon>> = {
   critical: FlameIcon,
   high: ArrowUpIcon,
+};
+
+/**
+ * Leading dot for the glyph-less levels. Belt-and-suspenders: the dot carries
+ * the level hue (`-foreground`) so the level still reads even if the surface
+ * tint is low-contrast on a given display.
+ */
+const PRIORITY_DOT_STYLES: Record<Priority, string> = {
+  critical: "bg-priority-critical-foreground",
+  high: "bg-priority-high-foreground",
+  medium: "bg-priority-medium-foreground",
+  low: "bg-priority-low-foreground",
 };
 
 export interface PriorityBadgeProps
@@ -68,12 +85,19 @@ export function PriorityBadge({
       {...props}
       data-priority={priority}
       className={cn(
-        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
+        "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium",
         PRIORITY_STYLES[priority],
         className,
       )}
     >
-      {Icon ? <Icon aria-hidden="true" className="size-3" /> : null}
+      {Icon ? (
+        <Icon aria-hidden="true" className="size-3" />
+      ) : (
+        <span
+          aria-hidden="true"
+          className={cn("size-1.5 rounded-full", PRIORITY_DOT_STYLES[priority])}
+        />
+      )}
       {PRIORITY_LABELS[priority]}
     </span>
   );
