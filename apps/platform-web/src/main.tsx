@@ -19,7 +19,11 @@ import { SetupNotice } from "./shell/SetupNotice";
 // statically false and React Grab is tree-shaken out — it must never ship to
 // production (it exposes source structure).
 if (import.meta.env.DEV || import.meta.env.VITE_ENABLE_REACT_GRAB === "true") {
-  void import("react-grab");
+  // Best-effort: if the chunk is missing/blocked, degrade quietly instead of
+  // leaving an unhandled rejection (React Grab is a dev/preview-only nicety).
+  void import("react-grab").catch((error: unknown) => {
+    console.warn("react-grab failed to load:", error);
+  });
 }
 
 const rootElement = document.getElementById("root");

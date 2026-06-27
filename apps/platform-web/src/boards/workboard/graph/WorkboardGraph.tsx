@@ -534,6 +534,11 @@ function WorkboardGraphInner({
           nodeDragThreshold={NODE_DRAG_THRESHOLD}
           nodesDraggable={draggable}
           nodesConnectable={connectable}
+          // Delete is for dependency EDGES only — never nodes. React Flow's
+          // default delete path would otherwise let a selected node vanish from
+          // local canvas state until the graph remounts. Cancel any deletion
+          // that targets a node; edge-only deletions proceed.
+          onBeforeDelete={({ nodes }) => Promise.resolve(nodes.length === 0)}
           elementsSelectable
           onlyRenderVisibleElements
           deleteKeyCode={onRemoveDependency ? "Delete" : null}
