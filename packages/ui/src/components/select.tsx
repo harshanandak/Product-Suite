@@ -25,17 +25,35 @@ function SelectValue({
 function SelectTrigger({
   className,
   size = "default",
+  variant = "default",
   children,
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Trigger> & {
   size?: "sm" | "default"
+  /**
+   * Chrome. `default` is the bordered, shadowed control. `ghost` is flat and
+   * borderless — no visible border/background at rest, a subtle hover surface,
+   * and a chevron that fades in on hover/focus/open — so the trigger reads as
+   * its value (a badge/text) until interacted with (Notion-style inline cell).
+   */
+  variant?: "default" | "ghost"
 }) {
   return (
     <SelectPrimitive.Trigger
       data-slot="select-trigger"
       data-size={size}
+      data-variant={variant}
       className={cn(
-        "flex w-fit items-center justify-between gap-2 rounded-md border border-input bg-transparent px-3 py-2 text-sm whitespace-nowrap shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 data-[placeholder]:text-muted-foreground data-[size=default]:h-9 data-[size=sm]:h-8 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 dark:bg-input/30 dark:hover:bg-input/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground",
+        // Layout / focus / size / a11y — shared by both variants.
+        "flex items-center justify-between gap-2 rounded-md px-3 py-2 text-sm whitespace-nowrap transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 data-[placeholder]:text-muted-foreground data-[size=default]:h-9 data-[size=sm]:h-8 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground",
+        // Default chrome — byte-for-byte the same look as before this variant existed.
+        variant === "default" &&
+          "w-fit border border-input bg-transparent shadow-xs dark:bg-input/30 dark:hover:bg-input/50",
+        // Ghost chrome — flat at rest, subtle on hover/open. The chevron (the
+        // single DIRECT-child svg; badge icons live nested inside SelectValue)
+        // is hidden at rest and fades in on interaction.
+        variant === "ghost" &&
+          "w-full border border-transparent bg-transparent shadow-none hover:bg-accent hover:text-accent-foreground data-[state=open]:bg-accent [&>svg]:opacity-0 [&>svg]:transition-opacity hover:[&>svg]:opacity-50 focus-visible:[&>svg]:opacity-50 data-[state=open]:[&>svg]:opacity-50",
         className
       )}
       {...props}

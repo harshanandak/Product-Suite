@@ -108,6 +108,12 @@ export interface TagInputProps {
   placeholder?: string;
   /** Disables adding and removing. */
   disabled?: boolean;
+  /**
+   * Field chrome. `default` is the bordered field. `ghost` is flat/borderless
+   * for Notion-style inline table cells: no border/background at rest, a subtle
+   * hover surface, and each tag's ✕ remove control revealed on hover/focus.
+   */
+  variant?: "default" | "ghost";
   /** Extra classes merged onto the outer field. */
   className?: string;
 }
@@ -131,6 +137,7 @@ function TagInput({
   "aria-label": ariaLabel,
   placeholder = "Add a tag…",
   disabled,
+  variant = "default",
   className,
 }: Readonly<TagInputProps>) {
   const [draft, setDraft] = React.useState("");
@@ -172,15 +179,23 @@ function TagInput({
     <div
       ref={rootRef}
       data-slot="tag-input"
+      data-variant={variant}
       onBlur={handleBlur}
       className={cn(
-        "flex flex-wrap items-center gap-1 rounded-md border border-input bg-transparent p-1 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50",
+        "flex flex-wrap items-center gap-1 rounded-md p-1 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50",
+        variant === "default" && "border border-input bg-transparent",
+        variant === "ghost" &&
+          "border border-transparent bg-transparent hover:bg-accent/50",
         disabled && "cursor-not-allowed opacity-50",
         className,
       )}
     >
       {value.map((tag) => (
-        <span key={tag} data-slot="tag-chip" className={TAG_CHIP_CLASS}>
+        <span
+          key={tag}
+          data-slot="tag-chip"
+          className={cn(TAG_CHIP_CLASS, variant === "ghost" && "group/tag")}
+        >
           {tag}
           <button
             type="button"
@@ -188,7 +203,13 @@ function TagInput({
             aria-label={`Remove ${tag}`}
             disabled={disabled}
             onClick={() => removeTag(tag)}
-            className="inline-flex size-3.5 items-center justify-center rounded-full outline-none hover:bg-foreground/10 focus-visible:ring-[2px] focus-visible:ring-ring/50 disabled:pointer-events-none"
+            className={cn(
+              "inline-flex size-3.5 items-center justify-center rounded-full outline-none hover:bg-foreground/10 focus-visible:ring-[2px] focus-visible:ring-ring/50 disabled:pointer-events-none",
+              // Ghost cells keep chips quiet: the ✕ stays hidden until the chip
+              // is hovered or the button itself is keyboard-focused.
+              variant === "ghost" &&
+                "opacity-0 transition-opacity group-hover/tag:opacity-100 focus-visible:opacity-100",
+            )}
           >
             <XIcon aria-hidden="true" className="size-3" />
           </button>

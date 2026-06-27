@@ -69,4 +69,27 @@ describe("WorkItemTypeSelect", () => {
     expect(html).toContain('aria-label="Work item type"');
     expect(html).toContain('data-slot="work-item-type-select-trigger"');
   });
+
+  test("ghost variant renders the value as a borderless WorkItemTypeBadge", () => {
+    const html = renderToStaticMarkup(
+      createElement(WorkItemTypeSelect, {
+        value: "bug",
+        onValueChange: noop,
+        variant: "ghost",
+      }),
+    );
+
+    expect(html).toContain('data-variant="ghost"');
+    expect(html).toContain('data-type="bug"');
+    expect(html).toContain("Bug");
+  });
+
+  test("default variant stays bordered and renders no type badge", () => {
+    const html = renderToStaticMarkup(
+      createElement(WorkItemTypeSelect, { value: "bug", onValueChange: noop }),
+    );
+
+    expect(html).toContain('data-variant="default"');
+    expect(html).not.toContain("data-type=");
+  });
 });

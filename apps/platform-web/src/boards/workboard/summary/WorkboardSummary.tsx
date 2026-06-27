@@ -194,7 +194,9 @@ export function WorkboardSummary({ rows }: Readonly<WorkboardSummaryProps>) {
     <section
       aria-label="Workboard summary"
       data-testid="workboard-summary"
-      className="rounded-lg border border-border bg-card px-4 py-3 text-card-foreground"
+      // Flat / borderless chrome (Notion-style): no card frame around the
+      // overview strip — it reads as content, in step with the borderless table.
+      className="text-foreground"
     >
       {/* Visually-hidden, machine-readable rollup — the single AT surface.
           role="img" presents the chart as one labelled image to AT; an <img>
