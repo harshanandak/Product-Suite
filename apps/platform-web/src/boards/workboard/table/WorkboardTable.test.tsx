@@ -697,10 +697,16 @@ describe("WorkboardTable", () => {
     await screen.findAllByTestId("work-item-row");
 
     const row = rowByTitle("Workspace auth hardening");
-    // Muted + dimmed styling marks the row as de-emphasized.
+    // A muted text token marks the row as de-emphasized — but NOT a blanket
+    // opacity dim (which also washed out the full-opacity status badges).
     expect(row).toHaveClass("text-muted-foreground");
-    expect(row).toHaveClass("opacity-60");
+    expect(row).not.toHaveClass("opacity-60");
     expect(row).toHaveAttribute("data-archived", "true");
+    // Non-contrast archived cue: the title is struck through (not just dimmed).
+    const archivedTitle = within(row).getByRole("button", {
+      name: "Workspace auth hardening",
+    });
+    expect(archivedTitle).toHaveClass("line-through");
     // A small "Archived" indicator renders in the row.
     expect(within(row).getByTestId("archived-indicator")).toHaveTextContent(
       "Archived",
