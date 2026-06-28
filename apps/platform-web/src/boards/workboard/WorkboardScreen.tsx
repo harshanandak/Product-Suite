@@ -98,8 +98,8 @@ export function WorkboardScreen({
   // live items. The Table renders exactly `rows`; it never filters.
   const departments = useMemo(() => workboardDepartments(items), [items]);
   const rows = useMemo(
-    () => applyWorkboardFilters(items, filterState),
-    [items, filterState],
+    () => applyWorkboardFilters(items, filterState, owners),
+    [items, filterState, owners],
   );
 
   // Prune the shared selection down to the CURRENTLY-VISIBLE rows whenever the

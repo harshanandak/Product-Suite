@@ -219,6 +219,45 @@ describe("WorkboardToolbar", () => {
     expect(onChange).toHaveBeenCalledTimes(1);
   });
 
+  it("shows Clear filters for a search alone and resets the search too (#15)", () => {
+    const { lastChange } = renderToolbar({ value: { search: "auth" } });
+    const clear = screen.getByRole("button", { name: /clear filters/i });
+    // The trimmed search counts as one active filter…
+    expect(clear).toHaveAccessibleName(/1 active/i);
+    fireEvent.click(clear);
+    // …and clearing resets the search string (not just the facets).
+    expect(lastChange().search).toBe("");
+  });
+
+  it("does not count a whitespace-only search toward Clear filters (#15)", () => {
+    renderToolbar({ value: { search: "   " } });
+    expect(
+      screen.queryByRole("button", { name: /clear filters/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("clears the search alongside the facets when both are set (#15)", () => {
+    const { lastChange } = renderToolbar({
+      value: {
+        search: "auth",
+        filters: {
+          type: new Set(["bug"]),
+          owner: new Set(),
+          department: new Set(),
+          phase: new Set(),
+          priority: new Set(),
+        },
+      },
+    });
+    // search (1) + type (1) → "2 active".
+    const clear = screen.getByRole("button", { name: /clear filters/i });
+    expect(clear).toHaveAccessibleName(/2 active/i);
+    fireEvent.click(clear);
+    const next = lastChange();
+    expect(next.search).toBe("");
+    expect(next.filters.type.size).toBe(0);
+  });
+
   it("changes the group-by field via the radio menu", async () => {
     const { lastChange } = renderToolbar();
     openMenu("Group by");

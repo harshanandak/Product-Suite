@@ -106,8 +106,8 @@ export function WorkboardGraphScreen({
   const [filterState, setFilterState] = useState(defaultWorkboardFilterState());
   const departments = useMemo(() => workboardDepartments(items), [items]);
   const rows = useMemo(
-    () => applyWorkboardFilters(items, filterState),
-    [items, filterState],
+    () => applyWorkboardFilters(items, filterState, owners),
+    [items, filterState, owners],
   );
 
   const [selected, setSelected] = useState<WorkItem | null>(null);

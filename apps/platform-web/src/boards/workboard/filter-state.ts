@@ -90,7 +90,7 @@ export interface WorkboardFilters {
  * `setState` from the toolbar re-renders the Table consistently.
  */
 export interface WorkboardFilterState {
-  /** Free-text search across the row's title (and, optionally, tags). */
+  /** Free-text search across title, tags, department, type label, and owner name. */
   search: string;
   /** Structured facet filters (see {@link WorkboardFilters}). */
   filters: WorkboardFilters;
@@ -150,14 +150,30 @@ function ownerMatches(
 }
 
 /**
- * Case-insensitive free-text match over a row's title and its tags. An empty (or
+ * Case-insensitive free-text match over a row's user-visible text — its title,
+ * tags, department, type label, AND owner display name. The row stores only
+ * `assignee_id`, so the owner name is resolved through the `ownerNameById`
+ * lookup; the type is matched by its human {@link WORK_ITEM_TYPE_LABELS} label
+ * (what the user actually sees), not its raw enum code. An empty (or
  * whitespace-only) query passes everything.
  */
-function searchMatches(query: string, row: WorkItemRow): boolean {
+function searchMatches(
+  query: string,
+  row: WorkItemRow,
+  ownerNameById: ReadonlyMap<string, string>,
+): boolean {
   const needle = query.trim().toLowerCase();
   if (needle === "") return true;
-  if (row.title.toLowerCase().includes(needle)) return true;
-  return row.tags.some((tag) => tag.toLowerCase().includes(needle));
+  const ownerName =
+    row.assignee_id === null ? undefined : ownerNameById.get(row.assignee_id);
+  const haystacks = [
+    row.title,
+    row.department,
+    WORK_ITEM_TYPE_LABELS[row.type],
+    ...row.tags,
+    ...(ownerName === undefined ? [] : [ownerName]),
+  ];
+  return haystacks.some((field) => field.toLowerCase().includes(needle));
 }
 
 /**
@@ -170,22 +186,27 @@ function searchMatches(query: string, row: WorkItemRow): boolean {
  * already-filtered `rows`, so the two surfaces can never desync (DESIGN §4).
  *
  * Filter semantics — an EMPTY facet set is "no filter" (show all):
- *  - search: case-insensitive substring over title AND tags.
+ *  - search: case-insensitive substring over title, tags, department, type
+ *    label, AND owner display name (resolved from `owners`).
  *  - type / phase / priority / department: membership in the matching facet set.
  *  - owner: the {@link FILTER_OWNER_UNASSIGNED} sentinel matches
  *    `assignee_id === null`; an owner id matches that `assignee_id`.
  *
  * @param rows - the candidate rows (already health-derived by the hook).
  * @param state - the active filter state.
+ * @param owners - owner records used to resolve `assignee_id` → display name for
+ *   search; defaults to none (search then simply never matches on owner name).
  */
 export function applyWorkboardFilters(
   rows: WorkItemRow[],
   state: WorkboardFilterState,
+  owners: ReadonlyArray<Owner> = [],
 ): WorkItemRow[] {
   const { search, filters } = state;
+  const ownerNameById = new Map(owners.map((owner) => [owner.id, owner.name]));
   return rows.filter(
     (row) =>
-      searchMatches(search, row) &&
+      searchMatches(search, row, ownerNameById) &&
       facetMatches(filters.type, row.type) &&
       ownerMatches(filters.owner, row.assignee_id) &&
       facetMatches(filters.department, row.department) &&

@@ -146,12 +146,16 @@ export function WorkboardToolbar({
   onResetColumnWidths,
 }: Readonly<WorkboardToolbarProps>) {
   const { filters } = value;
+  // A non-empty (trimmed) search counts as an active filter too, so the Clear
+  // affordance appears — and resets the search — even when ONLY a search is set.
+  const hasSearch = value.search.trim() !== "";
   const activeFilterCount =
     filters.type.size +
     filters.owner.size +
     filters.department.size +
     filters.phase.size +
-    filters.priority.size;
+    filters.priority.size +
+    (hasSearch ? 1 : 0);
 
   // --- Filter facets ------------------------------------------------------
 
@@ -193,10 +197,11 @@ export function WorkboardToolbar({
     });
   };
 
-  /** Empty ONLY the four facet sets; leave search/groupBy/columns/selection. */
+  /** Reset the search AND all five facet sets; leave groupBy/columns/selection. */
   const clearFilters = (): void => {
     onChange({
       ...value,
+      search: "",
       filters: {
         type: new Set(),
         owner: new Set(),
