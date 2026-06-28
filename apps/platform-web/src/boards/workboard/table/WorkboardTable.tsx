@@ -72,9 +72,11 @@ import { MAX_COLUMN_WIDTH, useColumnWidths } from "./useColumnWidths";
  *
  * Because virtualization overrides each element's `display` (flex/block/absolute)
  * — which strips the native `<table>`'s implicit ARIA roles — every structural
- * element re-declares an explicit role (`table`/`rowgroup`/`row`/`columnheader`/
- * `gridcell`) plus `aria-rowcount`/`aria-colcount`/`aria-colindex`, so assistive
- * tech still announces a real table with column headers.
+ * element re-declares an explicit role. The container is a `grid`
+ * (`aria-multiselectable` — rows carry `aria-selected`) rather than a plain
+ * `table`, over `rowgroup`/`row`/`columnheader`/`cell` plus `aria-rowcount`/
+ * `aria-colcount`/`aria-colindex`, so assistive tech announces a real,
+ * selectable grid with column headers.
  *
  * This component is presentational: the parent owns the data (`rows` arrive via
  * props, already searched + filtered) and the mutator (`onUpdateItem`). It never
@@ -746,6 +748,54 @@ export function WorkboardTable({
     [onSelectionChange, selection],
   );
 
+  // Range-selection anchor: the ID of the last PLAINLY-toggled row. Stored by id
+  // (not a raw index) so it survives a filter / sort / regroup — the index is
+  // re-resolved against the CURRENT flatRows at shift-click time and can never
+  // point at a different item than the one the user anchored.
+  const anchorIdRef = React.useRef<string | null>(null);
+  // The Checkbox's `onCheckedChange` carries no event, so the modifier is read
+  // off the preceding `onClick` (Radix composes our handler before its own, so
+  // this is set before `onCheckedChange` fires) and stashed here for the toggle.
+  const shiftKeyRef = React.useRef(false);
+
+  // Checkbox activation by flat-row index. A plain click toggles the one row and
+  // moves the anchor; a shift-click selects the INCLUSIVE range between the live
+  // anchor (re-resolved by id against the current flatRows) and the clicked row
+  // in flatRows order (group-header rows are skipped), unioning into the current
+  // selection. A shift-click whose anchor is gone (filtered out) or unset falls
+  // back to a single toggle.
+  const handleRowSelect = React.useCallback(
+    (index: number) => {
+      const flat = flatRows[index];
+      if (flat === undefined || flat.kind !== "item") return;
+
+      const anchorId = anchorIdRef.current;
+      const anchor =
+        shiftKeyRef.current && anchorId !== null
+          ? flatRows.findIndex(
+              (candidate) =>
+                candidate.kind === "item" && candidate.row.id === anchorId,
+            )
+          : -1;
+
+      if (anchor >= 0) {
+        const start = Math.min(anchor, index);
+        const end = Math.max(anchor, index);
+        const next = new Set(selection);
+        for (let i = start; i <= end; i += 1) {
+          const candidate = flatRows[i];
+          if (candidate?.kind === "item") next.add(candidate.row.id);
+        }
+        onSelectionChange(next);
+        return;
+      }
+
+      toggleOne(flat.row.id);
+      anchorIdRef.current = flat.row.id;
+    },
+    [flatRows, onSelectionChange, selection, toggleOne],
+  );
+
   if (loading) {
     return <LoadingSkeleton />;
   }
@@ -789,7 +839,8 @@ export function WorkboardTable({
         <table
           className="w-max caption-bottom text-sm"
           style={{ minWidth: "100%" }}
-          role="table"
+          role="grid"
+          aria-multiselectable="true"
           aria-label="Work items"
           aria-rowcount={ariaRowCount}
           aria-colcount={ariaColCount}
@@ -899,7 +950,7 @@ export function WorkboardTable({
                     style={offsetStyle}
                   >
                     <TableCell
-                      role="cell"
+                      role="gridcell"
                       aria-colindex={1}
                       aria-colspan={ariaColCount}
                       className="flex-1 font-medium"
@@ -934,7 +985,7 @@ export function WorkboardTable({
                   style={offsetStyle}
                 >
                   <TableCell
-                    role="cell"
+                    role="gridcell"
                     aria-colindex={1}
                     style={cellStyle(SELECT_COLUMN_WIDTH)}
                   >
@@ -943,16 +994,19 @@ export function WorkboardTable({
                       checked={isSelected}
                       onClick={(event) => {
                         event.stopPropagation();
+                        // Capture the modifier for the range-vs-toggle branch in
+                        // onCheckedChange (which receives no event of its own).
+                        shiftKeyRef.current = event.shiftKey;
                       }}
                       onCheckedChange={() => {
-                        toggleOne(row.id);
+                        handleRowSelect(virtualRow.index);
                       }}
                     />
                   </TableCell>
                   {columns.map((column, columnIndex) => (
                     <TableCell
                       key={column.id}
-                      role="cell"
+                      role="gridcell"
                       aria-colindex={columnIndex + 2}
                       data-col-id={column.id}
                       // `py-1.5` tightens the row to the compact 44px slot. Now
@@ -990,7 +1044,7 @@ export function WorkboardTable({
                   ))}
                   {showActions && onUpdateItem ? (
                     <TableCell
-                      role="cell"
+                      role="gridcell"
                       aria-colindex={columns.length + 2}
                       className="flex items-center justify-end"
                       style={cellStyle(ACTIONS_COLUMN_WIDTH)}

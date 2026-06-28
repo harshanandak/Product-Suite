@@ -215,7 +215,7 @@ describe("WorkboardTable", () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
-  it("exposes explicit table roles for assistive tech", async () => {
+  it("exposes an explicit selectable grid for assistive tech", async () => {
     const rows = await loadRows();
     renderTable({ rows });
 
@@ -223,9 +223,13 @@ describe("WorkboardTable", () => {
       expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
     });
 
-    const table = screen.getByRole("table", { name: "Work items" });
-    // Selection column + all 8 data columns.
-    expect(table).toHaveAttribute("aria-colcount", String(1 + COLUMN_IDS.length));
+    // The virtualization overrides strip the native table semantics, so the
+    // container re-declares a real, multi-selectable grid (rows carry
+    // aria-selected) — not a plain table.
+    const grid = screen.getByRole("grid", { name: "Work items" });
+    expect(grid).toHaveAttribute("aria-multiselectable", "true");
+    // grid still supports aria-colcount: selection column + all 8 data columns.
+    expect(grid).toHaveAttribute("aria-colcount", String(1 + COLUMN_IDS.length));
     // One columnheader per visible data column plus the leading selection header.
     expect(screen.getAllByRole("columnheader").length).toBe(1 + COLUMN_IDS.length);
     // Every row carries an explicit role despite the flex/absolute overrides.
@@ -429,6 +433,87 @@ describe("WorkboardTable", () => {
     expect([...onSelectionChange.mock.calls[0][0]]).toEqual(["wi_auth"]);
   });
 
+  it("selects the inclusive range on a shift-click checkbox", async () => {
+    const rows = await loadRows();
+    const onSelectionChange = vi.fn();
+    // groupBy "none" → flatRows index == rows index == DOM order, so the range
+    // is deterministic.
+    renderTable({ rows, groupBy: "none", onSelectionChange });
+
+    const rowEls = await screen.findAllByTestId("work-item-row");
+    const checkboxOf = (el: HTMLElement): HTMLElement =>
+      within(el).getByRole("checkbox");
+
+    // A plain click sets the range anchor (and toggles the one row).
+    fireEvent.click(checkboxOf(rowEls[0]));
+    onSelectionChange.mockClear();
+
+    // Shift-click three rows down selects the inclusive 0..2 range, not a toggle.
+    fireEvent.click(checkboxOf(rowEls[2]), { shiftKey: true });
+
+    expect(onSelectionChange).toHaveBeenCalledTimes(1);
+    const next = onSelectionChange.mock.calls[0][0] as Set<string>;
+    expect(next.has(rows[0].id)).toBe(true);
+    expect(next.has(rows[1].id)).toBe(true);
+    expect(next.has(rows[2].id)).toBe(true);
+    expect(next.size).toBe(3);
+  });
+
+  it("treats a shift-click with no prior anchor as a single toggle", async () => {
+    const rows = await loadRows();
+    const onSelectionChange = vi.fn();
+    renderTable({ rows, groupBy: "none", onSelectionChange });
+
+    const rowEls = await screen.findAllByTestId("work-item-row");
+    // First-ever interaction is a shift-click → no live anchor → single toggle.
+    fireEvent.click(within(rowEls[1]).getByRole("checkbox"), { shiftKey: true });
+
+    expect(onSelectionChange).toHaveBeenCalledTimes(1);
+    expect([...onSelectionChange.mock.calls[0][0]]).toEqual([rows[1].id]);
+  });
+
+  it("re-resolves the shift anchor by id after rows change (no stale-index range)", async () => {
+    const rows = await loadRows();
+    const onSelectionChange = vi.fn();
+    const { props, rerender } = renderTable({
+      rows,
+      groupBy: "none",
+      onSelectionChange,
+    });
+
+    const rowEls = await screen.findAllByTestId("work-item-row");
+    const checkboxOf = (el: HTMLElement): HTMLElement =>
+      within(el).getByRole("checkbox");
+
+    // Anchor on rows[1] with a plain click.
+    fireEvent.click(checkboxOf(rowEls[1]));
+    onSelectionChange.mockClear();
+
+    // rows[1] (the anchor) is filtered OUT. A raw-index anchor would still point
+    // at a now-different live row and drag a bogus range in; the id-based anchor
+    // finds nothing in the new flatRows and must fall back to a single toggle.
+    const remaining = rows.filter((row) => row.id !== rows[1].id);
+    rerender(
+      <WorkboardTable
+        {...props}
+        rows={remaining}
+        selection={new Set([rows[1].id])}
+      />,
+    );
+
+    const newRowEls = await screen.findAllByTestId("work-item-row");
+    fireEvent.click(checkboxOf(newRowEls[newRowEls.length - 1]), {
+      shiftKey: true,
+    });
+
+    expect(onSelectionChange).toHaveBeenCalledTimes(1);
+    const next = onSelectionChange.mock.calls[0][0] as Set<string>;
+    // Only the clicked row joins the existing selection — no middle rows pulled
+    // in by a stale index (a raw-index anchor would have given size 3).
+    expect(next.has(remaining[remaining.length - 1].id)).toBe(true);
+    expect(next.size).toBe(2);
+  });
+
   it("reflects a partial selection as an indeterminate select-all checkbox", async () => {
     const rows = await loadRows();
     // Pre-seed a single-row selection (controlled): header must read mixed.
@@ -583,7 +668,7 @@ describe("WorkboardTable", () => {
     // Selection column + the two visible data columns only.
     expect(headers).toEqual(["", "Name", "Priority"]);
     expect(
-      screen.getByRole("table", { name: "Work items" }),
+      screen.getByRole("grid", { name: "Work items" }),
     ).toHaveAttribute("aria-colcount", "3");
     // A hidden column's header is absent.
     expect(

@@ -84,7 +84,7 @@ describe("WorkboardScreen", () => {
       expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
     });
     expect(
-      screen.getByRole("table", { name: "Work items" }),
+      screen.getByRole("grid", { name: "Work items" }),
     ).toBeInTheDocument();
   });
 
@@ -169,6 +169,57 @@ describe("WorkboardScreen", () => {
         screen.queryByRole("group", { name: "Bulk actions" }),
       ).not.toBeInTheDocument();
     });
+  });
+
+  it("prunes the selection to visible rows so bulk acts only on what is shown", async () => {
+    const repository = createMockWorkItemRepository();
+    render(<WorkboardScreen repository={repository} />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(1);
+    });
+
+    // Select EVERY visible row via the header select-all (10 fixtures).
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Select all work items" }),
+    );
+    const bulkGroup = await screen.findByRole("group", { name: "Bulk actions" });
+    expect(within(bulkGroup).getByText("10 selected")).toBeInTheDocument();
+
+    // Narrow the search so only one row stays visible; the rest are hidden by the
+    // active filter. The stale ids must be pruned out of the shared selection.
+    fireEvent.change(
+      screen.getByRole("searchbox", { name: "Search work items" }),
+      { target: { value: "Workspace auth hardening" } },
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row")).toHaveLength(1);
+    });
+    // The toolbar count now reflects ONLY the visible selection.
+    await waitFor(() => {
+      expect(
+        within(
+          screen.getByRole("group", { name: "Bulk actions" }),
+        ).getByText("1 selected"),
+      ).toBeInTheDocument();
+    });
+
+    // A bulk apply touches only the visible row…
+    const bulk = screen.getByRole("group", { name: "Bulk actions" });
+    fireEvent.keyDown(
+      within(bulk).getByRole("button", { name: "Set phase" }),
+      { key: "ArrowDown" },
+    );
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Done" }));
+
+    await waitFor(async () => {
+      const items = await repository.list();
+      expect(items.find((item) => item.id === "wi_auth")?.phase).toBe("done");
+    });
+    // …never the hidden, previously-selected rows: wi_realtime keeps its phase.
+    const items = await repository.list();
+    expect(items.find((item) => item.id === "wi_realtime")?.phase).toBe("plan");
   });
 
   it("creates a work item from the New button and opens the editor on it", async () => {
