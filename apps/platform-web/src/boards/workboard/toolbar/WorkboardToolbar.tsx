@@ -1,3 +1,5 @@
+import { useEffect, useRef } from "react";
+
 import { FilterIcon, PlusIcon, SlidersHorizontalIcon, XIcon } from "lucide-react";
 
 import {
@@ -250,6 +252,32 @@ export function WorkboardToolbar({
 
   const hasSelection = selectedCount > 0;
 
+  // '/' search shortcut (#11) — focus the search box when "/" is pressed anywhere
+  // on the page, UNLESS the user is already typing in a field
+  // (input/textarea/contenteditable), so the key never hijacks a literal slash
+  // mid-edit. The <kbd>/</kbd> beside the input advertises the affordance.
+  const searchRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const focusSearchOnSlash = (event: KeyboardEvent): void => {
+      if (event.key !== "/") return;
+      const active = document.activeElement;
+      if (
+        active instanceof HTMLElement &&
+        (active.tagName === "INPUT" ||
+          active.tagName === "TEXTAREA" ||
+          active.isContentEditable)
+      ) {
+        return;
+      }
+      event.preventDefault();
+      searchRef.current?.focus();
+    };
+    window.addEventListener("keydown", focusSearchOnSlash);
+    return () => {
+      window.removeEventListener("keydown", focusSearchOnSlash);
+    };
+  }, []);
+
   return (
     <div
       role="toolbar"
@@ -274,6 +302,7 @@ export function WorkboardToolbar({
       {/* Search */}
       <div className="relative">
         <Input
+          ref={searchRef}
           type="search"
           value={value.search}
           aria-label="Search work items"

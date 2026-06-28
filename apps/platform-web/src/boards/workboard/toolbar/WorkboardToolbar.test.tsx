@@ -111,6 +111,27 @@ describe("WorkboardToolbar", () => {
     expect(screen.getByText("/")).toBeInTheDocument();
   });
 
+  it("focuses the search input when '/' is pressed outside a field (#11)", () => {
+    renderToolbar();
+    const search = screen.getByRole("searchbox", { name: "Search work items" });
+    expect(search).not.toHaveFocus();
+    // A bare '/' keydown anywhere on the page (focus rests on <body>) routes to
+    // the searchbox — the window listener prevents the literal slash and focuses.
+    fireEvent.keyDown(document, { key: "/" });
+    expect(search).toHaveFocus();
+  });
+
+  it("ignores the '/' shortcut while typing in a field (#11)", () => {
+    renderToolbar();
+    const search = screen.getByRole("searchbox", { name: "Search work items" });
+    // With focus already inside an input, '/' must reach the field as a literal
+    // slash rather than being intercepted — the guard leaves focus put.
+    search.focus();
+    expect(search).toHaveFocus();
+    fireEvent.keyDown(search, { key: "/" });
+    expect(search).toHaveFocus();
+  });
+
   it("emits a new state with the updated search (controlled, no mutation)", () => {
     const { onChange, lastChange } = renderToolbar();
     const search = screen.getByRole("searchbox", { name: "Search work items" });
