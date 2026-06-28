@@ -5,8 +5,10 @@ import type { Owner, WorkItemPatch } from "@/data/work-items";
 
 import {
   defaultWorkboardFilterState,
+  type ColumnId,
   type WorkboardFilterState,
 } from "../filter-state";
+import type { ColumnFilter } from "../table/WorkboardTable";
 import { WorkboardToolbar } from "./WorkboardToolbar";
 
 /**
@@ -43,6 +45,7 @@ function renderToolbar(overrides?: {
   value?: Partial<WorkboardFilterState>;
   selectedCount?: number;
   view?: "table" | "kanban";
+  columnFilters?: Partial<Record<ColumnId, ColumnFilter>>;
 }) {
   const onChange = vi.fn<(next: WorkboardFilterState) => void>();
   const onNewItem = vi.fn();
@@ -64,6 +67,7 @@ function renderToolbar(overrides?: {
       selectedCount={overrides?.selectedCount ?? 0}
       onNewItem={onNewItem}
       onBulkApply={onBulkApply}
+      columnFilters={overrides?.columnFilters}
     />,
   );
 
@@ -146,6 +150,58 @@ describe("WorkboardToolbar", () => {
       await screen.findByRole("menuitemcheckbox", { name: "Engineering" }),
     );
     expect([...lastChange().filters.department]).toEqual(["Engineering"]);
+  });
+
+  /**
+   * The Type/Phase/Priority/Owner facets live in the TABLE column headers, but
+   * Kanban has no headers — so for the Kanban view they fall back into the
+   * toolbar (the same `columnFilters` config the table consumes), keeping every
+   * facet reachable in both views.
+   */
+  const COLUMN_FILTERS: Partial<Record<ColumnId, ColumnFilter>> = {
+    type: {
+      options: [{ value: "bug", label: "Bug" }],
+      selected: new Set<string>(),
+      onToggle: () => {},
+    },
+    phase: {
+      options: [{ value: "plan", label: "Plan" }],
+      selected: new Set<string>(),
+      onToggle: () => {},
+    },
+    priority: {
+      options: [{ value: "high", label: "High" }],
+      selected: new Set<string>(),
+      onToggle: () => {},
+    },
+    owner: {
+      options: [{ value: "u_ada", label: "Ada Lovelace" }],
+      selected: new Set<string>(),
+      onToggle: () => {},
+      searchable: true,
+    },
+  };
+
+  it("renders the Type/Phase/Priority/Owner facets in the toolbar for the Kanban view", () => {
+    renderToolbar({ view: "kanban", columnFilters: COLUMN_FILTERS });
+    for (const facet of ["type", "phase", "priority", "owner"]) {
+      expect(
+        screen.getByRole("button", { name: `Filter by ${facet}` }),
+      ).toBeInTheDocument();
+    }
+  });
+
+  it("keeps those facets OUT of the toolbar for the Table view (they live in the column headers)", () => {
+    renderToolbar({ view: "table", columnFilters: COLUMN_FILTERS });
+    for (const facet of ["type", "phase", "priority", "owner"]) {
+      expect(
+        screen.queryByRole("button", { name: `Filter by ${facet}` }),
+      ).not.toBeInTheDocument();
+    }
+    // Department is unconditional (it has no column), so it stays in both views.
+    expect(
+      screen.getByRole("button", { name: /filter by department/i }),
+    ).toBeInTheDocument();
   });
 
   it("shows an active-filter count and a Clear filters action when filters are set", () => {

@@ -401,6 +401,7 @@ export function WorkboardScreen({
         onResetColumnWidths={
           view === "table" ? handleResetColumnWidths : undefined
         }
+        columnFilters={columnFilters}
       />
 
       {noItems ? (

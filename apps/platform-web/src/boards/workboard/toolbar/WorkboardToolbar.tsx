@@ -39,7 +39,21 @@ import {
   type WorkboardFilterState,
 } from "../filter-state";
 
+import type { ColumnFilter } from "../table/WorkboardTable";
+
 import { FacetFilterMenu } from "./FacetFilterMenu";
+
+/**
+ * The facets that live in the TABLE column headers (Type / Phase / Priority /
+ * Owner). Kanban has no headers, so for that view they fall back into the
+ * toolbar — same `columnFilters` config the table consumes, in this order.
+ */
+const HEADER_FACETS: ReadonlyArray<{ id: ColumnId; label: string }> = [
+  { id: "type", label: "Type" },
+  { id: "phase", label: "Phase" },
+  { id: "priority", label: "Priority" },
+  { id: "owner", label: "Owner" },
+];
 
 /**
  * Workboard TOOLBAR (DESIGN §2 / §4 / §5) — the single control surface that
@@ -72,6 +86,14 @@ export interface WorkboardToolbarProps {
   view: "table" | "kanban";
   /** Fired when the user switches between the Table and Kanban views. */
   onViewChange: (view: "table" | "kanban") => void;
+  /**
+   * Per-column facet configs (Type / Phase / Priority / Owner). The Table view
+   * renders these in its column headers; Kanban has no headers, so the toolbar
+   * renders them for that view. Both consume the SAME config, so a filter set in
+   * either view flows through the shared filter state. Omitted on views without
+   * column facets.
+   */
+  columnFilters?: Partial<Record<ColumnId, ColumnFilter>>;
   /** The pickable owners; feeds the Owner facet filter (plus "Unassigned"). */
   owners: ReadonlyArray<Owner>;
   /**
@@ -199,6 +221,7 @@ export function WorkboardToolbar({
   onNewItem,
   onBulkApply,
   onResetColumnWidths,
+  columnFilters,
 }: Readonly<WorkboardToolbarProps>) {
   const { filters } = value;
   // A non-empty (trimmed) search counts as an active filter too, so the Clear
@@ -396,11 +419,31 @@ export function WorkboardToolbar({
         </kbd>
       </div>
 
-      {/* Department facet — the single remaining toolbar filter (Department has
-          no table column, so unlike Type / Phase / Priority / Owner it cannot
-          move into a column header). The rest now filter from the column headers,
-          yet still flow into the active-filter count + chips below (both derive
-          from the shared filter state). */}
+      {/* Kanban has no column headers, so the Type / Phase / Priority / Owner
+          facets — which live in the Table's headers — fall back into the toolbar
+          for that view, reusing the very same `columnFilters` config the table
+          consumes (any filter set here flows through the shared filter state). */}
+      {view === "kanban"
+        ? HEADER_FACETS.map(({ id, label }) => {
+            const facet = columnFilters?.[id];
+            return facet ? (
+              <FacetFilterMenu
+                key={id}
+                label={label}
+                options={facet.options}
+                selected={facet.selected}
+                onToggle={facet.onToggle}
+                onSetSelected={facet.onSetSelected}
+                searchable={facet.searchable}
+              />
+            ) : null;
+          })
+        : null}
+
+      {/* Department facet — always a toolbar filter (Department has no table
+          column, so unlike Type / Phase / Priority / Owner it cannot move into a
+          column header). All facets still flow into the active-filter count +
+          chips below (both derive from the shared filter state). */}
       <FacetFilterMenu
         label="Department"
         options={departmentOptions}
