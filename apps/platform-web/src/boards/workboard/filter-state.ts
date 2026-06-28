@@ -291,3 +291,146 @@ export function buildFacetOptions(
     })),
   };
 }
+
+/**
+ * The board view the user last had open — Table (default) or Kanban. Persisted
+ * alongside {@link WorkboardFilterState} so a reload restores the same surface.
+ */
+export type WorkboardView = "table" | "kanban";
+
+/**
+ * Single versioned localStorage key for the whole persisted view blob. Mirrors
+ * the per-column-width precedent (`workboard.table.colw.v1.<id>`): a `v1` suffix
+ * lets a future schema change bump to `v2` and ignore old payloads cleanly.
+ */
+export const FILTER_STORAGE_KEY = "workboard.filters.v1";
+
+/**
+ * The subset of {@link WorkboardFilterState} (plus the active {@link WorkboardView})
+ * that survives a reload. {@link WorkboardFilterState.selection} is DELIBERATELY
+ * absent — restoring stale row ids across reloads is wrong, so selection always
+ * rehydrates empty. Every field is optional: {@link parsePersistedView} omits any
+ * field that is missing or fails validation, and the screen merges what survives
+ * over a fresh {@link defaultWorkboardFilterState}.
+ */
+export interface PersistedView {
+  search?: string;
+  filters?: WorkboardFilters;
+  groupBy?: GroupByField;
+  visibleColumns?: Set<ColumnId>;
+  view?: WorkboardView;
+}
+
+/** Allowed value sets for every enum field, used to drop unknown members on read. */
+const TYPE_VALUES = new Set<WorkItemType>(WORK_ITEM_TYPE_ORDER);
+const PHASE_VALUES = new Set<Phase>(PHASE_FACET_ORDER);
+const PRIORITY_VALUES = new Set<Priority>(PRIORITY_ORDER);
+const COLUMN_VALUES = new Set<ColumnId>(COLUMN_IDS);
+const GROUP_BY_VALUES = new Set<GroupByField>([
+  "none",
+  "department",
+  "phase",
+  "priority",
+  "type",
+]);
+const VIEW_VALUES = new Set<WorkboardView>(["table", "kanban"]);
+
+/**
+ * Serialize the persistable slice of the view state to a JSON string for
+ * {@link FILTER_STORAGE_KEY}. The five filter `Set`s and `visibleColumns` become
+ * arrays; `selection` is NEVER written (see {@link PersistedView}). PURE — reads
+ * only its argument and returns a string.
+ */
+export function serializePersistedView(input: {
+  filterState: WorkboardFilterState;
+  view: WorkboardView;
+}): string {
+  const { filterState, view } = input;
+  return JSON.stringify({
+    search: filterState.search,
+    groupBy: filterState.groupBy,
+    filters: {
+      type: [...filterState.filters.type],
+      owner: [...filterState.filters.owner],
+      department: [...filterState.filters.department],
+      phase: [...filterState.filters.phase],
+      priority: [...filterState.filters.priority],
+    },
+    visibleColumns: [...filterState.visibleColumns],
+    view,
+  });
+}
+
+/** Keep only the string members of an array; non-arrays yield an empty list. */
+function stringArrayOf(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string");
+}
+
+/** Build a `Set` of the array's members that are present in `allowed`. */
+function enumSetOf<T extends string>(
+  value: unknown,
+  allowed: ReadonlySet<T>,
+): Set<T> {
+  const result = new Set<T>();
+  if (!Array.isArray(value)) return result;
+  for (const item of value) {
+    if (typeof item === "string" && allowed.has(item as T)) {
+      result.add(item as T);
+    }
+  }
+  return result;
+}
+
+/**
+ * Safe-parse a persisted view blob from storage. NEVER throws: malformed JSON, a
+ * non-object payload, or a `null`/absent value all return `null` (behave as if
+ * nothing was stored). Otherwise returns a {@link PersistedView} carrying ONLY the
+ * fields that validated — unknown enum members are dropped, garbage/missing
+ * fields are omitted (the caller merges what survives over the defaults). The
+ * `owner`/`department` facets are free-form ids/names, so they are kept as-is
+ * (string members only); `selection` is never read back.
+ */
+export function parsePersistedView(raw: string | null): PersistedView | null {
+  if (raw === null) return null;
+  let blob: unknown;
+  try {
+    blob = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (typeof blob !== "object" || blob === null) return null;
+  const record = blob as Record<string, unknown>;
+  const result: PersistedView = {};
+
+  if (typeof record.search === "string") {
+    result.search = record.search;
+  }
+  if (
+    typeof record.groupBy === "string" &&
+    GROUP_BY_VALUES.has(record.groupBy as GroupByField)
+  ) {
+    result.groupBy = record.groupBy as GroupByField;
+  }
+  if (
+    typeof record.view === "string" &&
+    VIEW_VALUES.has(record.view as WorkboardView)
+  ) {
+    result.view = record.view as WorkboardView;
+  }
+  if (Array.isArray(record.visibleColumns)) {
+    result.visibleColumns = enumSetOf(record.visibleColumns, COLUMN_VALUES);
+  }
+  if (typeof record.filters === "object" && record.filters !== null) {
+    const filters = record.filters as Record<string, unknown>;
+    result.filters = {
+      type: enumSetOf(filters.type, TYPE_VALUES),
+      owner: new Set(stringArrayOf(filters.owner)),
+      department: new Set(stringArrayOf(filters.department)),
+      phase: enumSetOf(filters.phase, PHASE_VALUES),
+      priority: enumSetOf(filters.priority, PRIORITY_VALUES),
+    };
+  }
+
+  return result;
+}
