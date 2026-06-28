@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 
-import { FilterIcon, PlusIcon, SlidersHorizontalIcon, XIcon } from "lucide-react";
+import { PlusIcon, SlidersHorizontalIcon, XIcon } from "lucide-react";
 
 import {
   Button,
@@ -396,32 +396,11 @@ export function WorkboardToolbar({
         </kbd>
       </div>
 
-      {/* Facet filters */}
-      <span
-        className="inline-flex items-center text-muted-foreground"
-        aria-hidden="true"
-      >
-        <FilterIcon className="size-4" />
-      </span>
-      <FacetFilterMenu
-        label="Type"
-        options={typeOptions}
-        selected={filters.type}
-        onToggle={toggleType}
-        onSetSelected={(next) =>
-          onChange({ ...value, filters: { ...filters, type: next } })
-        }
-      />
-      <FacetFilterMenu
-        label="Owner"
-        options={ownerOptions}
-        selected={filters.owner}
-        onToggle={toggleOwner}
-        onSetSelected={(next) =>
-          onChange({ ...value, filters: { ...filters, owner: next } })
-        }
-        searchable
-      />
+      {/* Department facet — the single remaining toolbar filter (Department has
+          no table column, so unlike Type / Phase / Priority / Owner it cannot
+          move into a column header). The rest now filter from the column headers,
+          yet still flow into the active-filter count + chips below (both derive
+          from the shared filter state). */}
       <FacetFilterMenu
         label="Department"
         options={departmentOptions}
@@ -431,24 +410,6 @@ export function WorkboardToolbar({
           onChange({ ...value, filters: { ...filters, department: next } })
         }
         searchable
-      />
-      <FacetFilterMenu
-        label="Phase"
-        options={phaseOptions}
-        selected={filters.phase}
-        onToggle={togglePhase}
-        onSetSelected={(next) =>
-          onChange({ ...value, filters: { ...filters, phase: next } })
-        }
-      />
-      <FacetFilterMenu
-        label="Priority"
-        options={priorityOptions}
-        selected={filters.priority}
-        onToggle={togglePriority}
-        onSetSelected={(next) =>
-          onChange({ ...value, filters: { ...filters, priority: next } })
-        }
       />
 
       {activeFilterCount > 0 ? (
