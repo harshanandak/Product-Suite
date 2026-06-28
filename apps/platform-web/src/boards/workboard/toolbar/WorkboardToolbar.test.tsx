@@ -290,6 +290,53 @@ describe("WorkboardToolbar", () => {
     expect(next.filters.type.size).toBe(0);
   });
 
+  it("renders a removable chip per active facet value and removes just that one (#13)", () => {
+    const value: Partial<WorkboardFilterState> = {
+      filters: {
+        type: new Set(["feature", "bug"]),
+        owner: new Set(["u_ada"]),
+        department: new Set(),
+        phase: new Set(),
+        priority: new Set(),
+      },
+    };
+    const { onChange, lastChange } = renderToolbar({ value });
+    // One chip per selected value, labelled "<Facet>: <Value>" and removable.
+    expect(
+      screen.getByRole("button", { name: "Remove Type Feature" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Remove Type Bug" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Remove Owner Ada Lovelace" }),
+    ).toBeInTheDocument();
+
+    // Removing one chip drops only that value (via the single-value toggle).
+    fireEvent.click(screen.getByRole("button", { name: "Remove Type Feature" }));
+    const next = lastChange();
+    expect([...next.filters.type]).toEqual(["bug"]);
+    expect([...next.filters.owner]).toEqual(["u_ada"]);
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders no active-filter chips when no facet is selected (#13)", () => {
+    renderToolbar();
+    expect(
+      screen.queryByRole("group", { name: "Active filters" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /^Remove / }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not chip a free-text search (#13)", () => {
+    renderToolbar({ value: { search: "auth" } });
+    expect(
+      screen.queryByRole("group", { name: "Active filters" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("changes the group-by field via the radio menu", async () => {
     const { lastChange } = renderToolbar();
     openMenu("Group by");
