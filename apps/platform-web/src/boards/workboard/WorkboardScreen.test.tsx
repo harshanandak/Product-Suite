@@ -399,9 +399,18 @@ describe("WorkboardScreen", () => {
 
     // The succeeded rows persisted; the failed one was rolled back to its
     // original phase (wi_auth seeds "execute"), never the attempted "done".
+    // The failed row's optimistic patch is ROLLED BACK in the RENDERED table:
+    // wi_auth still shows its original "Execute" phase, never the attempted "Done".
+    // (Asserting the DOM, not the store — the failing override rejects before the
+    // backing store would mutate, so a store check here is a tautology.)
+    expect(
+      screen.getByRole("combobox", {
+        name: "Phase for Workspace auth hardening",
+      }),
+    ).toHaveTextContent(/execute/i);
+    // The succeeded rows did persist to the store.
     const items = await repository.list();
     expect(items.find((item) => item.id === "wi_realtime")?.phase).toBe("done");
-    expect(items.find((item) => item.id === "wi_auth")?.phase).toBe("execute");
   });
 
   it("re-adds a failed bulk id even when the optimistic patch + prune removed it under an active filter", async () => {

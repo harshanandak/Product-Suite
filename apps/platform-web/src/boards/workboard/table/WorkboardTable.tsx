@@ -561,7 +561,11 @@ const COLUMN_SPECS: readonly ColumnSpec[] = [
           }
         />
       ) : (
-        <TagList tags={row.tags} max={TAGS_SUMMARY_MAX} />
+        <TagList
+          tags={row.tags}
+          max={TAGS_SUMMARY_MAX}
+          className="flex-nowrap overflow-hidden"
+        />
       ),
   },
   {
