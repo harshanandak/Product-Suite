@@ -53,6 +53,13 @@ import type {
 
 import { FacetFilterMenu } from "../toolbar/FacetFilterMenu";
 
+import {
+  type CellCoord,
+  type NavCommand,
+  commandForKey,
+  computeNextCell,
+  resolveActiveCell,
+} from "./gridNavigation";
 import { MAX_COLUMN_WIDTH, useColumnWidths } from "./useColumnWidths";
 
 /**
@@ -175,6 +182,14 @@ const SKELETON_KEYS = ["s1", "s2", "s3", "s4", "s5", "s6"] as const;
 
 /** Em-dash placeholder for empty read-only cells. */
 const EMPTY = "—";
+
+/**
+ * Focus ring for a roving-tabindex gridcell. `focus-visible` so the active cell
+ * shows a ring only under keyboard focus (never on a mouse click); the negative
+ * outline offset keeps the ring inside the cell's clipped box.
+ */
+const GRID_CELL_FOCUS =
+  "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring";
 
 /** Month abbreviations for the compact Due display, indexed 0 = Jan. */
 const DUE_MONTHS = [
@@ -987,6 +1002,103 @@ export function WorkboardTable({
     [flatRows, onSelectionChange, selection, toggleOne],
   );
 
+  // Selection column + every visible data column (+ the actions column, if
+  // shown). This is the max 1-based aria-colindex for an ITEM row — the grid's
+  // navigable column count. (Hoisted above the early returns: the keyboard-nav
+  // hooks below need it, and hooks must run unconditionally.)
+  const ariaColCount = 1 + columns.length + (showActions ? 1 : 0);
+
+  // --- Roving-tabindex grid keyboard navigation (ARIA grid pattern) ---------
+  // The active cell is a STABLE { rowKey, colIndex } coordinate (see
+  // gridNavigation.ts), re-resolved against the LIVE flatRows every render — so
+  // exactly one gridcell is tabbable and the coordinate survives virtualization
+  // scroll / reorder (mirroring how anchorIdRef stores a row id, not an index).
+  // Swimlane GROUP rows are a single navigable column (their select-all
+  // checkbox), so a vertical move onto a group row lands on column 1 and
+  // Left/Right there is a no-op (both encoded in computeNextCell).
+  const [activeCell, setActiveCell] = React.useState<CellCoord | null>(null);
+  const activeResolved = React.useMemo(
+    () => resolveActiveCell(flatRows, activeCell, ariaColCount),
+    [flatRows, activeCell, ariaColCount],
+  );
+
+  // When a keyboard move changes the active coordinate we flag a pending focus;
+  // a layout effect then focuses the destination cell AFTER it (re)mounts — the
+  // virtualization-aware step, since the source cell can unmount while we scroll
+  // the target into the window. Focus is found by the `data-active-cell` marker
+  // the render places on exactly the active cell.
+  const pendingFocusRef = React.useRef(false);
+  React.useLayoutEffect(() => {
+    if (!pendingFocusRef.current) return;
+    const root = containerRef.current;
+    if (root === null) return;
+    const cell = root.querySelector('[data-active-cell="true"]');
+    if (cell instanceof HTMLElement) {
+      if (document.activeElement !== cell) cell.focus();
+      pendingFocusRef.current = false;
+    }
+    // Else: the destination row isn't mounted yet — leave the flag set so the
+    // scrollToIndex-driven re-render below re-runs this effect once it mounts.
+  }, [activeResolved, virtualItems, containerRef]);
+
+  // Apply a decoded navigation command: advance the coordinate, request focus,
+  // and scroll the destination row into the virtual window so its cell mounts.
+  const moveActiveCell = React.useCallback(
+    (command: NavCommand) => {
+      const current = resolveActiveCell(flatRows, activeCell, ariaColCount);
+      if (current === null) return;
+      const next = computeNextCell(flatRows, ariaColCount, current, command);
+      setActiveCell(next);
+      pendingFocusRef.current = true;
+      const index = flatRows.findIndex((row) => row.key === next.rowKey);
+      if (index >= 0) rowVirtualizer.scrollToIndex(index);
+    },
+    [activeCell, ariaColCount, flatRows, rowVirtualizer],
+  );
+
+  // Make a cell the roving tab stop when it (or a descendant control) is focused
+  // — so a click that lands inside a cell sets that cell active. No pending-focus
+  // flag: focus is already there, so this never steals it back.
+  const focusActiveCell = React.useCallback(
+    (rowKey: string, colIndex: number) => {
+      setActiveCell((prev) =>
+        prev !== null && prev.rowKey === rowKey && prev.colIndex === colIndex
+          ? prev
+          : { rowKey, colIndex },
+      );
+    },
+    [],
+  );
+
+  // Cell keydown: arrow / Home / End / Ctrl+Home / Ctrl+End navigate ONLY when
+  // focus is on the gridcell itself (`target === currentTarget`) — never when an
+  // inner editor/control is focused, so controls keep their own keys. preventDefault
+  // stops the grid scrolling natively; stopPropagation keeps the move off the row.
+  const handleCellKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLElement>) => {
+      if (event.target !== event.currentTarget) return;
+      const command = commandForKey(event.key, {
+        ctrl: event.ctrlKey,
+        meta: event.metaKey,
+      });
+      if (command === null) return;
+      event.preventDefault();
+      event.stopPropagation();
+      moveActiveCell(command);
+    },
+    [moveActiveCell],
+  );
+
+  // Is this cell the single active (tabbable) one? Drives tabIndex + the
+  // `data-active-cell` focus marker the layout effect targets.
+  const isActiveCell = React.useCallback(
+    (rowKey: string, colIndex: number) =>
+      activeResolved !== null &&
+      activeResolved.rowKey === rowKey &&
+      activeResolved.colIndex === colIndex,
+    [activeResolved],
+  );
+
   if (loading) {
     return <LoadingSkeleton />;
   }
@@ -1008,8 +1120,6 @@ export function WorkboardTable({
   // 1-based row count for assistive tech: header row + every flat (group/item)
   // row in the virtualized list, regardless of which are currently mounted.
   const ariaRowCount = flatRows.length + 1;
-  // Selection column + every visible data column (+ the actions column, if shown).
-  const ariaColCount = 1 + columns.length + (showActions ? 1 : 0);
 
   return (
     <TooltipProvider>
@@ -1180,7 +1290,16 @@ export function WorkboardTable({
                       role="gridcell"
                       aria-colindex={1}
                       aria-colspan={ariaColCount}
-                      className="flex flex-1 items-center gap-2 text-xs font-semibold tracking-wide text-foreground uppercase"
+                      tabIndex={isActiveCell(flat.key, 1) ? 0 : -1}
+                      data-active-cell={isActiveCell(flat.key, 1) ? true : undefined}
+                      onFocus={() => {
+                        focusActiveCell(flat.key, 1);
+                      }}
+                      onKeyDown={handleCellKeyDown}
+                      className={cn(
+                        "flex flex-1 items-center gap-2 text-xs font-semibold tracking-wide text-foreground uppercase",
+                        GRID_CELL_FOCUS,
+                      )}
                     >
                       <Checkbox
                         aria-label={`Select all in ${flat.label}`}
@@ -1236,6 +1355,13 @@ export function WorkboardTable({
                   <TableCell
                     role="gridcell"
                     aria-colindex={1}
+                    tabIndex={isActiveCell(flat.key, 1) ? 0 : -1}
+                    data-active-cell={isActiveCell(flat.key, 1) ? true : undefined}
+                    onFocus={() => {
+                      focusActiveCell(flat.key, 1);
+                    }}
+                    onKeyDown={handleCellKeyDown}
+                    className={GRID_CELL_FOCUS}
                     style={cellStyle(SELECT_COLUMN_WIDTH)}
                   >
                     <Checkbox
@@ -1258,12 +1384,25 @@ export function WorkboardTable({
                       role="gridcell"
                       aria-colindex={columnIndex + 2}
                       data-col-id={column.id}
+                      tabIndex={isActiveCell(flat.key, columnIndex + 2) ? 0 : -1}
+                      data-active-cell={
+                        isActiveCell(flat.key, columnIndex + 2)
+                          ? true
+                          : undefined
+                      }
+                      onFocus={() => {
+                        focusActiveCell(flat.key, columnIndex + 2);
+                      }}
+                      onKeyDown={handleCellKeyDown}
                       // `py-1.5` tightens the row to the compact 44px slot. Now
                       // every data column is a fixed resizable width, so all
                       // cells clip + ellipsize; the component cells' own
                       // min-w-0/truncate still drives their inner truncation, and
                       // the 8px cell padding keeps the Name focus ring unclipped.
-                      className="overflow-hidden py-1.5 text-ellipsis"
+                      className={cn(
+                        "overflow-hidden py-1.5 text-ellipsis",
+                        GRID_CELL_FOCUS,
+                      )}
                       style={dataColumnStyle(column.id)}
                     >
                       {column.id === "name" && isArchived ? (
@@ -1297,7 +1436,22 @@ export function WorkboardTable({
                     <TableCell
                       role="gridcell"
                       aria-colindex={columns.length + 2}
-                      className="flex items-center justify-end"
+                      tabIndex={
+                        isActiveCell(flat.key, columns.length + 2) ? 0 : -1
+                      }
+                      data-active-cell={
+                        isActiveCell(flat.key, columns.length + 2)
+                          ? true
+                          : undefined
+                      }
+                      onFocus={() => {
+                        focusActiveCell(flat.key, columns.length + 2);
+                      }}
+                      onKeyDown={handleCellKeyDown}
+                      className={cn(
+                        "flex items-center justify-end",
+                        GRID_CELL_FOCUS,
+                      )}
                       style={cellStyle(ACTIONS_COLUMN_WIDTH)}
                     >
                       <RowActionsCell
