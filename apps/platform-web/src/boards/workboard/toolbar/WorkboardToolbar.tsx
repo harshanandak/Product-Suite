@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 
-import { FilterIcon, PlusIcon, SlidersHorizontalIcon, XIcon } from "lucide-react";
+import { PlusIcon, SlidersHorizontalIcon, XIcon } from "lucide-react";
 
 import {
   Button,
@@ -39,7 +39,21 @@ import {
   type WorkboardFilterState,
 } from "../filter-state";
 
+import type { ColumnFilter } from "../table/WorkboardTable";
+
 import { FacetFilterMenu } from "./FacetFilterMenu";
+
+/**
+ * The facets that live in the TABLE column headers (Type / Phase / Priority /
+ * Owner). Kanban has no headers, so for that view they fall back into the
+ * toolbar — same `columnFilters` config the table consumes, in this order.
+ */
+const HEADER_FACETS: ReadonlyArray<{ id: ColumnId; label: string }> = [
+  { id: "type", label: "Type" },
+  { id: "phase", label: "Phase" },
+  { id: "priority", label: "Priority" },
+  { id: "owner", label: "Owner" },
+];
 
 /**
  * Workboard TOOLBAR (DESIGN §2 / §4 / §5) — the single control surface that
@@ -72,6 +86,14 @@ export interface WorkboardToolbarProps {
   view: "table" | "kanban";
   /** Fired when the user switches between the Table and Kanban views. */
   onViewChange: (view: "table" | "kanban") => void;
+  /**
+   * Per-column facet configs (Type / Phase / Priority / Owner). The Table view
+   * renders these in its column headers; Kanban has no headers, so the toolbar
+   * renders them for that view. Both consume the SAME config, so a filter set in
+   * either view flows through the shared filter state. Omitted on views without
+   * column facets.
+   */
+  columnFilters?: Partial<Record<ColumnId, ColumnFilter>>;
   /** The pickable owners; feeds the Owner facet filter (plus "Unassigned"). */
   owners: ReadonlyArray<Owner>;
   /**
@@ -199,6 +221,7 @@ export function WorkboardToolbar({
   onNewItem,
   onBulkApply,
   onResetColumnWidths,
+  columnFilters,
 }: Readonly<WorkboardToolbarProps>) {
   const { filters } = value;
   // A non-empty (trimmed) search counts as an active filter too, so the Clear
@@ -396,32 +419,34 @@ export function WorkboardToolbar({
         </kbd>
       </div>
 
-      {/* Facet filters */}
-      <span
-        className="inline-flex items-center text-muted-foreground"
-        aria-hidden="true"
-      >
-        <FilterIcon className="size-4" />
-      </span>
-      <FacetFilterMenu
-        label="Type"
-        options={typeOptions}
-        selected={filters.type}
-        onToggle={toggleType}
-        onSetSelected={(next) =>
-          onChange({ ...value, filters: { ...filters, type: next } })
-        }
-      />
-      <FacetFilterMenu
-        label="Owner"
-        options={ownerOptions}
-        selected={filters.owner}
-        onToggle={toggleOwner}
-        onSetSelected={(next) =>
-          onChange({ ...value, filters: { ...filters, owner: next } })
-        }
-        searchable
-      />
+      {/* The Type / Phase / Priority / Owner facets live in the Table's column
+          headers — but a header trigger only exists when that column is on
+          screen. So the toolbar carries a facet whenever its header is gone:
+          Kanban (no headers at all) or a column hidden via the Columns menu.
+          Both paths reuse the very same `columnFilters` config the table
+          consumes, so a filter set here flows through the shared filter state.
+          A still-visible column keeps its facet in the header (no duplicate). */}
+      {HEADER_FACETS.map(({ id, label }) => {
+        const headerHidden = view === "kanban" || !value.visibleColumns.has(id);
+        if (!headerHidden) return null;
+        const facet = columnFilters?.[id];
+        return facet ? (
+          <FacetFilterMenu
+            key={id}
+            label={label}
+            options={facet.options}
+            selected={facet.selected}
+            onToggle={facet.onToggle}
+            onSetSelected={facet.onSetSelected}
+            searchable={facet.searchable}
+          />
+        ) : null;
+      })}
+
+      {/* Department facet — always a toolbar filter (Department has no table
+          column, so unlike Type / Phase / Priority / Owner it cannot move into a
+          column header). All facets still flow into the active-filter count +
+          chips below (both derive from the shared filter state). */}
       <FacetFilterMenu
         label="Department"
         options={departmentOptions}
@@ -431,24 +456,6 @@ export function WorkboardToolbar({
           onChange({ ...value, filters: { ...filters, department: next } })
         }
         searchable
-      />
-      <FacetFilterMenu
-        label="Phase"
-        options={phaseOptions}
-        selected={filters.phase}
-        onToggle={togglePhase}
-        onSetSelected={(next) =>
-          onChange({ ...value, filters: { ...filters, phase: next } })
-        }
-      />
-      <FacetFilterMenu
-        label="Priority"
-        options={priorityOptions}
-        selected={filters.priority}
-        onToggle={togglePriority}
-        onSetSelected={(next) =>
-          onChange({ ...value, filters: { ...filters, priority: next } })
-        }
       />
 
       {activeFilterCount > 0 ? (

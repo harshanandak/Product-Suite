@@ -1,4 +1,4 @@
-import { CheckIcon } from "lucide-react";
+import { CheckIcon, FilterIcon } from "lucide-react";
 
 import {
   Button,
@@ -43,6 +43,7 @@ export function FacetFilterMenu<T extends string>({
   onSetSelected,
   searchable = false,
   variant = "outline",
+  compact = false,
 }: Readonly<{
   label: string;
   options: ReadonlyArray<FacetOption<T>>;
@@ -64,6 +65,14 @@ export function FacetFilterMenu<T extends string>({
   searchable?: boolean;
   /** Trigger button style — `outline` (Table toolbar) or `ghost` (graph canvas). */
   variant?: "outline" | "ghost";
+  /**
+   * Render a COMPACT, icon-only trigger (a funnel) for the table COLUMN HEADER
+   * use — accent + the selected count when active, a neutral muted funnel at
+   * rest — instead of the labelled toolbar button. The portalled menu (options,
+   * Select all / Clear header, searchable list) is identical either way; only the
+   * trigger differs, so the existing toolbar/graph usage is untouched.
+   */
+  compact?: boolean;
 }>) {
   const count = selected.size;
   // Type-to-filter only when the facet asked for it AND the list is long enough
@@ -75,20 +84,45 @@ export function FacetFilterMenu<T extends string>({
     count > 0
       ? `Filter by ${label.toLowerCase()} (${count})`
       : `Filter by ${label.toLowerCase()}`;
+  // Compact (column-header) trigger keeps the facet's OWN name — "Filter Type" /
+  // "Filter Type (1)" — distinct from the toolbar's "Filter by type".
+  const compactLabel = count > 0 ? `Filter ${label} (${count})` : `Filter ${label}`;
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant={variant} size="sm" aria-label={triggerLabel}>
-          {label}
-          {count > 0 ? (
-            <span
-              data-slot="facet-count"
-              className="ml-1 rounded-full bg-primary px-1.5 text-xs font-medium text-primary-foreground"
-            >
-              {count}
-            </span>
-          ) : null}
-        </Button>
+        {compact ? (
+          <Button
+            variant="ghost"
+            size="xs"
+            aria-label={compactLabel}
+            // Active = accent funnel + the selected count; neutral muted funnel at
+            // rest. `shrink-0` so it sits beside the (truncating) column label
+            // without being squeezed.
+            className={cn(
+              "shrink-0",
+              count > 0 ? "text-primary" : "text-muted-foreground",
+            )}
+          >
+            <FilterIcon aria-hidden="true" />
+            {count > 0 ? (
+              <span data-slot="facet-count" className="text-xs tabular-nums">
+                {count}
+              </span>
+            ) : null}
+          </Button>
+        ) : (
+          <Button variant={variant} size="sm" aria-label={triggerLabel}>
+            {label}
+            {count > 0 ? (
+              <span
+                data-slot="facet-count"
+                className="ml-1 rounded-full bg-primary px-1.5 text-xs font-medium text-primary-foreground"
+              >
+                {count}
+              </span>
+            ) : null}
+          </Button>
+        )}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="min-w-44">
         <DropdownMenuLabel>{label}</DropdownMenuLabel>

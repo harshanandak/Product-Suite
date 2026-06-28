@@ -5,9 +5,10 @@ import type { Owner, WorkItemPatch } from "@/data/work-items";
 
 import {
   defaultWorkboardFilterState,
-  FILTER_OWNER_UNASSIGNED,
+  type ColumnId,
   type WorkboardFilterState,
 } from "../filter-state";
+import type { ColumnFilter } from "../table/WorkboardTable";
 import { WorkboardToolbar } from "./WorkboardToolbar";
 
 /**
@@ -44,6 +45,7 @@ function renderToolbar(overrides?: {
   value?: Partial<WorkboardFilterState>;
   selectedCount?: number;
   view?: "table" | "kanban";
+  columnFilters?: Partial<Record<ColumnId, ColumnFilter>>;
 }) {
   const onChange = vi.fn<(next: WorkboardFilterState) => void>();
   const onNewItem = vi.fn();
@@ -65,6 +67,7 @@ function renderToolbar(overrides?: {
       selectedCount={overrides?.selectedCount ?? 0}
       onNewItem={onNewItem}
       onBulkApply={onBulkApply}
+      columnFilters={overrides?.columnFilters}
     />,
   );
 
@@ -140,61 +143,6 @@ describe("WorkboardToolbar", () => {
     expect(lastChange().search).toBe("auth");
   });
 
-  it("toggles a Type facet into a fresh filter set", async () => {
-    const { onChange, lastChange } = renderToolbar();
-    openMenu(/filter by type/i);
-    fireEvent.click(
-      await screen.findByRole("menuitemcheckbox", { name: "Feature" }),
-    );
-    expect(onChange).toHaveBeenCalledTimes(1);
-    const next = lastChange();
-    expect([...next.filters.type]).toEqual(["feature"]);
-  });
-
-  it("selects every Type via the facet's Select all header in one change (#14)", async () => {
-    const { onChange, lastChange } = renderToolbar();
-    openMenu(/filter by type/i);
-    fireEvent.click(
-      await screen.findByRole("menuitem", { name: "Select all" }),
-    );
-    // ONE change carrying the complete set (not last-write-wins per option).
-    expect(onChange).toHaveBeenCalledTimes(1);
-    expect([...lastChange().filters.type]).toEqual([
-      "feature",
-      "bug",
-      "chore",
-      "research",
-    ]);
-  });
-
-  it("empties a Type facet via the facet's Clear header (#14)", async () => {
-    const value: Partial<WorkboardFilterState> = {
-      filters: {
-        type: new Set(["bug", "chore"]),
-        owner: new Set(),
-        department: new Set(),
-        phase: new Set(),
-        priority: new Set(),
-      },
-    };
-    const { lastChange } = renderToolbar({ value });
-    openMenu(/filter by type/i);
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Clear" }));
-    expect(lastChange().filters.type.size).toBe(0);
-  });
-
-  it("offers an Unassigned option in the Owner facet using the sentinel", async () => {
-    const { lastChange } = renderToolbar();
-    openMenu(/filter by owner/i);
-    expect(
-      await screen.findByRole("menuitemcheckbox", { name: "Ada Lovelace" }),
-    ).toBeInTheDocument();
-    fireEvent.click(
-      screen.getByRole("menuitemcheckbox", { name: "Unassigned" }),
-    );
-    expect([...lastChange().filters.owner]).toEqual([FILTER_OWNER_UNASSIGNED]);
-  });
-
   it("populates the Department facet from the departments prop", async () => {
     const { lastChange } = renderToolbar();
     openMenu(/filter by department/i);
@@ -204,30 +152,77 @@ describe("WorkboardToolbar", () => {
     expect([...lastChange().filters.department]).toEqual(["Engineering"]);
   });
 
-  it("toggles a Priority facet into a fresh filter set", async () => {
-    const { onChange, lastChange } = renderToolbar();
-    openMenu(/filter by priority/i);
-    fireEvent.click(
-      await screen.findByRole("menuitemcheckbox", { name: "High" }),
-    );
-    expect(onChange).toHaveBeenCalledTimes(1);
-    expect([...lastChange().filters.priority]).toEqual(["high"]);
+  /**
+   * The Type/Phase/Priority/Owner facets live in the TABLE column headers, but
+   * Kanban has no headers — so for the Kanban view they fall back into the
+   * toolbar (the same `columnFilters` config the table consumes), keeping every
+   * facet reachable in both views.
+   */
+  const COLUMN_FILTERS: Partial<Record<ColumnId, ColumnFilter>> = {
+    type: {
+      options: [{ value: "bug", label: "Bug" }],
+      selected: new Set<string>(),
+      onToggle: () => {},
+    },
+    phase: {
+      options: [{ value: "plan", label: "Plan" }],
+      selected: new Set<string>(),
+      onToggle: () => {},
+    },
+    priority: {
+      options: [{ value: "high", label: "High" }],
+      selected: new Set<string>(),
+      onToggle: () => {},
+    },
+    owner: {
+      options: [{ value: "u_ada", label: "Ada Lovelace" }],
+      selected: new Set<string>(),
+      onToggle: () => {},
+      searchable: true,
+    },
+  };
+
+  it("renders the Type/Phase/Priority/Owner facets in the toolbar for the Kanban view", () => {
+    renderToolbar({ view: "kanban", columnFilters: COLUMN_FILTERS });
+    for (const facet of ["type", "phase", "priority", "owner"]) {
+      expect(
+        screen.getByRole("button", { name: `Filter by ${facet}` }),
+      ).toBeInTheDocument();
+    }
   });
 
-  it("surfaces the active count in a facet trigger's accessible name", () => {
-    const value: Partial<WorkboardFilterState> = {
-      filters: {
-        type: new Set(),
-        owner: new Set(),
-        department: new Set(),
-        phase: new Set(),
-        priority: new Set(["high", "low"]),
-      },
-    };
-    renderToolbar({ value });
+  it("keeps those facets OUT of the toolbar for the Table view (they live in the column headers)", () => {
+    renderToolbar({ view: "table", columnFilters: COLUMN_FILTERS });
+    for (const facet of ["type", "phase", "priority", "owner"]) {
+      expect(
+        screen.queryByRole("button", { name: `Filter by ${facet}` }),
+      ).not.toBeInTheDocument();
+    }
+    // Department is unconditional (it has no column), so it stays in both views.
     expect(
-      screen.getByRole("button", { name: "Filter by priority (2)" }),
+      screen.getByRole("button", { name: /filter by department/i }),
     ).toBeInTheDocument();
+  });
+
+  it("falls a facet back into the toolbar when its column is HIDDEN in Table view", () => {
+    // Hiding `type` from the Columns menu removes its only trigger (the column
+    // header), so the toolbar must carry it to keep the filter reachable.
+    const visibleColumns = new Set(
+      defaultWorkboardFilterState().visibleColumns,
+    );
+    visibleColumns.delete("type");
+    renderToolbar({
+      view: "table",
+      columnFilters: COLUMN_FILTERS,
+      value: { visibleColumns },
+    });
+    expect(
+      screen.getByRole("button", { name: "Filter by type" }),
+    ).toBeInTheDocument();
+    // Still-visible columns keep their facet in the header, not the toolbar.
+    expect(
+      screen.queryByRole("button", { name: "Filter by phase" }),
+    ).not.toBeInTheDocument();
   });
 
   it("shows an active-filter count and a Clear filters action when filters are set", () => {

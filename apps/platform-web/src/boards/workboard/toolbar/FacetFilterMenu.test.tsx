@@ -226,6 +226,41 @@ describe("FacetFilterMenu", () => {
     ).toBeInTheDocument();
   });
 
+  it("renders a compact funnel trigger named 'Filter <Label>' for the column header", () => {
+    render(
+      <FacetFilterMenu
+        label="Type"
+        options={OPTIONS}
+        selected={new Set()}
+        onToggle={vi.fn()}
+        compact
+      />,
+    );
+    // The compact trigger drops the toolbar's "Filter by type" wording for the
+    // header-scoped "Filter Type" (no visible label text, just the funnel).
+    expect(
+      screen.getByRole("button", { name: "Filter Type" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Filter by type" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows the active count in the compact trigger's accessible name", () => {
+    render(
+      <FacetFilterMenu
+        label="Type"
+        options={OPTIONS}
+        selected={new Set(["a"])}
+        onToggle={vi.fn()}
+        compact
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: "Filter Type (1)" }),
+    ).toBeInTheDocument();
+  });
+
   it("toggles a filtered option through onToggle in the searchable list (#8)", async () => {
     const onToggle = vi.fn();
     render(

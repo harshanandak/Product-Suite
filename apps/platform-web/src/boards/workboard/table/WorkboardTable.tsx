@@ -51,7 +51,25 @@ import type {
   WorkItemRow,
 } from "@/data/work-items";
 
+import { FacetFilterMenu } from "../toolbar/FacetFilterMenu";
+
 import { MAX_COLUMN_WIDTH, useColumnWidths } from "./useColumnWidths";
+
+/**
+ * Everything one filterable COLUMN HEADER needs to open the shared
+ * {@link FacetFilterMenu} scoped to that column. Mirrors the toolbar's facet
+ * wiring (options + the live `selected` set + a single-value `onToggle`, plus an
+ * optional whole-set `onSetSelected` for the menu's Select all / Clear header and
+ * an opt-in `searchable` for the long Owner list). The parent builds one entry
+ * per column it wants filterable; columns without an entry render a plain header.
+ */
+export interface ColumnFilter {
+  readonly options: ReadonlyArray<{ value: string; label: string }>;
+  readonly selected: ReadonlySet<string>;
+  readonly onToggle: (value: string) => void;
+  readonly onSetSelected?: (next: Set<string>) => void;
+  readonly searchable?: boolean;
+}
 
 /**
  * Workboard TABLE view (DESIGN §2 / §4 / §5).
@@ -125,6 +143,15 @@ export interface WorkItemTableProps {
    * `reset` into `ref.current`; the parent invokes it without owning the state.
    */
   resetColumnWidthsRef?: { current: (() => void) | null };
+  /**
+   * Optional per-column header filters (Type / Phase / Priority / Owner). For
+   * each VISIBLE column carrying an entry, a compact filter trigger renders in
+   * that column's header — beside the label, to the LEFT of the resize handle —
+   * opening the reused {@link FacetFilterMenu} scoped to that column. Columns
+   * without an entry (and the Department facet, which has no column) are
+   * unaffected; the toolbar keeps Department as its single facet.
+   */
+  columnFilters?: Partial<Record<ColumnId, ColumnFilter>>;
 }
 
 /**
@@ -801,6 +828,7 @@ export function WorkboardTable({
   onSelectItem,
   onUpdateItem,
   resetColumnWidthsRef,
+  columnFilters,
 }: Readonly<WorkItemTableProps>) {
   const columns = React.useMemo(
     () => visibleColumnSpecs(visibleColumns),
@@ -1006,7 +1034,9 @@ export function WorkboardTable({
                   onCheckedChange={toggleAll}
                 />
               </TableHead>
-              {columns.map((column, columnIndex) => (
+              {columns.map((column, columnIndex) => {
+                const columnFilter = columnFilters?.[column.id];
+                return (
                 <TableHead
                   key={column.id}
                   role="columnheader"
@@ -1018,7 +1048,23 @@ export function WorkboardTable({
                   )}
                   style={dataColumnStyle(column.id)}
                 >
-                  {column.header}
+                  {/* Label + optional compact filter trigger. `pr-1.5` clears the
+                      absolutely-positioned resize handle at the right border so
+                      the trigger never sits under it. */}
+                  <span className="flex min-w-0 items-center gap-1 pr-1.5">
+                    <span className="min-w-0 truncate">{column.header}</span>
+                    {columnFilter ? (
+                      <FacetFilterMenu
+                        compact
+                        label={column.header}
+                        options={columnFilter.options}
+                        selected={columnFilter.selected}
+                        onToggle={columnFilter.onToggle}
+                        onSetSelected={columnFilter.onSetSelected}
+                        searchable={columnFilter.searchable}
+                      />
+                    ) : null}
+                  </span>
                   {/* Resize handle: a focusable separator at the right border.
                       Pointer drag mutates the CSS var imperatively (no setState);
                       keyboard / double-click commit through the hook. */}
@@ -1046,7 +1092,8 @@ export function WorkboardTable({
                     }}
                   />
                 </TableHead>
-              ))}
+                );
+              })}
               {showActions ? (
                 // Presentational spacer aligned to the actions cell: NOT a
                 // columnheader, so the asserted columnheader count is unchanged.

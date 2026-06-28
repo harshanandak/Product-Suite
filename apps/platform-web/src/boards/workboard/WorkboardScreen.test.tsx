@@ -430,7 +430,8 @@ describe("WorkboardScreen", () => {
     });
 
     // Filter to Phase = Execute (wi_auth seeds "execute", so it stays visible).
-    fireEvent.keyDown(screen.getByRole("button", { name: "Filter by phase" }), {
+    // Phase now filters from its COLUMN HEADER (the toolbar facet moved there).
+    fireEvent.keyDown(screen.getByRole("button", { name: "Filter Phase" }), {
       key: "ArrowDown",
     });
     fireEvent.click(
