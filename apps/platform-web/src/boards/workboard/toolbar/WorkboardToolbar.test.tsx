@@ -413,6 +413,34 @@ describe("WorkboardToolbar", () => {
     expect(onBulkApply).toHaveBeenCalledWith({ assignee_id: null });
   });
 
+  it("archives the selection via an explicit menu action (#16)", async () => {
+    const { onBulkApply } = renderToolbar({ selectedCount: 2 });
+    openMenu("Archive");
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Archive selected" }),
+    );
+    expect(onBulkApply).toHaveBeenCalledWith({ archived: true });
+  });
+
+  it("restores the selection via an explicit menu action (#16)", async () => {
+    const { onBulkApply } = renderToolbar({ selectedCount: 2 });
+    openMenu("Archive");
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Restore selected" }),
+    );
+    expect(onBulkApply).toHaveBeenCalledWith({ archived: false });
+  });
+
+  it("hides the Assign owner and Archive controls when nothing is selected (#16)", () => {
+    renderToolbar({ selectedCount: 0 });
+    expect(
+      screen.queryByRole("button", { name: "Assign owner" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Archive" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("clears the selection via the Clear selection affordance", () => {
     const value: Partial<WorkboardFilterState> = {
       selection: new Set(["wi_1", "wi_2"]),

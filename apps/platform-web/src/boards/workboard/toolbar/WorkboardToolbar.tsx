@@ -627,6 +627,35 @@ export function WorkboardToolbar({
             </DropdownMenuContent>
           </DropdownMenu>
 
+          {/* Archive — two explicit actions, not a toggle: a mixed selection can
+              hold both archived and active rows, so we never compute a single
+              flip. Each item is an unconditional bulk apply. */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" aria-label="Archive">
+                Archive
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="min-w-40">
+              <DropdownMenuLabel>Archive</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={() => {
+                  onBulkApply({ archived: true });
+                }}
+              >
+                Archive selected
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => {
+                  onBulkApply({ archived: false });
+                }}
+              >
+                Restore selected
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
           <Button
             variant="ghost"
             size="sm"
