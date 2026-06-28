@@ -236,7 +236,7 @@ describe("WorkboardTable", () => {
     expect(screen.getAllByRole("row").length).toBeGreaterThan(0);
   });
 
-  it("hides the inline-select chevron on editable cells so the badge value gets the full width", async () => {
+  it("reveals the inline-select chevron on row hover without reserving width at rest", async () => {
     const rows = await loadRows();
     renderTable({ rows, onUpdateItem: makeUpdateMock(rows) });
 
@@ -244,15 +244,20 @@ describe("WorkboardTable", () => {
       expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
     });
 
-    // The ghost chevron is invisible at rest yet still reserves ~24px of the
-    // narrow cell, so the inline Type/Phase/Priority selects carry a class that
-    // hides it and returns that width to the badge value (the "Feature" → "Fe"
-    // clipping fix). Assert the class is present on each editable trigger.
+    // The chevron is absolutely positioned (out of flow → reserves NO width, so
+    // the badge value reads full-width at rest — the "Feature" → "Fe" clip fix)
+    // and fades in on ROW hover / focus-within so the cell is discoverable as
+    // editable. Assert each editable trigger carries the hover-reveal classes
+    // and no longer blanket-hides the chevron.
     for (const column of ["Type", "Phase", "Priority"]) {
       const trigger = screen.getByRole("combobox", {
         name: `${column} for Workspace auth hardening`,
       });
-      expect(trigger.className.split(" ")).toContain("[&>svg]:hidden");
+      const classes = trigger.className.split(" ");
+      expect(classes).toContain("[&>svg]:absolute");
+      expect(classes).toContain("group-hover:[&>svg]:opacity-50");
+      expect(classes).toContain("group-focus-within:[&>svg]:opacity-50");
+      expect(classes).not.toContain("[&>svg]:hidden");
     }
   });
 

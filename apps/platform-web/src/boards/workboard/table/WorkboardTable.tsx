@@ -250,13 +250,26 @@ function commitPatch(
 }
 
 /**
- * Inline (ghost) select cells hide the dropdown chevron. It is invisible at rest
- * yet still reserves ~24px (icon + gap) of the narrow cell, starving the badge
- * value — that was the "Feature" → "Fe" clipping. The ghost hover background
- * already signals the cell is editable, so in the dense table the chevron is pure
- * chrome; dropping it returns that width to the value.
+ * Inline (ghost) select cells reveal their dropdown chevron on ROW hover/focus so
+ * an editable cell is discoverable — without the chevron stealing layout width at
+ * rest (that was the "Feature" → "Fe" clipping when it reserved ~24px in flow).
+ *
+ * The fix is to take the chevron OUT of flow: it is absolutely positioned at the
+ * trigger's right edge, so the badge value keeps the full cell at rest. The ghost
+ * `SelectTrigger` variant already supplies the rest state (`[&>svg]:opacity-0` +
+ * `transition-opacity`) and keeps the chevron visible on the trigger's OWN
+ * hover/focus/open; here we only add the absolute positioning plus a `group-*`
+ * reveal so it also fades in when the whole row (the `group`) is hovered/focused.
  */
-const INLINE_SELECT_CLASS = "[&>svg]:hidden";
+const INLINE_SELECT_CLASS = cn(
+  // Anchor the absolutely-positioned chevron to the trigger.
+  "relative",
+  // Pin the chevron at the trigger's right edge — out of flow, so it reserves
+  // NO width and the badge value reads full-width at rest (only overlays on hover).
+  "[&>svg]:absolute [&>svg]:top-1/2 [&>svg]:right-2 [&>svg]:-translate-y-1/2",
+  // Fade it in on ROW hover / focus-within so the cell is discoverable as editable.
+  "group-hover:[&>svg]:opacity-50 group-focus-within:[&>svg]:opacity-50",
+);
 
 /**
  * The canonical column registry, in {@link COLUMN_IDS} order.
@@ -392,7 +405,8 @@ const COLUMN_SPECS: readonly ColumnSpec[] = [
             // overflow the cell's content box (minus the p-2 cell padding) and
             // spill into Due. `min-w-0` lets the w-full ghost trigger fill the
             // cell; long names truncate via the value clamp. The shared inline
-            // class also hides the chevron so the avatar+name get the full width.
+            // class keeps the chevron out of flow (revealed on row hover) so the
+            // avatar+name read full-width at rest.
             className={cn("min-w-0", INLINE_SELECT_CLASS)}
             value={row.assignee_id}
             assignees={owners}
