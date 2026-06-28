@@ -1029,6 +1029,49 @@ describe("WorkboardTable", () => {
     expect(onToggle).toHaveBeenCalledWith("bug");
   });
 
+  // --- Per-group "Select all" ---------------------------------------------
+
+  it("exposes a 'Select all in <label>' checkbox in each group header", async () => {
+    const rows = await loadRows();
+    renderTable({ rows, groupBy: "department" });
+
+    await screen.findAllByTestId("work-item-row");
+
+    // One per swimlane (department grouping → Engineering / Marketing / Sourcing).
+    expect(
+      screen.getByRole("checkbox", { name: "Select all in Engineering" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("checkbox", { name: "Select all in Marketing" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("checkbox", { name: "Select all in Sourcing" }),
+    ).toBeInTheDocument();
+    // The group header still surfaces its label + count band.
+    const engGroup = screen
+      .getAllByTestId("swimlane-group")
+      .find((node) => node.dataset.group === "Engineering");
+    expect(engGroup).toBeDefined();
+    expect(engGroup).toHaveTextContent("Engineering");
+    expect(engGroup).toHaveTextContent("4");
+  });
+
+  it("renders no per-group checkbox when groupBy is none", async () => {
+    const rows = await loadRows();
+    renderTable({ rows, groupBy: "none" });
+
+    await screen.findAllByTestId("work-item-row");
+
+    // Flat mode short-circuits group headers → no per-group checkbox at all…
+    expect(
+      screen.queryByRole("checkbox", { name: /^Select all in/ }),
+    ).not.toBeInTheDocument();
+    // …but the global select-all header checkbox is untouched.
+    expect(
+      screen.getByRole("checkbox", { name: "Select all work items" }),
+    ).toBeInTheDocument();
+  });
+
   // --- Resizable columns --------------------------------------------------
 
   it("renders a resize handle (separator) on a data column header", async () => {

@@ -647,7 +647,7 @@ function groupLabelFor(row: WorkItemRow, groupBy: GroupByField): string {
  * sections) keeps measurement correct under react-virtual.
  */
 type FlatRow =
-  | { kind: "group"; label: string; count: number; key: string }
+  | { kind: "group"; label: string; count: number; key: string; ids: string[] }
   | { kind: "item"; row: WorkItemRow; key: string };
 
 /**
@@ -681,6 +681,9 @@ function flattenRows(rows: WorkItemRow[], groupBy: GroupByField): FlatRow[] {
       label,
       count: items.length,
       key: `group:${label}`,
+      // Carry the group's visible item ids so its header can drive a
+      // "select all in this group" checkbox over exactly these rows.
+      ids: items.map((item) => item.id),
     });
     for (const row of items) {
       flat.push({ kind: "item", row, key: `item:${row.id}` });
@@ -1148,6 +1151,7 @@ export function WorkboardTable({
                       aria-colspan={ariaColCount}
                       className="flex flex-1 items-center gap-2 text-xs font-semibold tracking-wide text-foreground uppercase"
                     >
+                      <Checkbox aria-label={`Select all in ${flat.label}`} />
                       <span className="truncate">{flat.label}</span>
                       {/* Group size surfaced in the band header as a pill. */}
                       <span className="shrink-0 rounded-sm bg-background px-1.5 py-0.5 text-[0.6875rem] font-medium text-muted-foreground tabular-nums">
