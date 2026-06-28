@@ -29,7 +29,11 @@ import {
   type WorkItemRow,
 } from "@/data/work-items";
 
-import { WorkboardTable, type WorkItemTableProps } from "./WorkboardTable";
+import {
+  WorkboardTable,
+  type ColumnFilter,
+  type WorkItemTableProps,
+} from "./WorkboardTable";
 
 /**
  * Open a row's "⋯" actions DropdownMenu. Radix opens its trigger on the
@@ -939,6 +943,90 @@ describe("WorkboardTable", () => {
         .getByRole("combobox", { name: "Priority for Workspace auth hardening" })
         .querySelector("[data-priority]"),
     ).not.toBeNull();
+  });
+
+  // --- Column-header filters ----------------------------------------------
+
+  /** A Type column filter wired to a spy `onToggle`, with a given selection. */
+  function typeColumnFilter(
+    selected: ReadonlySet<string> = new Set(),
+    onToggle: (value: string) => void = vi.fn(),
+  ): ColumnFilter {
+    return {
+      options: [
+        { value: "feature", label: "Feature" },
+        { value: "bug", label: "Bug" },
+        { value: "chore", label: "Chore" },
+        { value: "research", label: "Research" },
+      ],
+      selected,
+      onToggle,
+    };
+  }
+
+  /** Open a Radix DropdownMenu trigger via the keyboard (the proven jsdom path). */
+  function openHeaderFilter(name: string | RegExp): void {
+    fireEvent.keyDown(screen.getByRole("button", { name }), { key: "ArrowDown" });
+  }
+
+  it("renders a compact filter trigger only in a filterable column header", async () => {
+    const rows = await loadRows();
+    renderTable({ rows, columnFilters: { type: typeColumnFilter() } });
+
+    await screen.findAllByTestId("work-item-row");
+
+    // The Type column header gets a "Filter Type" trigger…
+    expect(
+      screen.getByRole("button", { name: "Filter Type" }),
+    ).toBeInTheDocument();
+    // …while a column without a columnFilters entry (Phase) has none.
+    expect(
+      screen.queryByRole("button", { name: "Filter Phase" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("opens the header filter and lists its options", async () => {
+    const rows = await loadRows();
+    renderTable({ rows, columnFilters: { type: typeColumnFilter() } });
+
+    await screen.findAllByTestId("work-item-row");
+
+    openHeaderFilter("Filter Type");
+    expect(
+      await screen.findByRole("menuitemcheckbox", { name: "Feature" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("menuitemcheckbox", { name: "Bug" }),
+    ).toBeInTheDocument();
+  });
+
+  it("surfaces the active count in the header filter's accessible name", async () => {
+    const rows = await loadRows();
+    renderTable({
+      rows,
+      columnFilters: { type: typeColumnFilter(new Set(["bug"])) },
+    });
+
+    await screen.findAllByTestId("work-item-row");
+
+    expect(
+      screen.getByRole("button", { name: "Filter Type (1)" }),
+    ).toBeInTheDocument();
+  });
+
+  it("toggles a value through the header filter's onToggle", async () => {
+    const rows = await loadRows();
+    const onToggle = vi.fn();
+    renderTable({
+      rows,
+      columnFilters: { type: typeColumnFilter(new Set(), onToggle) },
+    });
+
+    await screen.findAllByTestId("work-item-row");
+
+    openHeaderFilter("Filter Type");
+    fireEvent.click(await screen.findByRole("menuitemcheckbox", { name: "Bug" }));
+    expect(onToggle).toHaveBeenCalledWith("bug");
   });
 
   // --- Resizable columns --------------------------------------------------
