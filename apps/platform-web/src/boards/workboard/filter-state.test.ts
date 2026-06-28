@@ -128,6 +128,41 @@ describe("applyWorkboardFilters", () => {
     expect(result.map((row) => row.id)).toEqual(["a"]);
   });
 
+  it("matches search over the department name", () => {
+    const state = { ...defaultWorkboardFilterState(), search: "marketing" };
+    // "Marketing" is row b's department (not in any title/tag/type/owner).
+    expect(applyWorkboardFilters(rows, state).map((row) => row.id)).toEqual([
+      "b",
+    ]);
+  });
+
+  it("matches search over the human type label", () => {
+    const state = { ...defaultWorkboardFilterState(), search: "chore" };
+    // row b is a `chore`; the visible label "Chore" matches the typed word.
+    expect(applyWorkboardFilters(rows, state).map((row) => row.id)).toEqual([
+      "b",
+    ]);
+  });
+
+  it("matches search over the owner's display name (resolved via owners)", () => {
+    const owners = [
+      { id: "user_amara", name: "Amara Okafor" },
+      { id: "user_kenji", name: "Kenji Tanaka" },
+    ];
+    const state = { ...defaultWorkboardFilterState(), search: "kenji" };
+    // row c is assigned to user_kenji → "Kenji Tanaka".
+    expect(
+      applyWorkboardFilters(rows, state, owners).map((row) => row.id),
+    ).toEqual(["c"]);
+  });
+
+  it("never matches an owner name when no owners are supplied", () => {
+    const state = { ...defaultWorkboardFilterState(), search: "Amara" };
+    // Without the owners lookup the row carries only an id, so owner-name search
+    // simply finds nothing (graceful default).
+    expect(applyWorkboardFilters(rows, state)).toHaveLength(0);
+  });
+
   it("treats a whitespace-only search as no filter", () => {
     const state = { ...defaultWorkboardFilterState(), search: "   " };
     expect(applyWorkboardFilters(rows, state)).toHaveLength(rows.length);

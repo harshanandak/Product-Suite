@@ -111,6 +111,27 @@ describe("WorkboardToolbar", () => {
     expect(screen.getByText("/")).toBeInTheDocument();
   });
 
+  it("focuses the search input when '/' is pressed outside a field (#11)", () => {
+    renderToolbar();
+    const search = screen.getByRole("searchbox", { name: "Search work items" });
+    expect(search).not.toHaveFocus();
+    // A bare '/' keydown anywhere on the page (focus rests on <body>) routes to
+    // the searchbox — the window listener prevents the literal slash and focuses.
+    fireEvent.keyDown(document, { key: "/" });
+    expect(search).toHaveFocus();
+  });
+
+  it("ignores the '/' shortcut while typing in a field (#11)", () => {
+    renderToolbar();
+    const search = screen.getByRole("searchbox", { name: "Search work items" });
+    // With focus already inside an input, '/' must reach the field as a literal
+    // slash rather than being intercepted — the guard leaves focus put.
+    search.focus();
+    expect(search).toHaveFocus();
+    fireEvent.keyDown(search, { key: "/" });
+    expect(search).toHaveFocus();
+  });
+
   it("emits a new state with the updated search (controlled, no mutation)", () => {
     const { onChange, lastChange } = renderToolbar();
     const search = screen.getByRole("searchbox", { name: "Search work items" });
@@ -128,6 +149,38 @@ describe("WorkboardToolbar", () => {
     expect(onChange).toHaveBeenCalledTimes(1);
     const next = lastChange();
     expect([...next.filters.type]).toEqual(["feature"]);
+  });
+
+  it("selects every Type via the facet's Select all header in one change (#14)", async () => {
+    const { onChange, lastChange } = renderToolbar();
+    openMenu(/filter by type/i);
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Select all" }),
+    );
+    // ONE change carrying the complete set (not last-write-wins per option).
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect([...lastChange().filters.type]).toEqual([
+      "feature",
+      "bug",
+      "chore",
+      "research",
+    ]);
+  });
+
+  it("empties a Type facet via the facet's Clear header (#14)", async () => {
+    const value: Partial<WorkboardFilterState> = {
+      filters: {
+        type: new Set(["bug", "chore"]),
+        owner: new Set(),
+        department: new Set(),
+        phase: new Set(),
+        priority: new Set(),
+      },
+    };
+    const { lastChange } = renderToolbar({ value });
+    openMenu(/filter by type/i);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Clear" }));
+    expect(lastChange().filters.type.size).toBe(0);
   });
 
   it("offers an Unassigned option in the Owner facet using the sentinel", async () => {
@@ -196,6 +249,45 @@ describe("WorkboardToolbar", () => {
     expect(next.filters.type.size).toBe(0);
     expect(next.filters.owner.size).toBe(0);
     expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows Clear filters for a search alone and resets the search too (#15)", () => {
+    const { lastChange } = renderToolbar({ value: { search: "auth" } });
+    const clear = screen.getByRole("button", { name: /clear filters/i });
+    // The trimmed search counts as one active filter…
+    expect(clear).toHaveAccessibleName(/1 active/i);
+    fireEvent.click(clear);
+    // …and clearing resets the search string (not just the facets).
+    expect(lastChange().search).toBe("");
+  });
+
+  it("does not count a whitespace-only search toward Clear filters (#15)", () => {
+    renderToolbar({ value: { search: "   " } });
+    expect(
+      screen.queryByRole("button", { name: /clear filters/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("clears the search alongside the facets when both are set (#15)", () => {
+    const { lastChange } = renderToolbar({
+      value: {
+        search: "auth",
+        filters: {
+          type: new Set(["bug"]),
+          owner: new Set(),
+          department: new Set(),
+          phase: new Set(),
+          priority: new Set(),
+        },
+      },
+    });
+    // search (1) + type (1) → "2 active".
+    const clear = screen.getByRole("button", { name: /clear filters/i });
+    expect(clear).toHaveAccessibleName(/2 active/i);
+    fireEvent.click(clear);
+    const next = lastChange();
+    expect(next.search).toBe("");
+    expect(next.filters.type.size).toBe(0);
   });
 
   it("changes the group-by field via the radio menu", async () => {

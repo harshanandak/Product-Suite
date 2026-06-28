@@ -1,3 +1,5 @@
+import { useEffect, useRef } from "react";
+
 import { FilterIcon, PlusIcon, SlidersHorizontalIcon, XIcon } from "lucide-react";
 
 import {
@@ -144,12 +146,16 @@ export function WorkboardToolbar({
   onResetColumnWidths,
 }: Readonly<WorkboardToolbarProps>) {
   const { filters } = value;
+  // A non-empty (trimmed) search counts as an active filter too, so the Clear
+  // affordance appears — and resets the search — even when ONLY a search is set.
+  const hasSearch = value.search.trim() !== "";
   const activeFilterCount =
     filters.type.size +
     filters.owner.size +
     filters.department.size +
     filters.phase.size +
-    filters.priority.size;
+    filters.priority.size +
+    (hasSearch ? 1 : 0);
 
   // --- Filter facets ------------------------------------------------------
 
@@ -191,10 +197,11 @@ export function WorkboardToolbar({
     });
   };
 
-  /** Empty ONLY the four facet sets; leave search/groupBy/columns/selection. */
+  /** Reset the search AND all five facet sets; leave groupBy/columns/selection. */
   const clearFilters = (): void => {
     onChange({
       ...value,
+      search: "",
       filters: {
         type: new Set(),
         owner: new Set(),
@@ -250,6 +257,32 @@ export function WorkboardToolbar({
 
   const hasSelection = selectedCount > 0;
 
+  // '/' search shortcut (#11) — focus the search box when "/" is pressed anywhere
+  // on the page, UNLESS the user is already typing in a field
+  // (input/textarea/contenteditable), so the key never hijacks a literal slash
+  // mid-edit. The <kbd>/</kbd> beside the input advertises the affordance.
+  const searchRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const focusSearchOnSlash = (event: KeyboardEvent): void => {
+      if (event.key !== "/") return;
+      const active = document.activeElement;
+      if (
+        active instanceof HTMLElement &&
+        (active.tagName === "INPUT" ||
+          active.tagName === "TEXTAREA" ||
+          active.isContentEditable)
+      ) {
+        return;
+      }
+      event.preventDefault();
+      searchRef.current?.focus();
+    };
+    window.addEventListener("keydown", focusSearchOnSlash);
+    return () => {
+      window.removeEventListener("keydown", focusSearchOnSlash);
+    };
+  }, []);
+
   return (
     <div
       role="toolbar"
@@ -274,6 +307,7 @@ export function WorkboardToolbar({
       {/* Search */}
       <div className="relative">
         <Input
+          ref={searchRef}
           type="search"
           value={value.search}
           aria-label="Search work items"
@@ -303,30 +337,45 @@ export function WorkboardToolbar({
         options={typeOptions}
         selected={filters.type}
         onToggle={toggleType}
+        onSetSelected={(next) =>
+          onChange({ ...value, filters: { ...filters, type: next } })
+        }
       />
       <FacetFilterMenu
         label="Owner"
         options={ownerOptions}
         selected={filters.owner}
         onToggle={toggleOwner}
+        onSetSelected={(next) =>
+          onChange({ ...value, filters: { ...filters, owner: next } })
+        }
       />
       <FacetFilterMenu
         label="Department"
         options={departmentOptions}
         selected={filters.department}
         onToggle={toggleDepartment}
+        onSetSelected={(next) =>
+          onChange({ ...value, filters: { ...filters, department: next } })
+        }
       />
       <FacetFilterMenu
         label="Phase"
         options={phaseOptions}
         selected={filters.phase}
         onToggle={togglePhase}
+        onSetSelected={(next) =>
+          onChange({ ...value, filters: { ...filters, phase: next } })
+        }
       />
       <FacetFilterMenu
         label="Priority"
         options={priorityOptions}
         selected={filters.priority}
         onToggle={togglePriority}
+        onSetSelected={(next) =>
+          onChange({ ...value, filters: { ...filters, priority: next } })
+        }
       />
 
       {activeFilterCount > 0 ? (
