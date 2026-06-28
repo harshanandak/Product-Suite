@@ -419,26 +419,29 @@ export function WorkboardToolbar({
         </kbd>
       </div>
 
-      {/* Kanban has no column headers, so the Type / Phase / Priority / Owner
-          facets — which live in the Table's headers — fall back into the toolbar
-          for that view, reusing the very same `columnFilters` config the table
-          consumes (any filter set here flows through the shared filter state). */}
-      {view === "kanban"
-        ? HEADER_FACETS.map(({ id, label }) => {
-            const facet = columnFilters?.[id];
-            return facet ? (
-              <FacetFilterMenu
-                key={id}
-                label={label}
-                options={facet.options}
-                selected={facet.selected}
-                onToggle={facet.onToggle}
-                onSetSelected={facet.onSetSelected}
-                searchable={facet.searchable}
-              />
-            ) : null;
-          })
-        : null}
+      {/* The Type / Phase / Priority / Owner facets live in the Table's column
+          headers — but a header trigger only exists when that column is on
+          screen. So the toolbar carries a facet whenever its header is gone:
+          Kanban (no headers at all) or a column hidden via the Columns menu.
+          Both paths reuse the very same `columnFilters` config the table
+          consumes, so a filter set here flows through the shared filter state.
+          A still-visible column keeps its facet in the header (no duplicate). */}
+      {HEADER_FACETS.map(({ id, label }) => {
+        const headerHidden = view === "kanban" || !value.visibleColumns.has(id);
+        if (!headerHidden) return null;
+        const facet = columnFilters?.[id];
+        return facet ? (
+          <FacetFilterMenu
+            key={id}
+            label={label}
+            options={facet.options}
+            selected={facet.selected}
+            onToggle={facet.onToggle}
+            onSetSelected={facet.onSetSelected}
+            searchable={facet.searchable}
+          />
+        ) : null;
+      })}
 
       {/* Department facet — always a toolbar filter (Department has no table
           column, so unlike Type / Phase / Priority / Owner it cannot move into a

@@ -204,6 +204,27 @@ describe("WorkboardToolbar", () => {
     ).toBeInTheDocument();
   });
 
+  it("falls a facet back into the toolbar when its column is HIDDEN in Table view", () => {
+    // Hiding `type` from the Columns menu removes its only trigger (the column
+    // header), so the toolbar must carry it to keep the filter reachable.
+    const visibleColumns = new Set(
+      defaultWorkboardFilterState().visibleColumns,
+    );
+    visibleColumns.delete("type");
+    renderToolbar({
+      view: "table",
+      columnFilters: COLUMN_FILTERS,
+      value: { visibleColumns },
+    });
+    expect(
+      screen.getByRole("button", { name: "Filter by type" }),
+    ).toBeInTheDocument();
+    // Still-visible columns keep their facet in the header, not the toolbar.
+    expect(
+      screen.queryByRole("button", { name: "Filter by phase" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("shows an active-filter count and a Clear filters action when filters are set", () => {
     const value: Partial<WorkboardFilterState> = {
       filters: {
