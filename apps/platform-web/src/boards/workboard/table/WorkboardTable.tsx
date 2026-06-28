@@ -1042,6 +1042,17 @@ export function WorkboardTable({
                   className={cn(
                     "group",
                     isArchived && "text-muted-foreground",
+                    // Selection gets a DISTINCT cue that wins over hover. The
+                    // primary tint is authored as the `data-[state=selected]`
+                    // AND `hover` variants so twMerge swaps out the shared
+                    // TableRow's `data-[state=selected]:bg-muted` /
+                    // `hover:bg-muted/50` — hovering a selected row no longer
+                    // lightens it back to the generic muted hue. A left accent
+                    // rail (an out-of-flow `before:` pseudo → no layout shift)
+                    // reads even where the tint is subtle in dark mode. All
+                    // theme tokens, so it's dark-mode safe.
+                    isSelected &&
+                      "data-[state=selected]:bg-primary/10 hover:bg-primary/10 before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-primary before:content-['']",
                   )}
                   style={offsetStyle}
                 >

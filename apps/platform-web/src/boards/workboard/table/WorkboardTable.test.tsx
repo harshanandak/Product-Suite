@@ -532,6 +532,26 @@ describe("WorkboardTable", () => {
     expect(selectAll).toHaveAttribute("aria-checked", "mixed");
   });
 
+  it("gives a selected row a distinct cue that wins over hover", async () => {
+    const rows = await loadRows();
+    renderTable({ rows, selection: new Set(["wi_auth"]) });
+
+    await screen.findAllByTestId("work-item-row");
+
+    const row = rowByTitle("Workspace auth hardening");
+    expect(row).toHaveAttribute("data-state", "selected");
+    const classes = row.className.split(" ");
+    // A primary tint authored as both the selected AND hover variant, plus an
+    // out-of-flow left accent rail (non-background cue).
+    expect(classes).toContain("data-[state=selected]:bg-primary/10");
+    expect(classes).toContain("hover:bg-primary/10");
+    expect(classes).toContain("before:bg-primary");
+    // twMerge dropped the shared TableRow's muted selected/hover backgrounds, so
+    // hovering a selected row can never lighten it back to the generic hue.
+    expect(classes).not.toContain("data-[state=selected]:bg-muted");
+    expect(classes).not.toContain("hover:bg-muted/50");
+  });
+
   it("does not read 'all selected' when selection holds ids not in visible rows", async () => {
     const rows = await loadRows();
     // Seed selection with EVERY visible id plus a stale off-screen id: raw
