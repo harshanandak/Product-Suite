@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { Button, EmptyState, toast } from "@product-suite/ui";
+import {
+  Button,
+  EmptyState,
+  toast,
+  type Phase,
+  type Priority,
+  type WorkItemType,
+} from "@product-suite/ui";
 
 import {
   getDefaultRepository,
@@ -15,11 +22,14 @@ import {
 import { WorkItemEditor } from "./editor/WorkItemEditor";
 import {
   applyWorkboardFilters,
+  buildFacetOptions,
   defaultWorkboardFilterState,
+  toggledSet,
   workboardDepartments,
+  type ColumnId,
 } from "./filter-state";
 import { WorkboardKanban } from "./kanban/WorkboardKanban";
-import { WorkboardTable } from "./table/WorkboardTable";
+import { WorkboardTable, type ColumnFilter } from "./table/WorkboardTable";
 import { WorkboardToolbar } from "./toolbar/WorkboardToolbar";
 
 /**
@@ -101,6 +111,92 @@ export function WorkboardScreen({
     () => applyWorkboardFilters(items, filterState, owners),
     [items, filterState, owners],
   );
+
+  // The five facet option lists, derived once from the live owners/departments.
+  const facetOptions = useMemo(
+    () => buildFacetOptions(owners, departments),
+    [owners, departments],
+  );
+
+  // Per-column header filters (Type / Phase / Priority / Owner) for the Table.
+  // Each mirrors exactly what the toolbar facet did — the live `selected` set
+  // plus an `onToggle` / `onSetSelected` that splice a fresh `Set` into the
+  // shared filter state (functional updates, so they read the latest state and
+  // never go stale). Department has no column, so it stays a toolbar facet.
+  const columnFilters = useMemo<Partial<Record<ColumnId, ColumnFilter>>>(() => {
+    const { filters } = filterState;
+    return {
+      type: {
+        options: facetOptions.type,
+        selected: filters.type,
+        onToggle: (value: string) =>
+          setFilterState((state) => ({
+            ...state,
+            filters: {
+              ...state.filters,
+              type: toggledSet(state.filters.type, value as WorkItemType),
+            },
+          })),
+        onSetSelected: (next: Set<string>) =>
+          setFilterState((state) => ({
+            ...state,
+            filters: { ...state.filters, type: next as Set<WorkItemType> },
+          })),
+      },
+      phase: {
+        options: facetOptions.phase,
+        selected: filters.phase,
+        onToggle: (value: string) =>
+          setFilterState((state) => ({
+            ...state,
+            filters: {
+              ...state.filters,
+              phase: toggledSet(state.filters.phase, value as Phase),
+            },
+          })),
+        onSetSelected: (next: Set<string>) =>
+          setFilterState((state) => ({
+            ...state,
+            filters: { ...state.filters, phase: next as Set<Phase> },
+          })),
+      },
+      priority: {
+        options: facetOptions.priority,
+        selected: filters.priority,
+        onToggle: (value: string) =>
+          setFilterState((state) => ({
+            ...state,
+            filters: {
+              ...state.filters,
+              priority: toggledSet(state.filters.priority, value as Priority),
+            },
+          })),
+        onSetSelected: (next: Set<string>) =>
+          setFilterState((state) => ({
+            ...state,
+            filters: { ...state.filters, priority: next as Set<Priority> },
+          })),
+      },
+      owner: {
+        options: facetOptions.owner,
+        selected: filters.owner,
+        searchable: true,
+        onToggle: (value: string) =>
+          setFilterState((state) => ({
+            ...state,
+            filters: {
+              ...state.filters,
+              owner: toggledSet(state.filters.owner, value),
+            },
+          })),
+        onSetSelected: (next: Set<string>) =>
+          setFilterState((state) => ({
+            ...state,
+            filters: { ...state.filters, owner: next },
+          })),
+      },
+    };
+  }, [filterState, facetOptions]);
 
   // Prune the shared selection down to the CURRENTLY-VISIBLE rows whenever the
   // filtered `rows` change, so the toolbar's "N selected" count and every bulk
@@ -286,6 +382,7 @@ export function WorkboardScreen({
         onSelectItem={handleSelectItem}
         onUpdateItem={update}
         resetColumnWidthsRef={resetColumnWidthsRef}
+        columnFilters={columnFilters}
       />
     );
 
