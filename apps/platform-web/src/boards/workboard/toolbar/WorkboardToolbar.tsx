@@ -1,9 +1,21 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { PlusIcon, SlidersHorizontalIcon, XIcon } from "lucide-react";
+import {
+  BookmarkIcon,
+  PlusIcon,
+  SlidersHorizontalIcon,
+  Trash2Icon,
+  XIcon,
+} from "lucide-react";
 
 import {
   Button,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
@@ -36,6 +48,7 @@ import {
   toggledSet,
   type ColumnId,
   type GroupByField,
+  type SavedView,
   type WorkboardFilterState,
 } from "../filter-state";
 
@@ -117,6 +130,14 @@ export interface WorkboardToolbarProps {
    * item only renders when wired, so read-only embeds stay unchanged.
    */
   onResetColumnWidths?: () => void;
+  /** The user's saved/named views; listed in the "Saved views" menu (Rank 8b). */
+  savedViews: ReadonlyArray<SavedView>;
+  /** Apply one saved view (hydrate the live filter state from its config). */
+  onApplyView: (view: SavedView) => void;
+  /** Save the CURRENT view under a (trimmed, non-empty) name. */
+  onSaveView: (name: string) => void;
+  /** Delete a saved view by its id. */
+  onDeleteView: (id: string) => void;
 }
 
 /** Group-by options in canonical order — labels for the 5 {@link GroupByField}s. */
@@ -222,8 +243,27 @@ export function WorkboardToolbar({
   onBulkApply,
   onResetColumnWidths,
   columnFilters,
+  savedViews,
+  onApplyView,
+  onSaveView,
+  onDeleteView,
 }: Readonly<WorkboardToolbarProps>) {
   const { filters } = value;
+
+  // Transient UI state for the "Save current view" dialog ONLY (the toolbar
+  // holds no VIEW state — that still lives in the parent's filter state). The
+  // dialog's open flag + the in-progress name are local because they never
+  // outlive the dialog and the parent has no use for them.
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [draftName, setDraftName] = useState("");
+  const trimmedName = draftName.trim();
+
+  const submitSaveView = (): void => {
+    if (trimmedName === "") return;
+    onSaveView(trimmedName);
+    setDraftName("");
+    setSaveOpen(false);
+  };
   // A non-empty (trimmed) search counts as an active filter too, so the Clear
   // affordance appears — and resets the search — even when ONLY a search is set.
   const hasSearch = value.search.trim() !== "";
@@ -535,6 +575,105 @@ export function WorkboardToolbar({
           ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
+
+      {/* Saved / named views (Rank 8b) — the "Saved views" menu lists every
+          saved view (apply on click, delete via the trash affordance), and the
+          sibling "Save current view" button opens the name dialog. The apply
+          and delete controls are SIBLING buttons, so deleting can never also
+          apply (no propagation to fight). */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="sm" aria-label="Saved views">
+            <BookmarkIcon className="size-4" />
+            Views
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="min-w-56">
+          <DropdownMenuLabel>Saved views</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          {savedViews.length === 0 ? (
+            <p className="px-2 py-1.5 text-sm text-muted-foreground">
+              No saved views yet
+            </p>
+          ) : (
+            savedViews.map((saved) => (
+              <div
+                key={saved.id}
+                className="flex items-center gap-1 px-1 py-0.5"
+              >
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="min-w-0 flex-1 justify-start truncate font-normal"
+                  onClick={() => {
+                    onApplyView(saved);
+                  }}
+                >
+                  {saved.name}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label={`Delete view ${saved.name}`}
+                  onClick={() => {
+                    onDeleteView(saved.id);
+                  }}
+                >
+                  <Trash2Icon />
+                </Button>
+              </div>
+            ))
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <Button
+        variant="outline"
+        size="sm"
+        aria-label="Save current view"
+        onClick={() => {
+          setSaveOpen(true);
+        }}
+      >
+        Save view
+      </Button>
+
+      {/* Save-current-view dialog — a house Dialog (the suite has no Popover) with
+          a single name Input + a Save button that is disabled until the trimmed
+          name is non-empty. Submitting snapshots the current config upward. */}
+      <Dialog open={saveOpen} onOpenChange={setSaveOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Save current view</DialogTitle>
+            <DialogDescription>
+              Name this view to apply its filters, grouping, columns, and layout
+              again in one click.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            className="flex flex-col gap-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              submitSaveView();
+            }}
+          >
+            <Input
+              aria-label="View name"
+              placeholder="e.g. My execute lane"
+              value={draftName}
+              onChange={(event) => {
+                setDraftName(event.target.value);
+              }}
+              autoFocus
+            />
+            <DialogFooter>
+              <Button type="submit" disabled={trimmedName === ""}>
+                Save
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Selection-scoped bulk actions */}
       {hasSelection ? (
