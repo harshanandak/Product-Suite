@@ -1,16 +1,40 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { FacetOption } from "../filter-state";
 import { FacetFilterMenu } from "./FacetFilterMenu";
 
-/** Radix DropdownMenu reaches for Pointer-Capture / scrollIntoView jsdom omits. */
+/**
+ * Radix DropdownMenu reaches for Pointer-Capture / scrollIntoView jsdom omits;
+ * the searchable variant adds cmdk, which also needs ResizeObserver + scrollTo.
+ */
 beforeAll(() => {
   Element.prototype.hasPointerCapture ??= () => false;
   Element.prototype.setPointerCapture ??= () => {};
   Element.prototype.releasePointerCapture ??= () => {};
   Element.prototype.scrollIntoView ??= () => {};
+  globalThis.ResizeObserver ??= class {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  };
+  if (typeof window.scrollTo !== "function") {
+    window.scrollTo = () => {};
+  }
 });
+
+/** Nine distinct options — clears the ~8 threshold that gates the search box. */
+const LONG_OPTIONS: FacetOption[] = [
+  { value: "ada", label: "Ada Lovelace" },
+  { value: "alan", label: "Alan Turing" },
+  { value: "grace", label: "Grace Hopper" },
+  { value: "linus", label: "Linus Torvalds" },
+  { value: "katherine", label: "Katherine Johnson" },
+  { value: "margaret", label: "Margaret Hamilton" },
+  { value: "barbara", label: "Barbara Liskov" },
+  { value: "donald", label: "Donald Knuth" },
+  { value: "edsger", label: "Edsger Dijkstra" },
+];
 
 afterAll(() => {
   vi.restoreAllMocks();
@@ -133,5 +157,92 @@ describe("FacetFilterMenu", () => {
     fireEvent.click(await screen.findByRole("menuitem", { name: "Clear" }));
     expect(onSetSelected).toHaveBeenCalledTimes(1);
     expect(onSetSelected.mock.calls[0]![0].size).toBe(0);
+  });
+
+  it("keeps the plain checkbox menu (no search box) for short searchable lists (#8)", async () => {
+    render(
+      <FacetFilterMenu
+        label="Owner"
+        options={OPTIONS}
+        selected={new Set()}
+        onToggle={vi.fn()}
+        searchable
+      />,
+    );
+    fireEvent.keyDown(screen.getByRole("button", { name: "Filter by owner" }), {
+      key: "ArrowDown",
+    });
+    // Two options stay checkbox items; no cmdk search input appears.
+    await screen.findByRole("menuitemcheckbox", { name: "Alpha" });
+    expect(screen.queryByPlaceholderText(/search/i)).not.toBeInTheDocument();
+  });
+
+  it("renders a search box and filters the options as you type (#8)", async () => {
+    render(
+      <FacetFilterMenu
+        label="Owner"
+        options={LONG_OPTIONS}
+        selected={new Set()}
+        onToggle={vi.fn()}
+        searchable
+      />,
+    );
+    fireEvent.keyDown(screen.getByRole("button", { name: "Filter by owner" }), {
+      key: "ArrowDown",
+    });
+    // Long list → a cmdk search box plus every option to start with.
+    const search = await screen.findByPlaceholderText("Search owner");
+    expect(screen.getByText("Ada Lovelace")).toBeInTheDocument();
+    expect(screen.getByText("Grace Hopper")).toBeInTheDocument();
+
+    // Typing narrows the visible options to the matches.
+    fireEvent.change(search, { target: { value: "grace" } });
+    await waitFor(() => {
+      expect(screen.queryByText("Ada Lovelace")).not.toBeInTheDocument();
+    });
+    expect(screen.getByText("Grace Hopper")).toBeInTheDocument();
+  });
+
+  it("announces each option's selected state in the searchable list (#8)", async () => {
+    render(
+      <FacetFilterMenu
+        label="Owner"
+        options={LONG_OPTIONS}
+        selected={new Set(["grace"])}
+        onToggle={vi.fn()}
+        searchable
+      />,
+    );
+    fireEvent.keyDown(screen.getByRole("button", { name: /filter by owner/i }), {
+      key: "ArrowDown",
+    });
+    // cmdk items are role="option"; an sr-only cue voices the checked state the
+    // (aria-hidden) check icon shows, so AT isn't left guessing.
+    expect(
+      await screen.findByRole("option", { name: "Grace Hopper selected" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("option", { name: "Ada Lovelace not selected" }),
+    ).toBeInTheDocument();
+  });
+
+  it("toggles a filtered option through onToggle in the searchable list (#8)", async () => {
+    const onToggle = vi.fn();
+    render(
+      <FacetFilterMenu
+        label="Owner"
+        options={LONG_OPTIONS}
+        selected={new Set()}
+        onToggle={onToggle}
+        searchable
+      />,
+    );
+    fireEvent.keyDown(screen.getByRole("button", { name: "Filter by owner" }), {
+      key: "ArrowDown",
+    });
+    const search = await screen.findByPlaceholderText("Search owner");
+    fireEvent.change(search, { target: { value: "grace" } });
+    fireEvent.click(await screen.findByText("Grace Hopper"));
+    expect(onToggle).toHaveBeenCalledWith("grace");
   });
 });
