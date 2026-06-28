@@ -333,6 +333,18 @@ describe("persisted view state (serialize ⇄ parse)", () => {
     expect(parsed?.filters?.owner).toEqual(new Set(["user_kenji"]));
   });
 
+  it("omits visibleColumns when EVERY stored id is unknown (keeps the all-visible default)", () => {
+    // A future column rename without a key bump would leave only stale ids. An
+    // empty visible set is truthy, so assigning it would survive the screen's
+    // `?? default` merge and render a table with zero data columns. Omitting it
+    // instead lets the all-visible default win.
+    const parsed = parsePersistedView(
+      JSON.stringify({ visibleColumns: ["legacyName", "legacyType"] }),
+    );
+    expect(parsed).not.toBeNull();
+    expect(parsed?.visibleColumns).toBeUndefined();
+  });
+
   it("coerces an unknown groupBy / view to absent (falls back at merge)", () => {
     const parsed = parsePersistedView(
       JSON.stringify({ groupBy: "galaxy", view: "spreadsheet", search: 42 }),

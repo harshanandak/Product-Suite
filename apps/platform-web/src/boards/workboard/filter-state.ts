@@ -419,7 +419,12 @@ export function parsePersistedView(raw: string | null): PersistedView | null {
     result.view = record.view as WorkboardView;
   }
   if (Array.isArray(record.visibleColumns)) {
-    result.visibleColumns = enumSetOf(record.visibleColumns, COLUMN_VALUES);
+    // Only restore a NON-empty validated set. An all-unknown array (e.g. after a
+    // future column rename without a key bump) collapses to an empty set — which
+    // is truthy and would survive the screen's `?? default` merge, leaving a
+    // table with zero data columns. Omitting it lets the all-visible default win.
+    const cols = enumSetOf(record.visibleColumns, COLUMN_VALUES);
+    if (cols.size > 0) result.visibleColumns = cols;
   }
   if (typeof record.filters === "object" && record.filters !== null) {
     const filters = record.filters as Record<string, unknown>;
