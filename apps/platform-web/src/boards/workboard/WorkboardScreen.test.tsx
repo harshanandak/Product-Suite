@@ -19,9 +19,13 @@ import {
 import {
   COLUMN_IDS,
   FILTER_STORAGE_KEY,
+  SAVED_VIEWS_KEY,
   defaultWorkboardFilterState,
   parsePersistedView,
+  parseSavedViews,
   serializePersistedView,
+  serializeSavedViews,
+  type SavedView,
 } from "./filter-state";
 import { WorkboardScreen } from "./WorkboardScreen";
 
@@ -677,5 +681,130 @@ describe("WorkboardScreen", () => {
       ).toBeChecked();
     });
     expect(await screen.findByText(/couldn't update/i)).toBeInTheDocument();
+  });
+
+  // --- Saved / named views (Rank 8b) -------------------------------------
+
+  it("saves the current view (filters/search, NOT selection) to SAVED_VIEWS_KEY", async () => {
+    render(<WorkboardScreen repository={createMockWorkItemRepository()} />);
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+
+    // Narrow to a single row, then SELECT it — the selection must never be
+    // captured into the saved config.
+    fireEvent.change(
+      screen.getByRole("searchbox", { name: "Search work items" }),
+      { target: { value: "Workspace auth hardening" } },
+    );
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row")).toHaveLength(1);
+    });
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Select Workspace auth hardening" }),
+    );
+
+    // Save the current view under a name.
+    fireEvent.click(screen.getByRole("button", { name: "Save current view" }));
+    fireEvent.change(
+      await screen.findByRole("textbox", { name: "View name" }),
+      { target: { value: "Auth lane" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    // Persisted under the saved-views key, capturing the search but no selection.
+    await waitFor(() => {
+      const saved = parseSavedViews(window.localStorage.getItem(SAVED_VIEWS_KEY));
+      expect(saved).toHaveLength(1);
+      expect(saved[0]?.name).toBe("Auth lane");
+      expect(saved[0]?.config.search).toBe("Workspace auth hardening");
+    });
+    const saved = parseSavedViews(window.localStorage.getItem(SAVED_VIEWS_KEY));
+    expect(saved[0]?.config).not.toHaveProperty("selection");
+    expect(saved[0]?.id).toBeTruthy();
+    // The raw blob carries no selected row id (wi_auth was selected at save time).
+    expect(window.localStorage.getItem(SAVED_VIEWS_KEY)).not.toContain("wi_auth");
+  });
+
+  it("applies a saved view: hydrates its config and resets the selection", async () => {
+    const views: SavedView[] = [
+      { id: "v1", name: "Auth only", config: { search: "Workspace auth hardening" } },
+    ];
+    window.localStorage.setItem(SAVED_VIEWS_KEY, serializeSavedViews(views));
+
+    render(<WorkboardScreen repository={createMockWorkItemRepository()} />);
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(1);
+    });
+
+    // Select every row so a non-empty selection exists BEFORE applying.
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Select all work items" }),
+    );
+    await screen.findByRole("group", { name: "Bulk actions" });
+
+    // Apply the saved view via the Saved views menu.
+    fireEvent.keyDown(screen.getByRole("button", { name: "Saved views" }), {
+      key: "ArrowDown",
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Auth only" }));
+
+    // The config's search now narrows the table to its single match…
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row")).toHaveLength(1);
+    });
+    expect(
+      screen.getByRole("searchbox", { name: "Search work items" }),
+    ).toHaveValue("Workspace auth hardening");
+    // …and the selection is reset to empty (the bulk cluster disappears).
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("group", { name: "Bulk actions" }),
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  it("deletes a saved view, removing it from storage", async () => {
+    const views: SavedView[] = [
+      { id: "v1", name: "Auth only", config: { search: "auth" } },
+    ];
+    window.localStorage.setItem(SAVED_VIEWS_KEY, serializeSavedViews(views));
+
+    render(<WorkboardScreen repository={createMockWorkItemRepository()} />);
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+
+    fireEvent.keyDown(screen.getByRole("button", { name: "Saved views" }), {
+      key: "ArrowDown",
+    });
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Delete view Auth only" }),
+    );
+
+    await waitFor(() => {
+      expect(
+        parseSavedViews(window.localStorage.getItem(SAVED_VIEWS_KEY)),
+      ).toHaveLength(0);
+    });
+  });
+
+  it("restores saved views from localStorage on mount", async () => {
+    const views: SavedView[] = [
+      { id: "v1", name: "Restored lane", config: { search: "auth" } },
+    ];
+    window.localStorage.setItem(SAVED_VIEWS_KEY, serializeSavedViews(views));
+
+    render(<WorkboardScreen repository={createMockWorkItemRepository()} />);
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+
+    fireEvent.keyDown(screen.getByRole("button", { name: "Saved views" }), {
+      key: "ArrowDown",
+    });
+    expect(
+      await screen.findByRole("button", { name: "Restored lane" }),
+    ).toBeInTheDocument();
   });
 });
