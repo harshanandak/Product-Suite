@@ -127,6 +127,43 @@ const COLUMN_LABELS: Record<ColumnId, string> = {
   source: "Source",
 };
 
+/** One active-facet selection surfaced as a removable chip (#13). */
+interface ActiveFilterChip {
+  /** Stable React key — facet label + the selected option's value. */
+  id: string;
+  /** The owning facet's label (e.g. "Type", "Owner"). */
+  facetLabel: string;
+  /** The human label of the selected value (e.g. "Feature", "Ada Lovelace"). */
+  valueLabel: string;
+  /** Remove JUST this value via the facet's existing single-value toggle. */
+  remove: () => void;
+}
+
+/**
+ * Turn one facet's selected values into removable chips, in the facet's
+ * canonical option order. Each chip's `remove` calls the facet's existing
+ * single-value `toggle` (which {@link toggledSet} turns into a remove when the
+ * value is already selected), so a chip reuses the exact controlled plumbing the
+ * menus do — no new mutation path.
+ */
+function facetChips<T extends string>(
+  facetLabel: string,
+  options: ReadonlyArray<{ value: T; label: string }>,
+  selected: ReadonlySet<T>,
+  toggle: (value: T) => void,
+): ActiveFilterChip[] {
+  return options
+    .filter((option) => selected.has(option.value))
+    .map((option) => ({
+      id: `${facetLabel}:${option.value}`,
+      facetLabel,
+      valueLabel: option.label,
+      remove: () => {
+        toggle(option.value);
+      },
+    }));
+}
+
 /**
  * The Workboard toolbar — search, facet filters, group-by, column visibility,
  * the create action, and a selection-scoped bulk-action cluster.
@@ -231,6 +268,22 @@ export function WorkboardToolbar({
     value: department,
     label: department,
   }));
+
+  // Active-filter chips (#13) — one removable chip per selected facet value, in
+  // canonical facet then option order. A free-text search is deliberately NOT
+  // chipped (it has its own clearable input); each chip removes only its value.
+  const activeChips: ActiveFilterChip[] = [
+    ...facetChips("Type", typeOptions, filters.type, toggleType),
+    ...facetChips("Owner", ownerOptions, filters.owner, toggleOwner),
+    ...facetChips(
+      "Department",
+      departmentOptions,
+      filters.department,
+      toggleDepartment,
+    ),
+    ...facetChips("Phase", phaseOptions, filters.phase, togglePhase),
+    ...facetChips("Priority", priorityOptions, filters.priority, togglePriority),
+  ];
 
   // --- Group-by & columns -------------------------------------------------
 
@@ -532,6 +585,39 @@ export function WorkboardToolbar({
         <PlusIcon className="size-4" />
         New work item
       </Button>
+
+      {/* Active-filter chips (#13) — a removable chip per selected facet value.
+          `basis-full` drops the row beneath the controls (the toolbar wraps);
+          it renders nothing when no facet is active. Each chip's X removes just
+          its own value through the facet's single-value toggle. */}
+      {activeChips.length > 0 ? (
+        <div
+          role="group"
+          aria-label="Active filters"
+          className="flex basis-full flex-wrap items-center gap-1.5"
+        >
+          {activeChips.map((chip) => (
+            <span
+              key={chip.id}
+              className="inline-flex items-center gap-1 rounded-full border bg-muted/60 py-0.5 pr-0.5 pl-2 text-xs"
+            >
+              <span className="text-muted-foreground">{chip.facetLabel}:</span>
+              <span className="font-medium text-foreground">
+                {chip.valueLabel}
+              </span>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                className="rounded-full"
+                aria-label={`Remove ${chip.facetLabel} ${chip.valueLabel}`}
+                onClick={chip.remove}
+              >
+                <XIcon />
+              </Button>
+            </span>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
