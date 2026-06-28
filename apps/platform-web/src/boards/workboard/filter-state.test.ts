@@ -5,8 +5,11 @@ import type { WorkItemRow } from "@/data/work-items";
 import {
   COLUMN_IDS,
   FILTER_OWNER_UNASSIGNED,
+  FILTER_STORAGE_KEY,
   applyWorkboardFilters,
   defaultWorkboardFilterState,
+  parsePersistedView,
+  serializePersistedView,
   workboardDepartments,
 } from "./filter-state";
 
@@ -234,6 +237,140 @@ describe("applyWorkboardFilters", () => {
       search: "auth",
     });
     expect(rows).toEqual(snapshot);
+  });
+});
+
+describe("persisted view state (serialize ⇄ parse)", () => {
+  it("exposes a single versioned storage key", () => {
+    expect(FILTER_STORAGE_KEY).toBe("workboard.filters.v1");
+  });
+
+  it("round-trips a populated filter state + view", () => {
+    const base = defaultWorkboardFilterState();
+    const filterState = {
+      ...base,
+      search: "auth",
+      groupBy: "phase" as const,
+      filters: {
+        type: new Set(["feature", "bug"] as const),
+        owner: new Set(["user_kenji", FILTER_OWNER_UNASSIGNED]),
+        department: new Set(["Engineering"]),
+        phase: new Set(["execute"] as const),
+        priority: new Set(["high"] as const),
+      },
+      visibleColumns: new Set(["name", "type", "phase"] as const),
+    };
+
+    const parsed = parsePersistedView(
+      serializePersistedView({ filterState, view: "kanban" }),
+    );
+
+    expect(parsed).not.toBeNull();
+    expect(parsed?.search).toBe("auth");
+    expect(parsed?.groupBy).toBe("phase");
+    expect(parsed?.view).toBe("kanban");
+    expect(parsed?.visibleColumns).toEqual(new Set(["name", "type", "phase"]));
+    expect(parsed?.filters?.type).toEqual(new Set(["feature", "bug"]));
+    expect(parsed?.filters?.owner).toEqual(
+      new Set(["user_kenji", FILTER_OWNER_UNASSIGNED]),
+    );
+    expect(parsed?.filters?.department).toEqual(new Set(["Engineering"]));
+    expect(parsed?.filters?.phase).toEqual(new Set(["execute"]));
+    expect(parsed?.filters?.priority).toEqual(new Set(["high"]));
+  });
+
+  it("never serializes the selection set", () => {
+    const base = defaultWorkboardFilterState();
+    const filterState = {
+      ...base,
+      selection: new Set(["wi_auth", "wi_realtime"]),
+    };
+    const raw = serializePersistedView({ filterState, view: "table" });
+
+    expect(raw).not.toContain("selection");
+    expect(raw).not.toContain("wi_auth");
+    const parsed = parsePersistedView(raw);
+    expect(parsed).not.toHaveProperty("selection");
+  });
+
+  it("returns null for malformed JSON", () => {
+    expect(parsePersistedView("not json {{{")).toBeNull();
+  });
+
+  it("returns null for an absent key (null input)", () => {
+    expect(parsePersistedView(null)).toBeNull();
+  });
+
+  it("returns null for an empty string", () => {
+    expect(parsePersistedView("")).toBeNull();
+  });
+
+  it("returns null when the blob is not an object", () => {
+    expect(parsePersistedView("42")).toBeNull();
+    expect(parsePersistedView("null")).toBeNull();
+    expect(parsePersistedView('"a string"')).toBeNull();
+  });
+
+  it("drops unknown enum members while keeping valid ones", () => {
+    const raw = JSON.stringify({
+      groupBy: "phase",
+      view: "kanban",
+      visibleColumns: ["name", "bogus", "source"],
+      filters: {
+        type: ["feature", "epic"],
+        phase: ["execute", "archived"],
+        priority: ["high", "urgent"],
+        owner: ["user_kenji"],
+        department: ["Engineering"],
+      },
+    });
+    const parsed = parsePersistedView(raw);
+
+    expect(parsed?.visibleColumns).toEqual(new Set(["name", "source"]));
+    expect(parsed?.filters?.type).toEqual(new Set(["feature"]));
+    expect(parsed?.filters?.phase).toEqual(new Set(["execute"]));
+    expect(parsed?.filters?.priority).toEqual(new Set(["high"]));
+    expect(parsed?.filters?.owner).toEqual(new Set(["user_kenji"]));
+  });
+
+  it("omits visibleColumns when EVERY stored id is unknown (keeps the all-visible default)", () => {
+    // A future column rename without a key bump would leave only stale ids. An
+    // empty visible set is truthy, so assigning it would survive the screen's
+    // `?? default` merge and render a table with zero data columns. Omitting it
+    // instead lets the all-visible default win.
+    const parsed = parsePersistedView(
+      JSON.stringify({ visibleColumns: ["legacyName", "legacyType"] }),
+    );
+    expect(parsed).not.toBeNull();
+    expect(parsed?.visibleColumns).toBeUndefined();
+  });
+
+  it("coerces an unknown groupBy / view to absent (falls back at merge)", () => {
+    const parsed = parsePersistedView(
+      JSON.stringify({ groupBy: "galaxy", view: "spreadsheet", search: 42 }),
+    );
+    expect(parsed).not.toBeNull();
+    expect(parsed?.groupBy).toBeUndefined();
+    expect(parsed?.view).toBeUndefined();
+    // a non-string search is garbage → absent
+    expect(parsed?.search).toBeUndefined();
+  });
+
+  it("tolerates partial / missing fields", () => {
+    const parsed = parsePersistedView(JSON.stringify({ view: "kanban" }));
+    expect(parsed).toEqual({ view: "kanban" });
+  });
+
+  it("ignores non-array filter facets and non-array visibleColumns", () => {
+    const parsed = parsePersistedView(
+      JSON.stringify({
+        visibleColumns: "name",
+        filters: { type: "feature" },
+      }),
+    );
+    // filters present but every facet coerces to an empty set
+    expect(parsed?.filters?.type).toEqual(new Set());
+    expect(parsed?.visibleColumns).toBeUndefined();
   });
 });
 

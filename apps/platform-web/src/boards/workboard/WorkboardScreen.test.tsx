@@ -1,5 +1,13 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "vitest";
 
 import { ThemeProvider, Toaster, toast } from "@product-suite/ui";
 
@@ -8,6 +16,13 @@ import {
   type WorkItemPatch,
 } from "@/data/work-items";
 
+import {
+  COLUMN_IDS,
+  FILTER_STORAGE_KEY,
+  defaultWorkboardFilterState,
+  parsePersistedView,
+  serializePersistedView,
+} from "./filter-state";
 import { WorkboardScreen } from "./WorkboardScreen";
 
 /**
@@ -95,10 +110,19 @@ afterAll(() => {
   }
 });
 
+// The screen persists its view state to localStorage (FILTER_STORAGE_KEY), read
+// lazily on mount; isolate every test so a blob one test seeds (or writes) can
+// never leak into the next — mirrors WorkboardTable.test.tsx's column-width
+// isolation.
+beforeEach(() => {
+  window.localStorage.clear();
+});
+
 // sonner's toast queue is module-global; clear it between tests so a toast from
 // one test can never bleed into the next.
 afterEach(() => {
   toast.dismiss();
+  window.localStorage.clear();
 });
 
 describe("WorkboardScreen", () => {
@@ -411,6 +435,193 @@ describe("WorkboardScreen", () => {
     // The succeeded rows did persist to the store.
     const items = await repository.list();
     expect(items.find((item) => item.id === "wi_realtime")?.phase).toBe("done");
+  });
+
+  it("restores persisted search, groupBy, and visibleColumns from localStorage", async () => {
+    const base = defaultWorkboardFilterState();
+    // Hide the Tags column and group by Type instead of the default Department.
+    const visibleColumns = new Set(
+      COLUMN_IDS.filter((id) => id !== "tags"),
+    );
+    window.localStorage.setItem(
+      FILTER_STORAGE_KEY,
+      serializePersistedView({
+        filterState: {
+          ...base,
+          search: "auth",
+          groupBy: "type",
+          visibleColumns,
+        },
+        view: "table",
+      }),
+    );
+
+    const { container } = render(
+      <WorkboardScreen repository={createMockWorkItemRepository()} />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+
+    // search restored → the controlled searchbox shows it (and narrows the rows).
+    expect(
+      screen.getByRole("searchbox", { name: "Search work items" }),
+    ).toHaveValue("auth");
+    // groupBy restored → swimlanes are by Type ("Feature"), not Department.
+    expect(container.querySelector('[data-group="Feature"]')).not.toBeNull();
+    expect(container.querySelector('[data-group="Engineering"]')).toBeNull();
+    // visibleColumns restored → the Tags column (its inline edit button) is gone.
+    expect(
+      screen.queryByLabelText("Edit tags for Workspace auth hardening"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("restores a persisted facet filter (Phase) into the live filter state", async () => {
+    const base = defaultWorkboardFilterState();
+    window.localStorage.setItem(
+      FILTER_STORAGE_KEY,
+      serializePersistedView({
+        filterState: {
+          ...base,
+          filters: { ...base.filters, phase: new Set(["execute"] as const) },
+        },
+        view: "table",
+      }),
+    );
+
+    render(<WorkboardScreen repository={createMockWorkItemRepository()} />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+
+    // The restored facet shows as an active count on the column-header trigger
+    // ("Filter Phase (1)"); opening it shows "Execute" already checked — proving
+    // the restored facet Set flows into the live filter state.
+    fireEvent.keyDown(
+      screen.getByRole("button", { name: "Filter Phase (1)" }),
+      { key: "ArrowDown" },
+    );
+    expect(
+      await screen.findByRole("menuitemcheckbox", { name: "Execute" }),
+    ).toBeChecked();
+  });
+
+  it("restores the persisted Kanban view from localStorage", async () => {
+    window.localStorage.setItem(
+      FILTER_STORAGE_KEY,
+      serializePersistedView({
+        filterState: defaultWorkboardFilterState(),
+        view: "kanban",
+      }),
+    );
+
+    render(<WorkboardScreen repository={createMockWorkItemRepository()} />);
+
+    // The Kanban board (not the table grid) is the first surface shown.
+    expect(await screen.findByTestId("workboard-kanban")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("grid", { name: "Work items" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("never restores a stale selection — selection rehydrates empty", async () => {
+    // Hand-craft a blob carrying a selection key (the serializer never writes
+    // one); the parser must ignore it so no rows start selected.
+    const valid = JSON.parse(
+      serializePersistedView({
+        filterState: defaultWorkboardFilterState(),
+        view: "table",
+      }),
+    );
+    window.localStorage.setItem(
+      FILTER_STORAGE_KEY,
+      JSON.stringify({ ...valid, selection: ["wi_auth", "wi_realtime"] }),
+    );
+
+    render(<WorkboardScreen repository={createMockWorkItemRepository()} />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+    // An empty selection means the bulk-action cluster never appears.
+    expect(
+      screen.queryByRole("group", { name: "Bulk actions" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("checkbox", { name: "Select Workspace auth hardening" }),
+    ).not.toBeChecked();
+  });
+
+  it("persists a filter change to localStorage", async () => {
+    render(<WorkboardScreen repository={createMockWorkItemRepository()} />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+
+    fireEvent.change(
+      screen.getByRole("searchbox", { name: "Search work items" }),
+      { target: { value: "Workspace auth hardening" } },
+    );
+
+    await waitFor(() => {
+      const parsed = parsePersistedView(
+        window.localStorage.getItem(FILTER_STORAGE_KEY),
+      );
+      expect(parsed?.search).toBe("Workspace auth hardening");
+    });
+  });
+
+  it("does NOT write the selection into the persisted blob", async () => {
+    render(<WorkboardScreen repository={createMockWorkItemRepository()} />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+    // Wait for the mount-time write, then snapshot the exact stored blob.
+    await waitFor(() => {
+      expect(window.localStorage.getItem(FILTER_STORAGE_KEY)).not.toBeNull();
+    });
+    const before = window.localStorage.getItem(FILTER_STORAGE_KEY);
+
+    // Selecting a row mutates the selection (the bulk cluster appears)…
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Select Workspace auth hardening" }),
+    );
+    await waitFor(() => {
+      expect(
+        within(
+          screen.getByRole("group", { name: "Bulk actions" }),
+        ).getByText("1 selected"),
+      ).toBeInTheDocument();
+    });
+
+    // …but the serialized blob is byte-identical: selection is never persisted.
+    expect(window.localStorage.getItem(FILTER_STORAGE_KEY)).toBe(before);
+    expect(
+      parsePersistedView(window.localStorage.getItem(FILTER_STORAGE_KEY)),
+    ).not.toHaveProperty("selection");
+  });
+
+  it("falls back to defaults when the stored blob is malformed (never throws)", async () => {
+    window.localStorage.setItem(FILTER_STORAGE_KEY, "not json {{{");
+
+    expect(() =>
+      render(<WorkboardScreen repository={createMockWorkItemRepository()} />),
+    ).not.toThrow();
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+    // Defaults: empty search, the full table grid present (not Kanban).
+    expect(
+      screen.getByRole("searchbox", { name: "Search work items" }),
+    ).toHaveValue("");
+    expect(
+      screen.getByRole("grid", { name: "Work items" }),
+    ).toBeInTheDocument();
   });
 
   it("re-adds a failed bulk id even when the optimistic patch + prune removed it under an active filter", async () => {
