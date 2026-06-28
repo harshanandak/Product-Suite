@@ -5,6 +5,8 @@ import { Copy, MoreHorizontal } from "lucide-react";
 
 import {
   AssigneePicker,
+  Avatar,
+  AvatarFallback,
   Button,
   Checkbox,
   DropdownMenu,
@@ -215,6 +217,23 @@ interface ColumnRenderContext {
   readonly owners: ReadonlyArray<Owner>;
   readonly onSelectItem: (item: WorkItemRow) => void;
   readonly onUpdateItem?: (id: string, patch: WorkItemPatch) => Promise<WorkItem>;
+  /**
+   * Whether the row is archived. Only the Name column reads it — to strike
+   * through + mute the title as a non-contrast archived cue (the row no longer
+   * dims wholesale, so status badges keep full opacity).
+   */
+  readonly archived?: boolean;
+}
+
+/** Up-to-2-char initials for the read-only Owner avatar (mirrors the picker). */
+function ownerInitials(owner: Owner): string {
+  if (owner.initials) return owner.initials;
+  return owner.name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
 }
 
 /**
@@ -231,13 +250,26 @@ function commitPatch(
 }
 
 /**
- * Inline (ghost) select cells hide the dropdown chevron. It is invisible at rest
- * yet still reserves ~24px (icon + gap) of the narrow cell, starving the badge
- * value — that was the "Feature" → "Fe" clipping. The ghost hover background
- * already signals the cell is editable, so in the dense table the chevron is pure
- * chrome; dropping it returns that width to the value.
+ * Inline (ghost) select cells reveal their dropdown chevron on ROW hover/focus so
+ * an editable cell is discoverable — without the chevron stealing layout width at
+ * rest (that was the "Feature" → "Fe" clipping when it reserved ~24px in flow).
+ *
+ * The fix is to take the chevron OUT of flow: it is absolutely positioned at the
+ * trigger's right edge, so the badge value keeps the full cell at rest. The ghost
+ * `SelectTrigger` variant already supplies the rest state (`[&>svg]:opacity-0` +
+ * `transition-opacity`) and keeps the chevron visible on the trigger's OWN
+ * hover/focus/open; here we only add the absolute positioning plus a `group-*`
+ * reveal so it also fades in when the whole row (the `group`) is hovered/focused.
  */
-const INLINE_SELECT_CLASS = "[&>svg]:hidden";
+const INLINE_SELECT_CLASS = cn(
+  // Anchor the absolutely-positioned chevron to the trigger.
+  "relative",
+  // Pin the chevron at the trigger's right edge — out of flow, so it reserves
+  // NO width and the badge value reads full-width at rest (only overlays on hover).
+  "[&>svg]:absolute [&>svg]:top-1/2 [&>svg]:right-2 [&>svg]:-translate-y-1/2",
+  // Fade it in on ROW hover / focus-within so the cell is discoverable as editable.
+  "group-hover:[&>svg]:opacity-50 group-focus-within:[&>svg]:opacity-50",
+);
 
 /**
  * The canonical column registry, in {@link COLUMN_IDS} order.
@@ -258,13 +290,18 @@ const COLUMN_SPECS: readonly ColumnSpec[] = [
     width: "16rem",
     grow: 2,
     minWidth: "16rem",
-    render: ({ row, onSelectItem }) => (
+    render: ({ row, onSelectItem, archived }) => (
       <div className="flex min-w-0 items-center gap-1.5">
         <button
           type="button"
           className={cn(
-            "truncate text-left font-medium text-foreground hover:underline",
+            "truncate text-left font-medium hover:underline",
             "focus-visible:outline-2 focus-visible:outline-ring",
+            // Archived: strike + mute the title as a non-contrast cue (no row-
+            // wide opacity dim, so the status badges stay full strength).
+            archived
+              ? "text-muted-foreground line-through"
+              : "text-foreground",
           )}
           onClick={() => {
             onSelectItem(row);
@@ -368,7 +405,8 @@ const COLUMN_SPECS: readonly ColumnSpec[] = [
             // overflow the cell's content box (minus the p-2 cell padding) and
             // spill into Due. `min-w-0` lets the w-full ghost trigger fill the
             // cell; long names truncate via the value clamp. The shared inline
-            // class also hides the chevron so the avatar+name get the full width.
+            // class keeps the chevron out of flow (revealed on row hover) so the
+            // avatar+name read full-width at rest.
             className={cn("min-w-0", INLINE_SELECT_CLASS)}
             value={row.assignee_id}
             assignees={owners}
@@ -383,20 +421,36 @@ const COLUMN_SPECS: readonly ColumnSpec[] = [
         );
       }
       const owner = owners.find((candidate) => candidate.id === row.assignee_id);
+      if (!owner) {
+        // No resolvable owner: plain muted text, clipped so it can't bleed into
+        // the Due column. (Kept as bare text so the empty-owners path reads
+        // "Unassigned".)
+        return (
+          <span className="block truncate text-muted-foreground">
+            Unassigned
+          </span>
+        );
+      }
+      // Mirror the edit state's avatar+name, clipped to the cell so a long name
+      // truncates here instead of spilling into Due.
       return (
-        <span className="text-muted-foreground">
-          {owner ? owner.name : "Unassigned"}
+        <span className="flex min-w-0 items-center gap-2 text-muted-foreground">
+          <Avatar size="sm" className="shrink-0">
+            <AvatarFallback>{ownerInitials(owner)}</AvatarFallback>
+          </Avatar>
+          <span className="block min-w-0 truncate">{owner.name}</span>
         </span>
       );
     },
   },
   {
+    // Left-aligned (header + cell): a right-aligned narrow column opened a wide
+    // whitespace "river" between Owner and the date; left-aligning closes it.
     id: "due",
     header: "Due",
     width: "5rem",
-    alignRight: true,
     render: ({ row }) => (
-      <span className="block w-full text-right text-muted-foreground">
+      <span className="block truncate text-left text-muted-foreground">
         {formatDue(row.due_date)}
       </span>
     ),
@@ -946,18 +1000,22 @@ export function WorkboardTable({
                     aria-label={`${flat.label}, ${flat.count} items`}
                     data-testid="swimlane-group"
                     data-group={flat.label}
-                    className="bg-muted/40"
+                    // Full-opacity band + top/bottom hairlines so the section
+                    // reads as a distinct divider in both light and dark themes
+                    // (the old bg-muted/40 washed out against hovered rows).
+                    className="border-y border-border bg-muted"
                     style={offsetStyle}
                   >
                     <TableCell
                       role="gridcell"
                       aria-colindex={1}
                       aria-colspan={ariaColCount}
-                      className="flex-1 font-medium"
+                      className="flex flex-1 items-center gap-2 text-xs font-semibold tracking-wide text-foreground uppercase"
                     >
-                      {flat.label}{" "}
-                      <span className="text-muted-foreground">
-                        ({flat.count})
+                      <span className="truncate">{flat.label}</span>
+                      {/* Group size surfaced in the band header as a pill. */}
+                      <span className="shrink-0 rounded-sm bg-background px-1.5 py-0.5 text-[0.6875rem] font-medium text-muted-foreground tabular-nums">
+                        {flat.count}
                       </span>
                     </TableCell>
                   </TableRow>
@@ -977,10 +1035,24 @@ export function WorkboardTable({
                   data-state={isSelected ? "selected" : undefined}
                   data-archived={isArchived ? "true" : undefined}
                   // `group` powers the hover/focus reveal of the row controls;
-                  // archived rows are de-emphasized but stay fully interactive.
+                  // archived rows are de-emphasized via a muted text token + a
+                  // struck-through title (handled in the Name render), NOT a
+                  // blanket opacity dim — so their status badges stay full
+                  // strength and read clearly.
                   className={cn(
                     "group",
-                    isArchived && "text-muted-foreground opacity-60",
+                    isArchived && "text-muted-foreground",
+                    // Selection gets a DISTINCT cue that wins over hover. The
+                    // primary tint is authored as the `data-[state=selected]`
+                    // AND `hover` variants so twMerge swaps out the shared
+                    // TableRow's `data-[state=selected]:bg-muted` /
+                    // `hover:bg-muted/50` — hovering a selected row no longer
+                    // lightens it back to the generic muted hue. A left accent
+                    // rail (an out-of-flow `before:` pseudo → no layout shift)
+                    // reads even where the tint is subtle in dark mode. All
+                    // theme tokens, so it's dark-mode safe.
+                    isSelected &&
+                      "data-[state=selected]:bg-primary/10 hover:bg-primary/10 before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-primary before:content-['']",
                   )}
                   style={offsetStyle}
                 >
@@ -1024,6 +1096,7 @@ export function WorkboardTable({
                             owners,
                             onSelectItem,
                             onUpdateItem,
+                            archived: isArchived,
                           })}
                           <span
                             data-testid="archived-indicator"
@@ -1038,6 +1111,7 @@ export function WorkboardTable({
                           owners,
                           onSelectItem,
                           onUpdateItem,
+                          archived: isArchived,
                         })
                       )}
                     </TableCell>
