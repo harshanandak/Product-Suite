@@ -390,6 +390,29 @@ describe("WorkboardToolbar", () => {
     expect(onBulkApply).toHaveBeenCalledWith({ priority: "high" });
   });
 
+  it("assigns a bulk owner via an explicit menu action (#16)", async () => {
+    const { onBulkApply } = renderToolbar({ selectedCount: 2 });
+    openMenu("Assign owner");
+    // Every owner is listed by name…
+    expect(
+      await screen.findByRole("menuitem", { name: "Alan Turing" }),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Ada Lovelace" }),
+    );
+    expect(onBulkApply).toHaveBeenCalledWith({ assignee_id: "u_ada" });
+  });
+
+  it("clears a bulk owner via the Unassigned menu action (#16)", async () => {
+    const { onBulkApply } = renderToolbar({ selectedCount: 2 });
+    openMenu("Assign owner");
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Unassigned" }),
+    );
+    // Unassigned must map to a real null, NOT the filter's owner sentinel.
+    expect(onBulkApply).toHaveBeenCalledWith({ assignee_id: null });
+  });
+
   it("clears the selection via the Clear selection affordance", () => {
     const value: Partial<WorkboardFilterState> = {
       selection: new Set(["wi_1", "wi_2"]),

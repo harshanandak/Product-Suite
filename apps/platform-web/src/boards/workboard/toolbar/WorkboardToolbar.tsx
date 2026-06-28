@@ -594,6 +594,39 @@ export function WorkboardToolbar({
             </DropdownMenuContent>
           </DropdownMenu>
 
+          {/* Assign owner — one unconditional action per owner, plus an explicit
+              "Unassigned" that clears the owner. Built fresh from `owners` (NOT
+              the filter's `ownerOptions`, whose leading sentinel is a FILTER
+              token, never a real assignee_id) so Unassigned applies `null`. */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" aria-label="Assign owner">
+                Assign owner
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="min-w-40">
+              <DropdownMenuLabel>Assign owner</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {owners.map((owner) => (
+                <DropdownMenuItem
+                  key={owner.id}
+                  onSelect={() => {
+                    onBulkApply({ assignee_id: owner.id });
+                  }}
+                >
+                  {owner.name}
+                </DropdownMenuItem>
+              ))}
+              <DropdownMenuItem
+                onSelect={() => {
+                  onBulkApply({ assignee_id: null });
+                }}
+              >
+                Unassigned
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
           <Button
             variant="ghost"
             size="sm"
