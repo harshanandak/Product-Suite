@@ -21,12 +21,17 @@ import {
 
 import { WorkItemEditor } from "./editor/WorkItemEditor";
 import {
+  FILTER_STORAGE_KEY,
   applyWorkboardFilters,
   buildFacetOptions,
   defaultWorkboardFilterState,
+  parsePersistedView,
+  serializePersistedView,
   toggledSet,
   workboardDepartments,
   type ColumnId,
+  type PersistedView,
+  type WorkboardView,
 } from "./filter-state";
 import { WorkboardKanban } from "./kanban/WorkboardKanban";
 import { WorkboardTable, type ColumnFilter } from "./table/WorkboardTable";
@@ -43,6 +48,21 @@ import { WorkboardToolbar } from "./toolbar/WorkboardToolbar";
 export interface WorkboardScreenProps {
   /** Repository to read/write through; defaults to the shared module singleton. */
   repository?: WorkItemRepository;
+}
+
+/**
+ * Read the persisted view blob from localStorage, validated. NEVER throws:
+ * SSR (no `window`) and a privacy-mode `getItem` throw both yield `null`, and a
+ * malformed/absent payload is handled by {@link parsePersistedView}. Mirrors the
+ * column-width precedent's guarded read (boards/workboard/table/useColumnWidths).
+ */
+function readPersistedView(): PersistedView | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return parsePersistedView(window.localStorage.getItem(FILTER_STORAGE_KEY));
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -101,8 +121,23 @@ export function WorkboardScreen({
     };
   }, [repo]);
 
-  // The single shared toolbar ⇄ table view state.
-  const [filterState, setFilterState] = useState(defaultWorkboardFilterState());
+  // The single shared toolbar ⇄ table view state. Lazily hydrated from the
+  // persisted blob (merged OVER a fresh default, so any missing/invalid field
+  // falls back) in the initializer — NOT a post-mount effect — so the first
+  // render already shows the restored state instead of flashing defaults.
+  // `selection` is FORCED empty: stale row ids must never survive a reload.
+  const [filterState, setFilterState] = useState(() => {
+    const base = defaultWorkboardFilterState();
+    const persisted = readPersistedView();
+    if (persisted === null) return base;
+    return {
+      search: persisted.search ?? base.search,
+      groupBy: persisted.groupBy ?? base.groupBy,
+      filters: persisted.filters ?? base.filters,
+      visibleColumns: persisted.visibleColumns ?? base.visibleColumns,
+      selection: base.selection,
+    };
+  });
 
   // Department facet options + the already-filtered rows, both derived from the
   // live items. The Table renders exactly `rows`; it never filters.
@@ -337,7 +372,25 @@ export function WorkboardScreen({
   // + handlers (action parity), so search/filters apply equally to both. The
   // Graph is its own full-page sub-board route, not an inline tab (it is an
   // unbounded canvas — see boards/workboard/graph/WorkboardGraphScreen.tsx).
-  const [view, setView] = useState<"table" | "kanban">("table");
+  const [view, setView] = useState<WorkboardView>(
+    () => readPersistedView()?.view ?? "table",
+  );
+
+  // Persist the view state on every change. Keyed on [filterState, view]; the
+  // serializer OMITS `selection`, so a selection-only change re-writes a
+  // byte-identical blob (never leaking stale ids to the next reload). Guarded
+  // for SSR + privacy-mode throws, like the column-width writer.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(
+        FILTER_STORAGE_KEY,
+        serializePersistedView({ filterState, view }),
+      );
+    } catch {
+      /* ignore quota / privacy-mode throws — the state still lives in memory */
+    }
+  }, [filterState, view]);
 
   // The table owns its column-width state (in useColumnWidths); it publishes its
   // reset into this ref so the toolbar's "Reset column widths" item can fire it.
