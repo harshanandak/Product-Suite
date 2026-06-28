@@ -1029,6 +1029,167 @@ describe("WorkboardTable", () => {
     expect(onToggle).toHaveBeenCalledWith("bug");
   });
 
+  // --- Per-group "Select all" ---------------------------------------------
+
+  it("exposes a 'Select all in <label>' checkbox in each group header", async () => {
+    const rows = await loadRows();
+    renderTable({ rows, groupBy: "department" });
+
+    await screen.findAllByTestId("work-item-row");
+
+    // One per swimlane (department grouping → Engineering / Marketing / Sourcing).
+    expect(
+      screen.getByRole("checkbox", { name: "Select all in Engineering" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("checkbox", { name: "Select all in Marketing" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("checkbox", { name: "Select all in Sourcing" }),
+    ).toBeInTheDocument();
+    // The group header still surfaces its label + count band.
+    const engGroup = screen
+      .getAllByTestId("swimlane-group")
+      .find((node) => node.dataset.group === "Engineering");
+    expect(engGroup).toBeDefined();
+    expect(engGroup).toHaveTextContent("Engineering");
+    expect(engGroup).toHaveTextContent("4");
+  });
+
+  it("renders no per-group checkbox when groupBy is none", async () => {
+    const rows = await loadRows();
+    renderTable({ rows, groupBy: "none" });
+
+    await screen.findAllByTestId("work-item-row");
+
+    // Flat mode short-circuits group headers → no per-group checkbox at all…
+    expect(
+      screen.queryByRole("checkbox", { name: /^Select all in/ }),
+    ).not.toBeInTheDocument();
+    // …but the global select-all header checkbox is untouched.
+    expect(
+      screen.getByRole("checkbox", { name: "Select all work items" }),
+    ).toBeInTheDocument();
+  });
+
+  it("reads the group checkbox as checked when all its items are selected", async () => {
+    const rows = await loadRows();
+    renderTable({
+      rows,
+      groupBy: "department",
+      // Every Engineering id selected → its header checkbox reads fully checked.
+      selection: new Set([
+        "wi_auth",
+        "wi_realtime",
+        "wi_migration",
+        "wi_tabletoken",
+      ]),
+    });
+
+    await screen.findAllByTestId("work-item-row");
+
+    expect(
+      screen.getByRole("checkbox", { name: "Select all in Engineering" }),
+    ).toHaveAttribute("aria-checked", "true");
+    // A sibling group with nothing selected stays unchecked.
+    expect(
+      screen.getByRole("checkbox", { name: "Select all in Marketing" }),
+    ).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("reads the group checkbox as indeterminate when only some items are selected", async () => {
+    const rows = await loadRows();
+    // One of Engineering's four ids selected → mixed (partial) state.
+    renderTable({
+      rows,
+      groupBy: "department",
+      selection: new Set(["wi_auth"]),
+    });
+
+    await screen.findAllByTestId("work-item-row");
+
+    expect(
+      screen.getByRole("checkbox", { name: "Select all in Engineering" }),
+    ).toHaveAttribute("aria-checked", "mixed");
+  });
+
+  it("adds exactly the group's ids (union with prior selection) on an unchecked group click", async () => {
+    const rows = await loadRows();
+    const onSelectionChange = vi.fn();
+    // Prior selection holds a Marketing id OUTSIDE the Engineering group.
+    renderTable({
+      rows,
+      groupBy: "department",
+      selection: new Set(["wi_creatives"]),
+      onSelectionChange,
+    });
+
+    await screen.findAllByTestId("work-item-row");
+
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Select all in Engineering" }),
+    );
+
+    expect(onSelectionChange).toHaveBeenCalledTimes(1);
+    const next = onSelectionChange.mock.calls[0][0] as Set<string>;
+    // Exactly the 4 Engineering ids unioned with the pre-existing Marketing id.
+    expect([...next].sort()).toEqual(
+      [
+        "wi_auth",
+        "wi_realtime",
+        "wi_migration",
+        "wi_tabletoken",
+        "wi_creatives",
+      ].sort(),
+    );
+  });
+
+  it("removes exactly the group's ids when the whole group is already selected", async () => {
+    const rows = await loadRows();
+    const onSelectionChange = vi.fn();
+    // All 4 Engineering ids selected (box reads checked) plus an outside id.
+    renderTable({
+      rows,
+      groupBy: "department",
+      selection: new Set([
+        "wi_auth",
+        "wi_realtime",
+        "wi_migration",
+        "wi_tabletoken",
+        "wi_creatives",
+      ]),
+      onSelectionChange,
+    });
+
+    await screen.findAllByTestId("work-item-row");
+
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Select all in Engineering" }),
+    );
+
+    expect(onSelectionChange).toHaveBeenCalledTimes(1);
+    const next = onSelectionChange.mock.calls[0][0] as Set<string>;
+    // The 4 Engineering ids are gone; the outside Marketing id survives intact.
+    expect([...next]).toEqual(["wi_creatives"]);
+  });
+
+  it("does not mutate the incoming selection set on a group toggle", async () => {
+    const rows = await loadRows();
+    const onSelectionChange = vi.fn();
+    const selection = new Set(["wi_creatives"]);
+    renderTable({ rows, groupBy: "department", selection, onSelectionChange });
+
+    await screen.findAllByTestId("work-item-row");
+
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Select all in Engineering" }),
+    );
+
+    // Controlled: the emitted set is a CLONE; the prop set is untouched.
+    expect([...selection]).toEqual(["wi_creatives"]);
+    expect(onSelectionChange.mock.calls[0][0]).not.toBe(selection);
+  });
+
   // --- Resizable columns --------------------------------------------------
 
   it("renders a resize handle (separator) on a data column header", async () => {

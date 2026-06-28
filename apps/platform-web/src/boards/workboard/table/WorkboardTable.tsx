@@ -647,7 +647,7 @@ function groupLabelFor(row: WorkItemRow, groupBy: GroupByField): string {
  * sections) keeps measurement correct under react-virtual.
  */
 type FlatRow =
-  | { kind: "group"; label: string; count: number; key: string }
+  | { kind: "group"; label: string; count: number; key: string; ids: string[] }
   | { kind: "item"; row: WorkItemRow; key: string };
 
 /**
@@ -681,6 +681,9 @@ function flattenRows(rows: WorkItemRow[], groupBy: GroupByField): FlatRow[] {
       label,
       count: items.length,
       key: `group:${label}`,
+      // Carry the group's visible item ids so its header can drive a
+      // "select all in this group" checkbox over exactly these rows.
+      ids: items.map((item) => item.id),
     });
     for (const row of items) {
       flat.push({ kind: "item", row, key: `item:${row.id}` });
@@ -906,6 +909,23 @@ export function WorkboardTable({
     onSelectionChange(next);
   }, [allSelected, itemIds, onSelectionChange, selection]);
 
+  // Per-group select-all: operate ONLY on the group's own (visible) ids. When
+  // every group id is already selected we remove exactly those (preserving any
+  // selection outside the group); otherwise we add them all. Always clone — the
+  // incoming `selection` is never mutated (selection stays controlled).
+  const toggleGroup = React.useCallback(
+    (ids: readonly string[]) => {
+      const next = new Set(selection);
+      if (ids.every((id) => selection.has(id))) {
+        for (const id of ids) next.delete(id);
+      } else {
+        for (const id of ids) next.add(id);
+      }
+      onSelectionChange(next);
+    },
+    [onSelectionChange, selection],
+  );
+
   const toggleOne = React.useCallback(
     (id: string) => {
       const next = new Set(selection);
@@ -1128,6 +1148,20 @@ export function WorkboardTable({
               const ariaRowIndex = virtualRow.index + 2;
 
               if (flat.kind === "group") {
+                // Tri-state for the group's select-all, derived from how many of
+                // ITS ids are currently selected: all → checked, some → mixed.
+                const groupSelected = flat.ids.filter((id) =>
+                  selection.has(id),
+                ).length;
+                const groupAll =
+                  flat.ids.length > 0 && groupSelected === flat.ids.length;
+                const groupSome = groupSelected > 0 && !groupAll;
+                let groupState: boolean | "indeterminate" = false;
+                if (groupAll) {
+                  groupState = true;
+                } else if (groupSome) {
+                  groupState = "indeterminate";
+                }
                 return (
                   <TableRow
                     key={flat.key}
@@ -1148,6 +1182,13 @@ export function WorkboardTable({
                       aria-colspan={ariaColCount}
                       className="flex flex-1 items-center gap-2 text-xs font-semibold tracking-wide text-foreground uppercase"
                     >
+                      <Checkbox
+                        aria-label={`Select all in ${flat.label}`}
+                        checked={groupState}
+                        onCheckedChange={() => {
+                          toggleGroup(flat.ids);
+                        }}
+                      />
                       <span className="truncate">{flat.label}</span>
                       {/* Group size surfaced in the band header as a pill. */}
                       <span className="shrink-0 rounded-sm bg-background px-1.5 py-0.5 text-[0.6875rem] font-medium text-muted-foreground tabular-nums">
