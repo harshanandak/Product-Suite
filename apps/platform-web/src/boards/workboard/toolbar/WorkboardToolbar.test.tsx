@@ -151,6 +151,38 @@ describe("WorkboardToolbar", () => {
     expect([...next.filters.type]).toEqual(["feature"]);
   });
 
+  it("selects every Type via the facet's Select all header in one change (#14)", async () => {
+    const { onChange, lastChange } = renderToolbar();
+    openMenu(/filter by type/i);
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Select all" }),
+    );
+    // ONE change carrying the complete set (not last-write-wins per option).
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect([...lastChange().filters.type]).toEqual([
+      "feature",
+      "bug",
+      "chore",
+      "research",
+    ]);
+  });
+
+  it("empties a Type facet via the facet's Clear header (#14)", async () => {
+    const value: Partial<WorkboardFilterState> = {
+      filters: {
+        type: new Set(["bug", "chore"]),
+        owner: new Set(),
+        department: new Set(),
+        phase: new Set(),
+        priority: new Set(),
+      },
+    };
+    const { lastChange } = renderToolbar({ value });
+    openMenu(/filter by type/i);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Clear" }));
+    expect(lastChange().filters.type.size).toBe(0);
+  });
+
   it("offers an Unassigned option in the Owner facet using the sentinel", async () => {
     const { lastChange } = renderToolbar();
     openMenu(/filter by owner/i);

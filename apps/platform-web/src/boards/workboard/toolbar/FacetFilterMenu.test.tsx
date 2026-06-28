@@ -73,4 +73,65 @@ describe("FacetFilterMenu", () => {
     );
     expect(onToggle).toHaveBeenCalledWith("b");
   });
+
+  it("omits the Select all / Clear header when onSetSelected is absent (#14)", async () => {
+    render(
+      <FacetFilterMenu
+        label="Type"
+        options={OPTIONS}
+        selected={new Set()}
+        onToggle={vi.fn()}
+      />,
+    );
+    fireEvent.keyDown(screen.getByRole("button", { name: "Filter by type" }), {
+      key: "ArrowDown",
+    });
+    // The checkbox items appear, but no bulk header row.
+    await screen.findByRole("menuitemcheckbox", { name: "Alpha" });
+    expect(
+      screen.queryByRole("menuitem", { name: "Select all" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("selects every option in one shot via the Select all header (#14)", async () => {
+    const onSetSelected = vi.fn<(next: Set<string>) => void>();
+    render(
+      <FacetFilterMenu
+        label="Type"
+        options={OPTIONS}
+        selected={new Set<string>()}
+        onToggle={vi.fn()}
+        onSetSelected={onSetSelected}
+      />,
+    );
+    fireEvent.keyDown(screen.getByRole("button", { name: "Filter by type" }), {
+      key: "ArrowDown",
+    });
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Select all" }),
+    );
+    // A SINGLE call carrying the complete set (never N toggles).
+    expect(onSetSelected).toHaveBeenCalledTimes(1);
+    expect([...onSetSelected.mock.calls[0]![0]]).toEqual(["a", "b"]);
+  });
+
+  it("empties the facet in one shot via the Clear header (#14)", async () => {
+    const onSetSelected = vi.fn<(next: Set<string>) => void>();
+    render(
+      <FacetFilterMenu
+        label="Type"
+        options={OPTIONS}
+        selected={new Set(["a", "b"])}
+        onToggle={vi.fn()}
+        onSetSelected={onSetSelected}
+      />,
+    );
+    fireEvent.keyDown(
+      screen.getByRole("button", { name: "Filter by type (2)" }),
+      { key: "ArrowDown" },
+    );
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Clear" }));
+    expect(onSetSelected).toHaveBeenCalledTimes(1);
+    expect(onSetSelected.mock.calls[0]![0].size).toBe(0);
+  });
 });

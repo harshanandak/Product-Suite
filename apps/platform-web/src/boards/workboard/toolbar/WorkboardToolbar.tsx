@@ -337,30 +337,45 @@ export function WorkboardToolbar({
         options={typeOptions}
         selected={filters.type}
         onToggle={toggleType}
+        onSetSelected={(next) =>
+          onChange({ ...value, filters: { ...filters, type: next } })
+        }
       />
       <FacetFilterMenu
         label="Owner"
         options={ownerOptions}
         selected={filters.owner}
         onToggle={toggleOwner}
+        onSetSelected={(next) =>
+          onChange({ ...value, filters: { ...filters, owner: next } })
+        }
       />
       <FacetFilterMenu
         label="Department"
         options={departmentOptions}
         selected={filters.department}
         onToggle={toggleDepartment}
+        onSetSelected={(next) =>
+          onChange({ ...value, filters: { ...filters, department: next } })
+        }
       />
       <FacetFilterMenu
         label="Phase"
         options={phaseOptions}
         selected={filters.phase}
         onToggle={togglePhase}
+        onSetSelected={(next) =>
+          onChange({ ...value, filters: { ...filters, phase: next } })
+        }
       />
       <FacetFilterMenu
         label="Priority"
         options={priorityOptions}
         selected={filters.priority}
         onToggle={togglePriority}
+        onSetSelected={(next) =>
+          onChange({ ...value, filters: { ...filters, priority: next } })
+        }
       />
 
       {activeFilterCount > 0 ? (
