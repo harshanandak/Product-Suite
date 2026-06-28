@@ -909,6 +909,23 @@ export function WorkboardTable({
     onSelectionChange(next);
   }, [allSelected, itemIds, onSelectionChange, selection]);
 
+  // Per-group select-all: operate ONLY on the group's own (visible) ids. When
+  // every group id is already selected we remove exactly those (preserving any
+  // selection outside the group); otherwise we add them all. Always clone — the
+  // incoming `selection` is never mutated (selection stays controlled).
+  const toggleGroup = React.useCallback(
+    (ids: readonly string[]) => {
+      const next = new Set(selection);
+      if (ids.every((id) => selection.has(id))) {
+        for (const id of ids) next.delete(id);
+      } else {
+        for (const id of ids) next.add(id);
+      }
+      onSelectionChange(next);
+    },
+    [onSelectionChange, selection],
+  );
+
   const toggleOne = React.useCallback(
     (id: string) => {
       const next = new Set(selection);
@@ -1168,6 +1185,9 @@ export function WorkboardTable({
                       <Checkbox
                         aria-label={`Select all in ${flat.label}`}
                         checked={groupState}
+                        onCheckedChange={() => {
+                          toggleGroup(flat.ids);
+                        }}
                       />
                       <span className="truncate">{flat.label}</span>
                       {/* Group size surfaced in the band header as a pill. */}

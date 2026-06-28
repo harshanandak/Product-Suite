@@ -1113,6 +1113,83 @@ describe("WorkboardTable", () => {
     ).toHaveAttribute("aria-checked", "mixed");
   });
 
+  it("adds exactly the group's ids (union with prior selection) on an unchecked group click", async () => {
+    const rows = await loadRows();
+    const onSelectionChange = vi.fn();
+    // Prior selection holds a Marketing id OUTSIDE the Engineering group.
+    renderTable({
+      rows,
+      groupBy: "department",
+      selection: new Set(["wi_creatives"]),
+      onSelectionChange,
+    });
+
+    await screen.findAllByTestId("work-item-row");
+
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Select all in Engineering" }),
+    );
+
+    expect(onSelectionChange).toHaveBeenCalledTimes(1);
+    const next = onSelectionChange.mock.calls[0][0] as Set<string>;
+    // Exactly the 4 Engineering ids unioned with the pre-existing Marketing id.
+    expect([...next].sort()).toEqual(
+      [
+        "wi_auth",
+        "wi_realtime",
+        "wi_migration",
+        "wi_tabletoken",
+        "wi_creatives",
+      ].sort(),
+    );
+  });
+
+  it("removes exactly the group's ids when the whole group is already selected", async () => {
+    const rows = await loadRows();
+    const onSelectionChange = vi.fn();
+    // All 4 Engineering ids selected (box reads checked) plus an outside id.
+    renderTable({
+      rows,
+      groupBy: "department",
+      selection: new Set([
+        "wi_auth",
+        "wi_realtime",
+        "wi_migration",
+        "wi_tabletoken",
+        "wi_creatives",
+      ]),
+      onSelectionChange,
+    });
+
+    await screen.findAllByTestId("work-item-row");
+
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Select all in Engineering" }),
+    );
+
+    expect(onSelectionChange).toHaveBeenCalledTimes(1);
+    const next = onSelectionChange.mock.calls[0][0] as Set<string>;
+    // The 4 Engineering ids are gone; the outside Marketing id survives intact.
+    expect([...next]).toEqual(["wi_creatives"]);
+  });
+
+  it("does not mutate the incoming selection set on a group toggle", async () => {
+    const rows = await loadRows();
+    const onSelectionChange = vi.fn();
+    const selection = new Set(["wi_creatives"]);
+    renderTable({ rows, groupBy: "department", selection, onSelectionChange });
+
+    await screen.findAllByTestId("work-item-row");
+
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Select all in Engineering" }),
+    );
+
+    // Controlled: the emitted set is a CLONE; the prop set is untouched.
+    expect([...selection]).toEqual(["wi_creatives"]);
+    expect(onSelectionChange.mock.calls[0][0]).not.toBe(selection);
+  });
+
   // --- Resizable columns --------------------------------------------------
 
   it("renders a resize handle (separator) on a data column header", async () => {
