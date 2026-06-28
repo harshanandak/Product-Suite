@@ -402,6 +402,7 @@ export function WorkboardToolbar({
         onSetSelected={(next) =>
           onChange({ ...value, filters: { ...filters, owner: next } })
         }
+        searchable
       />
       <FacetFilterMenu
         label="Department"
@@ -411,6 +412,7 @@ export function WorkboardToolbar({
         onSetSelected={(next) =>
           onChange({ ...value, filters: { ...filters, department: next } })
         }
+        searchable
       />
       <FacetFilterMenu
         label="Phase"

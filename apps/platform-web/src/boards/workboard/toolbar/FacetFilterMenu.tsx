@@ -1,5 +1,12 @@
+import { CheckIcon } from "lucide-react";
+
 import {
   Button,
+  Command,
+  CommandEmpty,
+  CommandInput,
+  CommandItem,
+  CommandList,
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
@@ -7,9 +14,17 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  cn,
 } from "@product-suite/ui";
 
 import type { FacetOption } from "../filter-state";
+
+/**
+ * Above this many options a facet flagged `searchable` swaps its scroll-only
+ * checkbox list for a cmdk type-to-filter list (#8). Short facets (Type, Phase,
+ * Priority — and small Owner/Department sets) stay the plain checkbox menu.
+ */
+const SEARCHABLE_THRESHOLD = 8;
 
 /**
  * A single multi-select facet filter rendered as a checkbox dropdown. Generic
@@ -26,6 +41,7 @@ export function FacetFilterMenu<T extends string>({
   selected,
   onToggle,
   onSetSelected,
+  searchable = false,
   variant = "outline",
 }: Readonly<{
   label: string;
@@ -40,10 +56,19 @@ export function FacetFilterMenu<T extends string>({
    * header row renders only when this is wired.
    */
   onSetSelected?: (next: Set<T>) => void;
+  /**
+   * Opt the facet into type-to-filter (#8). Only takes effect once the option
+   * count clears {@link SEARCHABLE_THRESHOLD} — short lists stay scroll-free
+   * checkbox menus. Wired on the long, data-driven Owner/Department facets.
+   */
+  searchable?: boolean;
   /** Trigger button style — `outline` (Table toolbar) or `ghost` (graph canvas). */
   variant?: "outline" | "ghost";
 }>) {
   const count = selected.size;
+  // Type-to-filter only when the facet asked for it AND the list is long enough
+  // to warrant a search box; otherwise keep the plain checkbox menu (#8).
+  const enableSearch = searchable && options.length > SEARCHABLE_THRESHOLD;
   // Surface the active-selection count in the accessible name (it otherwise
   // shows only as a visual badge) — mirror the Clear-filters `(N)` pattern.
   const triggerLabel =
@@ -94,21 +119,66 @@ export function FacetFilterMenu<T extends string>({
             <DropdownMenuSeparator />
           </>
         ) : null}
-        {options.map((option) => (
-          <DropdownMenuCheckboxItem
-            key={option.value}
-            checked={selected.has(option.value)}
-            // Keep the menu open across multiple toggles.
-            onSelect={(event) => {
-              event.preventDefault();
-            }}
-            onCheckedChange={() => {
-              onToggle(option.value);
-            }}
-          >
-            {option.label}
-          </DropdownMenuCheckboxItem>
-        ))}
+        {enableSearch ? (
+          <Command className="bg-transparent">
+            <CommandInput
+              placeholder={`Search ${label.toLowerCase()}`}
+              // Keep printable keys IN the field: Radix's menu typeahead would
+              // otherwise swallow them to move roving focus. Arrow/Enter/Escape
+              // still bubble, so cmdk navigation and menu-dismiss keep working.
+              onKeyDown={(event) => {
+                if (event.key.length === 1) {
+                  event.stopPropagation();
+                }
+              }}
+            />
+            <CommandList>
+              <CommandEmpty>No matches.</CommandEmpty>
+              {options.map((option) => (
+                <CommandItem
+                  key={option.value}
+                  // Filter by the visible label, not the opaque value.
+                  value={option.label}
+                  onSelect={() => {
+                    onToggle(option.value);
+                  }}
+                >
+                  <CheckIcon
+                    aria-hidden="true"
+                    className={cn(
+                      "size-4",
+                      selected.has(option.value) ? "opacity-100" : "opacity-0",
+                    )}
+                  />
+                  {option.label}
+                  {/* cmdk items are role="option" with no checkbox semantics, so
+                      voice the toggle state the (aria-hidden) check shows. cmdk
+                      filters on the explicit `value`, not this text, so the cue
+                      never pollutes search. */}
+                  <span className="sr-only">
+                    {selected.has(option.value) ? "selected" : "not selected"}
+                  </span>
+                </CommandItem>
+              ))}
+            </CommandList>
+          </Command>
+        ) : (
+          options.map((option) => (
+            <DropdownMenuCheckboxItem
+              key={option.value}
+              checked={selected.has(option.value)}
+              // Keep the menu open across multiple toggles.
+              onSelect={(event) => {
+                event.preventDefault();
+              }}
+              onCheckedChange={() => {
+                onToggle(option.value);
+              }}
+            >
+              {option.label}
+            </DropdownMenuCheckboxItem>
+          ))
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
