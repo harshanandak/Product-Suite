@@ -438,7 +438,7 @@ const COLUMN_SPECS: readonly ColumnSpec[] = [
           <Avatar size="sm" className="shrink-0">
             <AvatarFallback>{ownerInitials(owner)}</AvatarFallback>
           </Avatar>
-          <span className="block truncate">{owner.name}</span>
+          <span className="block min-w-0 truncate">{owner.name}</span>
         </span>
       );
     },
