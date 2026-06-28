@@ -256,6 +256,7 @@ export function WorkboardToolbar({
   // outlive the dialog and the parent has no use for them.
   const [saveOpen, setSaveOpen] = useState(false);
   const [draftName, setDraftName] = useState("");
+  const [viewsMenuOpen, setViewsMenuOpen] = useState(false);
   const trimmedName = draftName.trim();
 
   const submitSaveView = (): void => {
@@ -581,7 +582,7 @@ export function WorkboardToolbar({
           sibling "Save current view" button opens the name dialog. The apply
           and delete controls are SIBLING buttons, so deleting can never also
           apply (no propagation to fight). */}
-      <DropdownMenu>
+      <DropdownMenu open={viewsMenuOpen} onOpenChange={setViewsMenuOpen}>
         <DropdownMenuTrigger asChild>
           <Button variant="outline" size="sm" aria-label="Saved views">
             <BookmarkIcon className="size-4" />
@@ -606,6 +607,9 @@ export function WorkboardToolbar({
                   size="sm"
                   className="min-w-0 flex-1 justify-start truncate font-normal"
                   onClick={() => {
+                    // Close the (modal) menu before applying so the rest of the
+                    // toolbar is no longer aria-hidden behind it.
+                    setViewsMenuOpen(false);
                     onApplyView(saved);
                   }}
                 >
