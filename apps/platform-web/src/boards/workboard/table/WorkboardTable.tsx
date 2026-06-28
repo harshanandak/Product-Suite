@@ -36,6 +36,7 @@ import {
   WorkItemTypeBadge,
   WorkItemTypeSelect,
   cn,
+  toast,
 } from "@product-suite/ui";
 
 import {
@@ -237,16 +238,19 @@ function ownerInitials(owner: Owner): string {
 }
 
 /**
- * Fire-and-forget patch helper: applies a single-field patch only when the value
- * actually changed. The hook rolls back optimistic state on rejection, so the
- * failed value simply never appears in the next `rows` render — nothing to do in
- * the catch beyond swallowing the rejection.
+ * Fire-and-forget patch helper. The hook rolls back the optimistic edit on
+ * rejection (so the failed value never lands in the next `rows` render), but a
+ * silent rollback leaves the user unsure whether their edit took. We surface the
+ * failure as a toast (an aria-live announcement via the shared `<Toaster/>`) so a
+ * failed inline edit is never swallowed.
  */
 function commitPatch(
   ctx: ColumnRenderContext,
   patch: WorkItemPatch,
 ): void {
-  ctx.onUpdateItem?.(ctx.row.id, patch).catch(() => undefined);
+  ctx.onUpdateItem?.(ctx.row.id, patch).catch(() => {
+    toast.error(`Couldn't update “${ctx.row.title}”`);
+  });
 }
 
 /**
@@ -270,6 +274,93 @@ const INLINE_SELECT_CLASS = cn(
   // Fade it in on ROW hover / focus-within so the cell is discoverable as editable.
   "group-hover:[&>svg]:opacity-50 group-focus-within:[&>svg]:opacity-50",
 );
+
+/** Inline Tags summary: chips shown at rest before the rest collapse to `+N`. */
+const TAGS_SUMMARY_MAX = 3;
+
+/**
+ * Inline-editable Tags cell.
+ *
+ * The naive "always render the full {@link TagInput}" approach squeezed the
+ * field's `flex-1` text input to ~zero on populated rows and clipped overflow
+ * chips with NO signal. Instead this reads at rest as a compact, single-line
+ * {@link TagList} summary — the first {@link TAGS_SUMMARY_MAX} chips PLUS a `+N`
+ * overflow chip (so hidden tags are always signalled, never silently clipped) —
+ * and only expands into the full editable `TagInput` when the cell is clicked or
+ * focused. On expand the text input is focused so typing starts immediately; when
+ * focus leaves the WHOLE cell (not when it merely moves to a chip's ✕ remove
+ * control — the `contains` guard below) it collapses back to the summary. The
+ * cell never wraps to a second line, so the row stays within `ROW_HEIGHT`.
+ */
+function TagsCell({
+  row,
+  onCommit,
+}: Readonly<{
+  row: WorkItemRow;
+  onCommit: (tags: string[]) => void;
+}>) {
+  const [editing, setEditing] = React.useState(false);
+  const wrapperRef = React.useRef<HTMLDivElement>(null);
+
+  // On expand, move focus into the text input so the user can type at once. The
+  // TagInput renders exactly one <input>; focusing it directly avoids an
+  // `autoFocus` prop (and its jsx-a11y lint) on the shared primitive.
+  React.useEffect(() => {
+    if (editing) wrapperRef.current?.querySelector("input")?.focus();
+  }, [editing]);
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        aria-label={`Edit tags for ${row.title}`}
+        onClick={() => setEditing(true)}
+        onFocus={() => setEditing(true)}
+        className={cn(
+          "flex w-full min-w-0 items-center overflow-hidden rounded-md py-0.5 text-left",
+          "hover:bg-accent/50 focus-visible:outline-2 focus-visible:outline-ring",
+        )}
+      >
+        {row.tags.length > 0 ? (
+          <TagList
+            tags={row.tags}
+            max={TAGS_SUMMARY_MAX}
+            className="flex-nowrap overflow-hidden"
+          />
+        ) : (
+          <span className="truncate px-1 text-xs text-muted-foreground">
+            Add tags…
+          </span>
+        )}
+      </button>
+    );
+  }
+
+  return (
+    <div
+      ref={wrapperRef}
+      onBlur={(event) => {
+        // Collapse only when focus leaves the WHOLE cell — not when it moves to
+        // an inner control (e.g. a chip's ✕), which would drop edit mode mid-click.
+        const root = wrapperRef.current;
+        if (root === null || !root.contains(event.relatedTarget)) {
+          setEditing(false);
+        }
+      }}
+    >
+      <TagInput
+        value={row.tags}
+        variant="ghost"
+        aria-label={`Tags for ${row.title}`}
+        // Single-line in the cell: chips never wrap to a second row (which would
+        // exceed ROW_HEIGHT and overlap the virtualized neighbour); overflow is
+        // clipped, the editor shows the full set.
+        className="w-full flex-nowrap overflow-hidden"
+        onValueChange={onCommit}
+      />
+    </div>
+  );
+}
 
 /**
  * The canonical column registry, in {@link COLUMN_IDS} order.
@@ -463,20 +554,18 @@ const COLUMN_SPECS: readonly ColumnSpec[] = [
     minWidth: "8rem",
     render: ({ row, onUpdateItem, ...rest }) =>
       onUpdateItem ? (
-        <TagInput
-          value={row.tags}
-          variant="ghost"
-          aria-label={`Tags for ${row.title}`}
-          // Single-line in the cell: chips never wrap to a second row (which
-          // would exceed ROW_HEIGHT and overlap the virtualized neighbour);
-          // overflow is clipped, the editor shows the full set.
-          className="w-full flex-nowrap overflow-hidden"
-          onValueChange={(next) =>
+        <TagsCell
+          row={row}
+          onCommit={(next) =>
             commitPatch({ row, onUpdateItem, ...rest }, { tags: next })
           }
         />
       ) : (
-        <TagList tags={row.tags} max={3} />
+        <TagList
+          tags={row.tags}
+          max={TAGS_SUMMARY_MAX}
+          className="flex-nowrap overflow-hidden"
+        />
       ),
   },
   {
@@ -682,9 +771,9 @@ function RowActionsCell({
         </DropdownMenuItem>
         <DropdownMenuItem
           onSelect={() => {
-            onUpdateItem(row.id, { archived: !row.archived }).catch(
-              () => undefined,
-            );
+            onUpdateItem(row.id, { archived: !row.archived }).catch(() => {
+              toast.error(`Couldn't update “${row.title}”`);
+            });
           }}
         >
           {row.archived ? "Unarchive" : "Archive"}

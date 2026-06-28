@@ -395,6 +395,14 @@ describe("WorkboardTable", () => {
     const onUpdateItem = makeUpdateMock(rows);
     renderTable({ rows, onUpdateItem });
 
+    // The Tags cell reads as a compact summary at rest; click it to expand into
+    // the editable field before typing (the input is not mounted until then).
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Edit tags for Workspace auth hardening",
+      }),
+    );
+
     const tagInput = await screen.findByRole("textbox", {
       name: "Tags for Workspace auth hardening",
     });
@@ -405,6 +413,43 @@ describe("WorkboardTable", () => {
     expect(onUpdateItem).toHaveBeenCalledWith("wi_auth", {
       tags: ["security", "backend", "urgent"],
     });
+  });
+
+  it("shows a compact tag summary with a +N overflow at rest and expands to the editable field on click", async () => {
+    const rows = await loadRows();
+    // Give wi_auth more tags than the inline cap (3) so the overflow shows.
+    const tagged = rows.map((row) =>
+      row.id === "wi_auth"
+        ? { ...row, tags: ["alpha", "beta", "gamma", "delta", "epsilon"] }
+        : row,
+    );
+    const onUpdateItem = makeUpdateMock(tagged);
+    renderTable({ rows: tagged, onUpdateItem });
+
+    await screen.findAllByTestId("work-item-row");
+
+    // At rest the editable input is NOT mounted — the cell is a read-at-rest
+    // summary surfaced as a single "Edit tags" trigger.
+    expect(
+      screen.queryByRole("textbox", {
+        name: "Tags for Workspace auth hardening",
+      }),
+    ).not.toBeInTheDocument();
+    const trigger = screen.getByRole("button", {
+      name: "Edit tags for Workspace auth hardening",
+    });
+    // The first 3 tags read as chips; the remaining 2 collapse into a "+2" chip
+    // so nothing is silently clipped.
+    expect(within(trigger).getByText("alpha")).toBeInTheDocument();
+    expect(within(trigger).getByText("+2")).toBeInTheDocument();
+
+    // Clicking the summary expands it into the full editable TagInput.
+    fireEvent.click(trigger);
+    expect(
+      await screen.findByRole("textbox", {
+        name: "Tags for Workspace auth hardening",
+      }),
+    ).toBeInTheDocument();
   });
 
   it("does not fire onSelectItem when the inline phase select changes", async () => {

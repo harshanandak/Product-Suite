@@ -4,7 +4,7 @@ import { ClerkProvider } from "@clerk/clerk-react";
 import { RouterProvider } from "@tanstack/react-router";
 import { MotionConfig } from "motion/react";
 
-import { ThemeProvider } from "@product-suite/ui";
+import { ThemeProvider, Toaster } from "@product-suite/ui";
 
 import "./styles.css";
 import { CLERK_PUBLISHABLE_KEY, hasClerkKey } from "./env";
@@ -50,6 +50,10 @@ createRoot(rootElement).render(
         ) : (
           <SetupNotice />
         )}
+        {/* Single app-wide toast surface (sonner). Mounted once here, inside the
+            ThemeProvider it themes from, so any view can fire `toast(...)` —
+            e.g. a failed inline/bulk Workboard edit — and have it announced. */}
+        <Toaster />
       </ThemeProvider>
     </MotionConfig>
   </StrictMode>,

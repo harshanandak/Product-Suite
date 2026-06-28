@@ -7,7 +7,7 @@ import {
   OctagonXIcon,
   TriangleAlertIcon,
 } from "lucide-react"
-import { Toaster as Sonner, type ToasterProps } from "sonner"
+import { Toaster as Sonner, toast, type ToasterProps } from "sonner"
 
 import { useTheme } from "#components/theme-provider"
 
@@ -38,4 +38,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
   )
 }
 
-export { Toaster }
+// Re-export sonner's imperative `toast` so app code triggers toasts through the
+// same `@product-suite/ui` boundary it mounts the themed <Toaster/> from (rather
+// than depending on `sonner` directly).
+export { Toaster, toast }

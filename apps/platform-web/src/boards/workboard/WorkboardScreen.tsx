@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { Button, EmptyState } from "@product-suite/ui";
+import { Button, EmptyState, toast } from "@product-suite/ui";
 
 import {
   getDefaultRepository,
@@ -140,22 +140,46 @@ export function WorkboardScreen({
     setFilterState((state) => ({ ...state, selection: next }));
   }, []);
 
-  // Apply one patch to every selected row, then clear the selection. Sequential
-  // awaits keep the optimistic store reconciling one row at a time; a per-item
-  // rejection is swallowed (the hook already rolled that row back), mirroring the
-  // inline-edit path so one bad write never aborts the batch.
+  // Apply one patch to every selected row. Sequential awaits keep the optimistic
+  // store reconciling one row at a time; one bad write never aborts the batch.
+  // SUCCEEDED ids are cleared from the shared selection while FAILED ids stay
+  // selected so the user can retry exactly them, and any failure is surfaced as a
+  // toast (an aria-live announcement) instead of being silently swallowed.
   const handleBulkApply = useCallback(
     (patch: WorkItemPatch): void => {
       const ids = [...filterState.selection];
+      if (ids.length === 0) return;
       const run = async (): Promise<void> => {
+        const succeeded: string[] = [];
+        const failed: string[] = [];
         for (const id of ids) {
           try {
             await update(id, patch);
+            succeeded.push(id);
           } catch {
-            // Swallowed — the failed row's value simply never lands in `rows`.
+            // The hook already rolled this row back; keep it to retry.
+            failed.push(id);
           }
         }
-        setFilterState((state) => ({ ...state, selection: new Set() }));
+        // Reconcile the selection in one update: drop succeeded ids and RE-ADD
+        // the failed ones. Re-adding (not merely retaining) is load-bearing — a
+        // bulk patch that moves a row OUT of the active filter is applied
+        // optimistically, so the prune effect (#2) can drop that id from
+        // `state.selection` BEFORE the write rejects; adding it back restores the
+        // toast's promise that failed items "stay selected to retry".
+        setFilterState((state) => {
+          const next = new Set(state.selection);
+          for (const id of succeeded) next.delete(id);
+          for (const id of failed) next.add(id);
+          return { ...state, selection: next };
+        });
+        if (failed.length > 0) {
+          toast.error(
+            `Couldn't update ${failed.length} of ${ids.length} ${
+              ids.length === 1 ? "item" : "items"
+            } — they stay selected to retry`,
+          );
+        }
       };
       // Fire-and-forget: the handler is a void-returning click target; the
       // trailing .catch keeps it from floating a promise (no `void` operator).
