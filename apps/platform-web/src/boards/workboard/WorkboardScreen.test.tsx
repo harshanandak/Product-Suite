@@ -1,9 +1,31 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
-import { createMockWorkItemRepository } from "@/data/work-items";
+import { ThemeProvider, Toaster, toast } from "@product-suite/ui";
+
+import {
+  createMockWorkItemRepository,
+  type WorkItemPatch,
+} from "@/data/work-items";
 
 import { WorkboardScreen } from "./WorkboardScreen";
+
+/**
+ * Render the screen together with the shared sonner `<Toaster/>` (and the
+ * ThemeProvider it themes from), so the inline/bulk failure toasts the screen
+ * fires are actually mounted and assertable. Production mounts the Toaster once
+ * at the app root (main.tsx); these tests mount their own around the screen.
+ */
+function renderScreenWithToaster(
+  repository: ReturnType<typeof createMockWorkItemRepository>,
+) {
+  return render(
+    <ThemeProvider defaultTheme="light">
+      <WorkboardScreen repository={repository} />
+      <Toaster />
+    </ThemeProvider>,
+  );
+}
 
 /**
  * The screen renders BOTH the virtualized table and the Radix Sheet, so the test
@@ -71,6 +93,12 @@ afterAll(() => {
       originalOffsetWidth,
     );
   }
+});
+
+// sonner's toast queue is module-global; clear it between tests so a toast from
+// one test can never bleed into the next.
+afterEach(() => {
+  toast.dismiss();
 });
 
 describe("WorkboardScreen", () => {
@@ -273,5 +301,106 @@ describe("WorkboardScreen", () => {
       expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
     });
     expect(screen.queryByText("No matching work items")).not.toBeInTheDocument();
+  });
+
+  it("surfaces a failed inline edit with a toast instead of swallowing it", async () => {
+    const repository = createMockWorkItemRepository();
+    // Every update rejects, so the inline Archive action fails.
+    const failing = {
+      ...repository,
+      update: () => Promise.reject(new Error("backend down")),
+    };
+    renderScreenWithToaster(failing);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+
+    // Archive via the row actions menu drives an inline update that rejects.
+    fireEvent.keyDown(
+      screen.getByRole("button", {
+        name: "Actions for Workspace auth hardening",
+      }),
+      { key: "Enter" },
+    );
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Archive" }));
+
+    // The failure is announced (no more silent .catch swallow).
+    expect(await screen.findByText(/couldn't update/i)).toBeInTheDocument();
+  });
+
+  it("toasts when an inline cell-select edit fails (commitPatch path)", async () => {
+    const repository = createMockWorkItemRepository();
+    const failing = {
+      ...repository,
+      update: () => Promise.reject(new Error("backend down")),
+    };
+    renderScreenWithToaster(failing);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+
+    // Change the inline Phase select — this routes through commitPatch, whose
+    // rejection must surface a toast (not the row-actions Archive path above).
+    const combobox = screen.getByRole("combobox", {
+      name: "Phase for Workspace auth hardening",
+    });
+    fireEvent.keyDown(combobox, { key: "Enter" });
+    fireEvent.click(await screen.findByRole("option", { name: "Done" }));
+
+    expect(await screen.findByText(/couldn't update/i)).toBeInTheDocument();
+  });
+
+  it("keeps the failed id selected on a bulk partial failure and toasts", async () => {
+    const repository = createMockWorkItemRepository();
+    // Only wi_auth's update rejects; every other row's update goes through.
+    const failing = {
+      ...repository,
+      update: (id: string, patch: WorkItemPatch) =>
+        id === "wi_auth"
+          ? Promise.reject(new Error("backend down"))
+          : repository.update(id, patch),
+    };
+    renderScreenWithToaster(failing);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(1);
+    });
+
+    // Select every visible row (10 fixtures), then bulk-set the phase to Done.
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Select all work items" }),
+    );
+    const bulkGroup = await screen.findByRole("group", { name: "Bulk actions" });
+    expect(within(bulkGroup).getByText("10 selected")).toBeInTheDocument();
+
+    fireEvent.keyDown(
+      within(bulkGroup).getByRole("button", { name: "Set phase" }),
+      { key: "ArrowDown" },
+    );
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Done" }));
+
+    // The nine that succeeded drop out of the selection; the one that FAILED
+    // (wi_auth) stays selected so it can be retried.
+    await waitFor(() => {
+      expect(
+        within(
+          screen.getByRole("group", { name: "Bulk actions" }),
+        ).getByText("1 selected"),
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.getByRole("checkbox", { name: "Select Workspace auth hardening" }),
+    ).toBeChecked();
+
+    // The partial failure is announced.
+    expect(await screen.findByText(/couldn't update/i)).toBeInTheDocument();
+
+    // The succeeded rows persisted; the failed one was rolled back to its
+    // original phase (wi_auth seeds "execute"), never the attempted "done".
+    const items = await repository.list();
+    expect(items.find((item) => item.id === "wi_realtime")?.phase).toBe("done");
+    expect(items.find((item) => item.id === "wi_auth")?.phase).toBe("execute");
   });
 });

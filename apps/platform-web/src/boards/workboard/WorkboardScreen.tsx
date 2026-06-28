@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { Button, EmptyState } from "@product-suite/ui";
+import { Button, EmptyState, toast } from "@product-suite/ui";
 
 import {
   getDefaultRepository,
@@ -140,22 +140,43 @@ export function WorkboardScreen({
     setFilterState((state) => ({ ...state, selection: next }));
   }, []);
 
-  // Apply one patch to every selected row, then clear the selection. Sequential
-  // awaits keep the optimistic store reconciling one row at a time; a per-item
-  // rejection is swallowed (the hook already rolled that row back), mirroring the
-  // inline-edit path so one bad write never aborts the batch.
+  // Apply one patch to every selected row. Sequential awaits keep the optimistic
+  // store reconciling one row at a time; one bad write never aborts the batch.
+  // SUCCEEDED ids are cleared from the shared selection while FAILED ids stay
+  // selected so the user can retry exactly them, and any failure is surfaced as a
+  // toast (an aria-live announcement) instead of being silently swallowed.
   const handleBulkApply = useCallback(
     (patch: WorkItemPatch): void => {
       const ids = [...filterState.selection];
       const run = async (): Promise<void> => {
+        const succeeded: string[] = [];
+        let failed = 0;
         for (const id of ids) {
           try {
             await update(id, patch);
+            succeeded.push(id);
           } catch {
-            // Swallowed — the failed row's value simply never lands in `rows`.
+            // The hook already rolled this row back; record it so it stays
+            // selected for a retry rather than clearing the whole batch.
+            failed += 1;
           }
         }
-        setFilterState((state) => ({ ...state, selection: new Set() }));
+        // Clear ONLY the succeeded ids, preserving the failed ones (and any
+        // off-screen ids the prune effect leaves alone) in the selection.
+        if (succeeded.length > 0) {
+          setFilterState((state) => {
+            const next = new Set(state.selection);
+            for (const id of succeeded) next.delete(id);
+            return { ...state, selection: next };
+          });
+        }
+        if (failed > 0) {
+          toast.error(
+            `Couldn't update ${failed} of ${ids.length} ${
+              ids.length === 1 ? "item" : "items"
+            } — they stay selected to retry`,
+          );
+        }
       };
       // Fire-and-forget: the handler is a void-returning click target; the
       // trailing .catch keeps it from floating a promise (no `void` operator).

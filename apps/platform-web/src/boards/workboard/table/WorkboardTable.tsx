@@ -36,6 +36,7 @@ import {
   WorkItemTypeBadge,
   WorkItemTypeSelect,
   cn,
+  toast,
 } from "@product-suite/ui";
 
 import {
@@ -237,16 +238,19 @@ function ownerInitials(owner: Owner): string {
 }
 
 /**
- * Fire-and-forget patch helper: applies a single-field patch only when the value
- * actually changed. The hook rolls back optimistic state on rejection, so the
- * failed value simply never appears in the next `rows` render — nothing to do in
- * the catch beyond swallowing the rejection.
+ * Fire-and-forget patch helper. The hook rolls back the optimistic edit on
+ * rejection (so the failed value never lands in the next `rows` render), but a
+ * silent rollback leaves the user unsure whether their edit took. We surface the
+ * failure as a toast (an aria-live announcement via the shared `<Toaster/>`) so a
+ * failed inline edit is never swallowed.
  */
 function commitPatch(
   ctx: ColumnRenderContext,
   patch: WorkItemPatch,
 ): void {
-  ctx.onUpdateItem?.(ctx.row.id, patch).catch(() => undefined);
+  ctx.onUpdateItem?.(ctx.row.id, patch).catch(() => {
+    toast.error(`Couldn't update “${ctx.row.title}”`);
+  });
 }
 
 /**
@@ -763,9 +767,9 @@ function RowActionsCell({
         </DropdownMenuItem>
         <DropdownMenuItem
           onSelect={() => {
-            onUpdateItem(row.id, { archived: !row.archived }).catch(
-              () => undefined,
-            );
+            onUpdateItem(row.id, { archived: !row.archived }).catch(() => {
+              toast.error(`Couldn't update “${row.title}”`);
+            });
           }}
         >
           {row.archived ? "Unarchive" : "Archive"}
