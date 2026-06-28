@@ -403,4 +403,58 @@ describe("WorkboardScreen", () => {
     expect(items.find((item) => item.id === "wi_realtime")?.phase).toBe("done");
     expect(items.find((item) => item.id === "wi_auth")?.phase).toBe("execute");
   });
+
+  it("re-adds a failed bulk id even when the optimistic patch + prune removed it under an active filter", async () => {
+    const repository = createMockWorkItemRepository();
+    // Only wi_auth's update rejects; the rest go through.
+    const failing = {
+      ...repository,
+      update: (id: string, patch: WorkItemPatch) =>
+        id === "wi_auth"
+          ? Promise.reject(new Error("backend down"))
+          : repository.update(id, patch),
+    };
+    renderScreenWithToaster(failing);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(1);
+    });
+
+    // Filter to Phase = Execute (wi_auth seeds "execute", so it stays visible).
+    fireEvent.keyDown(screen.getByRole("button", { name: "Filter by phase" }), {
+      key: "ArrowDown",
+    });
+    fireEvent.click(
+      await screen.findByRole("menuitemcheckbox", { name: "Execute" }),
+    );
+    fireEvent.keyDown(document.body, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("checkbox", { name: "Select Workspace auth hardening" }),
+      ).toBeInTheDocument();
+    });
+
+    // Select the visible (Execute) rows, then bulk-set Phase = Done — which moves
+    // them OUT of the active filter optimistically, so the prune effect drops them
+    // from the selection BEFORE wi_auth's write rejects and rolls back.
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Select all work items" }),
+    );
+    const bulkGroup = await screen.findByRole("group", { name: "Bulk actions" });
+    fireEvent.keyDown(
+      within(bulkGroup).getByRole("button", { name: "Set phase" }),
+      { key: "ArrowDown" },
+    );
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Done" }));
+
+    // wi_auth failed → rolled back to Execute → reappears AND stays selected
+    // (re-added). With the old code it would have been pruned and never restored.
+    await waitFor(() => {
+      expect(
+        screen.getByRole("checkbox", { name: "Select Workspace auth hardening" }),
+      ).toBeChecked();
+    });
+    expect(await screen.findByText(/couldn't update/i)).toBeInTheDocument();
+  });
 });

@@ -148,31 +148,34 @@ export function WorkboardScreen({
   const handleBulkApply = useCallback(
     (patch: WorkItemPatch): void => {
       const ids = [...filterState.selection];
+      if (ids.length === 0) return;
       const run = async (): Promise<void> => {
         const succeeded: string[] = [];
-        let failed = 0;
+        const failed: string[] = [];
         for (const id of ids) {
           try {
             await update(id, patch);
             succeeded.push(id);
           } catch {
-            // The hook already rolled this row back; record it so it stays
-            // selected for a retry rather than clearing the whole batch.
-            failed += 1;
+            // The hook already rolled this row back; keep it to retry.
+            failed.push(id);
           }
         }
-        // Clear ONLY the succeeded ids, preserving the failed ones (and any
-        // off-screen ids the prune effect leaves alone) in the selection.
-        if (succeeded.length > 0) {
-          setFilterState((state) => {
-            const next = new Set(state.selection);
-            for (const id of succeeded) next.delete(id);
-            return { ...state, selection: next };
-          });
-        }
-        if (failed > 0) {
+        // Reconcile the selection in one update: drop succeeded ids and RE-ADD
+        // the failed ones. Re-adding (not merely retaining) is load-bearing — a
+        // bulk patch that moves a row OUT of the active filter is applied
+        // optimistically, so the prune effect (#2) can drop that id from
+        // `state.selection` BEFORE the write rejects; adding it back restores the
+        // toast's promise that failed items "stay selected to retry".
+        setFilterState((state) => {
+          const next = new Set(state.selection);
+          for (const id of succeeded) next.delete(id);
+          for (const id of failed) next.add(id);
+          return { ...state, selection: next };
+        });
+        if (failed.length > 0) {
           toast.error(
-            `Couldn't update ${failed} of ${ids.length} ${
+            `Couldn't update ${failed.length} of ${ids.length} ${
               ids.length === 1 ? "item" : "items"
             } — they stay selected to retry`,
           );
