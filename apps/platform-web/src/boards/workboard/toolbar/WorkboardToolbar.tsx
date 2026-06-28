@@ -634,12 +634,11 @@ export function WorkboardToolbar({
       <Button
         variant="outline"
         size="sm"
-        aria-label="Save current view"
         onClick={() => {
           setSaveOpen(true);
         }}
       >
-        Save view
+        Save current view
       </Button>
 
       {/* Save-current-view dialog — a house Dialog (the suite has no Popover) with
