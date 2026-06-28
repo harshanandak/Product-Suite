@@ -152,7 +152,9 @@ function facetChips<T extends string>(
   selected: ReadonlySet<T>,
   toggle: (value: T) => void,
 ): ActiveFilterChip[] {
-  return options
+  const labelOf = new Map(options.map((option) => [option.value, option.label]));
+  // Known values first, in canonical option order…
+  const chips: ActiveFilterChip[] = options
     .filter((option) => selected.has(option.value))
     .map((option) => ({
       id: `${facetLabel}:${option.value}`,
@@ -162,6 +164,22 @@ function facetChips<T extends string>(
         toggle(option.value);
       },
     }));
+  // …then any selected value whose backing option has disappeared (e.g. a
+  // persisted owner filter no longer in `owners`): still show + allow removing
+  // it, labelled by the raw value, so it can never get stuck on uncountably.
+  for (const value of selected) {
+    if (!labelOf.has(value)) {
+      chips.push({
+        id: `${facetLabel}:${value}`,
+        facetLabel,
+        valueLabel: value,
+        remove: () => {
+          toggle(value);
+        },
+      });
+    }
+  }
+  return chips;
 }
 
 /**
