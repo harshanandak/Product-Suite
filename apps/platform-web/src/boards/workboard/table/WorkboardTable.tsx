@@ -1070,13 +1070,45 @@ export function WorkboardTable({
     [],
   );
 
-  // Cell keydown: arrow / Home / End / Ctrl+Home / Ctrl+End navigate ONLY when
-  // focus is on the gridcell itself (`target === currentTarget`) — never when an
-  // inner editor/control is focused, so controls keep their own keys. preventDefault
-  // stops the grid scrolling natively; stopPropagation keeps the move off the row.
+  // Cell keydown. The cell-nav keys (arrows / Home / End / Enter / Space) act
+  // ONLY when focus is on the gridcell itself (`target === currentTarget`) — when
+  // an inner editor/control is focused it keeps its own keys (typing, option
+  // lists), so we never hijack inline editing. The ONE exception is Escape, which
+  // we honour from WITHIN a control to return focus to the owning gridcell.
   const handleCellKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLElement>) => {
+      // Escape from an inner editor → return focus to the owning gridcell so
+      // cell navigation resumes. Best-effort + NON-blocking: don't prevent/stop
+      // the event, so the control's own Escape (e.g. closing a Radix popup)
+      // still runs. (Controls that stopPropagation on Escape simply never reach
+      // here — acceptable, since they already restore focus to their trigger.)
+      if (event.key === "Escape" && event.target !== event.currentTarget) {
+        event.currentTarget.focus();
+        return;
+      }
+      // Every remaining handler requires focus on the gridcell itself.
       if (event.target !== event.currentTarget) return;
+
+      // Enter / Space → activate the cell's PRIMARY control (toggle a checkbox,
+      // open the row, or enter an inline editor). The first focusable descendant
+      // is the primary control. Comboboxes open via their own Enter handling and
+      // need pointer plumbing jsdom lacks to click, so we only focus those;
+      // buttons/checkboxes activate on a synthetic click.
+      if (event.key === "Enter" || event.key === " ") {
+        const control = event.currentTarget.querySelector<HTMLElement>(
+          'button, [role="checkbox"], [role="combobox"], input, a[href]',
+        );
+        if (control === null) return;
+        event.preventDefault();
+        event.stopPropagation();
+        control.focus();
+        if (control.getAttribute("role") !== "combobox") control.click();
+        return;
+      }
+
+      // Arrow / Home / End / Ctrl+Home / Ctrl+End → move the active cell.
+      // preventDefault stops the grid scrolling natively; stopPropagation keeps
+      // the move from bubbling to the row/table.
       const command = commandForKey(event.key, {
         ctrl: event.ctrlKey,
         meta: event.metaKey,

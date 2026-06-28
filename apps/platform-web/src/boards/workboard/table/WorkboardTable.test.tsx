@@ -1397,4 +1397,90 @@ describe("WorkboardTable", () => {
     pressOnActive("ArrowUp");
     expect(activeCoord()).toEqual({ row: "2", col: "1" });
   });
+
+  it("Enter on the selection cell toggles the row via its checkbox", async () => {
+    const rows = await loadRows();
+    const onSelectionChange = vi.fn();
+    renderTable({ rows, groupBy: "none", onSelectionChange });
+    await screen.findAllByTestId("work-item-row");
+
+    // The initial active cell IS the first row's selection cell (col 1); Enter
+    // activates its primary control (the checkbox) → a controlled toggle.
+    pressOnActive("Enter");
+    expect(onSelectionChange).toHaveBeenCalledTimes(1);
+    expect([...onSelectionChange.mock.calls[0][0]]).toEqual([rows[0].id]);
+  });
+
+  it("Enter on the Name cell opens the row via its title button", async () => {
+    const rows = await loadRows();
+    const onSelectItem = vi.fn();
+    renderTable({ rows, groupBy: "none", onSelectItem });
+    await screen.findAllByTestId("work-item-row");
+
+    pressOnActive("ArrowRight"); // → Name column (col 2)
+    expect(activeCoord().col).toBe("2");
+    pressOnActive("Enter");
+    expect(onSelectItem).toHaveBeenCalledTimes(1);
+    expect(onSelectItem.mock.calls[0][0]).toMatchObject({ id: rows[0].id });
+  });
+
+  it("Space on an editable cell focuses its inline control", async () => {
+    const rows = await loadRows();
+    renderTable({ rows, groupBy: "none", onUpdateItem: makeUpdateMock(rows) });
+    await screen.findAllByTestId("work-item-row");
+
+    // Navigate to the Phase column (selection 1 · name 2 · type 3 · phase 4).
+    pressOnActive("ArrowRight");
+    pressOnActive("ArrowRight");
+    pressOnActive("ArrowRight");
+    expect(activeCoord().col).toBe("4");
+    pressOnActive(" ");
+    // Activation moved focus into the cell's inline combobox (the editor).
+    const combobox = within(activeGridcell()).getByRole("combobox");
+    expect(document.activeElement).toBe(combobox);
+  });
+
+  it("Escape from inside a cell returns focus to the owning gridcell", async () => {
+    const rows = await loadRows();
+    renderTable({ rows, groupBy: "none" });
+    await screen.findAllByTestId("work-item-row");
+
+    // The Name title button stands in for an inner editor/control.
+    const titleButton = screen.getByRole("button", {
+      name: "Workspace auth hardening",
+    });
+    const cell = titleButton.closest('[role="gridcell"]');
+    titleButton.focus();
+    expect(document.activeElement).toBe(titleButton);
+
+    fireEvent.keyDown(titleButton, { key: "Escape" });
+    // Focus returns to the gridcell so arrow navigation resumes.
+    expect(document.activeElement).toBe(cell);
+  });
+
+  it("keeps the resize-handle keyboard and shift-click range-select working with cell nav active", async () => {
+    const rows = await loadRows();
+    const onSelectionChange = vi.fn();
+    renderTable({ rows, groupBy: "none", onSelectionChange });
+    const rowEls = await screen.findAllByTestId("work-item-row");
+
+    // Drive some cell navigation first so the roving state is engaged.
+    pressOnActive("ArrowDown");
+    pressOnActive("ArrowRight");
+
+    // The resize handle is a SEPARATE tab stop (role=separator) and still
+    // commits a keyboard width change — cell nav never hijacked it.
+    const handle = screen.getByRole("separator", { name: "Resize Name column" });
+    fireEvent.keyDown(handle, { key: "ArrowRight" });
+    expect(handle).toHaveAttribute("aria-valuenow", "272");
+
+    // Shift-click range-select (anchorIdRef) still unions the inclusive range.
+    const checkboxOf = (el: HTMLElement): HTMLElement =>
+      within(el).getByRole("checkbox");
+    fireEvent.click(checkboxOf(rowEls[0]));
+    onSelectionChange.mockClear();
+    fireEvent.click(checkboxOf(rowEls[2]), { shiftKey: true });
+    const next = onSelectionChange.mock.calls[0][0] as Set<string>;
+    expect(next.size).toBe(3);
+  });
 });
