@@ -1368,6 +1368,9 @@ describe("WorkboardTable", () => {
     pressOnActive("ArrowRight");
     pressOnActive("ArrowDown");
     expect(activeCoord()).toEqual({ row: "3", col: "2" });
+    // DOM focus actually FOLLOWS the active coordinate — the virtualization-aware
+    // layout effect moved focus to the destination cell, not just its tabindex.
+    expect(document.activeElement).toBe(activeGridcell());
   });
 
   it("Ctrl+End and Ctrl+Home jump to the grid's last and first navigable cell", async () => {
