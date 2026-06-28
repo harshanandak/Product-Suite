@@ -1072,6 +1072,47 @@ describe("WorkboardTable", () => {
     ).toBeInTheDocument();
   });
 
+  it("reads the group checkbox as checked when all its items are selected", async () => {
+    const rows = await loadRows();
+    renderTable({
+      rows,
+      groupBy: "department",
+      // Every Engineering id selected → its header checkbox reads fully checked.
+      selection: new Set([
+        "wi_auth",
+        "wi_realtime",
+        "wi_migration",
+        "wi_tabletoken",
+      ]),
+    });
+
+    await screen.findAllByTestId("work-item-row");
+
+    expect(
+      screen.getByRole("checkbox", { name: "Select all in Engineering" }),
+    ).toHaveAttribute("aria-checked", "true");
+    // A sibling group with nothing selected stays unchecked.
+    expect(
+      screen.getByRole("checkbox", { name: "Select all in Marketing" }),
+    ).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("reads the group checkbox as indeterminate when only some items are selected", async () => {
+    const rows = await loadRows();
+    // One of Engineering's four ids selected → mixed (partial) state.
+    renderTable({
+      rows,
+      groupBy: "department",
+      selection: new Set(["wi_auth"]),
+    });
+
+    await screen.findAllByTestId("work-item-row");
+
+    expect(
+      screen.getByRole("checkbox", { name: "Select all in Engineering" }),
+    ).toHaveAttribute("aria-checked", "mixed");
+  });
+
   // --- Resizable columns --------------------------------------------------
 
   it("renders a resize handle (separator) on a data column header", async () => {

@@ -1131,6 +1131,20 @@ export function WorkboardTable({
               const ariaRowIndex = virtualRow.index + 2;
 
               if (flat.kind === "group") {
+                // Tri-state for the group's select-all, derived from how many of
+                // ITS ids are currently selected: all → checked, some → mixed.
+                const groupSelected = flat.ids.filter((id) =>
+                  selection.has(id),
+                ).length;
+                const groupAll =
+                  flat.ids.length > 0 && groupSelected === flat.ids.length;
+                const groupSome = groupSelected > 0 && !groupAll;
+                let groupState: boolean | "indeterminate" = false;
+                if (groupAll) {
+                  groupState = true;
+                } else if (groupSome) {
+                  groupState = "indeterminate";
+                }
                 return (
                   <TableRow
                     key={flat.key}
@@ -1151,7 +1165,10 @@ export function WorkboardTable({
                       aria-colspan={ariaColCount}
                       className="flex flex-1 items-center gap-2 text-xs font-semibold tracking-wide text-foreground uppercase"
                     >
-                      <Checkbox aria-label={`Select all in ${flat.label}`} />
+                      <Checkbox
+                        aria-label={`Select all in ${flat.label}`}
+                        checked={groupState}
+                      />
                       <span className="truncate">{flat.label}</span>
                       {/* Group size surfaced in the band header as a pill. */}
                       <span className="shrink-0 rounded-sm bg-background px-1.5 py-0.5 text-[0.6875rem] font-medium text-muted-foreground tabular-nums">
