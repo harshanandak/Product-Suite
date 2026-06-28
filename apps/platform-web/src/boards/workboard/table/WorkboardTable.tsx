@@ -748,8 +748,11 @@ export function WorkboardTable({
     [onSelectionChange, selection],
   );
 
-  // Range-selection anchor: the flat-row index of the last PLAINLY-toggled row.
-  const anchorIndexRef = React.useRef<number | null>(null);
+  // Range-selection anchor: the ID of the last PLAINLY-toggled row. Stored by id
+  // (not a raw index) so it survives a filter / sort / regroup — the index is
+  // re-resolved against the CURRENT flatRows at shift-click time and can never
+  // point at a different item than the one the user anchored.
+  const anchorIdRef = React.useRef<string | null>(null);
   // The Checkbox's `onCheckedChange` carries no event, so the modifier is read
   // off the preceding `onClick` (Radix composes our handler before its own, so
   // this is set before `onCheckedChange` fires) and stashed here for the toggle.
@@ -757,22 +760,25 @@ export function WorkboardTable({
 
   // Checkbox activation by flat-row index. A plain click toggles the one row and
   // moves the anchor; a shift-click selects the INCLUSIVE range between the live
-  // anchor and the clicked row in flatRows order (group-header rows are skipped),
-  // unioning into the current selection. A shift-click with no live/valid anchor
-  // falls back to a single toggle.
+  // anchor (re-resolved by id against the current flatRows) and the clicked row
+  // in flatRows order (group-header rows are skipped), unioning into the current
+  // selection. A shift-click whose anchor is gone (filtered out) or unset falls
+  // back to a single toggle.
   const handleRowSelect = React.useCallback(
     (index: number) => {
       const flat = flatRows[index];
       if (flat === undefined || flat.kind !== "item") return;
 
-      const anchor = anchorIndexRef.current;
-      const rangeSelect =
-        shiftKeyRef.current &&
-        anchor !== null &&
-        anchor < flatRows.length &&
-        flatRows[anchor]?.kind === "item";
+      const anchorId = anchorIdRef.current;
+      const anchor =
+        shiftKeyRef.current && anchorId !== null
+          ? flatRows.findIndex(
+              (candidate) =>
+                candidate.kind === "item" && candidate.row.id === anchorId,
+            )
+          : -1;
 
-      if (rangeSelect && anchor !== null) {
+      if (anchor >= 0) {
         const start = Math.min(anchor, index);
         const end = Math.max(anchor, index);
         const next = new Set(selection);
@@ -785,7 +791,7 @@ export function WorkboardTable({
       }
 
       toggleOne(flat.row.id);
-      anchorIndexRef.current = index;
+      anchorIdRef.current = flat.row.id;
     },
     [flatRows, onSelectionChange, selection, toggleOne],
   );
@@ -944,7 +950,7 @@ export function WorkboardTable({
                     style={offsetStyle}
                   >
                     <TableCell
-                      role="cell"
+                      role="gridcell"
                       aria-colindex={1}
                       aria-colspan={ariaColCount}
                       className="flex-1 font-medium"
@@ -979,7 +985,7 @@ export function WorkboardTable({
                   style={offsetStyle}
                 >
                   <TableCell
-                    role="cell"
+                    role="gridcell"
                     aria-colindex={1}
                     style={cellStyle(SELECT_COLUMN_WIDTH)}
                   >
@@ -1000,7 +1006,7 @@ export function WorkboardTable({
                   {columns.map((column, columnIndex) => (
                     <TableCell
                       key={column.id}
-                      role="cell"
+                      role="gridcell"
                       aria-colindex={columnIndex + 2}
                       data-col-id={column.id}
                       // `py-1.5` tightens the row to the compact 44px slot. Now
@@ -1038,7 +1044,7 @@ export function WorkboardTable({
                   ))}
                   {showActions && onUpdateItem ? (
                     <TableCell
-                      role="cell"
+                      role="gridcell"
                       aria-colindex={columns.length + 2}
                       className="flex items-center justify-end"
                       style={cellStyle(ACTIONS_COLUMN_WIDTH)}

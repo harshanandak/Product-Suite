@@ -472,6 +472,48 @@ describe("WorkboardTable", () => {
     expect([...onSelectionChange.mock.calls[0][0]]).toEqual([rows[1].id]);
   });
 
+  it("re-resolves the shift anchor by id after rows change (no stale-index range)", async () => {
+    const rows = await loadRows();
+    const onSelectionChange = vi.fn();
+    const { props, rerender } = renderTable({
+      rows,
+      groupBy: "none",
+      onSelectionChange,
+    });
+
+    const rowEls = await screen.findAllByTestId("work-item-row");
+    const checkboxOf = (el: HTMLElement): HTMLElement =>
+      within(el).getByRole("checkbox");
+
+    // Anchor on rows[1] with a plain click.
+    fireEvent.click(checkboxOf(rowEls[1]));
+    onSelectionChange.mockClear();
+
+    // rows[1] (the anchor) is filtered OUT. A raw-index anchor would still point
+    // at a now-different live row and drag a bogus range in; the id-based anchor
+    // finds nothing in the new flatRows and must fall back to a single toggle.
+    const remaining = rows.filter((row) => row.id !== rows[1].id);
+    rerender(
+      <WorkboardTable
+        {...props}
+        rows={remaining}
+        selection={new Set([rows[1].id])}
+      />,
+    );
+
+    const newRowEls = await screen.findAllByTestId("work-item-row");
+    fireEvent.click(checkboxOf(newRowEls[newRowEls.length - 1]), {
+      shiftKey: true,
+    });
+
+    expect(onSelectionChange).toHaveBeenCalledTimes(1);
+    const next = onSelectionChange.mock.calls[0][0] as Set<string>;
+    // Only the clicked row joins the existing selection — no middle rows pulled
+    // in by a stale index (a raw-index anchor would have given size 3).
+    expect(next.has(remaining[remaining.length - 1].id)).toBe(true);
+    expect(next.size).toBe(2);
+  });
+
   it("reflects a partial selection as an indeterminate select-all checkbox", async () => {
     const rows = await loadRows();
     // Pre-seed a single-row selection (controlled): header must read mixed.
