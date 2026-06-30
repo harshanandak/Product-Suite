@@ -656,15 +656,10 @@ const COLUMN_SPECS: readonly ColumnSpec[] = [
     id: "source",
     header: "Source",
     width: "6.5rem",
-    // Tooltip surfaces the source name behind the otherwise icon-only chip.
-    render: ({ row }) => (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <ProvenanceChip source={row.source} />
-        </TooltipTrigger>
-        <TooltipContent>Source: {row.source}</TooltipContent>
-      </Tooltip>
-    ),
+    // The shared ProvenanceChip is self-describing — it always renders its source
+    // label as visible text — so a tooltip repeating that label would be pure
+    // redundancy.
+    render: ({ row }) => <ProvenanceChip source={row.source} />,
   },
 ];
 

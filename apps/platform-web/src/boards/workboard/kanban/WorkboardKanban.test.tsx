@@ -26,9 +26,9 @@ import {
 } from "./WorkboardKanban";
 
 /**
- * Radix Tooltip (used behind each card's ProvenanceChip) and dnd-kit's keyboard
- * sensor both reach for Pointer-Capture / `scrollIntoView` APIs jsdom omits.
- * We shim them here (the shared test/setup.ts is out of this dir's ownership).
+ * dnd-kit's keyboard sensor reaches for Pointer-Capture / `scrollIntoView` APIs
+ * jsdom omits. We shim them here (the shared test/setup.ts is out of this dir's
+ * ownership).
  */
 beforeAll(() => {
   Element.prototype.hasPointerCapture ??= () => false;
@@ -245,6 +245,23 @@ describe("WorkboardKanban", () => {
     expect(screen.getAllByText("Amara Okafor").length).toBeGreaterThan(0);
     // wi_landing has assignee_id: null (department queue) → "Unassigned".
     expect(screen.getAllByText("Unassigned").length).toBeGreaterThan(0);
+  });
+
+  it("renders the card Source chip with no redundant tooltip plumbing", async () => {
+    const rows = await loadRows();
+    renderKanban({ rows });
+
+    // wi_auth's card; its source is "manual" → the chip reads "Manual".
+    const card = await screen.findByLabelText("Open Workspace auth hardening");
+    const chip = card.querySelector("[data-source]");
+    expect(chip).not.toBeNull();
+    expect(chip).toHaveTextContent("Manual");
+
+    // The redundant <Tooltip> wrapper is gone: no tooltip-trigger plumbing on the
+    // chip, no aria-describedby pointer, and no tooltip role on the card.
+    expect(card.querySelector('[data-slot="tooltip-trigger"]')).toBeNull();
+    expect(chip).not.toHaveAttribute("aria-describedby");
+    expect(card.querySelector('[role="tooltip"]')).toBeNull();
   });
 
   it("de-emphasizes an archived card and shows an Archived indicator", async () => {

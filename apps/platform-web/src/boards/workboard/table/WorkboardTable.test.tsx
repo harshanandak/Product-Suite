@@ -393,6 +393,36 @@ describe("WorkboardTable", () => {
     expect(row).toBeTruthy();
   });
 
+  it("renders the Source chip with no redundant tooltip plumbing", async () => {
+    const rows = await loadRows();
+    renderTable({ rows });
+
+    // Scope to wi_auth's row so the duplicate-source rows don't confuse the query.
+    const row = (await screen.findAllByTestId("work-item-row")).find((node) =>
+      within(node).queryByRole("button", { name: "Workspace auth hardening" }),
+    );
+    expect(row).toBeDefined();
+    const sourceCell = (row as HTMLElement).querySelector(
+      '[data-col-id="source"]',
+    );
+    expect(sourceCell).not.toBeNull();
+
+    // The self-describing chip still renders with its visible source label.
+    const chip = (sourceCell as HTMLElement).querySelector("[data-source]");
+    expect(chip).not.toBeNull();
+    expect(chip).toHaveTextContent("Manual");
+
+    // The redundant <Tooltip> wrapper is gone: no tooltip-trigger plumbing on the
+    // chip, no aria-describedby pointer, and no tooltip role anywhere in the cell.
+    expect(
+      (sourceCell as HTMLElement).querySelector('[data-slot="tooltip-trigger"]'),
+    ).toBeNull();
+    expect(chip).not.toHaveAttribute("aria-describedby");
+    expect(
+      (sourceCell as HTMLElement).querySelector('[role="tooltip"]'),
+    ).toBeNull();
+  });
+
   it("left-aligns the Due cell content (no whitespace river)", async () => {
     const rows = await loadRows();
     renderTable({ rows });
