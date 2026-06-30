@@ -1658,6 +1658,34 @@ describe("WorkboardTable", () => {
     expect(tabbableGridcells()).toHaveLength(1);
   });
 
+  it("collapses the group when Enter activates a focused group header cell", async () => {
+    const rows = await loadRows();
+    renderTable({ rows, groupBy: "department" });
+
+    await screen.findAllByTestId("work-item-row");
+
+    // The initial active cell is the first swimlane header's gridcell. Its first
+    // focusable descendant (the cell's "primary control" per handleCellKeyDown)
+    // is the disclosure toggle, so Enter on the cell collapses the group — a
+    // deliberate, locked behavior (the select-all checkbox still works on direct
+    // click/focus).
+    expect(activeCoord()).toEqual({ row: "2", col: "1" });
+    expect(
+      screen.getByRole("button", { name: "Collapse Engineering" }),
+    ).toBeInTheDocument();
+
+    pressOnActive("Enter");
+
+    expect(
+      screen.getByRole("button", { name: "Expand Engineering" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Workspace auth hardening" }),
+    ).not.toBeInTheDocument();
+    // Still exactly one tab stop (the header cell survives the collapse).
+    expect(tabbableGridcells()).toHaveLength(1);
+  });
+
   it("toggles the correct row in a later group after an earlier group is collapsed", async () => {
     const rows = await loadRows();
     const onSelectionChange = vi.fn();
