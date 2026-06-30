@@ -26,6 +26,8 @@ function SelectTrigger({
   className,
   size = "default",
   variant = "default",
+  invalid,
+  "aria-invalid": ariaInvalid,
   children,
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Trigger> & {
@@ -37,12 +39,21 @@ function SelectTrigger({
    * its value (a badge/text) until interacted with (Notion-style inline cell).
    */
   variant?: "default" | "ghost"
+  /**
+   * Marks the selection as rejected/invalid: sets `aria-invalid` on the trigger
+   * (lighting up the existing `aria-invalid:` destructive styling). Additive and
+   * off by default — when unset, valid-state rendering is byte-for-byte
+   * unchanged. An explicit `aria-invalid` prop still applies when `invalid` is
+   * unset, so existing passthrough callers are unaffected.
+   */
+  invalid?: boolean
 }) {
   return (
     <SelectPrimitive.Trigger
       data-slot="select-trigger"
       data-size={size}
       data-variant={variant}
+      aria-invalid={invalid ? true : ariaInvalid}
       className={cn(
         // Layout / focus / size / a11y — shared by both variants.
         "flex items-center justify-between gap-2 rounded-md px-3 py-2 text-sm whitespace-nowrap transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 data-[placeholder]:text-muted-foreground data-[size=default]:h-9 data-[size=sm]:h-8 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground",
