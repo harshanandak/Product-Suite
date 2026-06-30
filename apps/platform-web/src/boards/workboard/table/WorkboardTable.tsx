@@ -315,11 +315,12 @@ const INLINE_SELECT_CLASS = cn(
   "[&>svg]:absolute [&>svg]:top-1/2 [&>svg]:right-2 [&>svg]:-translate-y-1/2",
   // Fade it in on ROW hover / focus-within so the cell is discoverable as editable.
   "group-hover:[&>svg]:opacity-50 group-focus-within:[&>svg]:opacity-50",
-  // No-hover / coarse-pointer (touch) devices never fire `group-hover`, so the
-  // chevron would stay invisible there — keep it always revealed via the
-  // coarse-pointer media variant (`@media (pointer: coarse)`). Fine-pointer
-  // (mouse) devices keep the hover-reveal above exactly as-is.
-  "pointer-coarse:[&>svg]:opacity-50",
+  // Touch / no-hover devices never fire `group-hover`, so the chevron would stay
+  // invisible there — keep it revealed whenever ANY input is coarse via
+  // `@media (any-pointer: coarse)`. `any-pointer` (not `pointer`) also covers
+  // hybrid touch+mouse devices where a fine pointer is primary. Fine-pointer-only
+  // devices keep the hover-reveal above exactly as-is.
+  "any-pointer-coarse:[&>svg]:opacity-50",
 );
 
 /**
@@ -327,11 +328,13 @@ const INLINE_SELECT_CLASS = cn(
  * Copy button and the trailing row-actions "⋯" trigger): hidden at rest, faded
  * in on ROW hover and on keyboard `focus-visible`.
  *
- * `group-hover` is gated behind `@media (hover: hover)`, so on no-hover /
- * coarse-pointer (touch) devices it never fires and the control would stay at
- * `opacity-0` — invisible and unusable. `pointer-coarse:opacity-100`
- * (`@media (pointer: coarse)`) keeps these controls always visible on touch,
- * while fine-pointer (mouse) devices keep the hover-reveal exactly as before.
+ * `group-hover` is gated behind `@media (hover: hover)`, so on touch / no-hover
+ * devices it never fires and the control would stay at `opacity-0` — invisible
+ * and unusable. `any-pointer-coarse:opacity-100` (`@media (any-pointer: coarse)`)
+ * keeps these controls visible whenever ANY input is coarse — including hybrid
+ * touch+mouse devices where the mouse is the primary pointer (which a
+ * `pointer: coarse` query would miss). Fine-pointer-only devices keep the
+ * hover-reveal exactly as before.
  *
  * On coarse pointers the tap target is also bumped to `size-8` (32px) — the
  * compact `size-6`/`size-7` rest sizes are comfortable under a mouse but small
@@ -340,7 +343,7 @@ const INLINE_SELECT_CLASS = cn(
  * and overlap the virtualized neighbour. Fine pointers keep the compact size.
  */
 const HOVER_REVEAL_CLASS =
-  "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100 pointer-coarse:size-8";
+  "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 any-pointer-coarse:opacity-100 any-pointer-coarse:size-8";
 
 /** Inline Tags summary: chips shown at rest before the rest collapse to `+N`. */
 const TAGS_SUMMARY_MAX = 3;

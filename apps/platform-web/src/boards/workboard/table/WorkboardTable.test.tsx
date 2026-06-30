@@ -276,12 +276,12 @@ describe("WorkboardTable", () => {
     // On no-hover / coarse-pointer devices the `group-hover` reveal never fires,
     // so the chevron must also be unveiled via the coarse-pointer media variant —
     // ALONGSIDE (not replacing) the fine-pointer hover reveal asserted above.
-    for (const column of ["Type", "Phase", "Priority"]) {
+    for (const column of ["Type", "Phase", "Priority", "Owner"]) {
       const trigger = screen.getByRole("combobox", {
         name: `${column} for Workspace auth hardening`,
       });
       const classes = trigger.className.split(" ");
-      expect(classes).toContain("pointer-coarse:[&>svg]:opacity-50");
+      expect(classes).toContain("any-pointer-coarse:[&>svg]:opacity-50");
       // Fine-pointer hover reveal is preserved exactly.
       expect(classes).toContain("group-hover:[&>svg]:opacity-50");
       expect(classes).toContain("group-focus-within:[&>svg]:opacity-50");
@@ -301,12 +301,12 @@ describe("WorkboardTable", () => {
     const [copy] = screen.getAllByRole("button", { name: "Copy title" });
     const classes = copy.className.split(" ");
     // Always revealed on touch; hover + keyboard-focus reveals preserved.
-    expect(classes).toContain("pointer-coarse:opacity-100");
+    expect(classes).toContain("any-pointer-coarse:opacity-100");
     expect(classes).toContain("group-hover:opacity-100");
     expect(classes).toContain("focus-visible:opacity-100");
     // Bumped to a larger tap target on coarse pointers (capped at the 32px row
     // content budget); the compact rest size is kept for fine pointers.
-    expect(classes).toContain("pointer-coarse:size-8");
+    expect(classes).toContain("any-pointer-coarse:size-8");
     // The fine-pointer rest size survives the merge (no mouse-device regression).
     expect(classes).toContain("size-6");
   });
@@ -324,13 +324,13 @@ describe("WorkboardTable", () => {
     });
     const classes = trigger.className.split(" ");
     // Always revealed on touch; hover + keyboard-focus + open reveals preserved.
-    expect(classes).toContain("pointer-coarse:opacity-100");
+    expect(classes).toContain("any-pointer-coarse:opacity-100");
     expect(classes).toContain("group-hover:opacity-100");
     expect(classes).toContain("focus-visible:opacity-100");
     expect(classes).toContain("data-[state=open]:opacity-100");
     // Bumped to a larger tap target on coarse pointers (capped at the 32px row
     // content budget); the compact rest size is kept for fine pointers.
-    expect(classes).toContain("pointer-coarse:size-8");
+    expect(classes).toContain("any-pointer-coarse:size-8");
     // The fine-pointer rest size survives the merge (no mouse-device regression).
     expect(classes).toContain("size-7");
   });
