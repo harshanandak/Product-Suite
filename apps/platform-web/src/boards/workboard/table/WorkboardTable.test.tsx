@@ -1556,4 +1556,132 @@ describe("WorkboardTable", () => {
     const next = onSelectionChange.mock.calls[0][0] as Set<string>;
     expect(next.size).toBe(3);
   });
+
+  // --- Collapsible swimlanes (Rank 14b) -----------------------------------
+
+  it("shows a collapse toggle with aria-expanded on each group header", async () => {
+    const rows = await loadRows();
+    renderTable({ rows, groupBy: "department" });
+
+    await screen.findAllByTestId("work-item-row");
+
+    // Each swimlane header carries a disclosure toggle; expanded at rest, so its
+    // action label is "Collapse <label>" and it reports aria-expanded="true".
+    const toggle = screen.getByRole("button", { name: "Collapse Engineering" });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("collapses a group to hide its item rows and restores them on expand", async () => {
+    const rows = await loadRows();
+    renderTable({ rows, groupBy: "department" });
+
+    await screen.findAllByTestId("work-item-row");
+
+    const grid = screen.getByRole("grid", { name: "Work items" });
+    const before = Number(grid.getAttribute("aria-rowcount"));
+    expect(
+      screen.getByRole("button", { name: "Workspace auth hardening" }),
+    ).toBeInTheDocument();
+
+    // Collapse Engineering (4 items: wi_auth/realtime/migration/tabletoken).
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Engineering" }));
+
+    // Its item rows leave the DOM…
+    expect(
+      screen.queryByRole("button", { name: "Workspace auth hardening" }),
+    ).not.toBeInTheDocument();
+    // …but the group header stays, now offering an Expand affordance.
+    const eng = screen
+      .getAllByTestId("swimlane-group")
+      .find((node) => node.dataset.group === "Engineering");
+    expect(eng).toBeDefined();
+    const toggle = screen.getByRole("button", { name: "Expand Engineering" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    // aria-rowcount reflects the visible rows: it drops by the 4 hidden items.
+    expect(Number(grid.getAttribute("aria-rowcount"))).toBe(before - 4);
+
+    // Expanding restores the hidden rows and the original count.
+    fireEvent.click(toggle);
+    expect(
+      await screen.findByRole("button", { name: "Workspace auth hardening" }),
+    ).toBeInTheDocument();
+    expect(Number(grid.getAttribute("aria-rowcount"))).toBe(before);
+  });
+
+  it("still selects the full group via its header checkbox when collapsed", async () => {
+    const rows = await loadRows();
+    const onSelectionChange = vi.fn();
+    renderTable({ rows, groupBy: "department", onSelectionChange });
+
+    await screen.findAllByTestId("work-item-row");
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Engineering" }));
+    // The header's select-all still operates on the FULL group ids though the
+    // item rows are hidden.
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Select all in Engineering" }),
+    );
+
+    const next = onSelectionChange.mock.calls[0][0] as Set<string>;
+    expect([...next].sort()).toEqual(
+      ["wi_auth", "wi_realtime", "wi_migration", "wi_tabletoken"].sort(),
+    );
+  });
+
+  it("renders no collapse toggle when groupBy is none", async () => {
+    const rows = await loadRows();
+    renderTable({ rows, groupBy: "none" });
+
+    await screen.findAllByTestId("work-item-row");
+
+    // Flat mode has no group headers → nothing to collapse.
+    expect(
+      screen.queryByRole("button", { name: /^(Collapse|Expand) / }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps exactly one tabbable gridcell after collapsing a group", async () => {
+    const rows = await loadRows();
+    renderTable({ rows, groupBy: "department" });
+
+    await screen.findAllByTestId("work-item-row");
+
+    // Move the active cell ONTO an Engineering item row (which the collapse will
+    // hide), so the stored coordinate must re-resolve gracefully.
+    pressOnActive("ArrowDown");
+    expect(activeCoord().row).toBe("3");
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Engineering" }));
+
+    // The active row vanished → resolveActiveCell clamps to the nearest visible
+    // cell; the single-tab-stop invariant holds (never zero, never two).
+    expect(tabbableGridcells()).toHaveLength(1);
+  });
+
+  it("toggles the correct row in a later group after an earlier group is collapsed", async () => {
+    const rows = await loadRows();
+    const onSelectionChange = vi.fn();
+    renderTable({ rows, groupBy: "department", onSelectionChange });
+
+    await screen.findAllByTestId("work-item-row");
+
+    // Collapse the FIRST group so the visible list no longer aligns with the full
+    // flat list — the index path (handleRowSelect) must resolve against the
+    // VISIBLE list, or it would toggle the wrong row.
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Engineering" }));
+
+    const firstVisible = screen.getAllByTestId("work-item-row")[0];
+    const checkbox = within(firstVisible).getByRole("checkbox");
+    const title = (checkbox.getAttribute("aria-label") ?? "").replace(
+      /^Select /,
+      "",
+    );
+    const expectedId = rows.find((row) => row.title === title)?.id;
+    expect(expectedId).toBeDefined();
+
+    fireEvent.click(checkbox);
+
+    expect(onSelectionChange).toHaveBeenCalledTimes(1);
+    expect([...onSelectionChange.mock.calls[0][0]]).toEqual([expectedId]);
+  });
 });

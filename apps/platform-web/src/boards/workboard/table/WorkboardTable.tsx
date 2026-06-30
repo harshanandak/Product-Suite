@@ -1,7 +1,7 @@
 import * as React from "react";
 
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Copy, MoreHorizontal } from "lucide-react";
+import { ChevronDown, ChevronRight, Copy, MoreHorizontal } from "lucide-react";
 
 import {
   AssigneePicker,
@@ -897,6 +897,47 @@ export function WorkboardTable({
     [rows, groupBy],
   );
 
+  // Collapsed swimlane keys (the group FlatRow's stable `key`). Collapsing a
+  // group hides its ITEM rows while keeping its header (which still carries the
+  // FULL `ids` + `count`, so per-group select-all and the count band are
+  // unaffected). `groupBy === "none"` emits no group headers, so nothing here
+  // can ever match — flat mode never collapses.
+  const [collapsedGroups, setCollapsedGroups] = React.useState<Set<string>>(
+    () => new Set(),
+  );
+  const toggleGroupCollapsed = React.useCallback((key: string) => {
+    // Always clone — never mutate the live state set in place.
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }, []);
+
+  // The rows actually fed to the virtualizer / keyboard-nav / selection index
+  // path: every group header, but a collapsed group's item rows are dropped.
+  // The virtualizer count, `virtualRow.index`, the active-cell resolution, and
+  // shift/range selection ALL index THIS list (never the full `flatRows`), so a
+  // collapse simply shortens it and every consumer stays consistent.
+  const visibleFlatRows = React.useMemo(() => {
+    if (collapsedGroups.size === 0) return flatRows;
+    const visible: FlatRow[] = [];
+    let collapsed = false;
+    for (const flat of flatRows) {
+      if (flat.kind === "group") {
+        collapsed = collapsedGroups.has(flat.key);
+        visible.push(flat);
+      } else if (!collapsed) {
+        visible.push(flat);
+      }
+    }
+    return visible;
+  }, [flatRows, collapsedGroups]);
+
   // The trailing "⋯" actions cell only renders when a mutator is wired (its
   // Archive action needs the patch path); read-only embeds keep their existing
   // column counts. Computed here (not after the early returns) so the resizable-
@@ -924,7 +965,7 @@ export function WorkboardTable({
   }, [resetColumnWidthsRef, resetWidths]);
 
   const rowVirtualizer = useVirtualizer({
-    count: flatRows.length,
+    count: visibleFlatRows.length,
     getScrollElement: () => containerRef.current,
     estimateSize: () => ROW_HEIGHT,
     overscan: OVERSCAN,
@@ -1006,13 +1047,13 @@ export function WorkboardTable({
   // back to a single toggle.
   const handleRowSelect = React.useCallback(
     (index: number) => {
-      const flat = flatRows[index];
+      const flat = visibleFlatRows[index];
       if (flat === undefined || flat.kind !== "item") return;
 
       const anchorId = anchorIdRef.current;
       const anchor =
         shiftKeyRef.current && anchorId !== null
-          ? flatRows.findIndex(
+          ? visibleFlatRows.findIndex(
               (candidate) =>
                 candidate.kind === "item" && candidate.row.id === anchorId,
             )
@@ -1023,7 +1064,7 @@ export function WorkboardTable({
         const end = Math.max(anchor, index);
         const next = new Set(selection);
         for (let i = start; i <= end; i += 1) {
-          const candidate = flatRows[i];
+          const candidate = visibleFlatRows[i];
           if (candidate?.kind === "item") next.add(candidate.row.id);
         }
         onSelectionChange(next);
@@ -1033,7 +1074,7 @@ export function WorkboardTable({
       toggleOne(flat.row.id);
       anchorIdRef.current = flat.row.id;
     },
-    [flatRows, onSelectionChange, selection, toggleOne],
+    [visibleFlatRows, onSelectionChange, selection, toggleOne],
   );
 
   // Selection column + every visible data column (+ the actions column, if
@@ -1052,8 +1093,8 @@ export function WorkboardTable({
   // Left/Right there is a no-op (both encoded in computeNextCell).
   const [activeCell, setActiveCell] = React.useState<CellCoord | null>(null);
   const activeResolved = React.useMemo(
-    () => resolveActiveCell(flatRows, activeCell, ariaColCount),
-    [flatRows, activeCell, ariaColCount],
+    () => resolveActiveCell(visibleFlatRows, activeCell, ariaColCount),
+    [visibleFlatRows, activeCell, ariaColCount],
   );
 
   // When a keyboard move changes the active coordinate we flag a pending focus;
@@ -1079,15 +1120,20 @@ export function WorkboardTable({
   // and scroll the destination row into the virtual window so its cell mounts.
   const moveActiveCell = React.useCallback(
     (command: NavCommand) => {
-      const current = resolveActiveCell(flatRows, activeCell, ariaColCount);
+      const current = resolveActiveCell(visibleFlatRows, activeCell, ariaColCount);
       if (current === null) return;
-      const next = computeNextCell(flatRows, ariaColCount, current, command);
+      const next = computeNextCell(
+        visibleFlatRows,
+        ariaColCount,
+        current,
+        command,
+      );
       setActiveCell(next);
       pendingFocusRef.current = true;
-      const index = flatRows.findIndex((row) => row.key === next.rowKey);
+      const index = visibleFlatRows.findIndex((row) => row.key === next.rowKey);
       if (index >= 0) rowVirtualizer.scrollToIndex(index);
     },
-    [activeCell, ariaColCount, flatRows, rowVirtualizer],
+    [activeCell, ariaColCount, visibleFlatRows, rowVirtualizer],
   );
 
   // Make a cell the roving tab stop when it (or a descendant control) is focused
@@ -1183,9 +1229,11 @@ export function WorkboardTable({
     );
   }
 
-  // 1-based row count for assistive tech: header row + every flat (group/item)
-  // row in the virtualized list, regardless of which are currently mounted.
-  const ariaRowCount = flatRows.length + 1;
+  // 1-based row count for assistive tech: header row + every VISIBLE flat
+  // (group/item) row in the virtualized list, regardless of which are currently
+  // mounted. A collapsed group's hidden items drop out, so the count reflects
+  // exactly what assistive tech can navigate to.
+  const ariaRowCount = visibleFlatRows.length + 1;
 
   return (
     <TooltipProvider>
@@ -1311,7 +1359,7 @@ export function WorkboardTable({
             }}
           >
             {virtualItems.map((virtualRow) => {
-              const flat = flatRows[virtualRow.index];
+              const flat = visibleFlatRows[virtualRow.index];
               const offsetStyle: React.CSSProperties = {
                 ...ROW_SPAN_STYLE,
                 position: "absolute",
@@ -1338,6 +1386,7 @@ export function WorkboardTable({
                 } else if (groupSome) {
                   groupState = "indeterminate";
                 }
+                const isCollapsed = collapsedGroups.has(flat.key);
                 return (
                   <TableRow
                     key={flat.key}
@@ -1367,6 +1416,32 @@ export function WorkboardTable({
                         GRID_CELL_FOCUS,
                       )}
                     >
+                      {/* Disclosure toggle: collapses/expands this swimlane.
+                          Icon-only with an action label so the header's
+                          label/count text assertions stay clean. stopPropagation
+                          so it never bubbles to row-level handlers. */}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        aria-label={
+                          isCollapsed
+                            ? `Expand ${flat.label}`
+                            : `Collapse ${flat.label}`
+                        }
+                        aria-expanded={!isCollapsed}
+                        className="size-5 shrink-0 text-muted-foreground"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          toggleGroupCollapsed(flat.key);
+                        }}
+                      >
+                        {isCollapsed ? (
+                          <ChevronRight className="size-4" />
+                        ) : (
+                          <ChevronDown className="size-4" />
+                        )}
+                      </Button>
                       <Checkbox
                         aria-label={`Select all in ${flat.label}`}
                         checked={groupState}
