@@ -1,7 +1,7 @@
 import * as React from "react";
 
-import { useVirtualizer } from "@tanstack/react-virtual";
-import { Copy, MoreHorizontal } from "lucide-react";
+import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
+import { ChevronDown, ChevronRight, Copy, MoreHorizontal } from "lucide-react";
 
 import {
   AssigneePicker,
@@ -170,6 +170,20 @@ export interface WorkItemTableProps {
 const ROW_HEIGHT = 44;
 /** Extra rows rendered above/below the viewport to smooth fast scrolling. */
 const OVERSCAN = 8;
+/**
+ * Height (px) of the sticky COLUMN header row (`TableHead` is `h-10` = 40px).
+ * The active swimlane header pins at exactly this offset so it sits flush below
+ * the column header instead of overlapping it. A constant (not measured) keeps
+ * this stable under jsdom (which has no layout engine) and matches the fixed
+ * `h-10` header height; if that header height ever changes this moves with it.
+ */
+const COLUMN_HEADER_HEIGHT = 40;
+/**
+ * z-index for the pinned (sticky) swimlane header: above the absolutely
+ * positioned body rows (which have no stacking z) yet strictly BELOW the column
+ * header's `z-10`, so the column header always wins where they meet.
+ */
+const STICKY_GROUP_Z = 5;
 /** Width (rem) of the always-present leading selection column. */
 const SELECT_COLUMN_WIDTH = "2.5rem";
 /** The same selection column width in px, for the `--table-width` total. */
@@ -723,7 +737,10 @@ function flattenRows(rows: WorkItemRow[], groupBy: GroupByField): FlatRow[] {
       kind: "group",
       label,
       count: items.length,
-      key: `group:${label}`,
+      // Scope the key by `groupBy` so collapse state (keyed on this) never bleeds
+      // across grouping dimensions — two same-label groups under different
+      // `groupBy` modes must not share a collapsed/expanded state.
+      key: `group:${groupBy}:${label}`,
       // Carry the group's visible item ids so its header can drive a
       // "select all in this group" checkbox over exactly these rows.
       ids: items.map((item) => item.id),
@@ -897,6 +914,47 @@ export function WorkboardTable({
     [rows, groupBy],
   );
 
+  // Collapsed swimlane keys (the group FlatRow's stable `key`). Collapsing a
+  // group hides its ITEM rows while keeping its header (which still carries the
+  // FULL `ids` + `count`, so per-group select-all and the count band are
+  // unaffected). `groupBy === "none"` emits no group headers, so nothing here
+  // can ever match — flat mode never collapses.
+  const [collapsedGroups, setCollapsedGroups] = React.useState<Set<string>>(
+    () => new Set(),
+  );
+  const toggleGroupCollapsed = React.useCallback((key: string) => {
+    // Always clone — never mutate the live state set in place.
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }, []);
+
+  // The rows actually fed to the virtualizer / keyboard-nav / selection index
+  // path: every group header, but a collapsed group's item rows are dropped.
+  // The virtualizer count, `virtualRow.index`, the active-cell resolution, and
+  // shift/range selection ALL index THIS list (never the full `flatRows`), so a
+  // collapse simply shortens it and every consumer stays consistent.
+  const visibleFlatRows = React.useMemo(() => {
+    if (collapsedGroups.size === 0) return flatRows;
+    const visible: FlatRow[] = [];
+    let collapsed = false;
+    for (const flat of flatRows) {
+      if (flat.kind === "group") {
+        collapsed = collapsedGroups.has(flat.key);
+        visible.push(flat);
+      } else if (!collapsed) {
+        visible.push(flat);
+      }
+    }
+    return visible;
+  }, [flatRows, collapsedGroups]);
+
   // The trailing "⋯" actions cell only renders when a mutator is wired (its
   // Archive action needs the patch path); read-only embeds keep their existing
   // column counts. Computed here (not after the early returns) so the resizable-
@@ -923,11 +981,51 @@ export function WorkboardTable({
     };
   }, [resetColumnWidthsRef, resetWidths]);
 
+  // --- Sticky swimlane headers (TanStack Virtual sticky pattern) -----------
+  // The indexes (into visibleFlatRows) of the group-header rows. Collapse-aware,
+  // since it derives from visibleFlatRows. Empty when groupBy === "none".
+  const stickyIndexes = React.useMemo(() => {
+    const indexes: number[] = [];
+    visibleFlatRows.forEach((flat, index) => {
+      if (flat.kind === "group") indexes.push(index);
+    });
+    return indexes;
+  }, [visibleFlatRows]);
+
+  // The group header currently scrolled through — the last header at or before
+  // the top of the rendered window. A rangeExtractor side-effect keeps it in the
+  // rendered set so it can pin while its items scroll under it; `null` means no
+  // header is active (empty grid / flat mode), so nothing is ever pinned.
+  const activeStickyIndexRef = React.useRef<number | null>(null);
+  const rangeExtractor = React.useCallback(
+    (range: { startIndex: number; endIndex: number; overscan: number; count: number }) => {
+      if (stickyIndexes.length === 0) {
+        activeStickyIndexRef.current = null;
+        return defaultRangeExtractor(range);
+      }
+      let active = stickyIndexes[0];
+      for (const index of stickyIndexes) {
+        if (index <= range.startIndex) {
+          active = index;
+        } else {
+          break;
+        }
+      }
+      activeStickyIndexRef.current = active;
+      // Force the active header into the rendered range (it may have scrolled
+      // out of the window). Sorted-unique → no duplicated/missing rows.
+      const next = new Set([active, ...defaultRangeExtractor(range)]);
+      return [...next].sort((a, b) => a - b);
+    },
+    [stickyIndexes],
+  );
+
   const rowVirtualizer = useVirtualizer({
-    count: flatRows.length,
+    count: visibleFlatRows.length,
     getScrollElement: () => containerRef.current,
     estimateSize: () => ROW_HEIGHT,
     overscan: OVERSCAN,
+    rangeExtractor,
   });
   const virtualItems = rowVirtualizer.getVirtualItems();
 
@@ -1006,13 +1104,13 @@ export function WorkboardTable({
   // back to a single toggle.
   const handleRowSelect = React.useCallback(
     (index: number) => {
-      const flat = flatRows[index];
+      const flat = visibleFlatRows[index];
       if (flat === undefined || flat.kind !== "item") return;
 
       const anchorId = anchorIdRef.current;
       const anchor =
         shiftKeyRef.current && anchorId !== null
-          ? flatRows.findIndex(
+          ? visibleFlatRows.findIndex(
               (candidate) =>
                 candidate.kind === "item" && candidate.row.id === anchorId,
             )
@@ -1023,7 +1121,7 @@ export function WorkboardTable({
         const end = Math.max(anchor, index);
         const next = new Set(selection);
         for (let i = start; i <= end; i += 1) {
-          const candidate = flatRows[i];
+          const candidate = visibleFlatRows[i];
           if (candidate?.kind === "item") next.add(candidate.row.id);
         }
         onSelectionChange(next);
@@ -1033,7 +1131,7 @@ export function WorkboardTable({
       toggleOne(flat.row.id);
       anchorIdRef.current = flat.row.id;
     },
-    [flatRows, onSelectionChange, selection, toggleOne],
+    [visibleFlatRows, onSelectionChange, selection, toggleOne],
   );
 
   // Selection column + every visible data column (+ the actions column, if
@@ -1052,8 +1150,8 @@ export function WorkboardTable({
   // Left/Right there is a no-op (both encoded in computeNextCell).
   const [activeCell, setActiveCell] = React.useState<CellCoord | null>(null);
   const activeResolved = React.useMemo(
-    () => resolveActiveCell(flatRows, activeCell, ariaColCount),
-    [flatRows, activeCell, ariaColCount],
+    () => resolveActiveCell(visibleFlatRows, activeCell, ariaColCount),
+    [visibleFlatRows, activeCell, ariaColCount],
   );
 
   // When a keyboard move changes the active coordinate we flag a pending focus;
@@ -1079,15 +1177,20 @@ export function WorkboardTable({
   // and scroll the destination row into the virtual window so its cell mounts.
   const moveActiveCell = React.useCallback(
     (command: NavCommand) => {
-      const current = resolveActiveCell(flatRows, activeCell, ariaColCount);
+      const current = resolveActiveCell(visibleFlatRows, activeCell, ariaColCount);
       if (current === null) return;
-      const next = computeNextCell(flatRows, ariaColCount, current, command);
+      const next = computeNextCell(
+        visibleFlatRows,
+        ariaColCount,
+        current,
+        command,
+      );
       setActiveCell(next);
       pendingFocusRef.current = true;
-      const index = flatRows.findIndex((row) => row.key === next.rowKey);
+      const index = visibleFlatRows.findIndex((row) => row.key === next.rowKey);
       if (index >= 0) rowVirtualizer.scrollToIndex(index);
     },
-    [activeCell, ariaColCount, flatRows, rowVirtualizer],
+    [activeCell, ariaColCount, visibleFlatRows, rowVirtualizer],
   );
 
   // Make a cell the roving tab stop when it (or a descendant control) is focused
@@ -1183,9 +1286,11 @@ export function WorkboardTable({
     );
   }
 
-  // 1-based row count for assistive tech: header row + every flat (group/item)
-  // row in the virtualized list, regardless of which are currently mounted.
-  const ariaRowCount = flatRows.length + 1;
+  // 1-based row count for assistive tech: header row + every VISIBLE flat
+  // (group/item) row in the virtualized list, regardless of which are currently
+  // mounted. A collapsed group's hidden items drop out, so the count reflects
+  // exactly what assistive tech can navigate to.
+  const ariaRowCount = visibleFlatRows.length + 1;
 
   return (
     <TooltipProvider>
@@ -1311,7 +1416,7 @@ export function WorkboardTable({
             }}
           >
             {virtualItems.map((virtualRow) => {
-              const flat = flatRows[virtualRow.index];
+              const flat = visibleFlatRows[virtualRow.index];
               const offsetStyle: React.CSSProperties = {
                 ...ROW_SPAN_STYLE,
                 position: "absolute",
@@ -1338,6 +1443,26 @@ export function WorkboardTable({
                 } else if (groupSome) {
                   groupState = "indeterminate";
                 }
+                const isCollapsed = collapsedGroups.has(flat.key);
+                // Pin the group currently scrolled through directly below the
+                // sticky column header. The active sticky header swaps its
+                // absolute virtualization transform for `position: sticky` (no
+                // transform) at the column-header offset — the standard TanStack
+                // Virtual sticky pattern — while non-active headers keep the
+                // normal absolute body positioning. The width/min-width carried
+                // by ROW_SPAN_STYLE is preserved either way (resizable columns).
+                const isStickyActive =
+                  activeStickyIndexRef.current === virtualRow.index;
+                const groupRowStyle: React.CSSProperties = isStickyActive
+                  ? {
+                      ...ROW_SPAN_STYLE,
+                      position: "sticky",
+                      top: COLUMN_HEADER_HEIGHT,
+                      left: 0,
+                      zIndex: STICKY_GROUP_Z,
+                      display: "flex",
+                    }
+                  : offsetStyle;
                 return (
                   <TableRow
                     key={flat.key}
@@ -1350,7 +1475,7 @@ export function WorkboardTable({
                     // reads as a distinct divider in both light and dark themes
                     // (the old bg-muted/40 washed out against hovered rows).
                     className="border-y border-border bg-muted"
-                    style={offsetStyle}
+                    style={groupRowStyle}
                   >
                     <TableCell
                       role="gridcell"
@@ -1367,6 +1492,32 @@ export function WorkboardTable({
                         GRID_CELL_FOCUS,
                       )}
                     >
+                      {/* Disclosure toggle: collapses/expands this swimlane.
+                          Icon-only with an action label so the header's
+                          label/count text assertions stay clean. stopPropagation
+                          so it never bubbles to row-level handlers. */}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        aria-label={
+                          isCollapsed
+                            ? `Expand ${flat.label}`
+                            : `Collapse ${flat.label}`
+                        }
+                        aria-expanded={!isCollapsed}
+                        className="size-5 shrink-0 text-muted-foreground"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          toggleGroupCollapsed(flat.key);
+                        }}
+                      >
+                        {isCollapsed ? (
+                          <ChevronRight className="size-4" />
+                        ) : (
+                          <ChevronDown className="size-4" />
+                        )}
+                      </Button>
                       <Checkbox
                         aria-label={`Select all in ${flat.label}`}
                         checked={groupState}
