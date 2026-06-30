@@ -747,7 +747,7 @@ describe("WorkboardScreen", () => {
     fireEvent.keyDown(screen.getByRole("button", { name: "Saved views" }), {
       key: "ArrowDown",
     });
-    fireEvent.click(await screen.findByRole("button", { name: "Auth only" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Auth only" }));
 
     // The config's search now narrows the table to its single match…
     await waitFor(() => {
@@ -779,7 +779,7 @@ describe("WorkboardScreen", () => {
       key: "ArrowDown",
     });
     fireEvent.click(
-      await screen.findByRole("button", { name: "Delete view Auth only" }),
+      await screen.findByRole("menuitem", { name: "Delete view Auth only" }),
     );
 
     await waitFor(() => {
@@ -804,7 +804,7 @@ describe("WorkboardScreen", () => {
       key: "ArrowDown",
     });
     expect(
-      await screen.findByRole("button", { name: "Restored lane" }),
+      await screen.findByRole("menuitem", { name: "Restored lane" }),
     ).toBeInTheDocument();
   });
 });

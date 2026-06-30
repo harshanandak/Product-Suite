@@ -487,17 +487,17 @@ describe("WorkboardToolbar", () => {
     renderToolbar({ savedViews: SAVED_VIEWS });
     openMenu("Saved views");
     expect(
-      await screen.findByRole("button", { name: "Execute lane" }),
+      await screen.findByRole("menuitem", { name: "Execute lane" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "All done" }),
+      screen.getByRole("menuitem", { name: "All done" }),
     ).toBeInTheDocument();
   });
 
   it("applies a saved view when its row is clicked", async () => {
     const { onApplyView } = renderToolbar({ savedViews: SAVED_VIEWS });
     openMenu("Saved views");
-    fireEvent.click(await screen.findByRole("button", { name: "Execute lane" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Execute lane" }));
     expect(onApplyView).toHaveBeenCalledTimes(1);
     expect(onApplyView).toHaveBeenCalledWith(SAVED_VIEWS[0]);
   });
@@ -508,7 +508,7 @@ describe("WorkboardToolbar", () => {
     });
     openMenu("Saved views");
     fireEvent.click(
-      await screen.findByRole("button", { name: "Delete view Execute lane" }),
+      await screen.findByRole("menuitem", { name: "Delete view Execute lane" }),
     );
     expect(onDeleteView).toHaveBeenCalledTimes(1);
     expect(onDeleteView).toHaveBeenCalledWith("v1");

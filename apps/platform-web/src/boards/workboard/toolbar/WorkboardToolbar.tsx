@@ -578,9 +578,11 @@ export function WorkboardToolbar({
       </DropdownMenu>
 
       {/* Saved / named views (Rank 8b) — the "Saved views" menu lists every
-          saved view (apply on click, delete via the trash affordance), and the
-          sibling "Save current view" button opens the name dialog. The apply
-          and delete controls are SIBLING buttons, so deleting can never also
+          saved view (apply via its row, delete via the trash affordance), and the
+          sibling "Save current view" button opens the name dialog. Apply and
+          delete are both `DropdownMenuItem`s so they join the menu's roving
+          arrow-key focus (a plain button inside `DropdownMenuContent` is NOT
+          keyboard-reachable). They are SEPARATE items, so deleting can never also
           apply (no propagation to fight). */}
       <DropdownMenu open={viewsMenuOpen} onOpenChange={setViewsMenuOpen}>
         <DropdownMenuTrigger asChild>
@@ -598,33 +600,29 @@ export function WorkboardToolbar({
             </p>
           ) : (
             savedViews.map((saved) => (
-              <div
-                key={saved.id}
-                className="flex items-center gap-1 px-1 py-0.5"
-              >
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="min-w-0 flex-1 justify-start truncate font-normal"
-                  onClick={() => {
-                    // Close the (modal) menu before applying so the rest of the
-                    // toolbar is no longer aria-hidden behind it.
-                    setViewsMenuOpen(false);
+              <div key={saved.id} className="flex items-center gap-1">
+                <DropdownMenuItem
+                  className="min-w-0 flex-1 truncate"
+                  onSelect={() => {
+                    // Selecting an item closes the (modal) menu via onOpenChange,
+                    // so the rest of the toolbar is no longer aria-hidden.
                     onApplyView(saved);
                   }}
                 >
                   {saved.name}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
+                </DropdownMenuItem>
+                <DropdownMenuItem
                   aria-label={`Delete view ${saved.name}`}
-                  onClick={() => {
+                  className="text-muted-foreground"
+                  onSelect={(event) => {
+                    // Keep the menu open after a delete so several views can be
+                    // removed in a row.
+                    event.preventDefault();
                     onDeleteView(saved.id);
                   }}
                 >
                   <Trash2Icon />
-                </Button>
+                </DropdownMenuItem>
               </div>
             ))
           )}
