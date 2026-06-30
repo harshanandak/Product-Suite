@@ -1262,4 +1262,228 @@ describe("WorkboardTable", () => {
       window.localStorage.getItem("workboard.table.colw.v1.name"),
     ).toBeNull();
   });
+
+  // --- Grid keyboard navigation (roving tabindex) -------------------------
+
+  /** Every body gridcell (header cells are `columnheader`, not `gridcell`). */
+  function gridcells(): HTMLElement[] {
+    return screen.getAllByRole("gridcell");
+  }
+  /** The gridcells currently in the tab order (roving → expected to be one). */
+  function tabbableGridcells(): HTMLElement[] {
+    return gridcells().filter((c) => c.getAttribute("tabindex") === "0");
+  }
+  /** The single active (tabbable) gridcell; throws if not exactly one. */
+  function activeGridcell(): HTMLElement {
+    const tabbable = tabbableGridcells();
+    expect(tabbable).toHaveLength(1);
+    return tabbable[0];
+  }
+  /** The active cell's coordinate: row index lives on the row, col on the cell. */
+  function activeCoord(): { row: string | null; col: string | null } {
+    const cell = activeGridcell();
+    return {
+      row: cell.closest('[role="row"]')?.getAttribute("aria-rowindex") ?? null,
+      col: cell.getAttribute("aria-colindex"),
+    };
+  }
+  /** Press a key on whichever cell currently holds the roving tab stop. */
+  function pressOnActive(key: string, init: object = {}): void {
+    fireEvent.keyDown(activeGridcell(), { key, ...init });
+  }
+
+  it("starts with exactly one tabbable gridcell at the first data cell", async () => {
+    const rows = await loadRows();
+    renderTable({ rows, groupBy: "none" });
+    await screen.findAllByTestId("work-item-row");
+
+    // Roving tabindex: precisely one cell is in the tab order on mount — the
+    // first data row's first navigable column (the selection cell, aria-colindex
+    // 1, aria-rowindex 2 after the header row at index 1).
+    expect(activeCoord()).toEqual({ row: "2", col: "1" });
+    // Every other gridcell is removed from the tab order.
+    for (const cell of gridcells()) {
+      if (cell !== activeGridcell()) {
+        expect(cell).toHaveAttribute("tabindex", "-1");
+      }
+    }
+  });
+
+  it("moves the roving tab stop to a focused cell", async () => {
+    const rows = await loadRows();
+    renderTable({ rows, groupBy: "none" });
+    await screen.findAllByTestId("work-item-row");
+
+    // Focusing a different cell makes it the sole tabbable one (focus follows).
+    const target = gridcells().find(
+      (c) =>
+        c.closest('[role="row"]')?.getAttribute("aria-rowindex") === "3" &&
+        c.getAttribute("aria-colindex") === "4",
+    );
+    if (!target) throw new Error("target cell missing");
+    fireEvent.focus(target);
+
+    expect(tabbableGridcells()).toEqual([target]);
+  });
+
+  it("ArrowRight/ArrowLeft move one column and clamp at the row's ends", async () => {
+    const rows = await loadRows();
+    renderTable({ rows, groupBy: "none" });
+    await screen.findAllByTestId("work-item-row");
+
+    // ArrowLeft at the first column clamps (no wrap).
+    pressOnActive("ArrowLeft");
+    expect(activeCoord().col).toBe("1");
+    // ArrowRight advances one column.
+    pressOnActive("ArrowRight");
+    expect(activeCoord().col).toBe("2");
+    pressOnActive("ArrowRight");
+    expect(activeCoord().col).toBe("3");
+  });
+
+  it("End/Home jump to the row's last/first cell and ArrowRight clamps at the end", async () => {
+    const rows = await loadRows();
+    renderTable({ rows, groupBy: "none" });
+    await screen.findAllByTestId("work-item-row");
+
+    // No mutator → no actions column, so the last navigable col is selection (1)
+    // + 8 data columns = aria-colindex 9.
+    pressOnActive("End");
+    expect(activeCoord().col).toBe("9");
+    pressOnActive("ArrowRight");
+    expect(activeCoord().col).toBe("9");
+    pressOnActive("Home");
+    expect(activeCoord().col).toBe("1");
+  });
+
+  it("ArrowDown/ArrowUp move one row, preserve the column, and clamp at the top", async () => {
+    const rows = await loadRows();
+    renderTable({ rows, groupBy: "none" });
+    await screen.findAllByTestId("work-item-row");
+
+    // ArrowUp at the top row clamps.
+    pressOnActive("ArrowUp");
+    expect(activeCoord().row).toBe("2");
+    // Move to column 2, then ArrowDown carries the column to the next row.
+    pressOnActive("ArrowRight");
+    pressOnActive("ArrowDown");
+    expect(activeCoord()).toEqual({ row: "3", col: "2" });
+    // DOM focus actually FOLLOWS the active coordinate — the virtualization-aware
+    // layout effect moved focus to the destination cell, not just its tabindex.
+    expect(document.activeElement).toBe(activeGridcell());
+  });
+
+  it("Ctrl+End and Ctrl+Home jump to the grid's last and first navigable cell", async () => {
+    const rows = await loadRows(); // 10 items, flat → aria-rowindex 2..11
+    renderTable({ rows, groupBy: "none" });
+    await screen.findAllByTestId("work-item-row");
+
+    pressOnActive("End", { ctrlKey: true });
+    expect(activeCoord()).toEqual({ row: "11", col: "9" });
+    pressOnActive("Home", { ctrlKey: true });
+    expect(activeCoord()).toEqual({ row: "2", col: "1" });
+  });
+
+  it("collapses the column to the group header's checkbox when moving onto a group row", async () => {
+    const rows = await loadRows();
+    renderTable({ rows, groupBy: "department" });
+    await screen.findAllByTestId("work-item-row");
+
+    // First cell is the first swimlane header's col-1 (its select-all checkbox).
+    expect(activeCoord()).toEqual({ row: "2", col: "1" });
+    // Down onto the first item, then right to a data column.
+    pressOnActive("ArrowDown");
+    expect(activeCoord().row).toBe("3");
+    for (let i = 0; i < 4; i += 1) pressOnActive("ArrowRight");
+    expect(activeCoord().col).toBe("5");
+    // Up onto the group header collapses the column back to 1 (the checkbox).
+    pressOnActive("ArrowUp");
+    expect(activeCoord()).toEqual({ row: "2", col: "1" });
+  });
+
+  it("Enter on the selection cell toggles the row via its checkbox", async () => {
+    const rows = await loadRows();
+    const onSelectionChange = vi.fn();
+    renderTable({ rows, groupBy: "none", onSelectionChange });
+    await screen.findAllByTestId("work-item-row");
+
+    // The initial active cell IS the first row's selection cell (col 1); Enter
+    // activates its primary control (the checkbox) → a controlled toggle.
+    pressOnActive("Enter");
+    expect(onSelectionChange).toHaveBeenCalledTimes(1);
+    expect([...onSelectionChange.mock.calls[0][0]]).toEqual([rows[0].id]);
+  });
+
+  it("Enter on the Name cell opens the row via its title button", async () => {
+    const rows = await loadRows();
+    const onSelectItem = vi.fn();
+    renderTable({ rows, groupBy: "none", onSelectItem });
+    await screen.findAllByTestId("work-item-row");
+
+    pressOnActive("ArrowRight"); // → Name column (col 2)
+    expect(activeCoord().col).toBe("2");
+    pressOnActive("Enter");
+    expect(onSelectItem).toHaveBeenCalledTimes(1);
+    expect(onSelectItem.mock.calls[0][0]).toMatchObject({ id: rows[0].id });
+  });
+
+  it("Space on an editable cell focuses its inline control", async () => {
+    const rows = await loadRows();
+    renderTable({ rows, groupBy: "none", onUpdateItem: makeUpdateMock(rows) });
+    await screen.findAllByTestId("work-item-row");
+
+    // Navigate to the Phase column (selection 1 · name 2 · type 3 · phase 4).
+    pressOnActive("ArrowRight");
+    pressOnActive("ArrowRight");
+    pressOnActive("ArrowRight");
+    expect(activeCoord().col).toBe("4");
+    pressOnActive(" ");
+    // Activation moved focus into the cell's inline combobox (the editor).
+    const combobox = within(activeGridcell()).getByRole("combobox");
+    expect(document.activeElement).toBe(combobox);
+  });
+
+  it("Escape from inside a cell returns focus to the owning gridcell", async () => {
+    const rows = await loadRows();
+    renderTable({ rows, groupBy: "none" });
+    await screen.findAllByTestId("work-item-row");
+
+    // The Name title button stands in for an inner editor/control.
+    const titleButton = screen.getByRole("button", {
+      name: "Workspace auth hardening",
+    });
+    const cell = titleButton.closest('[role="gridcell"]');
+    titleButton.focus();
+    expect(document.activeElement).toBe(titleButton);
+
+    fireEvent.keyDown(titleButton, { key: "Escape" });
+    // Focus returns to the gridcell so arrow navigation resumes.
+    expect(document.activeElement).toBe(cell);
+  });
+
+  it("keeps the resize-handle keyboard and shift-click range-select working with cell nav active", async () => {
+    const rows = await loadRows();
+    const onSelectionChange = vi.fn();
+    renderTable({ rows, groupBy: "none", onSelectionChange });
+    const rowEls = await screen.findAllByTestId("work-item-row");
+
+    // Drive some cell navigation first so the roving state is engaged.
+    pressOnActive("ArrowDown");
+    pressOnActive("ArrowRight");
+
+    // The resize handle is a SEPARATE tab stop (role=separator) and still
+    // commits a keyboard width change — cell nav never hijacked it.
+    const handle = screen.getByRole("separator", { name: "Resize Name column" });
+    fireEvent.keyDown(handle, { key: "ArrowRight" });
+    expect(handle).toHaveAttribute("aria-valuenow", "272");
+
+    // Shift-click range-select (anchorIdRef) still unions the inclusive range.
+    const checkboxOf = (el: HTMLElement): HTMLElement =>
+      within(el).getByRole("checkbox");
+    fireEvent.click(checkboxOf(rowEls[0]));
+    onSelectionChange.mockClear();
+    fireEvent.click(checkboxOf(rowEls[2]), { shiftKey: true });
+    const next = onSelectionChange.mock.calls[0][0] as Set<string>;
+    expect(next.size).toBe(3);
+  });
 });
