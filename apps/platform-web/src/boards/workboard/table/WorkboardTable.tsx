@@ -145,6 +145,13 @@ export interface WorkItemTableProps {
    */
   onUpdateItem?: (id: string, patch: WorkItemPatch) => Promise<WorkItem>;
   /**
+   * Ids of rows with an optimistic edit currently IN FLIGHT (mirrors the hook's
+   * `pendingIds`). Each such row's data cells get a transient pending cue
+   * (`aria-busy` + reduced emphasis) until the save settles or rolls back. Purely
+   * a display hint — it never gates editing. Defaults to an empty set.
+   */
+  pendingItemIds?: ReadonlySet<string>;
+  /**
    * Optional ref the parent reads to trigger a GLOBAL column-width reset (the
    * toolbar's "Reset column widths" item). The table publishes its hook's
    * `reset` into `ref.current`; the parent invokes it without owning the state.
@@ -656,15 +663,10 @@ const COLUMN_SPECS: readonly ColumnSpec[] = [
     id: "source",
     header: "Source",
     width: "6.5rem",
-    // Tooltip surfaces the source name behind the otherwise icon-only chip.
-    render: ({ row }) => (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <ProvenanceChip source={row.source} />
-        </TooltipTrigger>
-        <TooltipContent>Source: {row.source}</TooltipContent>
-      </Tooltip>
-    ),
+    // The shared ProvenanceChip is self-describing — it always renders its source
+    // label as visible text — so a tooltip repeating that label would be pure
+    // redundancy.
+    render: ({ row }) => <ProvenanceChip source={row.source} />,
   },
 ];
 
@@ -896,6 +898,7 @@ export function WorkboardTable({
   onSelectionChange,
   onSelectItem,
   onUpdateItem,
+  pendingItemIds,
   resetColumnWidthsRef,
   columnFilters,
 }: Readonly<WorkItemTableProps>) {
@@ -1538,6 +1541,9 @@ export function WorkboardTable({
               const { row } = flat;
               const isSelected = selection.has(row.id);
               const isArchived = row.archived === true;
+              // Optimistic edit in flight: the row's data cells get a transient
+              // pending cue (aria-busy + reduced emphasis), cleared on settle.
+              const isPending = pendingItemIds?.has(row.id) === true;
               return (
                 <TableRow
                   key={flat.key}
@@ -1600,6 +1606,7 @@ export function WorkboardTable({
                       key={column.id}
                       role="gridcell"
                       aria-colindex={columnIndex + 2}
+                      aria-busy={isPending || undefined}
                       data-col-id={column.id}
                       tabIndex={isActiveCell(flat.key, columnIndex + 2) ? 0 : -1}
                       data-active-cell={
@@ -1618,6 +1625,9 @@ export function WorkboardTable({
                       // the 8px cell padding keeps the Name focus ring unclipped.
                       className={cn(
                         "overflow-hidden py-1.5 text-ellipsis",
+                        // Reduced emphasis while the row's optimistic edit saves;
+                        // animated so the cue settles smoothly on success/rollback.
+                        isPending && "opacity-60 transition-opacity",
                         GRID_CELL_FOCUS,
                       )}
                       style={dataColumnStyle(column.id)}

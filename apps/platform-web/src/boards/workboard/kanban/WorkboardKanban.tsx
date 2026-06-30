@@ -27,10 +27,6 @@ import {
   type Priority,
   ProvenanceChip,
   TagList,
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
   WorkItemTypeBadge,
   WORK_ITEM_TYPE_LABELS,
   WORK_ITEM_TYPE_ORDER,
@@ -454,12 +450,9 @@ function KanbanCard({ row, owners, draggable, onSelectItem }: KanbanCardProps) {
       </div>
       {row.tags.length > 0 ? <TagList tags={row.tags} max={CARD_TAG_MAX} /> : null}
       <div className="flex items-center justify-between gap-2">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <ProvenanceChip source={row.source} />
-          </TooltipTrigger>
-          <TooltipContent>Source: {row.source}</TooltipContent>
-        </Tooltip>
+        {/* The shared ProvenanceChip already renders its source label as visible
+            text, so it needs no tooltip to surface the source. */}
+        <ProvenanceChip source={row.source} />
         {isArchived ? (
           <span
             data-testid="kanban-archived-indicator"
@@ -691,16 +684,12 @@ export function WorkboardKanban({
     board
   );
 
-  return (
-    <TooltipProvider>
-      {rows.length === 0 ? (
-        <EmptyState
-          title="No work items"
-          description="Nothing matches the current filters yet."
-        />
-      ) : (
-        content
-      )}
-    </TooltipProvider>
+  return rows.length === 0 ? (
+    <EmptyState
+      title="No work items"
+      description="Nothing matches the current filters yet."
+    />
+  ) : (
+    content
   );
 }

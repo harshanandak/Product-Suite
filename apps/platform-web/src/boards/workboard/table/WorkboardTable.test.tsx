@@ -393,6 +393,100 @@ describe("WorkboardTable", () => {
     expect(row).toBeTruthy();
   });
 
+  it("renders the read-only Owner cell with the picker's avatar treatment + truncated name", async () => {
+    // No onUpdateItem → the Owner column takes its READ-ONLY path, which must
+    // mirror the editable AssigneePicker: an Avatar with fallback initials beside
+    // the (truncated) owner name. Locks parity so the read-only and editable
+    // owner displays never visually diverge.
+    const rows = await loadRows();
+    renderTable({ rows });
+
+    const row = (await screen.findAllByTestId("work-item-row")).find((node) =>
+      within(node).queryByRole("button", { name: "Workspace auth hardening" }),
+    );
+    expect(row).toBeDefined();
+    const ownerCell = (row as HTMLElement).querySelector(
+      '[data-col-id="owner"]',
+    );
+    expect(ownerCell).not.toBeNull();
+
+    // wi_auth → Amara Okafor (initials "AO"): same avatar fallback the picker
+    // renders, derived by the same initials rule.
+    const fallback = (ownerCell as HTMLElement).querySelector(
+      '[data-slot="avatar-fallback"]',
+    );
+    expect(fallback).not.toBeNull();
+    expect(fallback).toHaveTextContent("AO");
+
+    // The owner name renders in a truncating span so a long name clips inside the
+    // cell instead of bleeding into Due.
+    const name = within(ownerCell as HTMLElement).getByText("Amara Okafor");
+    expect(name).toHaveClass("truncate");
+  });
+
+  it("flags the cells of an in-flight (saving) row as busy and clears it on settle", async () => {
+    const rows = await loadRows();
+    const onUpdateItem = makeUpdateMock(rows);
+    const { props, rerender } = renderTable({
+      rows,
+      onUpdateItem,
+      pendingItemIds: new Set(["wi_auth"]),
+    });
+
+    const findAuthRow = async () =>
+      (await screen.findAllByTestId("work-item-row")).find((node) =>
+        within(node).queryByRole("button", { name: "Workspace auth hardening" }),
+      ) as HTMLElement;
+
+    // Mid-save: a data cell in wi_auth's row exposes the busy cue (aria-busy +
+    // reduced emphasis); a non-saving row stays clear.
+    const busyRow = await findAuthRow();
+    const busyCell = busyRow.querySelector(
+      '[role="gridcell"][aria-busy="true"]',
+    );
+    expect(busyCell).not.toBeNull();
+    expect(busyCell).toHaveClass("opacity-60");
+
+    // Settle: re-render with no pending ids → the cue is gone.
+    rerender(
+      <WorkboardTable {...props} pendingItemIds={new Set<string>()} />,
+    );
+    const settledRow = await findAuthRow();
+    expect(
+      settledRow.querySelector('[role="gridcell"][aria-busy="true"]'),
+    ).toBeNull();
+  });
+
+  it("renders the Source chip with no redundant tooltip plumbing", async () => {
+    const rows = await loadRows();
+    renderTable({ rows });
+
+    // Scope to wi_auth's row so the duplicate-source rows don't confuse the query.
+    const row = (await screen.findAllByTestId("work-item-row")).find((node) =>
+      within(node).queryByRole("button", { name: "Workspace auth hardening" }),
+    );
+    expect(row).toBeDefined();
+    const sourceCell = (row as HTMLElement).querySelector(
+      '[data-col-id="source"]',
+    );
+    expect(sourceCell).not.toBeNull();
+
+    // The self-describing chip still renders with its visible source label.
+    const chip = (sourceCell as HTMLElement).querySelector("[data-source]");
+    expect(chip).not.toBeNull();
+    expect(chip).toHaveTextContent("Manual");
+
+    // The redundant <Tooltip> wrapper is gone: no tooltip-trigger plumbing on the
+    // chip, no aria-describedby pointer, and no tooltip role anywhere in the cell.
+    expect(
+      (sourceCell as HTMLElement).querySelector('[data-slot="tooltip-trigger"]'),
+    ).toBeNull();
+    expect(chip).not.toHaveAttribute("aria-describedby");
+    expect(
+      (sourceCell as HTMLElement).querySelector('[role="tooltip"]'),
+    ).toBeNull();
+  });
+
   it("left-aligns the Due cell content (no whitespace river)", async () => {
     const rows = await loadRows();
     renderTable({ rows });
