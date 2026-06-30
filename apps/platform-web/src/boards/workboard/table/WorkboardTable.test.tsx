@@ -1684,4 +1684,41 @@ describe("WorkboardTable", () => {
     expect(onSelectionChange).toHaveBeenCalledTimes(1);
     expect([...onSelectionChange.mock.calls[0][0]]).toEqual([expectedId]);
   });
+
+  // --- Sticky swimlane headers (Rank 14b) ---------------------------------
+
+  it("pins the active group header with sticky positioning below the column header", async () => {
+    const rows = await loadRows();
+    renderTable({ rows, groupBy: "department" });
+
+    await screen.findAllByTestId("work-item-row");
+
+    // At scroll top the first swimlane (Engineering) is the active sticky header:
+    // it carries `position: sticky` (NOT the absolute transform of body rows),
+    // a positive `top` offset (it sits directly below the sticky column header),
+    // and a z-index above body rows but below the column header's z-10. jsdom
+    // can't verify real sticky paint, so this is a class/style-level assertion.
+    const eng = screen
+      .getAllByTestId("swimlane-group")
+      .find((node) => node.dataset.group === "Engineering");
+    expect(eng).toBeDefined();
+    expect(eng).toHaveStyle({ position: "sticky" });
+    const top = Number.parseInt(eng?.style.top ?? "", 10);
+    expect(top).toBeGreaterThan(0);
+    const zIndex = Number.parseInt(eng?.style.zIndex ?? "", 10);
+    expect(zIndex).toBeGreaterThan(0);
+    expect(zIndex).toBeLessThan(10);
+  });
+
+  it("does not stick any row when groupBy is none", async () => {
+    const rows = await loadRows();
+    renderTable({ rows, groupBy: "none" });
+
+    const rowEls = await screen.findAllByTestId("work-item-row");
+    // Flat mode has no group headers, so no row is ever pinned — every body row
+    // keeps the absolute virtualization positioning.
+    for (const el of rowEls) {
+      expect(el.style.position).toBe("absolute");
+    }
+  });
 });

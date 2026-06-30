@@ -1,6 +1,6 @@
 import * as React from "react";
 
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDown, ChevronRight, Copy, MoreHorizontal } from "lucide-react";
 
 import {
@@ -170,6 +170,20 @@ export interface WorkItemTableProps {
 const ROW_HEIGHT = 44;
 /** Extra rows rendered above/below the viewport to smooth fast scrolling. */
 const OVERSCAN = 8;
+/**
+ * Height (px) of the sticky COLUMN header row (`TableHead` is `h-10` = 40px).
+ * The active swimlane header pins at exactly this offset so it sits flush below
+ * the column header instead of overlapping it. A constant (not measured) keeps
+ * this stable under jsdom (which has no layout engine) and matches the fixed
+ * `h-10` header height; if that header height ever changes this moves with it.
+ */
+const COLUMN_HEADER_HEIGHT = 40;
+/**
+ * z-index for the pinned (sticky) swimlane header: above the absolutely
+ * positioned body rows (which have no stacking z) yet strictly BELOW the column
+ * header's `z-10`, so the column header always wins where they meet.
+ */
+const STICKY_GROUP_Z = 5;
 /** Width (rem) of the always-present leading selection column. */
 const SELECT_COLUMN_WIDTH = "2.5rem";
 /** The same selection column width in px, for the `--table-width` total. */
@@ -964,11 +978,51 @@ export function WorkboardTable({
     };
   }, [resetColumnWidthsRef, resetWidths]);
 
+  // --- Sticky swimlane headers (TanStack Virtual sticky pattern) -----------
+  // The indexes (into visibleFlatRows) of the group-header rows. Collapse-aware,
+  // since it derives from visibleFlatRows. Empty when groupBy === "none".
+  const stickyIndexes = React.useMemo(() => {
+    const indexes: number[] = [];
+    visibleFlatRows.forEach((flat, index) => {
+      if (flat.kind === "group") indexes.push(index);
+    });
+    return indexes;
+  }, [visibleFlatRows]);
+
+  // The group header currently scrolled through — the last header at or before
+  // the top of the rendered window. A rangeExtractor side-effect keeps it in the
+  // rendered set so it can pin while its items scroll under it; `null` means no
+  // header is active (empty grid / flat mode), so nothing is ever pinned.
+  const activeStickyIndexRef = React.useRef<number | null>(null);
+  const rangeExtractor = React.useCallback(
+    (range: { startIndex: number; endIndex: number; overscan: number; count: number }) => {
+      if (stickyIndexes.length === 0) {
+        activeStickyIndexRef.current = null;
+        return defaultRangeExtractor(range);
+      }
+      let active = stickyIndexes[0];
+      for (const index of stickyIndexes) {
+        if (index <= range.startIndex) {
+          active = index;
+        } else {
+          break;
+        }
+      }
+      activeStickyIndexRef.current = active;
+      // Force the active header into the rendered range (it may have scrolled
+      // out of the window). Sorted-unique → no duplicated/missing rows.
+      const next = new Set([active, ...defaultRangeExtractor(range)]);
+      return [...next].sort((a, b) => a - b);
+    },
+    [stickyIndexes],
+  );
+
   const rowVirtualizer = useVirtualizer({
     count: visibleFlatRows.length,
     getScrollElement: () => containerRef.current,
     estimateSize: () => ROW_HEIGHT,
     overscan: OVERSCAN,
+    rangeExtractor,
   });
   const virtualItems = rowVirtualizer.getVirtualItems();
 
@@ -1387,6 +1441,25 @@ export function WorkboardTable({
                   groupState = "indeterminate";
                 }
                 const isCollapsed = collapsedGroups.has(flat.key);
+                // Pin the group currently scrolled through directly below the
+                // sticky column header. The active sticky header swaps its
+                // absolute virtualization transform for `position: sticky` (no
+                // transform) at the column-header offset — the standard TanStack
+                // Virtual sticky pattern — while non-active headers keep the
+                // normal absolute body positioning. The width/min-width carried
+                // by ROW_SPAN_STYLE is preserved either way (resizable columns).
+                const isStickyActive =
+                  activeStickyIndexRef.current === virtualRow.index;
+                const groupRowStyle: React.CSSProperties = isStickyActive
+                  ? {
+                      ...ROW_SPAN_STYLE,
+                      position: "sticky",
+                      top: COLUMN_HEADER_HEIGHT,
+                      left: 0,
+                      zIndex: STICKY_GROUP_Z,
+                      display: "flex",
+                    }
+                  : offsetStyle;
                 return (
                   <TableRow
                     key={flat.key}
@@ -1399,7 +1472,7 @@ export function WorkboardTable({
                     // reads as a distinct divider in both light and dark themes
                     // (the old bg-muted/40 washed out against hovered rows).
                     className="border-y border-border bg-muted"
-                    style={offsetStyle}
+                    style={groupRowStyle}
                   >
                     <TableCell
                       role="gridcell"
