@@ -142,7 +142,7 @@ export interface WorkboardToolbarProps {
 
 /** Group-by options in canonical order — labels for the 5 {@link GroupByField}s. */
 const GROUP_BY_LABELS: Record<GroupByField, string> = {
-  none: "None",
+  none: "No grouping",
   department: "Department",
   phase: "Phase",
   priority: "Priority",
