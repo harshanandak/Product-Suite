@@ -393,6 +393,17 @@ describe("WorkboardTable", () => {
     expect(row).toBeTruthy();
   });
 
+  it("left-aligns the Due cell content (no whitespace river)", async () => {
+    const rows = await loadRows();
+    renderTable({ rows });
+
+    // The Due column's content is left-aligned like the other data cells —
+    // never right-aligned (which opened a whitespace "river" before Owner).
+    const due = await screen.findByText("Jul 10");
+    expect(due).toHaveClass("text-left");
+    expect(due).not.toHaveClass("text-right");
+  });
+
   it("fires onSelectItem when a row title is clicked", async () => {
     const rows = await loadRows();
     const onSelectItem = vi.fn();
