@@ -74,6 +74,34 @@ export function addTagValue(
   return [...tags, tag];
 }
 
+export interface TagAddState {
+  /** Resulting tags (a fresh array; equal to the input when `rejected`). */
+  tags: string[];
+  /**
+   * `true` when `raw` was blank/whitespace or a duplicate, so nothing was
+   * added — the signal the field uses to surface a lightweight invalid cue
+   * instead of silently swallowing the keystroke.
+   */
+  rejected: boolean;
+}
+
+/**
+ * Pure add-attempt classifier: like {@link addTagValue} but also reports whether
+ * the attempt was *rejected* (blank/whitespace or duplicate) so the field can
+ * give feedback rather than a silent no-op. Exported for DOM-free unit testing,
+ * matching this package's SSR-only test style.
+ */
+export function nextTagState(
+  tags: ReadonlyArray<string>,
+  raw: string,
+): TagAddState {
+  const tag = raw.trim();
+  if (tag === "" || tags.includes(tag)) {
+    return { tags: [...tags], rejected: true };
+  }
+  return { tags: [...tags, tag], rejected: false };
+}
+
 /** Pure tag-remove reducer: drops every occurrence of `tag`. */
 export function removeTagValue(
   tags: ReadonlyArray<string>,
@@ -141,11 +169,22 @@ function TagInput({
   className,
 }: Readonly<TagInputProps>) {
   const [draft, setDraft] = React.useState("");
+  // A rejected add (blank/whitespace or duplicate) flips this on to surface a
+  // lightweight cue (aria-invalid + a polite live-region message) instead of a
+  // silent no-op; it clears on the next valid input.
+  const [invalid, setInvalid] = React.useState(false);
+  const feedbackId = React.useId();
   const rootRef = React.useRef<HTMLDivElement>(null);
 
   const addTag = (raw: string) => {
-    const next = addTagValue(value, raw);
-    if (next.length !== value.length) onValueChange(next);
+    const result = nextTagState(value, raw);
+    if (result.rejected) {
+      // Keep the draft so the user sees what was rejected; flag the field.
+      setInvalid(true);
+      return;
+    }
+    onValueChange(result.tags);
+    setInvalid(false);
     setDraft("");
   };
 
@@ -218,13 +257,30 @@ function TagInput({
       <Input
         id={id}
         aria-label={ariaLabel}
+        aria-invalid={invalid || undefined}
+        aria-describedby={invalid ? feedbackId : undefined}
         value={draft}
         disabled={disabled}
         placeholder={placeholder}
-        onChange={(event) => setDraft(event.target.value)}
+        onChange={(event) => {
+          setDraft(event.target.value);
+          // Resuming typing is the start of the next (hopefully valid) input —
+          // clear the cue so it never lingers past the rejected keystroke.
+          if (invalid) setInvalid(false);
+        }}
         onKeyDown={handleKeyDown}
         className="h-6 flex-1 border-0 bg-transparent px-1 py-0 shadow-none focus-visible:border-0 focus-visible:ring-0 dark:bg-transparent"
       />
+      {/* Polite, screen-reader-only cue for a rejected (blank/duplicate) add. */}
+      <span
+        id={feedbackId}
+        data-slot="tag-input-feedback"
+        role="status"
+        aria-live="polite"
+        className="sr-only"
+      >
+        {invalid ? "Tag not added: blank or duplicate." : ""}
+      </span>
     </div>
   );
 }

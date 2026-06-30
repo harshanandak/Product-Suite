@@ -55,4 +55,26 @@ describe("ProvenanceChip", () => {
     expect(html).toContain("Meeting");
     expect(html).toContain("sr-only");
   });
+
+  // Regression-lock (Rank 20 Wave B, item 1 — "drop redundant source tooltip"):
+  // the chip is SELF-DESCRIBING — it renders its source as visible text, so it
+  // needs no hover Tooltip to surface the source. Lock that the chip emits no
+  // tooltip-trigger plumbing of its own (no Radix tooltip slot/state, no native
+  // `title`, no `aria-describedby`), so a consumer never needs to wrap it in a
+  // Tooltip just to convey the source. Audited as already-implemented in this
+  // shared component; the only redundant Tooltip wrappers live in app consumers
+  // (out of scope for packages/ui — see task deviations).
+  test("is self-describing: visible source text and no tooltip trigger plumbing", () => {
+    const html = renderToStaticMarkup(
+      createElement(ProvenanceChip, { source: "manual" }),
+    );
+    // The source reads as visible text — the reason a tooltip is redundant.
+    expect(html).toContain("Manual");
+    // No tooltip wiring emitted by the chip itself.
+    expect(html).not.toContain('data-slot="tooltip-trigger"');
+    expect(html).not.toContain("data-state=");
+    expect(html).not.toContain("aria-describedby");
+    expect(html).not.toContain("title=");
+    expect(html).not.toContain('role="tooltip"');
+  });
 });
