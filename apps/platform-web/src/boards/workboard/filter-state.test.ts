@@ -6,11 +6,16 @@ import {
   COLUMN_IDS,
   FILTER_OWNER_UNASSIGNED,
   FILTER_STORAGE_KEY,
+  SAVED_VIEWS_KEY,
   applyWorkboardFilters,
+  currentViewConfig,
   defaultWorkboardFilterState,
   parsePersistedView,
+  parseSavedViews,
   serializePersistedView,
+  serializeSavedViews,
   workboardDepartments,
+  type SavedView,
 } from "./filter-state";
 
 /** Minimal WorkItemRow factory for the pure-filter tests (health/counts inert). */
@@ -391,5 +396,188 @@ describe("workboardDepartments", () => {
 
   it("returns an empty array for no rows", () => {
     expect(workboardDepartments([])).toEqual([]);
+  });
+});
+
+describe("currentViewConfig", () => {
+  it("snapshots the persistable slice (search/groupBy/filters/columns/view)", () => {
+    const base = defaultWorkboardFilterState();
+    const filterState = {
+      ...base,
+      search: "auth",
+      groupBy: "phase" as const,
+      filters: {
+        type: new Set(["feature"] as const),
+        owner: new Set(["user_kenji"]),
+        department: new Set(["Engineering"]),
+        phase: new Set(["execute"] as const),
+        priority: new Set(["high"] as const),
+      },
+      visibleColumns: new Set(["name", "type"] as const),
+    };
+    const config = currentViewConfig({ filterState, view: "kanban" });
+    expect(config.search).toBe("auth");
+    expect(config.groupBy).toBe("phase");
+    expect(config.view).toBe("kanban");
+    expect(config.visibleColumns).toEqual(new Set(["name", "type"]));
+    expect(config.filters?.type).toEqual(new Set(["feature"]));
+    expect(config.filters?.priority).toEqual(new Set(["high"]));
+  });
+
+  it("never carries the selection into the config", () => {
+    const config = currentViewConfig({
+      filterState: {
+        ...defaultWorkboardFilterState(),
+        selection: new Set(["wi_auth", "wi_realtime"]),
+      },
+      view: "table",
+    });
+    expect(config).not.toHaveProperty("selection");
+    expect(JSON.stringify(config)).not.toContain("wi_auth");
+  });
+
+  it("clones the Sets so the snapshot never aliases live state", () => {
+    const filterState = defaultWorkboardFilterState();
+    const config = currentViewConfig({ filterState, view: "table" });
+    expect(config.filters?.type).not.toBe(filterState.filters.type);
+    expect(config.visibleColumns).not.toBe(filterState.visibleColumns);
+    // Mutating the live state after the snapshot must not change the config.
+    filterState.filters.type.add("bug");
+    expect(config.filters?.type.size).toBe(0);
+  });
+});
+
+describe("saved views (serialize ⇄ parse)", () => {
+  it("exposes a versioned storage key distinct from the filter key", () => {
+    expect(SAVED_VIEWS_KEY).toBe("workboard.savedViews.v1");
+    expect(SAVED_VIEWS_KEY).not.toBe(FILTER_STORAGE_KEY);
+  });
+
+  it("round-trips a list of saved views", () => {
+    const views: SavedView[] = [
+      {
+        id: "v1",
+        name: "My execute lane",
+        config: currentViewConfig({
+          filterState: {
+            ...defaultWorkboardFilterState(),
+            search: "auth",
+            groupBy: "phase",
+            filters: {
+              type: new Set(["feature", "bug"] as const),
+              owner: new Set([FILTER_OWNER_UNASSIGNED]),
+              department: new Set(["Engineering"]),
+              phase: new Set(["execute"] as const),
+              priority: new Set(["high"] as const),
+            },
+            visibleColumns: new Set(["name", "phase"] as const),
+          },
+          view: "kanban",
+        }),
+      },
+      {
+        id: "v2",
+        name: "All",
+        config: currentViewConfig({
+          filterState: defaultWorkboardFilterState(),
+          view: "table",
+        }),
+      },
+    ];
+
+    const restored = parseSavedViews(serializeSavedViews(views));
+    expect(restored).toHaveLength(2);
+    expect(restored[0]?.id).toBe("v1");
+    expect(restored[0]?.name).toBe("My execute lane");
+    expect(restored[0]?.config.search).toBe("auth");
+    expect(restored[0]?.config.groupBy).toBe("phase");
+    expect(restored[0]?.config.view).toBe("kanban");
+    expect(restored[0]?.config.filters?.type).toEqual(
+      new Set(["feature", "bug"]),
+    );
+    expect(restored[0]?.config.filters?.owner).toEqual(
+      new Set([FILTER_OWNER_UNASSIGNED]),
+    );
+    expect(restored[0]?.config.visibleColumns).toEqual(
+      new Set(["name", "phase"]),
+    );
+    expect(restored[1]?.id).toBe("v2");
+  });
+
+  it("tolerates malformed JSON / a null key (returns [])", () => {
+    expect(parseSavedViews("not json {{{")).toEqual([]);
+    expect(parseSavedViews(null)).toEqual([]);
+    expect(parseSavedViews("")).toEqual([]);
+  });
+
+  it("ignores a non-array payload", () => {
+    expect(parseSavedViews(JSON.stringify({ id: "x", name: "y" }))).toEqual([]);
+    expect(parseSavedViews("42")).toEqual([]);
+    expect(parseSavedViews("null")).toEqual([]);
+  });
+
+  it("drops entries missing a non-empty string name or id", () => {
+    const raw = JSON.stringify([
+      { id: "ok", name: "Keep me", config: {} },
+      { id: "", name: "No id", config: {} },
+      { id: "no-name", name: "   ", config: {} },
+      { id: "no-name-key", config: {} },
+      { name: "No id key", config: {} },
+      { id: 7, name: "Numeric id", config: {} },
+      "a bare string",
+      null,
+    ]);
+    const restored = parseSavedViews(raw);
+    expect(restored.map((view) => view.id)).toEqual(["ok"]);
+  });
+
+  it("sanitises a garbage embedded config instead of dropping the entry", () => {
+    const raw = JSON.stringify([
+      {
+        id: "v1",
+        name: "Stale view",
+        config: {
+          groupBy: "galaxy",
+          view: "spreadsheet",
+          visibleColumns: ["name", "bogus"],
+          filters: {
+            type: ["feature", "epic"],
+            phase: ["execute", "archived"],
+            priority: ["nope"],
+            owner: ["user_kenji"],
+            department: ["Engineering"],
+          },
+        },
+      },
+    ]);
+    const restored = parseSavedViews(raw);
+    // The entry SURVIVES (name + id valid) but its config is sanitised.
+    expect(restored).toHaveLength(1);
+    expect(restored[0]?.config.groupBy).toBeUndefined();
+    expect(restored[0]?.config.view).toBeUndefined();
+    expect(restored[0]?.config.visibleColumns).toEqual(new Set(["name"]));
+    expect(restored[0]?.config.filters?.type).toEqual(new Set(["feature"]));
+    expect(restored[0]?.config.filters?.phase).toEqual(new Set(["execute"]));
+    expect(restored[0]?.config.filters?.priority).toEqual(new Set());
+  });
+
+  it("never lets a selection leak into a saved config", () => {
+    const views: SavedView[] = [
+      {
+        id: "v1",
+        name: "Live state snapshot",
+        config: currentViewConfig({
+          filterState: {
+            ...defaultWorkboardFilterState(),
+            selection: new Set(["wi_auth"]),
+          },
+          view: "table",
+        }),
+      },
+    ];
+    const raw = serializeSavedViews(views);
+    expect(raw).not.toContain("selection");
+    expect(raw).not.toContain("wi_auth");
+    expect(parseSavedViews(raw)[0]?.config).not.toHaveProperty("selection");
   });
 });

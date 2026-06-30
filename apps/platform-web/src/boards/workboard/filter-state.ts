@@ -336,29 +336,71 @@ const GROUP_BY_VALUES = new Set<GroupByField>([
 const VIEW_VALUES = new Set<WorkboardView>(["table", "kanban"]);
 
 /**
+ * Snapshot the persistable slice of the live view state as a {@link PersistedView}
+ * OBJECT (the in-memory, `Set`-bearing form — NOT a JSON string). This is the
+ * shape a saved view stores under {@link SavedView.config}, and the same object
+ * {@link serializePersistedView} stringifies. {@link WorkboardFilterState.selection}
+ * is DELIBERATELY excluded (stale row ids must never travel with a config). PURE —
+ * clones every `Set` so the snapshot never aliases the live state's collections.
+ */
+export function currentViewConfig(input: {
+  filterState: WorkboardFilterState;
+  view: WorkboardView;
+}): PersistedView {
+  const { filterState, view } = input;
+  return {
+    search: filterState.search,
+    groupBy: filterState.groupBy,
+    filters: {
+      type: new Set(filterState.filters.type),
+      owner: new Set(filterState.filters.owner),
+      department: new Set(filterState.filters.department),
+      phase: new Set(filterState.filters.phase),
+      priority: new Set(filterState.filters.priority),
+    },
+    visibleColumns: new Set(filterState.visibleColumns),
+    view,
+  };
+}
+
+/**
+ * Convert a {@link PersistedView} object into its storable record — every `Set`
+ * becomes an array, and only PRESENT fields are emitted (so a partial config
+ * round-trips without spurious keys). Shared by {@link serializePersistedView}
+ * and {@link serializeSavedViews} so both write the exact same field shape.
+ */
+function persistedViewToStorable(config: PersistedView): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (config.search !== undefined) out.search = config.search;
+  if (config.groupBy !== undefined) out.groupBy = config.groupBy;
+  if (config.filters !== undefined) {
+    out.filters = {
+      type: [...config.filters.type],
+      owner: [...config.filters.owner],
+      department: [...config.filters.department],
+      phase: [...config.filters.phase],
+      priority: [...config.filters.priority],
+    };
+  }
+  if (config.visibleColumns !== undefined) {
+    out.visibleColumns = [...config.visibleColumns];
+  }
+  if (config.view !== undefined) out.view = config.view;
+  return out;
+}
+
+/**
  * Serialize the persistable slice of the view state to a JSON string for
  * {@link FILTER_STORAGE_KEY}. The five filter `Set`s and `visibleColumns` become
  * arrays; `selection` is NEVER written (see {@link PersistedView}). PURE — reads
- * only its argument and returns a string.
+ * only its argument and returns a string. Built from {@link currentViewConfig}
+ * (which always populates every field), so the output stays the full, ordered blob.
  */
 export function serializePersistedView(input: {
   filterState: WorkboardFilterState;
   view: WorkboardView;
 }): string {
-  const { filterState, view } = input;
-  return JSON.stringify({
-    search: filterState.search,
-    groupBy: filterState.groupBy,
-    filters: {
-      type: [...filterState.filters.type],
-      owner: [...filterState.filters.owner],
-      department: [...filterState.filters.department],
-      phase: [...filterState.filters.phase],
-      priority: [...filterState.filters.priority],
-    },
-    visibleColumns: [...filterState.visibleColumns],
-    view,
-  });
+  return JSON.stringify(persistedViewToStorable(currentViewConfig(input)));
 }
 
 /** Keep only the string members of an array; non-arrays yield an empty list. */
@@ -383,13 +425,64 @@ function enumSetOf<T extends string>(
 }
 
 /**
+ * Coerce/validate an UNKNOWN record into a {@link PersistedView}, keeping ONLY the
+ * fields that validate — unknown enum members are dropped, garbage/missing fields
+ * are omitted. A non-object input yields an empty `{}` (everything falls back).
+ * The `owner`/`department` facets are free-form ids/names, so they are kept as-is
+ * (string members only); `selection` is never read.
+ *
+ * Shared by {@link parsePersistedView} (the FILTER_STORAGE_KEY blob) and
+ * {@link parseSavedViews} (each saved view's embedded config), so a stale/garbage
+ * config is sanitised the same way rather than trusted.
+ */
+export function coercePersistedView(record: unknown): PersistedView {
+  const result: PersistedView = {};
+  if (typeof record !== "object" || record === null) return result;
+  const rec = record as Record<string, unknown>;
+
+  if (typeof rec.search === "string") {
+    result.search = rec.search;
+  }
+  if (
+    typeof rec.groupBy === "string" &&
+    GROUP_BY_VALUES.has(rec.groupBy as GroupByField)
+  ) {
+    result.groupBy = rec.groupBy as GroupByField;
+  }
+  if (
+    typeof rec.view === "string" &&
+    VIEW_VALUES.has(rec.view as WorkboardView)
+  ) {
+    result.view = rec.view as WorkboardView;
+  }
+  if (Array.isArray(rec.visibleColumns)) {
+    // Only restore a NON-empty validated set. An all-unknown array (e.g. after a
+    // future column rename without a key bump) collapses to an empty set — which
+    // is truthy and would survive the screen's `?? default` merge, leaving a
+    // table with zero data columns. Omitting it lets the all-visible default win.
+    const cols = enumSetOf(rec.visibleColumns, COLUMN_VALUES);
+    if (cols.size > 0) result.visibleColumns = cols;
+  }
+  if (typeof rec.filters === "object" && rec.filters !== null) {
+    const filters = rec.filters as Record<string, unknown>;
+    result.filters = {
+      type: enumSetOf(filters.type, TYPE_VALUES),
+      owner: new Set(stringArrayOf(filters.owner)),
+      department: new Set(stringArrayOf(filters.department)),
+      phase: enumSetOf(filters.phase, PHASE_VALUES),
+      priority: enumSetOf(filters.priority, PRIORITY_VALUES),
+    };
+  }
+
+  return result;
+}
+
+/**
  * Safe-parse a persisted view blob from storage. NEVER throws: malformed JSON, a
  * non-object payload, or a `null`/absent value all return `null` (behave as if
- * nothing was stored). Otherwise returns a {@link PersistedView} carrying ONLY the
- * fields that validated — unknown enum members are dropped, garbage/missing
- * fields are omitted (the caller merges what survives over the defaults). The
- * `owner`/`department` facets are free-form ids/names, so they are kept as-is
- * (string members only); `selection` is never read back.
+ * nothing was stored). Otherwise delegates to {@link coercePersistedView}, which
+ * returns a {@link PersistedView} carrying ONLY the fields that validated (the
+ * caller merges what survives over the defaults).
  */
 export function parsePersistedView(raw: string | null): PersistedView | null {
   if (raw === null) return null;
@@ -400,42 +493,73 @@ export function parsePersistedView(raw: string | null): PersistedView | null {
     return null;
   }
   if (typeof blob !== "object" || blob === null) return null;
-  const record = blob as Record<string, unknown>;
-  const result: PersistedView = {};
+  return coercePersistedView(blob);
+}
 
-  if (typeof record.search === "string") {
-    result.search = record.search;
-  }
-  if (
-    typeof record.groupBy === "string" &&
-    GROUP_BY_VALUES.has(record.groupBy as GroupByField)
-  ) {
-    result.groupBy = record.groupBy as GroupByField;
-  }
-  if (
-    typeof record.view === "string" &&
-    VIEW_VALUES.has(record.view as WorkboardView)
-  ) {
-    result.view = record.view as WorkboardView;
-  }
-  if (Array.isArray(record.visibleColumns)) {
-    // Only restore a NON-empty validated set. An all-unknown array (e.g. after a
-    // future column rename without a key bump) collapses to an empty set — which
-    // is truthy and would survive the screen's `?? default` merge, leaving a
-    // table with zero data columns. Omitting it lets the all-visible default win.
-    const cols = enumSetOf(record.visibleColumns, COLUMN_VALUES);
-    if (cols.size > 0) result.visibleColumns = cols;
-  }
-  if (typeof record.filters === "object" && record.filters !== null) {
-    const filters = record.filters as Record<string, unknown>;
-    result.filters = {
-      type: enumSetOf(filters.type, TYPE_VALUES),
-      owner: new Set(stringArrayOf(filters.owner)),
-      department: new Set(stringArrayOf(filters.department)),
-      phase: enumSetOf(filters.phase, PHASE_VALUES),
-      priority: enumSetOf(filters.priority, PRIORITY_VALUES),
-    };
-  }
+/**
+ * Single versioned localStorage key for the named/saved view LIST — a separate key
+ * from {@link FILTER_STORAGE_KEY} (which holds the single last-applied config), so
+ * the two persistence concerns never collide. `v1` lets a future schema bump
+ * ignore old payloads cleanly.
+ */
+export const SAVED_VIEWS_KEY = "workboard.savedViews.v1";
 
+/**
+ * One named, user-saved Workboard view: a stable {@link id}, a display {@link name},
+ * and the {@link PersistedView} {@link config} captured when it was saved (selection
+ * is intentionally NOT part of a config). Applying a saved view hydrates the live
+ * filter state from `config`; deleting removes it by `id`.
+ */
+export interface SavedView {
+  /** Stable, collision-free id (generated at save time; survives reloads). */
+  id: string;
+  /** User-supplied display name (non-empty). */
+  name: string;
+  /** The snapshotted view configuration (see {@link currentViewConfig}). */
+  config: PersistedView;
+}
+
+/**
+ * Serialize a list of saved views to a JSON string for {@link SAVED_VIEWS_KEY}.
+ * Each view's `config` is reduced to its storable record (every `Set` → array)
+ * via the SAME builder {@link serializePersistedView} uses, so configs round-trip
+ * identically. PURE — reads only its argument.
+ */
+export function serializeSavedViews(views: SavedView[]): string {
+  return JSON.stringify(
+    views.map((view) => ({
+      id: view.id,
+      name: view.name,
+      config: persistedViewToStorable(view.config),
+    })),
+  );
+}
+
+/**
+ * Safe-parse the saved-views list from storage. NEVER throws: malformed JSON, a
+ * `null`/absent value, or a non-array payload all yield `[]`. Each entry is kept
+ * only when it carries a non-empty string `id` AND a non-empty (trimmed) string
+ * `name`; its `config` is run through {@link coercePersistedView} so a stale or
+ * garbage embedded config is SANITISED (unknown enums dropped) rather than trusted
+ * — an otherwise-valid entry is never dropped just because its config is junk.
+ */
+export function parseSavedViews(raw: string | null): SavedView[] {
+  if (raw === null) return [];
+  let blob: unknown;
+  try {
+    blob = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(blob)) return [];
+  const result: SavedView[] = [];
+  for (const entry of blob) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const rec = entry as Record<string, unknown>;
+    const { id, name } = rec;
+    if (typeof id !== "string" || id === "") continue;
+    if (typeof name !== "string" || name.trim() === "") continue;
+    result.push({ id, name, config: coercePersistedView(rec.config) });
+  }
   return result;
 }

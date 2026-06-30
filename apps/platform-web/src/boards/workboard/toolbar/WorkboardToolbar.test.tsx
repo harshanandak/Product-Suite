@@ -6,10 +6,18 @@ import type { Owner, WorkItemPatch } from "@/data/work-items";
 import {
   defaultWorkboardFilterState,
   type ColumnId,
+  type SavedView,
   type WorkboardFilterState,
 } from "../filter-state";
 import type { ColumnFilter } from "../table/WorkboardTable";
 import { WorkboardToolbar } from "./WorkboardToolbar";
+
+/** jsdom has no ResizeObserver; the Save-view Radix Dialog needs one to mount. */
+class ResizeObserverStub {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
 
 /**
  * Radix DropdownMenu / Select (which back the toolbar's facet menus and the
@@ -24,6 +32,7 @@ beforeAll(() => {
   Element.prototype.setPointerCapture ??= () => {};
   Element.prototype.releasePointerCapture ??= () => {};
   Element.prototype.scrollIntoView ??= () => {};
+  globalThis.ResizeObserver ??= ResizeObserverStub;
 });
 
 afterAll(() => {
@@ -46,11 +55,15 @@ function renderToolbar(overrides?: {
   selectedCount?: number;
   view?: "table" | "kanban";
   columnFilters?: Partial<Record<ColumnId, ColumnFilter>>;
+  savedViews?: ReadonlyArray<SavedView>;
 }) {
   const onChange = vi.fn<(next: WorkboardFilterState) => void>();
   const onNewItem = vi.fn();
   const onBulkApply = vi.fn<(patch: WorkItemPatch) => void>();
   const onViewChange = vi.fn<(view: "table" | "kanban") => void>();
+  const onApplyView = vi.fn<(view: SavedView) => void>();
+  const onSaveView = vi.fn<(name: string) => void>();
+  const onDeleteView = vi.fn<(id: string) => void>();
   const value: WorkboardFilterState = {
     ...defaultWorkboardFilterState(),
     ...overrides?.value,
@@ -68,6 +81,10 @@ function renderToolbar(overrides?: {
       onNewItem={onNewItem}
       onBulkApply={onBulkApply}
       columnFilters={overrides?.columnFilters}
+      savedViews={overrides?.savedViews ?? []}
+      onApplyView={onApplyView}
+      onSaveView={onSaveView}
+      onDeleteView={onDeleteView}
     />,
   );
 
@@ -76,6 +93,9 @@ function renderToolbar(overrides?: {
     onNewItem,
     onBulkApply,
     onViewChange,
+    onApplyView,
+    onSaveView,
+    onDeleteView,
     /** The state object from the most recent `onChange` call. */
     lastChange: (): WorkboardFilterState =>
       onChange.mock.calls.at(-1)?.[0] as WorkboardFilterState,
@@ -448,5 +468,71 @@ describe("WorkboardToolbar", () => {
     const { lastChange } = renderToolbar({ value, selectedCount: 2 });
     fireEvent.click(screen.getByRole("button", { name: "Clear selection" }));
     expect(lastChange().selection.size).toBe(0);
+  });
+
+  // --- Saved / named views (Rank 8b) -------------------------------------
+
+  const SAVED_VIEWS: ReadonlyArray<SavedView> = [
+    { id: "v1", name: "Execute lane", config: { search: "auth" } },
+    { id: "v2", name: "All done", config: { groupBy: "phase" } },
+  ];
+
+  it("shows an empty state when no views are saved", async () => {
+    renderToolbar();
+    openMenu("Saved views");
+    expect(await screen.findByText("No saved views yet")).toBeInTheDocument();
+  });
+
+  it("lists every saved view in the Saved views menu", async () => {
+    renderToolbar({ savedViews: SAVED_VIEWS });
+    openMenu("Saved views");
+    expect(
+      await screen.findByRole("menuitem", { name: "Execute lane" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("menuitem", { name: "All done" }),
+    ).toBeInTheDocument();
+  });
+
+  it("applies a saved view when its row is clicked", async () => {
+    const { onApplyView } = renderToolbar({ savedViews: SAVED_VIEWS });
+    openMenu("Saved views");
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Execute lane" }));
+    expect(onApplyView).toHaveBeenCalledTimes(1);
+    expect(onApplyView).toHaveBeenCalledWith(SAVED_VIEWS[0]);
+  });
+
+  it("deletes a saved view by id WITHOUT applying it", async () => {
+    const { onApplyView, onDeleteView } = renderToolbar({
+      savedViews: SAVED_VIEWS,
+    });
+    openMenu("Saved views");
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Delete view Execute lane" }),
+    );
+    expect(onDeleteView).toHaveBeenCalledTimes(1);
+    expect(onDeleteView).toHaveBeenCalledWith("v1");
+    // Deleting must never double as applying.
+    expect(onApplyView).not.toHaveBeenCalled();
+  });
+
+  it("saves the current view under a typed (trimmed) name", async () => {
+    const { onSaveView } = renderToolbar();
+    fireEvent.click(screen.getByRole("button", { name: "Save current view" }));
+    const input = await screen.findByRole("textbox", { name: "View name" });
+    fireEvent.change(input, { target: { value: "  Execute lane  " } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(onSaveView).toHaveBeenCalledTimes(1);
+    expect(onSaveView).toHaveBeenCalledWith("Execute lane");
+  });
+
+  it("cannot save a view with an empty name", async () => {
+    const { onSaveView } = renderToolbar();
+    fireEvent.click(screen.getByRole("button", { name: "Save current view" }));
+    const save = await screen.findByRole("button", { name: "Save" });
+    // The Save button is disabled until a non-empty name is typed.
+    expect(save).toBeDisabled();
+    fireEvent.click(save);
+    expect(onSaveView).not.toHaveBeenCalled();
   });
 });

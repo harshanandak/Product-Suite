@@ -22,15 +22,21 @@ import {
 import { WorkItemEditor } from "./editor/WorkItemEditor";
 import {
   FILTER_STORAGE_KEY,
+  SAVED_VIEWS_KEY,
   applyWorkboardFilters,
   buildFacetOptions,
+  currentViewConfig,
   defaultWorkboardFilterState,
   parsePersistedView,
+  parseSavedViews,
   serializePersistedView,
+  serializeSavedViews,
   toggledSet,
   workboardDepartments,
   type ColumnId,
   type PersistedView,
+  type SavedView,
+  type WorkboardFilterState,
   type WorkboardView,
 } from "./filter-state";
 import { WorkboardKanban } from "./kanban/WorkboardKanban";
@@ -63,6 +69,69 @@ function readPersistedView(): PersistedView | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Read the RAW saved-views blob from localStorage. NEVER throws (SSR + privacy
+ * mode), mirroring {@link readPersistedView}; the caller pipes the result through
+ * {@link parseSavedViews}, which tolerates `null` and malformed payloads.
+ */
+function readSavedViews(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(SAVED_VIEWS_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Hydrate a full {@link WorkboardFilterState} from a {@link PersistedView} config:
+ * each present field wins over a fresh {@link defaultWorkboardFilterState}, the
+ * `Set`s are CLONED (so a long-lived saved-view config is never aliased/mutated),
+ * and `selection` is FORCED empty — stale row ids must never ride along with a
+ * restored or applied config. Shared by the mount initializer (#48) and
+ * {@link WorkboardScreen}'s apply-saved-view handler so both rehydrate identically.
+ */
+function hydrateFilterState(config: PersistedView): WorkboardFilterState {
+  const base = defaultWorkboardFilterState();
+  return {
+    search: config.search ?? base.search,
+    groupBy: config.groupBy ?? base.groupBy,
+    filters: config.filters
+      ? {
+          type: new Set(config.filters.type),
+          owner: new Set(config.filters.owner),
+          department: new Set(config.filters.department),
+          phase: new Set(config.filters.phase),
+          priority: new Set(config.filters.priority),
+        }
+      : base.filters,
+    visibleColumns: config.visibleColumns
+      ? new Set(config.visibleColumns)
+      : base.visibleColumns,
+    selection: base.selection,
+  };
+}
+
+/** Fallback counter for environments without `crypto.randomUUID` (rare). */
+let fallbackViewIdCounter = 0;
+
+/**
+ * Generate a STABLE, collision-free id for a new saved view. Prefers the browser's
+ * `crypto.randomUUID()` (present in every modern browser + jsdom); where it is
+ * absent, falls back to a monotonic counter that is bumped past any id already in
+ * `existing`, so it never collides — and never uses `Date.now()`/`Math.random()`.
+ */
+function generateViewId(existing: ReadonlyArray<SavedView>): string {
+  const cryptoObj = globalThis.crypto;
+  if (cryptoObj && typeof cryptoObj.randomUUID === "function") {
+    return cryptoObj.randomUUID();
+  }
+  const taken = new Set(existing.map((view) => view.id));
+  let id = `view-${(fallbackViewIdCounter += 1)}`;
+  while (taken.has(id)) id = `view-${(fallbackViewIdCounter += 1)}`;
+  return id;
 }
 
 /**
@@ -127,17 +196,18 @@ export function WorkboardScreen({
   // render already shows the restored state instead of flashing defaults.
   // `selection` is FORCED empty: stale row ids must never survive a reload.
   const [filterState, setFilterState] = useState(() => {
-    const base = defaultWorkboardFilterState();
     const persisted = readPersistedView();
-    if (persisted === null) return base;
-    return {
-      search: persisted.search ?? base.search,
-      groupBy: persisted.groupBy ?? base.groupBy,
-      filters: persisted.filters ?? base.filters,
-      visibleColumns: persisted.visibleColumns ?? base.visibleColumns,
-      selection: base.selection,
-    };
+    return persisted === null
+      ? defaultWorkboardFilterState()
+      : hydrateFilterState(persisted);
   });
+
+  // The user's saved/named views (Rank 8b). Lazily hydrated from a SEPARATE
+  // localStorage key (SAVED_VIEWS_KEY) on mount — independent of the single
+  // last-applied config the #48 effect persists to FILTER_STORAGE_KEY.
+  const [savedViews, setSavedViews] = useState<SavedView[]>(() =>
+    parseSavedViews(readSavedViews()),
+  );
 
   // Department facet options + the already-filtered rows, both derived from the
   // live items. The Table renders exactly `rows`; it never filters.
@@ -392,6 +462,49 @@ export function WorkboardScreen({
     }
   }, [filterState, view]);
 
+  // Persist the saved-views list to its own key on every change. Separate from
+  // the #48 effect above (different key, different concern), guarded for SSR +
+  // privacy-mode throws the same way.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(
+        SAVED_VIEWS_KEY,
+        serializeSavedViews(savedViews),
+      );
+    } catch {
+      /* ignore quota / privacy-mode throws — the list still lives in memory */
+    }
+  }, [savedViews]);
+
+  // Snapshot the CURRENT view config under a name and append it. The id is stable
+  // and collision-free (crypto.randomUUID, guarded) — never Date.now/Math.random.
+  // currentViewConfig excludes selection, so a saved view never carries row ids.
+  const handleSaveView = useCallback(
+    (name: string): void => {
+      const config = currentViewConfig({ filterState, view });
+      setSavedViews((views) => [
+        ...views,
+        { id: generateViewId(views), name, config },
+      ]);
+    },
+    [filterState, view],
+  );
+
+  // Apply a saved view: rehydrate the live filter state from its config (the
+  // shared #48 hydrate path, selection forced empty) and restore its board view
+  // (defaulting to the CURRENT view when the config has none). Cloning inside
+  // hydrateFilterState means applying never mutates the stored saved view.
+  const handleApplyView = useCallback((saved: SavedView): void => {
+    setFilterState(hydrateFilterState(saved.config));
+    setView((current) => saved.config.view ?? current);
+  }, []);
+
+  // Remove a saved view by id; the persist effect mirrors the new list to storage.
+  const handleDeleteView = useCallback((id: string): void => {
+    setSavedViews((views) => views.filter((view) => view.id !== id));
+  }, []);
+
   // The table owns its column-width state (in useColumnWidths); it publishes its
   // reset into this ref so the toolbar's "Reset column widths" item can fire it.
   const resetColumnWidthsRef = useRef<(() => void) | null>(null);
@@ -455,6 +568,10 @@ export function WorkboardScreen({
           view === "table" ? handleResetColumnWidths : undefined
         }
         columnFilters={columnFilters}
+        savedViews={savedViews}
+        onApplyView={handleApplyView}
+        onSaveView={handleSaveView}
+        onDeleteView={handleDeleteView}
       />
 
       {noItems ? (
