@@ -304,6 +304,11 @@ describe("WorkboardTable", () => {
     expect(classes).toContain("pointer-coarse:opacity-100");
     expect(classes).toContain("group-hover:opacity-100");
     expect(classes).toContain("focus-visible:opacity-100");
+    // Bumped to a larger tap target on coarse pointers (capped at the 32px row
+    // content budget); the compact rest size is kept for fine pointers.
+    expect(classes).toContain("pointer-coarse:size-8");
+    // The fine-pointer rest size survives the merge (no mouse-device regression).
+    expect(classes).toContain("size-6");
   });
 
   it("keeps the row-actions trigger visible on coarse-pointer (touch) devices", async () => {
@@ -323,6 +328,11 @@ describe("WorkboardTable", () => {
     expect(classes).toContain("group-hover:opacity-100");
     expect(classes).toContain("focus-visible:opacity-100");
     expect(classes).toContain("data-[state=open]:opacity-100");
+    // Bumped to a larger tap target on coarse pointers (capped at the 32px row
+    // content budget); the compact rest size is kept for fine pointers.
+    expect(classes).toContain("pointer-coarse:size-8");
+    // The fine-pointer rest size survives the merge (no mouse-device regression).
+    expect(classes).toContain("size-7");
   });
 
   it("renders every wireframe column header in canonical order", async () => {

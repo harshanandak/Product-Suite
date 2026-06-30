@@ -332,9 +332,15 @@ const INLINE_SELECT_CLASS = cn(
  * `opacity-0` — invisible and unusable. `pointer-coarse:opacity-100`
  * (`@media (pointer: coarse)`) keeps these controls always visible on touch,
  * while fine-pointer (mouse) devices keep the hover-reveal exactly as before.
+ *
+ * On coarse pointers the tap target is also bumped to `size-8` (32px) — the
+ * compact `size-6`/`size-7` rest sizes are comfortable under a mouse but small
+ * for a finger. 32px is the ceiling here: the row content budget is 32px
+ * (ROW_HEIGHT 44 − `py-1.5`), so a taller control would overflow the row slot
+ * and overlap the virtualized neighbour. Fine pointers keep the compact size.
  */
 const HOVER_REVEAL_CLASS =
-  "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100";
+  "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100 pointer-coarse:size-8";
 
 /** Inline Tags summary: chips shown at rest before the rest collapse to `+N`. */
 const TAGS_SUMMARY_MAX = 3;
