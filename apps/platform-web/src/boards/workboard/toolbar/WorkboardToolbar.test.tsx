@@ -359,6 +359,17 @@ describe("WorkboardToolbar", () => {
     expect(lastChange().groupBy).toBe("phase");
   });
 
+  it("labels the no-grouping option 'No grouping' (not 'None')", async () => {
+    renderToolbar();
+    openMenu("Group by");
+    expect(
+      await screen.findByRole("menuitemradio", { name: "No grouping" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("menuitemradio", { name: "None" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("toggles a column off via the columns menu", async () => {
     const { lastChange } = renderToolbar();
     openMenu("Columns");
