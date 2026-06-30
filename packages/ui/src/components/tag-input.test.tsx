@@ -7,6 +7,7 @@ import {
   TagList,
   addTagValue,
   blurLeavesField,
+  nextTagState,
   removeTagValue,
 } from "./tag-input";
 
@@ -28,6 +29,37 @@ describe("addTagValue", () => {
   test("ignores a duplicate (case-sensitive)", () => {
     expect(addTagValue(["a", "b"], "a")).toEqual(["a", "b"]);
     expect(addTagValue(["a"], "A")).toEqual(["a", "A"]);
+  });
+});
+
+describe("nextTagState", () => {
+  test("accepts a new (trimmed) tag", () => {
+    expect(nextTagState(["a"], "  b  ")).toEqual({
+      tags: ["a", "b"],
+      rejected: false,
+    });
+  });
+
+  test("rejects a blank/whitespace tag (adds nothing)", () => {
+    expect(nextTagState(["a"], "   ")).toEqual({ tags: ["a"], rejected: true });
+    expect(nextTagState(["a"], "")).toEqual({ tags: ["a"], rejected: true });
+  });
+
+  test("rejects a duplicate tag (adds nothing)", () => {
+    expect(nextTagState(["a", "b"], "a")).toEqual({
+      tags: ["a", "b"],
+      rejected: true,
+    });
+  });
+
+  test("agrees with addTagValue on the resulting tag array", () => {
+    for (const [tags, raw] of [
+      [["a"], "b"],
+      [["a"], "a"],
+      [["a"], "  "],
+    ] as const) {
+      expect(nextTagState(tags, raw).tags).toEqual(addTagValue(tags, raw));
+    }
   });
 });
 
@@ -103,6 +135,23 @@ describe("TagInput", () => {
     expect(html).toContain("<button");
     // The draft text input carries the field's accessible name.
     expect(html).toContain('aria-label="Tags"');
+  });
+
+  test("wires a polite live region for blank/duplicate feedback, quiet at rest", () => {
+    const html = renderToStaticMarkup(
+      createElement(TagInput, {
+        value: ["supplier"],
+        onValueChange: noop,
+        "aria-label": "Tags",
+      }),
+    );
+    // An assertive-but-quiet status region exists so a rejected (blank/dup) add
+    // can announce a lightweight cue without a layout-shifting visible banner.
+    expect(html).toContain('data-slot="tag-input-feedback"');
+    expect(html).toContain('role="status"');
+    expect(html).toContain('aria-live="polite"');
+    // At rest (no rejected add) the field is valid: no aria-invalid asserted.
+    expect(html).not.toContain('aria-invalid="true"');
   });
 
   test("disables the remove buttons and input when disabled", () => {
