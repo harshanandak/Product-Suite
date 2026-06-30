@@ -27,7 +27,6 @@ import {
   type Priority,
   ProvenanceChip,
   TagList,
-  TooltipProvider,
   WorkItemTypeBadge,
   WORK_ITEM_TYPE_LABELS,
   WORK_ITEM_TYPE_ORDER,
@@ -685,16 +684,12 @@ export function WorkboardKanban({
     board
   );
 
-  return (
-    <TooltipProvider>
-      {rows.length === 0 ? (
-        <EmptyState
-          title="No work items"
-          description="Nothing matches the current filters yet."
-        />
-      ) : (
-        content
-      )}
-    </TooltipProvider>
+  return rows.length === 0 ? (
+    <EmptyState
+      title="No work items"
+      description="Nothing matches the current filters yet."
+    />
+  ) : (
+    content
   );
 }
