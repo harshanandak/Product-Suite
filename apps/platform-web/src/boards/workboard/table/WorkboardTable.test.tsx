@@ -393,6 +393,37 @@ describe("WorkboardTable", () => {
     expect(row).toBeTruthy();
   });
 
+  it("renders the read-only Owner cell with the picker's avatar treatment + truncated name", async () => {
+    // No onUpdateItem → the Owner column takes its READ-ONLY path, which must
+    // mirror the editable AssigneePicker: an Avatar with fallback initials beside
+    // the (truncated) owner name. Locks parity so the read-only and editable
+    // owner displays never visually diverge.
+    const rows = await loadRows();
+    renderTable({ rows });
+
+    const row = (await screen.findAllByTestId("work-item-row")).find((node) =>
+      within(node).queryByRole("button", { name: "Workspace auth hardening" }),
+    );
+    expect(row).toBeDefined();
+    const ownerCell = (row as HTMLElement).querySelector(
+      '[data-col-id="owner"]',
+    );
+    expect(ownerCell).not.toBeNull();
+
+    // wi_auth → Amara Okafor (initials "AO"): same avatar fallback the picker
+    // renders, derived by the same initials rule.
+    const fallback = (ownerCell as HTMLElement).querySelector(
+      '[data-slot="avatar-fallback"]',
+    );
+    expect(fallback).not.toBeNull();
+    expect(fallback).toHaveTextContent("AO");
+
+    // The owner name renders in a truncating span so a long name clips inside the
+    // cell instead of bleeding into Due.
+    const name = within(ownerCell as HTMLElement).getByText("Amara Okafor");
+    expect(name).toHaveClass("truncate");
+  });
+
   it("renders the Source chip with no redundant tooltip plumbing", async () => {
     const rows = await loadRows();
     renderTable({ rows });
