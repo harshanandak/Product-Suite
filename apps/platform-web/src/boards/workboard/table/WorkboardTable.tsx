@@ -315,6 +315,11 @@ const INLINE_SELECT_CLASS = cn(
   "[&>svg]:absolute [&>svg]:top-1/2 [&>svg]:right-2 [&>svg]:-translate-y-1/2",
   // Fade it in on ROW hover / focus-within so the cell is discoverable as editable.
   "group-hover:[&>svg]:opacity-50 group-focus-within:[&>svg]:opacity-50",
+  // No-hover / coarse-pointer (touch) devices never fire `group-hover`, so the
+  // chevron would stay invisible there — keep it always revealed via the
+  // coarse-pointer media variant (`@media (pointer: coarse)`). Fine-pointer
+  // (mouse) devices keep the hover-reveal above exactly as-is.
+  "pointer-coarse:[&>svg]:opacity-50",
 );
 
 /** Inline Tags summary: chips shown at rest before the rest collapse to `+N`. */

@@ -265,6 +265,29 @@ describe("WorkboardTable", () => {
     }
   });
 
+  it("keeps the inline-select chevron visible on coarse-pointer (touch) devices", async () => {
+    const rows = await loadRows();
+    renderTable({ rows, onUpdateItem: makeUpdateMock(rows) });
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+
+    // On no-hover / coarse-pointer devices the `group-hover` reveal never fires,
+    // so the chevron must also be unveiled via the coarse-pointer media variant —
+    // ALONGSIDE (not replacing) the fine-pointer hover reveal asserted above.
+    for (const column of ["Type", "Phase", "Priority"]) {
+      const trigger = screen.getByRole("combobox", {
+        name: `${column} for Workspace auth hardening`,
+      });
+      const classes = trigger.className.split(" ");
+      expect(classes).toContain("pointer-coarse:[&>svg]:opacity-50");
+      // Fine-pointer hover reveal is preserved exactly.
+      expect(classes).toContain("group-hover:[&>svg]:opacity-50");
+      expect(classes).toContain("group-focus-within:[&>svg]:opacity-50");
+    }
+  });
+
   it("renders every wireframe column header in canonical order", async () => {
     const rows = await loadRows();
     renderTable({ rows });
