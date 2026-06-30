@@ -737,7 +737,10 @@ function flattenRows(rows: WorkItemRow[], groupBy: GroupByField): FlatRow[] {
       kind: "group",
       label,
       count: items.length,
-      key: `group:${label}`,
+      // Scope the key by `groupBy` so collapse state (keyed on this) never bleeds
+      // across grouping dimensions — two same-label groups under different
+      // `groupBy` modes must not share a collapsed/expanded state.
+      key: `group:${groupBy}:${label}`,
       // Carry the group's visible item ids so its header can drive a
       // "select all in this group" checkbox over exactly these rows.
       ids: items.map((item) => item.id),
