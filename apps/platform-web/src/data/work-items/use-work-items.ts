@@ -63,6 +63,14 @@ export interface UseWorkItemsResult {
    */
   update: (id: string, patch: WorkItemPatch) => Promise<WorkItem>;
   /**
+   * Ids of work items with an optimistic {@link update} currently IN FLIGHT
+   * (saving). An id is added synchronously when `update` is called and removed
+   * once the repository settles — on BOTH success and rollback — so views can
+   * paint a transient pending cue without owning any timing. Purely additive: it
+   * never alters the optimistic succeeded/failed/rollback semantics above.
+   */
+  pendingIds: ReadonlySet<string>;
+  /**
    * Create a new work item through the repository, optimistically prepend it to
    * local state, and return the created record. Unlike {@link update} there is no
    * rollback branch: the id is generated repository-side, so there is no prior
@@ -134,6 +142,10 @@ export function useWorkItems(
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  // Ids of work items with an optimistic update currently in flight (saving).
+  const [pendingIds, setPendingIds] = useState<ReadonlySet<string>>(
+    () => new Set<string>(),
+  );
 
   // Mirror the latest committed work items so `update` can capture the
   // pre-edit record SYNCHRONOUSLY (React defers the functional setState
@@ -211,6 +223,12 @@ export function useWorkItems(
       setWorkItems((current) =>
         current.map((item) => (item.id === id ? { ...item, ...patch } : item)),
       );
+      // Mark the row as saving (additive — does not touch the edit semantics).
+      setPendingIds((current) => {
+        const next = new Set(current);
+        next.add(id);
+        return next;
+      });
 
       try {
         const saved = await repository.update(id, patch);
@@ -229,6 +247,17 @@ export function useWorkItems(
           );
         }
         throw cause;
+      } finally {
+        // Clear the saving cue on BOTH settle paths (success + rollback) so a
+        // failed write never leaves the row stuck looking busy.
+        if (mountedRef.current) {
+          setPendingIds((current) => {
+            if (!current.has(id)) return current;
+            const next = new Set(current);
+            next.delete(id);
+            return next;
+          });
+        }
       }
     },
     [repository],
@@ -302,6 +331,7 @@ export function useWorkItems(
     loading,
     error,
     update,
+    pendingIds,
     create,
     addDependency,
     removeDependency,

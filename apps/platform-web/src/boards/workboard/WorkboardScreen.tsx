@@ -167,7 +167,7 @@ export function WorkboardScreen({
     () => repository ?? getDefaultRepository(),
   );
 
-  const { items, owners, loading, error, update, create, refetch } =
+  const { items, owners, loading, error, update, pendingIds, create, refetch } =
     useWorkItems({ repository: repo });
 
   // Tasks for the editor (derived health + the read-only task list). Loaded once;
@@ -547,6 +547,7 @@ export function WorkboardScreen({
         onSelectionChange={handleSelectionChange}
         onSelectItem={handleSelectItem}
         onUpdateItem={update}
+        pendingItemIds={pendingIds}
         resetColumnWidthsRef={resetColumnWidthsRef}
         columnFilters={columnFilters}
       />

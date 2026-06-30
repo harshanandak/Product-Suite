@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createMockWorkItemRepository } from "./repository";
 import type { WorkItemRepository } from "./repository";
+import type { WorkItem } from "./types";
 import { useWorkItems } from "./use-work-items";
 
 describe("useWorkItems", () => {
@@ -82,6 +83,66 @@ describe("useWorkItems", () => {
 
     const reverted = result.current.items.find((item) => item.id === target.id);
     expect(reverted?.phase).toBe(originalPhase);
+  });
+
+  it("exposes the saving item id via pendingIds while an update is in flight, then clears it on success", async () => {
+    const base = createMockWorkItemRepository();
+    let resolveUpdate: ((item: WorkItem) => void) | undefined;
+    const deferred = new Promise<WorkItem>((resolve) => {
+      resolveUpdate = resolve;
+    });
+    const repository: WorkItemRepository = {
+      ...base,
+      update: vi.fn().mockReturnValue(deferred),
+    };
+
+    const { result } = renderHook(() => useWorkItems({ repository }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const target = result.current.items[0];
+    expect(result.current.pendingIds.has(target.id)).toBe(false);
+
+    let updatePromise!: Promise<WorkItem>;
+    act(() => {
+      updatePromise = result.current.update(target.id, { phase: "done" });
+    });
+
+    // Mid-save: the affected id is exposed as pending.
+    expect(result.current.pendingIds.has(target.id)).toBe(true);
+
+    await act(async () => {
+      resolveUpdate?.({ ...target, phase: "done" });
+      await updatePromise;
+    });
+
+    // Settled: the pending cue is cleared.
+    expect(result.current.pendingIds.has(target.id)).toBe(false);
+    // Optimistic semantics are unchanged — the saved value lands.
+    expect(
+      result.current.items.find((item) => item.id === target.id)?.phase,
+    ).toBe("done");
+  });
+
+  it("clears the pending id after a rejected (rolled-back) update", async () => {
+    const base = createMockWorkItemRepository();
+    const failing: WorkItemRepository = {
+      ...base,
+      update: vi.fn().mockRejectedValue(new Error("write failed")),
+    };
+
+    const { result } = renderHook(() => useWorkItems({ repository: failing }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const target = result.current.items[0];
+
+    await act(async () => {
+      await expect(
+        result.current.update(target.id, { phase: "done" }),
+      ).rejects.toThrow("write failed");
+    });
+
+    // Rollback path also clears the pending cue (no stuck spinners).
+    expect(result.current.pendingIds.has(target.id)).toBe(false);
   });
 
   it("surfaces a load error and recovers on refetch", async () => {

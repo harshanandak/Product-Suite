@@ -424,6 +424,39 @@ describe("WorkboardTable", () => {
     expect(name).toHaveClass("truncate");
   });
 
+  it("flags the cells of an in-flight (saving) row as busy and clears it on settle", async () => {
+    const rows = await loadRows();
+    const onUpdateItem = makeUpdateMock(rows);
+    const { props, rerender } = renderTable({
+      rows,
+      onUpdateItem,
+      pendingItemIds: new Set(["wi_auth"]),
+    });
+
+    const findAuthRow = async () =>
+      (await screen.findAllByTestId("work-item-row")).find((node) =>
+        within(node).queryByRole("button", { name: "Workspace auth hardening" }),
+      ) as HTMLElement;
+
+    // Mid-save: a data cell in wi_auth's row exposes the busy cue (aria-busy +
+    // reduced emphasis); a non-saving row stays clear.
+    const busyRow = await findAuthRow();
+    const busyCell = busyRow.querySelector(
+      '[role="gridcell"][aria-busy="true"]',
+    );
+    expect(busyCell).not.toBeNull();
+    expect(busyCell).toHaveClass("opacity-60");
+
+    // Settle: re-render with no pending ids → the cue is gone.
+    rerender(
+      <WorkboardTable {...props} pendingItemIds={new Set<string>()} />,
+    );
+    const settledRow = await findAuthRow();
+    expect(
+      settledRow.querySelector('[role="gridcell"][aria-busy="true"]'),
+    ).toBeNull();
+  });
+
   it("renders the Source chip with no redundant tooltip plumbing", async () => {
     const rows = await loadRows();
     renderTable({ rows });
