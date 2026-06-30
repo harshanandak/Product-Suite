@@ -475,6 +475,27 @@ describe("WorkboardTable", () => {
     });
   });
 
+  it("reveals every inline-editable cell's affordance via one unified token", async () => {
+    const rows = await loadRows();
+    const onUpdateItem = makeUpdateMock(rows);
+    renderTable({ rows, onUpdateItem });
+
+    // The single shared ghost-reveal token (INLINE_SELECT_CLASS): the chevron is
+    // hidden at rest and fades in on row hover / focus, with the same coarse-
+    // pointer fallback. Every inline-editable select cell must carry the SAME
+    // token (DRY) so the affordance is identical across columns.
+    const REVEAL_HOVER = "group-hover:[&>svg]:opacity-50";
+    const REVEAL_COARSE = "any-pointer-coarse:[&>svg]:opacity-50";
+
+    for (const field of ["Type", "Phase", "Priority", "Owner"]) {
+      const combobox = await screen.findByRole("combobox", {
+        name: `${field} for Workspace auth hardening`,
+      });
+      expect(combobox).toHaveClass(REVEAL_HOVER);
+      expect(combobox).toHaveClass(REVEAL_COARSE);
+    }
+  });
+
   it("calls onUpdateItem when a tag is added inline", async () => {
     const rows = await loadRows();
     const onUpdateItem = makeUpdateMock(rows);
