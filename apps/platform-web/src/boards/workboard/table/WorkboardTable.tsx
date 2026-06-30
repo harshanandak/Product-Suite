@@ -322,6 +322,20 @@ const INLINE_SELECT_CLASS = cn(
   "pointer-coarse:[&>svg]:opacity-50",
 );
 
+/**
+ * Progressive-disclosure reveal for the per-row icon buttons (the Name cell's
+ * Copy button and the trailing row-actions "⋯" trigger): hidden at rest, faded
+ * in on ROW hover and on keyboard `focus-visible`.
+ *
+ * `group-hover` is gated behind `@media (hover: hover)`, so on no-hover /
+ * coarse-pointer (touch) devices it never fires and the control would stay at
+ * `opacity-0` — invisible and unusable. `pointer-coarse:opacity-100`
+ * (`@media (pointer: coarse)`) keeps these controls always visible on touch,
+ * while fine-pointer (mouse) devices keep the hover-reveal exactly as before.
+ */
+const HOVER_REVEAL_CLASS =
+  "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100";
+
 /** Inline Tags summary: chips shown at rest before the rest collapse to `+N`. */
 const TAGS_SUMMARY_MAX = 3;
 
@@ -455,7 +469,7 @@ const COLUMN_SPECS: readonly ColumnSpec[] = [
               variant="ghost"
               size="icon"
               aria-label="Copy title"
-              className="size-6 shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+              className={cn("size-6 shrink-0", HOVER_REVEAL_CLASS)}
               onClick={(event) => {
                 event.stopPropagation();
                 void navigator.clipboard?.writeText(row.title);
@@ -788,7 +802,13 @@ function RowActionsCell({
               variant="ghost"
               size="icon"
               aria-label={`Actions for ${row.title}`}
-              className="size-7 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+              className={cn(
+                "size-7",
+                HOVER_REVEAL_CLASS,
+                // Stay visible while the menu is open, even after the pointer
+                // leaves the row.
+                "data-[state=open]:opacity-100",
+              )}
               onClick={(event) => {
                 event.stopPropagation();
               }}

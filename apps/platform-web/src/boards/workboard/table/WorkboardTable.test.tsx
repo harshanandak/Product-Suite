@@ -288,6 +288,43 @@ describe("WorkboardTable", () => {
     }
   });
 
+  it("keeps the Name cell Copy button visible on coarse-pointer (touch) devices", async () => {
+    const rows = await loadRows();
+    renderTable({ rows, onUpdateItem: makeUpdateMock(rows) });
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+
+    // The Copy button's label is title-agnostic, so every row exposes one; the
+    // reveal class is identical on each, so assert against the first.
+    const [copy] = screen.getAllByRole("button", { name: "Copy title" });
+    const classes = copy.className.split(" ");
+    // Always revealed on touch; hover + keyboard-focus reveals preserved.
+    expect(classes).toContain("pointer-coarse:opacity-100");
+    expect(classes).toContain("group-hover:opacity-100");
+    expect(classes).toContain("focus-visible:opacity-100");
+  });
+
+  it("keeps the row-actions trigger visible on coarse-pointer (touch) devices", async () => {
+    const rows = await loadRows();
+    renderTable({ rows, onUpdateItem: makeUpdateMock(rows) });
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+
+    const trigger = screen.getByRole("button", {
+      name: "Actions for Workspace auth hardening",
+    });
+    const classes = trigger.className.split(" ");
+    // Always revealed on touch; hover + keyboard-focus + open reveals preserved.
+    expect(classes).toContain("pointer-coarse:opacity-100");
+    expect(classes).toContain("group-hover:opacity-100");
+    expect(classes).toContain("focus-visible:opacity-100");
+    expect(classes).toContain("data-[state=open]:opacity-100");
+  });
+
   it("renders every wireframe column header in canonical order", async () => {
     const rows = await loadRows();
     renderTable({ rows });
