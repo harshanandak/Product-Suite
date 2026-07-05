@@ -7,6 +7,11 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import {
+  WORK_ITEM_SOURCE_LABELS,
+  type WorkItemSource,
+} from "@product-suite/contracts";
+
 import { cn } from "../lib/cn";
 
 /**
@@ -15,15 +20,13 @@ import { cn } from "../lib/cn";
  * "Source" column in the plan table
  * (`docs/design/user-flow-wireframes.html` lines 377/384, which enumerates the
  * four sources with their icons).
+ *
+ * `WorkItemSource` and `WORK_ITEM_SOURCE_LABELS` are the framework-neutral
+ * single source of truth in `@product-suite/contracts`; re-exported here so
+ * existing UI consumers are unaffected.
  */
-export type WorkItemSource = "manual" | "meeting" | "agent" | "feedback";
-
-export const WORK_ITEM_SOURCE_LABELS: Record<WorkItemSource, string> = {
-  manual: "Manual",
-  meeting: "Meeting",
-  agent: "Agent",
-  feedback: "Feedback",
-};
+export type { WorkItemSource };
+export { WORK_ITEM_SOURCE_LABELS };
 
 /** Per-source lucide icon (the wireframe's Tabler icons mapped to lucide). */
 const WORK_ITEM_SOURCE_ICONS: Record<WorkItemSource, LucideIcon> = {

@@ -1,19 +1,20 @@
 import * as React from "react";
 
+import { STATUS_LABELS, type TaskStatus } from "@product-suite/contracts";
+
 import { cn } from "../lib/cn";
 
 /**
  * Status pill (DESIGN §5 / §14). Status lives on TASKS and AGENT RUNS ONLY —
  * never on work items (those carry phase via `PhasePill`). Task status is the
  * fixed triad To-do / In progress / Completed.
+ *
+ * `TaskStatus` and `STATUS_LABELS` are the framework-neutral single source of
+ * truth in `@product-suite/contracts`; re-exported here so existing UI
+ * consumers are unaffected.
  */
-export type TaskStatus = "todo" | "in_progress" | "completed";
-
-export const STATUS_LABELS: Record<TaskStatus, string> = {
-  todo: "To-do",
-  in_progress: "In progress",
-  completed: "Completed",
-};
+export type { TaskStatus };
+export { STATUS_LABELS };
 
 const STATUS_STYLES: Record<TaskStatus, string> = {
   todo: "border border-border text-muted-foreground",

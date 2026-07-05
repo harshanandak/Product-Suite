@@ -7,6 +7,12 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import {
+  WORK_ITEM_TYPE_LABELS,
+  WORK_ITEM_TYPE_ORDER,
+  type WorkItemType,
+} from "@product-suite/contracts";
+
 import { cn } from "../lib/cn";
 
 /**
@@ -18,24 +24,14 @@ import { cn } from "../lib/cn";
  * enhancement`, but `task` is a DISTINCT object in the ladder (project → work
  * item → task, §1/§11) and cannot also be a work-item type, so it is dropped;
  * `enhancement` folds into `feature`. The canonical set is the
- * project-management quartet below.
+ * project-management quartet.
+ *
+ * `WorkItemType`, `WORK_ITEM_TYPE_LABELS`, and `WORK_ITEM_TYPE_ORDER` are the
+ * framework-neutral single source of truth in `@product-suite/contracts`;
+ * re-exported here so existing UI consumers are unaffected.
  */
-export type WorkItemType = "feature" | "bug" | "chore" | "research";
-
-export const WORK_ITEM_TYPE_LABELS: Record<WorkItemType, string> = {
-  feature: "Feature",
-  bug: "Bug",
-  chore: "Chore",
-  research: "Research",
-};
-
-/** Display order. Single source for selects/sorts. */
-export const WORK_ITEM_TYPE_ORDER: readonly WorkItemType[] = [
-  "feature",
-  "bug",
-  "chore",
-  "research",
-];
+export type { WorkItemType };
+export { WORK_ITEM_TYPE_LABELS, WORK_ITEM_TYPE_ORDER };
 
 const WORK_ITEM_TYPE_ICONS: Record<WorkItemType, LucideIcon> = {
   feature: SparklesIcon,

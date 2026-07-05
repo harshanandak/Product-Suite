@@ -1,0 +1,63 @@
+{
+  "phase": {
+    "values": ["plan", "execute", "review", "done"],
+    "labels": {
+      "plan": "Plan",
+      "execute": "Execute",
+      "review": "Review",
+      "done": "Done"
+    },
+    "order": ["plan", "execute", "review", "done"]
+  },
+  "taskStatus": {
+    "values": ["todo", "in_progress", "completed"],
+    "labels": {
+      "todo": "To-do",
+      "in_progress": "In progress",
+      "completed": "Completed"
+    },
+    "order": ["todo", "in_progress", "completed"]
+  },
+  "health": {
+    "values": ["on_track", "at_risk", "blocked"],
+    "labels": {
+      "on_track": "On track",
+      "at_risk": "At risk",
+      "blocked": "Blocked"
+    },
+    "order": ["on_track", "at_risk", "blocked"]
+  },
+  "priority": {
+    "values": ["critical", "high", "medium", "low"],
+    "labels": {
+      "critical": "Critical",
+      "high": "High",
+      "medium": "Medium",
+      "low": "Low"
+    },
+    "order": ["critical", "high", "medium", "low"]
+  },
+  "workItemType": {
+    "values": ["feature", "bug", "chore", "research"],
+    "labels": {
+      "feature": "Feature",
+      "bug": "Bug",
+      "chore": "Chore",
+      "research": "Research"
+    },
+    "order": ["feature", "bug", "chore", "research"]
+  },
+  "workItemSource": {
+    "values": ["manual", "meeting", "agent", "feedback"],
+    "labels": {
+      "manual": "Manual",
+      "meeting": "Meeting",
+      "agent": "Agent",
+      "feedback": "Feedback"
+    },
+    "order": ["manual", "meeting", "agent", "feedback"]
+  },
+  "assignee": {
+    "unassignedValue": "__unassigned__"
+  }
+}
