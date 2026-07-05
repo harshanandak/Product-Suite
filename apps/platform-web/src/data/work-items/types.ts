@@ -78,6 +78,8 @@ export interface Owner {
 export interface WorkItem {
   readonly id: string;
   title: string;
+  /** Free-form brief / description (plain text); absent or `""` = none. Editable. */
+  description?: string;
   /** Universal phase loop `plan → execute → review → done` (§1). */
   phase: Phase;
   /** Kind of work — drives the Type column / filter (§11 playbook resolution). */
@@ -176,6 +178,7 @@ export type WorkItemPatch = Partial<
   Pick<
     WorkItem,
     | "title"
+    | "description"
     | "phase"
     | "type"
     | "priority"

@@ -189,6 +189,7 @@ export function createMockWorkItemRepository(
       const created: WorkItem = {
         id: nextId(),
         title: input.title ?? "Untitled work item",
+        description: input.description ?? "",
         phase: input.phase ?? "plan",
         type: input.type ?? "feature",
         priority: input.priority ?? "medium",

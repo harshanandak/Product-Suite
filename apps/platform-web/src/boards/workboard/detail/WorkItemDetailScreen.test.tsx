@@ -46,6 +46,10 @@ describe("WorkItemDetailScreen", () => {
 
     // The Edit affordance is present (opens the quick-edit Sheet).
     expect(screen.getByRole("button", { name: /edit/i })).toBeInTheDocument();
+
+    // The Overview renders the item's real description from the seed.
+    expect(first!.description).toBeTruthy();
+    expect(screen.getByText(first!.description!)).toBeInTheDocument();
   });
 
   it("shows a not-found state for an unknown item id", async () => {

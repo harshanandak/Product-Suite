@@ -300,9 +300,15 @@ export function WorkItemDetailScreen({
                   </div>
                 </div>
 
-                <p className="text-sm text-muted-foreground">
-                  No description yet — add one to give this item a brief.
-                </p>
+                {row.description && row.description.trim() !== "" ? (
+                  <p className="whitespace-pre-wrap text-sm leading-relaxed">
+                    {row.description}
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No description yet — use Edit to add a brief.
+                  </p>
+                )}
 
                 {row.tags.length > 0 ? (
                   <div className="flex flex-wrap gap-1.5">
