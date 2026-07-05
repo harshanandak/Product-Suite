@@ -39,7 +39,7 @@ that is fake content, worse than an honest placeholder.
   integrations exist. The "thinking" Insights + recommendation→agent-run hand-off is blocked
   on a real **agent runtime + `AgentRun` record**, not on UI.
 
-## PR 1 — Work Item detail page  ✅ shipped (this branch)
+## Work Item detail page  — implemented in the companion code PR (`pr/work-item-detail-page`)
 
 - Route `workboard/item/$itemId` → `src/boards/workboard/detail/WorkItemDetailScreen.tsx`
   (mirrors `WorkboardGraphScreen`: self-fetches via `useWorkItems`, `repository` seam for
@@ -52,8 +52,9 @@ that is fake content, worse than an honest placeholder.
 - Right rail: Properties (type/phase/priority/health/owner/due/department/project/source/deps)
   + Tags. **Edit** button opens the existing `WorkItemEditor` Sheet, wired to `hook.update` —
   the page is a real read **and** edit surface.
-- **Verified:** `tsc --noEmit` clean · full suite 455 tests still pass · new render test
-  (`WorkItemDetailScreen.test.tsx`, 2 cases) + route-registration assertion, green.
+- **Verified in the code PR** (this branch is docs-only, so it proves nothing itself):
+  `tsc --noEmit` clean · full suite green · render test (`WorkItemDetailScreen.test.tsx`) +
+  route-registration assertion.
 
 ## Next PRs (ordered)
 
