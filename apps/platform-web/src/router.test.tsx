@@ -45,6 +45,7 @@ describe("router", () => {
       "/w/$workspace",
       "/w/$workspace/workboard",
       "/w/$workspace/workboard/graph",
+      "/w/$workspace/workboard/item/$itemId",
       "/w/$workspace/meetings",
       "/w/$workspace/agents",
       "/w/$workspace/settings",
