@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Work Item Detail — Variant 1 · Bento dashboard grid</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono&display=swap" rel="stylesheet">
+<style>
+:root{
+  --background:oklch(0.9851 0 0);--foreground:oklch(0 0 0);--card:oklch(1 0 267.51);
+  --primary:oklch(0.5144 0.1605 267.44);--primary-foreground:oklch(0.97 0.014 254.604);
+  --secondary:oklch(0.94 0 0);--muted:oklch(0.97 0 0);--muted-foreground:oklch(0.44 0 0);
+  --accent:oklch(0.9214 0.0248 257.65);--accent-foreground:oklch(0.2571 0.1161 272.24);
+  --destructive:oklch(0.58 0.22 27);--border:oklch(0.92 0 0);
+  --ok:oklch(0.55 0.15 155);--ok-bg:oklch(0.95 0.04 155);--warn:oklch(0.55 0.13 75);--warn-bg:oklch(0.96 0.05 95);--danger-bg:oklch(0.95 0.03 27);
+  --radius:.5rem;--font-sans:Geist,system-ui,sans-serif;--font-mono:"Geist Mono",monospace;
+}
+.dark{--background:oklch(0 0 0);--foreground:oklch(1 0 0);--card:oklch(0.2103 0 267.51);--secondary:oklch(0.25 0 0);--muted:oklch(0.23 0 0);--muted-foreground:oklch(0.72 0 0);--accent:oklch(0.32 0 0);--accent-foreground:oklch(0.9214 0.0248 257.65);--destructive:oklch(0.704 0.191 22.216);--border:oklch(0.26 0 0);--ok-bg:oklch(0.28 0.05 155);--warn-bg:oklch(0.3 0.05 95);--danger-bg:oklch(0.3 0.05 27);}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font-sans);background:var(--background);color:var(--foreground);line-height:1.5;padding:1.2rem}
+.bar{max-width:1240px;margin:0 auto .8rem;display:flex;align-items:center;gap:.7rem;flex-wrap:wrap}
+.bar h1{font-size:.95rem;font-weight:600}
+.bar .hint{font-size:.72rem;color:var(--muted-foreground)}
+.bar .sp{flex:1}
+.bar button{font:inherit;font-size:.72rem;border:1px solid var(--border);background:var(--card);color:var(--foreground);padding:.34rem .7rem;border-radius:.4rem;cursor:pointer;display:inline-flex;align-items:center;gap:.35rem}
+.bar button:hover{border-color:var(--primary)}
+.bar .seg-ctl{display:inline-flex;border:1px solid var(--border);border-radius:.4rem;overflow:hidden}
+.bar .seg-ctl button{border:0;border-radius:0}
+.bar .seg-ctl button.on{background:var(--primary);color:var(--primary-foreground)}
+.stage{max-width:1240px;margin:0 auto;border:1px solid var(--border);border-radius:.75rem;overflow:hidden;background:var(--card)}
+.crumbbar{display:flex;align-items:center;gap:.5rem;padding:.55rem 1rem;border-bottom:1px solid var(--border);font-size:.76rem;color:var(--muted-foreground)}
+.crumbbar b{color:var(--foreground);font-weight:500}.crumbbar .grow{flex:1}.crumb{cursor:pointer}.crumb:hover{color:var(--foreground)}
+.cmdk{display:flex;align-items:center;gap:.35rem;border:1px solid var(--border);border-radius:.4rem;padding:.2rem .6rem;font-size:.7rem}
+
+/* ===== GRID CANVAS ===== */
+.grid{
+  position:relative;margin:0 auto;padding:14px;
+  background-image:radial-gradient(color-mix(in oklab,var(--border) 75%,transparent) 1px,transparent 1px);
+  background-color:color-mix(in oklab,var(--muted) 55%,var(--card));
+  transition:background-size .15s;
+}
+.gridwrap{padding:14px}
+.tile{
+  position:absolute;display:flex;flex-direction:column;overflow:hidden;
+  border:1px solid var(--border);border-radius:var(--radius);background:var(--card);
+  box-shadow:0 1px 2px color-mix(in oklab,var(--foreground) 4%,transparent);
+  transition:left .14s cubic-bezier(.2,.7,.3,1),top .14s cubic-bezier(.2,.7,.3,1),width .14s,height .14s,box-shadow .14s;
+}
+.tile.real{}
+.tile.primary{border-color:color-mix(in oklab,var(--primary) 26%,var(--border));box-shadow:0 1px 3px color-mix(in oklab,var(--primary) 14%,transparent)}
+.tile.planned{border-style:dashed;border-color:color-mix(in oklab,var(--border) 70%,var(--muted-foreground) 25%);background:color-mix(in oklab,var(--muted) 50%,var(--card))}
+.tile.hero{background:color-mix(in oklab,var(--accent) 16%,var(--card));border-color:color-mix(in oklab,var(--primary) 22%,var(--border))}
+.tile.dragging,.tile.resizing{transition:none;z-index:50;box-shadow:0 8px 24px color-mix(in oklab,var(--foreground) 22%,transparent);cursor:grabbing}
+.tile.active{z-index:30}
+
+/* tile header = drag handle */
+.t-head{display:flex;align-items:center;gap:.45rem;padding:.5rem .6rem;cursor:grab;user-select:none;flex-shrink:0;border-bottom:1px solid color-mix(in oklab,var(--border) 80%,transparent)}
+.tile.planned .t-head{border-bottom-style:dashed}
+.tile.hero .t-head{border-bottom-color:color-mix(in oklab,var(--primary) 16%,var(--border))}
+.t-head .t-ico{font-size:.95rem;color:var(--muted-foreground);flex-shrink:0}
+.tile.primary .t-head .t-ico{color:var(--primary)}
+.t-head .t-name{font-size:.7rem;font-weight:600;letter-spacing:.03em;text-transform:uppercase;color:var(--muted-foreground);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.t-head .grip{margin-left:-.1rem;color:color-mix(in oklab,var(--muted-foreground) 60%,transparent);font-size:.85rem;cursor:grab}
+.t-head .t-ctl{margin-left:auto;display:flex;gap:.15rem;flex-shrink:0}
+.t-ctl button{width:1.4rem;height:1.4rem;border:0;background:transparent;color:var(--muted-foreground);border-radius:.3rem;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;font-size:.9rem}
+.t-ctl button:hover{background:var(--secondary);color:var(--foreground)}
+.t-body{flex:1;overflow:auto;padding:.7rem .75rem}
+.t-body::-webkit-scrollbar{width:7px}.t-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:9px}
+
+/* resize handle */
+.t-resize{position:absolute;right:0;bottom:0;width:18px;height:18px;cursor:nwse-resize;z-index:5}
+.t-resize::after{content:"";position:absolute;right:3px;bottom:3px;width:9px;height:9px;border-right:2px solid var(--muted-foreground);border-bottom:2px solid var(--muted-foreground);opacity:.5;border-bottom-right-radius:3px}
+.tile.collapsed .t-resize{display:none}
+
+/* collapsed -> icon chip */
+.tile.collapsed{cursor:pointer}
+.tile.collapsed .t-body,.tile.collapsed .t-head .t-name~*,.tile.collapsed .grip{display:none}
+.tile.collapsed .t-head{border-bottom:0;height:100%;padding:0 .55rem;cursor:pointer}
+.tile.collapsed .t-head .t-ctl{margin-left:auto}
+.tile.collapsed .t-head .t-ctl .b-collapse{display:inline-flex}
+.tile.collapsed .t-head .t-ctl .b-expand{display:none}
+.tile.collapsed .t-name{text-transform:none;font-size:.72rem}
+
+/* shared content classes (lifted from app tokens) */
+.btn{display:inline-flex;align-items:center;gap:.4rem;font-size:.76rem;font-weight:500;border-radius:.45rem;padding:.4rem .8rem;border:1px solid var(--border);background:var(--card);color:var(--foreground);cursor:pointer}
+.btn.sm{padding:.24rem .6rem;font-size:.7rem}.btn.pri{background:var(--primary);border-color:var(--primary);color:var(--primary-foreground)}.btn[disabled]{opacity:.5;cursor:not-allowed}
+.pill{display:inline-flex;align-items:center;gap:.3rem;font-size:.64rem;font-weight:500;padding:.1rem .5rem;border-radius:999px;white-space:nowrap}
+.pill.ind{background:var(--accent);color:var(--accent-foreground)}.pill.ok{background:var(--ok-bg);color:var(--ok)}.pill.warn{background:var(--warn-bg);color:var(--warn)}.pill.bad{background:var(--danger-bg);color:var(--destructive)}.pill.mut{background:var(--secondary);color:var(--muted-foreground)}
+.pill.lg{font-size:.72rem;padding:.2rem .65rem}.pill.planned{background:var(--secondary);color:var(--muted-foreground)}
+.avx{width:1.4rem;height:1.4rem;border-radius:50%;background:var(--accent);color:var(--accent-foreground);display:inline-flex;align-items:center;justify-content:center;font-size:.6rem;font-weight:600;flex-shrink:0}
+.seg{display:inline-flex;gap:2px;vertical-align:middle}.seg i{width:16px;height:7px;border-radius:2px;background:var(--secondary)}.seg i.f{background:var(--primary)}
+.row{display:flex;gap:.5rem;font-size:.78rem;align-items:center}.row+.row{margin-top:.45rem}
+.prog{height:.35rem;flex:1;background:var(--secondary);border-radius:999px;overflow:hidden}.prog i{display:block;height:100%;background:var(--ok)}
+.field{display:flex;align-items:center;gap:.6rem;font-size:.76rem;padding:.34rem 0}.field .k{width:84px;color:var(--muted-foreground);font-size:.7rem;flex-shrink:0}
+.field+.field{border-top:1px dashed color-mix(in oklab,var(--border) 70%,transparent)}
+select,input[type=text]{font:inherit;font-size:.74rem;border:1px solid var(--border);border-radius:.4rem;padding:.28rem .5rem;background:var(--card);color:var(--foreground)}
+.muted{font-size:.62rem;color:var(--muted-foreground)}
+.desc{font-size:.72rem;color:var(--muted-foreground)}
+.tile.hero h2{font-size:1.3rem;font-weight:700;letter-spacing:-.01em}
+.hero-titleline{display:flex;align-items:center;gap:.55rem;flex-wrap:wrap}
+.hero-facts{display:flex;align-items:center;gap:1.1rem;flex-wrap:wrap;margin-top:.7rem}
+.fact{display:flex;align-items:center;gap:.4rem;font-size:.78rem}
+.fact .l{font-size:.6rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted-foreground)}
+.density-compact .t-head{padding:.38rem .5rem}.density-compact .t-body{padding:.5rem .55rem}
+.footnote{max-width:1240px;margin:.6rem auto 0;font-size:.62rem;color:var(--muted-foreground)}
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--foreground);color:var(--background);font-size:.72rem;padding:.45rem .85rem;border-radius:.5rem;opacity:0;pointer-events:none;transition:.2s;z-index:99}
+.toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+<div class="bar">
+  <h1>Work Item Detail — Variant 1</h1>
+  <span class="hint"><b style="color:var(--primary)">Bento dashboard grid</b> · drag header to move · drag corner to resize · collapse to icon · expand to focus · solid = real, dashed = planned</span>
+  <span class="sp"></span>
+  <span class="seg-ctl" title="Density">
+    <button id="dComfort" class="on" onclick="setDensity('comfortable')">Comfortable</button>
+    <button id="dCompact" onclick="setDensity('compact')">Compact</button>
+  </span>
+  <button onclick="resetLayout()"><i class="ti ti-layout-grid"></i> Reset layout</button>
+  <button onclick="document.body.classList.toggle('dark')"><i class="ti ti-contrast"></i> Theme</button>
+</div>
+
+<div class="stage">
+  <div class="crumbbar"><span class="crumb">Workboard</span> / <b>Negotiate packaging contract</b><span class="grow"></span><span class="cmdk"><i class="ti ti-search"></i> Cmd+K</span></div>
+  <div class="gridwrap">
+    <div class="grid" id="grid"></div>
+  </div>
+</div>
+<div class="footnote">Adjustable bento grid · tiles snap to a 12-column grid. Importance sets default size (hero &amp; tasks are largest). All edits have action-parity (reflect in board, kanban &amp; graph). Health is always <b>derived</b>, never hand-set.</div>
+<div class="toast" id="toast"></div>
+
+<!-- ===== TILE CONTENT TEMPLATES (content identical to v2 spec) ===== -->
+<div id="tpl" hidden>
+
+  <section data-tile="hero" data-kind="hero" data-name="Key facts" data-icon="ti-star">
+    <div class="hero-titleline">
+      <h2>Negotiate packaging contract</h2>
+      <span class="seg"><i class="f"></i><i class="f"></i><i></i><i></i></span>
+      <span class="pill ind lg">Execute</span>
+      <span class="pill bad lg"><i class="ti ti-alert-triangle"></i> at risk</span>
+      <span class="muted crumb">derived · why?</span>
+      <span style="margin-left:auto;display:flex;gap:.45rem">
+        <span class="btn sm"><i class="ti ti-layout-kanban"></i> Open in board</span>
+        <span class="btn sm pri"><i class="ti ti-pencil"></i> Edit</span>
+      </span>
+    </div>
+    <div class="hero-facts">
+      <div class="fact"><span class="l">Owner</span><span class="avx">HN</span> Harsha</div>
+      <div class="fact"><span class="l">Priority</span><span class="pill bad">critical</span></div>
+      <div class="fact"><span class="l">Due</span><i class="ti ti-calendar-event" style="color:var(--muted-foreground)"></i> Jun 20 <span class="pill warn">3d</span></div>
+      <div class="fact"><span class="l">Tasks</span><span style="display:flex;align-items:center;gap:.4rem;width:130px"><span class="prog"><i style="width:50%"></i></span> 1/2</span></div>
+      <div class="fact"><span class="l">Dept</span><span class="pill mut">Sourcing</span></div>
+    </div>
+  </section>
+
+  <section data-tile="description" data-kind="primary" data-name="Description" data-icon="ti-align-left">
+    <p style="font-size:.82rem">Close the Q3 packaging contract with the Chennai supplier once MOQ is confirmed.</p>
+    <span class="pill ind" style="margin-top:.6rem">editable</span>
+  </section>
+
+  <section data-tile="tasks" data-kind="primary" data-name="Linked tasks" data-icon="ti-checkbox" data-sub="1 of 2 done">
+    <div class="row"><i class="ti ti-square-check" style="color:var(--ok)"></i> Get MOQ confirmation in writing <span class="pill mut">done</span></div>
+    <div class="row"><i class="ti ti-square" style="color:var(--muted-foreground)"></i> Legal review of contract draft <span class="pill ind">in progress</span><span class="muted" style="margin-left:auto">due Jun 18</span></div>
+    <span class="btn sm" style="margin-top:.7rem"><i class="ti ti-plus"></i> Add task</span>
+  </section>
+
+  <section data-tile="dependencies" data-kind="real" data-name="Dependencies (1)" data-icon="ti-git-branch">
+    <div class="row"><i class="ti ti-arrow-narrow-right" style="color:var(--muted-foreground)"></i> depends on <b style="font-weight:500">Confirm MOQ with supplier</b> <span class="pill ok">done</span><span class="btn sm" style="margin-left:auto"><i class="ti ti-affiliate"></i> graph</span></div>
+  </section>
+
+  <section data-tile="details" data-kind="real" data-name="Details" data-icon="ti-list-details">
+    <div class="field"><span class="k">Type</span><select><option>feature</option><option>task</option><option>bug</option></select></div>
+    <div class="field"><span class="k">Project</span><span class="pill ind"><i class="ti ti-handshake"></i> Q3 sourcing</span></div>
+    <div class="field"><span class="k">Tags</span><span class="pill mut">supplier</span><span class="pill mut">q3</span></div>
+    <div class="field"><span class="k">Phase</span><span class="pill ind">Execute</span></div>
+    <div class="field"><span class="k">Source</span><span class="pill ind crumb"><i class="ti ti-video"></i> Weekly sync</span></div>
+    <div class="field"><span class="k">Depends on</span><span class="pill mut crumb">1 item · graph →</span></div>
+  </section>
+
+  <section data-tile="plan" data-kind="planned" data-name="Plan" data-icon="ti-flag">
+    <div class="desc">Milestones with targets, risks (severity × likelihood) and prerequisite gates — the inputs that drive the derived health above.</div>
+    <span class="pill planned" style="margin-top:.55rem">Planned</span>
+  </section>
+
+  <section data-tile="evidence" data-kind="planned" data-name="Evidence" data-icon="ti-bulb">
+    <div class="desc">Insights, interview quotes &amp; inspiration with relevance.</div>
+    <span class="pill planned" style="margin-top:.55rem">Planned</span>
+  </section>
+
+  <section data-tile="comments" data-kind="planned" data-name="Comments" data-icon="ti-message-2">
+    <div class="desc">Threaded comments, visible in every view. First to be wired.</div>
+    <span class="pill planned" style="margin-top:.55rem">Planned</span>
+  </section>
+
+  <section data-tile="meetings" data-kind="planned" data-name="Meetings" data-icon="ti-video">
+    <div class="desc">Linked calls + the segments that touched this item.</div>
+    <span class="pill planned" style="margin-top:.55rem">Planned</span>
+  </section>
+
+  <section data-tile="agents" data-kind="planned" data-name="Agent conversations" data-icon="ti-robot">
+    <div class="desc">Threads + “ask about this item”.</div>
+    <span class="pill planned" style="margin-top:.55rem">Planned</span>
+  </section>
+
+  <section data-tile="connected" data-kind="planned" data-name="Connected" data-icon="ti-plug-connected">
+    <div class="desc">ERP / GitHub / ad-campaign bindings by project kind.</div>
+    <span class="pill planned" style="margin-top:.55rem">Planned</span>
+  </section>
+
+  <section data-tile="strategy" data-kind="planned" data-name="Strategy" data-icon="ti-target-arrow">
+    <div class="desc">Alignment to goals.</div>
+    <span class="pill planned" style="margin-top:.55rem">Planned</span>
+  </section>
+
+  <section data-tile="visibility" data-kind="planned" data-name="Visibility" data-icon="ti-eye">
+    <div class="desc">Workspace · dept · restricted.</div>
+    <span class="pill planned" style="margin-top:.55rem">Planned</span>
+  </section>
+
+</div>
+
+<script>
+const COLS = 12;
+const DEFAULT = {
+  hero:        {x:0,  y:0,  w:12, h:3},
+  description: {x:0,  y:3,  w:5,  h:4},
+  tasks:       {x:5,  y:3,  w:4,  h:5},
+  details:     {x:9,  y:3,  w:3,  h:6},
+  dependencies:{x:0,  y:7,  w:5,  h:2},
+  plan:        {x:0,  y:9,  w:5,  h:2},
+  comments:    {x:5,  y:8,  w:4,  h:2},
+  meetings:    {x:5,  y:10, w:4,  h:2},
+  agents:      {x:5,  y:12, w:4,  h:2},
+  evidence:    {x:0,  y:11, w:5,  h:2},
+  connected:   {x:9,  y:9,  w:3,  h:2},
+  strategy:    {x:9,  y:11, w:3,  h:2},
+  visibility:  {x:9,  y:13, w:3,  h:2},
+};
+const KIND_CLASS = {hero:'hero real', primary:'primary real', real:'real', planned:'planned'};
+
+let layout = clone(DEFAULT);
+const saved = {};   // normal layout stash for collapse/expand
+const state = {};   // id -> 'normal' | 'collapsed' | 'expanded'
+let density = 'comfortable';
+
+function clone(o){return JSON.parse(JSON.stringify(o));}
+function rowH(){return density==='compact'?44:54;}
+function gap(){return density==='compact'?8:10;}
+
+const grid = document.getElementById('grid');
+const tpl = document.getElementById('tpl');
+
+// ---- build tiles ----
+const tiles = {};
+tpl.querySelectorAll('[data-tile]').forEach(sec=>{
+  const id = sec.dataset.tile;
+  state[id] = 'normal';
+  const el = document.createElement('div');
+  el.className = 'tile ' + KIND_CLASS[sec.dataset.kind];
+  el.dataset.id = id;
+  const sub = sec.dataset.sub ? `<span class="muted" style="margin-left:auto">${sec.dataset.sub}</span>` : '';
+  const planned = sec.dataset.kind==='planned' ? `<span class="pill planned" style="margin-left:.35rem">Planned</span>` : '';
+  el.innerHTML =
+    `<div class="t-head">
+       <i class="ti ti-grip-vertical grip"></i>
+       <i class="ti ${sec.dataset.icon} t-ico"></i>
+       <span class="t-name">${sec.dataset.name}</span>${planned}${sub}
+       <span class="t-ctl">
+         <button class="b-collapse" title="Collapse to icon" aria-label="Collapse ${sec.dataset.name}"><i class="ti ti-minus"></i></button>
+         <button class="b-expand" title="Expand / focus" aria-label="Expand ${sec.dataset.name}"><i class="ti ti-arrows-maximize"></i></button>
+       </span>
+     </div>
+     <div class="t-body">${sec.innerHTML}</div>
+     <div class="t-resize" title="Drag to resize"></div>`;
+  grid.appendChild(el);
+  tiles[id] = el;
+  // controls
+  el.querySelector('.b-collapse').addEventListener('click', e=>{e.stopPropagation();toggle(id,'collapsed');});
+  el.querySelector('.b-expand').addEventListener('click', e=>{e.stopPropagation();toggle(id,'expanded');});
+  // click collapsed chip to restore
+  el.addEventListener('click', e=>{
+    if(state[id]==='collapsed' && !e.target.closest('.t-ctl')){ toggle(id,'collapsed'); }
+  });
+  // bring to front on press
+  el.querySelector('.t-head').addEventListener('pointerdown', ()=>raise(el));
+  initDrag(el, id);
+  initResize(el, id);
+});
+
+function raise(el){ Object.values(tiles).forEach(t=>t.classList.remove('active')); el.classList.add('active'); }
+
+// ---- render ----
+function colW(){ return (grid.clientWidth - 28 - (COLS-1)*gap()) / COLS; } // 28 = grid padding (14*2)
+function render(){
+  const cw = colW(), rh = rowH(), g = gap();
+  let maxBottom = 0;
+  for(const id in layout){
+    const L = layout[id], el = tiles[id];
+    el.style.left   = (14 + L.x*(cw+g)) + 'px';
+    el.style.top    = (14 + L.y*(rh+g)) + 'px';
+    el.style.width  = (L.w*cw + (L.w-1)*g) + 'px';
+    el.style.height = (L.h*rh + (L.h-1)*g) + 'px';
+    maxBottom = Math.max(maxBottom, 14 + (L.y+L.h)*(rh+g));
+  }
+  grid.style.height = (maxBottom + 4) + 'px';
+  window.__L = layout; // expose current layout (source of truth) for inspection/testing
+}
+
+// ---- collapse / expand ----
+function toggle(id, target){
+  const el = tiles[id];
+  if(state[id]===target){ // restore
+    layout[id] = saved[id]; state[id]='normal';
+    el.classList.remove('collapsed','expanded');
+  } else {
+    if(state[id]==='normal') saved[id] = clone(layout[id]);
+    el.classList.remove('collapsed','expanded');
+    if(target==='collapsed'){
+      layout[id] = {x:layout[id].x, y:layout[id].y, w:2, h:1};
+      el.classList.add('collapsed');
+    } else { // expanded / focus
+      layout[id] = {x:0, y:layout[id].y, w:12, h:6};
+      el.classList.add('expanded'); raise(el);
+    }
+    state[id]=target;
+  }
+  render();
+}
+
+// ---- drag to reposition (header) ----
+function initDrag(el, id){
+  const head = el.querySelector('.t-head');
+  let sx,sy,ox,oy,active=false;
+  head.addEventListener('pointerdown', e=>{
+    if(e.target.closest('.t-ctl')) return;            // not on buttons
+    if(state[id]==='collapsed') return;               // chip click handled elsewhere
+    active=true; el.classList.add('dragging'); raise(el);
+    sx=e.clientX; sy=e.clientY; ox=layout[id].x; oy=layout[id].y;
+    try{head.setPointerCapture(e.pointerId);}catch(_){}
+    e.preventDefault();
+  });
+  head.addEventListener('pointermove', e=>{
+    if(!active) return;
+    const cw=colW(), rh=rowH(), g=gap();
+    let nx = ox + Math.round((e.clientX-sx)/(cw+g));
+    let ny = oy + Math.round((e.clientY-sy)/(rh+g));
+    nx = Math.max(0, Math.min(COLS-layout[id].w, nx));
+    ny = Math.max(0, ny);
+    if(nx!==layout[id].x || ny!==layout[id].y){ layout[id].x=nx; layout[id].y=ny; render(); }
+  });
+  const end=e=>{ if(active){active=false; el.classList.remove('dragging'); flash('Moved'); } };
+  head.addEventListener('pointerup', end);
+  head.addEventListener('pointercancel', end);
+}
+
+// ---- drag corner to resize ----
+function initResize(el, id){
+  const h = el.querySelector('.t-resize');
+  let sx,sy,ow,oh,active=false;
+  h.addEventListener('pointerdown', e=>{
+    active=true; el.classList.add('resizing'); raise(el);
+    sx=e.clientX; sy=e.clientY; ow=layout[id].w; oh=layout[id].h;
+    try{h.setPointerCapture(e.pointerId);}catch(_){}
+    e.stopPropagation(); e.preventDefault();
+  });
+  h.addEventListener('pointermove', e=>{
+    if(!active) return;
+    const cw=colW(), rh=rowH(), g=gap();
+    let nw = ow + Math.round((e.clientX-sx)/(cw+g));
+    let nh = oh + Math.round((e.clientY-sy)/(rh+g));
+    nw = Math.max(2, Math.min(COLS-layout[id].x, nw));
+    nh = Math.max(1, nh);
+    if(nw!==layout[id].w || nh!==layout[id].h){ layout[id].w=nw; layout[id].h=nh; render(); }
+  });
+  const end=e=>{ if(active){active=false; el.classList.remove('resizing'); flash('Resized '+layout[id].w+'×'+layout[id].h); } };
+  h.addEventListener('pointerup', end);
+  h.addEventListener('pointercancel', end);
+}
+
+// ---- controls ----
+function setDensity(d){
+  density=d;
+  document.getElementById('dComfort').classList.toggle('on', d==='comfortable');
+  document.getElementById('dCompact').classList.toggle('on', d==='compact');
+  document.body.classList.toggle('density-compact', d==='compact');
+  render();
+}
+function resetLayout(){
+  layout = clone(DEFAULT);
+  for(const id in state){ state[id]='normal'; tiles[id].classList.remove('collapsed','expanded','active'); }
+  render(); flash('Layout reset');
+}
+
+let toastT;
+function flash(msg){
+  const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('on');
+  clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('on'),1100);
+}
+
+window.addEventListener('resize', render);
+render();
+</script>
+</body>
+</html>

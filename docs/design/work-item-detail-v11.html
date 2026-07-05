@@ -1,0 +1,2155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>v2.3 — Payments revamp · Workboard</title>
+<link rel="icon" href="data:," />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+/* ==========================================================================
+   Product Suite — canonical design tokens (verbatim from v9)
+   ========================================================================== */
+:root {
+  --background: oklch(0.9851 0 0);
+  --foreground: oklch(0 0 0);
+  --overlay: oklch(0 0 0);
+  --card: oklch(1 0 267.5100);
+  --card-foreground: oklch(0.2103 0 267.5100);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0 0 0);
+  --primary: oklch(0.5144 0.1605 267.4400);
+  --primary-foreground: oklch(0.9700 0.0140 254.6040);
+  --secondary: oklch(0.9400 0 0);
+  --secondary-foreground: oklch(0.2500 0 0);
+  --muted: oklch(0.9700 0 0);
+  --muted-foreground: oklch(0.4400 0 0);
+  --accent: oklch(0.9214 0.0248 257.6500);
+  --accent-foreground: oklch(0.2571 0.1161 272.2400);
+  --destructive: oklch(0.5800 0.2200 27);
+  --destructive-foreground: oklch(0.9700 0.0140 254.6040);
+  --priority-critical: oklch(0.9450 0.0400 27);
+  --priority-critical-foreground: oklch(0.5050 0.2050 27);
+  --priority-high: oklch(0.9550 0.0420 70);
+  --priority-high-foreground: oklch(0.5100 0.1250 58);
+  --priority-medium: oklch(0.9450 0.0360 245);
+  --priority-medium-foreground: oklch(0.5050 0.1450 250);
+  --priority-low: oklch(0.9450 0.0120 255);
+  --priority-low-foreground: oklch(0.4600 0.0260 256);
+  --phase-plan: oklch(0.9450 0.0150 255);
+  --phase-plan-foreground: oklch(0.4700 0.0420 256);
+  --phase-execute: oklch(0.9420 0.0340 267);
+  --phase-execute-foreground: oklch(0.5144 0.1605 267.4400);
+  --phase-review: oklch(0.9450 0.0360 300);
+  --phase-review-foreground: oklch(0.5050 0.1600 300);
+  --border: oklch(0.9200 0 0);
+  --input: oklch(0.9400 0 0);
+  --ring: oklch(0.5144 0.1605 267.4400);
+  --chart-1: oklch(0.9214 0.0248 257.6500);
+  --chart-2: oklch(0.7597 0.0804 267.0100);
+  --chart-3: oklch(0.6083 0.1247 272.7200);
+  --chart-4: oklch(0.5144 0.1605 267.4400);
+  --chart-5: oklch(0.2571 0.1161 272.2400);
+  --sidebar: oklch(1 0 267.5100);
+  --sidebar-foreground: oklch(0 0 0);
+  --sidebar-primary: oklch(0.5144 0.1605 267.4400);
+  --sidebar-primary-foreground: oklch(0.9700 0.0140 254.6040);
+  --sidebar-accent: oklch(0.9214 0.0248 257.6500);
+  --sidebar-accent-foreground: oklch(0.2571 0.1161 272.2400);
+  --sidebar-border: oklch(0.9200 0 0);
+  --sidebar-ring: oklch(0.5144 0.1605 267.4400);
+  --font-sans: Geist, sans-serif;
+  --font-serif: Noto Serif Georgian, ui-serif, serif;
+  --font-mono: Geist Mono, monospace;
+  --radius: 0.5rem;
+  --shadow-2xs: 0.25px 1px 3px 0px hsl(236.5829 64.2250% 21.4383% / 0.07);
+  --shadow-xs: 0.25px 1px 3px 0px hsl(236.5829 64.2250% 21.4383% / 0.07);
+  --shadow-sm: 0.25px 1px 3px 0px hsl(236.5829 64.2250% 21.4383% / 0.15), 0.25px 1px 2px -1px hsl(236.5829 64.2250% 21.4383% / 0.15);
+  --shadow: 0.25px 1px 3px 0px hsl(236.5829 64.2250% 21.4383% / 0.15), 0.25px 1px 2px -1px hsl(236.5829 64.2250% 21.4383% / 0.15);
+  --shadow-md: 0.25px 1px 3px 0px hsl(236.5829 64.2250% 21.4383% / 0.15), 0.25px 2px 4px -1px hsl(236.5829 64.2250% 21.4383% / 0.15);
+  --shadow-lg: 0.25px 1px 3px 0px hsl(236.5829 64.2250% 21.4383% / 0.15), 0.25px 4px 6px -1px hsl(236.5829 64.2250% 21.4383% / 0.15);
+  --shadow-xl: 0.25px 1px 3px 0px hsl(236.5829 64.2250% 21.4383% / 0.15), 0.25px 8px 10px -1px hsl(236.5829 64.2250% 21.4383% / 0.15);
+  --shadow-2xl: 0.25px 1px 3px 0px hsl(236.5829 64.2250% 21.4383% / 0.38);
+  --tracking-normal: 0em;
+  --spacing: 0.25rem;
+  --health-on-track: oklch(0.9500 0.0400 152);
+  --health-on-track-foreground: oklch(0.4900 0.1250 152);
+  --health-at-risk: var(--priority-high);
+  --health-at-risk-foreground: var(--priority-high-foreground);
+  --health-blocked: var(--priority-critical);
+  --health-blocked-foreground: var(--priority-critical-foreground);
+  --milestone-current: oklch(0.8200 0.1500 92);
+}
+
+.dark {
+  --background: oklch(0 0 0);
+  --foreground: oklch(1 0 0);
+  --overlay: oklch(0 0 0);
+  --card: oklch(0.2103 0 267.5100);
+  --card-foreground: oklch(0.9461 0 0);
+  --popover: oklch(0.2103 0 267.5100);
+  --popover-foreground: oklch(1 0 0);
+  --primary: oklch(0.5144 0.1605 267.4400);
+  --primary-foreground: oklch(0.9700 0.0140 254.6040);
+  --secondary: oklch(0.2500 0 0);
+  --secondary-foreground: oklch(0.9400 0 0);
+  --muted: oklch(0.2300 0 0);
+  --muted-foreground: oklch(0.7200 0 0);
+  --accent: oklch(0.3200 0 0);
+  --accent-foreground: oklch(0.9214 0.0248 257.6500);
+  --destructive: oklch(0.7040 0.1910 22.2160);
+  --destructive-foreground: oklch(0.9700 0.0140 254.6040);
+  --priority-critical: oklch(0.3100 0.0850 25);
+  --priority-critical-foreground: oklch(0.7750 0.1500 24);
+  --priority-high: oklch(0.3150 0.0650 65);
+  --priority-high-foreground: oklch(0.8100 0.1300 75);
+  --priority-medium: oklch(0.3050 0.0700 248);
+  --priority-medium-foreground: oklch(0.7800 0.1150 250);
+  --priority-low: oklch(0.2950 0.0180 256);
+  --priority-low-foreground: oklch(0.7400 0.0300 256);
+  --phase-plan: oklch(0.2950 0.0220 256);
+  --phase-plan-foreground: oklch(0.7500 0.0420 256);
+  --phase-execute: oklch(0.3150 0.0850 267);
+  --phase-execute-foreground: oklch(0.7900 0.1250 267);
+  --phase-review: oklch(0.3050 0.0700 300);
+  --phase-review-foreground: oklch(0.7900 0.1300 300);
+  --border: oklch(0.2600 0 0);
+  --input: oklch(0.3200 0 0);
+  --ring: oklch(0.5144 0.1605 267.4400);
+  --chart-1: oklch(0.9214 0.0248 257.6500);
+  --chart-2: oklch(0.7597 0.0804 267.0100);
+  --chart-3: oklch(0.6083 0.1247 272.7200);
+  --chart-4: oklch(0.5144 0.1605 267.4400);
+  --chart-5: oklch(0.2571 0.1161 272.2400);
+  --sidebar: oklch(0.2103 0 267.5100);
+  --sidebar-foreground: oklch(1 0 0);
+  --sidebar-primary: oklch(0.5144 0.1605 267.4400);
+  --sidebar-primary-foreground: oklch(0.9700 0.0140 254.6040);
+  --sidebar-accent: oklch(0.3200 0 0);
+  --sidebar-accent-foreground: oklch(0.9214 0.0248 257.6500);
+  --sidebar-border: oklch(0.2600 0 0);
+  --sidebar-ring: oklch(0.5144 0.1605 267.4400);
+  --health-on-track: oklch(0.3100 0.0600 152);
+  --health-on-track-foreground: oklch(0.7800 0.1300 155);
+  --health-at-risk: var(--priority-high);
+  --health-at-risk-foreground: var(--priority-high-foreground);
+  --health-blocked: var(--priority-critical);
+  --health-blocked-foreground: var(--priority-critical-foreground);
+  --milestone-current: oklch(0.8300 0.1400 92);
+}
+
+/* ============================== Base ==================================== */
+*, *::before, *::after { box-sizing: border-box; border-color: var(--border); }
+html { -webkit-text-size-adjust: 100%; color-scheme: light; }
+html.dark { color-scheme: dark; }
+body {
+  margin: 0;
+  padding-right: 48px;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  letter-spacing: var(--tracking-normal);
+  -webkit-font-smoothing: antialiased;
+}
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+a { color: inherit; text-decoration: none; }
+:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: calc(var(--radius) - 4px); }
+.mono { font-family: var(--font-mono); }
+.muted { color: var(--muted-foreground); }
+svg { flex: none; }
+.hidden { display: none !important; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
+/* ============================== Header bar =============================== */
+.appbar {
+  position: sticky; top: 0; z-index: 40;
+  display: flex; align-items: center; gap: 16px;
+  height: 52px; padding: 0 20px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in oklab, var(--background) 88%, transparent);
+  backdrop-filter: blur(8px);
+}
+.crumbs { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 13px; flex: none; }
+.crumbs a { color: var(--muted-foreground); padding: 2px 4px; border-radius: calc(var(--radius) - 4px); }
+.crumbs a:hover { color: var(--foreground); background: var(--muted); }
+.crumbs .sep { color: var(--muted-foreground); opacity: .55; }
+.crumbs .here { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+.bar-rule { width: 1px; height: 18px; background: var(--border); flex: none; }
+.tabstrip { display: flex; align-items: center; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.tabstrip::-webkit-scrollbar { display: none; }
+.tab {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 28px; padding: 0 11px; border-radius: calc(var(--radius) - 2px);
+  font-size: 13px; font-weight: 450; color: var(--muted-foreground);
+  white-space: nowrap; transition: background .12s ease, color .12s ease;
+}
+.tab:hover { color: var(--foreground); background: var(--muted); }
+.tab[aria-selected="true"] { color: var(--foreground); font-weight: 550; background: var(--secondary); }
+.appbar-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.kbd-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 28px; padding: 0 10px;
+  border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px);
+  color: var(--muted-foreground); font-size: 12px; background: var(--card);
+}
+.kbd-pill kbd { font-family: var(--font-mono); font-size: 11px; }
+.icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: calc(var(--radius) - 2px);
+  color: var(--muted-foreground); border: 1px solid transparent;
+}
+.icon-btn:hover { background: var(--muted); color: var(--foreground); }
+.avatar {
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 999px; background: var(--accent); color: var(--accent-foreground);
+  font-weight: 600; flex: none;
+}
+.avatar.sm { width: 22px; height: 22px; font-size: 10px; }
+.avatar.md { width: 28px; height: 28px; font-size: 11px; }
+.avatar.xs { width: 18px; height: 18px; font-size: 9px; }
+#iconMoon { display: none; }
+.dark #iconSun { display: none; }
+.dark #iconMoon { display: block; }
+
+/* ============================== Layout ===================================
+   .page gets a right margin so content never slides under the fixed dock. */
+.page { max-width: 1280px; margin: 0 auto; padding: 0 20px 64px; }
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 296px; align-items: start; }
+.col-main { min-width: 0; padding: 32px 44px 0 8px; }
+.rail {
+  position: sticky; top: 52px;
+  min-height: calc(100vh - 52px); max-height: calc(100vh - 52px); overflow: hidden;
+  padding: 28px 4px 24px 28px;
+  border-left: 1px solid var(--border);
+  font-size: 13px;
+}
+@media (max-width: 1020px) {
+  .layout { grid-template-columns: 1fr; }
+  .col-main { padding-right: 8px; }
+  .rail { position: static; max-height: none; border-left: 0; border-top: 1px solid var(--border); margin-top: 36px; padding: 28px 8px 0; }
+}
+
+/* ============================== Tab panels ============================== */
+.tabpanel { display: none; }
+.tabpanel.active { display: block; animation: fadeIn .18s ease; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
+/* ============================== Overview — the document ================= */
+.kind-tag {
+  display: inline-flex; align-items: center;
+  padding: 1px 7px; border-radius: calc(var(--radius) - 4px);
+  background: var(--muted); color: var(--muted-foreground);
+  font-size: 11px; font-weight: 500; letter-spacing: .01em;
+}
+.doc { max-width: 68ch; }
+.doc-title {
+  margin: 10px 0 0; font-size: 30px; font-weight: 650;
+  letter-spacing: -0.03em; line-height: 1.15;
+}
+/* NEW — status line: health chip + completion + target + blocked count */
+.statline { display: flex; gap: 10px; align-items: center; margin-top: 10px; font-size: 13px; color: var(--muted-foreground); flex-wrap: wrap; }
+.statline .mono { color: var(--foreground); font-weight: 550; }
+.statline .sep { opacity: .5; }
+.statlink { background: none; border: 0; font: inherit; color: inherit; cursor: pointer; padding: 0; text-underline-offset: 2px; }
+.statlink:hover { color: var(--foreground); text-decoration: underline; }
+/* NEW — strategy line: objective -> KR -> KPI, one quiet line */
+.stratline { font-size: 12.5px; color: var(--muted-foreground); margin-top: 8px; }
+.stratline b { color: var(--foreground); font-weight: 550; }
+.prose { margin-top: 18px; font-size: 15px; line-height: 1.72; color: var(--foreground); }
+.prose p { margin: 0 0 16px; }
+.prose h2 {
+  margin: 26px 0 8px; font-size: 16px; font-weight: 600; letter-spacing: -0.01em;
+}
+.prose ul { margin: 0 0 16px; padding-left: 22px; }
+.prose li { margin: 5px 0; }
+.prose li::marker { color: var(--muted-foreground); }
+.prose strong { font-weight: 600; }
+
+/* Needs attention — ONE quiet line under the document, expandable inline */
+.attention { margin-top: 28px; max-width: 68ch; }
+.attn-line {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  padding: 7px 10px; margin: 0 -10px; text-align: left;
+  border-radius: calc(var(--radius) - 2px);
+  font-size: 13px; color: var(--muted-foreground);
+}
+.attn-line:hover { background: var(--muted); }
+.attn-line .flag-ic { color: var(--priority-high-foreground); display: flex; }
+.attn-line b { font-weight: 550; color: var(--foreground); }
+.attn-line .chev { margin-left: auto; color: var(--muted-foreground); transition: transform .18s ease; }
+.attention.open .attn-line .chev { transform: rotate(180deg); }
+.attn-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .22s ease; }
+.attention.open .attn-body { grid-template-rows: 1fr; }
+.attn-body-inner { overflow: hidden; min-height: 0; }
+.issue-list { padding: 4px 0 0 2px; }
+.issue { padding: 10px 0; border-top: 1px solid var(--border); }
+.issue:first-child { border-top: 0; }
+.issue-row { display: flex; align-items: flex-start; gap: 10px; }
+.issue-icon { margin-top: 2px; display: flex; }
+.issue-icon.flag { color: var(--priority-high-foreground); }
+.issue-icon.blocked { color: var(--priority-critical-foreground); }
+.issue-icon.risk { color: var(--priority-high-foreground); }
+.issue-text { min-width: 0; flex: 1; }
+.issue-title { font-size: 13.5px; font-weight: 500; line-height: 1.4; }
+.issue-meta { font-size: 12px; color: var(--muted-foreground); margin-top: 1px; }
+.issue-actions { display: flex; align-items: center; gap: 6px; margin-left: 8px; flex: none; }
+.issue .issue-actions .btn { opacity: 0; transition: opacity .12s ease; }
+.issue:hover .issue-actions .btn, .issue:focus-within .issue-actions .btn { opacity: 1; }
+.issue.resolved .issue-title, .issue.overridden .issue-title { opacity: .55; }
+.issue.resolved .issue-meta, .issue.overridden .issue-meta { opacity: .55; }
+.override-box { margin: 10px 0 2px 24px; display: flex; flex-direction: column; gap: 8px; }
+.override-box textarea {
+  width: 100%; min-height: 64px; resize: vertical;
+  padding: 8px 10px; border: 1px solid var(--input); border-radius: calc(var(--radius) - 2px);
+  background: var(--card); color: var(--foreground);
+  font: inherit; font-size: 13px;
+}
+.override-box textarea::placeholder { color: var(--muted-foreground); }
+.override-box .row { display: flex; justify-content: flex-end; gap: 6px; }
+
+/* ============================== Chips / badges ========================== */
+.chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 9px; border-radius: 999px;
+  font-size: 12px; font-weight: 500; line-height: 18px; white-space: nowrap;
+}
+.chip.xs { font-size: 11px; padding: 1px 7px; line-height: 16px; gap: 4px; flex: none; }
+.chip.neutral { background: var(--secondary); color: var(--secondary-foreground); }
+.chip.quiet { background: var(--muted); color: var(--muted-foreground); }
+.chip.p-high { background: var(--priority-high); color: var(--priority-high-foreground); }
+.chip.h-ok { background: var(--health-on-track); color: var(--health-on-track-foreground); }
+.chip.h-risk { background: var(--health-at-risk); color: var(--health-at-risk-foreground); }
+.chip.h-blocked { background: var(--health-blocked); color: var(--health-blocked-foreground); }
+.count-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 1px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 500;
+  background: var(--muted); color: var(--muted-foreground);
+}
+.status-dot { width: 10px; height: 10px; border-radius: 999px; justify-self: center; position: relative; }
+.status-dot.todo { border: 1.5px solid var(--muted-foreground); background: transparent; }
+.status-dot.doing { border: 1.5px solid var(--primary); background: color-mix(in oklab, var(--primary) 28%, transparent); }
+.status-dot.done { background: var(--health-on-track-foreground); }
+.status-dot.done::after {
+  content: ""; position: absolute; inset: 2.5px 2px 3.5px 3px;
+  border-left: 1.5px solid var(--card); border-bottom: 1.5px solid var(--card);
+  transform: rotate(-45deg) translateY(-1px); border-radius: 0.5px;
+}
+.status-dot.cancelled { background: var(--border); }
+
+/* ============================== Buttons ================================= */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 32px; padding: 0 12px;
+  border-radius: calc(var(--radius) - 2px);
+  font-size: 13px; font-weight: 500; white-space: nowrap;
+  transition: background .12s ease, border-color .12s ease, opacity .12s ease;
+}
+.btn.sm { height: 27px; padding: 0 10px; font-size: 12px; }
+.btn.primary { background: var(--primary); color: var(--primary-foreground); box-shadow: var(--shadow-xs); }
+.btn.primary:hover { background: color-mix(in oklab, var(--primary) 88%, var(--foreground)); }
+.btn.outline { border: 1px solid var(--border); background: var(--card); }
+.btn.outline:hover { background: var(--muted); }
+.btn.ghost { color: var(--muted-foreground); }
+.btn.ghost:hover { background: var(--muted); color: var(--foreground); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+
+/* ============================== Right rail =============================== */
+.rail-section { margin-bottom: 15px; }
+.rail-h {
+  font-size: 12px; font-weight: 550; color: var(--muted-foreground);
+  letter-spacing: .01em; margin-bottom: 6px; padding: 0 8px;
+}
+.prow {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  min-height: 30px; padding: 3px 8px; border-radius: calc(var(--radius) - 2px);
+  color: var(--foreground); font-size: 13px;
+}
+button.prow:hover { background: var(--muted); }
+.prow .p-ic { width: 16px; display: flex; justify-content: center; color: var(--muted-foreground); }
+.prow .p-val { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 450; }
+.prow .p-sub { color: var(--muted-foreground); font-weight: 400; }
+.hdot { width: 9px; height: 9px; border-radius: 999px; background: var(--health-at-risk-foreground); }
+.p-val.health { color: var(--health-at-risk-foreground); font-weight: 500; }
+
+/* NEW — Alignment: Objective / KR progress track / KPI */
+.kr-track { height: 4px; border-radius: 2px; background: var(--muted); margin: 2px 8px 8px 34px; overflow: hidden; }
+.kr-fill { height: 100%; background: var(--primary); border-radius: 2px; }
+.rail-more {
+  display: inline-flex; align-items: center; gap: 3px; margin: 4px 8px 0;
+  background: none; border: 0; padding: 2px 0; cursor: pointer;
+  font-family: inherit; font-size: 11.5px; color: var(--muted-foreground); letter-spacing: .01em;
+}
+.rail-more:hover { color: var(--foreground); }
+.kpi-mini { display:flex; flex-wrap:wrap; align-items:center; gap:5px 14px; padding:3px 8px 0; font-size:12px; color:var(--muted-foreground); }
+.kpi-mini b { font-family:var(--font-mono); font-weight:600; color:var(--foreground); }
+.kpi-mini .kchip { display:inline-flex; align-items:center; gap:4px; background:none; border:0; padding:0; cursor:pointer; font-family:inherit; font-size:12px; color:var(--muted-foreground); }
+.kpi-mini .kchip:hover { color:var(--foreground); }
+
+/* breadcrumb ancestry — you-are-here, hop back up to the Map */
+.crumb-up { font-size:13px; color:var(--muted-foreground); text-decoration:none; }
+.crumb-up:hover { color:var(--foreground); }
+.crumb-sep { color:var(--muted-foreground); opacity:.55; font-size:12px; margin:0 3px; }
+
+/* compact milestone strip — the journey on one line */
+.ms-mini { display:flex; align-items:center; padding:6px 8px 2px; }
+.ms-mini .mnode { flex:none; display:flex; }
+.ms-mini .mbar { flex:1; height:2px; border-radius:1px; background:var(--border); margin:0 4px; }
+.ms-mini .mbar.done { background:var(--health-on-track-foreground); }
+.prow .caret { color:var(--muted-foreground); opacity:0; flex:none; margin-left:auto; transition:opacity .12s; }
+.prow:hover .caret, .prow[aria-expanded="true"] .caret { opacity:1; }
+button.prow[aria-expanded="true"] { background:var(--muted); }
+
+/* PEEK popover — the local origin slice for a rail entry */
+.peek { position:fixed; width:290px; background:var(--card); border:1px solid var(--border); border-radius:var(--radius); box-shadow:0 12px 30px -8px rgba(0,0,0,.28); padding:12px 13px; z-index:45; opacity:0; transform:translateY(4px); pointer-events:none; transition:opacity .13s, transform .13s; }
+.peek.show { opacity:1; transform:translateY(0); pointer-events:auto; }
+.peek .ph { font-size:12.5px; font-weight:600; display:flex; align-items:center; gap:7px; margin-bottom:2px; }
+.peek .psub { font-size:11.5px; color:var(--muted-foreground); margin-bottom:9px; }
+.peek .tline { display:flex; align-items:flex-start; gap:8px; font-size:12.5px; padding:4px 0; }
+.peek .tline .rel { flex:none; width:15px; text-align:center; color:var(--muted-foreground); font-family:var(--font-mono); margin-top:1px; }
+.peek .tline .lbl { flex:1; min-width:0; }
+.peek .tline .lbl .k { color:var(--muted-foreground); font-size:11px; }
+.peek .tline.self { background:var(--muted); border-radius:6px; padding:5px 7px; margin:2px -4px; }
+.peek .tline .open { flex:none; color:var(--primary); font-size:11.5px; opacity:0; cursor:pointer; }
+.peek .tline:hover .open { opacity:1; }
+.peek .pfoot { margin-top:10px; padding-top:9px; border-top:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
+.peek .pfoot .expand { color:var(--primary); font-size:12px; font-weight:500; background:none; border:0; cursor:pointer; padding:0; font-family:inherit; }
+.peek .pfoot .pnote { font-size:10.5px; color:var(--muted-foreground); }
+.tag-owned { font-size:9px; font-weight:600; color:var(--health-on-track-foreground); text-transform:uppercase; letter-spacing:.03em; }
+.tag-inherit { font-size:9px; font-weight:600; color:var(--muted-foreground); text-transform:uppercase; letter-spacing:.03em; }
+.peek .warn-val { color:var(--priority-high-foreground); }
+
+/* ============ Goals & Memory — action-oriented workspace layouts ============ */
+.work { max-width: 720px; }
+.gstat { display:flex; align-items:center; gap:10px 12px; flex-wrap:wrap; margin-bottom:1.7rem; font-size:.86rem; }
+.gstat .lead { display:inline-flex; align-items:center; gap:7px; color:var(--foreground); font-weight:500; }
+.gstat .lead svg { color:var(--muted-foreground); }
+.attn { display:inline-flex; align-items:center; gap:6px; padding:2px 10px; border-radius:999px; font-size:12px; font-weight:500; cursor:pointer; border:0; font-family:inherit; }
+.attn .dt { width:6px; height:6px; border-radius:999px; background:currentColor; }
+.attn.warn { background:var(--priority-high); color:var(--priority-high-foreground); }
+.attn:hover { filter:brightness(0.97); }
+
+.sec { display:flex; align-items:baseline; justify-content:space-between; margin:0 0 .8rem; }
+.sec h3 { font-size:11.5px; font-weight:600; color:var(--muted-foreground); letter-spacing:.04em; text-transform:uppercase; margin:0; }
+.addbtn { font-family:inherit; font-size:12px; color:var(--muted-foreground); background:none; border:0; cursor:pointer; display:inline-flex; align-items:center; gap:4px; padding:0; }
+.addbtn:hover { color:var(--foreground); }
+.block { margin-bottom:2rem; }
+.block:last-child { margin-bottom:0; }
+
+.btn-sm { font-family:inherit; font-size:12.5px; font-weight:500; padding:6px 12px; border-radius:calc(var(--radius) - 2px); border:1px solid var(--border); background:var(--card); color:var(--foreground); cursor:pointer; display:inline-flex; align-items:center; gap:5px; white-space:nowrap; }
+.btn-sm:hover { background:var(--muted); }
+.btn-sm.primary { background:var(--primary); color:var(--primary-foreground); border-color:var(--primary); }
+.btn-sm.primary:hover { filter:brightness(1.06); }
+.btn-xs { font-family:inherit; font-size:12px; font-weight:500; padding:3px 9px; border-radius:calc(var(--radius) - 3px); border:1px solid var(--border); background:var(--card); color:var(--foreground); cursor:pointer; white-space:nowrap; }
+.btn-xs:hover { background:var(--muted); }
+
+/* Milestone journey stepper */
+.stepper { display:flex; margin:.2rem 0 1.15rem; }
+.step { flex:1; display:flex; flex-direction:column; align-items:center; position:relative; padding-top:2px; }
+.step::before { content:""; position:absolute; top:15px; left:-50%; width:100%; height:2px; background:var(--border); z-index:0; }
+.step:first-child::before { display:none; }
+.step.done::before, .step.current::before { background:var(--health-on-track-foreground); }
+.step .node { position:relative; z-index:1; width:28px; height:28px; border-radius:999px; background:var(--background); display:flex; align-items:center; justify-content:center; }
+.step .slabel { font-size:12.5px; font-weight:550; margin-top:7px; color:var(--foreground); }
+.step .sdate { font-size:11px; font-family:var(--font-mono); color:var(--muted-foreground); margin-top:1px; }
+.step.upcoming .slabel { color:var(--muted-foreground); font-weight:500; }
+.step .schip { font-size:9.5px; font-weight:700; color:var(--priority-high-foreground); letter-spacing:.06em; text-transform:uppercase; margin-top:3px; }
+
+/* Focus card — current milestone */
+.focus { display:flex; align-items:center; gap:14px; padding:14px 16px; border:1px solid var(--border); border-left:3px solid var(--milestone-current); border-radius:var(--radius); background:var(--card); }
+.focus .fmeta { min-width:0; flex:1; }
+.focus .ftitle { font-weight:600; font-size:14px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.focus .fsub { font-size:12.5px; color:var(--muted-foreground); margin-top:3px; }
+
+/* KR rows */
+.krrow { padding:13px 2px; border-bottom:1px solid var(--border); }
+.krrow:last-child { border-bottom:0; }
+.krtop { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.krname { font-size:13.5px; font-weight:500; display:flex; align-items:center; gap:8px; min-width:0; }
+.krbar { display:flex; align-items:center; gap:10px; margin-top:9px; }
+.krpct { font-family:var(--font-mono); font-size:12px; color:var(--muted-foreground); width:36px; text-align:right; flex:none; }
+.pace { font-size:10.5px; font-weight:600; padding:1px 8px; border-radius:999px; letter-spacing:.02em; flex:none; text-transform:uppercase; }
+.pace.ok { background:var(--muted); color:var(--muted-foreground); }
+.pace.behind { background:var(--priority-high); color:var(--priority-high-foreground); }
+.pace.ahead { background:var(--health-on-track); color:var(--health-on-track-foreground); }
+.krnudge { margin-top:10px; display:flex; align-items:center; gap:8px; font-size:12px; color:var(--priority-high-foreground); }
+
+/* KPI rows */
+.kpi { display:flex; align-items:center; gap:12px; padding:12px 2px; border-bottom:1px solid var(--border); }
+.kpi:last-child { border-bottom:0; }
+.kpi .kn { flex:1; min-width:0; }
+.kpi .knm { font-size:13.5px; font-weight:500; }
+.kpi .kt { font-size:11.5px; color:var(--muted-foreground); margin-top:1px; }
+.kpi .kval { font-family:var(--font-mono); font-size:14px; font-weight:550; flex:none; }
+.kpi .kbadge { font-size:10.5px; font-weight:600; padding:1px 8px; border-radius:999px; flex:none; text-transform:uppercase; letter-spacing:.02em; }
+.kpi .ksrc { display:inline-flex; align-items:center; gap:4px; }
+.kpi .ksrc .live { width:5px; height:5px; border-radius:999px; background:var(--health-on-track-foreground); display:inline-block; }
+
+/* Tasks — "needs attention" band (connect the shared blocker) */
+.needsband { display:flex; align-items:flex-start; gap:11px; padding:14px 16px; border:1px solid var(--border); border-left:3px solid var(--priority-high-foreground); border-radius:var(--radius); background:var(--priority-high); margin-bottom:1.3rem; }
+.needsband .nb-ic { color:var(--priority-high-foreground); flex:none; margin-top:1px; display:flex; }
+.needsband .nb-body { flex:1; min-width:0; }
+.needsband .nb-t { font-size:13px; line-height:1.5; }
+.needsband .nb-tasks { font-size:11.5px; color:var(--muted-foreground); margin-top:3px; }
+.needsband .nb-act { flex:none; display:flex; gap:6px; align-self:center; }
+
+/* Memory — digest + action rows */
+.digest { border:1px solid var(--border); border-radius:var(--radius); background:var(--muted); padding:14px 16px; margin-bottom:2rem; }
+.digest .dh { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:var(--muted-foreground); display:flex; align-items:center; gap:6px; margin-bottom:9px; }
+.digest ul { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px; }
+.digest li { font-size:13px; line-height:1.5; display:flex; gap:9px; }
+.digest li .mk { color:var(--muted-foreground); flex:none; margin-top:.15rem; }
+.digest .src { color:var(--muted-foreground); font-size:11.5px; }
+.mrow { display:flex; align-items:flex-start; gap:11px; padding:12px 2px; border-bottom:1px solid var(--border); }
+.mrow:last-child { border-bottom:0; }
+.mrow .mbody { flex:1; min-width:0; }
+.mrow .nm { font-size:13.5px; font-weight:500; }
+.mrow .sub { font-size:12px; color:var(--muted-foreground); margin-top:2px; }
+.mrow .sub .link { color:var(--primary); }
+.mrow .mact { flex:none; opacity:0; transition:opacity .12s; }
+.mrow:hover .mact, .mrow:focus-within .mact { opacity:1; }
+.aitem { font-size:12px; color:var(--foreground); display:inline-flex; align-items:center; gap:6px; padding:2px 0; }
+.aitem .box { width:13px; height:13px; border:1.5px solid var(--muted-foreground); border-radius:3px; flex:none; }
+
+/* Memory — segmented sub-tabs */
+.subtabs { display:inline-flex; gap:2px; background:var(--muted); border-radius:calc(var(--radius) - 1px); padding:3px; margin-bottom:1.5rem; }
+.subtab { border:0; background:none; font-family:inherit; font-size:12.5px; font-weight:500; color:var(--muted-foreground); padding:5px 12px; border-radius:calc(var(--radius) - 3px); cursor:pointer; display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
+.subtab:hover { color:var(--foreground); }
+.subtab[aria-selected="true"] { background:var(--card); color:var(--foreground); box-shadow:0 1px 2px rgba(0,0,0,.07); }
+.subtab .cnt { font-size:11px; font-family:var(--font-mono); color:var(--muted-foreground); }
+.mempanel { display:none; }
+.mempanel.active { display:block; animation:fadeIn .18s ease; }
+
+/* Memory — "thinking" synthesis surface (Insights) */
+.synthesis { display:flex; align-items:center; gap:9px; font-size:12px; color:var(--muted-foreground); padding:9px 13px; border:1px solid var(--border); border-radius:var(--radius); background:var(--accent); margin-bottom:1.5rem; }
+.synthesis b { color:var(--foreground); font-weight:550; }
+.synthesis .s-ic { color:var(--primary); display:flex; flex:none; }
+.synthesis .pulse { width:7px; height:7px; border-radius:999px; background:var(--primary); flex:none; margin-left:auto; animation:thinkpulse 2s ease-in-out infinite; }
+@keyframes thinkpulse { 0%,100%{opacity:.35;transform:scale(.8)} 50%{opacity:1;transform:scale(1.1)} }
+.think-group { margin-bottom:1.5rem; }
+.think-group:last-child { margin-bottom:0; }
+.tg-h { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--muted-foreground); margin-bottom:.4rem; display:flex; align-items:center; gap:7px; }
+.tg-h .g-ic { display:flex; }
+.think-item { display:flex; align-items:flex-start; gap:10px; padding:9px 2px; border-bottom:1px solid var(--border); }
+.think-item:last-child { border-bottom:0; }
+.think-item .ti-ic { flex:none; width:15px; margin-top:1px; display:flex; justify-content:center; font-weight:700; font-family:var(--font-mono); }
+.think-item .ti-body { flex:1; min-width:0; font-size:13px; line-height:1.5; }
+.think-item .ti-src { color:var(--muted-foreground); font-size:11px; }
+.think-item .ti-act { flex:none; display:flex; gap:6px; align-self:center; }
+.conf { font-size:10px; font-weight:600; padding:1px 8px; border-radius:999px; text-transform:uppercase; letter-spacing:.02em; white-space:nowrap; }
+.conf.high { background:var(--health-on-track); color:var(--health-on-track-foreground); }
+.conf.med { background:var(--muted); color:var(--muted-foreground); }
+.tg-h .ago { font-weight:400; text-transform:none; letter-spacing:0; color:var(--muted-foreground); }
+.think-item.dismissed { opacity:0; transform:translateX(10px); transition:opacity .2s ease, transform .2s ease; }
+.ti-x { background:none; border:0; color:var(--muted-foreground); cursor:pointer; font-size:15px; line-height:1; padding:0 3px; opacity:0; transition:opacity .12s; }
+.think-item:hover .ti-x { opacity:.55; }
+.ti-x:hover { opacity:1; color:var(--foreground); }
+.undo { background:none; border:0; color:var(--muted-foreground); cursor:pointer; font-family:inherit; font-size:12px; text-decoration:underline; padding:0; }
+.undo:hover { color:var(--foreground); }
+
+/* Milestones — [diamond] [name] [x% of N] ...... [date] [⋯] */
+.ms-row {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  min-height: 30px; padding: 3px 8px; border-radius: calc(var(--radius) - 2px);
+  font-size: 13px; cursor: pointer;
+}
+.ms-row:hover, .ms-row:focus-visible { background: var(--muted); }
+.dmn { width: 13px; height: 13px; display: flex; }
+.ms-name { font-weight: 500; white-space: nowrap; }
+.ms-frac { font-size: 11.5px; color: var(--muted-foreground); white-space: nowrap; }
+.ms-date {
+  margin-left: auto; font-family: var(--font-mono); font-size: 11px;
+  color: var(--muted-foreground); border-radius: 4px; padding: 1px 3px;
+}
+.ms-date:hover { background: var(--secondary); color: var(--foreground); cursor: text; }
+.date-input {
+  font-family: var(--font-mono); font-size: 11px; width: 54px; text-align: right;
+  border: 1px solid var(--input); border-radius: 4px; padding: 0 3px;
+  background: var(--card); color: var(--foreground); height: 18px;
+}
+.ms-menu { position: relative; width: 20px; height: 20px; display: flex; flex: none; }
+.ms-menu .dots {
+  width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: calc(var(--radius) - 4px); color: var(--muted-foreground);
+  opacity: 0; transition: opacity .12s ease;
+}
+.ms-row:hover .dots, .ms-menu:focus-within .dots, .ms-menu.openm .dots { opacity: 1; }
+.ms-menu .dots:hover { background: var(--secondary); color: var(--foreground); }
+.menu-pop {
+  position: absolute; top: calc(100% + 4px); right: 0; z-index: 60;
+  min-width: 152px; padding: 4px;
+  background: var(--popover); color: var(--popover-foreground);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+}
+.menu-pop button {
+  display: block; width: 100%; text-align: left;
+  padding: 5px 9px; border-radius: calc(var(--radius) - 4px);
+  font-size: 12.5px; white-space: nowrap;
+}
+.menu-pop button:hover { background: var(--muted); }
+.menu-pop button.danger { color: var(--destructive); }
+
+/* Trajectory — compact burnup, always visible in the rail */
+.traj-note { font-size: 11px; color: var(--muted-foreground); margin-top: 6px; display: flex; gap: 12px; }
+.traj-note .k { display: inline-flex; align-items: center; gap: 5px; }
+.traj-note .sw { width: 10px; height: 2px; border-radius: 2px; display: inline-block; }
+
+/* ============================== Tasks — quiet, integrated ===============
+   No card chrome. Hairline dividers, light group headers,
+   Name (+ kind/priority chips) · Status · Owner · Due. */
+.tasks-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.panel-sub { font-size: 12px; color: var(--muted-foreground); }
+.view-flip { display: flex; gap: 2px; margin-left: auto; flex: none; }
+.vf-btn {
+  width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: calc(var(--radius) - 4px); color: var(--muted-foreground);
+}
+.vf-btn:hover { background: var(--muted); color: var(--foreground); }
+.vf-btn[aria-pressed="true"] { background: var(--secondary); color: var(--foreground); }
+.tq { width: 100%; border-collapse: collapse; font-size: 13.5px; table-layout: fixed; }
+.tq th { text-align: left; height: 34px; padding: 0 10px; font-size: 12px; font-weight: 500; color: var(--muted-foreground); border-bottom: 1px solid var(--border); white-space: nowrap; }
+.tq th.col-status { width: 118px; }
+.tq th.col-owner { width: 158px; }
+.tq th.col-due { width: 74px; }
+.tq td { padding: 9px 10px; vertical-align: middle; border-bottom: 1px solid color-mix(in oklab, var(--border) 62%, transparent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tq tbody:last-child tr:last-child td { border-bottom: 0; }
+.qgroup td { padding: 20px 10px 7px; border-bottom: 1px solid var(--border); overflow: visible; }
+.tq tbody:first-of-type .qgroup td { padding-top: 6px; }
+.qgroup-inner {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+.qgroup-chev {
+  width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: calc(var(--radius) - 4px); color: var(--muted-foreground); flex: none; margin-left: -4px;
+}
+.qgroup-chev:hover { background: var(--muted); color: var(--foreground); }
+.qgroup-chev svg { transition: transform .18s ease; }
+tbody.collapsed .qgroup-chev svg { transform: rotate(-90deg); }
+tbody.collapsed .qrow { display: none; }
+.qcount { font-family: var(--font-mono); font-size: 11px; font-weight: 500; color: var(--muted-foreground); letter-spacing: 0; text-transform: none; }
+.qrow { transition: background .1s ease; }
+.qrow:hover { background: color-mix(in oklab, var(--muted) 55%, transparent); }
+.qname-cell { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.wname {
+  font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  text-align: left;
+}
+.wname:hover { text-decoration: underline; text-underline-offset: 3px; }
+.qrow.is-done .wname { color: var(--muted-foreground); font-weight: 450; }
+.qrow.is-cancelled .wname { color: var(--muted-foreground); text-decoration: line-through; }
+.qrow.is-cancelled .wname:hover { text-decoration: line-through underline; }
+.qstatus { display: inline-flex; align-items: center; gap: 8px; color: var(--muted-foreground); }
+.wowner { display: inline-flex; align-items: center; gap: 8px; color: var(--muted-foreground); min-width: 0; max-width: 100%; }
+.wowner-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wdue { color: var(--muted-foreground); font-size: 13px; }
+/* soft-tint token pills (kind / priority ramps) */
+.pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 8px; border-radius: 999px;
+  font-size: 12px; font-weight: 500; line-height: 16px; white-space: nowrap;
+}
+.pill.xs { font-size: 11px; padding: 1px 7px; line-height: 15px; }
+.pill.k-build { background: var(--phase-execute); color: var(--phase-execute-foreground); }
+.pill.k-plan { background: var(--phase-plan); color: var(--phase-plan-foreground); }
+.pill.k-research { background: var(--priority-medium); color: var(--priority-medium-foreground); }
+.pill.k-review { background: var(--phase-review); color: var(--phase-review-foreground); }
+.pill.pr-critical { background: var(--priority-critical); color: var(--priority-critical-foreground); }
+.pill.pr-high { background: var(--priority-high); color: var(--priority-high-foreground); }
+.pill.pr-medium { background: var(--priority-medium); color: var(--priority-medium-foreground); }
+.pill.pr-low { background: var(--priority-low); color: var(--priority-low-foreground); }
+
+/* ============================== Gantt — quiet timeline ================== */
+.tasks-gantt { overflow-x: auto; }
+.tasks-gantt .gantt-grid { min-width: 640px; }
+.gantt { margin-top: 6px; }
+.gantt-grid { display: flex; border-top: 1px solid var(--border); }
+.g-labels { width: 230px; flex: none; }
+.g-labels .g-cell {
+  height: 36px; display: flex; align-items: center; gap: 8px;
+  padding-right: 14px; font-size: 12.5px;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 62%, transparent);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.g-labels .g-cell.scalehead { height: 26px; font-size: 11px; color: var(--muted-foreground); border-bottom: 1px solid var(--border); }
+.g-labels .g-cell .g-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 450; }
+.g-labels .g-cell.is-ms .g-name { font-weight: 550; }
+.g-labels .g-cell.is-done .g-name { color: var(--muted-foreground); }
+.g-canvas { position: relative; flex: 1; min-width: 0; }
+.g-rows { position: relative; z-index: 2; }
+.g-track { position: relative; height: 36px; border-bottom: 1px solid color-mix(in oklab, var(--border) 62%, transparent); }
+.g-scale { position: relative; height: 26px; border-bottom: 1px solid var(--border); z-index: 2; }
+.g-tick { position: absolute; top: 5px; transform: translateX(-50%); font-family: var(--font-mono); font-size: 10px; color: var(--muted-foreground); white-space: nowrap; }
+.g-gridline { position: absolute; top: 26px; bottom: 0; width: 1px; background: color-mix(in oklab, var(--border) 55%, transparent); z-index: 1; }
+.g-bar { position: absolute; top: 50%; transform: translateY(-50%); height: 13px; border-radius: 7px; }
+.g-bar.done { background: color-mix(in oklab, var(--muted-foreground) 28%, transparent); }
+.g-bar.doing { background: color-mix(in oklab, var(--primary) 34%, transparent); border: 1px solid color-mix(in oklab, var(--primary) 55%, transparent); }
+.g-bar.risk { background: var(--health-at-risk); border: 1px solid color-mix(in oklab, var(--health-at-risk-foreground) 45%, transparent); }
+.g-bar.blocked { background: var(--health-blocked); border: 1px solid color-mix(in oklab, var(--health-blocked-foreground) 45%, transparent); }
+.g-bar.todo { background: var(--muted); border: 1px solid var(--border); }
+.g-dmn { position: absolute; top: 50%; transform: translate(-50%, -50%); width: 13px; height: 13px; display: flex; }
+.g-line { position: absolute; top: 0; bottom: 0; width: 0; z-index: 3; pointer-events: none; }
+.g-line.target { border-left: 1px dashed var(--priority-high-foreground); }
+.g-line.today { border-left: 1px solid color-mix(in oklab, var(--muted-foreground) 55%, transparent); }
+.g-line .g-line-tag {
+  position: absolute; top: 4px; right: 3px;
+  font-family: var(--font-mono); font-size: 10px; white-space: nowrap;
+}
+.g-line.target .g-line-tag { color: var(--priority-high-foreground); }
+.g-line.today .g-line-tag { color: var(--muted-foreground); }
+.g-legend { font-size: 11px; color: var(--muted-foreground); margin-top: 12px; display: flex; gap: 14px; flex-wrap: wrap; }
+.g-legend .k { display: inline-flex; align-items: center; gap: 5px; }
+.g-legend .sw { width: 12px; height: 3px; border-radius: 2px; display: inline-block; }
+
+/* Tasks list / gantt view swap */
+#panel-tasks .tasks-gantt { display: none; }
+#panel-tasks[data-view="gantt"] .tasks-list { display: none; }
+#panel-tasks[data-view="gantt"] .tasks-gantt { display: block; }
+
+/* ============================== Agents ===================================
+   The tab shows what agents have DONE for this item (history + outcomes). */
+.agents-sub { font-size: 12.5px; color: var(--muted-foreground); margin: 4px 0 14px; }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: calc(var(--radius) + 2px); box-shadow: var(--shadow-xs); }
+.ricon { width: 2rem; height: 2rem; border-radius: 6px; background: var(--accent); color: var(--accent-foreground); display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: .85rem; }
+.arow { display: flex; gap: .7rem; align-items: center; padding: .7rem .9rem; border-bottom: 1px solid var(--border); }
+.arow:last-child { border: 0; }
+.arow .t { flex: 1; min-width: 0; }
+.arow .t .nm { font-size: .85rem; font-weight: 500; }
+.arow .t .sub { font-size: .7rem; color: var(--muted-foreground); margin-top: .1rem; }
+.arow .meta { font-size: .7rem; color: var(--muted-foreground); flex: none; }
+.link { color: var(--primary); }
+
+/* ============================== Activity ================================ */
+.activity-doc { max-width: 68ch; }
+.activity-sub { font-size: 12.5px; color: var(--muted-foreground); margin: 4px 0 14px; }
+.feed { list-style: none; margin: 8px 0 0; padding: 0; position: relative; }
+.feed::before { content: ""; position: absolute; left: 10px; top: 4px; bottom: 8px; width: 1.5px; background: var(--border); }
+.feed li { position: relative; display: flex; gap: 11px; padding: 6px 0; align-items: flex-start; }
+.feed li.is-comment { padding: 9px 0; }
+.feed li.day { padding: 16px 0 4px; }
+.feed .daylabel { font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted-foreground); padding-left: 32px; }
+.feed .node {
+  width: 21px; height: 21px; border-radius: 999px; flex: none; z-index: 1; margin-top: 1px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--muted); color: var(--muted-foreground); border: 1px solid var(--border);
+}
+.feed .node.ok { background: color-mix(in oklch, var(--health-on-track-foreground), transparent 85%); color: var(--health-on-track-foreground); border-color: transparent; }
+.feed .node.flag { background: var(--priority-high); color: var(--priority-high-foreground); border-color: transparent; }
+.feed .node.risk { background: var(--priority-critical); color: var(--priority-critical-foreground); border-color: transparent; }
+.feed .node.agent, .feed .node.up { background: color-mix(in oklch, var(--primary), transparent 85%); color: var(--primary); border-color: transparent; }
+.feed .node.comment { background: var(--accent); color: var(--accent-foreground); border-color: transparent; font-size: 9px; font-weight: 600; }
+.feed .ev-text { font-size: 12.5px; min-width: 0; padding-top: 2px; line-height: 1.5; color: var(--muted-foreground); }
+.feed .ev-text b { font-weight: 550; color: var(--foreground); }
+.feed .ev-time { font-family: var(--font-mono); font-size: 10.5px; color: var(--muted-foreground); margin-left: 6px; }
+.feed .c-head { display: flex; align-items: baseline; gap: 5px; }
+.feed .c-head b { font-weight: 600; color: var(--foreground); font-size: 13px; }
+.feed .bubble {
+  margin-top: 5px; padding: 9px 12px; font-size: 13px; color: var(--foreground); line-height: 1.5;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 10px; border-top-left-radius: 3px;
+}
+.composer { display: flex; gap: 10px; margin-top: 22px; align-items: center; }
+.composer .c-av { width: 27px; height: 27px; border-radius: 999px; background: var(--primary); color: var(--primary-foreground); font-size: 10px; font-weight: 600; display: flex; align-items: center; justify-content: center; flex: none; }
+.composer input {
+  flex: 1; height: 37px; padding: 0 14px; min-width: 0;
+  border: 1px solid var(--input); border-radius: 999px;
+  background: var(--card); color: var(--foreground); font: inherit; font-size: 13px;
+}
+.composer input::placeholder { color: var(--muted-foreground); }
+.composer-hint { font-size: 11px; color: var(--muted-foreground); margin-top: 6px; }
+.composer-hint code { font-family: var(--font-mono); background: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; font-size: 10.5px; }
+
+/* ============================== Dock + side panels =======================
+   Fixed overlays, NOT grid columns. 52px = appbar height. */
+.dock {
+  position: fixed; top: 52px; right: 0; bottom: 0; width: 48px; z-index: 30;
+  background: var(--card); border-left: 1px solid var(--border);
+  display: flex; flex-direction: column; align-items: center; gap: .45rem; padding: .6rem 0;
+}
+.dockicon {
+  width: 2.1rem; height: 2.1rem; border-radius: 8px; display: flex; align-items: center; justify-content: center;
+  color: var(--muted-foreground); cursor: pointer; position: relative;
+}
+.dockicon:hover { background: var(--muted); }
+.dockicon.on { background: color-mix(in oklch, var(--primary), transparent 88%); color: var(--primary); }
+.dockicon.on::before {
+  content: ""; position: absolute; left: -.6rem; top: 50%; transform: translateY(-50%);
+  width: 3px; height: 1.1rem; border-radius: 2px; background: var(--primary);
+}
+.cpanel {
+  position: fixed; top: 52px; right: 48px; bottom: 0; width: 340px; z-index: 28;
+  background: var(--card); border-left: 1px solid var(--border);
+  box-shadow: -6px 0 16px hsl(236 64% 21% / .09);
+  display: flex; flex-direction: column;
+}
+.cph { padding: .7rem .9rem; border-bottom: 1px solid var(--border); font-size: .84rem; font-weight: 600; display: flex; align-items: center; gap: .4rem; }
+.cph .csub { font-weight: 400; color: var(--muted-foreground); font-size: .68rem; }
+.cph .cbtns { margin-left: auto; display: flex; gap: .6rem; color: var(--muted-foreground); cursor: pointer; font-weight: 400; }
+.cph .cbtns button:hover { color: var(--foreground); }
+.cpb { flex: 1; overflow: auto; padding: .8rem; display: flex; flex-direction: column; gap: .65rem; }
+
+/* Meetings + Memory — reused .mtg shell */
+.mtg { border: 1px solid var(--border); border-radius: 8px; padding: .6rem .7rem; }
+.mth { font-size: .8rem; font-weight: 500; display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+.mtd { font-size: .66rem; color: var(--muted-foreground); margin-top: .15rem; }
+.mts { font-size: .72rem; color: var(--muted-foreground); margin-top: .35rem; }
+.mts .link { color: var(--primary); }
+.tag2 { font-size: .56rem; font-weight: 600; background: var(--accent); color: var(--accent-foreground); padding: .05rem .35rem; border-radius: 999px; }
+
+/* Resources — type-aware gallery */
+.gridB { display: grid; grid-template-columns: repeat(2, 1fr); gap: .6rem; }
+.gcard { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--card); cursor: pointer; }
+.gcard:hover { border-color: var(--primary); }
+.gcover { height: 70px; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; border-bottom: 1px solid var(--border); position: relative; }
+.gmeta { padding: .5rem .55rem; }
+.gmeta .nm { font-size: .72rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gmeta .sub { font-size: .62rem; color: var(--muted-foreground); margin-top: .15rem; display: flex; gap: .3rem; align-items: center; }
+.tp { font-size: .56rem; padding: .02rem .3rem; border-radius: 3px; background: var(--muted); color: var(--muted-foreground); font-weight: 600; text-transform: uppercase; }
+.imgcover { background: linear-gradient(135deg, color-mix(in oklab, var(--primary) 26%, var(--card)), color-mix(in oklab, var(--primary) 44%, var(--card))); }
+.pdfcover { background: color-mix(in oklab, oklch(0.62 0.19 27) 16%, var(--card)); color: oklch(0.62 0.19 27); }
+.filecover { background: var(--muted); color: var(--muted-foreground); }
+.canvascover { background: linear-gradient(135deg, color-mix(in oklab, oklch(0.72 0.14 70) 16%, var(--card)), color-mix(in oklab, oklch(0.66 0.14 150) 16%, var(--card))); }
+.conncover { background: var(--muted); color: var(--foreground); }
+.pdfpages { position: absolute; bottom: 6px; right: 8px; font-size: .55rem; color: var(--muted-foreground); background: var(--card); padding: .05rem .3rem; border-radius: 3px; }
+
+/* GitHub — placeholder */
+.panel-placeholder { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--muted-foreground); text-align: center; padding: 24px; }
+
+/* ============================== Ask sidebar =============================== */
+.side {
+  position: fixed; top: 52px; right: 48px; bottom: 0; width: 360px; z-index: 35;
+  background: var(--card); border-left: 1px solid var(--border);
+  box-shadow: -6px 0 16px hsl(236 64% 21% / .10);
+  display: flex; flex-direction: column;
+}
+.sideh { padding: .7rem .9rem; border-bottom: 1px solid var(--border); font-size: .82rem; font-weight: 600; display: flex; align-items: center; gap: .4rem; }
+.sideb { flex: 1; overflow: auto; padding: .8rem; display: flex; flex-direction: column; gap: .6rem; position: relative; z-index: 1; }
+.bub { max-width: 88%; padding: .55rem .75rem; border-radius: 10px; font-size: .8rem; }
+.bub .who { font-size: .62rem; color: var(--muted-foreground); margin-bottom: .15rem; font-weight: 600; }
+.bub.you { background: var(--accent); margin-left: auto; }
+.bub.ai { background: var(--muted); }
+.sidef { padding: .6rem .7rem; border-top: 1px solid var(--border); display: flex; gap: .5rem; align-items: center; font-size: .78rem; color: var(--muted-foreground); }
+.sidef input { flex: 1; border: 0; background: none; font: inherit; color: var(--foreground); outline: none; }
+.sidef input::placeholder { color: var(--muted-foreground); }
+.sidef .run { margin-left: auto; color: var(--primary); font-weight: 600; flex: none; background: none; border: 0; cursor: pointer; font-size: .78rem; }
+.sidef .run:hover { color: color-mix(in oklab, var(--primary) 80%, var(--foreground)); }
+.side.agentmode { overflow: hidden; }
+.sideglow {
+  position: absolute; inset: 0; pointer-events: none; z-index: 0;
+  background: radial-gradient(130px 130px at 28% 18%, color-mix(in oklch, var(--primary), transparent 82%), transparent 70%),
+              radial-gradient(150px 150px at 82% 88%, color-mix(in oklch, var(--primary), transparent 87%), transparent 70%);
+  animation: floatglow 6s ease-in-out infinite;
+  display: none;
+}
+.side.agentmode .sideglow { display: block; }
+@keyframes floatglow { 0%, 100% { transform: translate(0, 0) scale(1); opacity: .85; } 50% { transform: translate(-14px, 12px) scale(1.12); opacity: 1; } }
+.modechip {
+  font-size: .6rem; font-weight: 600; background: color-mix(in oklch, var(--primary), transparent 84%); color: var(--primary);
+  padding: .1rem .45rem; border-radius: 999px; display: none; align-items: center; gap: .28rem; margin-left: .4rem;
+}
+.side.agentmode .modechip { display: inline-flex; }
+.modechip::before { content: ""; width: .4rem; height: .4rem; border-radius: 999px; background: var(--primary); animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+.modeseg { display: inline-flex; background: var(--muted); border-radius: 999px; padding: 2px; font-size: .68rem; align-self: flex-start; }
+.modeseg button { padding: .22rem .6rem; border: 0; background: none; font: inherit; font-size: .68rem; border-radius: 999px; color: var(--muted-foreground); display: flex; gap: .25rem; align-items: center; cursor: pointer; }
+.modeseg button:hover { color: var(--foreground); }
+.modeseg button.on { background: var(--card); color: var(--primary); font-weight: 600; box-shadow: 0 1px 2px hsl(236 64% 21% / .1); }
+.gctx { color: var(--primary) !important; }
+
+/* ============================== FAB ======================================= */
+.fab {
+  position: fixed; bottom: 20px; right: 64px; z-index: 26;
+  width: 2.7rem; height: 2.7rem; border-radius: 999px;
+  background: var(--primary); color: var(--primary-foreground);
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: var(--shadow-lg); font-size: 1.1rem; border: 0;
+  cursor: pointer; transition: background .12s, transform .12s;
+}
+.fab:hover { background: color-mix(in oklab, var(--primary) 90%, var(--foreground)); }
+.fab:active { transform: translateY(1px); }
+
+/* Small screens */
+@media (max-width: 900px) {
+  .cpanel, .side { right: 0; width: min(360px, 100vw); }
+}
+@media (max-width: 860px) {
+  .crumbs .mid { display: none; }
+  .kbd-pill { display: none; }
+  .appbar-right .btn.primary.sm[data-action="ask-open"] { display: none; }
+}
+@media (max-width: 720px) {
+  .ms-menu .dots { opacity: 1; }
+  .issue .issue-actions .btn { opacity: 1; }
+}
+</style>
+</head>
+<body>
+
+<!-- ==================== Header bar: crumbs + tabs + utilities ========== -->
+<header class="appbar">
+  <nav class="crumbs" aria-label="Breadcrumb">
+    <a class="crumb-up" href="#" title="Open the Payments map — up a level">Payments</a><span class="crumb-sep" aria-hidden="true">▸</span><span class="here">v2.3 — Payments revamp</span>
+  </nav>
+  <span class="bar-rule" aria-hidden="true"></span>
+  <div class="tabstrip" role="tablist" aria-label="Work item detail">
+    <button class="tab" role="tab" id="tab-overview" aria-controls="panel-overview" aria-selected="true" data-tab="overview">Overview</button>
+    <button class="tab" role="tab" id="tab-tasks" aria-controls="panel-tasks" aria-selected="false" data-tab="tasks">Tasks</button>
+    <button class="tab" role="tab" id="tab-goals" aria-controls="panel-goals" aria-selected="false" data-tab="goals">Goals</button>
+    <button class="tab" role="tab" id="tab-memory" aria-controls="panel-memory" aria-selected="false" data-tab="memory">Memory</button>
+    <button class="tab" role="tab" id="tab-activity" aria-controls="panel-activity" aria-selected="false" data-tab="activity">Activity</button>
+  </div>
+  <div class="appbar-right">
+    <button class="kbd-pill" type="button">Search <kbd>⌘K</kbd></button>
+    <button class="btn primary sm" type="button" data-action="ask-open">✦ Ask Agent</button>
+    <button class="icon-btn" id="themeToggle" type="button" aria-label="Toggle dark mode" aria-pressed="false">
+      <svg id="iconSun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      <svg id="iconMoon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+    </button>
+    <span class="avatar md" title="Mira Kapoor">MK</span>
+  </div>
+</header>
+
+<main class="page">
+  <div class="layout">
+
+    <!-- ==================== MAIN COLUMN — content first ================= -->
+    <div class="col-main">
+      <!-- Overview: the document. Kind chip → dominant title → status line
+           → strategy line → readable description → one quiet needs-attention line. -->
+      <section class="tabpanel active" role="tabpanel" id="panel-overview" aria-labelledby="tab-overview" tabindex="0">
+        <div class="doc">
+          <span class="kind-tag">version</span>
+          <h1 class="doc-title">v2.3 — Payments revamp</h1>
+
+          <div class="statline">
+            <span class="chip h-risk xs">At risk</span>
+            <button class="statlink mono" type="button" data-goto="goals" title="See progress &amp; projection in Goals">68%</button>
+            <span class="sep">·</span>
+            <button class="statlink" type="button" data-goto="goals" title="See the forecast in Goals">12d to Oct 14</button>
+            <span class="sep">·</span>
+            <button class="statlink" type="button" data-goto="tasks" title="See the blocker in Tasks">1 blocked</button>
+          </div>
+          <div class="stratline">Objective <button class="statlink" type="button" data-goto="goals" title="Open Goals"><b>Frictionless checkout</b></button> → KR <button class="statlink" type="button" data-goto="goals">Checkout conv +2pts (62%)</button> · KPI payment-success 99.2%</div>
+
+          <div class="prose">
+            <p>Every PSP we added over the last two years brought its own checkout embed, its own webhook shape, and its own retry semantics. v2.3 consolidates all of it behind a single checkout, tokenization and webhook stack — one integration surface instead of five — and ships the unified payments dashboard that finance has been asking for since Q2.</p>
+            <p>The revamp is sequenced so we can keep taking payments the whole time: the new stack runs shadow-first, then takes 10% of checkout traffic behind a flag at Beta, and only replaces the legacy path once the exit criteria hold for a full week.</p>
+
+            <h2>Scope</h2>
+            <ul>
+              <li><strong>Unified checkout</strong> — one hosted flow across PSPs, with 3-DS fallback for EU cards.</li>
+              <li><strong>Tokenization &amp; vault</strong> — card-on-file migration to the new vault, with rotation.</li>
+              <li><strong>Webhooks v2</strong> — signed, idempotent delivery with a shared retry queue.</li>
+              <li><strong>Payments dashboard</strong> — settlement, disputes and refund state in one place.</li>
+            </ul>
+
+            <h2>Out of scope</h2>
+            <p>Apple Pay dynamic descriptors moved to v2.4, and no pricing or fee changes ride along with this release. Fraud-rule tuning landed as research and will be productized separately.</p>
+          </div>
+
+          <!-- ONE quiet needs-attention line; expands inline -->
+          <div class="attention" id="attention">
+            <button class="attn-line" type="button" id="attnToggle" aria-expanded="false" aria-controls="attnBody">
+              <span class="flag-ic" aria-hidden="true">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 22V4"/><path d="M4 4h13l-2.5 4L17 12H4"/></svg>
+              </span>
+              <span id="attnSummary"><b>2 flags</b> · 1 blocked · 1 at-risk</span>
+              <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <div class="attn-body" id="attnBody">
+              <div class="attn-body-inner">
+                <div class="issue-list" id="issueList">
+
+                  <div class="issue flag" data-issue>
+                    <div class="issue-row">
+                      <span class="issue-icon flag">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 22V4"/><path d="M4 4h13l-2.5 4L17 12H4"/></svg>
+                      </span>
+                      <div class="issue-text">
+                        <div class="issue-title">Agent changed webhook retry policy without a linked task</div>
+                        <div class="issue-meta">AI oversight · Agent run <span class="mono">#r-217</span> · raised Oct 1</div>
+                      </div>
+                      <div class="issue-actions">
+                        <button class="btn ghost sm" type="button" data-act="resolve">Resolve</button>
+                        <button class="btn outline sm" type="button" data-act="override">Override</button>
+                      </div>
+                    </div>
+                    <div class="override-box hidden">
+                      <textarea placeholder="Why are you overriding this flag? Your reasoning is logged to the activity feed." aria-label="Override reasoning"></textarea>
+                      <div class="row">
+                        <button class="btn ghost sm" type="button" data-act="ov-cancel">Cancel</button>
+                        <button class="btn primary sm" type="button" data-act="ov-submit" disabled>Override flag</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="issue flag" data-issue>
+                    <div class="issue-row">
+                      <span class="issue-icon flag">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 22V4"/><path d="M4 4h13l-2.5 4L17 12H4"/></svg>
+                      </span>
+                      <div class="issue-text">
+                        <div class="issue-title">Spec drift: checkout API contract differs from PRD v2.3</div>
+                        <div class="issue-meta">AI oversight · Doc diff on <span class="mono">psp-contract-v2.pdf</span> · raised Oct 1</div>
+                      </div>
+                      <div class="issue-actions">
+                        <button class="btn ghost sm" type="button" data-act="resolve">Resolve</button>
+                        <button class="btn outline sm" type="button" data-act="override">Override</button>
+                      </div>
+                    </div>
+                    <div class="override-box hidden">
+                      <textarea placeholder="Why are you overriding this flag? Your reasoning is logged to the activity feed." aria-label="Override reasoning"></textarea>
+                      <div class="row">
+                        <button class="btn ghost sm" type="button" data-act="ov-cancel">Cancel</button>
+                        <button class="btn primary sm" type="button" data-act="ov-submit" disabled>Override flag</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="issue">
+                    <div class="issue-row">
+                      <span class="issue-icon blocked">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="m5.7 5.7 12.6 12.6"/></svg>
+                      </span>
+                      <div class="issue-text">
+                        <div class="issue-title">Migrate billing webhooks to v2 schema — blocked</div>
+                        <div class="issue-meta">Waiting on PSP sandbox credentials · Ops <span class="mono">#841</span> · doing · due Oct 6</div>
+                      </div>
+                      <div class="issue-actions">
+                        <span class="chip h-blocked xs">Blocked</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="issue">
+                    <div class="issue-row">
+                      <span class="issue-icon risk">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+                      </span>
+                      <div class="issue-text">
+                        <div class="issue-title">3-DS fallback flow for EU cards — slipping</div>
+                        <div class="issue-meta">2 review rounds left, due Oct 8 · shares the PSP sandbox blocker</div>
+                      </div>
+                      <div class="issue-actions">
+                        <span class="chip h-risk xs">At risk</span>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Tasks: the quiet page — hairlines, light group headers,
+           Name (+kind/priority chips) · Status · Owner · Due. Plus a tiny
+           List⇄Gantt toggle, visible in both views. -->
+      <section class="tabpanel" role="tabpanel" id="panel-tasks" aria-labelledby="tab-tasks" tabindex="0" data-view="list">
+        <div class="tasks-toolbar">
+          <span class="panel-sub">20 tasks across sprints S19–S20 · grouped by status</span>
+          <div class="view-flip" role="group" aria-label="Tasks view">
+            <button class="vf-btn" type="button" data-action="tasks-view" data-view="list" aria-pressed="true" aria-label="List view" title="List view">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg>
+            </button>
+            <button class="vf-btn" type="button" data-action="tasks-view" data-view="gantt" aria-pressed="false" aria-label="Gantt view" title="Gantt view">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h8M3 12h14M3 18h6"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Needs attention: connect the shared blocker that's actually holding the item -->
+        <div class="needsband">
+          <span class="nb-ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></span>
+          <div class="nb-body">
+            <div class="nb-t"><strong>2 tasks are blocked on one thing</strong> — PSP sandbox credentials (<span class="link">Ops #841</span>, promised Thursday).</div>
+            <div class="nb-tasks">Migrate billing webhooks · 3-DS fallback flow — both on the Beta critical path, due Oct 3.</div>
+          </div>
+          <div class="nb-act">
+            <button class="btn-xs" type="button" data-do="Nudged Ops in #payments-ops">Chase Ops</button>
+            <button class="btn-xs" type="button" data-ask="PSP sandbox credentials (Ops #841) are blocking 2 Beta-critical tasks and were promised Thursday. Chase the status and propose a fallback if they slip.">Ask agent</button>
+          </div>
+        </div>
+
+        <div class="tasks-list">
+        <table class="tq" aria-label="Tasks">
+          <thead>
+            <tr>
+              <th class="col-name">Name</th>
+              <th class="col-status">Status</th>
+              <th class="col-owner">Owner</th>
+              <th class="col-due">Due</th>
+            </tr>
+          </thead>
+
+          <tbody data-group="Doing">
+            <tr class="qgroup"><td colspan="4">
+              <div class="qgroup-inner">
+                <button class="qgroup-chev" type="button" data-qgroup-toggle aria-expanded="true" aria-label="Collapse Doing">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <span>Doing</span><span class="qcount">3</span>
+              </div>
+            </td></tr>
+            <tr class="qrow">
+              <td class="col-name"><span class="qname-cell"><button class="wname" type="button">Migrate billing webhooks to v2 schema</button><span class="pill xs k-build">Build</span><span class="pill xs pr-high">High</span><span class="chip h-blocked xs" title="Blocked by PSP sandbox credentials — Ops #841. Requested Sep 24; promised this Thursday.">Blocked</span></span></td>
+              <td class="col-status"><span class="qstatus"><span class="status-dot doing"></span>Doing</span></td>
+              <td class="col-owner"><span class="wowner"><span class="avatar sm">AR</span><span class="wowner-name">Arun Rao</span></span></td>
+              <td class="col-due wdue">Oct 6</td>
+            </tr>
+            <tr class="qrow">
+              <td class="col-name"><span class="qname-cell"><button class="wname" type="button">3-DS fallback flow for EU cards</button><span class="pill xs k-build">Build</span><span class="pill xs pr-high">High</span><span class="chip h-risk xs" title="2 review rounds left, due Oct 8 · shares the PSP sandbox blocker">At risk</span></span></td>
+              <td class="col-status"><span class="qstatus"><span class="status-dot doing"></span>Doing</span></td>
+              <td class="col-owner"><span class="wowner"><span class="avatar sm">LC</span><span class="wowner-name">Lena Cho</span></span></td>
+              <td class="col-due wdue">Oct 8</td>
+            </tr>
+            <tr class="qrow">
+              <td class="col-name"><span class="qname-cell"><button class="wname" type="button">Unified payments dashboard UI</button><span class="pill xs k-review">Review</span><span class="pill xs pr-medium">Medium</span></span></td>
+              <td class="col-status"><span class="qstatus"><span class="status-dot doing"></span>Doing</span></td>
+              <td class="col-owner"><span class="wowner"><span class="avatar sm">MK</span><span class="wowner-name">Mira Kapoor</span></span></td>
+              <td class="col-due wdue">Oct 9</td>
+            </tr>
+          </tbody>
+
+          <tbody data-group="Todo">
+            <tr class="qgroup"><td colspan="4">
+              <div class="qgroup-inner">
+                <button class="qgroup-chev" type="button" data-qgroup-toggle aria-expanded="true" aria-label="Collapse Todo">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <span>Todo</span><span class="qcount">5</span>
+              </div>
+            </td></tr>
+            <tr class="qrow">
+              <td class="col-name"><span class="qname-cell"><button class="wname" type="button">Retry queue load test at 5k rps</button><span class="pill xs k-build">Build</span><span class="pill xs pr-medium">Medium</span></span></td>
+              <td class="col-status"><span class="qstatus"><span class="status-dot todo"></span>Todo</span></td>
+              <td class="col-owner"><span class="wowner"><span class="avatar sm">AR</span><span class="wowner-name">Arun Rao</span></span></td>
+              <td class="col-due wdue">Oct 10</td>
+            </tr>
+            <tr class="qrow">
+              <td class="col-name"><span class="qname-cell"><button class="wname" type="button">PSP failover runbook</button><span class="pill xs k-plan">Plan</span><span class="pill xs pr-high">High</span></span></td>
+              <td class="col-status"><span class="qstatus"><span class="status-dot todo"></span>Todo</span></td>
+              <td class="col-owner"><span class="wowner"><span class="avatar sm">DK</span><span class="wowner-name">Dev Khanna</span></span></td>
+              <td class="col-due wdue">Oct 10</td>
+            </tr>
+            <tr class="qrow">
+              <td class="col-name"><span class="qname-cell"><button class="wname" type="button">Refund flow edge-case review</button><span class="pill xs k-review">Review</span><span class="pill xs pr-medium">Medium</span></span></td>
+              <td class="col-status"><span class="qstatus"><span class="status-dot todo"></span>Todo</span></td>
+              <td class="col-owner"><span class="wowner"><span class="avatar sm">LC</span><span class="wowner-name">Lena Cho</span></span></td>
+              <td class="col-due wdue">Oct 11</td>
+            </tr>
+            <tr class="qrow">
+              <td class="col-name"><span class="qname-cell"><button class="wname" type="button">Instrument checkout funnel events</button><span class="pill xs k-build">Build</span><span class="pill xs pr-medium">Medium</span></span></td>
+              <td class="col-status"><span class="qstatus"><span class="status-dot todo"></span>Todo</span></td>
+              <td class="col-owner"><span class="wowner"><span class="avatar sm">MK</span><span class="wowner-name">Mira Kapoor</span></span></td>
+              <td class="col-due wdue">Oct 12</td>
+            </tr>
+            <tr class="qrow">
+              <td class="col-name"><span class="qname-cell"><button class="wname" type="button">GA rollout checklist</button><span class="pill xs k-plan">Plan</span><span class="pill xs pr-high">High</span></span></td>
+              <td class="col-status"><span class="qstatus"><span class="status-dot todo"></span>Todo</span></td>
+              <td class="col-owner"><span class="wowner"><span class="avatar sm">MK</span><span class="wowner-name">Mira Kapoor</span></span></td>
+              <td class="col-due wdue">Oct 13</td>
+            </tr>
+          </tbody>
+
+          <tbody data-group="Done" class="collapsed">
+            <tr class="qgroup"><td colspan="4">
+              <div class="qgroup-inner">
+                <button class="qgroup-chev" type="button" data-qgroup-toggle aria-expanded="false" aria-label="Expand Done">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <span>Done</span><span class="qcount">11</span>
+              </div>
+            </td></tr>
+            <tr class="qrow is-done"><td class="col-name"><span class="qname-cell"><button class="wname" type="button">PSP contract v2 signed off</button><span class="pill xs k-plan">Plan</span><span class="pill xs pr-high">High</span></span></td><td class="col-status"><span class="qstatus"><span class="status-dot done"></span>Done</span></td><td class="col-owner"><span class="wowner"><span class="avatar sm">MK</span><span class="wowner-name">Mira Kapoor</span></span></td><td class="col-due wdue">Sep 5</td></tr>
+            <tr class="qrow is-done"><td class="col-name"><span class="qname-cell"><button class="wname" type="button">Tokenization service migration</button><span class="pill xs k-build">Build</span><span class="pill xs pr-high">High</span></span></td><td class="col-status"><span class="qstatus"><span class="status-dot done"></span>Done</span></td><td class="col-owner"><span class="wowner"><span class="avatar sm">AR</span><span class="wowner-name">Arun Rao</span></span></td><td class="col-due wdue">Sep 9</td></tr>
+            <tr class="qrow is-done"><td class="col-name"><span class="qname-cell"><button class="wname" type="button">Card-on-file vault rotation</button><span class="pill xs k-build">Build</span><span class="pill xs pr-medium">Medium</span></span></td><td class="col-status"><span class="qstatus"><span class="status-dot done"></span>Done</span></td><td class="col-owner"><span class="wowner"><span class="avatar sm">AR</span><span class="wowner-name">Arun Rao</span></span></td><td class="col-due wdue">Sep 11</td></tr>
+            <tr class="qrow is-done"><td class="col-name"><span class="qname-cell"><button class="wname" type="button">Checkout API v2 contract</button><span class="pill xs k-plan">Plan</span><span class="pill xs pr-medium">Medium</span></span></td><td class="col-status"><span class="qstatus"><span class="status-dot done"></span>Done</span></td><td class="col-owner"><span class="wowner"><span class="avatar sm">DK</span><span class="wowner-name">Dev Khanna</span></span></td><td class="col-due wdue">Sep 12</td></tr>
+            <tr class="qrow is-done"><td class="col-name"><span class="qname-cell"><button class="wname" type="button">Latency budget research</button><span class="pill xs k-research">Research</span><span class="pill xs pr-low">Low</span></span></td><td class="col-status"><span class="qstatus"><span class="status-dot done"></span>Done</span></td><td class="col-owner"><span class="wowner"><span class="avatar sm">LC</span><span class="wowner-name">Lena Cho</span></span></td><td class="col-due wdue">Sep 16</td></tr>
+            <tr class="qrow is-done"><td class="col-name"><span class="qname-cell"><button class="wname" type="button">PCI scope assessment</button><span class="pill xs k-research">Research</span><span class="pill xs pr-high">High</span></span></td><td class="col-status"><span class="qstatus"><span class="status-dot done"></span>Done</span></td><td class="col-owner"><span class="wowner"><span class="avatar sm">DK</span><span class="wowner-name">Dev Khanna</span></span></td><td class="col-due wdue">Sep 18</td></tr>
+            <tr class="qrow is-done"><td class="col-name"><span class="qname-cell"><button class="wname" type="button">Webhook signature verification</button><span class="pill xs k-build">Build</span><span class="pill xs pr-medium">Medium</span></span></td><td class="col-status"><span class="qstatus"><span class="status-dot done"></span>Done</span></td><td class="col-owner"><span class="wowner"><span class="avatar sm">AR</span><span class="wowner-name">Arun Rao</span></span></td><td class="col-due wdue">Sep 20</td></tr>
+            <tr class="qrow is-done"><td class="col-name"><span class="qname-cell"><button class="wname" type="button">Alpha bug triage</button><span class="pill xs k-review">Review</span><span class="pill xs pr-medium">Medium</span></span></td><td class="col-status"><span class="qstatus"><span class="status-dot done"></span>Done</span></td><td class="col-owner"><span class="wowner"><span class="avatar sm">MK</span><span class="wowner-name">Mira Kapoor</span></span></td><td class="col-due wdue">Sep 23</td></tr>
+            <tr class="qrow is-done"><td class="col-name"><span class="qname-cell"><button class="wname" type="button">Payment method icons refresh</button><span class="pill xs k-build">Build</span><span class="pill xs pr-low">Low</span></span></td><td class="col-status"><span class="qstatus"><span class="status-dot done"></span>Done</span></td><td class="col-owner"><span class="wowner"><span class="avatar sm">LC</span><span class="wowner-name">Lena Cho</span></span></td><td class="col-due wdue">Sep 25</td></tr>
+            <tr class="qrow is-done"><td class="col-name"><span class="qname-cell"><button class="wname" type="button">Fraud rules tuning</button><span class="pill xs k-research">Research</span><span class="pill xs pr-medium">Medium</span></span></td><td class="col-status"><span class="qstatus"><span class="status-dot done"></span>Done</span></td><td class="col-owner"><span class="wowner"><span class="avatar sm">DK</span><span class="wowner-name">Dev Khanna</span></span></td><td class="col-due wdue">Sep 27</td></tr>
+            <tr class="qrow is-done"><td class="col-name"><span class="qname-cell"><button class="wname" type="button">Alpha release notes</button><span class="pill xs k-plan">Plan</span><span class="pill xs pr-low">Low</span></span></td><td class="col-status"><span class="qstatus"><span class="status-dot done"></span>Done</span></td><td class="col-owner"><span class="wowner"><span class="avatar sm">MK</span><span class="wowner-name">Mira Kapoor</span></span></td><td class="col-due wdue">Sep 29</td></tr>
+          </tbody>
+
+          <tbody data-group="Cancelled" class="collapsed">
+            <tr class="qgroup"><td colspan="4">
+              <div class="qgroup-inner">
+                <button class="qgroup-chev" type="button" data-qgroup-toggle aria-expanded="false" aria-label="Expand Cancelled">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <span>Cancelled</span><span class="qcount">1</span>
+              </div>
+            </td></tr>
+            <tr class="qrow is-cancelled"><td class="col-name"><span class="qname-cell"><button class="wname" type="button">Apple Pay dynamic descriptors</button><span class="pill xs k-build">Build</span><span class="pill xs pr-low">Low</span></span></td><td class="col-status"><span class="qstatus"><span class="status-dot cancelled"></span>Cancelled</span></td><td class="col-owner"><span class="wowner"><span class="avatar sm">LC</span><span class="wowner-name">Lena Cho</span></span></td><td class="col-due wdue">—</td></tr>
+          </tbody>
+        </table>
+        </div>
+
+        <div class="tasks-gantt">
+        <div class="panel-sub" style="margin:14px 0 4px;">Sep 1 – Oct 20 · key tasks and milestones against the Oct 14 target</div>
+        <div class="gantt">
+          <div class="gantt-grid">
+            <div class="g-labels">
+              <div class="g-cell scalehead">Task</div>
+              <div class="g-cell is-done"><span class="g-name">Tokenization service migration</span></div>
+              <div class="g-cell is-done"><span class="g-name">Webhook signature verification</span></div>
+              <div class="g-cell is-ms"><span class="dmn" aria-hidden="true"><svg width="13" height="13" viewBox="0 0 14 14"><path d="M7 1.1 12.9 7 7 12.9 1.1 7Z" fill="var(--muted-foreground)"/></svg></span><span class="g-name">Alpha</span></div>
+              <div class="g-cell"><span class="g-name">Migrate billing webhooks to v2</span><span class="chip h-blocked xs">Blocked</span></div>
+              <div class="g-cell"><span class="g-name">3-DS fallback for EU cards</span><span class="chip h-risk xs">At risk</span></div>
+              <div class="g-cell"><span class="g-name">Unified payments dashboard UI</span></div>
+              <div class="g-cell is-ms"><span class="dmn" aria-hidden="true"><svg width="13" height="13" viewBox="0 0 14 14"><defs><clipPath id="betaFillGantt1"><rect x="0" y="5.2" width="14" height="8.8"/></clipPath></defs><path d="M7 1.1 12.9 7 7 12.9 1.1 7Z" fill="var(--milestone-current)" clip-path="url(#betaFillGantt1)"/><path d="M7 1.1 12.9 7 7 12.9 1.1 7Z" fill="none" stroke="var(--milestone-current)" stroke-width="1.5"/></svg></span><span class="g-name">Beta</span></div>
+              <div class="g-cell"><span class="g-name">Retry queue load test</span></div>
+              <div class="g-cell"><span class="g-name">PSP failover runbook</span></div>
+              <div class="g-cell"><span class="g-name">GA rollout checklist</span></div>
+              <div class="g-cell is-ms"><span class="dmn" aria-hidden="true"><svg width="13" height="13" viewBox="0 0 14 14"><path d="M7 1.1 12.9 7 7 12.9 1.1 7Z" fill="none" stroke="var(--muted-foreground)" stroke-width="1.5"/></svg></span><span class="g-name">GA</span></div>
+            </div>
+            <div class="g-canvas">
+              <div class="g-gridline" style="left:0%"></div>
+              <div class="g-gridline" style="left:14.3%"></div>
+              <div class="g-gridline" style="left:28.6%"></div>
+              <div class="g-gridline" style="left:42.9%"></div>
+              <div class="g-gridline" style="left:57.1%"></div>
+              <div class="g-gridline" style="left:71.4%"></div>
+              <div class="g-gridline" style="left:85.7%"></div>
+              <div class="g-line today" style="left:63.3%"><span class="g-line-tag">Today</span></div>
+              <div class="g-line target" style="left:87.8%"><span class="g-line-tag">Target Oct 14</span></div>
+              <div class="g-scale">
+                <span class="g-tick" style="left:0%; transform:none;">Sep 1</span>
+                <span class="g-tick" style="left:14.3%">Sep 8</span>
+                <span class="g-tick" style="left:28.6%">Sep 15</span>
+                <span class="g-tick" style="left:42.9%">Sep 22</span>
+                <span class="g-tick" style="left:57.1%">Sep 29</span>
+                <span class="g-tick" style="left:71.4%">Oct 6</span>
+                <span class="g-tick" style="left:100%; transform:translateX(-100%);">Oct 20</span>
+              </div>
+              <div class="g-rows">
+                <div class="g-track"><span class="g-bar done" style="left:2.0%; width:14.3%;" title="Tokenization service migration · Sep 2 – Sep 9 · done"></span></div>
+                <div class="g-track"><span class="g-bar done" style="left:22.4%; width:16.3%;" title="Webhook signature verification · Sep 12 – Sep 20 · done"></span></div>
+                <div class="g-track"><span class="g-dmn" style="left:22.4%;" title="Alpha · shipped Sep 12"><svg width="13" height="13" viewBox="0 0 14 14"><path d="M7 1.1 12.9 7 7 12.9 1.1 7Z" fill="var(--muted-foreground)"/></svg></span></div>
+                <div class="g-track"><span class="g-bar blocked" style="left:46.9%; width:24.5%;" title="Migrate billing webhooks to v2 · Sep 24 – Oct 6 · blocked on PSP sandbox creds"></span></div>
+                <div class="g-track"><span class="g-bar risk" style="left:51.0%; width:24.5%;" title="3-DS fallback for EU cards · Sep 26 – Oct 8 · at risk"></span></div>
+                <div class="g-track"><span class="g-bar doing" style="left:57.1%; width:20.4%;" title="Unified payments dashboard UI · Sep 29 – Oct 9 · doing"></span></div>
+                <div class="g-track"><span class="g-dmn" style="left:65.3%;" title="Beta · target Oct 3 · current"><svg width="13" height="13" viewBox="0 0 14 14"><defs><clipPath id="betaFillGantt2"><rect x="0" y="5.2" width="14" height="8.8"/></clipPath></defs><path d="M7 1.1 12.9 7 7 12.9 1.1 7Z" fill="var(--milestone-current)" clip-path="url(#betaFillGantt2)"/><path d="M7 1.1 12.9 7 7 12.9 1.1 7Z" fill="none" stroke="var(--milestone-current)" stroke-width="1.5"/></svg></span></div>
+                <div class="g-track"><span class="g-bar todo" style="left:71.4%; width:8.2%;" title="Retry queue load test · Oct 6 – Oct 10 · todo"></span></div>
+                <div class="g-track"><span class="g-bar todo" style="left:73.5%; width:6.1%;" title="PSP failover runbook · Oct 7 – Oct 10 · todo"></span></div>
+                <div class="g-track"><span class="g-bar todo" style="left:77.6%; width:8.2%;" title="GA rollout checklist · Oct 9 – Oct 13 · todo"></span></div>
+                <div class="g-track"><span class="g-dmn" style="left:87.8%;" title="GA · target Oct 14"><svg width="13" height="13" viewBox="0 0 14 14"><path d="M7 1.1 12.9 7 7 12.9 1.1 7Z" fill="none" stroke="var(--muted-foreground)" stroke-width="1.5"/></svg></span></div>
+              </div>
+            </div>
+          </div>
+          <div class="g-legend">
+            <span class="k"><span class="sw" style="background: color-mix(in oklab, var(--muted-foreground) 28%, transparent);"></span>done</span>
+            <span class="k"><span class="sw" style="background: color-mix(in oklab, var(--primary) 34%, transparent);"></span>doing</span>
+            <span class="k"><span class="sw" style="background: var(--health-blocked); border: 1px solid var(--health-blocked-foreground);"></span>blocked</span>
+            <span class="k"><span class="sw" style="background: var(--health-at-risk); border: 1px solid var(--health-at-risk-foreground);"></span>at risk</span>
+            <span class="k"><span class="sw" style="background: var(--muted); border: 1px solid var(--border);"></span>todo</span>
+            <span class="k"><svg width="11" height="11" viewBox="0 0 14 14"><path d="M7 1.1 12.9 7 7 12.9 1.1 7Z" fill="none" stroke="var(--muted-foreground)" stroke-width="1.5"/></svg>milestone</span>
+            <span class="k"><span class="sw" style="background: var(--priority-high-foreground);"></span>target Oct 14</span>
+          </div>
+        </div>
+        </div>
+      </section>
+
+      <!-- Agents: what agents have DONE for this item — history + outcomes,
+           not the runner (that's the Ask sidebar). -->
+      <!-- Goals: overview/coalition of milestones · OKRs · KPIs — importance-weighted, action-oriented -->
+      <section class="tabpanel" role="tabpanel" id="panel-goals" aria-labelledby="tab-goals" tabindex="0">
+        <div class="work">
+          <!-- status line: orient, and push attention only to what's off-track -->
+          <div class="gstat">
+            <span class="lead"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5V12l3 2"/></svg> GA target · Oct 14 <span class="mono" style="color:var(--muted-foreground)">12d left</span></span>
+            <button class="attn warn" type="button" title="Cart abandonment KR is behind pace"><span class="dt"></span>1 KR behind</button>
+            <button class="attn warn" type="button" title="Payment error rate is above target"><span class="dt"></span>1 KPI above target</button>
+          </div>
+
+          <!-- Milestones: journey stepper, then focus on the current one -->
+          <div class="block">
+            <div class="sec"><h3>Milestones</h3><button class="addbtn" type="button">+ New milestone</button></div>
+            <div class="stepper">
+              <div class="step done">
+                <span class="node"><svg width="15" height="15" viewBox="0 0 14 14"><path d="M7 1.1 12.9 7 7 12.9 1.1 7Z" fill="var(--health-on-track-foreground)"/></svg></span>
+                <div class="slabel">Alpha</div><div class="sdate">Sep 12</div>
+              </div>
+              <div class="step current">
+                <span class="node"><svg width="16" height="16" viewBox="0 0 14 14"><defs><clipPath id="stepBeta"><rect x="0" y="5.2" width="14" height="8.8"/></clipPath></defs><path d="M7 1.1 12.9 7 7 12.9 1.1 7Z" fill="var(--milestone-current)" clip-path="url(#stepBeta)"/><path d="M7 1.1 12.9 7 7 12.9 1.1 7Z" fill="none" stroke="var(--milestone-current)" stroke-width="1.5"/></svg></span>
+                <div class="slabel">Beta</div><div class="sdate">Oct 3</div><div class="schip">Current</div>
+              </div>
+              <div class="step upcoming">
+                <span class="node"><svg width="15" height="15" viewBox="0 0 14 14"><path d="M7 1.1 12.9 7 7 12.9 1.1 7Z" fill="none" stroke="var(--muted-foreground)" stroke-width="1.5"/></svg></span>
+                <div class="slabel">GA</div><div class="sdate">Oct 14</div>
+              </div>
+            </div>
+            <div class="focus">
+              <div class="fmeta">
+                <div class="ftitle">Beta <span class="tag2">67% · 6 of 9 tasks</span></div>
+                <div class="fsub">10% of checkout traffic · 3 tasks open · due Oct 3 (9 days)</div>
+              </div>
+              <button class="btn-sm primary" type="button" data-goto="tasks">View 3 open tasks →</button>
+            </div>
+          </div>
+
+          <!-- Projection: the burnup, but paired with a plain-language forecast so it means something -->
+          <div class="block">
+            <div class="sec"><h3>Projection</h3><button class="addbtn" type="button">Re-plan →</button></div>
+            <div class="card" style="padding:15px 18px">
+              <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:8px">
+                <div style="font-size:13.5px;font-weight:500">At this pace, GA lands <span style="color:var(--priority-high-foreground)">~Oct 17</span></div>
+                <div class="mono" style="font-size:12px;color:var(--priority-high-foreground)">3 days past target</div>
+              </div>
+              <svg viewBox="0 0 300 130" width="100%" style="max-width:440px;display:block;margin:0 auto" role="img" aria-label="Burnup: 15 of 22 points done; projected completion Oct 17 against the Oct 14 target">
+                <line x1="34" y1="12" x2="34" y2="106" stroke="var(--border)" stroke-width="1"/>
+                <line x1="34" y1="106" x2="292" y2="106" stroke="var(--border)" stroke-width="1"/>
+                <line x1="34" y1="30" x2="292" y2="30" stroke="var(--border)" stroke-width="1" stroke-dasharray="2 4"/>
+                <polyline points="34,44 130,44 130,30 292,30" fill="none" stroke="var(--muted-foreground)" stroke-width="1.5" opacity="0.6"/>
+                <polyline points="34,104 76,92 118,76 160,64 202,56 230,52" fill="none" stroke="var(--chart-4)" stroke-width="2"/>
+                <polyline points="230,52 288,30" fill="none" stroke="var(--chart-4)" stroke-width="1.5" stroke-dasharray="3 4" opacity="0.7"/>
+                <line x1="268" y1="18" x2="268" y2="106" stroke="var(--priority-high-foreground)" stroke-width="1" stroke-dasharray="3 3"/>
+                <text x="268" y="14" text-anchor="middle" font-size="8.5" fill="var(--priority-high-foreground)" font-family="Geist Mono, monospace">Oct 14</text>
+                <line x1="230" y1="24" x2="230" y2="106" stroke="var(--muted-foreground)" stroke-width="1" opacity="0.5"/>
+                <text x="230" y="20" text-anchor="middle" font-size="8.5" fill="var(--muted-foreground)" font-family="Geist Mono, monospace">today</text>
+                <text x="30" y="33" text-anchor="end" font-size="8.5" fill="var(--muted-foreground)" font-family="Geist Mono, monospace">22</text>
+                <text x="30" y="55" text-anchor="end" font-size="8.5" fill="var(--muted-foreground)" font-family="Geist Mono, monospace">15</text>
+                <text x="34" y="118" text-anchor="start" font-size="8.5" fill="var(--muted-foreground)" font-family="Geist Mono, monospace">Sep 1</text>
+                <text x="292" y="118" text-anchor="end" font-size="8.5" fill="var(--muted-foreground)" font-family="Geist Mono, monospace">Oct 18</text>
+              </svg>
+              <div class="traj-note" style="justify-content:center">
+                <span class="k"><span class="sw" style="background: var(--chart-4);"></span>completed</span>
+                <span class="k"><span class="sw" style="background: var(--muted-foreground); opacity:.6;"></span>scope</span>
+                <span class="k"><span class="sw" style="background: var(--priority-high-foreground);"></span>target</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Objectives & Key Results: pace pills; only the behind one is colored + gets a nudge -->
+          <div class="block">
+            <div class="sec"><h3>Objectives &amp; Key Results</h3><button class="addbtn" type="button">+ Add key result</button></div>
+            <div class="card">
+              <div class="arow">
+                <div class="ricon" style="background:transparent;color:var(--muted-foreground)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/></svg></div>
+                <div class="t"><div class="nm">Frictionless checkout</div><div class="sub">Objective · Q3 · Payments pod</div></div>
+                <div class="meta"><span class="tag2">on track</span></div>
+              </div>
+              <div style="padding:2px 4px 4px">
+                <div class="krrow">
+                  <div class="krtop"><span class="krname">Checkout conversion +2pts <span class="tag2">this version</span></span><span class="pace ok">On pace</span></div>
+                  <div class="krbar"><div class="kr-track" style="flex:1;margin:0"><div class="kr-fill" style="width:62%"></div></div><span class="krpct">62%</span></div>
+                </div>
+                <div class="krrow">
+                  <div class="krtop"><span class="krname">Cart abandonment −5pts</span><span class="pace behind">Behind</span></div>
+                  <div class="krbar"><div class="kr-track" style="flex:1;margin:0"><div class="kr-fill" style="width:40%;background:var(--priority-high-foreground)"></div></div><span class="krpct">40%</span></div>
+                  <div class="krnudge"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg> Needs a push — 12 days to target <button class="btn-xs" type="button" style="margin-left:auto">Add update</button></div>
+                </div>
+                <div class="krrow">
+                  <div class="krtop"><span class="krname">Guest-checkout adoption</span><span class="pace ahead">Ahead</span></div>
+                  <div class="krbar"><div class="kr-track" style="flex:1;margin:0"><div class="kr-fill" style="width:55%;background:var(--health-on-track-foreground)"></div></div><span class="krpct">55%</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- KPIs: connection-sourced (live from external systems), quiet unless breaching -->
+          <div class="block">
+            <div class="sec"><h3>KPIs</h3><button class="addbtn" type="button">+ Connect a metric</button></div>
+            <div class="card">
+              <div class="kpi">
+                <div class="kn"><div class="knm">Payment success rate</div><div class="kt">rolling 7-day · <span class="ksrc"><span class="live"></span>Stripe</span></div></div>
+                <span class="kbadge" style="background:var(--health-on-track);color:var(--health-on-track-foreground)">on target</span>
+                <span class="kval" style="color:var(--health-on-track-foreground)">99.2%</span>
+              </div>
+              <div class="kpi">
+                <div class="kn"><div class="knm">Checkout p95 latency</div><div class="kt">target &lt; 900ms · <span class="ksrc"><span class="live"></span>Datadog</span></div></div>
+                <span class="kbadge" style="background:var(--muted);color:var(--muted-foreground)">on target</span>
+                <span class="kval">820ms</span>
+              </div>
+              <div class="kpi">
+                <div class="kn"><div class="knm">Payment error rate</div><div class="kt">target &lt; 0.5% · <span class="ksrc"><span class="live"></span>Stripe</span></div></div>
+                <button class="btn-xs" type="button" data-ask="Payment error rate is 0.7%, above the 0.5% target and trending up. Investigate the driver from the Stripe data and recent changes.">Investigate</button>
+                <span class="kbadge" style="background:var(--priority-high);color:var(--priority-high-foreground)">above target</span>
+                <span class="kval" style="color:var(--priority-high-foreground)">0.7%</span>
+              </div>
+            </div>
+            <p class="muted" style="font-size:11.5px;margin:10px 2px 0">KPIs are read live from connected systems — <span class="link">manage connections</span>.</p>
+          </div>
+        </div>
+      </section>
+      <section class="tabpanel" role="tabpanel" id="panel-memory" aria-labelledby="tab-memory" tabindex="0">
+        <div class="work">
+          <p class="muted" style="font-size:.85rem;margin-bottom:1.1rem">What the team and its agents know, decided and are still working through on this item.</p>
+
+          <div class="subtabs" role="tablist" aria-label="Memory sections">
+            <button class="subtab" type="button" role="tab" id="subtab-summary" aria-controls="mem-summary" data-mem="summary" aria-selected="true">Insights</button>
+            <button class="subtab" type="button" role="tab" id="subtab-agents" aria-controls="mem-agents" data-mem="agents" aria-selected="false">Agent work <span class="cnt">3</span></button>
+            <button class="subtab" type="button" role="tab" id="subtab-meetings" aria-controls="mem-meetings" data-mem="meetings" aria-selected="false">Meetings <span class="cnt">2</span></button>
+            <button class="subtab" type="button" role="tab" id="subtab-decisions" aria-controls="mem-decisions" data-mem="decisions" aria-selected="false">Decisions <span class="cnt">2</span></button>
+          </div>
+
+          <!-- Insights: the item's "thinking" — understand → open questions → recommended actions -->
+          <div class="mempanel active" id="mem-summary" role="tabpanel" aria-labelledby="subtab-summary" tabindex="0">
+            <div class="synthesis">
+              <span class="s-ic"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1h6c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2z"/><path d="M9 18h6M10 22h4"/></svg></span>
+              <span>Synthesised from <b>3 runs · 2 meetings · 5 decisions</b> · updated 2h ago</span>
+              <span class="pulse" title="continuously updated as work happens"></span>
+            </div>
+
+            <div class="think-group">
+              <div class="tg-h"><span class="g-ic" style="color:var(--muted-foreground)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span> Recently changed <span class="ago">· since you looked 2d ago</span></div>
+              <div class="think-item"><span class="ti-ic" style="color:var(--health-on-track-foreground)">↑</span><div class="ti-body">Completion moved <strong>61% → 68%</strong>. <span class="ti-src">· Oct 2</span></div></div>
+              <div class="think-item"><span class="ti-ic" style="color:var(--primary)">+</span><div class="ti-body">Agent opened <span class="link">fraud-rules PR #841</span> for review. <span class="ti-src">· yesterday</span></div></div>
+              <div class="think-item"><span class="ti-ic" style="color:var(--priority-high-foreground)">!</span><div class="ti-body">Beta flagged <strong>at risk</strong> — sandbox slot still unconfirmed. <span class="ti-src">· today</span></div></div>
+            </div>
+
+            <div class="think-group">
+              <div class="tg-h"><span class="g-ic" style="color:var(--health-on-track-foreground)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span> Understanding</div>
+              <div class="think-item"><span class="ti-ic" style="color:var(--health-on-track-foreground)">✓</span><div class="ti-body">PSP sandbox turnaround averages <strong>9 days</strong>, not the promised 3. <span class="ti-src">· seen across 3 versions</span></div><div class="ti-act"><span class="conf high">high</span></div></div>
+              <div class="think-item"><span class="ti-ic" style="color:var(--health-on-track-foreground)">✓</span><div class="ti-body">Tokenization is validated; <span class="link">fraud-rules PR #841</span> is the last blocker before Beta. <span class="ti-src">· agent + PR</span></div><div class="ti-act"><span class="conf high">high</span></div></div>
+              <div class="think-item"><span class="ti-ic" style="color:var(--health-on-track-foreground)">✓</span><div class="ti-body">The checkout-conversion KR is owned <strong>only by this version</strong> — safe to report progress here. <span class="ti-src">· alignment</span></div><div class="ti-act"><span class="conf med">likely</span></div></div>
+            </div>
+
+            <div class="think-group">
+              <div class="tg-h"><span class="g-ic" style="color:var(--priority-high-foreground)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 5 .3c0 1.7-2.5 2-2.5 3.7"/><path d="M12 17h.01"/></svg></span> Open questions</div>
+              <div class="think-item"><span class="ti-ic" style="color:var(--priority-high-foreground)">?</span><div class="ti-body">Will Ops confirm the sandbox slot in time for Beta? <span class="ti-src">· blocks Oct 3</span></div><div class="ti-act"><button class="btn-xs" type="button" data-do="Asked Arun in #payments">Ask Arun</button><button class="ti-x" type="button" data-dismiss title="Dismiss">×</button></div></div>
+              <div class="think-item"><span class="ti-ic" style="color:var(--priority-high-foreground)">?</span><div class="ti-body">Does GA need the vault runbook before rollout? <span class="ti-src">· unresolved decision</span></div><div class="ti-act"><button class="btn-xs" type="button" data-ask="Investigate whether GA needs the vault runbook before rollout — recommend go / no-go with reasoning.">Ask agent</button><button class="ti-x" type="button" data-dismiss title="Dismiss">×</button></div></div>
+            </div>
+
+            <div class="think-group">
+              <div class="tg-h"><span class="g-ic" style="color:var(--primary)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/><circle cx="12" cy="12" r="3.2"/></svg></span> Recommended</div>
+              <div class="think-item"><span class="ti-ic" style="color:var(--primary)">→</span><div class="ti-body">Move the <strong>Beta cutover Oct 3 → Oct 5</strong> — the sandbox reliably slips ~9 days. <span class="ti-src">· from Understanding</span></div><div class="ti-act"><button class="btn-xs" type="button" data-do="Beta cutover moved to Oct 5">Apply</button><button class="ti-x" type="button" data-dismiss title="Dismiss">×</button></div></div>
+              <div class="think-item"><span class="ti-ic" style="color:var(--primary)">→</span><div class="ti-body">Create a task to <strong>backfill the vault runbook</strong> before GA. <span class="ti-src">· decision debt</span></div><div class="ti-act"><button class="btn-xs" type="button" data-do="Task created — backfill vault runbook">Create task</button><button class="ti-x" type="button" data-dismiss title="Dismiss">×</button></div></div>
+              <div class="think-item"><span class="ti-ic" style="color:var(--primary)">→</span><div class="ti-body">Re-run <strong>fraud-rules review</strong> once PR #841 merges. <span class="ti-src">· last blocker</span></div><div class="ti-act"><button class="btn-xs" type="button" data-ask="Re-run the fraud-rules review once PR #841 merges; flag any new issues before Beta.">Queue run</button><button class="ti-x" type="button" data-dismiss title="Dismiss">×</button></div></div>
+            </div>
+          </div>
+
+          <!-- Agent work -->
+          <div class="mempanel" id="mem-agents" role="tabpanel" aria-labelledby="subtab-agents" tabindex="0">
+            <div class="card" style="padding:2px 14px">
+              <div class="mrow">
+                <div class="ricon" style="background:var(--health-on-track);color:var(--health-on-track-foreground);margin-top:1px">✓</div>
+                <div class="mbody"><div class="nm">Research alternative PSP fallbacks</div><div class="sub">3 options ranked → <span class="link">PSP fallback memo</span> · done 2h ago</div></div>
+                <div class="mact"><button class="btn-xs" type="button">View</button></div>
+              </div>
+              <div class="mrow">
+                <div class="ricon" style="background:var(--health-on-track);color:var(--health-on-track-foreground);margin-top:1px">✓</div>
+                <div class="mbody"><div class="nm">Review fraud-rules PR #841</div><div class="sub">2 issues found · 1 nit → <span class="link">review notes</span> · yesterday</div></div>
+                <div class="mact"><button class="btn-xs" type="button">Continue</button></div>
+              </div>
+              <div class="mrow">
+                <div class="ricon" style="background:var(--health-on-track);color:var(--health-on-track-foreground);margin-top:1px">✓</div>
+                <div class="mbody"><div class="nm">Draft EU VAT handling plan</div><div class="sub">→ <span class="link">VAT plan (doc)</span> · Mon</div></div>
+                <div class="mact"><button class="btn-xs" type="button">View</button></div>
+              </div>
+            </div>
+            <button class="addbtn" type="button" style="margin-top:.9rem">Ask agent →</button>
+          </div>
+
+          <!-- Meetings -->
+          <div class="mempanel" id="mem-meetings" role="tabpanel" aria-labelledby="subtab-meetings" tabindex="0">
+            <div style="display:flex;flex-direction:column;gap:.7rem">
+              <div class="mtg">
+                <div class="mth">Payments sync — Beta scope lock <span class="tag2">discussed</span></div>
+                <div class="mtd">Sep 30 · Mira, Arun, Lena, Dev · <span class="link">Jump to 12:40</span></div>
+                <div class="mts">Beta scope frozen; anything new moves to v2.4.</div>
+                <div style="margin-top:9px;display:flex;flex-direction:column;gap:6px">
+                  <span class="aitem"><span class="box"></span>Move guest-checkout polish to v2.4 <span class="src">· Lena</span></span>
+                  <span class="aitem"><span class="box"></span>Confirm PSP sandbox slot for Beta <span class="src">· Arun</span></span>
+                </div>
+              </div>
+              <div class="mtg">
+                <div class="mth">PSP sandbox escalation <span class="tag2">created this item</span></div>
+                <div class="mtd">Oct 1 · Arun Rao, Ops · <span class="link">Jump to 04:12</span></div>
+                <div class="mts">Raised the blocked-webhooks flag; this meeting created the work item.</div>
+              </div>
+            </div>
+            <button class="addbtn" type="button" style="margin-top:.9rem">All meetings →</button>
+          </div>
+
+          <!-- Decisions -->
+          <div class="mempanel" id="mem-decisions" role="tabpanel" aria-labelledby="subtab-decisions" tabindex="0">
+            <div style="display:flex;flex-direction:column;gap:.7rem">
+              <div class="mtg">
+                <div class="mth">Vault rotation shipped without a runbook <span class="tag2">decision</span></div>
+                <div class="mtd">Sep 11 · Arun Rao</div>
+                <div class="mts">Reasoning: rotation was low-risk and time-boxed; runbook backfilled post-GA.</div>
+              </div>
+              <div class="mtg">
+                <div class="mth">PSP sandbox requests always slip <span class="tag2">org memory</span></div>
+                <div class="mtd">Pattern across v2.1–v2.3</div>
+                <div class="mts">Ops sandbox turnaround has averaged 9 days, not the promised 3.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+      <!-- Activity: discussion + timeline + composer, one clean stream -->
+
+      <section class="tabpanel" role="tabpanel" id="panel-activity" aria-labelledby="tab-activity" tabindex="0">
+        <div class="activity-doc">
+          <div class="activity-sub" id="feedSummary">9 updates · 3 comments</div>
+          <ul class="feed" id="feed">
+            <li class="day"><span class="daylabel">September</span></li>
+            <li>
+              <span class="node ok"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+              <div class="ev-text">Milestone <b>Alpha</b> completed<span class="ev-time">Sep 12</span></div>
+            </li>
+            <li>
+              <span class="node"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span>
+              <div class="ev-text"><b>MK</b> set target to <b>Oct 14</b><span class="ev-time">Sep 15</span></div>
+            </li>
+            <li>
+              <span class="node agent"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M9 14h.01M15 14h.01"/></svg></span>
+              <div class="ev-text">Agent run <b>webhook scaffolding</b> completed<span class="ev-time">Sep 20</span></div>
+            </li>
+            <li class="is-comment">
+              <span class="node comment">LC</span>
+              <div class="ev-text" style="flex:1; min-width:0;">
+                <div class="c-head"><b>Lena Cho</b><span class="ev-time">Sep 26</span></div>
+                <div class="bubble">3-DS fallback needs the PSP sandbox — same blocker as the webhook task.</div>
+              </div>
+            </li>
+            <li>
+              <span class="node flag"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 22V4"/><path d="M4 4h13l-2.5 4L17 12H4"/></svg></span>
+              <div class="ev-text">Flag raised: <b>retry policy changed</b> without linked task<span class="ev-time">Sep 28</span></div>
+            </li>
+            <li>
+              <span class="node ok"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span>
+              <div class="ev-text"><b>AR</b> completed <b>Tokenization service migration</b><span class="ev-time">Sep 29</span></div>
+            </li>
+            <li class="is-comment">
+              <span class="node comment">MK</span>
+              <div class="ev-text" style="flex:1; min-width:0;">
+                <div class="c-head"><b>Mira Kapoor</b><span class="ev-time">Sep 30</span></div>
+                <div class="bubble">Beta scope is locked. Anything new goes to v2.4.</div>
+              </div>
+            </li>
+            <li class="day"><span class="daylabel">October</span></li>
+            <li>
+              <span class="node risk"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span>
+              <div class="ev-text">Health changed <b>on track → at risk</b> (blocked task)<span class="ev-time">Oct 1</span></div>
+            </li>
+            <li>
+              <span class="node flag"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 22V4"/><path d="M4 4h13l-2.5 4L17 12H4"/></svg></span>
+              <div class="ev-text">Flag raised: <b>spec drift</b> on checkout API contract<span class="ev-time">Oct 1</span></div>
+            </li>
+            <li>
+              <span class="node"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></span>
+              <div class="ev-text"><b>DK</b> added task <b>PSP failover runbook</b><span class="ev-time">Oct 1</span></div>
+            </li>
+            <li class="is-comment">
+              <span class="node comment">AR</span>
+              <div class="ev-text" style="flex:1; min-width:0;">
+                <div class="c-head"><b>Arun Rao</b><span class="ev-time">Oct 2</span></div>
+                <div class="bubble">Ops promised the sandbox creds by Thursday. I&rsquo;ll unblock webhooks same day.</div>
+              </div>
+            </li>
+            <li>
+              <span class="node up"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"/><path d="M17 7h4v4"/></svg></span>
+              <div class="ev-text">Completion <b>61% → 68%</b><span class="ev-time">Oct 2</span></div>
+            </li>
+          </ul>
+          <form class="composer" id="composer">
+            <span class="c-av">MK</span>
+            <input type="text" id="composerInput" placeholder="Write a comment…" aria-label="Write a comment" autocomplete="off" />
+            <button class="btn outline sm" type="submit" style="height:37px; border-radius:999px; padding:0 16px;">Send</button>
+          </form>
+          <div class="composer-hint">Type <code>/agent</code> to delegate a task to an agent from here.</div>
+        </div>
+      </section>
+    </div>
+
+    <!-- ==================== RIGHT RAIL — quiet, always visible ========== -->
+    <aside class="rail" aria-label="Details">
+      <!-- Properties: icon → value rows -->
+      <div class="rail-section" aria-label="Properties">
+        <div class="rail-h">Properties</div>
+        <button class="prow" type="button" title="Health — judged from the blocked task and 2 open flags">
+          <span class="p-ic"><span class="hdot" aria-hidden="true"></span></span>
+          <span class="p-val health">At risk</span>
+        </button>
+        <button class="prow" type="button" title="68% of scope complete">
+          <span class="p-ic">
+            <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+              <circle cx="8" cy="8" r="6.5" fill="none" stroke="var(--border)" stroke-width="2.4"/>
+              <circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="2.4"
+                      stroke-dasharray="27.77 40.84" transform="rotate(-90 8 8)" stroke-linecap="butt"/>
+            </svg>
+          </span>
+          <span class="p-val">68% <span class="p-sub">complete</span></span>
+        </button>
+        <button class="prow" type="button" title="Priority P1">
+          <span class="p-ic">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-8"/></svg>
+          </span>
+          <span class="p-val">P1</span>
+        </button>
+        <button class="prow" type="button" title="Owner">
+          <span class="p-ic"><span class="avatar xs">MK</span></span>
+          <span class="p-val">Mira Kapoor</span>
+        </button>
+        <button class="prow" type="button" title="Target Oct 14 — 12 days away">
+          <span class="p-ic">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+          </span>
+          <span class="p-val">Oct 14 <span class="p-sub">· 12d</span></span>
+        </button>
+      </div>
+
+      <!-- Alignment: only the lead objective + its primary KR; full OKR/KPI set lives in the Goals tab -->
+      <div class="rail-section" aria-label="Alignment">
+        <div class="rail-h">Alignment</div>
+        <div class="prow" title="Objective — Frictionless checkout">
+          <span class="p-ic"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/></svg></span>
+          <span class="p-val">Frictionless checkout <span class="p-sub">· Payments</span></span>
+        </div>
+        <button class="prow kr-row" type="button" data-peek="kr" aria-expanded="false" title="Key Result — Checkout conversion +2pts, 62% · this item moves it · click to see its links">
+          <span class="p-ic"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"/><path d="M17 7h4v4"/></svg></span>
+          <span class="p-val">Checkout conv +2pts <span class="p-sub">62%</span></span>
+          <span class="caret">›</span>
+        </button>
+        <div class="kr-track"><div class="kr-fill" style="width:62%"></div></div>
+        <button class="rail-more" type="button" data-goto="goals">+2 KRs · 3 KPIs · all goals →</button>
+      </div>
+
+      <!-- Milestones: simplified + ordered (owned at this item level); manage in the Goals tab -->
+      <div class="rail-section" aria-label="Milestones">
+        <div class="rail-h">Milestones</div>
+        <div class="ms-mini" title="Alpha shipped · Beta current 67% · GA upcoming" aria-hidden="true">
+          <span class="mnode"><svg width="11" height="11" viewBox="0 0 14 14"><path d="M7 1.1 12.9 7 7 12.9 1.1 7Z" fill="var(--health-on-track-foreground)"/></svg></span>
+          <span class="mbar done"></span>
+          <span class="mnode"><svg width="12" height="12" viewBox="0 0 14 14"><path d="M7 1.1 12.9 7 7 12.9 1.1 7Z" fill="var(--milestone-current)"/></svg></span>
+          <span class="mbar"></span>
+          <span class="mnode"><svg width="11" height="11" viewBox="0 0 14 14"><path d="M7 1.1 12.9 7 7 12.9 1.1 7Z" fill="none" stroke="var(--muted-foreground)" stroke-width="1.5"/></svg></span>
+        </div>
+        <button class="prow" type="button" data-peek="beta" aria-expanded="false" style="min-height:26px" title="Beta — current milestone · click to see its links">
+          <span class="p-val" style="padding-left:2px">Beta <span class="p-sub">67% · Oct 3 · current</span></span>
+          <span class="caret">›</span>
+        </button>
+        <button class="rail-more" type="button" data-goto="goals">manage milestones →</button>
+      </div>
+
+      <!-- KPIs: simplified + labeled; colour signals status; full set in the Goals tab -->
+      <div class="rail-section" aria-label="KPIs">
+        <div class="rail-h">KPIs</div>
+        <div class="kpi-mini">
+          <span title="Payment success rate — 99.2%, on target">Success <b style="color:var(--health-on-track-foreground)">99.2%</b></span>
+          <span title="Checkout p95 latency — 820ms, target under 900ms">p95 <b>820ms</b></span>
+          <button class="kchip" type="button" data-peek="err" aria-expanded="false" title="Payment error rate — 0.7%, above 0.5% target · click to see its links">Error <b style="color:var(--priority-high-foreground)">0.7%</b> ›</button>
+        </div>
+      </div>
+
+      <!-- Peek popovers: local origin slice for a rail entry (fixed-positioned near the click) -->
+      <div class="peek" id="peek-beta" role="dialog" aria-label="Beta milestone links">
+        <div class="ph"><svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 1.1 12.9 7 7 12.9 1.1 7Z" fill="var(--milestone-current)"/></svg> Beta</div>
+        <div class="psub">Milestone · <span class="tag-owned">owned here</span> · 67% · due Oct 3</div>
+        <div class="tline"><span class="rel">↑</span><span class="lbl">v2.3 — Payments revamp <span class="k">· this item</span></span><span class="open">open →</span></div>
+        <div class="tline self"><span class="rel">◉</span><span class="lbl">Beta <span class="k">· 6 of 9 tasks done · 3 open</span></span></div>
+        <div class="tline"><span class="rel">↓</span><span class="lbl">Review fraud-rules PR #841 <span class="k">· task · open</span></span><span class="open">open →</span></div>
+        <div class="tline"><span class="rel">↓</span><span class="lbl">+ 2 more open tasks</span><span class="open">open →</span></div>
+        <div class="pfoot"><button class="expand" type="button" data-goto="tasks">Open 3 tasks →</button><span class="pnote">links, not copies</span></div>
+      </div>
+      <div class="peek" id="peek-kr" role="dialog" aria-label="Key result links">
+        <div class="ph"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"/><path d="M17 7h4v4"/></svg> Checkout conv +2pts</div>
+        <div class="psub">Key result · <span class="tag-owned">moved here</span> · 62% of target</div>
+        <div class="tline"><span class="rel">↑</span><span class="lbl">Frictionless checkout <span class="k">· objective · Payments</span></span><span class="open">open →</span></div>
+        <div class="tline self"><span class="rel">◉</span><span class="lbl">Checkout conv +2pts <span class="k">· 62% · this item moves it</span></span></div>
+        <div class="tline"><span class="rel">↓</span><span class="lbl">Fed by 4 tasks in <b>Beta</b> <span class="k">· 2 done</span></span><span class="open">open →</span></div>
+        <div class="tline"><span class="rel">↓</span><span class="lbl">Evidence: <b>PSP fallback memo</b> <span class="k">· run #r-231</span></span><span class="open">open →</span></div>
+        <div class="pfoot"><button class="expand" type="button" data-goto="goals">Open in Goals →</button><span class="pnote">links, not copies</span></div>
+      </div>
+      <div class="peek" id="peek-err" role="dialog" aria-label="KPI links">
+        <div class="ph"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg> Payment error rate</div>
+        <div class="psub"><span class="warn-val">0.7% · above 0.5% target</span></div>
+        <div class="tline"><span class="rel">↑</span><span class="lbl">KPI <span class="k">· owned by Payments (project)</span></span><span class="open">open →</span></div>
+        <div class="tline self"><span class="rel">◉</span><span class="lbl">Payment error rate <span class="k">· 0.7% · trending up 3d</span></span></div>
+        <div class="tline"><span class="rel">↓</span><span class="lbl">Touched by <b>fraud-rules review</b> <span class="k">· run · yesterday</span></span><span class="open">open →</span></div>
+        <div class="tline"><span class="rel">↓</span><span class="lbl">Flagged in <b>Beta scope lock</b> <span class="k">· meeting · Sep 30</span></span><span class="open">open →</span></div>
+        <div class="pfoot"><button class="expand" type="button" data-goto="goals">Investigate →</button><span class="pnote">links, not copies</span></div>
+      </div>
+
+      <!-- Trajectory moved to the Goals tab; the rail stays short + never scrolls -->
+    </aside>
+  </div>
+</main>
+
+<!-- ==================== Dock + side panels ========== -->
+<aside class="dock" aria-label="Panels">
+  <button class="dockicon" type="button" data-action="dock" data-panel="resources" aria-label="Resources" title="Resources">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>
+  </button>
+  <button class="dockicon" type="button" data-action="dock" data-panel="github" aria-label="GitHub" title="GitHub">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg>
+  </button>
+</aside>
+
+<section class="cpanel hidden" data-panel-body="resources" aria-label="Resources panel">
+  <div class="cph">Resources<span class="csub">4 files · 1 canvas · 1 linked</span><span class="cbtns"><button type="button" data-action="panel-min" aria-label="Minimize panel" title="Minimize">–</button><button type="button" data-action="panel-close" aria-label="Close panel" title="Close">✕</button></span></div>
+  <div class="cpb">
+    <div class="gridB">
+      <div class="gcard"><div class="gcover imgcover">🖼</div><div class="gmeta"><div class="nm">checkout-mock.png</div><div class="sub"><span class="tp">image</span> 1440×900</div></div></div>
+      <div class="gcard"><div class="gcover pdfcover">📄<span class="pdfpages">12 pp</span></div><div class="gmeta"><div class="nm">psp-contract-v2.pdf</div><div class="sub"><span class="tp">pdf</span> 880 KB</div></div></div>
+      <div class="gcard"><div class="gcover filecover">⤓</div><div class="gmeta"><div class="nm">retry-metrics.csv</div><div class="sub"><span class="tp">file</span> 44 KB</div></div></div>
+      <div class="gcard"><div class="gcover canvascover">▨</div><div class="gmeta"><div class="nm">Architecture canvas</div><div class="sub"><span class="tp">canvas</span> 3 people</div></div></div>
+      <div class="gcard"><div class="gcover conncover"></div><div class="gmeta"><div class="nm">GitHub PR #841</div><div class="sub"><span class="tp">linked</span> <span style="color:var(--health-on-track-foreground)">● passing</span></div></div></div>
+      <div class="gcard" style="border-style:dashed;background:transparent"><div class="gcover" style="background:transparent;color:var(--muted-foreground)">+</div><div class="gmeta"><div class="nm" style="color:var(--muted-foreground)">Add resource</div><div class="sub">doc · file · canvas · connect</div></div></div>
+    </div>
+  </div>
+</section>
+
+<section class="cpanel hidden" data-panel-body="github" aria-label="GitHub panel">
+  <div class="cph">GitHub<span class="csub">linked PRs &amp; checks</span><span class="cbtns"><button type="button" data-action="panel-min" aria-label="Minimize panel" title="Minimize">–</button><button type="button" data-action="panel-close" aria-label="Close panel" title="Close">✕</button></span></div>
+  <div class="cpb">
+    <div class="panel-placeholder">
+      <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg>
+      <div>Coming soon</div>
+      <button class="btn outline sm" type="button" disabled>Connect GitHub</button>
+    </div>
+  </div>
+</section>
+
+<aside class="side hidden agentmode" id="askPanel" aria-label="Ask Agent">
+  <div class="sideglow" aria-hidden="true"></div>
+  <div class="sideh">✦ Agent<span class="modechip">agentic mode</span><button type="button" data-action="ask-close" aria-label="Close Ask Agent" style="margin-left:auto;color:var(--muted-foreground)">✕</button></div>
+  <div class="sideb" id="askBody">
+    <div class="bub you"><div class="who">You</div>Why is Beta at risk?</div>
+    <div class="bub ai"><div class="who">Agent</div>The 3-DS fallback is blocked on PSP sandbox creds + 2 open flags. I can dig into fallback options — run it as an agent?</div>
+    <div class="modeseg" role="group" aria-label="Ask mode">
+      <button type="button" data-action="ask-mode" data-mode="chat" aria-pressed="false">💬 Chat</button>
+      <button type="button" class="on" data-action="ask-mode" data-mode="agent" aria-pressed="true">✦ Agent</button>
+    </div>
+    <div class="bub ai"><div class="who gctx">Agent · gathering context</div>To run this right — any PSPs to exclude, and is adding PCI scope off the table?</div>
+    <div class="bub you"><div class="who">You</div>Exclude anything needing a vault migration. No PCI scope.</div>
+    <div class="bub ai"><div class="who">Agent</div>Got it — launching an independent run now ▸</div>
+  </div>
+  <form class="sidef" id="askForm">
+    <input type="text" id="askInput" placeholder="Reply…" aria-label="Message the agent" autocomplete="off" />
+    <button type="submit" class="run">Send</button>
+  </form>
+</aside>
+
+<button class="fab" id="askFab" type="button" data-action="ask-open" aria-label="Ask Agent">✦</button>
+
+<script>
+(function () {
+  "use strict";
+  var $ = function (s, el) { return (el || document).querySelector(s); };
+  var $$ = function (s, el) { return Array.prototype.slice.call((el || document).querySelectorAll(s)); };
+
+  /* ---------------- Tabs (header strip) ---------------- */
+  function activateTab(name) {
+    $$(".tab").forEach(function (t) {
+      t.setAttribute("aria-selected", String(t.getAttribute("data-tab") === name));
+    });
+    $$(".tabpanel").forEach(function (p) {
+      p.classList.toggle("active", p.id === "panel-" + name);
+    });
+    window.scrollTo({ top: 0, behavior: "instant" in window ? "instant" : "auto" });
+  }
+  $$(".tab").forEach(function (t) {
+    t.addEventListener("click", function () { activateTab(t.getAttribute("data-tab")); });
+  });
+  $$("[data-goto]").forEach(function (b) {
+    b.addEventListener("click", function () { activateTab(b.getAttribute("data-goto")); });
+  });
+
+  /* ---------------- Peek popovers (local origin slice from a rail entry) ---------------- */
+  var openPeek = null, openBtn = null;
+  function hidePeek() {
+    if (openPeek) { openPeek.classList.remove("show"); if (openBtn) openBtn.setAttribute("aria-expanded", "false"); openPeek = null; openBtn = null; }
+  }
+  function showPeek(btn) {
+    var id = btn.getAttribute("data-peek"); if (!id) return;
+    var p = document.getElementById("peek-" + id); if (!p) return;
+    if (openPeek === p) { hidePeek(); return; }
+    hidePeek();
+    p.classList.add("show");
+    var r = btn.getBoundingClientRect(), pw = p.offsetWidth, ph = p.offsetHeight;
+    var top = Math.min(r.top, window.innerHeight - ph - 12);
+    p.style.top = Math.max(60, top) + "px";
+    p.style.left = Math.max(12, r.left - pw - 12) + "px";   /* to the LEFT of the rail entry */
+    openPeek = p; openBtn = btn; btn.setAttribute("aria-expanded", "true");
+  }
+  $$("[data-peek]").forEach(function (b) { b.addEventListener("click", function (e) { e.stopPropagation(); showPeek(b); }); });
+  $$(".peek .expand, .peek .open").forEach(function (el) { el.addEventListener("click", function () { hidePeek(); }); });
+  document.addEventListener("click", function (e) { if (openPeek && !openPeek.contains(e.target)) hidePeek(); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") hidePeek(); });
+
+  /* ---------------- Memory sub-tabs (Summary / Agent work / Meetings / Decisions) ---------------- */
+  $$(".subtab").forEach(function (t) {
+    t.addEventListener("click", function () {
+      var name = t.getAttribute("data-mem");
+      $$(".subtab").forEach(function (x) { x.setAttribute("aria-selected", String(x.getAttribute("data-mem") === name)); });
+      $$(".mempanel").forEach(function (p) { p.classList.toggle("active", p.id === "mem-" + name); });
+    });
+  });
+
+  /* ---------------- Insights: act / undo / dismiss (self-curating surface) ---------------- */
+  document.addEventListener("click", function (e) {
+    if (!e.target.closest) return;
+    var askBtn = e.target.closest("[data-ask]");
+    if (askBtn) {
+      var aitem = askBtn.closest(".think-item");
+      var prompt = askBtn.getAttribute("data-ask");
+      openAsk();
+      setAskMode("agent");
+      appendBubble("you", "You", prompt);
+      appendBubble("ai", "Agent", "On it — queuing an independent run for this ▸");
+      if (aitem && !aitem.dataset.orig) {
+        aitem.dataset.orig = aitem.innerHTML;
+        aitem.classList.add("done");
+        aitem.innerHTML = '<span class="ti-ic" style="color:var(--primary)">▸</span>' +
+          '<div class="ti-body"><span style="color:var(--muted-foreground)">Handed to the agent — see the panel →</span></div>' +
+          '<div class="ti-act"><button class="undo" type="button" data-undo>Undo</button></div>';
+      }
+      return;
+    }
+    var doBtn = e.target.closest("[data-do]");
+    if (doBtn) {
+      var item = doBtn.closest(".think-item");
+      if (item && !item.dataset.orig) {
+        item.dataset.orig = item.innerHTML;
+        item.classList.add("done");
+        item.innerHTML = '<span class="ti-ic" style="color:var(--health-on-track-foreground)">✓</span>' +
+          '<div class="ti-body"><span style="color:var(--health-on-track-foreground)">' + doBtn.getAttribute("data-do") + '</span></div>' +
+          '<div class="ti-act"><button class="undo" type="button" data-undo>Undo</button></div>';
+      } else if (!item && !doBtn.dataset.done) {
+        /* generic confirm — mark the button itself done (works outside Insights) */
+        doBtn.dataset.done = "1";
+        doBtn.textContent = "✓ " + doBtn.getAttribute("data-do");
+        doBtn.disabled = true;
+        doBtn.style.opacity = ".65";
+      }
+      return;
+    }
+    var undoBtn = e.target.closest("[data-undo]");
+    if (undoBtn) {
+      var it = undoBtn.closest(".think-item");
+      if (it && it.dataset.orig) { it.innerHTML = it.dataset.orig; delete it.dataset.orig; it.classList.remove("done"); }
+      return;
+    }
+    var xBtn = e.target.closest("[data-dismiss]");
+    if (xBtn) {
+      var itm = xBtn.closest(".think-item");
+      if (itm) { itm.classList.add("dismissed"); setTimeout(function () { itm.style.display = "none"; }, 220); }
+      return;
+    }
+  });
+
+  /* ---------------- Theme toggle ---------------- */
+  var themeBtn = $("#themeToggle");
+  themeBtn.addEventListener("click", function () {
+    var dark = document.documentElement.classList.toggle("dark");
+    themeBtn.setAttribute("aria-pressed", String(dark));
+  });
+
+  /* ---------------- Needs attention: expand + resolve/override ---------- */
+  var attention = $("#attention");
+  var attnToggle = $("#attnToggle");
+  attnToggle.addEventListener("click", function () {
+    var open = attention.classList.toggle("open");
+    attnToggle.setAttribute("aria-expanded", String(open));
+  });
+  var attnSummary = $("#attnSummary");
+  function refreshFlags() {
+    var openFlags = $$(".issue.flag").filter(function (i) {
+      return !i.classList.contains("resolved") && !i.classList.contains("overridden");
+    }).length;
+    attnSummary.innerHTML = openFlags === 0
+      ? "Flags cleared · <b>1 blocked</b> · 1 at-risk"
+      : "<b>" + openFlags + (openFlags === 1 ? " flag" : " flags") + "</b> · 1 blocked · 1 at-risk";
+  }
+  $$(".issue.flag").forEach(function (issue) {
+    var actions = $(".issue-actions", issue);
+    var box = $(".override-box", issue);
+    var ta = $("textarea", box);
+    var submit = $('[data-act="ov-submit"]', box);
+    $('[data-act="resolve"]', issue).addEventListener("click", function () {
+      issue.classList.add("resolved");
+      box.classList.add("hidden");
+      actions.innerHTML = '<span class="chip h-ok xs">Resolved</span>';
+      refreshFlags();
+    });
+    $('[data-act="override"]', issue).addEventListener("click", function () {
+      box.classList.toggle("hidden");
+      if (!box.classList.contains("hidden")) ta.focus();
+    });
+    ta.addEventListener("input", function () {
+      submit.disabled = ta.value.trim().length === 0;
+    });
+    $('[data-act="ov-cancel"]', box).addEventListener("click", function () {
+      box.classList.add("hidden");
+    });
+    submit.addEventListener("click", function () {
+      issue.classList.add("overridden");
+      box.classList.add("hidden");
+      actions.innerHTML = '<span class="chip quiet xs" title="' +
+        ta.value.trim().replace(/"/g, "&quot;") + '">Overridden — reason logged</span>';
+      refreshFlags();
+    });
+  });
+
+  /* ---------------- Click-to-edit milestone dates ---------------- */
+  function startEdit(span) {
+    if (span.dataset.editing === "1") return;
+    span.dataset.editing = "1";
+    var prev = span.textContent.trim();
+    var input = document.createElement("input");
+    input.type = "text";
+    input.className = "date-input";
+    input.value = prev;
+    input.setAttribute("aria-label", "Edit date");
+    span.textContent = "";
+    span.appendChild(input);
+    input.focus();
+    input.select();
+    var done = false;
+    function commit(revert) {
+      if (done) return;
+      done = true;
+      var next = revert ? prev : (input.value.trim() || prev);
+      span.removeChild(input);
+      span.textContent = next;
+      delete span.dataset.editing;
+    }
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); commit(false); }
+      if (e.key === "Escape") { e.preventDefault(); commit(true); }
+      e.stopPropagation();
+    });
+    input.addEventListener("blur", function () { commit(false); });
+    input.addEventListener("click", function (e) { e.stopPropagation(); });
+  }
+  $$("[data-edit]").forEach(function (span) {
+    span.addEventListener("click", function (e) {
+      e.stopPropagation();
+      startEdit(span);
+    });
+    span.addEventListener("keydown", function (e) {
+      if ((e.key === "Enter" || e.key === " ") && span.dataset.editing !== "1") {
+        e.preventDefault(); e.stopPropagation(); startEdit(span);
+      }
+    });
+  });
+
+  /* ---------------- Hover-revealed ⋯ menus (milestones) ------ */
+  function closeAllMenus(except) {
+    $$(".ms-menu").forEach(function (m) {
+      if (m === except) return;
+      m.classList.remove("openm");
+      var pop = $(".menu-pop", m); if (pop) pop.classList.add("hidden");
+      var btn = $(".dots", m); if (btn) btn.setAttribute("aria-expanded", "false");
+    });
+  }
+  $$(".ms-menu").forEach(function (menu) {
+    var btn = $(".dots", menu);
+    var pop = $(".menu-pop", menu);
+    if (!btn || !pop) return;
+    btn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var opening = pop.classList.contains("hidden");
+      closeAllMenus(menu);
+      pop.classList.toggle("hidden", !opening);
+      menu.classList.toggle("openm", opening);
+      btn.setAttribute("aria-expanded", String(opening));
+    });
+    $$("[data-menu]", pop).forEach(function (item) {
+      item.addEventListener("click", function (e) {
+        e.stopPropagation();
+        pop.classList.add("hidden");
+        menu.classList.remove("openm");
+        btn.setAttribute("aria-expanded", "false");
+        if (item.getAttribute("data-menu") === "edit") {
+          var row = menu.closest(".ms-row");
+          var date = row ? $("[data-edit]", row) : null;
+          if (date) startEdit(date);
+        }
+      });
+    });
+  });
+  document.addEventListener("click", function () { closeAllMenus(null); });
+
+  /* ---------------- Tasks table: swimlane collapse ---------------- */
+  $$("[data-qgroup-toggle]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var body = btn.closest("tbody");
+      var collapsed = body.classList.toggle("collapsed");
+      btn.setAttribute("aria-expanded", String(!collapsed));
+      var label = body.getAttribute("data-group") || "group";
+      btn.setAttribute("aria-label", (collapsed ? "Expand " : "Collapse ") + label);
+    });
+  });
+
+  /* ---------------- Composer: add comment ---------------- */
+  var commentCount = 3, updateCount = 9;
+  var feed = $("#feed");
+  $("#composer").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var input = $("#composerInput");
+    var text = input.value.trim();
+    if (!text) return;
+    var li = document.createElement("li");
+    var isAgent = text.indexOf("/agent") === 0;
+    li.innerHTML =
+      '<span class="node comment">MK</span>' +
+      '<div class="ev-text" style="flex:1; min-width:0;">' +
+      '<div><b>Mira Kapoor</b><span class="ev-time">now</span></div>' +
+      '<div class="bubble"></div></div>';
+    li.querySelector(".bubble").textContent = isAgent
+      ? text + "  ·  (queued as agent run)"
+      : text;
+    feed.appendChild(li);
+    commentCount += 1;
+    $("#feedSummary").textContent = updateCount + " updates · " + commentCount + " comments";
+    input.value = "";
+  });
+
+  /* ================================================================
+     NEW — dock/panels, Ask sidebar, Tasks List⇄Gantt: one state obj
+     + one delegated click handler.
+     ================================================================ */
+  var initialModeEl = $(".modeseg .on");
+  var ui = {
+    tasksView: "list",
+    dockPanel: null,
+    askOpen: false,
+    askMode: initialModeEl ? initialModeEl.getAttribute("data-mode") : "chat"
+  };
+
+  function openPanel(name) {
+    if (ui.askOpen) closeAsk();
+    $$(".cpanel").forEach(function (p) { p.classList.add("hidden"); });
+    $$(".dockicon").forEach(function (d) { d.classList.remove("on"); });
+    var panel = $('.cpanel[data-panel-body="' + name + '"]');
+    var icon = $('.dockicon[data-panel="' + name + '"]');
+    if (panel) panel.classList.remove("hidden");
+    if (icon) icon.classList.add("on");
+    ui.dockPanel = name;
+  }
+  function closePanel() {
+    $$(".cpanel").forEach(function (p) { p.classList.add("hidden"); });
+    $$(".dockicon").forEach(function (d) { d.classList.remove("on"); });
+    ui.dockPanel = null;
+  }
+  function openAsk() {
+    if (ui.dockPanel) {
+      var panel = $('.cpanel[data-panel-body="' + ui.dockPanel + '"]');
+      if (panel) panel.classList.add("hidden");
+    }
+    $("#askPanel").classList.remove("hidden");
+    $("#askFab").classList.add("hidden");
+    ui.askOpen = true;
+  }
+  function closeAsk() {
+    $("#askPanel").classList.add("hidden");
+    $("#askFab").classList.remove("hidden");
+    ui.askOpen = false;
+  }
+  function appendBubble(kind, who, text, isGctx) {
+    var sideb = $("#askBody");
+    var div = document.createElement("div");
+    div.className = "bub " + kind;
+    var whoClass = isGctx ? "who gctx" : "who";
+    var whoEl = document.createElement("div");
+    whoEl.className = whoClass;
+    whoEl.textContent = who;
+    div.appendChild(whoEl);
+    div.appendChild(document.createTextNode(text));
+    sideb.appendChild(div);
+    sideb.scrollTop = sideb.scrollHeight;
+  }
+  function setAskMode(mode) {
+    var entering = mode === "agent" && ui.askMode !== "agent";
+    ui.askMode = mode;
+    $$(".modeseg [data-mode]").forEach(function (s) {
+      var active = s.getAttribute("data-mode") === mode;
+      s.classList.toggle("on", active);
+      s.setAttribute("aria-pressed", String(active));
+    });
+    $("#askPanel").classList.toggle("agentmode", mode === "agent");
+    if (entering) {
+      appendBubble("ai", "Agent · gathering context", "Let me pull the latest state on this before we go further.", true);
+    }
+  }
+  function addAgentRun() {
+    var list = $("#agentsList");
+    if (!list) return;
+    var row = document.createElement("div");
+    row.className = "arow";
+    row.innerHTML =
+      '<div class="ricon" style="background:var(--accent);color:var(--accent-foreground)">▸</div>' +
+      '<div class="t"><div class="nm">Investigate Beta at-risk drivers</div><div class="sub">from Ask Agent · run queued</div></div>' +
+      '<div class="meta mono run-status"><span class="chip quiet xs">Running</span></div>';
+    list.insertBefore(row, list.firstChild);
+    var statusHolder = row.querySelector(".run-status");
+    setTimeout(function () {
+      statusHolder.innerHTML = '<span class="chip h-ok xs">Done</span>';
+    }, 4000);
+  }
+
+  document.addEventListener("click", function (e) {
+    var t = e.target.closest("[data-action]");
+    if (!t) return;
+    var action = t.getAttribute("data-action");
+    if (action === "tasks-view") {
+      var view = t.getAttribute("data-view");
+      ui.tasksView = view;
+      $("#panel-tasks").setAttribute("data-view", view);
+      $$(".vf-btn").forEach(function (b) {
+        b.setAttribute("aria-pressed", String(b.getAttribute("data-view") === view));
+      });
+    } else if (action === "dock") {
+      var name = t.getAttribute("data-panel");
+      var panel = $('.cpanel[data-panel-body="' + name + '"]');
+      var isOpen = panel && !panel.classList.contains("hidden");
+      if (isOpen) { closePanel(); } else { openPanel(name); }
+    } else if (action === "panel-min") {
+      var cp = t.closest(".cpanel");
+      if (cp) cp.classList.add("hidden");
+    } else if (action === "panel-close") {
+      var cp2 = t.closest(".cpanel");
+      if (cp2) {
+        var name2 = cp2.getAttribute("data-panel-body");
+        cp2.classList.add("hidden");
+        var icon2 = $('.dockicon[data-panel="' + name2 + '"]');
+        if (icon2) icon2.classList.remove("on");
+        if (ui.dockPanel === name2) ui.dockPanel = null;
+      }
+    } else if (action === "ask-open") {
+      openAsk();
+    } else if (action === "ask-close") {
+      closeAsk();
+    } else if (action === "ask-mode") {
+      setAskMode(t.getAttribute("data-mode"));
+    }
+  });
+
+  /* ---------------- Ask sidebar: send ---------------- */
+  var askAgentSends = 0;
+  $("#askForm").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var input = $("#askInput");
+    var text = input.value.trim();
+    if (!text) return;
+    appendBubble("you", "You", text, false);
+    input.value = "";
+    if (ui.askMode === "agent") {
+      askAgentSends += 1;
+      if (askAgentSends % 2 === 0) {
+        appendBubble("ai", "Agent", "Got it — launching an independent run now ▸", false);
+        addAgentRun();
+      }
+    }
+  });
+})();
+</script>
+</body>
+</html>
