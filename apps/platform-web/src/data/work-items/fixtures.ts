@@ -1,4 +1,6 @@
 import type {
+  ActivityEvent,
+  ActivityEventKind,
   DependencyRelationship,
   Owner,
   Project,
@@ -62,23 +64,23 @@ const RAW_PROJECTS: ReadonlyArray<Project> = [
 const RAW_WORK_ITEMS: ReadonlyArray<WorkItem> = [
   // --- Engineering (proj_v2) ---
   // future due, no overdue tasks → on_track
-  workItemOf("wi_auth", "Workspace auth hardening", "execute", "Engineering", { type: "feature", priority: "high", tags: ["security", "backend"], source: "manual", projectId: "proj_v2", assigneeId: "user_amara", dueDate: "2026-07-10T00:00:00.000Z", createdAt: "2026-05-01T09:00:00.000Z", updatedAt: "2026-06-19T09:00:00.000Z" }),
+  workItemOf("wi_auth", "Workspace auth hardening", "execute", "Engineering", { description: "Harden workspace auth before v2.0: add a token-verifier interface, wire the session bridge, and close the gaps the Q2 security review surfaced.", type: "feature", priority: "high", tags: ["security", "backend"], source: "manual", projectId: "proj_v2", assigneeId: "user_amara", dueDate: "2026-07-10T00:00:00.000Z", createdAt: "2026-05-01T09:00:00.000Z", updatedAt: "2026-06-19T09:00:00.000Z" }),
   // item overdue + open task → blocked
-  workItemOf("wi_realtime", "Realtime transport seam", "plan", "Engineering", { type: "feature", priority: "critical", tags: ["infra", "realtime"], source: "agent", projectId: "proj_v2", assigneeId: "user_dev", dueDate: "2026-06-12T00:00:00.000Z", createdAt: "2026-04-20T09:00:00.000Z", updatedAt: "2026-06-16T09:00:00.000Z" }),
+  workItemOf("wi_realtime", "Realtime transport seam", "plan", "Engineering", { description: "Define the RealtimeTransport seam so the workboard can subscribe to server-side invalidations. Spike Durable Objects first; the interface lands before F2.", type: "feature", priority: "critical", tags: ["infra", "realtime"], source: "agent", projectId: "proj_v2", assigneeId: "user_dev", dueDate: "2026-06-12T00:00:00.000Z", createdAt: "2026-04-20T09:00:00.000Z", updatedAt: "2026-06-16T09:00:00.000Z" }),
   // future due, but one task overdue+open → at_risk
   workItemOf("wi_migration", "Neon migration runner", "review", "Engineering", { type: "chore", priority: "high", tags: ["infra", "database"], source: "manual", projectId: "proj_v2", assigneeId: "user_amara", dueDate: "2026-06-30T00:00:00.000Z", createdAt: "2026-05-05T09:00:00.000Z", updatedAt: "2026-06-19T09:00:00.000Z" }),
   // overdue, but phase done + all tasks complete → on_track
   workItemOf("wi_tabletoken", "Design token audit", "done", "Engineering", { type: "chore", priority: "low", tags: ["design-system"], source: "feedback", projectId: "proj_v2", assigneeId: "user_dev", dueDate: "2026-06-01T00:00:00.000Z", createdAt: "2026-04-15T09:00:00.000Z", updatedAt: "2026-06-02T09:00:00.000Z" }),
   // --- Marketing (proj_diwali) ---
   // item overdue + open task → blocked
-  workItemOf("wi_creatives", "Diwali creative set", "execute", "Marketing", { type: "feature", priority: "high", tags: ["campaign", "design"], source: "manual", projectId: "proj_diwali", assigneeId: "user_priya", dueDate: "2026-06-15T00:00:00.000Z", createdAt: "2026-05-12T09:00:00.000Z", updatedAt: "2026-06-18T09:00:00.000Z" }),
+  workItemOf("wi_creatives", "Diwali creative set", "execute", "Marketing", { description: "Produce the Diwali campaign creative set — hero banner, story templates, and channel cutdowns — ready for the landing page and paid social.", type: "feature", priority: "high", tags: ["campaign", "design"], source: "manual", projectId: "proj_diwali", assigneeId: "user_priya", dueDate: "2026-06-15T00:00:00.000Z", createdAt: "2026-05-12T09:00:00.000Z", updatedAt: "2026-06-18T09:00:00.000Z" }),
   // null assignee (department queue, §1); future, open tasks not overdue → on_track
   workItemOf("wi_landing", "Campaign landing page", "plan", "Marketing", { type: "feature", priority: "medium", tags: ["campaign", "web"], source: "meeting", projectId: "proj_diwali", assigneeId: null, dueDate: "2026-08-01T00:00:00.000Z", createdAt: "2026-06-01T09:00:00.000Z", updatedAt: "2026-06-17T09:00:00.000Z" }),
   // item overdue + no tasks → at_risk
   workItemOf("wi_adspend", "Ad spend forecast", "review", "Marketing", { type: "research", priority: "medium", tags: ["budget"], source: "agent", projectId: "proj_diwali", assigneeId: "user_priya", dueDate: "2026-06-10T00:00:00.000Z", createdAt: "2026-05-20T09:00:00.000Z", updatedAt: "2026-06-16T09:00:00.000Z" }),
   // --- Sourcing (no project — loose work items, §1 containment optional) ---
   // future, but one task overdue+open → at_risk
-  workItemOf("wi_supplier", "Q3 supplier shortlist", "execute", "Sourcing", { type: "research", priority: "high", tags: ["sourcing", "q3"], source: "meeting", projectId: null, assigneeId: "user_kenji", dueDate: "2026-07-20T00:00:00.000Z", createdAt: "2026-05-25T09:00:00.000Z", updatedAt: "2026-06-19T09:00:00.000Z" }),
+  workItemOf("wi_supplier", "Q3 supplier shortlist", "execute", "Sourcing", { description: "Shortlist Q3 suppliers: collect quotes, audit lead times against the warehouse intake plan, and recommend two primaries plus a backup.", type: "research", priority: "high", tags: ["sourcing", "q3"], source: "meeting", projectId: null, assigneeId: "user_kenji", dueDate: "2026-07-20T00:00:00.000Z", createdAt: "2026-05-25T09:00:00.000Z", updatedAt: "2026-06-19T09:00:00.000Z" }),
   // no due date, all tasks complete → on_track
   workItemOf("wi_samples", "Sample QC checklist", "done", "Sourcing", { type: "chore", priority: "low", tags: ["quality"], source: "manual", projectId: null, assigneeId: "user_kenji", dueDate: null, archived: true, createdAt: "2026-04-30T09:00:00.000Z", updatedAt: "2026-06-05T09:00:00.000Z" }),
   // item overdue + open task → blocked
@@ -142,6 +144,21 @@ const RAW_DEPENDENCIES: ReadonlyArray<WorkItemDependency> = [
 ];
 
 /**
+ * Seed activity — an append-only per-item change log the mock returns for the
+ * detail page's Activity tab (and which every mutation appends to at runtime).
+ * Stored chronological; newest-first ordering is applied on read.
+ */
+const RAW_ACTIVITY: ReadonlyArray<ActivityEvent> = [
+  activityOf("act_auth_1", "wi_auth", "created", "Created “Workspace auth hardening”", "2026-05-01T09:00:00.000Z"),
+  activityOf("act_auth_2", "wi_auth", "dependency_added", "Added a dependency on “Realtime transport seam”", "2026-05-04T10:15:00.000Z"),
+  activityOf("act_auth_3", "wi_auth", "updated", "Owner set to Amara Okafor", "2026-05-08T13:20:00.000Z"),
+  activityOf("act_auth_4", "wi_auth", "updated", "Phase set to Execute", "2026-05-20T09:05:00.000Z"),
+  activityOf("act_auth_5", "wi_auth", "updated", "Due date set to Jul 10", "2026-06-19T09:00:00.000Z"),
+  activityOf("act_cr_1", "wi_creatives", "created", "Created “Diwali creative set”", "2026-05-12T09:00:00.000Z"),
+  activityOf("act_cr_2", "wi_creatives", "updated", "Phase set to Execute", "2026-05-30T16:40:00.000Z"),
+];
+
+/**
  * Build a {@link WorkItemDependency}. `relationship_type` defaults to
  * `depends_on` (the only kind v1 renders); `created_at` is a fixed ISO string so
  * fixtures stay stable.
@@ -169,6 +186,7 @@ function dependencyOf(
  * `manual` provenance) that individual fixtures override.
  */
 interface WorkItemOptions {
+  description?: string;
   type?: WorkItem["type"];
   priority?: WorkItem["priority"];
   tags?: string[];
@@ -193,6 +211,7 @@ function workItemOf(
   options: WorkItemOptions = {},
 ): WorkItem {
   const {
+    description = "",
     type = "chore",
     priority = "medium",
     tags = [],
@@ -207,6 +226,7 @@ function workItemOf(
   return {
     id,
     title,
+    description,
     phase,
     type,
     priority,
@@ -240,6 +260,23 @@ function taskOf(
   };
 }
 
+/** Build an {@link ActivityEvent} with a fixed timestamp so fixtures stay stable. */
+function activityOf(
+  id: string,
+  workItemId: string,
+  kind: ActivityEventKind,
+  summary: string,
+  createdAt: string,
+): ActivityEvent {
+  return {
+    id,
+    work_item_id: workItemId,
+    kind,
+    summary,
+    created_at: T(createdAt),
+  };
+}
+
 /** Deep-clone factory: fresh `Owner[]` per call (mutation-safe for the mock). */
 export function createOwnerFixtures(): Owner[] {
   return RAW_OWNERS.map((owner) => ({ ...owner }));
@@ -270,4 +307,9 @@ export function createTaskFixtures(): Task[] {
  */
 export function createDependencyFixtures(): WorkItemDependency[] {
   return RAW_DEPENDENCIES.map((dependency) => ({ ...dependency }));
+}
+
+/** Deep-clone factory: fresh `ActivityEvent[]` per call (mutation-safe for the mock). */
+export function createActivityFixtures(): ActivityEvent[] {
+  return RAW_ACTIVITY.map((event) => ({ ...event }));
 }

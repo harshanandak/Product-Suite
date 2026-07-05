@@ -8,6 +8,7 @@ import {
 
 import { Button, EmptyState, ErrorState } from "@product-suite/ui";
 
+import { WorkItemDetailScreen } from "./boards/workboard/detail/WorkItemDetailScreen";
 import { WorkboardGraphScreen } from "./boards/workboard/graph/WorkboardGraphScreen";
 import { WorkboardScreen } from "./boards/workboard/WorkboardScreen";
 import { BoardScreen } from "./shell/BoardScreen";
@@ -84,6 +85,13 @@ const workboardGraphRoute = createRoute({
   getParentRoute: () => workspaceRoute,
   path: "workboard/graph",
   component: WorkboardGraphScreen,
+});
+// The work-item DETAIL page — a real route (not the editor Sheet) so an item has
+// a durable, linkable home with room for its tabs (Overview/Tasks/…).
+const workboardItemRoute = createRoute({
+  getParentRoute: () => workspaceRoute,
+  path: "workboard/item/$itemId",
+  component: WorkItemDetailScreen,
 });
 const workboardStrategyRoute = createRoute({
   getParentRoute: () => workspaceRoute,
@@ -189,6 +197,7 @@ const routeTree = rootRoute.addChildren([
     homeInboxRoute,
     workboardRoute,
     workboardGraphRoute,
+    workboardItemRoute,
     workboardStrategyRoute,
     workboardInsightsRoute,
     workboardTasksRoute,

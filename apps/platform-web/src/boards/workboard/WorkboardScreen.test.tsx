@@ -7,6 +7,7 @@ import {
   describe,
   expect,
   it,
+  vi,
 } from "vitest";
 
 import { ThemeProvider, Toaster, toast } from "@product-suite/ui";
@@ -28,6 +29,17 @@ import {
   type SavedView,
 } from "./filter-state";
 import { WorkboardScreen } from "./WorkboardScreen";
+
+// Row activation now navigates to the detail route. Mock the router so the
+// screen's useNavigate/useParams resolve without a RouterProvider, and capture
+// the navigate call for assertions.
+// The real TanStack `navigate` returns a Promise; the screen calls
+// `.catch(...)` on it, so the mock must resolve to keep that chain valid.
+const navMock = vi.hoisted(() => ({ fn: vi.fn(() => Promise.resolve()) }));
+vi.mock("@tanstack/react-router", () => ({
+  useNavigate: () => navMock.fn,
+  useParams: () => ({ workspace: "acme" }),
+}));
 
 /**
  * Render the screen together with the shared sonner `<Toaster/>` (and the
@@ -120,6 +132,7 @@ afterAll(() => {
 // isolation.
 beforeEach(() => {
   window.localStorage.clear();
+  navMock.fn.mockClear();
 });
 
 // sonner's toast queue is module-global; clear it between tests so a toast from
@@ -144,11 +157,10 @@ describe("WorkboardScreen", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows the table with items and opens the editor when a row is selected", async () => {
-    const repository = createMockWorkItemRepository();
-    render(<WorkboardScreen repository={repository} />);
+  it("navigates to the item's detail page when a row is activated", async () => {
+    render(<WorkboardScreen repository={createMockWorkItemRepository()} />);
 
-    // Verify rows actually render under jsdom before asserting selection — a
+    // Verify rows actually render under jsdom before activating one — a
     // virtualizer that reports zero height would silently render no rows.
     await waitFor(() => {
       expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
@@ -160,14 +172,13 @@ describe("WorkboardScreen", () => {
     });
     fireEvent.click(titleButton);
 
-    // The editor Sheet opens (Radix Dialog → role="dialog").
-    const dialog = await screen.findByRole("dialog");
-    expect(dialog).toBeInTheDocument();
-    expect(screen.getByText("Edit work item")).toBeInTheDocument();
-
-    // It is seeded from the selected item, and shows that item's tasks.
-    expect(screen.getByLabelText("Title")).toHaveValue("Workspace auth hardening");
-    expect(screen.getByText("Token verifier interface")).toBeInTheDocument();
+    // Row activation routes to the full detail PAGE — not the editor Sheet.
+    expect(navMock.fn).toHaveBeenCalledWith({
+      to: "/w/$workspace/workboard/item/$itemId",
+      params: { workspace: "acme", itemId: "wi_auth" },
+    });
+    // A plain row activation no longer opens the quick-edit Sheet.
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("narrows the rendered rows when the toolbar search changes", async () => {

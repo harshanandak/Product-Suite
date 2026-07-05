@@ -17,6 +17,7 @@ import {
   SheetTitle,
   StatusPill,
   TagInput,
+  Textarea,
   WorkItemTypeSelect,
 } from "@product-suite/ui";
 
@@ -77,6 +78,7 @@ export interface WorkItemEditorProps {
 /** The subset of {@link WorkItem} the editor edits, mirrored as local form state. */
 interface EditorForm {
   title: string;
+  description: string;
   type: WorkItemType;
   phase: Phase;
   priority: Priority;
@@ -108,6 +110,7 @@ function fromDateInputValue(value: string): string | null {
 function toForm(item: WorkItem): EditorForm {
   return {
     title: item.title,
+    description: item.description ?? "",
     type: item.type,
     phase: item.phase,
     priority: item.priority,
@@ -136,6 +139,12 @@ function diffPatch(item: WorkItem, form: EditorForm): WorkItemPatch {
 
   const title = form.title.trim();
   if (title !== "" && title !== item.title) patch.title = title;
+
+  // Description preserves whitespace/newlines; compare against the stored value
+  // (absent ⇒ ""), so clearing a description patches it back to "".
+  if (form.description !== (item.description ?? "")) {
+    patch.description = form.description;
+  }
 
   if (form.type !== item.type) patch.type = form.type;
   if (form.phase !== item.phase) patch.phase = form.phase;
@@ -173,6 +182,7 @@ export function WorkItemEditor({
   owners = [],
 }: Readonly<WorkItemEditorProps>) {
   const titleId = useId();
+  const descriptionId = useId();
   const typeId = useId();
   const phaseId = useId();
   const priorityId = useId();
@@ -256,6 +266,23 @@ export function WorkItemEditor({
                 onChange={(event) =>
                   setForm((prev) =>
                     prev ? { ...prev, title: event.target.value } : prev,
+                  )
+                }
+              />
+            </div>
+
+            {/* Description */}
+            <div className="flex flex-col gap-2">
+              <Label htmlFor={descriptionId}>Description</Label>
+              <Textarea
+                id={descriptionId}
+                value={form.description}
+                disabled={saving}
+                rows={4}
+                placeholder="A short brief for this work item…"
+                onChange={(event) =>
+                  setForm((prev) =>
+                    prev ? { ...prev, description: event.target.value } : prev,
                   )
                 }
               />

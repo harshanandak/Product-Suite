@@ -78,6 +78,8 @@ export interface Owner {
 export interface WorkItem {
   readonly id: string;
   title: string;
+  /** Free-form brief / description (plain text); absent or `""` = none. Editable. */
+  description?: string;
   /** Universal phase loop `plan → execute → review → done` (§1). */
   phase: Phase;
   /** Kind of work — drives the Type column / filter (§11 playbook resolution). */
@@ -120,6 +122,31 @@ export interface Task {
   due_date: string | null;
   readonly created_at: string;
   readonly updated_at: string;
+}
+
+/**
+ * The kind of change an {@link ActivityEvent} records — drives the Activity
+ * feed's icon/emphasis. v0 covers the mutations the repository emits.
+ */
+export type ActivityEventKind =
+  | "created"
+  | "updated"
+  | "dependency_added"
+  | "dependency_removed";
+
+/**
+ * An append-only activity record for a work item — emitted by the repository on
+ * every mutation (create / update / dependency change) and read back by the
+ * detail page's Activity tab. Never edited; `summary` is a pre-rendered one-liner
+ * so the view stays dumb (no client-side event formatting).
+ */
+export interface ActivityEvent {
+  readonly id: string;
+  work_item_id: string;
+  kind: ActivityEventKind;
+  /** Human-readable one-liner, e.g. "Phase set to Done". */
+  summary: string;
+  readonly created_at: string;
 }
 
 /**
@@ -176,6 +203,7 @@ export type WorkItemPatch = Partial<
   Pick<
     WorkItem,
     | "title"
+    | "description"
     | "phase"
     | "type"
     | "priority"

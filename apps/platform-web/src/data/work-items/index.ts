@@ -6,6 +6,8 @@
  * underlying repository adapter swaps for F2 without touching callers.
  */
 export type {
+  ActivityEvent,
+  ActivityEventKind,
   DependencyRelationship,
   Health,
   Owner,
@@ -39,6 +41,7 @@ export {
 } from "./dependency-graph";
 
 export {
+  createActivityFixtures,
   createDependencyFixtures,
   createOwnerFixtures,
   createProjectFixtures,

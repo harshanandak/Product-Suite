@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { useNavigate, useParams } from "@tanstack/react-router";
+
 import {
   Button,
   EmptyState,
@@ -167,6 +169,11 @@ export function WorkboardScreen({
     () => repository ?? getDefaultRepository(),
   );
 
+  // Row activation navigates to the item's detail PAGE — needs the router's
+  // navigate + the current workspace param to build the typed target.
+  const navigate = useNavigate();
+  const { workspace } = useParams({ from: "/w/$workspace/workboard" });
+
   const { items, owners, loading, error, update, pendingIds, create, refetch } =
     useWorkItems({ repository: repo });
 
@@ -329,9 +336,21 @@ export function WorkboardScreen({
   // to `WorkItem`, so both paths type-check.
   const [selected, setSelected] = useState<WorkItem | null>(null);
 
-  const handleSelectItem = useCallback((row: WorkItemRow) => {
-    setSelected(row);
-  }, []);
+  // Row activation (table + kanban) opens the full detail PAGE — a durable,
+  // linkable home. The editor Sheet is reserved for quick-edit: the New flow
+  // (below) and the detail page's own "Edit" button. Inline cell edits on the
+  // table remain, so quick field edits from the board are never lost.
+  const handleSelectItem = useCallback(
+    (row: WorkItemRow) => {
+      // Fire-and-forget navigation; trailing .catch keeps this void-returning
+      // click handler from floating a promise (the file's convention — no `void`).
+      navigate({
+        to: "/w/$workspace/workboard/item/$itemId",
+        params: { workspace, itemId: row.id },
+      }).catch(() => undefined);
+    },
+    [navigate, workspace],
+  );
 
   const handleOpenChange = useCallback((open: boolean) => {
     if (!open) setSelected(null);
