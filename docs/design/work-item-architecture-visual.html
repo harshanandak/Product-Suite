@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Work Item — Architecture (visual, all perspectives)</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+:root{--bg:#f7f7f8;--panel:#fff;--fg:#18181b;--mut:#6b7280;--border:#e4e4e7;--pri:#4f46e5;--ok:#0e9f6e;--warn:#d97706;--bad:#dc2626;--chip:#eef2ff;}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--fg);line-height:1.5}
+.wrap{display:grid;grid-template-columns:230px 1fr;min-height:100vh}
+nav{position:sticky;top:0;align-self:start;height:100vh;overflow:auto;background:var(--panel);border-right:1px solid var(--border);padding:1rem .8rem}
+nav h1{font-size:.9rem;font-weight:700;margin-bottom:.2rem}
+nav .sub{font-size:.68rem;color:var(--mut);margin-bottom:1rem}
+nav a{display:block;font-size:.78rem;color:var(--fg);text-decoration:none;padding:.34rem .5rem;border-radius:7px;margin-bottom:1px}
+nav a:hover{background:var(--chip)}
+nav a .n{color:var(--mut);font-size:.66rem;margin-right:.4rem}
+main{padding:1.6rem 2rem;max-width:1100px}
+section{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:1.2rem 1.4rem;margin-bottom:1.3rem;scroll-margin-top:1rem}
+section h2{font-size:1.05rem;font-weight:650;display:flex;align-items:center;gap:.5rem}
+section h2 .num{font-size:.7rem;background:var(--pri);color:#fff;padding:.1rem .5rem;border-radius:999px}
+section .lead{font-size:.85rem;color:var(--mut);margin:.35rem 0 .9rem}
+.diagram{background:#fcfcfd;border:1px solid var(--border);border-radius:10px;padding:1rem;overflow:auto}
+.mermaid{display:flex;justify-content:center}
+.hd{margin-bottom:1.3rem}
+.hd h1{font-size:1.5rem;font-weight:750}
+.hd p{color:var(--mut);font-size:.9rem;margin-top:.3rem}
+.principles{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:.6rem;margin-top:.4rem}
+.pr{background:var(--chip);border-radius:9px;padding:.6rem .75rem;font-size:.78rem}
+.pr b{display:block;font-size:.72rem;color:var(--pri);margin-bottom:.15rem;text-transform:uppercase;letter-spacing:.03em}
+ol.inv{margin:.3rem 0 0 1.1rem;font-size:.82rem}
+ol.inv li{margin-bottom:.5rem}
+ol.inv li b{color:var(--pri)}
+.note{font-size:.78rem;color:var(--mut);margin-top:.7rem;padding-left:.7rem;border-left:2px solid var(--border)}
+.tag{display:inline-block;font-size:.66rem;padding:.05rem .45rem;border-radius:999px;background:var(--chip);color:var(--pri);margin-left:.3rem}
+.gapbox{border:1px dashed var(--warn);background:#fffbeb;border-radius:10px;padding:.9rem 1rem;font-size:.82rem}
+.gapbox b{color:var(--warn)}
+.gapgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:.7rem;margin-top:.5rem}
+.gapcard{background:#fff;border:1px solid var(--border);border-radius:9px;padding:.7rem .85rem}
+.gapcard h4{font-size:.82rem;margin-bottom:.4rem}
+.gapcard .sev{font-size:.6rem;background:var(--warn);color:#fff;padding:.05rem .4rem;border-radius:999px;margin-left:.35rem;font-weight:600;vertical-align:middle}
+.gapcard ul{margin:0 0 0 1rem;font-size:.76rem;color:#3f3f46}
+.gapcard li{margin-bottom:.28rem}
+.fixnow{margin-top:.9rem;border:1px solid var(--bad);background:#fef2f2;border-radius:9px;padding:.7rem .95rem;font-size:.8rem}
+.fixnow b{color:var(--bad)}
+.fixnow ul{margin:.3rem 0 0 1.1rem}
+.fixnow li{margin-bottom:.3rem}
+kbd{font:inherit;font-size:.78rem;background:var(--chip);border-radius:5px;padding:.05rem .35rem;color:var(--pri)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<nav>
+  <h1>Work Item Architecture</h1>
+  <div class="sub">visual · all perspectives · v3 (gaps folded in)</div>
+  <a href="#principles"><span class="n">00</span>Principles</a>
+  <a href="#layers"><span class="n">01</span>Layered architecture</a>
+  <a href="#er"><span class="n">02</span>Entity–relationship</a>
+  <a href="#axes"><span class="n">03</span>Three orthogonal axes</a>
+  <a href="#lifecycle"><span class="n">04</span>Lifecycle</a>
+  <a href="#dag"><span class="n">05</span>Union-DAG / deadlock rule</a>
+  <a href="#alignment"><span class="n">06</span>Alignment chain (OKR)</a>
+  <a href="#ai"><span class="n">07</span>AI modes + Flag loop</a>
+  <a href="#walk"><span class="n">08</span>Concrete walkthrough</a>
+  <a href="#invariants"><span class="n">09</span>Invariants</a>
+  <a href="#gaps"><span class="n">10</span>Gaps / open</a>
+</nav>
+<main>
+  <div class="hd">
+    <h1>Work Item — Architecture, visually</h1>
+    <p>Every perspective of the model on one page, to check it against your understanding and surface anything missed. Structural source: <code>2026-07-01-work-item-architecture.md</code>.</p>
+  </div>
+
+  <section id="principles">
+    <h2><span class="num">00</span> Design principles</h2>
+    <div class="principles">
+      <div class="pr"><b>Graspable core</b>Base = task + work item + status. Everything else opt-in.</div>
+      <div class="pr"><b>AI woven, 3 modes</b>Config sets up · Oversight watches · Agents launched to act.</div>
+      <div class="pr"><b>Orthogonal axes</b>Work carries independent refs; change focus by view, never re-parent.</div>
+      <div class="pr"><b>Flat work spine</b>Tasks never nest; only containers nest (parentId, one policy).</div>
+      <div class="pr"><b>Derived &amp; total</b>Health/completion/status are total functions — every case defined.</div>
+      <div class="pr"><b>Upper = consumers</b>Strategy + AI read the core; never complicate the base.</div>
+      <div class="pr"><b>Viewer-independent rollups</b>Counts compute over the full child set; visibility hides, never counts.</div>
+    </div>
+  </section>
+
+  <section id="layers">
+    <h2><span class="num">01</span> Layered architecture <span class="tag">dependency flows down</span></h2>
+    <p class="lead">Six layers (v3). Each depends only on the layers below; the Core runs alone, everything above is a pure consumer.</p>
+    <div class="diagram"><pre class="mermaid">
+graph TB
+  subgraph LAI["AI &amp; Integration"]
+    direction LR
+    Config[Config]; Agent[Agent]; AgentRun[AgentRun]; Oversight[Oversight]; Flag[Flag]; Conn["Connection + sync"]
+  end
+  subgraph LP["Presentation &amp; collaboration"]
+    direction LR
+    View[View]; Activity[ActivityEvent]; Comment[Comment]; Notif[Notification]; Label[Label]
+  end
+  subgraph LS["Strategy"]
+    direction LR
+    Objective[Objective]; KeyResult[KeyResult]; Decision[Decision]
+  end
+  subgraph LX["Axes"]
+    direction LR
+    Scope["Scope — WorkItem kinds + parentId"]; Cycle["Time — Cycle"]
+  end
+  subgraph LO["Org &amp; platform"]
+    direction LR
+    Tenant[Tenant]; Team[Team]; Membership[Membership]; Owner[Owner]; Jobs["Jobs / Scheduler"]
+  end
+  subgraph LC["Core — self-sufficient"]
+    direction LR
+    Task[Task]; Deps[dependencies]; Health[derived health]
+  end
+  LAI --> LP --> LS --> LX --> LO --> LC
+    </pre></div>
+    <div class="note">The graspable default is <b>just the Core</b> (+ its Org anchor). AI Config turns higher layers on per team — a marketing team never leaves Core+Org. <b>Presentation</b> and <b>Org &amp; platform</b> are the v3 additions from the completeness sweep.</div>
+  </section>
+
+  <section id="er">
+    <h2><span class="num">02</span> Entity–relationship model</h2>
+    <p class="lead">Every entity and how they relate. Axis refs (scope/cycle/alignment) are edges with <kbd>UNIQUE(taskId)</kbd> so single-value now can relax to multi later without a migration.</p>
+    <div class="diagram"><pre class="mermaid">
+erDiagram
+  TEAM ||--o{ CYCLE : scopes
+  TEAM ||--o{ CONFIG : has
+  TEAM ||--o{ CONNECTION : owns
+  OWNER ||--o{ TASK : owns
+  OWNER ||--o{ WORKITEM : "owns / closes"
+  WORKITEM ||--o{ WORKITEM : "parentId nesting"
+  WORKITEM ||--o{ MILESTONE : contains
+  WORKITEM ||--o{ TASK : "scope edge"
+  MILESTONE ||--o{ TASK : "scope edge"
+  CYCLE ||--o{ TASK : "cycle edge"
+  OBJECTIVE ||--o{ KEYRESULT : has
+  OBJECTIVE ||--o{ TASK : "align objectiveId"
+  KEYRESULT ||--o{ TASK : "align keyResultId"
+  TASK ||--o{ TASK : dependsOn
+  WORKITEM ||--o{ WORKITEM : dependsOn
+  TASK ||--o{ ATTACHMENT : has
+  WORKITEM ||--o{ ATTACHMENT : has
+  DECISION ||--o| DECISION : supersedes
+  FLAG ||--o| DECISION : "resolvedBy version"
+  AGENTRUN ||--o{ ATTACHMENT : produces
+  TASK {
+    enum status "todo|doing|done"
+    enum kind "build|plan|research|review|bug|chore"
+    ref owner
+    derived health "on_track|at_risk|blocked"
+  }
+  WORKITEM {
+    enum kind "version|release|project|initiative"
+    ref parentId
+    ref owner
+    derived completion
+    derived state "open|done"
+  }
+  CYCLE {
+    date start_end
+    ref teamId "null=global"
+    flag autoRollover
+  }
+  DECISION {
+    text statement
+    text reasoning
+    int version
+    ref authoredBy "Owner|AgentRun"
+  }
+  FLAG {
+    poly target
+    ref raisedBy "Oversight|AgentRun"
+    enum state "open|resolved|overridden"
+  }
+  CONFIG {
+    json enabledAxes
+    int version
+    ref authoredBy
+  }
+    </pre></div>
+    <div class="note">Bounded polymorphic targets (<code>Decision</code>, <code>Flag</code>, <code>AgentRun</code>, <code>Attachment</code>) use <code>(targetType, targetId)</code> over a <b>server-enforced enumerated set</b> — governed by the referential-integrity invariant.</div>
+  </section>
+
+  <section id="axes">
+    <h2><span class="num">03</span> The task and its three orthogonal axes</h2>
+    <p class="lead">The heart of the model: a task carries <i>independent</i> references. You focus on a release <b>or</b> a sprint by switching the view — the task never moves.</p>
+    <div class="diagram"><pre class="mermaid">
+graph LR
+  V["SCOPE&lt;br/&gt;Version v2.3"] -. scopeId .-> T
+  C["TIME&lt;br/&gt;Sprint 14"] -. cycleId .-> T
+  O["STRATEGY&lt;br/&gt;Objective / KR"] -. objectiveId .-> T
+  T(("Task T")) -- dependsOn --> D["Task / Work Item"]
+  classDef axis fill:#eef2ff,stroke:#4f46e5,color:#3730a3;
+  class V,C,O axis;
+    </pre></div>
+    <div class="note">Single-value today (one scope, one cycle) via <kbd>UNIQUE(taskId)</kbd> — relaxable to multi (a hotfix in two releases) additively.</div>
+  </section>
+
+  <section id="lifecycle">
+    <h2><span class="num">04</span> Lifecycle — task &amp; item</h2>
+    <p class="lead">No phases. A task is a simple triad; a work item is open→done, derived-suggested and owner-confirmed. Plan/review are <i>kinds</i> of tasks, done anytime.</p>
+    <div class="diagram"><pre class="mermaid">
+stateDiagram-v2
+  direction LR
+  state "TASK" as T {
+    [*] --> todo
+    todo --> doing
+    doing --> done
+    done --> [*]
+  }
+  state "WORK ITEM" as W {
+    [*] --> open
+    open --> ready_to_close : all children done (derived)
+    ready_to_close --> done : owner confirms
+    done --> open : child added / reopened (auto-revert)
+  }
+    </pre></div>
+    <div class="note"><b>blocked</b> is derived: a task with an incomplete dependency (e.g. execution waiting on a <i>plan</i> task) — that's the opt-in "gate execution when clarity is lacking." Done tasks are terminal (never blocked).</div>
+  </section>
+
+  <section id="dag">
+    <h2><span class="num">05</span> Union-DAG — the deadlock rule</h2>
+    <p class="lead">Dependencies <i>and</i> containment share one acyclic graph. The rule: no task or container may depend on any of its own ancestors — this is what prevents the containment↔dependency deadlock.</p>
+    <div class="diagram"><pre class="mermaid">
+graph TB
+  W["Work Item W (version)"] ==> M["Milestone"] ==> T["Task T"]
+  T -. "dependsOn (waits on) — OK" .-> X["Task X (sibling)"]
+  T -. "depend on ancestor W — FORBIDDEN" .-> W
+  linkStyle 0,1 stroke:#0e9f6e,stroke-width:2px;
+  linkStyle 3 stroke:#dc2626,stroke-width:2px,stroke-dasharray:4;
+    </pre></div>
+    <div class="note">Bold edges = containment (derivation, container→member). Green = a legal dependency. Red = the forbidden ancestor-dependency. Enforced <b>transactionally server-side</b> (concurrent local-passing writers can still form a union cycle).</div>
+  </section>
+
+  <section id="alignment">
+    <h2><span class="num">06</span> Alignment chain (OKR)</h2>
+    <p class="lead">Strategy is a separate axis. Work <i>aligns up</i> to an Objective; the metric lives once on the Objective's Key Results — never duplicated per work item.</p>
+    <div class="diagram"><pre class="mermaid">
+graph BT
+  T["Task"] -->|objectiveId / keyResultId| O
+  WI["Work Item"] -->|aligns| O["Objective&lt;br/&gt;(owned at project / initiative)"]
+  O --> KR["Key Results&lt;br/&gt;metric: start → current → target"]
+  MS["Milestone (Alpha/Beta/GA)"] -.belongs.-> WI
+  classDef obj fill:#ecfdf5,stroke:#0e9f6e,color:#065f46;
+  class O,KR obj;
+    </pre></div>
+    <div class="note">A task's own alignment overrides its container's (single canonical path — no double-count). <code>KeyResult.current</code> is the single source of truth; task completion is advisory, not an auto-metric.</div>
+  </section>
+
+  <section id="ai">
+    <h2><span class="num">07</span> AI — three modes + the Flag→Decision loop</h2>
+    <p class="lead">AI configures the workflow, watches it, and can be launched to act. Oversight is advisory: a flag is a prompt, resolved by acting <i>or</i> by overriding with new reasoning — which updates the versioned decision and re-propagates alignment.</p>
+    <div class="diagram"><pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant O as AI Oversight
+  participant F as Flag
+  participant U as Owner
+  participant D as Decision (versioned)
+  O->>F: raise (off-roadmap / cross-team conflict / comms gap)
+  F-->>U: surface suggestion (never a block)
+  alt accept
+    U->>F: act on it → state = resolved
+  else override
+    U->>D: new version + new reasoning
+    D->>F: state = overridden (resolvedByDecisionVersion)
+    D-->>O: re-propagate new alignment
+  end
+    </pre></div>
+    <div class="note">Three modes: <b>Config</b> (AI writes the team's settings from natural language) · <b>Oversight</b> (continuous, emits Flags) · <b>Agents</b> (launched, <code>mode = plan|review|act</code>, over Connections, output → Attachments). All are consumers of the clean model.</div>
+  </section>
+
+  <section id="walk">
+    <h2><span class="num">08</span> Concrete walkthrough — one task, two lenses</h2>
+    <p class="lead">A software team runs a release <b>and</b> a sprint over the same task — the payoff of orthogonal axes.</p>
+    <div class="diagram"><pre class="mermaid">
+graph TB
+  T["Task T (Payment retry logic)"]
+  T -->|scopeId| V["Version v2.3"]
+  T -->|cycleId| S["Sprint 14"]
+  V --> RV["RELEASE VIEW: completion / ship date / milestones"]
+  S --> SV["SPRINT VIEW: board by status / rollover"]
+  classDef v fill:#eef2ff,stroke:#4f46e5;
+  classDef s fill:#fef3c7,stroke:#d97706;
+  class V,RV v;
+  class S,SV s;
+    </pre></div>
+    <div class="note">Same <code>Task T</code> — open the Sprint view to execute, the Release view to track readiness. It's filtered into each; it never re-parents.</div>
+  </section>
+
+  <section id="invariants">
+    <h2><span class="num">09</span> The 8 invariants <span class="tag">where correctness is proven</span></h2>
+    <ol class="inv">
+      <li><b>Acyclic union.</b> Dependency + containment-derivation edges form one acyclic graph; no unit depends on its own ancestor. Enforced transactionally.</li>
+      <li><b>Axis cardinality.</b> ≤1 scope and ≤1 cycle per task (UNIQUE on the edge tables), independent.</li>
+      <li><b>Health is total.</b> Leaf base cases defined; done tasks terminal; container = worst(intrinsic, worst-child); empty = "no work"; carriers = Work Item + Milestone.</li>
+      <li><b>Close is continuous.</b> ready-to-close (derived) + owner-confirm; attaching non-done work to a done item reverts it to open.</li>
+      <li><b>Single alignment path.</b> objectiveId + keyResultId consistent; task alignment overrides container's; KR.current is source of truth.</li>
+      <li><b>Versioning.</b> Decision &amp; Config supersede-chains are injective, acyclic, one head; authoredBy recorded.</li>
+      <li><b>Config default.</b> Simplest default; absence = base experience; disabling an axis hides refs, never deletes.</li>
+      <li><b>Referential integrity.</b> Every ref valid or null; deletes cascade-null/block/tombstone incl. polymorphic; archived excluded from rollups.</li>
+    </ol>
+  </section>
+
+  <section id="gaps">
+    <h2><span class="num">10</span> Gaps — found &amp; folded into v3 <span class="tag" style="background:var(--ok)">resolved</span></h2>
+    <p class="lead">A six-perspective completeness sweep (data/backend · frontend · product · security · scale/AI-ops · domain) ran. It found three absent layers + three inconsistencies — <b>all now added in v3</b> (see the layered diagram above + the architecture doc).</p>
+    <p style="font-size:.85rem;margin-bottom:.3rem"><b style="color:var(--ok)">Verdict:</b> the core data spine is <b>sound</b> (Fable-confirmed). The sweep found <b>three whole layers largely absent</b> — all additive to the approved shape — plus three internal inconsistencies. <b style="color:var(--ok)">v3 folds every item below into the architecture.</b> They're kept here as the record of what was added.</p>
+    <div class="gapgrid">
+      <div class="gapcard">
+        <h4>A · Collaboration &amp; presentation <span class="sev">table stakes</span></h4>
+        <ul>
+          <li><b>View / SavedView</b> — the "two lenses" promise has nowhere to persist filter · groupBy · sort · layout · shared-vs-personal</li>
+          <li><b>Activity / audit stream</b> — generalize RolloverEvent; backs the detail feed <i>and</i> every time-series metric (burndown, cycle-time)</li>
+          <li><b>Comments + @mentions</b> · <b>notifications / subscriptions / watchers</b></li>
+          <li><b>Task fields missing:</b> title + description(!), priority, labels, dueDate/startDate, estimate→velocity, manual rank/order, cancelled state</li>
+        </ul>
+      </div>
+      <div class="gapcard">
+        <h4>B · Multi-tenancy &amp; security <span class="sev">substrate</span></h4>
+        <ul>
+          <li><b>Tenant / Org boundary</b> above Team + a <b>tenant-isolation invariant</b> (every ref same-tenant — today a ref can cross tenants)</li>
+          <li><b>Connection credentials</b> — encrypted secrets, scopes, refresh, revocation (agents act <i>through</i> these)</li>
+          <li><b>Membership + roles / RBAC</b> (edit/close/override/configure); PII / right-to-erasure; SSO / SCIM; guest sharing</li>
+        </ul>
+      </div>
+      <div class="gapcard">
+        <h4>C · AI / async runtime <span class="sev">makes it real</span></h4>
+        <ul>
+          <li><b>Jobs / scheduler tier</b> — rollover, auto-create, continuous Oversight, sync, notifications are all background work with no home</li>
+          <li><b>Agent definition</b> (registry) vs <b>AgentRun</b> lifecycle (state · cost · authority) + <b>act-mode guardrails</b> (dry-run→approve · budgets · kill switch)</li>
+          <li><b>Connection sync</b> — webhook/poll · cursor · <b>ExternalRef mapping</b> (which PR ↔ which task); Flag dedup/severity/audience</li>
+        </ul>
+      </div>
+    </div>
+    <div class="fixnow">
+      <b>Fixed in v3 — internal inconsistencies (real, not just omissions):</b>
+      <ul>
+        <li><b>Invariant 3 references a Task <code>dueDate</code> that doesn't exist</b> — leaf <code>at_risk = overdue</code> has no field to read. Add <code>dueDate</code>, or derive at_risk from container dates only.</li>
+        <li><b>completion%</b> — count-based vs effort-weighted is asserted but never specified (needs the <code>estimate</code> field to settle).</li>
+        <li><b>No <code>cancelled</code> / won't-do terminal</b> — invariants exclude "terminal" tasks though only <code>done</code> exists; abandoned work pollutes sprints / health / completion%.</li>
+      </ul>
+    </div>
+    <div class="note">Coverage caveat: the data-backend lens failed on API rate-limiting — indexes, transactions, query patterns, and the realtime contract are only partially covered (by the scale/domain lenses). Re-runnable on request.</div>
+  </section>
+</main>
+</div>
+<script>
+mermaid.initialize({startOnLoad:true, theme:'default', securityLevel:'loose', flowchart:{curve:'basis'}});
+</script>
+</body>
+</html>
