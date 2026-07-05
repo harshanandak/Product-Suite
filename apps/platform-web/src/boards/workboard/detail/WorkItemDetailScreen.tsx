@@ -135,7 +135,7 @@ export function WorkItemDetailScreen({
   useEffect(() => {
     let cancelled = false;
     repo
-      .listTasks()
+      .getTasks(itemId)
       .then((loaded) => {
         if (!cancelled) setTasks(loaded);
       })
@@ -145,7 +145,7 @@ export function WorkItemDetailScreen({
     return () => {
       cancelled = true;
     };
-  }, [repo]);
+  }, [repo, itemId]);
 
   const row = useMemo<WorkItemRow | undefined>(
     () => items.find((candidate) => candidate.id === itemId),
@@ -159,10 +159,8 @@ export function WorkItemDetailScreen({
     () => projects.find((candidate) => candidate.id === row?.project_id),
     [projects, row],
   );
-  const itemTasks = useMemo(
-    () => tasks.filter((task) => task.work_item_id === itemId),
-    [tasks, itemId],
-  );
+  // `getTasks(itemId)` already returns only this item's tasks — no client filter.
+  const itemTasks = tasks;
   const linkedCount = useMemo(
     () =>
       dependencies.filter(
