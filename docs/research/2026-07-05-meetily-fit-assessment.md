@@ -34,10 +34,11 @@ Meetily is excellent and MIT-licensed, **but it is a desktop-first, local-only
 app** (Tauri + Rust core + local SQLite), not a web service. It is **not a drop-in**
 for our web meeting module (`apps/meeting-web` + `apps/meeting-api`). Use it as a
 **reference implementation + component/IP source**, not a base to fork into the
-module. The genuinely reusable parts (UI, summarization prompts, provider
-abstraction, data model) are real and worth harvesting; the hard desktop engine
-(native audio capture + local GPU Whisper) does not transfer to a browser/cloud
-module and must be re-implemented.
+module. The genuinely reusable parts narrow to two (summarization prompts +
+transcript/summary schema — see the correction above; its UI and provider
+abstraction are rejected); the hard desktop engine (native audio capture + local
+GPU Whisper) is moot for us — the platform already has web capture + GPT-4o
+transcription (`apps/meeting-api/backend/server.py`).
 
 ## What Meetily actually is (verified)
 
@@ -75,18 +76,24 @@ server without substantial re-architecture. "End-to-end working" is true — for
 
 ## What IS worth harvesting (MIT — all legal)
 
-Ranked by leverage:
+Per the correction above, the **net harvest is exactly two things**:
 
-1. **Summarization prompts + multi-provider LLM abstraction** (highest IP value).
-   They've tuned meeting-summary prompts and a clean Ollama/Claude/Groq/OpenRouter
-   switch. Lift the approach into `apps/meeting-api`; do not reinvent.
-2. **The Next.js meeting UI** — live-transcript view, summary editor, meeting list.
-   Already TS/React, so the most directly portable into `packages/ui-meeting` /
-   `meeting-web` (adapt, don't copy the Tauri IPC glue).
-3. **Data model** — meeting / transcript / summary schema (their SQLite tables) is
-   a proven starting point for our `packages/contracts` meeting models.
-4. **Reference for correctness** — a stable 16k★ implementation to validate our own
-   transcription→summary pipeline design against.
+1. **Summarization prompts** (highest IP value). They've tuned meeting-summary
+   prompts — lift them into `apps/meeting-api/backend/services/chapter_summary.py`;
+   do not reinvent.
+2. **Transcript/summary data model** — their meeting / transcript / summary schema
+   (SQLite tables) is a proven cross-check when authoring our Neon meeting tables /
+   `packages/contracts` meeting models.
+
+**Rejected (struck from the earlier draft):**
+
+- ~~Multi-provider LLM abstraction~~ — we've standardized on OpenAI now (AI-SDK +
+  OpenRouter later); the Ollama/Claude/Groq/OpenRouter switch is not needed.
+- ~~The Next.js meeting UI~~ — `apps/meeting-web` is deleted at Phase 2, so there
+  is nothing to port it into.
+- ~~Reference for the capture/transcription pipeline~~ — the platform already has a
+  working web capture + GPT-4o transcription pipeline
+  (`apps/meeting-api/backend/server.py`), so Meetly is not needed to validate it.
 
 Does NOT transfer: the Rust/Tauri audio-capture + local-Whisper engine, local
 SQLite storage, and the local-first privacy model (unless our module is also
@@ -94,12 +101,18 @@ local-first).
 
 ## Recommendation
 
-- **Posture: reference + component source, not fork-to-become-the-module.**
-- Concrete: (a) port/adapt Meetily's Next.js meeting UI into `ui-meeting`;
-  (b) lift its summarization prompts + provider abstraction into `meeting-api`;
-  (c) adopt its transcript/summary data model into `contracts`; (d) re-implement
-  capture + transcription for the web (browser capture + a server STT — your own
-  Whisper service or a cloud STT), using Meetily's engine as the blueprint.
+- **Posture: narrow IP source — not a fork-to-become-the-module, and NOT a
+  capture/transcription blueprint.**
+- Concrete: (a) lift Meetly's tuned summarization prompts into
+  `apps/meeting-api/backend/services/chapter_summary.py`; (b) use its
+  transcript/summary schema as a cross-check when authoring our Neon meeting tables
+  / `contracts` models. **Do NOT** port its Next.js UI (`apps/meeting-web` is
+  deleted at Phase 2) or lift its multi-provider abstraction (standardized on
+  OpenAI).
+- **Capture + transcription: nothing to re-implement.** The platform already has
+  web capture → chunked upload → GPT-4o transcription
+  (`apps/meeting-api/backend/server.py`, `OpenAIWhisperSpeechProvider`), so Meetly
+  is **not** the blueprint here — that pipeline exists and works today.
 
 ## The one question that changes this answer
 

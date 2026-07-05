@@ -17,7 +17,7 @@ The richest domain model already exists and is unit-tested, but it is trapped in
 1. **B1 — Split F2 migration pack #1.** `agents`, `agent.runs`, `connections` are Tier‑1 contracts gated at **G3**, so they cannot ride in a "day‑0" pack. Pack #1 splits into **1a** (`projects, product_tasks, proposals`; gated G1+G2) and **1b** (`agents, agent.runs, connections`; gated G3).
 2. **B2 — Tenancy is day‑0 DDL, not Wave 2.** Every `CREATE TABLE` needs `workspace_id` + visibility columns from the first line. `visibility` + `workspace/membership` are promoted into **Foundation Wave 1**. No table DDL is authored before they are pinned.
 3. **B3 — The shipped auth spine is Supabase‑RLS‑shaped; F2 is Neon and Phase 2 deletes Supabase.** `packages/contracts/src/index.d.ts` ships `PlatformSupabaseRlsContract { provider:"clerk", supabaseManagedSchemas, allowedBrowserSchemas, rlsIdentitySource … }`. Neon has no PostgREST/anon‑role/JWT‑RLS model. **New foundation item on the critical path:** a Neon tenant‑isolation redesign (app‑layer scoping or Neon‑native RLS).
-4. **Neon‑Auth ↔ Clerk identity bridge (missing entirely).** `apps/meeting-api` runs on **Neon Auth** (`MeetingCoreContract.auth.neonAuthUrlKey`) while `proposals`/`membership`/`visibility` are **Clerk**‑scoped. The `meeting.action_items → proposals` handoff and Phase‑2 convergence both cross this boundary. **New foundation item on the critical path.**
+4. **meeting-api Clerk cutover (auth boundary to resolve).** `apps/meeting-api` runs on **Neon Auth** (`MeetingCoreContract.auth.neonAuthUrlKey`) while `proposals`/`membership`/`visibility` are **Clerk**‑scoped. The `meeting.action_items → proposals` handoff and Phase‑2 convergence both cross this boundary, so meeting-api cuts over to Clerk (rewrite `backend/services/neon_auth.py` → Clerk + remap user rows) rather than building a bridge (§0). **New foundation item on the critical path.**
 5. **Relocated out of per‑board tracks into shared foundation:** the **task‑write seam** (it defines the `product_tasks` write surface, not a workboard nicety), the **cycle guard** in `apps/platform-web/src/data/work-items/dependency-graph.ts` (shared by the store write‑guard *and* canvas `isValidConnection`), and **`ProposalCard`** (a cross‑module primitive for meeting/agent/Home, delivered at G2).
 6. **Enum move is S–M, not "free."** `packages/contracts` is a JS package with hand‑authored `index.d.ts`; the enums are TS union types + label/order maps in `packages/ui`. The move requires keeping JS + `.d.ts` + canonical JSON in sync three ways — budget a tri‑directional type‑sync test.
 7. **Honest critical path is longer.** F‑0/F‑1 **overlap** F2, they do not neatly precede it, and F2‑1a's true predecessor set includes the two new auth‑rework items. See §4.
@@ -84,9 +84,9 @@ Each entry: what it is → where it lives now → where it must go. **Tier‑0 b
 9. **`ProposalCard` design‑system primitive** *(relocated from the Agent track — it is cross‑module)*.
    - Add to `packages/ui/src/components/proposal-card.tsx`, delivered **at G2** so meeting action‑items, agent approvals, and the Home review queue all consume one card. `StatusPill` already exists (reserved for tasks + agent runs). **Size: S.**
 
-10. **Neon‑Auth ↔ Clerk identity bridge** *(NEW — on the critical path; gates the proposals handoff and Phase‑2)*.
-   - NOW: `apps/meeting-api` authenticates on Neon Auth; `proposals`/`membership`/`visibility` are Clerk‑scoped. No mapping exists.
-   - TO: an identity‑map contract (`packages/contracts/src/identity-bridge.js`) resolving a Neon‑Auth principal → Clerk membership, required before `meeting.action_items → proposals` reconciliation and before Phase‑2 convergence. **Size: M.**
+10. **meeting-api Clerk cutover** *(NEW — on the critical path; gates the proposals handoff and Phase‑2; supersedes the dropped Neon‑Auth↔Clerk bridge, see §0)*.
+   - NOW: `apps/meeting-api` authenticates on Neon Auth while `proposals`/`membership`/`visibility` are Clerk‑scoped.
+   - TO: rewrite the `backend/services/neon_auth.py` middleware to Clerk + remap the existing user rows, so meeting-api authenticates on Clerk like the rest of the platform. It still gates `meeting.action_items → proposals` reconciliation and Phase‑2 convergence — the same critical‑path slot the bridge held; only the artifact changes, and there is no new bridge contract. **Size: M.**
 
 ### TIER‑1 — Foundation Wave 3 (unblocks specific boards + backend seams; gate **G3**)
 
@@ -110,7 +110,7 @@ Each entry: what it is → where it lives now → where it must go. **Tier‑0 b
 ### TIER‑2 (deferrable, module‑owned once Tier‑0/1 land — DO NOT build now)
 `playbooks`, `product_strategies` tree + `work_item_strategies`, `customer_insights` + `work_item_insights`, `automations` + `automation_runs`, connector snapshots, files/attachments, global search index.
 
-**Value migrations that must precede any F2 schema (DESIGN §11):** type‑aware phases → universal `plan|execute|review|done`; `timeline_items → product_tasks`; drop `work_items.status`; milestones rebind item→project; `meeting.action_items → proposals` (needs item 10, the identity bridge).
+**Value migrations that must precede any F2 schema (DESIGN §11):** type‑aware phases → universal `plan|execute|review|done`; `timeline_items → product_tasks`; drop `work_items.status`; milestones rebind item→project; `meeting.action_items → proposals` (needs item 10, the meeting-api Clerk cutover).
 
 ---
 
@@ -137,7 +137,7 @@ The workboard is the most complete module (data seam + table/kanban/graph + deta
 ## 3. PARALLEL STREAMS — meeting, canvas, agent‑board
 
 ### MEETING (invest BACKEND‑heavy — it survives cutover; deprioritize meeting‑web — deleted at Phase 2)
-- **Dependencies:** NONE on the shared foundation for its independent slice — the stack is self‑contained (`apps/meeting-api` has real routes + real OpenAI). Soft‑depends on `proposals` (Foundation #8) **and** the Neon‑Auth↔Clerk bridge (Foundation #10) for the cross‑module handoff.
+- **Dependencies:** NONE on the shared foundation for its independent slice — the stack is self‑contained (`apps/meeting-api` has real routes + real OpenAI). Soft‑depends on `proposals` (Foundation #8) **and** the meeting-api Clerk cutover (Foundation #10) for the cross‑module handoff.
 - **START IMMEDIATELY (true independent slice — this is the real "M"):**
   (a) Wire the summary‑first buddy agent to OpenAI — `apps/meeting-api/backend/services/tool_router.py answer_buddy_query` returns a hardcoded `[Preview]` stub; `apps/meeting-api/backend/routes/buddy.py` persists invocations but never calls an LLM.
   (b) Add summary‑first + buddy + history + tools endpoints to `packages/sdk/src/meeting.js` — hooks call them via raw `fetch()` today (`apps/meeting-web/src/hooks/{useMeetingState,useRealtimeTranscript,useBuddyAgent}.js`), bypassing the typed client.
@@ -145,7 +145,7 @@ The workboard is the most complete module (data seam + table/kanban/graph + deta
   (d) Delete orphaned `apps/meeting-web/src/components/{AIToolsPanel,TranscriptionPanel}.jsx`.
 - **SEPARATE item, partly BLOCKED (do not bundle into the "M" above):** the `/tools/*` handlers in `apps/meeting-api/backend/routes/tools.py`. `/tools/search-web` is an **external‑provider integration** (its own item). `/tools/search-workspace` searches workspace data **that does not exist until F2** — for Wave 1, scope it to the **meeting corpus only** (`apps/meeting-api/backend/services/{corpus,retrieval}.py`); defer true cross‑workspace search to post‑F2.
 - **LOWER priority / later:** embeddings/semantic retrieval to replace the naive keyword `score_history_match` (backend, survives cutover); true realtime (replace `/recent-lines` polling with SSE/WebSocket); adopting the parked `ui-chat` AI Elements.
-- **Handoff:** after `proposals` (#8) AND the identity bridge (#10) land, reconcile `meeting.action_items → proposals`. Meeting‑api DB moves to Neon inside the backend spine (Track D Wave 1).
+- **Handoff:** after `proposals` (#8) AND the meeting-api Clerk cutover (#10) land, reconcile `meeting.action_items → proposals`. Meeting‑api DB moves to Neon inside the backend spine (Track D Wave 1).
 - **Size:** **M** for the independent buddy+SDK+chat+cleanup slice; **separate** for `/tools/*` (part F2‑blocked); **L** for retrieval+realtime. **Buddy/tools/retrieval are backend and survive into platform‑web's L2; the chat‑compose work is on the doomed meeting‑web — do it lightly.**
 
 ### CANVAS (lowest priority — re‑contract only now; the board is genuinely Phase 2)
@@ -177,7 +177,7 @@ No `infra/db/`, no `packages/transport`, no `packages/jobs`, no `workers/`. Ever
 
 ## 4. DEPENDENCY GRAPH + CRITICAL PATH
 
-```
+```text
  FOUNDATION WAVE 1  (G1 keystone — days; nothing DDL before it)
  ├─ enums → packages/contracts/enums.js            (transparent; safe anytime)
  ├─ vocabulary → contracts/work-items.js
@@ -198,8 +198,8 @@ No `infra/db/`, no `packages/transport`, no `packages/jobs`, no `workers/`. Ever
  FOUNDATION WAVE 2  (G2)             │
  ├─ proposals (proposals.js) ───────┤
  ├─ ProposalCard (packages/ui)  ── cross-module, all boards
- └─ NEON-AUTH ↔ CLERK BRIDGE (identity-bridge.js)  ── gates meeting→proposals + Phase 2
-       │        ├──► MEETING action-item→proposal   (needs bridge)
+ └─ MEETING-API CLERK CUTOVER (neon_auth.py → Clerk)  ── gates meeting→proposals + Phase 2
+       │        ├──► MEETING action-item→proposal   (needs cutover)
        │        └──► AGENT Approvals lane
        │
  FOUNDATION WAVE 3  (G3)
@@ -214,17 +214,17 @@ No `infra/db/`, no `packages/transport`, no `packages/jobs`, no `workers/`. Ever
        │
  AGENT RUNTIME (durable runs on agent.runs, live MCP)  ── G5: agent board REAL (last)
        │
- PHASE 2 convergence + cutover (needs identity bridge) ── deletes meeting-web + Supabase
+ PHASE 2 convergence + cutover (needs meeting-api on Clerk) ── deletes meeting-web + Supabase
 
  MEETING backend (buddy→OpenAI / SDK / chat / cleanup) ── hangs off NOTHING, start day 0
 ```
 
 **Honest critical path (longest chain to a fully‑real, cross‑module product):**
-`[ all Tier‑0 Wave 1 (vocab + task‑write + cycle guard + workspace/membership + visibility + Neon tenancy) + proposals + Neon‑Auth↔Clerk bridge + Tier‑1 agents/connections ] → F2 1a → F2 1b → F3 seams → workers → agent runtime → Phase‑2 cutover.`
+`[ all Tier‑0 Wave 1 (vocab + task‑write + cycle guard + workspace/membership + visibility + Neon tenancy) + proposals + meeting-api Clerk cutover + Tier‑1 agents/connections ] → F2 1a → F2 1b → F3 seams → workers → agent runtime → Phase‑2 cutover.`
 
 Two facts the draft got wrong and this corrects:
 - **F‑0/F‑1 overlap F2, they don't cleanly precede it.** Track D authors pack 1a against the vocabulary draft in parallel, but cannot *finish* 1a until G1+G2 and cannot *start* 1b until G3.
-- **The contracts long pole is longer than "F‑0→F‑1"** because **two auth‑rework segments (Neon tenancy redesign #7, Neon‑Auth↔Clerk bridge #10)** sit on it and were previously unpriced.
+- **The contracts long pole is longer than "F‑0→F‑1"** because **two auth‑rework segments (Neon tenancy redesign #7, meeting-api Clerk cutover #10)** sit on it and were previously unpriced.
 
 **Shortest path to "team can move on":** WORKBOARD‑FAST + MEETING‑backend‑buddy + F‑0 **enum‑only** move, in parallel — days. The full vocabulary+task‑write relocation is placed **after** the fast slice (they contend on `types.ts`/`repository.ts`), so the "days" claim holds only under that split.
 
@@ -236,7 +236,7 @@ Ownership collapses onto two agent‑families (Claude = frontend/contract, Codex
 
 **Track A — Contracts / Foundation (Claude).** The handoff artifact every other track consumes.
 - **Wave 1 (G1):** enums + vocabulary + **task‑write interface** + **cycle guard** + **workspace/membership** + **visibility** + **Neon tenancy redesign** → `packages/contracts`. **Gate G1:** platform‑web + ui re‑import cleanly; tri‑directional type‑sync test green; tenancy contract pinned so no DDL is retrofitted.
-- **Wave 2 (G2):** `proposals` + **`ProposalCard`** (`packages/ui`) + **Neon‑Auth↔Clerk identity bridge**. **Gate G2.**
+- **Wave 2 (G2):** `proposals` + **`ProposalCard`** (`packages/ui`) + **meeting-api Clerk cutover**. **Gate G2.**
 - **Wave 3 (G3):** agent/run/connector contracts + conversation‑ext + **SDK‑generalize (sequenced AFTER Track C's meeting SDK methods, behind a regression gate)** + RealtimeTransport + canvas re‑contract. **Gate G3.**
 - Handoffs: G1 → Track B type‑swap + Track D pack 1a authoring; G2 → Track C proposals handoff + Track B Approvals lane + Track D proposals table; G3 → Track B agent‑UI + Track D pack 1b + canvas.
 
@@ -250,7 +250,7 @@ Ownership collapses onto two agent‑families (Claude = frontend/contract, Codex
 - **Wave 1 (day 0, no deps — the true independent M):** buddy → OpenAI (`apps/meeting-api/backend/services/tool_router.py`), add summary‑first+buddy+history+tools methods to `packages/sdk/src/meeting.js`, chat compose in `SummaryFirstMeetingScreen.jsx`, delete dead components. **Gate: live AI Q&A over meeting memory is real.**
 - **Wave 1b (separate, partly F2‑blocked):** `/tools/*` in `routes/tools.py` — `search-web` (external provider); `search-workspace` scoped to the meeting corpus for now, true cross‑workspace deferred to post‑F2.
 - **Wave 2:** embeddings/semantic retrieval (pgvector) + SSE/WebSocket realtime.
-- Handoff: after **G2 (proposals + identity bridge #10)**, `meeting.action_items → proposals`. Meeting‑api DB moves to Neon inside Track D Wave 1. **SDK note:** Track A's SDK generalization must land AFTER these meeting methods, behind a regression gate.
+- Handoff: after **G2 (proposals + meeting-api Clerk cutover #10)**, `meeting.action_items → proposals`. Meeting‑api DB moves to Neon inside Track D Wave 1. **SDK note:** Track A's SDK generalization must land AFTER these meeting methods, behind a regression gate.
 
 **Track D — Backend spine F2/F3/workers (Codex) — the critical‑path long pole; start Wave 1 in parallel day 0.**
 - **Wave 1:** F2 Neon data plane + **pack #1a** (`projects, product_tasks, proposals`; needs Track A G1+G2; author against the local `types.ts` draft immediately, formalize at the gates; **all tables carry `workspace_id` + visibility from line 1, enforced via the Neon tenancy contract — never Supabase RLS**). Move meeting‑api DB to Neon. **Builds the F2 backend adapter only AFTER Track B's REPOSITORY‑INTERFACE‑FREEZE.**
@@ -262,7 +262,7 @@ Ownership collapses onto two agent‑families (Claude = frontend/contract, Codex
 **Gate summary:**
 - **G1** — vocabulary + task‑write + cycle guard + workspace/membership + visibility + Neon tenancy in contracts → unblocks WB type‑swap + F2 pack 1a authoring. Hard gate before any `agent-runs` data seam.
 - **REPOSITORY‑INTERFACE‑FREEZE** — task‑write in + vocabulary relocated → unblocks Track D building the F2 adapter behind a stable seam.
-- **G2** — proposals + ProposalCard + Neon‑Auth↔Clerk bridge → unblocks meeting→proposal + agent Approvals + proposals table.
+- **G2** — proposals + ProposalCard + meeting-api Clerk cutover → unblocks meeting→proposal + agent Approvals + proposals table.
 - **G3** — agent/connector contracts + RealtimeTransport → unblocks agent‑UI + F2 pack 1b + canvas.
 - **G4** — workers live → seam swap for all boards.
 - **G5** — agent runtime → agent board is real.
@@ -273,7 +273,7 @@ Ownership collapses onto two agent‑families (Claude = frontend/contract, Codex
 3. Start Track D Wave 1 in parallel day 0, but **split pack #1 (1a vs 1b)** and gate the F2 adapter on the interface‑freeze — do not let mock‑backed UI hide that nothing persists.
 4. Invest meeting effort in the **backend** (survives cutover), not meeting‑web (deleted at Phase 2). Keep `/tools/search-workspace` scoped to the meeting corpus until F2.
 5. **Canvas is the sacrificial stream** — re‑contract only; board is Phase 2.
-6. Price the **two auth‑rework segments** (Neon tenancy, Neon‑Auth↔Clerk bridge) as first‑class long‑pole work — they, not the UI, set the true end date.
+6. Price the **two auth‑rework segments** (Neon tenancy, meeting-api Clerk cutover) as first‑class long‑pole work — they, not the UI, set the true end date.
 
 ---
-*Durable working copy: `C:\Users\HARSHA~1\AppData\Local\Temp\claude\C--Users-harsha-befach\26b54930-69d8-4dbe-bd3e-72e881f78148\scratchpad\parallel-roadmap.md`. Canonical build contract: `docs/design/2026-07-05-work-item-port-plan.md`.*
+*Canonical build contract: `docs/design/2026-07-05-work-item-port-plan.md`.*
