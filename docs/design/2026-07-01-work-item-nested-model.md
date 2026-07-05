@@ -1,5 +1,12 @@
 # Work Item Model — Nested Architecture (PROPOSAL v2)
 
+> **⚠️ Superseded — exploratory design, not the shipped model.** Kept for design
+> history. The build follows
+> [`2026-07-05-work-item-port-plan.md`](2026-07-05-work-item-port-plan.md), which
+> deliberately ships a lean subset (flat tasks + phase lifecycle; **no** nested
+> containers, OKR/KeyResult, or KPI entities). The entities and invariants below are
+> exploration, not a build contract.
+
 **Status: PROPOSAL — design consolidated, NOT approved for implementation.** See §0 decision gate.
 Date: 2026-07-01. Would supersede the flat `Project → WorkItem → Task` model *if adopted*.
 
@@ -64,7 +71,7 @@ the same data, never a different schema. The mandatory core is tiny (§6); every
 ### Owner — unchanged lookup (id, name, initials?)
 
 ## 3. Lifecycle — granularity matches the level
-```
+```text
 Item (container):   [Plan] → In progress → [Accept] → Done
                       opt                     opt
 Task (leaf):         To do → Doing → [In review] → Done

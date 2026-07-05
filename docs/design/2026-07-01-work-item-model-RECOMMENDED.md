@@ -1,5 +1,12 @@
 # Work Item Model — RECOMMENDED (two-axis) — 2026-07-01
 
+> **⚠️ Superseded — exploratory design, not the shipped model.** Kept for design
+> history. The build follows
+> [`2026-07-05-work-item-port-plan.md`](2026-07-05-work-item-port-plan.md), which
+> deliberately ships a lean subset (flat tasks + phase lifecycle; **no** nested
+> containers, OKR/KeyResult, or KPI entities). The entities and invariants below are
+> exploration, not a build contract.
+
 Grounded in the reevaluation (`2026-07-01-work-item-model-reeval.md`) + web-verified tool research
 (Linear, Jira, Shortcut, GitHub Projects, Azure DevOps). **Supersedes** the nested proposal
 (`2026-07-01-work-item-nested-model.md`), which the reevaluation found low-ROI and internally broken.

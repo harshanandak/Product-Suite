@@ -1,5 +1,12 @@
 # Work Item Detail Page — Redesign Spec
 
+> **⚠️ Superseded — exploratory design, not the shipped model.** Kept for design
+> history. The build follows
+> [`2026-07-05-work-item-port-plan.md`](2026-07-05-work-item-port-plan.md), which
+> deliberately ships a lean subset (flat tasks + phase lifecycle; **no** nested
+> containers, OKR/KeyResult, or KPI entities). Notably the canonical route shipped as
+> `workboard/item/$itemId`, not the `/work-items/$id` sketched below.
+
 Status: DRAFT for review · 2026-06-30 · app: `apps/platform-web`
 
 ## Goal
@@ -12,7 +19,7 @@ A dedicated per-work-item **detail page** (the "hub" for one work item), grounde
 4. **Layout:** wireframe-faithful — breadcrumb top bar; two-column body = scrolling **main** (section cards) + fixed **~230px metadata rail**.
 
 ## Layout
-```
+```text
 ┌────────────────────────────────────────────────────────┐
 │ Workboard / <Title>                                  ⌘K │  breadcrumb
 ├──────────────────────────────────────┬─────────────────┤

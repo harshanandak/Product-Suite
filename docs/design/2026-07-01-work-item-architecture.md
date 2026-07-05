@@ -1,5 +1,12 @@
 # Work Item — Architecture (structural design, scope-agnostic) — v3, gaps folded in
 
+> **⚠️ Superseded — exploratory design, not the shipped model.** Kept for design
+> history. The build follows
+> [`2026-07-05-work-item-port-plan.md`](2026-07-05-work-item-port-plan.md), which
+> deliberately ships a lean subset (flat tasks + phase lifecycle; **no** nested
+> containers, OKR/KeyResult, or KPI entities). The entities and invariants below are
+> exploration, not a build contract.
+
 The definitive **architecture** — correctness, coherence, extensibility (not scope/effort). v2 applied the
 Fable soundness review (shape approved). **v3 folds in the six-vantage completeness sweep:** fixes the 3
 internal inconsistencies and adds the 3 previously-missing layers (collaboration/presentation, multi-tenancy/
@@ -18,6 +25,7 @@ visual: `work-item-architecture-visual.html`.
 8. **Every entity is tenant-scoped.** `tenant_id` on all rows; no reference crosses a tenant.
 
 ## Core entities (with v3 field fixes)
+
 | Entity | Key fields | Notes |
 |---|---|---|
 | **Task** | `title`(req), `description?`, `status(todo/doing/done/cancelled)`, `kind`, `priority?`, `owner?`, `assignees[]?`, `createdBy`, `dueDate?`, `startDate?`, `estimate?`, `rank`, `labels[]`, `health(derived)`, `tenant_id`, `teamId?`, `createdAt/updatedAt`, `origin/sourceConnectionId?` | **dueDate added** (Invariant 3 now has a field). `cancelled` terminal added. `rank` = fractional index for manual ordering. `estimate` nullable, unit via Config. |
@@ -30,6 +38,7 @@ visual: `work-item-architecture-visual.html`.
 estimates present (Config-gated). Empty = n/a; cancelled excluded.
 
 ## Layer O — Org & platform substrate
+
 | Entity | Key fields | Notes |
 |---|---|---|
 | **Tenant / Organization** | `id`, `name` | Root; owns Teams, Owners, Connections, Configs. `tenant_id` on every entity references it. |
@@ -38,6 +47,7 @@ estimates present (Config-gated). Empty = n/a; cancelled excluded.
 | **Jobs / Scheduler** | queue · worker · cron | Runtime peer of the repository seam; runs rollover, auto-create-cycle, Oversight sweeps, Connection sync, notifications. |
 
 ## Layer P — Collaboration & presentation (consumers of the core)
+
 | Entity | Key fields | Notes |
 |---|---|---|
 | **View / SavedView** | `ownerScope(user/team)`, `filter`, `groupBy`, `sortBy`, `visibleFields[]`, `layout(board/list/timeline)`, `isDefault`, `name` | The "two lenses" made persistable; `rank` is view-context ordering. |
@@ -49,6 +59,7 @@ estimates present (Config-gated). Empty = n/a; cancelled excluded.
 | **UserPreference / Favorite** | per-Owner: default view, theme, notif settings; starred items | Personalization home. |
 
 ## Layer AI — AI & integration runtime
+
 | Entity | Key fields | Notes |
 |---|---|---|
 | **Config** | enabled axes, cadence, field visibility, `version`, `authoredBy`, `supersedes?` | Per team; versioned like Decision. |
@@ -86,7 +97,7 @@ estimates present (Config-gated). Empty = n/a; cancelled excluded.
     suppressed** (not silently counted per-viewer).
 
 ## Layered structure (dependency downward)
-```
+```text
   ┌─ AI & Integration ─ Config · Agent · AgentRun · Oversight · Flag · Connection+sync
   ├─ Presentation ───── View · ActivityEvent · Comment · Notification · Subscription · Label · UserPref
   ├─ Strategy ──────── Objective/KeyResult · Decision

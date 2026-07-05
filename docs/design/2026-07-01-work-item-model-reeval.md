@@ -1,5 +1,12 @@
 # Work Item Model — Reevaluation Findings (2026-07-01)
 
+> **⚠️ Superseded — exploratory design, not the shipped model.** Kept for design
+> history. The build follows
+> [`2026-07-05-work-item-port-plan.md`](2026-07-05-work-item-port-plan.md), which
+> deliberately ships a lean subset (flat tasks + phase lifecycle; **no** nested
+> containers, OKR/KeyResult, or KPI entities). This reevaluation is exploration, not a
+> build contract.
+
 Multi-agent review of `2026-07-01-work-item-nested-model.md` across 5 independent lenses
 (coherence, dual-persona, gaps, over-engineering, buildability) + adversarial synthesis.
 
