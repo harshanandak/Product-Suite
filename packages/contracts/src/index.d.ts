@@ -409,3 +409,59 @@ export function validateClerkJwtPayload(
 export const conversationContract: ConversationContract;
 export const meetingCoreContract: MeetingCoreContract;
 export const canvasCoreContract: CanvasCoreContract;
+
+// ---------------------------------------------------------------------------
+// Domain enums (DESIGN §5). Framework-neutral vocabularies shared by the React
+// UI, the Python backend, and the SDK. Runtime values live in `./enums.js`; the
+// canonical JSON mirror is `../contracts/enums.json`. The union members below
+// MUST stay in lockstep with both — `enums.test.ts` fails on drift.
+// ---------------------------------------------------------------------------
+
+/** Universal work-item phase loop (§1 / §5). */
+export type Phase = "plan" | "execute" | "review" | "done";
+/** Task / agent-run status triad — never on work items (§5 / §11). */
+export type TaskStatus = "todo" | "in_progress" | "completed";
+/** Derived work-item health — never stored (§3 / §5). */
+export type Health = "on_track" | "at_risk" | "blocked";
+/** Stored work-item priority / severity (§5 / §11). */
+export type Priority = "critical" | "high" | "medium" | "low";
+/** Kind of work a work item represents (§5 / §11). */
+export type WorkItemType = "feature" | "bug" | "chore" | "research";
+/** Work-item provenance — where an object came from (§5 / §11). */
+export type WorkItemSource = "manual" | "meeting" | "agent" | "feedback";
+
+export const PHASE_VALUES: readonly Phase[];
+export const PHASE_LABELS: Record<Phase, string>;
+export const PHASE_ORDER: readonly Phase[];
+export const TASK_STATUS_VALUES: readonly TaskStatus[];
+export const STATUS_LABELS: Record<TaskStatus, string>;
+export const TASK_STATUS_ORDER: readonly TaskStatus[];
+export const HEALTH_VALUES: readonly Health[];
+export const HEALTH_LABELS: Record<Health, string>;
+export const HEALTH_ORDER: readonly Health[];
+export const PRIORITY_VALUES: readonly Priority[];
+export const PRIORITY_LABELS: Record<Priority, string>;
+export const PRIORITY_ORDER: readonly Priority[];
+export const WORK_ITEM_TYPE_VALUES: readonly WorkItemType[];
+export const WORK_ITEM_TYPE_LABELS: Record<WorkItemType, string>;
+export const WORK_ITEM_TYPE_ORDER: readonly WorkItemType[];
+export const WORK_ITEM_SOURCE_VALUES: readonly WorkItemSource[];
+export const WORK_ITEM_SOURCE_LABELS: Record<WorkItemSource, string>;
+export const WORK_ITEM_SOURCE_ORDER: readonly WorkItemSource[];
+export const ASSIGNEE_UNASSIGNED_VALUE: "__unassigned__";
+
+export interface EnumDescriptor<T extends string> {
+  values: readonly T[];
+  labels: Record<T, string>;
+  order: readonly T[];
+}
+
+export const enums: {
+  phase: EnumDescriptor<Phase>;
+  taskStatus: EnumDescriptor<TaskStatus>;
+  health: EnumDescriptor<Health>;
+  priority: EnumDescriptor<Priority>;
+  workItemType: EnumDescriptor<WorkItemType>;
+  workItemSource: EnumDescriptor<WorkItemSource>;
+  assignee: { unassignedValue: typeof ASSIGNEE_UNASSIGNED_VALUE };
+};

@@ -1,19 +1,20 @@
 import * as React from "react";
 
+import { HEALTH_LABELS, type Health } from "@product-suite/contracts";
+
 import { cn } from "../lib/cn";
 
 /**
  * Health badge (DESIGN §3/§5). Health is ALWAYS DERIVED — never hand-set,
  * never a stored column. Rendered from computed signals (overdue tasks,
  * blockers). Token-pure: only semantic tokens, no ad-hoc colors.
+ *
+ * `Health` and `HEALTH_LABELS` are the framework-neutral single source of truth
+ * in `@product-suite/contracts`; re-exported here so existing UI consumers are
+ * unaffected.
  */
-export type Health = "on_track" | "at_risk" | "blocked";
-
-export const HEALTH_LABELS: Record<Health, string> = {
-  on_track: "On track",
-  at_risk: "At risk",
-  blocked: "Blocked",
-};
+export type { Health };
+export { HEALTH_LABELS };
 
 const HEALTH_STYLES: Record<Health, string> = {
   on_track: "bg-muted text-muted-foreground",

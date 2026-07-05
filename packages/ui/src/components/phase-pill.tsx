@@ -1,21 +1,21 @@
 import * as React from "react";
 import { CheckIcon } from "lucide-react";
 
+import { PHASE_LABELS, type Phase } from "@product-suite/contracts";
+
 import { cn } from "../lib/cn";
 
 /**
  * Work-item phase pill (DESIGN §5 / §14). The phase loop runs
  * plan → execute → review → done and lives on WORK ITEMS ONLY.
  * Never use this for task or agent-run status — that is `StatusPill`.
+ *
+ * `Phase` and `PHASE_LABELS` are the framework-neutral single source of truth
+ * in `@product-suite/contracts`; re-exported here so existing UI consumers are
+ * unaffected.
  */
-export type Phase = "plan" | "execute" | "review" | "done";
-
-export const PHASE_LABELS: Record<Phase, string> = {
-  plan: "Plan",
-  execute: "Execute",
-  review: "Review",
-  done: "Done",
-};
+export type { Phase };
+export { PHASE_LABELS };
 
 /**
  * Inverted phase hierarchy (DESIGN §5): emphasis follows the LIVE work, not the

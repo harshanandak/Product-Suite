@@ -1,6 +1,12 @@
 import * as React from "react";
 import { ArrowUpIcon, FlameIcon, type LucideIcon } from "lucide-react";
 
+import {
+  PRIORITY_LABELS,
+  PRIORITY_ORDER,
+  type Priority,
+} from "@product-suite/contracts";
+
 import { cn } from "../lib/cn";
 
 /**
@@ -11,23 +17,13 @@ import { cn } from "../lib/cn";
  * see `infra/supabase/migrations/20250111000005_*.sql`) and the canonical
  * wireframe editor (`docs/design/user-flow-wireframes.html` line 583), so the
  * F2 backend migration is a no-op rename.
+ *
+ * `Priority`, `PRIORITY_LABELS`, and `PRIORITY_ORDER` are the framework-neutral
+ * single source of truth in `@product-suite/contracts`; re-exported here so
+ * existing UI consumers are unaffected.
  */
-export type Priority = "critical" | "high" | "medium" | "low";
-
-export const PRIORITY_LABELS: Record<Priority, string> = {
-  critical: "Critical",
-  high: "High",
-  medium: "Medium",
-  low: "Low",
-};
-
-/** Severity order, highest → lowest. Single source for selects/sorts. */
-export const PRIORITY_ORDER: readonly Priority[] = [
-  "critical",
-  "high",
-  "medium",
-  "low",
-];
+export type { Priority };
+export { PRIORITY_LABELS, PRIORITY_ORDER };
 
 /**
  * Per-level chroma ramp (DESIGN §5) — one hue each so priority never collapses
