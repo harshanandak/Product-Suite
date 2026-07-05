@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { createMockWorkItemRepository } from "@/data/work-items/repository";
 import type { WorkItemRepository } from "@/data/work-items";
@@ -18,6 +18,15 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 import { WorkItemDetailScreen } from "./WorkItemDetailScreen";
+
+// Radix (Tabs / Sheet) needs pointer + scroll APIs jsdom omits — stub them so
+// tab activation and focus management work under the test environment.
+beforeAll(() => {
+  Element.prototype.hasPointerCapture ??= () => false;
+  Element.prototype.setPointerCapture ??= () => {};
+  Element.prototype.releasePointerCapture ??= () => {};
+  Element.prototype.scrollIntoView ??= () => {};
+});
 
 describe("WorkItemDetailScreen", () => {
   it("renders a work item's header, tab set and properties from real data", async () => {
@@ -59,5 +68,24 @@ describe("WorkItemDetailScreen", () => {
     render(<WorkItemDetailScreen repository={repo} />);
 
     expect(await screen.findByText(/not found/i)).toBeInTheDocument();
+  });
+
+  it("renders the item's activity log in the Activity tab", async () => {
+    const repo: WorkItemRepository = createMockWorkItemRepository();
+    const items = await repo.list();
+    const first = items[0];
+    const events = await repo.listActivity(first!.id);
+    expect(events.length).toBeGreaterThan(0);
+    routerMock.params = { workspace: "acme", itemId: first!.id };
+
+    render(<WorkItemDetailScreen repository={repo} />);
+    await screen.findByRole("heading", { level: 1, name: first!.title });
+
+    // Switch to the Activity tab (Radix auto-activates on focus) and see a
+    // real, seeded event.
+    const activityTab = screen.getByRole("tab", { name: /activity/i });
+    activityTab.focus();
+    fireEvent.click(activityTab);
+    expect(await screen.findByText(events[0]!.summary)).toBeInTheDocument();
   });
 });

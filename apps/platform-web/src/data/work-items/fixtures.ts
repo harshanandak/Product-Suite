@@ -1,4 +1,6 @@
 import type {
+  ActivityEvent,
+  ActivityEventKind,
   DependencyRelationship,
   Owner,
   Project,
@@ -142,6 +144,21 @@ const RAW_DEPENDENCIES: ReadonlyArray<WorkItemDependency> = [
 ];
 
 /**
+ * Seed activity — an append-only per-item change log the mock returns for the
+ * detail page's Activity tab (and which every mutation appends to at runtime).
+ * Stored chronological; newest-first ordering is applied on read.
+ */
+const RAW_ACTIVITY: ReadonlyArray<ActivityEvent> = [
+  activityOf("act_auth_1", "wi_auth", "created", "Created “Workspace auth hardening”", "2026-05-01T09:00:00.000Z"),
+  activityOf("act_auth_2", "wi_auth", "dependency_added", "Added a dependency on “Realtime transport seam”", "2026-05-04T10:15:00.000Z"),
+  activityOf("act_auth_3", "wi_auth", "updated", "Owner set to Amara Okafor", "2026-05-08T13:20:00.000Z"),
+  activityOf("act_auth_4", "wi_auth", "updated", "Phase set to Execute", "2026-05-20T09:05:00.000Z"),
+  activityOf("act_auth_5", "wi_auth", "updated", "Due date set to Jul 10", "2026-06-19T09:00:00.000Z"),
+  activityOf("act_cr_1", "wi_creatives", "created", "Created “Diwali creative set”", "2026-05-12T09:00:00.000Z"),
+  activityOf("act_cr_2", "wi_creatives", "updated", "Phase set to Execute", "2026-05-30T16:40:00.000Z"),
+];
+
+/**
  * Build a {@link WorkItemDependency}. `relationship_type` defaults to
  * `depends_on` (the only kind v1 renders); `created_at` is a fixed ISO string so
  * fixtures stay stable.
@@ -243,6 +260,23 @@ function taskOf(
   };
 }
 
+/** Build an {@link ActivityEvent} with a fixed timestamp so fixtures stay stable. */
+function activityOf(
+  id: string,
+  workItemId: string,
+  kind: ActivityEventKind,
+  summary: string,
+  createdAt: string,
+): ActivityEvent {
+  return {
+    id,
+    work_item_id: workItemId,
+    kind,
+    summary,
+    created_at: T(createdAt),
+  };
+}
+
 /** Deep-clone factory: fresh `Owner[]` per call (mutation-safe for the mock). */
 export function createOwnerFixtures(): Owner[] {
   return RAW_OWNERS.map((owner) => ({ ...owner }));
@@ -273,4 +307,9 @@ export function createTaskFixtures(): Task[] {
  */
 export function createDependencyFixtures(): WorkItemDependency[] {
   return RAW_DEPENDENCIES.map((dependency) => ({ ...dependency }));
+}
+
+/** Deep-clone factory: fresh `ActivityEvent[]` per call (mutation-safe for the mock). */
+export function createActivityFixtures(): ActivityEvent[] {
+  return RAW_ACTIVITY.map((event) => ({ ...event }));
 }

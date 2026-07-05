@@ -3,6 +3,7 @@ import {
   wouldCreateCycle,
 } from "./dependency-graph";
 import {
+  createActivityFixtures,
   createDependencyFixtures,
   createOwnerFixtures,
   createProjectFixtures,
@@ -10,6 +11,8 @@ import {
   createWorkItemFixtures,
 } from "./fixtures";
 import type {
+  ActivityEvent,
+  ActivityEventKind,
   DependencyRelationship,
   Owner,
   Project,
@@ -18,6 +21,16 @@ import type {
   WorkItemDependency,
   WorkItemPatch,
 } from "./types";
+
+/** Map an update {@link WorkItemPatch} to a human-readable activity one-liner. */
+function summarizeUpdate(patch: WorkItemPatch): string {
+  if (patch.phase) return `Phase set to ${patch.phase}`;
+  if (patch.title !== undefined) return `Renamed to “${patch.title}”`;
+  if (patch.priority) return `Priority set to ${patch.priority}`;
+  if (patch.archived !== undefined) return patch.archived ? "Archived" : "Unarchived";
+  const fields = Object.keys(patch);
+  return fields.length > 0 ? `Updated ${fields.join(", ")}` : "Updated";
+}
 
 /**
  * Input to {@link WorkItemRepository.addDependency}. `relationship_type` is
@@ -87,6 +100,8 @@ export interface WorkItemRepository {
   listTasks(): Promise<Task[]>;
   /** Tasks for one work item (the coalition's task section). */
   getTasks(workItemId: string): Promise<Task[]>;
+  /** Append-only activity log for one work item (newest first). */
+  listActivity(workItemId: string): Promise<ActivityEvent[]>;
   /**
    * Create a new work item from a partial input, filling sensible defaults for
    * every omitted field, insert it into the store, and return the created
@@ -147,6 +162,7 @@ export function createMockWorkItemRepository(
   const workItems: WorkItem[] = createWorkItemFixtures();
   const tasks: Task[] = createTaskFixtures();
   const dependencies: WorkItemDependency[] = createDependencyFixtures();
+  const activity: ActivityEvent[] = createActivityFixtures();
 
   const settle = <T>(value: T): Promise<T> =>
     latencyMs > 0
@@ -174,6 +190,24 @@ export function createMockWorkItemRepository(
   const nextDependencyId = (): string => {
     depSeq += 1;
     return `dep_new_${Date.now().toString(36)}_${depSeq}`;
+  };
+
+  // Append-only activity log: every mutation records a one-liner so the detail
+  // page's Activity tab reads a real history (F2 will emit these server-side).
+  let actSeq = 0;
+  const logActivity = (
+    workItemId: string,
+    kind: ActivityEventKind,
+    summary: string,
+  ): void => {
+    actSeq += 1;
+    activity.push({
+      id: `act_new_${Date.now().toString(36)}_${actSeq}`,
+      work_item_id: workItemId,
+      kind,
+      summary,
+      created_at: new Date().toISOString(),
+    });
   };
 
   const workItemExists = (id: string): boolean =>
@@ -206,6 +240,7 @@ export function createMockWorkItemRepository(
         updated_at: now,
       };
       workItems.unshift(created);
+      logActivity(created.id, "created", `Created “${created.title}”`);
       return settle(cloneWorkItem(created));
     },
 
@@ -227,6 +262,16 @@ export function createMockWorkItemRepository(
       );
     },
 
+    listActivity(workItemId: string) {
+      return settle(
+        activity
+          .filter((event) => event.work_item_id === workItemId)
+          .map(clone)
+          // Newest first — the log is stored chronological.
+          .sort((a, b) => (a.created_at < b.created_at ? 1 : -1)),
+      );
+    },
+
     update(id: string, patch: WorkItemPatch) {
       const index = workItems.findIndex((item) => item.id === id);
       if (index === -1) {
@@ -240,6 +285,7 @@ export function createMockWorkItemRepository(
         updated_at: new Date().toISOString(),
       };
       workItems[index] = updated;
+      logActivity(id, "updated", summarizeUpdate(patch));
       return settle(cloneWorkItem(updated));
     },
 
@@ -277,6 +323,7 @@ export function createMockWorkItemRepository(
         created_at: new Date().toISOString(),
       };
       dependencies.push(created);
+      logActivity(source, "dependency_added", "Added a dependency");
       return settle(clone(created));
     },
 
@@ -285,7 +332,14 @@ export function createMockWorkItemRepository(
       if (index === -1) {
         return Promise.reject(new Error(`Unknown dependency: ${id}`));
       }
-      dependencies.splice(index, 1);
+      const [removed] = dependencies.splice(index, 1);
+      if (removed) {
+        logActivity(
+          removed.source_item_id,
+          "dependency_removed",
+          "Removed a dependency",
+        );
+      }
       return settle(undefined);
     },
 

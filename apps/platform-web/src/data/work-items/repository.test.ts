@@ -351,4 +351,32 @@ describe("createMockWorkItemRepository — dependencies", () => {
     const second = await repo.listDependencies();
     expect(second[0].relationship_type).toBe("depends_on");
   });
+
+  it("returns a work item's seeded activity newest-first", async () => {
+    const repo = createMockWorkItemRepository();
+    const events = await repo.listActivity("wi_auth");
+
+    expect(events.length).toBeGreaterThan(0);
+    expect(events.every((event) => event.work_item_id === "wi_auth")).toBe(true);
+    // Newest first: created_at is non-increasing across the list.
+    for (let i = 1; i < events.length; i += 1) {
+      expect(events[i - 1].created_at >= events[i].created_at).toBe(true);
+    }
+  });
+
+  it("appends an activity event on create and on update", async () => {
+    const repo = createMockWorkItemRepository();
+
+    const created = await repo.create({ title: "Spike" });
+    const afterCreate = await repo.listActivity(created.id);
+    expect(afterCreate).toHaveLength(1);
+    expect(afterCreate[0].kind).toBe("created");
+
+    await repo.update(created.id, { phase: "execute" });
+    const afterUpdate = await repo.listActivity(created.id);
+    expect(afterUpdate).toHaveLength(2);
+    // Newest-first, so the update sits at the front.
+    expect(afterUpdate[0].kind).toBe("updated");
+    expect(afterUpdate[0].summary).toMatch(/execute/i);
+  });
 });

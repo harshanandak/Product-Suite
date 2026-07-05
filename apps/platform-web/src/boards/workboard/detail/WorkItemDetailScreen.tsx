@@ -26,6 +26,7 @@ import {
 import {
   getDefaultRepository,
   useWorkItems,
+  type ActivityEvent,
   type Owner,
   type Task,
   type WorkItemPatch,
@@ -141,6 +142,23 @@ export function WorkItemDetailScreen({
       })
       .catch(() => {
         // Supplementary to the row rollup; the screen's own error path covers load.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [repo, itemId]);
+
+  // Activity log for this item's Activity tab (append-only; loaded per item).
+  const [activity, setActivity] = useState<ReadonlyArray<ActivityEvent>>([]);
+  useEffect(() => {
+    let cancelled = false;
+    repo
+      .listActivity(itemId)
+      .then((loaded) => {
+        if (!cancelled) setActivity(loaded);
+      })
+      .catch(() => {
+        // Supplementary; the Activity tab shows its empty state if this fails.
       });
     return () => {
       cancelled = true;
@@ -359,11 +377,29 @@ export function WorkItemDetailScreen({
               )}
             </TabsContent>
 
-            <TabsContent value="activity">
-              <ComingSoon
-                title="Activity"
-                description="The change and comment stream for this item — coming soon."
-              />
+            {/* Activity — the item's real append-only change log */}
+            <TabsContent value="activity" className="pt-5">
+              {activity.length > 0 ? (
+                <ul className="flex flex-col gap-3">
+                  {activity.map((event) => (
+                    <li key={event.id} className="flex items-start gap-3 text-sm">
+                      <span
+                        aria-hidden
+                        className="mt-1.5 size-1.5 shrink-0 rounded-full bg-muted-foreground/60"
+                      />
+                      <span className="min-w-0 flex-1">{event.summary}</span>
+                      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                        {formatDate(event.created_at)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <ComingSoon
+                  title="No activity yet"
+                  description="Changes to this item will appear here."
+                />
+              )}
             </TabsContent>
           </Tabs>
         </div>
