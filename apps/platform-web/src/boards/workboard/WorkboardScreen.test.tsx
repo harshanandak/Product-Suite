@@ -33,7 +33,9 @@ import { WorkboardScreen } from "./WorkboardScreen";
 // Row activation now navigates to the detail route. Mock the router so the
 // screen's useNavigate/useParams resolve without a RouterProvider, and capture
 // the navigate call for assertions.
-const navMock = vi.hoisted(() => ({ fn: vi.fn() }));
+// The real TanStack `navigate` returns a Promise; the screen calls
+// `.catch(...)` on it, so the mock must resolve to keep that chain valid.
+const navMock = vi.hoisted(() => ({ fn: vi.fn(() => Promise.resolve()) }));
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => navMock.fn,
   useParams: () => ({ workspace: "acme" }),

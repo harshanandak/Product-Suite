@@ -263,12 +263,21 @@ export function createMockWorkItemRepository(
     },
 
     listActivity(workItemId: string) {
+      // Newest first. The store is append-ordered (chronological), so we sort by
+      // timestamp descending and break ties by insertion index descending — two
+      // events logged in the same millisecond (e.g. rapid create→update) still
+      // order deterministically, latest-inserted first. A total order, no flake.
       return settle(
         activity
-          .filter((event) => event.work_item_id === workItemId)
-          .map(clone)
-          // Newest first — the log is stored chronological.
-          .sort((a, b) => (a.created_at < b.created_at ? 1 : -1)),
+          .map((event, index) => ({ event, index }))
+          .filter(({ event }) => event.work_item_id === workItemId)
+          .sort((a, b) => {
+            if (a.event.created_at !== b.event.created_at) {
+              return a.event.created_at < b.event.created_at ? 1 : -1;
+            }
+            return b.index - a.index;
+          })
+          .map(({ event }) => clone(event)),
       );
     },
 

@@ -342,10 +342,12 @@ export function WorkboardScreen({
   // table remain, so quick field edits from the board are never lost.
   const handleSelectItem = useCallback(
     (row: WorkItemRow) => {
-      void navigate({
+      // Fire-and-forget navigation; trailing .catch keeps this void-returning
+      // click handler from floating a promise (the file's convention — no `void`).
+      navigate({
         to: "/w/$workspace/workboard/item/$itemId",
         params: { workspace, itemId: row.id },
-      });
+      }).catch(() => undefined);
     },
     [navigate, workspace],
   );
