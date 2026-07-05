@@ -1,5 +1,7 @@
 import { UserIcon } from "lucide-react";
 
+import { ASSIGNEE_UNASSIGNED_VALUE } from "@product-suite/contracts";
+
 import { Avatar, AvatarFallback, AvatarImage } from "#components/avatar";
 import {
   Select,
@@ -30,8 +32,12 @@ export interface Assignee {
  * This value is reserved: no real {@link Assignee.id} may equal it (it would
  * round-trip to `null` and become impossible to select). The component rejects
  * any colliding `assignees` entry up front — see {@link AssigneePicker}.
+ *
+ * The sentinel is the framework-neutral single source of truth in
+ * `@product-suite/contracts`; re-exported here so existing UI consumers are
+ * unaffected.
  */
-export const ASSIGNEE_UNASSIGNED_VALUE = "__unassigned__";
+export { ASSIGNEE_UNASSIGNED_VALUE };
 
 /** Derive up-to-2-char initials from a display name. */
 function initialsFor(assignee: Assignee): string {
