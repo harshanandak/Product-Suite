@@ -27,8 +27,10 @@ export { deriveHealth } from "./types";
 
 export type {
   AddDependencyInput,
+  CreateTaskInput,
   CreateWorkItemInput,
   ListGraphOptions,
+  TaskPatch,
   WorkItemGraph,
   WorkItemRepository,
 } from "./repository";

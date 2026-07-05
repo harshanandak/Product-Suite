@@ -1,0 +1,91 @@
+{
+  "dependencyRelationship": {
+    "values": ["depends_on", "blocks", "complements"],
+    "default": "depends_on"
+  },
+  "activityEventKind": {
+    "values": ["created", "updated", "dependency_added", "dependency_removed"]
+  },
+  "workItemPatchFields": [
+    "title",
+    "description",
+    "phase",
+    "type",
+    "priority",
+    "tags",
+    "project_id",
+    "department",
+    "assignee_id",
+    "due_date",
+    "archived"
+  ],
+  "taskPatchFields": ["title", "status", "due_date"],
+  "objects": {
+    "Project": {
+      "fields": {
+        "id": { "type": "string", "readonly": true },
+        "name": { "type": "string" },
+        "kind": { "type": "string" },
+        "created_at": { "type": "string", "readonly": true },
+        "updated_at": { "type": "string", "readonly": true }
+      }
+    },
+    "Owner": {
+      "fields": {
+        "id": { "type": "string", "readonly": true },
+        "name": { "type": "string" },
+        "initials": { "type": "string", "optional": true }
+      }
+    },
+    "WorkItem": {
+      "fields": {
+        "id": { "type": "string", "readonly": true },
+        "title": { "type": "string" },
+        "description": { "type": "string", "optional": true },
+        "phase": { "type": { "kind": "enum", "enum": "phase" } },
+        "type": { "type": { "kind": "enum", "enum": "workItemType" } },
+        "priority": { "type": { "kind": "enum", "enum": "priority" } },
+        "tags": { "type": "string[]" },
+        "source": { "type": { "kind": "enum", "enum": "workItemSource" } },
+        "project_id": { "type": "string", "nullable": true },
+        "department": { "type": "string" },
+        "assignee_id": { "type": "string", "nullable": true },
+        "due_date": { "type": "string", "nullable": true },
+        "archived": { "type": "boolean", "optional": true },
+        "created_at": { "type": "string", "readonly": true },
+        "updated_at": { "type": "string", "readonly": true }
+      }
+    },
+    "Task": {
+      "fields": {
+        "id": { "type": "string", "readonly": true },
+        "work_item_id": { "type": "string" },
+        "title": { "type": "string" },
+        "status": { "type": { "kind": "enum", "enum": "taskStatus" } },
+        "due_date": { "type": "string", "nullable": true },
+        "created_at": { "type": "string", "readonly": true },
+        "updated_at": { "type": "string", "readonly": true }
+      }
+    },
+    "ActivityEvent": {
+      "fields": {
+        "id": { "type": "string", "readonly": true },
+        "work_item_id": { "type": "string" },
+        "kind": { "type": { "kind": "enum", "enum": "activityEventKind" } },
+        "summary": { "type": "string" },
+        "created_at": { "type": "string", "readonly": true }
+      }
+    },
+    "WorkItemDependency": {
+      "fields": {
+        "id": { "type": "string", "readonly": true },
+        "source_item_id": { "type": "string" },
+        "target_item_id": { "type": "string" },
+        "relationship_type": {
+          "type": { "kind": "enum", "enum": "dependencyRelationship" }
+        },
+        "created_at": { "type": "string", "readonly": true }
+      }
+    }
+  }
+}
