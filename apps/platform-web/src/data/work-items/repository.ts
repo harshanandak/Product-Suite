@@ -1,3 +1,5 @@
+import { TASK_STATUS_ORDER } from "@product-suite/contracts";
+
 import {
   dependencyExists,
   wouldCreateCycle,
@@ -30,6 +32,18 @@ function summarizeUpdate(patch: WorkItemPatch): string {
   if (patch.archived !== undefined) return patch.archived ? "Archived" : "Unarchived";
   const fields = Object.keys(patch);
   return fields.length > 0 ? `Updated ${fields.join(", ")}` : "Updated";
+}
+
+/**
+ * Map a task {@link TaskPatch} to a human-readable activity one-liner. Task
+ * mutations are logged against the PARENT work item (tasks have no independent
+ * feed), consistent with how work-item edits/dependency changes are recorded.
+ */
+function summarizeTaskUpdate(taskTitle: string, patch: TaskPatch): string {
+  if (patch.status) return `Task “${taskTitle}” set to ${patch.status}`;
+  if (patch.title !== undefined) return `Task renamed to “${patch.title}”`;
+  if (patch.due_date !== undefined) return `Task “${taskTitle}” due date updated`;
+  return `Task “${taskTitle}” updated`;
 }
 
 /**
@@ -81,6 +95,26 @@ export const DEFAULT_GRAPH_DEPTH = 2;
 export type CreateWorkItemInput = { title?: string } & Partial<WorkItemPatch>;
 
 /**
+ * The editable surface of a TASK — the frozen task-write shape (move ②). Shared
+ * by {@link WorkItemRepository.updateTask} and (as the optional tail of)
+ * {@link CreateTaskInput}. Excludes managed fields (`id`, `work_item_id`,
+ * timestamps): a task never moves work items and its id/timestamps are
+ * repository-owned. Tasks are read-only in the UI today; freezing this shape lets
+ * F2 author the `product_tasks` table against a stable contract before any write
+ * UI is wired.
+ */
+export type TaskPatch = Partial<Pick<Task, "title" | "status" | "due_date">>;
+
+/**
+ * Input to {@link WorkItemRepository.createTask}. `work_item_id` is REQUIRED (a
+ * task is always born under a work item — §1); `title` is surfaced explicitly
+ * (name-then-edit) and the remaining editable fields reuse {@link TaskPatch} so
+ * the create surface can never drift from the edit surface. The id, `work_item_id`
+ * aside, and timestamps are repository-owned and are NOT part of the input.
+ */
+export type CreateTaskInput = { work_item_id: string; title?: string } & Partial<TaskPatch>;
+
+/**
  * Workboard repository SEAM (DESIGN §10 — backend-mediated only; built ahead of
  * the F2 backend). All Workboard data flows through this interface. Only the
  * adapter implementation swaps when F2 lands; callers (the hook, views) never
@@ -100,6 +134,25 @@ export interface WorkItemRepository {
   listTasks(): Promise<Task[]>;
   /** Tasks for one work item (the coalition's task section). */
   getTasks(workItemId: string): Promise<Task[]>;
+  /**
+   * Create a new task under a work item, filling defaults for every omitted
+   * field (`title` → "Untitled task", `status` → `todo`, `due_date` → null),
+   * insert it, and return the created record. The id and timestamps are
+   * generated repository-side. Rejects if `work_item_id` is unknown (a task
+   * cannot exist without a parent — §1). See {@link CreateTaskInput}.
+   */
+  createTask(input: CreateTaskInput): Promise<Task>;
+  /**
+   * Apply an editable {@link TaskPatch} to a task and return the updated record.
+   * Rejects if the id is unknown. Bumps `updated_at`.
+   */
+  updateTask(id: string, patch: TaskPatch): Promise<Task>;
+  /**
+   * Advance a task through the status triad (`todo → in_progress → completed →
+   * todo`, in {@link TASK_STATUS_ORDER}) and return the updated record — the
+   * one-tap lifecycle gesture. Rejects if the id is unknown. Bumps `updated_at`.
+   */
+  toggleStatus(id: string): Promise<Task>;
   /** Append-only activity log for one work item (newest first). */
   listActivity(workItemId: string): Promise<ActivityEvent[]>;
   /**
@@ -192,6 +245,12 @@ export function createMockWorkItemRepository(
     return `dep_new_${Date.now().toString(36)}_${depSeq}`;
   };
 
+  let taskSeq = 0;
+  const nextTaskId = (): string => {
+    taskSeq += 1;
+    return `task_new_${Date.now().toString(36)}_${taskSeq}`;
+  };
+
   // Append-only activity log: every mutation records a one-liner so the detail
   // page's Activity tab reads a real history (F2 will emit these server-side).
   let actSeq = 0;
@@ -260,6 +319,73 @@ export function createMockWorkItemRepository(
       return settle(
         tasks.filter((task) => task.work_item_id === workItemId).map(clone),
       );
+    },
+
+    createTask(input: CreateTaskInput) {
+      if (!workItemExists(input.work_item_id)) {
+        return Promise.reject(
+          new Error(`Unknown work item: ${input.work_item_id}`),
+        );
+      }
+      const now = new Date().toISOString();
+      const created: Task = {
+        id: nextTaskId(),
+        work_item_id: input.work_item_id,
+        title: input.title ?? "Untitled task",
+        status: input.status ?? "todo",
+        due_date: input.due_date ?? null,
+        created_at: now,
+        updated_at: now,
+      };
+      tasks.push(created);
+      // Tasks have no independent feed — log against the parent work item, like
+      // every other mutation.
+      logActivity(
+        created.work_item_id,
+        "updated",
+        `Added task “${created.title}”`,
+      );
+      return settle(clone(created));
+    },
+
+    updateTask(id: string, patch: TaskPatch) {
+      const index = tasks.findIndex((task) => task.id === id);
+      if (index === -1) {
+        return Promise.reject(new Error(`Unknown task: ${id}`));
+      }
+      const updated: Task = {
+        ...tasks[index],
+        ...patch,
+        updated_at: new Date().toISOString(),
+      };
+      tasks[index] = updated;
+      logActivity(
+        updated.work_item_id,
+        "updated",
+        summarizeTaskUpdate(updated.title, patch),
+      );
+      return settle(clone(updated));
+    },
+
+    toggleStatus(id: string) {
+      const index = tasks.findIndex((task) => task.id === id);
+      if (index === -1) {
+        return Promise.reject(new Error(`Unknown task: ${id}`));
+      }
+      const current = tasks[index];
+      // Advance one step around the triad; unknown/legacy statuses restart at the
+      // loop head so the gesture is always defined.
+      const position = TASK_STATUS_ORDER.indexOf(current.status);
+      const next =
+        TASK_STATUS_ORDER[(position + 1) % TASK_STATUS_ORDER.length];
+      const updated: Task = {
+        ...current,
+        status: next,
+        updated_at: new Date().toISOString(),
+      };
+      tasks[index] = updated;
+      logActivity(updated.work_item_id, "updated", `Task “${updated.title}” set to ${next}`);
+      return settle(clone(updated));
     },
 
     listActivity(workItemId: string) {

@@ -38,3 +38,12 @@ export {
   ASSIGNEE_UNASSIGNED_VALUE,
   enums,
 } from "./enums.js";
+export {
+  DEPENDENCY_RELATIONSHIP_VALUES,
+  DEPENDENCY_RELATIONSHIP_DEFAULT,
+  ACTIVITY_EVENT_KIND_VALUES,
+  WORK_ITEM_PATCH_FIELDS,
+  TASK_PATCH_FIELDS,
+  workItemsCore,
+  deriveHealth,
+} from "./work-items.js";
