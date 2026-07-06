@@ -10,7 +10,10 @@ existing ``AsyncOpenAI`` client and key configured in ``server``/``config``.
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Awaitable, Callable
+
+logger = logging.getLogger(__name__)
 
 # A buddy responder answers a question grounded ONLY in the supplied context.
 # Signature: (context, question) -> answer text
@@ -78,9 +81,16 @@ def build_openai_buddy_responder(
                 ),
                 timeout=BUDDY_REQUEST_TIMEOUT_SECONDS,
             )
-        except _PROVIDER_ERRORS:
-            # Timeout or provider error: return an empty answer so the caller
-            # degrades to its deterministic preview fallback instead of raising.
+        except _PROVIDER_ERRORS as exc:
+            # Timeout or provider error (including non-transient ones like a bad
+            # API key or invalid model, not just timeouts). Log it so production
+            # degradation is visible in logs/metrics, then return an empty answer
+            # so the caller degrades to its deterministic preview fallback.
+            logger.warning(
+                "Buddy responder degraded to fallback (%s): %s",
+                type(exc).__name__,
+                exc,
+            )
             return ""
         return _extract_completion_text(completion)
 
