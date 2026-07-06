@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { getStoredAuthToken } from "../lib/api";
+import {
+  getActionItems,
+  getChapters,
+  getDecisions,
+  getMeetingStateCurrent,
+  getOpenQuestions,
+  getRecentLines,
+  getStoredAuthToken,
+} from "../lib/api";
 import { getRuntimeConfig, resolveRuntimeApiBaseUrl } from "../lib/runtimeConfig";
 import { normalizeRecentTranscriptLines } from "./useRealtimeTranscript";
 
@@ -27,18 +35,6 @@ export function extractGeneratedItems(payload = {}) {
     return payload.decisions;
   }
   return [];
-}
-
-async function fetchJson(path) {
-  const response = await fetch(`${resolveMeetingApiBaseUrl()}${path}`, {
-    headers: buildMeetingRequestHeaders(),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Request failed with status ${response.status}`);
-  }
-
-  return response.json();
 }
 
 function toDraftRecords(records = []) {
@@ -147,14 +143,16 @@ export function useMeetingState(meetingId, options = {}) {
     const requestVersion = requestVersionRef.current.next();
 
     try {
-      const [statePayload, chaptersPayload, decisionsPayload, actionItemsPayload, openQuestionsPayload, recentLinesPayload] = await Promise.all([
-        fetchJson(`/meetings/${meetingId}/state/current`),
-        fetchJson(`/meetings/${meetingId}/chapters`),
-        fetchJson(`/meetings/${meetingId}/decisions`),
-        fetchJson(`/meetings/${meetingId}/action-items`),
-        fetchJson(`/meetings/${meetingId}/open-questions`),
-        fetchJson(`/meetings/${meetingId}/recent-lines`),
-      ]);
+      const [statePayload, chaptersPayload, decisionsPayload, actionItemsPayload, openQuestionsPayload, recentLinesPayload] = (
+        await Promise.all([
+          getMeetingStateCurrent(meetingId),
+          getChapters(meetingId),
+          getDecisions(meetingId),
+          getActionItems(meetingId),
+          getOpenQuestions(meetingId),
+          getRecentLines(meetingId),
+        ])
+      ).map((response) => response?.data);
       if (!requestVersionRef.current.isCurrent(requestVersion)) {
         return null;
       }

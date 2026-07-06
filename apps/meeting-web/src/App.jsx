@@ -39,6 +39,7 @@ import {
   listEngines,
   listMeetings,
   searchTranscripts,
+  sendChatMessage,
   setAuthToken,
   signOutHostedSession,
   transcribeAudio,
@@ -996,6 +997,18 @@ function App() {
                 buddyLoading={buddyAgent.loading}
                 buddyError={buddyAgent.error}
                 onAskBuddy={(message) => buddyAgent.askBuddy(message, summaryState)}
+                onSendChatMessage={async (content) => {
+                  if (!activeMeeting?.id) {
+                    return;
+                  }
+                  setChatMessages((prev) => [...prev, { role: "user", content }]);
+                  try {
+                    const { data } = await sendChatMessage(activeMeeting.id, content);
+                    setChatMessages((prev) => [...prev, data]);
+                  } catch {
+                    // Best-effort chat send; failures are non-fatal for the summary-first surface.
+                  }
+                }}
                 onStartRecording={handleStartRecording}
                 onPauseRecording={handlePauseRecording}
                 onResumeRecording={handleResumeRecording}

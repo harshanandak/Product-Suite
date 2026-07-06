@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { getStoredAuthToken } from "../lib/api";
+import { getStoredAuthToken, queryBuddy } from "../lib/api";
 import { getRuntimeConfig, resolveRuntimeApiBaseUrl } from "../lib/runtimeConfig";
 
 export function resolveBuddyApiBaseUrl(runtimeConfig = getRuntimeConfig()) {
@@ -67,20 +67,6 @@ export function buildBuddyRequestBody(message, summaryState = {}) {
   };
 }
 
-async function postJson(path, body) {
-  const response = await fetch(`${resolveBuddyApiBaseUrl()}${path}`, {
-    method: "POST",
-    headers: buildBuddyRequestHeaders(),
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Request failed with status ${response.status}`);
-  }
-
-  return response.json();
-}
-
 export function mapBuddyResponse(response = {}) {
   const provenance = Array.isArray(response.provenance)
     ? response.provenance.map((item) => ({
@@ -125,8 +111,13 @@ export function useBuddyAgent(meetingId, options = {}) {
       setError(null);
 
       try {
-        const payload = await postJson(`/meetings/${meetingId}/buddy/query`, buildBuddyRequestBody(message, summaryState));
-        const nextResponse = mapBuddyResponse(unwrapBuddyPayload(payload));
+        const requestBody = buildBuddyRequestBody(message, summaryState);
+        const { data } = await queryBuddy(meetingId, {
+          message: requestBody.message,
+          currentContext: requestBody.current_context,
+          historyContext: requestBody.history_context,
+        });
+        const nextResponse = mapBuddyResponse(unwrapBuddyPayload(data));
         if (requestVersion !== requestVersionRef.current) {
           return nextResponse;
         }

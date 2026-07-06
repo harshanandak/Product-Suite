@@ -206,6 +206,17 @@ export const sendChatMessage = (meetingId, content) =>
 export const getChatHistory = (meetingId) =>
   meetingApi.getChatHistory(meetingId);
 
+export const getMeetingStateCurrent = (meetingId) =>
+  meetingApi.getMeetingStateCurrent(meetingId);
+export const getChapters = (meetingId) => meetingApi.getChapters(meetingId);
+export const getDecisions = (meetingId) => meetingApi.getDecisions(meetingId);
+export const getActionItems = (meetingId) => meetingApi.getActionItems(meetingId);
+export const getOpenQuestions = (meetingId) => meetingApi.getOpenQuestions(meetingId);
+export const getRecentLines = (meetingId) => meetingApi.getRecentLines(meetingId);
+export const queryBuddy = (meetingId, body) => meetingApi.queryBuddy(meetingId, body);
+export const searchHistory = (meetingId, query) =>
+  meetingApi.searchHistory(meetingId, query);
+
 export const searchTranscripts = (q) =>
   meetingApi.searchTranscripts(q);
 

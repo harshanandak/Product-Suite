@@ -136,11 +136,11 @@ def test_buddy_query_verifies_meeting_access(monkeypatch):
 
     monkeypatch.setitem(endpoint_globals, "get_db_connection", lambda: DummyConnection())
     monkeypatch.setitem(endpoint_globals, "fetch_meeting", fake_fetch_meeting)
-    monkeypatch.setitem(
-        endpoint_globals,
-        "answer_buddy_query",
-        lambda *args, **kwargs: {"answer": "ok", "source_kind": "meeting", "tool_refs": []},
-    )
+    async def fake_answer_buddy_query(*args, **kwargs):
+        return {"answer": "ok", "source_kind": "meeting", "tool_refs": []}
+
+    monkeypatch.setitem(endpoint_globals, "answer_buddy_query", fake_answer_buddy_query)
+    monkeypatch.setitem(endpoint_globals, "openai_client", None)
     monkeypatch.setitem(
         endpoint_globals,
         "build_agent_invocation_record",

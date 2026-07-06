@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Callable
 
+from backend.services.llm import BuddyResponder
 from backend.services.meeting_state import compose_buddy_context
 from backend.services.retrieval import is_context_insufficient
 
@@ -37,11 +38,35 @@ def build_agent_response_record(
     }
 
 
-def answer_buddy_query(
+async def _generate_grounded_answer(
+    responder: BuddyResponder | None,
+    context: str,
+    question: str,
+) -> tuple[str, bool]:
+    """Return ``(answer, model_backed)`` for the given grounded ``context``.
+
+    When a ``responder`` is configured and returns a non-empty answer, that
+    model answer is used. Otherwise a deterministic preview fallback keeps the
+    endpoint functional without a provider (e.g. when no API key is set).
+    """
+
+    if responder is not None:
+        model_answer = (await responder(context, question)).strip()
+        if model_answer:
+            return model_answer, True
+
+    fallback = f"[Preview] Query: {question}"
+    if context:
+        fallback = f"{fallback}\n\n{context}"
+    return fallback, False
+
+
+async def answer_buddy_query(
     message: str,
     *,
     current_context: str,
     history_context: str,
+    responder: BuddyResponder | None = None,
     web_search_fn: Callable[[str], dict[str, object]] | None = None,
 ) -> dict[str, object]:
     clean_message = message.strip()
@@ -56,16 +81,14 @@ def answer_buddy_query(
         provenance.append({"source": "current_meeting", "detail": "meeting memory"})
         if history_context.strip():
             provenance.append({"source": "past_meetings", "detail": "history memory"})
-        answer = f"[Preview] Query: {clean_message}"
-        if context:
-            answer = f"{answer}\n\nMeeting context:\n{context}"
+        answer, model_backed = await _generate_grounded_answer(responder, context, clean_message)
         return {
             "answer": answer,
             "source_kind": "meeting",
             "tool_refs": tool_refs,
             "provenance": provenance,
             "web_search_available": web_search_fn is not None,
-            "stub": True,
+            "stub": not model_backed,
         }
 
     web_result: dict[str, object] = {}
@@ -74,23 +97,32 @@ def answer_buddy_query(
         tool_refs.append({"tool": "web_search", "query": clean_message})
         provenance.append({"source": "web", "detail": "external search"})
 
-    if web_search_fn is None:
-        answer = f"[Preview] No sufficient context found for: {clean_message}"
-    else:
-        external_snippet = str(web_result.get("results", "")).strip()
-        answer_sections = []
-        if context:
-            answer_sections.append(f"Meeting context:\n{context}")
-        if external_snippet:
-            answer_sections.append(f"Web context:\n{external_snippet}")
-        answer = f"[Preview] Query: {clean_message}"
-        if answer_sections:
-            answer = f"{answer}\n\n" + "\n\n".join(answer_sections)
+    external_snippet = str(web_result.get("results", "")).strip() if web_result else ""
+    grounded_sections: list[str] = []
+    if context:
+        grounded_sections.append(f"Meeting context:\n{context}")
+    if external_snippet:
+        grounded_sections.append(f"Web context:\n{external_snippet}")
+    grounded_context = "\n\n".join(grounded_sections)
+
+    if not grounded_context:
+        # Retrieval is empty and no external context is available: preserve the
+        # "no sufficient context" behavior instead of fabricating an answer.
+        return {
+            "answer": f"No sufficient context found for: {clean_message}",
+            "source_kind": "meeting+web" if tool_refs else "meeting",
+            "tool_refs": tool_refs,
+            "provenance": provenance or [{"source": "current_meeting", "detail": "meeting memory"}],
+            "web_search_available": web_search_fn is not None,
+            "stub": True,
+        }
+
+    answer, model_backed = await _generate_grounded_answer(responder, grounded_context, clean_message)
     return {
         "answer": answer,
         "source_kind": "meeting+web" if tool_refs else "meeting",
         "tool_refs": tool_refs,
         "provenance": provenance or [{"source": "current_meeting", "detail": "meeting memory"}],
         "web_search_available": web_search_fn is not None,
-        "stub": True,
+        "stub": not model_backed,
     }

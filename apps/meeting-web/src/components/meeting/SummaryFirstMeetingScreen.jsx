@@ -12,6 +12,7 @@ export function SummaryFirstMeetingScreen({
   hasMeetingHistory = false,
   onCreateMeeting,
   onAskBuddy,
+  onSendChatMessage,
   onStartRecording,
   onPauseRecording,
   onResumeRecording,
@@ -44,7 +45,13 @@ export function SummaryFirstMeetingScreen({
           disabled={!hasActiveMeeting}
         />
       }
-      chatSlot={<ChatPanel messages={summaryState.chatMessages || []} />}
+      chatSlot={
+        <ChatPanel
+          messages={summaryState.chatMessages || []}
+          onSendMessage={hasActiveMeeting ? onSendChatMessage : undefined}
+          disabled={!hasActiveMeeting}
+        />
+      }
     />
   );
 }
