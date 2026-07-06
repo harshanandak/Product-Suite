@@ -9,11 +9,26 @@ existing ``AsyncOpenAI`` client and key configured in ``server``/``config``.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Awaitable, Callable
 
 # A buddy responder answers a question grounded ONLY in the supplied context.
 # Signature: (context, question) -> answer text
 BuddyResponder = Callable[[str, str], Awaitable[str]]
+
+# Bound the provider request so a slow/hung provider cannot stall the buddy path.
+BUDDY_REQUEST_TIMEOUT_SECONDS = 30.0
+
+# Provider errors we degrade on. ``OpenAIError`` is the base of every OpenAI SDK
+# error (timeouts, rate limits, connection/API errors); combined with
+# ``asyncio.TimeoutError`` this covers slow-or-failing providers. Imported
+# defensively so this provider-decoupled module still loads if the SDK is absent.
+try:  # pragma: no cover - exercised indirectly
+    from openai import OpenAIError as _OpenAIError
+
+    _PROVIDER_ERRORS: tuple[type[BaseException], ...] = (asyncio.TimeoutError, _OpenAIError)
+except Exception:  # pragma: no cover - openai always present in this service
+    _PROVIDER_ERRORS = (asyncio.TimeoutError,)
 
 
 BUDDY_SYSTEM_PROMPT = (
@@ -52,13 +67,21 @@ def build_openai_buddy_responder(
             user_content = f"Meeting context:\n{context}\n\nQuestion: {question}"
         else:
             user_content = question
-        completion = await client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content},
-            ],
-        )
+        try:
+            completion = await asyncio.wait_for(
+                client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_content},
+                    ],
+                ),
+                timeout=BUDDY_REQUEST_TIMEOUT_SECONDS,
+            )
+        except _PROVIDER_ERRORS:
+            # Timeout or provider error: return an empty answer so the caller
+            # degrades to its deterministic preview fallback instead of raising.
+            return ""
         return _extract_completion_text(completion)
 
     return _respond

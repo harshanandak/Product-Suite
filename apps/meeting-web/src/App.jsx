@@ -1005,8 +1005,10 @@ function App() {
                   try {
                     const { data } = await sendChatMessage(activeMeeting.id, content);
                     setChatMessages((prev) => [...prev, data]);
-                  } catch {
-                    // Best-effort chat send; failures are non-fatal for the summary-first surface.
+                  } catch (err) {
+                    // Surface the failure so the optimistic message isn't left
+                    // looking delivered when the request actually failed.
+                    toast.error(describeRequestError(err, "Failed to send chat message"));
                   }
                 }}
                 onStartRecording={handleStartRecording}

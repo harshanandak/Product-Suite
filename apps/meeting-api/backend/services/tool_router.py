@@ -51,7 +51,12 @@ async def _generate_grounded_answer(
     """
 
     if responder is not None:
-        model_answer = (await responder(context, question)).strip()
+        try:
+            model_answer = (await responder(context, question)).strip()
+        except Exception:
+            # Provider timeout/rate-limit/network errors must not fail the buddy
+            # request; degrade gracefully to the deterministic preview fallback.
+            model_answer = ""
         if model_answer:
             return model_answer, True
 
@@ -97,7 +102,14 @@ async def answer_buddy_query(
         tool_refs.append({"tool": "web_search", "query": clean_message})
         provenance.append({"source": "web", "detail": "external search"})
 
-    external_snippet = str(web_result.get("results", "")).strip() if web_result else ""
+    raw_results = web_result.get("results") if web_result else None
+    if isinstance(raw_results, list):
+        external_snippet = "\n".join(
+            str(item.get("snippet", item)) if isinstance(item, dict) else str(item)
+            for item in raw_results
+        ).strip()
+    else:
+        external_snippet = str(raw_results or "").strip()
     grounded_sections: list[str] = []
     if context:
         grounded_sections.append(f"Meeting context:\n{context}")
@@ -110,9 +122,10 @@ async def answer_buddy_query(
         # "no sufficient context" behavior instead of fabricating an answer.
         return {
             "answer": f"No sufficient context found for: {clean_message}",
-            "source_kind": "meeting+web" if tool_refs else "meeting",
+            "source_kind": "meeting+web" if external_snippet else "meeting",
             "tool_refs": tool_refs,
-            "provenance": provenance or [{"source": "current_meeting", "detail": "meeting memory"}],
+            "provenance": [p for p in provenance if p["source"] != "web"]
+            or [{"source": "current_meeting", "detail": "meeting memory"}],
             "web_search_available": web_search_fn is not None,
             "stub": True,
         }

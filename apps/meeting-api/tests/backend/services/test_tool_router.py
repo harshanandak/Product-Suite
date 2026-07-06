@@ -115,6 +115,83 @@ def test_no_responder_falls_back_to_preview_without_a_provider():
     assert response["stub"] is True
 
 
+def test_responder_failure_falls_back_to_preview_instead_of_raising():
+    # A responder that raises (provider timeout/rate-limit/network error) must not
+    # bubble up and 500 the buddy request; we degrade to the preview fallback.
+    async def failing_responder(context, question):
+        raise RuntimeError("provider exploded")
+
+    response = asyncio.run(
+        answer_buddy_query(
+            "What did we decide about launch?",
+            current_context="We decided to ship on Friday.",
+            history_context="",
+            responder=failing_responder,
+        )
+    )
+
+    assert response["answer"].startswith("[Preview] Query: What did we decide about launch?")
+    assert "We decided to ship on Friday." in response["answer"]
+    assert response["source_kind"] == "meeting"
+    assert response["stub"] is True
+
+
+def test_web_results_are_formatted_as_readable_text_not_python_repr():
+    calls = []
+
+    def fake_web_search(query):
+        return {
+            "results": [
+                {"title": "Launch", "url": "https://example.com", "snippet": "external fact one"},
+                {"title": "Update", "url": "https://example.com/2", "snippet": "external fact two"},
+            ]
+        }
+
+    response = asyncio.run(
+        answer_buddy_query(
+            "What is the latest guidance?",
+            current_context="",
+            history_context="",
+            responder=make_responder(calls, answer="Summarized."),
+            web_search_fn=fake_web_search,
+        )
+    )
+
+    # The grounded context handed to the model contains readable snippet text and
+    # NOT a raw Python repr of the list/dict structure.
+    grounded = calls[0]["context"]
+    assert "external fact one" in grounded
+    assert "external fact two" in grounded
+    assert "{'title'" not in grounded
+    assert "[{" not in grounded
+    assert response["source_kind"] == "meeting+web"
+
+
+def test_no_context_response_does_not_leak_web_provenance_when_web_is_empty():
+    calls = []
+
+    def empty_web_search(query):
+        # web_search_fn was invoked but returned no usable results.
+        return {"results": []}
+
+    response = asyncio.run(
+        answer_buddy_query(
+            "What is the latest guidance?",
+            current_context="",
+            history_context="",
+            responder=make_responder(calls),
+            web_search_fn=empty_web_search,
+        )
+    )
+
+    # Responder is never called and the fallback stays meeting-only: no stale web
+    # provenance/source_kind leaks in even though web_search_fn ran.
+    assert calls == []
+    assert response["answer"] == "No sufficient context found for: What is the latest guidance?"
+    assert response["source_kind"] == "meeting"
+    assert all(entry["source"] != "web" for entry in response["provenance"])
+
+
 def test_agent_records_capture_invocation_and_response_provenance():
     invocation = build_agent_invocation_record(
         meeting_id="meeting-1",

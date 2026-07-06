@@ -20,7 +20,13 @@ for candidate in (str(APP_ROOT), str(BACKEND_DIR)):
         sys.path.insert(0, candidate)
 os.environ.setdefault("DATABASE_URL", "postgresql://user:pass@127.0.0.1:5432/meeting_agent")
 
+import backend.services.llm as llm_module
 from backend.services.llm import BUDDY_SYSTEM_PROMPT, build_openai_buddy_responder
+
+try:  # The service always ships the openai SDK; guard so the test module still loads.
+    from openai import OpenAIError
+except Exception:  # pragma: no cover
+    OpenAIError = None
 
 
 class _FakeMessage:
@@ -114,6 +120,44 @@ def test_responder_returns_empty_string_when_completion_has_no_choices():
         "_Client",
         (),
         {"chat": type("_Chat", (), {"completions": _EmptyCompletions()})()},
+    )()
+    responder = build_openai_buddy_responder(client, "model")
+
+    assert asyncio.run(responder("ctx", "q")) == ""
+
+
+@pytest.mark.skipif(OpenAIError is None, reason="openai SDK not importable")
+def test_responder_returns_empty_fallback_when_provider_raises():
+    # A provider error (any OpenAIError subclass) must degrade to an empty answer
+    # so the caller falls back to its deterministic preview instead of 500ing.
+    class _FailingCompletions:
+        async def create(self, **kwargs):
+            raise OpenAIError("provider is down")
+
+    client = type(
+        "_Client",
+        (),
+        {"chat": type("_Chat", (), {"completions": _FailingCompletions()})()},
+    )()
+    responder = build_openai_buddy_responder(client, "model")
+
+    assert asyncio.run(responder("ctx", "q")) == ""
+
+
+def test_responder_returns_empty_fallback_when_request_times_out(monkeypatch):
+    # Bound the request: a provider slower than the timeout yields the safe empty
+    # fallback rather than hanging the buddy path.
+    monkeypatch.setattr(llm_module, "BUDDY_REQUEST_TIMEOUT_SECONDS", 0.01)
+
+    class _SlowCompletions:
+        async def create(self, **kwargs):
+            await asyncio.sleep(1)
+            return _FakeCompletion("late answer")
+
+    client = type(
+        "_Client",
+        (),
+        {"chat": type("_Chat", (), {"completions": _SlowCompletions()})()},
     )()
     responder = build_openai_buddy_responder(client, "model")
 
