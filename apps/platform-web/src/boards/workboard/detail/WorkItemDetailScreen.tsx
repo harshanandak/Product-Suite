@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 
 import { Link, useParams } from "@tanstack/react-router";
 
@@ -7,24 +7,29 @@ import {
   AvatarFallback,
   Badge,
   Button,
+  Checkbox,
   EmptyState,
   ErrorState,
   HealthBadge,
+  Input,
   PhasePill,
   PriorityBadge,
   ProvenanceChip,
   Separator,
   Skeleton,
+  Spinner,
   StatusPill,
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
+  toast,
   WorkItemTypeBadge,
 } from "@product-suite/ui";
 
 import {
   getDefaultRepository,
+  useItemTasks,
   useRepositoryContext,
   useWorkItems,
   type ActivityEvent,
@@ -154,35 +159,114 @@ function openFirst(tasks: ReadonlyArray<Task>): Task[] {
   );
 }
 
-/** Tasks tab — the item's real task records (open first). */
-function TasksTab({ tasks }: Readonly<{ tasks: ReadonlyArray<Task> }>) {
-  if (tasks.length === 0) {
-    return (
-      <EmptyTab
-        title="No tasks yet"
-        description="Break this work item into tasks to track progress."
-      />
-    );
-  }
+/**
+ * Tasks tab — the item's real task records (open first), now WRITABLE (move ②).
+ * Each row's checkbox advances the task one step around the status triad
+ * (`onToggle` → repo `toggleStatus`); the header form adds a task (`onAdd` →
+ * repo `createTask`). Both surface a transient pending cue and never block the
+ * whole tab — a failure is reported by the parent via a toast.
+ */
+function TasksTab({
+  tasks,
+  onToggle,
+  onAdd,
+  pendingTaskIds,
+}: Readonly<{
+  tasks: ReadonlyArray<Task>;
+  onToggle: (id: string) => void;
+  onAdd: (title: string) => Promise<void>;
+  pendingTaskIds: ReadonlySet<string>;
+}>) {
+  const inputId = useId();
+  const [title, setTitle] = useState("");
+  const [adding, setAdding] = useState(false);
+
+  const submit = async (event: React.FormEvent): Promise<void> => {
+    event.preventDefault();
+    const trimmed = title.trim();
+    if (trimmed === "" || adding) return;
+    setAdding(true);
+    try {
+      await onAdd(trimmed);
+      // Clear only on success; on failure the text is kept so the user can retry.
+      setTitle("");
+    } catch {
+      // The parent surfaces the failure (toast); keep the field for a retry.
+    } finally {
+      setAdding(false);
+    }
+  };
+
   return (
-    <ul className="flex flex-col gap-2">
-      {openFirst(tasks).map((task) => (
-        <li
-          key={task.id}
-          className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2.5"
+    <div className="space-y-4">
+      <form onSubmit={(event) => void submit(event)} className="flex gap-2">
+        <Input
+          id={inputId}
+          value={title}
+          disabled={adding}
+          placeholder="Add a task…"
+          aria-label="New task title"
+          onChange={(event) => setTitle(event.target.value)}
+        />
+        <Button
+          type="submit"
+          variant="outline"
+          disabled={adding || title.trim() === ""}
+          className="shrink-0"
         >
-          <span className="min-w-0 truncate text-sm">{task.title}</span>
-          <div className="flex shrink-0 items-center gap-3">
-            {task.due_date ? (
-              <span className="text-xs text-muted-foreground tabular-nums">
-                {formatDate(task.due_date)}
-              </span>
-            ) : null}
-            <StatusPill status={task.status} />
-          </div>
-        </li>
-      ))}
-    </ul>
+          {adding ? <Spinner className="size-4" /> : "Add"}
+        </Button>
+      </form>
+
+      {tasks.length === 0 ? (
+        <EmptyTab
+          title="No tasks yet"
+          description="Break this work item into tasks to track progress."
+        />
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {openFirst(tasks).map((task) => {
+            const pending = pendingTaskIds.has(task.id);
+            const completed = task.status === "completed";
+            return (
+              <li
+                key={task.id}
+                className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2.5"
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <Checkbox
+                    checked={completed}
+                    disabled={pending}
+                    aria-label={`Advance status of ${task.title}`}
+                    onCheckedChange={() => onToggle(task.id)}
+                  />
+                  <span
+                    className={`min-w-0 truncate text-sm${
+                      completed
+                        ? " text-muted-foreground line-through"
+                        : ""
+                    }`}
+                  >
+                    {task.title}
+                  </span>
+                </div>
+                <div className="flex shrink-0 items-center gap-3">
+                  {pending ? (
+                    <Spinner className="size-3.5 text-muted-foreground" />
+                  ) : null}
+                  {task.due_date ? (
+                    <span className="text-xs text-muted-foreground tabular-nums">
+                      {formatDate(task.due_date)}
+                    </span>
+                  ) : null}
+                  <StatusPill status={task.status} />
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -324,22 +408,14 @@ export function WorkItemDetailScreen({
     update,
   } = useWorkItems({ repository: repo });
 
-  // Tasks for this item's Tasks tab + progress rollup (per-item fetch).
-  const [tasks, setTasks] = useState<ReadonlyArray<Task>>([]);
-  useEffect(() => {
-    let cancelled = false;
-    repo
-      .getTasks(itemId)
-      .then((loaded) => {
-        if (!cancelled) setTasks(loaded);
-      })
-      .catch(() => {
-        // Supplementary to the row rollup; the screen's error path covers load.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [repo, itemId]);
+  // Tasks for this item's Tasks tab + progress rollup (per-item fetch), now with
+  // the two write gestures (check-off + add) wired through the repository.
+  const {
+    tasks,
+    createTask,
+    toggleStatus,
+    pendingTaskIds,
+  } = useItemTasks({ repository: repo, workItemId: itemId });
 
   // Activity log for the Activity tab (append-only; loaded per item).
   const [activity, setActivity] = useState<ReadonlyArray<ActivityEvent>>([]);
@@ -358,19 +434,52 @@ export function WorkItemDetailScreen({
     };
   }, [repo, itemId]);
 
+  // Every mutation (work-item edit, task add/toggle) appends an ActivityEvent —
+  // re-read the feed so the change shows immediately. Non-fatal on failure.
+  const refreshActivity = useCallback(async (): Promise<void> => {
+    try {
+      setActivity(await repo.listActivity(itemId));
+    } catch {
+      // The feed stays as-is until the next load.
+    }
+  }, [repo, itemId]);
+
   const [editing, setEditing] = useState(false);
   const handleSave = useCallback(
     async (id: string, patch: WorkItemPatch): Promise<void> => {
       await update(id, patch);
-      // The mutation appended an ActivityEvent — refresh the feed so the edit
-      // shows immediately (the header already reflects it via the hook).
+      // The header already reflects the edit via the hook; refresh the feed too.
+      await refreshActivity();
+    },
+    [update, refreshActivity],
+  );
+
+  // Check-off gesture: advance a task one step around the status triad. Optimistic
+  // in the hook; a failure rolls back there and is surfaced here as a toast.
+  const handleToggleTask = useCallback(
+    (id: string): void => {
+      toggleStatus(id)
+        .then(refreshActivity)
+        .catch(() => {
+          toast.error("Couldn't update the task — please try again.");
+        });
+    },
+    [toggleStatus, refreshActivity],
+  );
+
+  // Add gesture: create a task under this item. Re-throws on failure so the
+  // Tasks form keeps the typed title for a retry (it also gets the toast).
+  const handleAddTask = useCallback(
+    async (title: string): Promise<void> => {
       try {
-        setActivity(await repo.listActivity(itemId));
-      } catch {
-        // Non-fatal — the feed stays as-is until the next load.
+        await createTask({ title });
+        await refreshActivity();
+      } catch (cause) {
+        toast.error("Couldn't add the task — please try again.");
+        throw cause;
       }
     },
-    [update, repo, itemId],
+    [createTask, refreshActivity],
   );
 
   const row = useMemo<WorkItemRow | undefined>(
@@ -440,8 +549,11 @@ export function WorkItemDetailScreen({
     );
   }
 
-  const completed = row.completedTaskCount;
-  const total = row.taskCount;
+  // Derive progress from the LIVE per-item tasks (not the hook's list-level
+  // snapshot) so a check-off / add updates the header + progress bar instantly,
+  // in lock-step with the Tasks tab — one source of truth for this item.
+  const total = tasks.length;
+  const completed = tasks.filter((task) => task.status === "completed").length;
   const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
 
   return (
@@ -508,7 +620,12 @@ export function WorkItemDetailScreen({
             </TabsContent>
 
             <TabsContent value="tasks" className="pt-5">
-              <TasksTab tasks={tasks} />
+              <TasksTab
+                tasks={tasks}
+                onToggle={handleToggleTask}
+                onAdd={handleAddTask}
+                pendingTaskIds={pendingTaskIds}
+              />
             </TabsContent>
 
             <TabsContent value="activity" className="pt-5">

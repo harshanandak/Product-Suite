@@ -1,12 +1,14 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useMemo, useState } from "react";
+
+import { useNavigate, useParams } from "@tanstack/react-router";
 
 import { Skeleton } from "@product-suite/ui";
 
 import {
   getDefaultRepository,
+  useItemTasks,
   useRepositoryContext,
   useWorkItems,
-  type Task,
   type WorkItem,
   type WorkItemPatch,
   type WorkItemRepository,
@@ -58,9 +60,10 @@ export interface WorkboardGraphScreenProps {
  * Its OWN sub-board route (`/w/$workspace/workboard/graph`), not an inline tab:
  * the graph is an unbounded canvas, so it takes the whole content area rather
  * than a cramped slice beneath the work-items table. It reuses the data seam and
- * the same {@link WorkItemEditor} so a node click opens the SAME editor a table
- * row / kanban card opens (action parity, §1) — and edge-drag / phase changes
- * flow through the seam mutators (gestures are real mutations, §10).
+ * activating a node navigates to the item's detail PAGE — the SAME target a
+ * table row / kanban card opens (action parity, §1) — while edge-drag / phase
+ * changes flow through the seam mutators (gestures are real mutations, §10). The
+ * shared {@link WorkItemEditor} stays mounted for the quick-edit affordance.
  *
  * The canvas renders ALL items (unfiltered) in v1; scoping (project switcher,
  * focused-neighborhood load) is the Slice B scale layer. The page is deliberately
@@ -74,6 +77,11 @@ export function WorkboardGraphScreen({
     () => repository ?? contextRepo ?? getDefaultRepository(),
   );
 
+  // Node activation routes to the item's detail PAGE (parity with the table +
+  // kanban) — needs the router's navigate + the current workspace param.
+  const navigate = useNavigate();
+  const { workspace } = useParams({ from: "/w/$workspace/workboard/graph" });
+
   const {
     items,
     owners,
@@ -86,23 +94,6 @@ export function WorkboardGraphScreen({
     removeDependency,
   } = useWorkItems({ repository: repo });
 
-  // Tasks for the editor's derived health + read-only task list (loaded once).
-  const [tasks, setTasks] = useState<ReadonlyArray<Task>>([]);
-  useEffect(() => {
-    let cancelled = false;
-    repo
-      .listTasks()
-      .then((loaded) => {
-        if (!cancelled) setTasks(loaded);
-      })
-      .catch(() => {
-        // Supplementary to the editor; the graph's own error path covers load.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [repo]);
-
   // Filter state for the in-canvas filter cluster. The graph renders only the
   // rows that pass the active search + facets (same engine the Table uses).
   const [filterState, setFilterState] = useState(defaultWorkboardFilterState());
@@ -114,9 +105,28 @@ export function WorkboardGraphScreen({
 
   const [selected, setSelected] = useState<WorkItem | null>(null);
 
-  const handleSelectItem = useCallback((row: WorkItemRow) => {
-    setSelected(row);
-  }, []);
+  // Tasks for the OPEN editor only (its read-only list + derived health),
+  // fetched per-item on open — never the whole board's tasks (PR3). The hook's
+  // own list-level task read (board health/counts) is unaffected.
+  const { tasks: editorTasks } = useItemTasks({
+    repository: repo,
+    workItemId: selected?.id ?? null,
+  });
+
+  // Node activation opens the item's durable detail PAGE (same target the table
+  // + kanban use), not the quick-edit Sheet — the graph's own inline edit
+  // affordances (phase pill, edge drag) still flow through the seam mutators.
+  const handleSelectItem = useCallback(
+    (row: WorkItemRow) => {
+      // Fire-and-forget navigation; the trailing .catch keeps this void-returning
+      // handler from floating a promise.
+      navigate({
+        to: "/w/$workspace/workboard/item/$itemId",
+        params: { workspace, itemId: row.id },
+      }).catch(() => undefined);
+    },
+    [navigate, workspace],
+  );
 
   const handleOpenChange = useCallback((open: boolean) => {
     if (!open) setSelected(null);
@@ -173,7 +183,7 @@ export function WorkboardGraphScreen({
         open={liveSelected !== null}
         onOpenChange={handleOpenChange}
         onSave={handleSave}
-        tasks={tasks}
+        tasks={editorTasks}
         owners={owners}
       />
     </section>
