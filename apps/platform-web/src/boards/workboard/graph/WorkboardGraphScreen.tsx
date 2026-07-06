@@ -6,16 +6,12 @@ import { Skeleton } from "@product-suite/ui";
 
 import {
   getDefaultRepository,
-  useItemTasks,
   useRepositoryContext,
   useWorkItems,
-  type WorkItem,
-  type WorkItemPatch,
   type WorkItemRepository,
   type WorkItemRow,
 } from "@/data/work-items";
 
-import { WorkItemEditor } from "../editor/WorkItemEditor";
 import {
   applyWorkboardFilters,
   defaultWorkboardFilterState,
@@ -62,8 +58,7 @@ export interface WorkboardGraphScreenProps {
  * than a cramped slice beneath the work-items table. It reuses the data seam and
  * activating a node navigates to the item's detail PAGE — the SAME target a
  * table row / kanban card opens (action parity, §1) — while edge-drag / phase
- * changes flow through the seam mutators (gestures are real mutations, §10). The
- * shared {@link WorkItemEditor} stays mounted for the quick-edit affordance.
+ * changes flow through the seam mutators (gestures are real mutations, §10).
  *
  * The canvas renders ALL items (unfiltered) in v1; scoping (project switcher,
  * focused-neighborhood load) is the Slice B scale layer. The page is deliberately
@@ -103,16 +98,6 @@ export function WorkboardGraphScreen({
     [items, filterState, owners],
   );
 
-  const [selected, setSelected] = useState<WorkItem | null>(null);
-
-  // Tasks for the OPEN editor only (its read-only list + derived health),
-  // fetched per-item on open — never the whole board's tasks (PR3). The hook's
-  // own list-level task read (board health/counts) is unaffected.
-  const { tasks: editorTasks } = useItemTasks({
-    repository: repo,
-    workItemId: selected?.id ?? null,
-  });
-
   // Node activation opens the item's durable detail PAGE (same target the table
   // + kanban use), not the quick-edit Sheet — the graph's own inline edit
   // affordances (phase pill, edge drag) still flow through the seam mutators.
@@ -126,27 +111,6 @@ export function WorkboardGraphScreen({
       }).catch(() => undefined);
     },
     [navigate, workspace],
-  );
-
-  const handleOpenChange = useCallback((open: boolean) => {
-    if (!open) setSelected(null);
-  }, []);
-
-  const handleSave = useCallback(
-    async (id: string, patch: WorkItemPatch): Promise<void> => {
-      await update(id, patch);
-    },
-    [update],
-  );
-
-  // Keep the open editor's snapshot fresh after a node/inline edit reflows items.
-  const selectedId = selected?.id ?? null;
-  const liveSelected = useMemo<WorkItem | null>(
-    () =>
-      selectedId === null
-        ? null
-        : (items.find((row) => row.id === selectedId) ?? selected),
-    [items, selectedId, selected],
   );
 
   // No page header/chrome — the canvas is full-bleed and owns the whole content
@@ -177,15 +141,6 @@ export function WorkboardGraphScreen({
           />
         </Suspense>
       </div>
-
-      <WorkItemEditor
-        item={liveSelected}
-        open={liveSelected !== null}
-        onOpenChange={handleOpenChange}
-        onSave={handleSave}
-        tasks={editorTasks}
-        owners={owners}
-      />
     </section>
   );
 }

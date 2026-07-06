@@ -83,6 +83,13 @@ export function useItemTasks({
   const tasksRef = useRef<Task[]>([]);
   tasksRef.current = tasks;
 
+  // Mirror the CURRENT open item so an in-flight write (create/toggle) can tell,
+  // AFTER its await, whether the board still shows the same item it started
+  // under. Without this a task resolved after the user switched items would land
+  // in the newly-loaded item's list (a stale cross-item leak).
+  const workItemIdRef = useRef<string | null>(workItemId);
+  workItemIdRef.current = workItemId;
+
   // Guards against setState after unmount across the async load/mutations.
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -134,13 +141,17 @@ export function useItemTasks({
       if (workItemId === null) {
         throw new Error("Cannot create a task without an open work item.");
       }
+      // Capture the item this task is created under; after the await we only
+      // append if the open item is STILL that one — otherwise a task created for
+      // a since-closed item would leak into whatever item is now open.
+      const requestedItemId = workItemId;
       // Pessimistic append: the repo owns the id and may reject (unknown parent),
       // so only show the task once the store confirms it.
       const created = await repository.createTask({
         ...input,
         work_item_id: workItemId,
       });
-      if (mountedRef.current) {
+      if (mountedRef.current && workItemIdRef.current === requestedItemId) {
         setTasks((current) => [...current, created]);
       }
       return created;
@@ -150,6 +161,11 @@ export function useItemTasks({
 
   const toggleStatus = useCallback(
     async (id: string): Promise<Task> => {
+      // The item this toggle targets; after the await we only apply the result
+      // (or its rollback) if the open item is STILL that one — the same
+      // stale-guard `createTask` uses so a settled write never touches another
+      // item's list.
+      const requestedItemId = workItemIdRef.current;
       // Capture the pre-edit record synchronously (before the deferred setState)
       // so a rollback restores the exact task.
       const previous = tasksRef.current.find((task) => task.id === id);
@@ -172,15 +188,20 @@ export function useItemTasks({
 
       try {
         const saved = await repository.toggleStatus(id);
-        if (mountedRef.current) {
+        if (mountedRef.current && workItemIdRef.current === requestedItemId) {
           setTasks((current) =>
             current.map((task) => (task.id === id ? saved : task)),
           );
         }
         return saved;
       } catch (cause) {
-        // Roll back the optimistic advance.
-        if (mountedRef.current && previous) {
+        // Roll back the optimistic advance — but only if we are still on the item
+        // the toggle started under (else its list is already gone).
+        if (
+          mountedRef.current &&
+          workItemIdRef.current === requestedItemId &&
+          previous
+        ) {
           const restored = previous;
           setTasks((current) =>
             current.map((task) => (task.id === id ? restored : task)),

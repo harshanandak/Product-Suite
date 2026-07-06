@@ -15,6 +15,7 @@ import { ThemeProvider, Toaster, toast } from "@product-suite/ui";
 import {
   createMockWorkItemRepository,
   RepositoryProvider,
+  type Task,
   type WorkItemPatch,
 } from "@/data/work-items";
 
@@ -296,8 +297,31 @@ describe("WorkboardScreen", () => {
     expect(items.find((item) => item.id === "wi_realtime")?.phase).toBe("plan");
   });
 
-  it("creates a work item from the New button and opens the editor on it", async () => {
-    render(<WorkboardScreen repository={createMockWorkItemRepository()} />);
+  it("creates a work item from the New button, opens the editor, and shows that item's per-item tasks", async () => {
+    const base = createMockWorkItemRepository();
+    const NEW_ITEM_TASK_TITLE = "Kickoff task for the new item";
+    // The editor's task list is fed by a PER-ITEM read (useItemTasks), not the
+    // board-wide task set. A freshly created item gets the mock's generated
+    // "wi_new_…" id, so seed a task for whatever new id is fetched — proving the
+    // per-item fetch runs for the created item and feeds the sheet.
+    const getTasks = vi.fn((workItemId: string) =>
+      workItemId.startsWith("wi_new_")
+        ? Promise.resolve([
+            {
+              id: "t_new_item",
+              work_item_id: workItemId,
+              title: NEW_ITEM_TASK_TITLE,
+              status: "todo",
+              due_date: null,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            } satisfies Task,
+          ])
+        : base.getTasks(workItemId),
+    );
+    const repository = { ...base, getTasks };
+
+    render(<WorkboardScreen repository={repository} />);
 
     await waitFor(() => {
       expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
@@ -309,6 +333,18 @@ describe("WorkboardScreen", () => {
     const dialog = await screen.findByRole("dialog");
     expect(dialog).toBeInTheDocument();
     expect(screen.getByLabelText("Title")).toHaveValue("Untitled work item");
+
+    // useItemTasks fetched THAT item's tasks per-item (its generated id) — never
+    // a board-wide read…
+    await waitFor(() => {
+      expect(getTasks).toHaveBeenCalledWith(
+        expect.stringMatching(/^wi_new_/),
+      );
+    });
+    // …and those tasks render inside the editor sheet.
+    expect(
+      await within(dialog).findByText(NEW_ITEM_TASK_TITLE),
+    ).toBeInTheDocument();
   });
 
   it("renders the empty state when the repository has no work items", async () => {

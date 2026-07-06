@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createMockWorkItemRepository } from "./repository";
 import type { WorkItemRepository } from "./repository";
+import type { Task } from "./types";
 import { useItemTasks } from "./use-item-tasks";
 
 describe("useItemTasks", () => {
@@ -120,6 +121,62 @@ describe("useItemTasks", () => {
     expect(created?.work_item_id).toBe("wi_auth");
     expect(
       result.current.tasks.some((task) => task.title === "New task"),
+    ).toBe(true);
+  });
+
+  it("does NOT append a created task after the open item changed mid-await (stale guard)", async () => {
+    const base = createMockWorkItemRepository();
+    // Gate `createTask` so the create stays pending while we switch items.
+    let resolveCreate!: (task: Task) => void;
+    const createGate = new Promise<Task>((resolve) => {
+      resolveCreate = resolve;
+    });
+    const repository: WorkItemRepository = {
+      ...base,
+      createTask: vi.fn(() => createGate),
+    };
+
+    const { result, rerender } = renderHook(
+      ({ id }: { id: string }) => useItemTasks({ repository, workItemId: id }),
+      { initialProps: { id: "wi_auth" } },
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    // Start a create under wi_auth; the repo's createTask is gated (still pending).
+    const createPromise = result.current.createTask({ title: "Stale task" });
+
+    // The open item changes to wi_realtime BEFORE the create resolves.
+    rerender({ id: "wi_realtime" });
+    await waitFor(() =>
+      expect(
+        result.current.tasks.length > 0 &&
+          result.current.tasks.every(
+            (task) => task.work_item_id === "wi_realtime",
+          ),
+      ).toBe(true),
+    );
+
+    // The create now resolves — but the task belongs to the OLD item (wi_auth).
+    const staleTask: Task = {
+      id: "task_stale",
+      work_item_id: "wi_auth",
+      title: "Stale task",
+      status: "todo",
+      due_date: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    await act(async () => {
+      resolveCreate(staleTask);
+      await createPromise;
+    });
+
+    // It must NOT leak into wi_realtime's list; the caller still gets the record.
+    expect(result.current.tasks.some((task) => task.id === "task_stale")).toBe(
+      false,
+    );
+    expect(
+      result.current.tasks.every((task) => task.work_item_id === "wi_realtime"),
     ).toBe(true);
   });
 
