@@ -1,23 +1,22 @@
+import { getAuthClaims } from '@/lib/auth/get-auth-claims'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 
 export default async function DashboardPage() {
-  const supabase = await createClient()
+  // Check authentication (canonical claims)
+  const claims = await getAuthClaims()
 
-  // Check authentication
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
+  if (!claims) {
     redirect('/login')
   }
+
+  const supabase = await createClient()
 
   // Get user's teams
   const { data: teamMembers } = await supabase
     .from('team_members')
     .select('team_id')
-    .eq('user_id', user.id)
+    .eq('user_id', claims.subject)
     .limit(1)
 
   if (!teamMembers || teamMembers.length === 0) {
