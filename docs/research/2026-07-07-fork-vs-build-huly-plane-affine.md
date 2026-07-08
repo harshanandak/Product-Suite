@@ -44,7 +44,7 @@ not fork.
 ### Plane — closest domain match, but two hard blocks
 - **Domain fit is real**: issues / cycles / modules ≈ our workboard. Postgres aligns with Neon.
 - **Block 1 — runtime**: Django (Python) cannot run on Cloudflare Workers; it needs a container/VM/managed host. Contradicts the Cloudflare-first decision.
-- **Block 2 — license**: **AGPL-3.0** requires that any modified version *run as a network service* publish its complete modified source to users. Even "we're open-source anyway" doesn't make this free — AGPL dictates *how* you must license, forecloses ever keeping a component proprietary, and is generally incompatible with a mixed commercial SaaS. This is a legal-architecture decision, not a formality.
+- **Block 2 — license**: **AGPL-3.0 §13** requires that when you run a *modified* version as a network service, you offer the Corresponding Source to those interacting network users at no charge — a per-user offer, not mandatory public publication. Even "we're open-source anyway" doesn't make this frictionless: AGPL dictates *how* you must license, is generally incompatible with keeping a linked component proprietary, and complicates a mixed commercial SaaS. A deliberate legal-architecture decision, not a formality.
 - Net: right shape, wrong runtime + a copyleft that constrains the business model.
 
 ### Affine — wrong category + heaviest engine

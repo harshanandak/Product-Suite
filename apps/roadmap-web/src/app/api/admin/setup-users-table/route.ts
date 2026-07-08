@@ -3,6 +3,12 @@ import { getAuthClaims } from '@/lib/auth/get-auth-claims'
 import { NextResponse } from 'next/server'
 
 export async function POST() {
+  // One-off bootstrap utility that executes DDL via exec_sql. It must never be
+  // reachable in production, where a logged-in user could trigger schema changes.
+  if (process.env.NODE_ENV === 'production') {
+    return NextResponse.json({ error: 'Not available in production' }, { status: 403 })
+  }
+
   try {
     const supabase = await createClient()
 

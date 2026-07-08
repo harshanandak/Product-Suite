@@ -14,6 +14,17 @@ describe('POST /api/admin/setup-users-table auth', () => {
     createClient.mockReset()
   })
 
+  it('returns 403 in production without checking auth or running DDL', async () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    try {
+      const res = await POST()
+      expect(res.status).toBe(403)
+      expect(getAuthClaims).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it('returns 401 when there are no canonical auth claims', async () => {
     const rpc = vi.fn()
     createClient.mockResolvedValue({ rpc })
