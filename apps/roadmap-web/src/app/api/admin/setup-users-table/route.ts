@@ -1,16 +1,15 @@
 import { createClient } from '@/lib/supabase/server'
+import { getAuthClaims } from '@/lib/auth/get-auth-claims'
 import { NextResponse } from 'next/server'
 
 export async function POST() {
   try {
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    // Check authentication (canonical claims)
+    const claims = await getAuthClaims()
 
-    if (!user) {
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
