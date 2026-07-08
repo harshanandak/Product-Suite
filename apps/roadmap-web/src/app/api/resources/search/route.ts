@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { handleRouteError, requireTeamMembership } from '@/lib/auth/api-guard'
+import { handleRouteError, requireAuth, requireTeamMembership } from '@/lib/auth/api-guard'
 import type { ResourceWithMeta } from '@/lib/types/resources'
 
 /**
@@ -28,6 +28,9 @@ import type { ResourceWithMeta } from '@/lib/types/resources'
  */
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+
     const supabase = await createClient()
     const { searchParams } = new URL(req.url)
 

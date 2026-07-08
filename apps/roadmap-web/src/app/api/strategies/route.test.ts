@@ -44,6 +44,7 @@ describe('GET /api/strategies auth', () => {
   })
 
   it('returns 400 when team_id is missing', async () => {
+    getAuthClaims.mockResolvedValue(VALID_CLAIMS)
     createClient.mockResolvedValue(makeClient({}))
     const res = await GET(new NextRequest('http://localhost/api/strategies'))
     expect(res.status).toBe(400)
@@ -72,6 +73,7 @@ describe('POST /api/strategies auth', () => {
   })
 
   it('returns 400 when required fields are missing', async () => {
+    getAuthClaims.mockResolvedValue(VALID_CLAIMS)
     createClient.mockResolvedValue(makeClient({}))
     const res = await POST(postReq({ team_id: 'team-1' }))
     expect(res.status).toBe(400)

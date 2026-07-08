@@ -15,7 +15,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { requireTeamMembership, handleRouteError } from '@/lib/auth/api-guard'
+import { requireAuth, requireTeamMembership, handleRouteError } from '@/lib/auth/api-guard'
 import type { StrategyType } from '@/lib/types/strategy'
 
 interface ProgressByType {
@@ -58,6 +58,9 @@ interface StatsResponse {
  */
 export async function GET(req: NextRequest): Promise<NextResponse<StatsResponse | { error: string }>> {
   try {
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth as NextResponse<{ error: string }>
+
     const supabase = await createClient()
     const { searchParams } = new URL(req.url)
 

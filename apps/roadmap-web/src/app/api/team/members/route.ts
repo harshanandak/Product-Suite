@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { requireTeamMembership, handleRouteError } from '@/lib/auth/api-guard'
+import { requireAuth, requireTeamMembership, handleRouteError } from '@/lib/auth/api-guard'
 
 /**
  * GET /api/team/members?team_id=xxx
@@ -8,6 +8,9 @@ import { requireTeamMembership, handleRouteError } from '@/lib/auth/api-guard'
  */
 export async function GET(request: NextRequest) {
   try {
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+
     const supabase = await createClient()
 
     // Get team_id from query params

@@ -26,6 +26,9 @@ import type { DepartmentInsert } from '@/lib/types/department';
  */
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requireAuth();
+    if (auth instanceof NextResponse) return auth;
+
     const supabase = await createClient();
     const { searchParams } = new URL(req.url);
     const teamId = searchParams.get('team_id');
@@ -114,6 +117,10 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requireAuth();
+    if (auth instanceof NextResponse) return auth;
+    const claims = auth;
+
     const supabase = await createClient();
     const body = await req.json() as DepartmentInsert;
 
@@ -133,11 +140,6 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-
-    // Auth guard (see lib/auth/api-guard)
-    const auth = await requireAuth();
-    if (auth instanceof NextResponse) return auth;
-    const claims = auth;
 
     // Validate admin/owner role
     const { data: membership } = await supabase

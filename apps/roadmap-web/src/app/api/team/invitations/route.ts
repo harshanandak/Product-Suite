@@ -28,6 +28,9 @@ function generateInvitationToken(): string {
  */
 export async function GET(request: NextRequest) {
   try {
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+
     const supabase = await createClient()
 
     // Get team_id from query params

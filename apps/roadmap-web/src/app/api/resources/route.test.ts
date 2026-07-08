@@ -48,6 +48,7 @@ beforeEach(() => {
 
 describe('GET /api/resources', () => {
   it('returns 400 when team_id is missing', async () => {
+    getAuthClaims.mockResolvedValue(claims)
     createClient.mockResolvedValue(makeClient())
     const res = await GET(new NextRequest('http://localhost/api/resources'))
     expect(res.status).toBe(400)
@@ -71,6 +72,7 @@ describe('GET /api/resources', () => {
 
 describe('POST /api/resources', () => {
   it('returns 400 when required fields are missing', async () => {
+    getAuthClaims.mockResolvedValue(claims)
     createClient.mockResolvedValue(makeClient())
     const res = await POST(postReq({ team_id: 't1' }))
     expect(res.status).toBe(400)

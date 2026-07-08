@@ -8,7 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { requireTeamMembership, handleRouteError } from '@/lib/auth/api-guard'
+import { requireAuth, requireTeamMembership, handleRouteError } from '@/lib/auth/api-guard'
 import type {
   FeatureOverviewData,
   PieChartData,
@@ -19,6 +19,9 @@ import { STATUS_COLORS, PRIORITY_COLORS, PHASE_COLORS } from '@/lib/types/analyt
 
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+
     const supabase = await createClient()
     const { searchParams } = new URL(req.url)
 

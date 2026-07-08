@@ -38,6 +38,7 @@ describe('GET /api/insights auth', () => {
   })
 
   it('returns 400 when team_id is missing', async () => {
+    getAuthClaims.mockResolvedValue({ subject: 'user-1', email: 'u@e.com', provider: 'neon' })
     createClient.mockResolvedValue({ from: vi.fn() })
     const res = await GET(new NextRequest('http://localhost/api/insights'))
     expect(res.status).toBe(400)
@@ -68,6 +69,7 @@ describe('POST /api/insights auth', () => {
   })
 
   it('returns 400 when required fields are missing', async () => {
+    getAuthClaims.mockResolvedValue({ subject: 'user-1', email: 'u@e.com', provider: 'neon' })
     createClient.mockResolvedValue({ from: vi.fn() })
     const res = await POST(postReq({}))
     expect(res.status).toBe(400)

@@ -38,12 +38,14 @@ beforeEach(() => {
 
 describe('GET /api/resources/search', () => {
   it('returns 400 when team_id is missing', async () => {
+    getAuthClaims.mockResolvedValue(claims)
     createClient.mockResolvedValue(makeClient())
     const res = await GET(new NextRequest('http://localhost/api/resources/search?q=foo'))
     expect(res.status).toBe(400)
   })
 
   it('returns 400 when the search query is missing', async () => {
+    getAuthClaims.mockResolvedValue(claims)
     createClient.mockResolvedValue(makeClient())
     const res = await GET(new NextRequest('http://localhost/api/resources/search?team_id=t1'))
     expect(res.status).toBe(400)

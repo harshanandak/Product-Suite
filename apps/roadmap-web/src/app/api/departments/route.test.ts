@@ -45,6 +45,7 @@ describe('departments route auth', () => {
   })
 
   it('GET returns 400 when team_id is missing', async () => {
+    getAuthClaims.mockResolvedValue(CLAIMS)
     createClient.mockResolvedValue(client({}))
     const res = await GET(getReq(''))
     expect(res.status).toBe(400)
@@ -66,12 +67,14 @@ describe('departments route auth', () => {
   })
 
   it('POST returns 400 when team_id is missing', async () => {
+    getAuthClaims.mockResolvedValue(CLAIMS)
     createClient.mockResolvedValue(client({}))
     const res = await POST(postReq({ name: 'Eng' }))
     expect(res.status).toBe(400)
   })
 
   it('POST returns 400 when name is missing', async () => {
+    getAuthClaims.mockResolvedValue(CLAIMS)
     createClient.mockResolvedValue(client({}))
     const res = await POST(postReq({ team_id: 't1' }))
     expect(res.status).toBe(400)

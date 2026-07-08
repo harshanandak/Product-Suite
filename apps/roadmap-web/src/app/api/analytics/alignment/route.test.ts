@@ -28,6 +28,7 @@ describe('GET /api/analytics/alignment auth', () => {
   })
 
   it('returns 400 when workspace_id/team_id are missing', async () => {
+    getAuthClaims.mockResolvedValue({ subject: 'user-1', email: 'u@e.com', provider: 'neon' })
     createClient.mockResolvedValue({ from: vi.fn() })
     const res = await GET(new NextRequest('http://localhost/api/analytics/alignment'))
     expect(res.status).toBe(400)

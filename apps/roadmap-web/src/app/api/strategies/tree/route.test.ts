@@ -35,6 +35,7 @@ describe('GET /api/strategies/tree auth', () => {
   })
 
   it('returns 400 when team_id is missing', async () => {
+    getAuthClaims.mockResolvedValue(VALID_CLAIMS)
     createClient.mockResolvedValue(makeClient({}))
     const res = await GET(new NextRequest('http://localhost/api/strategies/tree'))
     expect(res.status).toBe(400)
