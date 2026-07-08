@@ -15,7 +15,6 @@ export async function POST() {
     // Auth guard (see lib/auth/api-guard)
     const auth = await requireAuth()
     if (auth instanceof NextResponse) return auth
-    const claims = auth
 
     // Run the SQL to create the users table
     const { data, error } = await supabase.rpc('exec_sql', {
