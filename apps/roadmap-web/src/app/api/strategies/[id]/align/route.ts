@@ -11,7 +11,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/auth/api-guard'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 import type {
   AlignWorkItemRequest,
   RemoveAlignmentRequest,
@@ -149,11 +149,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       }, { status: 201 })
     }
   } catch (error) {
-    console.error('Strategy align POST error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Strategy align POST error')
   }
 }
 
@@ -256,10 +252,6 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       ...results,
     })
   } catch (error) {
-    console.error('Strategy align DELETE error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Strategy align DELETE error')
   }
 }

@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/auth/api-guard'
+import { requireAuth, resolveCallerTeam, handleRouteError } from '@/lib/auth/api-guard'
 import { NextResponse } from 'next/server'
 
 /**
@@ -19,16 +19,9 @@ export async function GET(
     if (auth instanceof NextResponse) return auth
     const claims = auth
 
-    // Get user's team
-    const { data: teamMember } = await supabase
-      .from('team_members')
-      .select('team_id')
-      .eq('user_id', claims.subject)
-      .single()
-
-    if (!teamMember) {
-      return NextResponse.json({ error: 'No team found' }, { status: 404 })
-    }
+    const team = await resolveCallerTeam(supabase, claims.subject)
+    if (team instanceof NextResponse) return team
+    const { teamId } = team
 
     // Fetch feedback
     const { data: feedback, error: fetchError } = await supabase
@@ -40,7 +33,7 @@ export async function GET(
         decision_by_user:users!decision_by(id, name, email)
       `)
       .eq('id', id)
-      .eq('team_id', teamMember.team_id)
+      .eq('team_id', teamId)
       .single()
 
     if (fetchError || !feedback) {
@@ -51,13 +44,8 @@ export async function GET(
     }
 
     return NextResponse.json(feedback, { status: 200 })
-  } catch (error: unknown) {
-    console.error('Error fetching feedback:', error)
-    const message = error instanceof Error ? error.message : 'Failed to fetch feedback'
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    )
+  } catch (error) {
+    return handleRouteError(error, 'Error fetching feedback')
   }
 }
 
@@ -79,23 +67,16 @@ export async function PATCH(
     if (auth instanceof NextResponse) return auth
     const claims = auth
 
-    // Get user's team
-    const { data: teamMember } = await supabase
-      .from('team_members')
-      .select('team_id')
-      .eq('user_id', claims.subject)
-      .single()
-
-    if (!teamMember) {
-      return NextResponse.json({ error: 'No team found' }, { status: 404 })
-    }
+    const team = await resolveCallerTeam(supabase, claims.subject)
+    if (team instanceof NextResponse) return team
+    const { teamId } = team
 
     // Verify feedback exists and belongs to team
     const { data: existingFeedback, error: checkError } = await supabase
       .from('feedback')
       .select('id, team_id')
       .eq('id', id)
-      .eq('team_id', teamMember.team_id)
+      .eq('team_id', teamId)
       .single()
 
     if (checkError || !existingFeedback) {
@@ -147,7 +128,7 @@ export async function PATCH(
       .from('feedback')
       .update(updates)
       .eq('id', id)
-      .eq('team_id', teamMember.team_id)
+      .eq('team_id', teamId)
       .select(`
         *,
         work_item:work_items!work_item_id(id, name, type),
@@ -161,13 +142,8 @@ export async function PATCH(
     }
 
     return NextResponse.json(updatedFeedback, { status: 200 })
-  } catch (error: unknown) {
-    console.error('Error updating feedback:', error)
-    const message = error instanceof Error ? error.message : 'Failed to update feedback'
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    )
+  } catch (error) {
+    return handleRouteError(error, 'Error updating feedback')
   }
 }
 
@@ -188,35 +164,23 @@ export async function DELETE(
     if (auth instanceof NextResponse) return auth
     const claims = auth
 
-    // Get user's team
-    const { data: teamMember } = await supabase
-      .from('team_members')
-      .select('team_id')
-      .eq('user_id', claims.subject)
-      .single()
-
-    if (!teamMember) {
-      return NextResponse.json({ error: 'No team found' }, { status: 404 })
-    }
+    const team = await resolveCallerTeam(supabase, claims.subject)
+    if (team instanceof NextResponse) return team
+    const { teamId } = team
 
     // Delete feedback
     const { error: deleteError } = await supabase
       .from('feedback')
       .delete()
       .eq('id', id)
-      .eq('team_id', teamMember.team_id)
+      .eq('team_id', teamId)
 
     if (deleteError) {
       throw deleteError
     }
 
     return NextResponse.json({ success: true }, { status: 200 })
-  } catch (error: unknown) {
-    console.error('Error deleting feedback:', error)
-    const message = error instanceof Error ? error.message : 'Failed to delete feedback'
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    )
+  } catch (error) {
+    return handleRouteError(error, 'Error deleting feedback')
   }
 }

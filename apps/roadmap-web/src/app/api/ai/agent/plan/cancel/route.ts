@@ -21,7 +21,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/auth/api-guard'
+import { handleRouteError, requireAuth } from '@/lib/auth/api-guard'
 import { activePlanSignals } from '../approve/route'
 import type { TaskPlan } from '@/lib/ai/task-planner'
 
@@ -100,10 +100,6 @@ export async function POST(req: NextRequest) {
       message: 'Plan is not currently executing or has already completed.',
     })
   } catch (error) {
-    console.error('[Plan Cancel API] Error:', error)
-    return Response.json(
-      { error: error instanceof Error ? error.message : 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, '[Plan Cancel API] Error')
   }
 }

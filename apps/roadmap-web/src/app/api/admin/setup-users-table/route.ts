@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/auth/api-guard'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 import { NextResponse } from 'next/server'
 
 export async function POST() {
@@ -100,11 +100,7 @@ export async function POST() {
       message: 'Users table created successfully',
       data
     })
-  } catch (error: unknown) {
-    console.error('Setup error:', error)
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Internal server error' },
-      { status: 500 }
-    )
+  } catch (error) {
+    return handleRouteError(error, 'Setup error')
   }
 }

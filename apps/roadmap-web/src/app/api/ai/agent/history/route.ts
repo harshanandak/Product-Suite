@@ -21,7 +21,7 @@
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/auth/api-guard'
+import { handleRouteError, requireAuth } from '@/lib/auth/api-guard'
 import { HistoryQuerySchema } from '@/lib/ai/schemas/agentic-schemas'
 
 export async function GET(request: Request) {
@@ -143,13 +143,6 @@ export async function GET(request: Request) {
       },
     })
   } catch (error) {
-    console.error('[Agent History] Error:', error)
-
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : 'Internal server error',
-      },
-      { status: 500 }
-    )
+    return handleRouteError(error, '[Agent History] Error')
   }
 }

@@ -15,7 +15,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { requireTeamMembership } from '@/lib/auth/api-guard'
+import { requireTeamMembership, handleRouteError } from '@/lib/auth/api-guard'
 import type { StrategyType } from '@/lib/types/strategy'
 
 interface ProgressByType {
@@ -250,10 +250,6 @@ export async function GET(req: NextRequest): Promise<NextResponse<StatsResponse 
       },
     })
   } catch (error) {
-    console.error('Strategy stats GET error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Strategy stats GET error') as NextResponse<{ error: string }>
   }
 }

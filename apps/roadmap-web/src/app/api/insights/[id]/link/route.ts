@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { requireAuth } from '@/lib/auth/api-guard';
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard';
 import type { LinkInsightRequest } from '@/lib/types/customer-insight';
 
 /**
@@ -130,11 +130,7 @@ export async function POST(
 
     return NextResponse.json({ data: link }, { status: 201 });
   } catch (error) {
-    console.error('Error in POST /api/insights/[id]/link:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return handleRouteError(error, 'Error in POST /api/insights/[id]/link');
   }
 }
 
@@ -204,10 +200,6 @@ export async function DELETE(
 
     return NextResponse.json({ message: 'Link removed successfully' });
   } catch (error) {
-    console.error('Error in DELETE /api/insights/[id]/link:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return handleRouteError(error, 'Error in DELETE /api/insights/[id]/link');
   }
 }

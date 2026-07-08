@@ -12,7 +12,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/auth/api-guard'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 import type {
   UpdateStrategyRequest,
   StrategyWithChildren,
@@ -154,11 +154,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       aligned_work_items: alignedWorkItems,
     })
   } catch (error) {
-    console.error('Strategy GET error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Strategy GET error')
   }
 }
 
@@ -306,11 +302,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({ data: updatedStrategy })
   } catch (error) {
-    console.error('Strategy PATCH error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Strategy PATCH error')
   }
 }
 
@@ -375,10 +367,6 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    console.error('Strategy DELETE error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Strategy DELETE error')
   }
 }

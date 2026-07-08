@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/auth/api-guard'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 import { z } from 'zod'
 
 // Validation schema for updating member role
@@ -138,11 +138,7 @@ export async function PATCH(
     })
 
   } catch (error) {
-    console.error('Error in PATCH /api/team/members/[id]:', error)
-    return NextResponse.json(
-      { error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error', success: false },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Error in PATCH /api/team/members/[id]')
   }
 }
 
@@ -285,10 +281,6 @@ export async function DELETE(
     })
 
   } catch (error) {
-    console.error('Error in DELETE /api/team/members/[id]:', error)
-    return NextResponse.json(
-      { error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error', success: false },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Error in DELETE /api/team/members/[id]')
   }
 }

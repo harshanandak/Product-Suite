@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/auth/api-guard'
+import { requireAuth, resolveCallerTeam, handleRouteError } from '@/lib/auth/api-guard'
 import { NextResponse } from 'next/server'
 
 /**
@@ -16,16 +16,9 @@ export async function GET(request: Request) {
     if (auth instanceof NextResponse) return auth
     const claims = auth
 
-    // Get user's team
-    const { data: teamMember } = await supabase
-      .from('team_members')
-      .select('team_id')
-      .eq('user_id', claims.subject)
-      .single()
-
-    if (!teamMember) {
-      return NextResponse.json({ error: 'No team found' }, { status: 404 })
-    }
+    const team = await resolveCallerTeam(supabase, claims.subject)
+    if (team instanceof NextResponse) return team
+    const { teamId } = team
 
     // Parse filters
     const workItemId = searchParams.get('work_item_id')
@@ -44,7 +37,7 @@ export async function GET(request: Request) {
         implemented_in:work_items!implemented_in_id(id, name, type),
         decision_by_user:users!decision_by(id, name, email)
       `)
-      .eq('team_id', teamMember.team_id)
+      .eq('team_id', teamId)
       .order('created_at', { ascending: false })
 
     // Apply filters
@@ -76,13 +69,8 @@ export async function GET(request: Request) {
     }
 
     return NextResponse.json(feedback, { status: 200 })
-  } catch (error: unknown) {
-    console.error('Error fetching feedback:', error)
-    const message = error instanceof Error ? error.message : 'Failed to fetch feedback'
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    )
+  } catch (error) {
+    return handleRouteError(error, 'Error fetching feedback')
   }
 }
 
@@ -100,16 +88,9 @@ export async function POST(request: Request) {
     if (auth instanceof NextResponse) return auth
     const claims = auth
 
-    // Get user's team
-    const { data: teamMember } = await supabase
-      .from('team_members')
-      .select('team_id')
-      .eq('user_id', claims.subject)
-      .single()
-
-    if (!teamMember) {
-      return NextResponse.json({ error: 'No team found' }, { status: 404 })
-    }
+    const team = await resolveCallerTeam(supabase, claims.subject)
+    if (team instanceof NextResponse) return team
+    const { teamId } = team
 
     const {
       work_item_id,
@@ -148,7 +129,7 @@ export async function POST(request: Request) {
       .from('work_items')
       .select('id, workspace_id, team_id')
       .eq('id', work_item_id)
-      .eq('team_id', teamMember.team_id)
+      .eq('team_id', teamId)
       .single()
 
     if (workItemError || !workItem) {
@@ -184,7 +165,7 @@ export async function POST(request: Request) {
     const feedback = {
       id,
       work_item_id,
-      team_id: teamMember.team_id,
+      team_id: teamId,
       workspace_id,
       source,
       source_name,
@@ -213,12 +194,7 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json(newFeedback, { status: 201 })
-  } catch (error: unknown) {
-    console.error('Error creating feedback:', error)
-    const message = error instanceof Error ? error.message : 'Failed to create feedback'
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    )
+  } catch (error) {
+    return handleRouteError(error, 'Error creating feedback')
   }
 }

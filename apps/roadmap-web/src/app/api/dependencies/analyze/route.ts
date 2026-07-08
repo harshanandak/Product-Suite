@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/auth/api-guard'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 import { NextResponse } from 'next/server'
 import { calculateCriticalPath } from '@/lib/algorithms/critical-path'
 import { detectCycles } from '@/lib/algorithms/cycle-detection'
@@ -118,8 +118,7 @@ export async function POST(request: Request) {
       healthScore: criticalPathResult.healthScore,
       warnings: criticalPathResult.warnings,
     })
-  } catch (error: unknown) {
-    console.error('Error in POST /api/dependencies/analyze:', error)
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Internal server error' }, { status: 500 })
+  } catch (error) {
+    return handleRouteError(error, 'POST /api/dependencies/analyze')
   }
 }

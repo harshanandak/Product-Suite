@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { requireTeamMembership } from '@/lib/auth/api-guard'
+import { handleRouteError, requireTeamMembership } from '@/lib/auth/api-guard'
 import type { ResourceWithMeta } from '@/lib/types/resources'
 
 /**
@@ -111,10 +111,6 @@ export async function GET(req: NextRequest) {
       },
     })
   } catch (error) {
-    console.error('Resources search error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Resources search error')
   }
 }

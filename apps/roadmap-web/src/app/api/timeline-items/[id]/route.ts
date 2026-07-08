@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/auth/api-guard'
+import { requireAuth, resolveCallerTeam, handleRouteError } from '@/lib/auth/api-guard'
 import { NextResponse } from 'next/server'
 
 /**
@@ -20,15 +20,9 @@ export async function GET(
     const claims = auth
 
     // Get user's team
-    const { data: teamMember } = await supabase
-      .from('team_members')
-      .select('team_id')
-      .eq('user_id', claims.subject)
-      .single()
-
-    if (!teamMember) {
-      return NextResponse.json({ error: 'No team found' }, { status: 404 })
-    }
+    const team = await resolveCallerTeam(supabase, claims.subject)
+    if (team instanceof NextResponse) return team
+    const { teamId } = team
 
     // Fetch timeline item
     const { data: timelineItem, error: fetchError } = await supabase
@@ -39,7 +33,7 @@ export async function GET(
         assigned_to_user:users!assigned_to(id, name, email)
       `)
       .eq('id', id)
-      .eq('team_id', teamMember.team_id)
+      .eq('team_id', teamId)
       .single()
 
     if (fetchError || !timelineItem) {
@@ -50,13 +44,8 @@ export async function GET(
     }
 
     return NextResponse.json(timelineItem, { status: 200 })
-  } catch (error: unknown) {
-    console.error('Error fetching timeline item:', error)
-    const message = error instanceof Error ? error.message : 'Failed to fetch timeline item'
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    )
+  } catch (error) {
+    return handleRouteError(error, 'GET /api/timeline-items/[id]')
   }
 }
 
@@ -79,22 +68,16 @@ export async function PATCH(
     const claims = auth
 
     // Get user's team
-    const { data: teamMember } = await supabase
-      .from('team_members')
-      .select('team_id')
-      .eq('user_id', claims.subject)
-      .single()
-
-    if (!teamMember) {
-      return NextResponse.json({ error: 'No team found' }, { status: 404 })
-    }
+    const team = await resolveCallerTeam(supabase, claims.subject)
+    if (team instanceof NextResponse) return team
+    const { teamId } = team
 
     // Verify timeline item exists and belongs to team
     const { data: existingItem, error: checkError } = await supabase
       .from('timeline_items')
       .select('id, team_id')
       .eq('id', id)
-      .eq('team_id', teamMember.team_id)
+      .eq('team_id', teamId)
       .single()
 
     if (checkError || !existingItem) {
@@ -202,7 +185,7 @@ export async function PATCH(
       .from('timeline_items')
       .update(updates)
       .eq('id', id)
-      .eq('team_id', teamMember.team_id)
+      .eq('team_id', teamId)
       .select(`
         *,
         work_item:work_items!work_item_id(id, name, type),
@@ -215,13 +198,8 @@ export async function PATCH(
     }
 
     return NextResponse.json(updatedItem, { status: 200 })
-  } catch (error: unknown) {
-    console.error('Error updating timeline item:', error)
-    const message = error instanceof Error ? error.message : 'Failed to update timeline item'
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    )
+  } catch (error) {
+    return handleRouteError(error, 'PATCH /api/timeline-items/[id]')
   }
 }
 
@@ -243,34 +221,23 @@ export async function DELETE(
     const claims = auth
 
     // Get user's team
-    const { data: teamMember } = await supabase
-      .from('team_members')
-      .select('team_id')
-      .eq('user_id', claims.subject)
-      .single()
-
-    if (!teamMember) {
-      return NextResponse.json({ error: 'No team found' }, { status: 404 })
-    }
+    const team = await resolveCallerTeam(supabase, claims.subject)
+    if (team instanceof NextResponse) return team
+    const { teamId } = team
 
     // Delete timeline item
     const { error: deleteError } = await supabase
       .from('timeline_items')
       .delete()
       .eq('id', id)
-      .eq('team_id', teamMember.team_id)
+      .eq('team_id', teamId)
 
     if (deleteError) {
       throw deleteError
     }
 
     return NextResponse.json({ success: true }, { status: 200 })
-  } catch (error: unknown) {
-    console.error('Error deleting timeline item:', error)
-    const message = error instanceof Error ? error.message : 'Failed to delete timeline item'
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    )
+  } catch (error) {
+    return handleRouteError(error, 'DELETE /api/timeline-items/[id]')
   }
 }

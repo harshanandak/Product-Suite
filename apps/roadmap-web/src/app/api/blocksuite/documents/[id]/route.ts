@@ -14,7 +14,7 @@
  */
 
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/auth/api-guard'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 import { NextResponse } from 'next/server'
 import { isValidId } from '@/components/blocksuite/persistence-types'
 import { safeValidateDocumentUpdate } from '@/components/blocksuite/schema'
@@ -134,11 +134,8 @@ export async function GET(
     }
 
     return NextResponse.json({ document })
-  } catch (error: unknown) {
-    console.error('Error in GET /api/blocksuite/documents/[id]:', error)
-    const message =
-      error instanceof Error ? error.message : 'An unexpected error occurred'
-    return NextResponse.json({ error: message }, { status: 500 })
+  } catch (error) {
+    return handleRouteError(error, 'GET /api/blocksuite/documents/[id]')
   }
 }
 
@@ -239,11 +236,8 @@ export async function PATCH(
     })
 
     return NextResponse.json({ document })
-  } catch (error: unknown) {
-    console.error('Error in PATCH /api/blocksuite/documents/[id]:', error)
-    const message =
-      error instanceof Error ? error.message : 'An unexpected error occurred'
-    return NextResponse.json({ error: message }, { status: 500 })
+  } catch (error) {
+    return handleRouteError(error, 'PATCH /api/blocksuite/documents/[id]')
   }
 }
 
@@ -346,10 +340,7 @@ export async function DELETE(
     })
 
     return NextResponse.json({ success: true })
-  } catch (error: unknown) {
-    console.error('Error in DELETE /api/blocksuite/documents/[id]:', error)
-    const message =
-      error instanceof Error ? error.message : 'An unexpected error occurred'
-    return NextResponse.json({ error: message }, { status: 500 })
+  } catch (error) {
+    return handleRouteError(error, 'DELETE /api/blocksuite/documents/[id]')
   }
 }

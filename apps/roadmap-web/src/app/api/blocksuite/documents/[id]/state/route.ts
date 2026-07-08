@@ -14,7 +14,7 @@
  */
 
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/auth/api-guard'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 import { NextRequest, NextResponse } from 'next/server'
 import { isValidId } from '@/components/blocksuite/persistence-types'
 import { rateLimiters, checkRateLimit, getRateLimitIdentifier, createRateLimitHeaders } from '@/lib/rate-limiter'
@@ -129,11 +129,8 @@ export async function GET(
     return new NextResponse(arrayBuffer, {
       headers: { 'Content-Type': 'application/octet-stream' },
     })
-  } catch (error: unknown) {
-    console.error('Error in GET /api/blocksuite/documents/[id]/state:', error)
-    const message =
-      error instanceof Error ? error.message : 'An unexpected error occurred'
-    return NextResponse.json({ error: message }, { status: 500 })
+  } catch (error) {
+    return handleRouteError(error, 'GET /api/blocksuite/documents/[id]/state')
   }
 }
 
@@ -310,11 +307,8 @@ export async function PUT(
       size: state.length,
       sync_version: newSyncVersion,
     }, { headers: successHeaders })
-  } catch (error: unknown) {
-    console.error('Error in PUT /api/blocksuite/documents/[id]/state:', error)
-    const message =
-      error instanceof Error ? error.message : 'An unexpected error occurred'
-    return NextResponse.json({ error: message }, { status: 500 })
+  } catch (error) {
+    return handleRouteError(error, 'PUT /api/blocksuite/documents/[id]/state')
   }
 }
 

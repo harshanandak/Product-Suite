@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { requireTeamMembership } from '@/lib/auth/api-guard'
+import { requireTeamMembership, handleRouteError } from '@/lib/auth/api-guard'
 
 /**
  * GET /api/team/members?team_id=xxx
@@ -57,10 +57,6 @@ export async function GET(request: NextRequest) {
     })
 
   } catch (error) {
-    console.error('Error in GET /api/team/members:', error)
-    return NextResponse.json(
-      { error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error', success: false },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Error in GET /api/team/members')
   }
 }

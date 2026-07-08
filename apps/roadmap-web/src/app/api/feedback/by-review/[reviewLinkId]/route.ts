@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/auth/api-guard'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 import { NextResponse } from 'next/server'
 
 /**
@@ -82,11 +82,7 @@ export async function GET(
       feedback: feedback || [],
       summary,
     })
-  } catch (error: unknown) {
-    console.error('Error fetching feedback:', error)
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to fetch feedback' },
-      { status: 500 }
-    )
+  } catch (error) {
+    return handleRouteError(error, 'Error fetching feedback')
   }
 }

@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { requireTeamMembership } from '@/lib/auth/api-guard'
+import { requireTeamMembership, handleRouteError } from '@/lib/auth/api-guard'
 import { NextRequest, NextResponse } from 'next/server'
 
 /**
@@ -36,7 +36,6 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(workspaces || [])
   } catch (error) {
-    console.error('Error in GET /api/team/workspaces:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return handleRouteError(error, 'Error in GET /api/team/workspaces')
   }
 }

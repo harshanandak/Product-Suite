@@ -11,7 +11,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/auth/api-guard'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 import type {
   WorkItemResourcesResponse,
   LinkResourceRequest,
@@ -95,11 +95,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({ data: response })
   } catch (error) {
-    console.error('Work item resources GET error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Work item resources GET error')
   }
 }
 
@@ -351,11 +347,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ data: resource }, { status: 201 })
     }
   } catch (error) {
-    console.error('Work item resources POST error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Work item resources POST error')
   }
 }
 
@@ -432,10 +424,6 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({ message: 'Resource unlinked successfully' })
   } catch (error) {
-    console.error('Work item resources DELETE error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Work item resources DELETE error')
   }
 }

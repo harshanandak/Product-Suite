@@ -8,7 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/auth/api-guard'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 import type { IntegrationDisplay, IntegrationStatus } from '@/lib/types/integrations'
 
 interface RouteContext {
@@ -90,8 +90,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
     return NextResponse.json(display)
   } catch (error) {
-    console.error('[Integration API] Error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return handleRouteError(error, '[Integration API] Error')
   }
 }
 
@@ -170,8 +169,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       integration: updated,
     })
   } catch (error) {
-    console.error('[Integration API] Error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return handleRouteError(error, '[Integration API] Error')
   }
 }
 
@@ -227,7 +225,6 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
 
     return NextResponse.json({ message: 'Integration deleted' })
   } catch (error) {
-    console.error('[Integration API] Error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return handleRouteError(error, '[Integration API] Error')
   }
 }

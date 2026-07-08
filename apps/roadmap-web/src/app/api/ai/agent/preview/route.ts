@@ -32,7 +32,7 @@
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/auth/api-guard'
+import { handleRouteError, requireAuth } from '@/lib/auth/api-guard'
 import { agentExecutor } from '@/lib/ai/agent-executor'
 import { PreviewToolRequestSchema } from '@/lib/ai/schemas/agentic-schemas'
 
@@ -88,13 +88,6 @@ export async function POST(request: Request) {
 
     return NextResponse.json(preview)
   } catch (error) {
-    console.error('[Agent Preview] Error:', error)
-
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : 'Internal server error',
-      },
-      { status: 500 }
-    )
+    return handleRouteError(error, '[Agent Preview] Error')
   }
 }

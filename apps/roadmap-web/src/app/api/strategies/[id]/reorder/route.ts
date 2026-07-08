@@ -14,7 +14,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/auth/api-guard'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 import type { StrategyType } from '@/lib/types/strategy'
 
 // Strategy type hierarchy order (lower = higher in tree)
@@ -185,11 +185,7 @@ export async function POST(
       message: 'Strategy reordered successfully',
     })
   } catch (error) {
-    console.error('Strategy reorder POST error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Strategy reorder POST error')
   }
 }
 

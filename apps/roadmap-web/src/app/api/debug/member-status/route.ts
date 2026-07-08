@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/auth/api-guard'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 import { NextRequest, NextResponse } from 'next/server'
 
 export async function GET(request: NextRequest) {
@@ -72,11 +72,7 @@ export async function GET(request: NextRequest) {
         memberError: memberError?.message,
       },
     })
-  } catch (error: unknown) {
-    console.error('Debug API error:', error)
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Internal server error' },
-      { status: 500 }
-    )
+  } catch (error) {
+    return handleRouteError(error, 'Debug API error')
   }
 }

@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/auth/api-guard'
+import { requireAuth, resolveCallerTeam, handleRouteError } from '@/lib/auth/api-guard'
 import type { DocumentDisplay, DocumentFileType } from '@/lib/types/knowledge'
 
 /**
@@ -32,18 +32,9 @@ export async function GET(request: NextRequest) {
     if (auth instanceof NextResponse) return auth
     const claims = auth
 
-    // Get user's team
-    const { data: membership, error: memberError } = await supabase
-      .from('team_members')
-      .select('team_id')
-      .eq('user_id', claims.subject)
-      .single()
-
-    if (memberError || !membership) {
-      return NextResponse.json({ error: 'Team not found' }, { status: 404 })
-    }
-
-    const teamId = membership.team_id
+    const team = await resolveCallerTeam(supabase, claims.subject)
+    if (team instanceof NextResponse) return team
+    const { teamId } = team
 
     // Parse query params
     const { searchParams } = new URL(request.url)
@@ -129,8 +120,7 @@ export async function GET(request: NextRequest) {
       total: count,
     })
   } catch (error) {
-    console.error('[Documents API] Error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return handleRouteError(error, '[Documents API] Error')
   }
 }
 
@@ -157,18 +147,9 @@ export async function POST(request: NextRequest) {
     if (auth instanceof NextResponse) return auth
     const claims = auth
 
-    // Get user's team
-    const { data: membership, error: memberError } = await supabase
-      .from('team_members')
-      .select('team_id')
-      .eq('user_id', claims.subject)
-      .single()
-
-    if (memberError || !membership) {
-      return NextResponse.json({ error: 'Team not found' }, { status: 404 })
-    }
-
-    const teamId = membership.team_id
+    const team = await resolveCallerTeam(supabase, claims.subject)
+    if (team instanceof NextResponse) return team
+    const { teamId } = team
 
     // Parse form data
     const formData = await request.formData()
@@ -299,7 +280,6 @@ export async function POST(request: NextRequest) {
       { status: 201 }
     )
   } catch (error) {
-    console.error('[Documents API] Error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return handleRouteError(error, '[Documents API] Error')
   }
 }

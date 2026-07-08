@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/auth/api-guard'
+import { handleRouteError, requireAuth } from '@/lib/auth/api-guard'
 import type { WorkspaceIntegrationDisplay, IntegrationProvider, IntegrationStatus } from '@/lib/types/integrations'
 
 interface RouteContext {
@@ -125,8 +125,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
       count: integrations.length,
     })
   } catch (error) {
-    console.error('[Workspace Integrations API] Error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return handleRouteError(error, '[Workspace Integrations API] Error')
   }
 }
 
@@ -266,7 +265,6 @@ export async function POST(request: NextRequest, context: RouteContext) {
       { status: 201 }
     )
   } catch (error) {
-    console.error('[Workspace Integrations API] Error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return handleRouteError(error, '[Workspace Integrations API] Error')
   }
 }

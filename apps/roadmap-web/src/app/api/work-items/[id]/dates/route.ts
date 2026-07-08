@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/auth/api-guard'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 import { NextRequest, NextResponse } from 'next/server'
 
 export async function PATCH(
@@ -96,12 +96,7 @@ export async function PATCH(
     }
 
     return NextResponse.json(updatedItem)
-  } catch (error: unknown) {
-    console.error('Error in PATCH /api/work-items/[id]/dates:', error)
-    const message = error instanceof Error ? error.message : 'Internal server error'
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    )
+  } catch (error) {
+    return handleRouteError(error, 'Error in PATCH /api/work-items/[id]/dates')
   }
 }

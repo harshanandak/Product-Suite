@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { requireAuth } from '@/lib/auth/api-guard';
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard';
 
 export async function GET(_request: NextRequest) {
   try {
@@ -30,13 +30,8 @@ export async function GET(_request: NextRequest) {
       created_at: userProfile?.created_at,
       updated_at: userProfile?.updated_at,
     });
-  } catch (error: unknown) {
-    console.error('Error in GET /api/user/profile:', error);
-    const message = error instanceof Error ? error.message : 'Internal server error';
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    );
+  } catch (error) {
+    return handleRouteError(error, 'Error in GET /api/user/profile');
   }
 }
 
@@ -93,12 +88,7 @@ export async function PUT(request: NextRequest) {
       created_at: data.created_at,
       updated_at: data.updated_at,
     });
-  } catch (error: unknown) {
-    console.error('Error in PUT /api/user/profile:', error);
-    const message = error instanceof Error ? error.message : 'Internal server error';
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    );
+  } catch (error) {
+    return handleRouteError(error, 'Error in PUT /api/user/profile');
   }
 }

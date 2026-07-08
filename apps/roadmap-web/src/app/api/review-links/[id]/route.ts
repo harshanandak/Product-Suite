@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/auth/api-guard'
+import { handleRouteError, requireAuth } from '@/lib/auth/api-guard'
 import { NextResponse } from 'next/server'
 
 /**
@@ -46,13 +46,8 @@ export async function GET(
     }
 
     return NextResponse.json(reviewLink)
-  } catch (error: unknown) {
-    console.error('Error fetching review link:', error)
-    const message = error instanceof Error ? error.message : 'Failed to fetch review link'
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    )
+  } catch (error) {
+    return handleRouteError(error, 'Error fetching review link')
   }
 }
 
@@ -120,13 +115,8 @@ export async function PUT(
     }
 
     return NextResponse.json(updatedLink)
-  } catch (error: unknown) {
-    console.error('Error updating review link:', error)
-    const message = error instanceof Error ? error.message : 'Failed to update review link'
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    )
+  } catch (error) {
+    return handleRouteError(error, 'Error updating review link')
   }
 }
 
@@ -186,12 +176,7 @@ export async function DELETE(
     }
 
     return NextResponse.json({ success: true, link: deletedLink })
-  } catch (error: unknown) {
-    console.error('Error deleting review link:', error)
-    const message = error instanceof Error ? error.message : 'Failed to delete review link'
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    )
+  } catch (error) {
+    return handleRouteError(error, 'Error deleting review link')
   }
 }

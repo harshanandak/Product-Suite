@@ -10,7 +10,7 @@
  */
 
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/auth/api-guard'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { isValidId, getStoragePath } from '@/components/blocksuite/persistence-types'
@@ -164,11 +164,7 @@ export async function POST(request: NextRequest) {
       },
     })
   } catch (error) {
-    console.error('[API] Document creation error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, '[API] Document creation error')
   }
 }
 
@@ -238,10 +234,6 @@ export async function GET(request: NextRequest) {
       documents: documents || [],
     })
   } catch (error) {
-    console.error('[API] Document list error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, '[API] Document list error')
   }
 }

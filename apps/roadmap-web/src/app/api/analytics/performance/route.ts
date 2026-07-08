@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { requireTeamMembership } from '@/lib/auth/api-guard'
+import { requireTeamMembership, handleRouteError } from '@/lib/auth/api-guard'
 import type {
   TeamPerformanceData,
   PieChartData,
@@ -151,8 +151,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ data })
   } catch (error) {
-    console.error('Team performance error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return handleRouteError(error, 'Team performance error')
   }
 }
 

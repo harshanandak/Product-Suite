@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { requireAuth } from '@/lib/auth/api-guard';
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard';
 import type { UpdateInsightRequest } from '@/lib/types/customer-insight';
 
 /**
@@ -100,11 +100,7 @@ export async function GET(
       },
     });
   } catch (error) {
-    console.error('Error in GET /api/insights/[id]:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return handleRouteError(error, 'Error in GET /api/insights/[id]');
   }
 }
 
@@ -195,11 +191,7 @@ export async function PATCH(
 
     return NextResponse.json({ data: updatedInsight });
   } catch (error) {
-    console.error('Error in PATCH /api/insights/[id]:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return handleRouteError(error, 'Error in PATCH /api/insights/[id]');
   }
 }
 
@@ -267,10 +259,6 @@ export async function DELETE(
 
     return NextResponse.json({ message: 'Insight deleted successfully' });
   } catch (error) {
-    console.error('Error in DELETE /api/insights/[id]:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return handleRouteError(error, 'Error in DELETE /api/insights/[id]');
   }
 }

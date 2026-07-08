@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import nodemailer from 'nodemailer'
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/auth/api-guard'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 
 // Create SMTP transporter (supports any SMTP provider)
 const transporter = nodemailer.createTransport({
@@ -216,12 +216,7 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       )
     }
-  } catch (error: unknown) {
-    console.error('Error sending invitation:', error)
-    const message = error instanceof Error ? error.message : 'Internal server error'
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    )
+  } catch (error) {
+    return handleRouteError(error, 'Error sending invitation')
   }
 }

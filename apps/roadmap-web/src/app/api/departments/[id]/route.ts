@@ -15,7 +15,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { requireAuth } from '@/lib/auth/api-guard';
+import { handleRouteError, requireAuth } from '@/lib/auth/api-guard';
 import type { DepartmentUpdate } from '@/lib/types/department';
 
 interface RouteParams {
@@ -79,11 +79,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       },
     });
   } catch (error) {
-    console.error('Error in GET /api/departments/[id]:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return handleRouteError(error, 'Error in GET /api/departments/[id]');
   }
 }
 
@@ -208,11 +204,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({ data: updated });
   } catch (error) {
-    console.error('Error in PATCH /api/departments/[id]:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return handleRouteError(error, 'Error in PATCH /api/departments/[id]');
   }
 }
 
@@ -301,10 +293,6 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({ message: 'Department deleted successfully' });
   } catch (error) {
-    console.error('Error in DELETE /api/departments/[id]:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return handleRouteError(error, 'Error in DELETE /api/departments/[id]');
   }
 }

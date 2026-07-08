@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/auth/api-guard'
+import { requireAuth, resolveCallerTeam, handleRouteError } from '@/lib/auth/api-guard'
 import { runCompressionJob, listJobs } from '@/lib/ai/compression'
 import { embedMindMap } from '@/lib/ai/embeddings/mindmap-embedding-service'
 import {
@@ -46,18 +46,9 @@ export async function POST(request: NextRequest) {
     if (auth instanceof NextResponse) return auth
     const claims = auth
 
-    // Get user's team
-    const { data: membership, error: memberError } = await supabase
-      .from('team_members')
-      .select('team_id')
-      .eq('user_id', claims.subject)
-      .single()
-
-    if (memberError || !membership) {
-      return NextResponse.json({ error: 'Team not found' }, { status: 404 })
-    }
-
-    const teamId = membership.team_id
+    const team = await resolveCallerTeam(supabase, claims.subject)
+    if (team instanceof NextResponse) return team
+    const { teamId } = team
 
     // Parse request body
     const body = await request.json()
@@ -105,11 +96,7 @@ export async function POST(request: NextRequest) {
       message: `Compression job started: ${jobType}`,
     }, { status: 202 })
   } catch (error) {
-    console.error('[Compression API] Error:', error)
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to start compression job' },
-      { status: 500 }
-    )
+    return handleRouteError(error, '[Compression API] Error')
   }
 }
 
@@ -132,18 +119,9 @@ export async function GET(request: NextRequest) {
     if (auth instanceof NextResponse) return auth
     const claims = auth
 
-    // Get user's team
-    const { data: membership, error: memberError } = await supabase
-      .from('team_members')
-      .select('team_id')
-      .eq('user_id', claims.subject)
-      .single()
-
-    if (memberError || !membership) {
-      return NextResponse.json({ error: 'Team not found' }, { status: 404 })
-    }
-
-    const teamId = membership.team_id
+    const team = await resolveCallerTeam(supabase, claims.subject)
+    if (team instanceof NextResponse) return team
+    const { teamId } = team
 
     // Parse query params
     const { searchParams } = new URL(request.url)

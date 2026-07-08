@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/auth/api-guard'
+import { requireAuth, resolveCallerTeam, handleRouteError } from '@/lib/auth/api-guard'
 import { embedQuery, formatEmbeddingForPgvector } from '@/lib/ai/embeddings/embedding-service'
 import type { DocumentSearchResult, SearchDocumentsRequest, SearchDocumentsResponse } from '@/lib/types/knowledge'
 
@@ -34,18 +34,9 @@ export async function POST(request: NextRequest) {
     if (auth instanceof NextResponse) return auth
     const claims = auth
 
-    // Get user's team
-    const { data: membership, error: memberError } = await supabase
-      .from('team_members')
-      .select('team_id')
-      .eq('user_id', claims.subject)
-      .single()
-
-    if (memberError || !membership) {
-      return NextResponse.json({ error: 'Team not found' }, { status: 404 })
-    }
-
-    const teamId = membership.team_id
+    const team = await resolveCallerTeam(supabase, claims.subject)
+    if (team instanceof NextResponse) return team
+    const { teamId } = team
 
     // Parse request
     const body = await request.json() as SearchDocumentsRequest
@@ -131,11 +122,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(response)
   } catch (error) {
-    console.error('[Document Search] Error:', error)
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Search failed' },
-      { status: 500 }
-    )
+    return handleRouteError(error, '[Document Search] Error')
   }
 }
 

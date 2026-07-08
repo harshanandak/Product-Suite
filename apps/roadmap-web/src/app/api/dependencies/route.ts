@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/auth/api-guard'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 import { NextResponse } from 'next/server'
 import type { ConnectionType } from '@/lib/types/dependencies'
 
@@ -63,10 +63,8 @@ export async function GET(request: Request) {
       connections: connections || [],
       totalCount: connections?.length || 0,
     })
-  } catch (error: unknown) {
-    console.error('Error in GET /api/dependencies:', error)
-    const message = error instanceof Error ? error.message : 'Unknown error'
-    return NextResponse.json({ error: message }, { status: 500 })
+  } catch (error) {
+    return handleRouteError(error, 'GET /api/dependencies')
   }
 }
 
@@ -222,9 +220,7 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({ connection }, { status: 201 })
-  } catch (error: unknown) {
-    console.error('Error in POST /api/dependencies:', error)
-    const message = error instanceof Error ? error.message : 'Unknown error'
-    return NextResponse.json({ error: message }, { status: 500 })
+  } catch (error) {
+    return handleRouteError(error, 'POST /api/dependencies')
   }
 }

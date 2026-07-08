@@ -13,7 +13,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/auth/api-guard'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 import type { ApplyTemplateOptions, ApplyTemplateResult } from '@/lib/templates/template-types'
 
 /**
@@ -229,10 +229,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ data: result })
   } catch (error) {
-    console.error('Error in POST /api/templates/apply:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'POST /api/templates/apply')
   }
 }

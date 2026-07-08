@@ -17,7 +17,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/auth/api-guard'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 import type { UpdateTemplateInput } from '@/lib/templates/template-types'
 
 interface RouteParams {
@@ -66,11 +66,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({ data: template })
   } catch (error) {
-    console.error('Error in GET /api/templates/[id]:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'GET /api/templates/[id]')
   }
 }
 
@@ -162,11 +158,7 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({ data: updatedTemplate })
   } catch (error) {
-    console.error('Error in PUT /api/templates/[id]:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'PUT /api/templates/[id]')
   }
 }
 
@@ -241,10 +233,6 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    console.error('Error in DELETE /api/templates/[id]:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'DELETE /api/templates/[id]')
   }
 }

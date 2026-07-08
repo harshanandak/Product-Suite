@@ -11,7 +11,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/auth/api-guard'
+import { handleRouteError, requireAuth } from '@/lib/auth/api-guard'
 import type { UpdateResourceRequest } from '@/lib/types/resources'
 import { extractDomain } from '@/lib/types/resources'
 
@@ -71,11 +71,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       },
     })
   } catch (error) {
-    console.error('Resource GET error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Resource GET error')
   }
 }
 
@@ -231,11 +227,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({ data: updatedResource })
   } catch (error) {
-    console.error('Resource PATCH error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Resource PATCH error')
   }
 }
 
@@ -345,10 +337,6 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       message: 'Resource moved to trash. It will be permanently deleted after 30 days.',
     })
   } catch (error) {
-    console.error('Resource DELETE error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Resource DELETE error')
   }
 }

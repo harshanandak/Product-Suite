@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/auth/api-guard'
+import { handleRouteError, requireAuth } from '@/lib/auth/api-guard'
 import { NextResponse } from 'next/server'
 import crypto from 'crypto'
 
@@ -62,13 +62,8 @@ export async function GET(request: Request) {
     }
 
     return NextResponse.json(reviewLinks || [])
-  } catch (error: unknown) {
-    console.error('Error fetching review links:', error)
-    const message = error instanceof Error ? error.message : 'Failed to fetch review links'
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    )
+  } catch (error) {
+    return handleRouteError(error, 'Error fetching review links')
   }
 }
 
@@ -184,12 +179,7 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json(newLink, { status: 201 })
-  } catch (error: unknown) {
-    console.error('Error creating review link:', error)
-    const message = error instanceof Error ? error.message : 'Failed to create review link'
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    )
+  } catch (error) {
+    return handleRouteError(error, 'Error creating review link')
   }
 }

@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/auth/api-guard'
+import { requireAuth, resolveCallerTeam, handleRouteError } from '@/lib/auth/api-guard'
 import { NextResponse } from 'next/server'
 
 /**
@@ -20,16 +20,9 @@ export async function POST(
     if (auth instanceof NextResponse) return auth
     const claims = auth
 
-    // Get user's team
-    const { data: teamMember } = await supabase
-      .from('team_members')
-      .select('team_id')
-      .eq('user_id', claims.subject)
-      .single()
-
-    if (!teamMember) {
-      return NextResponse.json({ error: 'No team found' }, { status: 404 })
-    }
+    const team = await resolveCallerTeam(supabase, claims.subject)
+    if (team instanceof NextResponse) return team
+    const { teamId } = team
 
     const { work_item_type, work_item_name, work_item_purpose } = body
 
@@ -54,7 +47,7 @@ export async function POST(
       .from('feedback')
       .select('id, team_id, workspace_id, content, status')
       .eq('id', id)
-      .eq('team_id', teamMember.team_id)
+      .eq('team_id', teamId)
       .single()
 
     if (checkError || !existingFeedback) {
@@ -71,7 +64,7 @@ export async function POST(
       name: work_item_name,
       type: work_item_type,
       purpose: work_item_purpose || existingFeedback.content,
-      team_id: teamMember.team_id,
+      team_id: teamId,
       workspace_id: existingFeedback.workspace_id,
       owner: claims.subject,
       is_epic: false,
@@ -97,7 +90,7 @@ export async function POST(
         updated_at: new Date().toISOString(),
       })
       .eq('id', id)
-      .eq('team_id', teamMember.team_id)
+      .eq('team_id', teamId)
       .select(`
         *,
         work_item:work_items!work_item_id(id, name, type),
@@ -117,11 +110,7 @@ export async function POST(
       },
       { status: 201 }
     )
-  } catch (error: unknown) {
-    console.error('Error converting feedback:', error)
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to convert feedback' },
-      { status: 500 }
-    )
+  } catch (error) {
+    return handleRouteError(error, 'Error converting feedback')
   }
 }

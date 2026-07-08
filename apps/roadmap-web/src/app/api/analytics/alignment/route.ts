@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { requireTeamMembership } from '@/lib/auth/api-guard'
+import { requireTeamMembership, handleRouteError } from '@/lib/auth/api-guard'
 import type { StrategyAlignmentData, PieChartData } from '@/lib/types/analytics'
 
 export async function GET(req: NextRequest) {
@@ -144,8 +144,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ data })
   } catch (error) {
-    console.error('Strategy alignment error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return handleRouteError(error, 'Strategy alignment error')
   }
 }
 

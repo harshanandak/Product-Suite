@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getAuthClaims } from '@/lib/auth/get-auth-claims';
+import { handleRouteError } from '@/lib/auth/api-guard';
 import type { VoteInsightRequest } from '@/lib/types/customer-insight';
 
 /**
@@ -178,11 +179,7 @@ export async function POST(
       );
     }
   } catch (error) {
-    console.error('Error in POST /api/insights/[id]/vote:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return handleRouteError(error, 'Error in POST /api/insights/[id]/vote');
   }
 }
 
@@ -253,10 +250,6 @@ export async function GET(
       },
     });
   } catch (error) {
-    console.error('Error in GET /api/insights/[id]/vote:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return handleRouteError(error, 'Error in GET /api/insights/[id]/vote');
   }
 }

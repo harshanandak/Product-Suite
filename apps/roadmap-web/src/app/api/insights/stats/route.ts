@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/auth/api-guard'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 
 /**
  * GET /api/insights/stats
@@ -103,10 +103,6 @@ export async function GET(req: NextRequest) {
       },
     })
   } catch (error) {
-    console.error('Error in GET /api/insights/stats:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Error in GET /api/insights/stats')
   }
 }

@@ -11,7 +11,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { requireTeamMembership } from '@/lib/auth/api-guard'
+import { requireTeamMembership, handleRouteError } from '@/lib/auth/api-guard'
 import type {
   StrategyWithChildren,
   ProductStrategyWithOwner,
@@ -132,10 +132,6 @@ export async function GET(req: NextRequest) {
       total_count: totalCount,
     })
   } catch (error) {
-    console.error('Strategy tree GET error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Strategy tree GET error')
   }
 }

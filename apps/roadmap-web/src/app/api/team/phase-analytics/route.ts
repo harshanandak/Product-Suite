@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth, requireTeamMembership } from '@/lib/auth/api-guard'
+import { requireAuth, requireTeamMembership, handleRouteError } from '@/lib/auth/api-guard'
 import { PHASE_ORDER, type WorkspacePhase } from '@/lib/constants/workspace-phases'
 
 /**
@@ -184,10 +184,6 @@ export async function GET(request: NextRequest) {
     })
 
   } catch (error) {
-    console.error('Error in GET /api/team/phase-analytics:', error)
-    return NextResponse.json(
-      { error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error', success: false },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Error in GET /api/team/phase-analytics')
   }
 }

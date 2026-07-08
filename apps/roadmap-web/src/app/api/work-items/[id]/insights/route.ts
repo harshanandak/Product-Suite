@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { requireAuth } from '@/lib/auth/api-guard';
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard';
 
 // Type for insight data from Supabase relation
 interface InsightData {
@@ -198,11 +198,7 @@ export async function GET(
       count: insightsWithMeta?.length || 0,
     });
   } catch (error) {
-    console.error('Error in GET /api/work-items/[id]/insights:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return handleRouteError(error, 'Error in GET /api/work-items/[id]/insights');
   }
 }
 
@@ -321,10 +317,6 @@ export async function POST(
 
     return NextResponse.json({ data: link }, { status: 201 });
   } catch (error) {
-    console.error('Error in POST /api/work-items/[id]/insights:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return handleRouteError(error, 'Error in POST /api/work-items/[id]/insights');
   }
 }

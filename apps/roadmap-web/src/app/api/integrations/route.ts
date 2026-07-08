@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/auth/api-guard'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 import { mcpGateway } from '@/lib/ai/mcp'
 import {
   isNativeOAuthSupported,
@@ -107,11 +107,7 @@ export async function GET(request: NextRequest) {
       count: displayIntegrations.length,
     })
   } catch (error) {
-    console.error('[Integrations API] Error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, '[Integrations API] Error')
   }
 }
 
@@ -308,10 +304,6 @@ export async function POST(request: NextRequest) {
       )
     }
   } catch (error) {
-    console.error('[Integrations API] Error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, '[Integrations API] Error')
   }
 }

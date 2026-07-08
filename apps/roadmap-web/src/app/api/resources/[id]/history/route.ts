@@ -8,7 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { requireAuth } from '@/lib/auth/api-guard'
+import { handleRouteError, requireAuth } from '@/lib/auth/api-guard'
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -89,10 +89,6 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       },
     })
   } catch (error) {
-    console.error('Resource history error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Resource history error')
   }
 }
