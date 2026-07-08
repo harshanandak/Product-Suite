@@ -1,3 +1,4 @@
+import { getAuthClaims } from '@/lib/auth/get-auth-claims'
 import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -12,12 +13,11 @@ export default async function WorkspaceSettingsPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const supabase = await createClient()
 
-  // Get current user
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  // Get current user (canonical claims)
+  const claims = await getAuthClaims()
+
+  const supabase = await createClient()
 
   // Get workspace
   const { data: workspace, error } = await supabase
@@ -47,7 +47,7 @@ export default async function WorkspaceSettingsPage({
       </TabsList>
 
       <TabsContent value="general" className="space-y-4">
-        <WorkspaceGeneralSettings workspace={workspace} currentUserId={user?.id} />
+        <WorkspaceGeneralSettings workspace={workspace} currentUserId={claims?.subject} />
       </TabsContent>
 
       <TabsContent value="modules" className="space-y-4">
@@ -59,7 +59,7 @@ export default async function WorkspaceSettingsPage({
       </TabsContent>
 
       <TabsContent value="permissions" className="space-y-4">
-        <WorkspacePermissionsSettings workspace={workspace} currentUserId={user?.id} />
+        <WorkspacePermissionsSettings workspace={workspace} currentUserId={claims?.subject} />
       </TabsContent>
     </Tabs>
   )

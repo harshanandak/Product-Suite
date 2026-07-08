@@ -1,3 +1,4 @@
+import { getAuthClaims } from '@/lib/auth/get-auth-claims';
 import { createClient } from '@/lib/supabase/server';
 import { redirect, notFound } from 'next/navigation';
 import { TimelineView as CoreTimelineView, TimelineWorkItem } from '@/components/timeline/timeline-view';
@@ -17,16 +18,15 @@ export default async function TimelinePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const supabase = await createClient();
 
-  // Check authentication
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Check authentication (canonical claims)
+  const claims = await getAuthClaims();
 
-  if (!user) {
+  if (!claims) {
     redirect('/login');
   }
+
+  const supabase = await createClient();
 
   // Get workspace
   const { data: workspace, error } = await supabase
@@ -44,7 +44,7 @@ export default async function TimelinePage({
     .from('team_members')
     .select('role')
     .eq('team_id', workspace.team_id)
-    .eq('user_id', user.id)
+    .eq('user_id', claims.subject)
     .single();
 
   if (!teamMember) {
@@ -120,7 +120,7 @@ export default async function TimelinePage({
         workItems={transformedWorkItems}
         workspaceId={workspace.id}
         teamId={workspace.team_id}
-        currentUserId={user.id}
+        currentUserId={claims.subject}
         departments={(departments as Department[]) || []}
       />
     </div>

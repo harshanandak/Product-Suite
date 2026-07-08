@@ -1,38 +1,39 @@
 import { redirect } from 'next/navigation';
+import { getAuthClaims } from '@/lib/auth/get-auth-claims';
 import { createClient } from '@/lib/supabase/server';
 import { UserProfileForm } from '@/components/user/user-profile-form';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
 export default async function ProfilePage() {
-  const supabase = await createClient();
+  // Check authentication (canonical claims)
+  const claims = await getAuthClaims();
 
-  const {
-    data: { user: authUser },
-  } = await supabase.auth.getUser();
-
-  if (!authUser) {
+  if (!claims) {
     redirect('/login');
   }
+
+  const supabase = await createClient();
 
   // Get user profile from public.users table
   const { data: userProfile, error } = await supabase
     .from('users')
     .select('*')
-    .eq('id', authUser.id)
+    .eq('id', claims.subject)
     .single();
 
   if (error) {
     console.error('Error fetching user profile:', error);
   }
 
-  // Merge auth user with profile data
+  // Merge canonical claims with profile data. Timestamps come from the
+  // users table since canonical claims do not carry created_at/updated_at.
   const user = {
-    id: authUser.id,
-    email: authUser.email!,
+    id: claims.subject,
+    email: claims.email ?? '',
     name: userProfile?.name || null,
     avatar_url: userProfile?.avatar_url || null,
-    created_at: userProfile?.created_at || authUser.created_at,
-    updated_at: userProfile?.updated_at || authUser.updated_at,
+    created_at: userProfile?.created_at ?? null,
+    updated_at: userProfile?.updated_at ?? null,
   };
 
   // Get user's team memberships
@@ -47,7 +48,7 @@ export default async function ProfilePage() {
         name
       )
     `)
-    .eq('user_id', authUser.id)
+    .eq('user_id', claims.subject)
     .order('joined_at', { ascending: false });
 
   return (
@@ -137,7 +138,11 @@ export default async function ProfilePage() {
               </div>
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Account Created</p>
-                <p className="text-sm">{new Date(user.created_at).toLocaleDateString()}</p>
+                <p className="text-sm">
+                  {user.created_at
+                    ? new Date(user.created_at).toLocaleDateString()
+                    : 'Unknown'}
+                </p>
               </div>
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Last Updated</p>

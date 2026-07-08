@@ -1,3 +1,4 @@
+import { getAuthClaims } from '@/lib/auth/get-auth-claims'
 import { createClient } from '@/lib/supabase/server'
 import { redirect, notFound } from 'next/navigation'
 import { WorkItemDetailShell } from '@/components/work-item-detail'
@@ -9,16 +10,15 @@ export default async function WorkItemDetailPage({
   params: Promise<{ id: string; workItemId: string }>
 }) {
   const { id: _workspaceId, workItemId } = await params
-  const supabase = await createClient()
 
-  // Check authentication
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  // Check authentication (canonical claims)
+  const claims = await getAuthClaims()
 
-  if (!user) {
+  if (!claims) {
     redirect('/login')
   }
+
+  const supabase = await createClient()
 
   // Get work item details with workspace info
   // Note: Schema uses 'owner' not 'assigned_to', and 'purpose' not 'description'
@@ -46,7 +46,7 @@ export default async function WorkItemDetailPage({
     .from('team_members')
     .select('role')
     .eq('team_id', workItem.workspace.team_id)
-    .eq('user_id', user.id)
+    .eq('user_id', claims.subject)
     .single()
 
   if (!membership) {
