@@ -19,7 +19,7 @@ import { getAuthClaims } from './get-auth-claims'
 export async function requireAuth(): Promise<AuthClaims | NextResponse> {
   const claims = await getAuthClaims()
   if (!claims) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    return NextResponse.json({ error: 'Unauthorized', success: false }, { status: 401 })
   }
   return claims
 }
@@ -42,7 +42,7 @@ export async function requireTeamMembership(
 ): Promise<{ claims: AuthClaims; membership: { id: string } } | NextResponse> {
   const claims = await getAuthClaims()
   if (!claims) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    return NextResponse.json({ error: 'Unauthorized', success: false }, { status: 401 })
   }
 
   const { data: membership } = await supabase
@@ -53,7 +53,7 @@ export async function requireTeamMembership(
     .single<{ id: string }>()
 
   if (!membership) {
-    return NextResponse.json({ error: 'Not a team member' }, { status: 403 })
+    return NextResponse.json({ error: 'Not a team member', success: false }, { status: 403 })
   }
 
   return { claims, membership }
@@ -76,7 +76,7 @@ export async function resolveCallerTeam(
     .single<{ team_id: string; role: string }>()
 
   if (!membership) {
-    return NextResponse.json({ error: 'No team found' }, { status: 404 })
+    return NextResponse.json({ error: 'No team found', success: false }, { status: 404 })
   }
 
   return { teamId: membership.team_id, role: membership.role }
@@ -89,5 +89,5 @@ export async function resolveCallerTeam(
  */
 export function handleRouteError(error: unknown, context = 'Route error'): NextResponse {
   console.error(`${context}:`, error)
-  return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  return NextResponse.json({ error: 'Internal server error', success: false }, { status: 500 })
 }
