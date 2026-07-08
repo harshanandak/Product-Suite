@@ -58,3 +58,36 @@ export async function requireTeamMembership(
 
   return { claims, membership }
 }
+
+/**
+ * Resolve the caller's own team from their membership row. Returns
+ * `{ teamId, role }`, or a ready-to-return 404 `NextResponse` when the user
+ * belongs to no team. For routes that derive the team from the caller (rather
+ * than a route param).
+ */
+export async function resolveCallerTeam(
+  supabase: SupabaseClient,
+  subject: string,
+): Promise<{ teamId: string; role: string } | NextResponse> {
+  const { data: membership } = await supabase
+    .from('team_members')
+    .select('team_id, role')
+    .eq('user_id', subject)
+    .single<{ team_id: string; role: string }>()
+
+  if (!membership) {
+    return NextResponse.json({ error: 'No team found' }, { status: 404 })
+  }
+
+  return { teamId: membership.team_id, role: membership.role }
+}
+
+/**
+ * Uniform error handler for API route `catch` blocks: logs with the given
+ * context and returns a generic 500 `NextResponse` (never leaks internals to
+ * the client). Usage: `catch (error) { return handleRouteError(error, 'X API error') }`.
+ */
+export function handleRouteError(error: unknown, context = 'Route error'): NextResponse {
+  console.error(`${context}:`, error)
+  return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+}

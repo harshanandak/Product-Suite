@@ -5,7 +5,12 @@ const { getAuthClaims } = vi.hoisted(() => ({ getAuthClaims: vi.fn() }))
 
 vi.mock('@/lib/auth/get-auth-claims', () => ({ getAuthClaims }))
 
-import { requireAuth, requireTeamMembership } from '../api-guard'
+import {
+  handleRouteError,
+  requireAuth,
+  requireTeamMembership,
+  resolveCallerTeam,
+} from '../api-guard'
 
 const CLAIMS = { subject: 'user-1', email: 'u@example.com', provider: 'neon' }
 
@@ -65,5 +70,35 @@ describe('requireTeamMembership', () => {
 
     const res = await requireTeamMembership(client, 'team-1')
     expect((res as NextResponse).status).toBe(403)
+  })
+})
+
+function callerTeamClient(row: { team_id: string; role: string } | null) {
+  const single = vi.fn(async () => ({ data: row }))
+  const eq = vi.fn(() => ({ single }))
+  const select = vi.fn(() => ({ eq }))
+  const from = vi.fn(() => ({ select }))
+  return { from } as unknown as Parameters<typeof resolveCallerTeam>[0]
+}
+
+describe('resolveCallerTeam', () => {
+  it('returns the caller team id + role for a member', async () => {
+    const res = await resolveCallerTeam(callerTeamClient({ team_id: 't1', role: 'admin' }), 'u1')
+    expect(res).toEqual({ teamId: 't1', role: 'admin' })
+  })
+
+  it('returns a 404 response when the user belongs to no team', async () => {
+    const res = await resolveCallerTeam(callerTeamClient(null), 'u1')
+    expect((res as NextResponse).status).toBe(404)
+  })
+})
+
+describe('handleRouteError', () => {
+  it('logs the error with context and returns a generic 500', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const res = handleRouteError(new Error('boom'), 'Test error')
+    expect(res.status).toBe(500)
+    expect(spy).toHaveBeenCalled()
+    spy.mockRestore()
   })
 })
