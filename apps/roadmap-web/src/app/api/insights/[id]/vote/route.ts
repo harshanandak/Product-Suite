@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { getAuthClaims } from '@/lib/auth/get-auth-claims';
 import type { VoteInsightRequest } from '@/lib/types/customer-insight';
 
 /**
@@ -35,21 +36,19 @@ export async function POST(
       return NextResponse.json({ error: 'Insight not found' }, { status: 404 });
     }
 
-    // Try to get authenticated user
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    // Try to get authenticated user — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims();
 
     let voterEmail: string;
     let voterId: string | null = null;
 
-    if (user) {
+    if (claims) {
       // Authenticated user - verify team membership
       const { data: membership } = await supabase
         .from('team_members')
         .select('id')
         .eq('team_id', insight.team_id)
-        .eq('user_id', user.id)
+        .eq('user_id', claims.subject)
         .single();
 
       if (!membership) {
@@ -60,7 +59,7 @@ export async function POST(
       const { data: userData } = await supabase
         .from('users')
         .select('email')
-        .eq('id', user.id)
+        .eq('id', claims.subject)
         .single();
 
       if (!userData?.email) {
@@ -71,7 +70,7 @@ export async function POST(
       }
 
       voterEmail = userData.email;
-      voterId = user.id;
+      voterId = claims.subject;
     } else {
       // External voter - must provide email
       if (!body.voter_email) {
@@ -201,19 +200,17 @@ export async function GET(
     const { searchParams } = new URL(req.url);
     const voterEmail = searchParams.get('voter_email');
 
-    // Try to get authenticated user
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    // Try to get authenticated user — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims();
 
     let emailToCheck: string | null = null;
 
-    if (user) {
+    if (claims) {
       // Get authenticated user's email
       const { data: userData } = await supabase
         .from('users')
         .select('email')
-        .eq('id', user.id)
+        .eq('id', claims.subject)
         .single();
 
       emailToCheck = userData?.email || null;

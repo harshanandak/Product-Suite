@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { getAuthClaims } from '@/lib/auth/get-auth-claims';
 import type { UpdateInsightRequest } from '@/lib/types/customer-insight';
 
 /**
@@ -14,12 +15,9 @@ export async function GET(
     const supabase = await createClient();
     const { id } = await params;
 
-    // Validate user auth
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
+    // Validate user auth — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims();
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -45,7 +43,7 @@ export async function GET(
       .from('team_members')
       .select('id')
       .eq('team_id', insight.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single();
 
     if (!membership) {
@@ -67,7 +65,7 @@ export async function GET(
       .from('insight_votes')
       .select('vote_type')
       .eq('insight_id', id)
-      .eq('voter_id', user.id)
+      .eq('voter_id', claims.subject)
       .single();
 
     // Get linked work items
@@ -124,12 +122,9 @@ export async function PATCH(
     const { id } = await params;
     const body: UpdateInsightRequest = await req.json();
 
-    // Validate user auth
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
+    // Validate user auth — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims();
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -149,7 +144,7 @@ export async function PATCH(
       .from('team_members')
       .select('id')
       .eq('team_id', currentInsight.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single();
 
     if (!membership) {
@@ -222,12 +217,9 @@ export async function DELETE(
     const supabase = await createClient();
     const { id } = await params;
 
-    // Validate user auth
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
+    // Validate user auth — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims();
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -247,7 +239,7 @@ export async function DELETE(
       .from('team_members')
       .select('role')
       .eq('team_id', insight.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single();
 
     if (!membership) {

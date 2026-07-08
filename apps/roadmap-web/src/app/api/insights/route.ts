@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { getAuthClaims } from '@/lib/auth/get-auth-claims';
 import type {
   CustomerInsightWithMeta,
   CreateInsightRequest,
@@ -24,12 +25,9 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Validate user auth
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
+    // Validate user auth — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims();
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -38,7 +36,7 @@ export async function GET(req: NextRequest) {
       .from('team_members')
       .select('id')
       .eq('team_id', teamId)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single();
 
     if (!membership) {
@@ -205,12 +203,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Validate user auth
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
+    // Validate user auth — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims();
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -219,7 +214,7 @@ export async function POST(req: NextRequest) {
       .from('team_members')
       .select('id')
       .eq('team_id', body.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single();
 
     if (!membership) {
@@ -252,7 +247,7 @@ export async function POST(req: NextRequest) {
         frequency: body.frequency ?? 1,
         tags: body.tags || [],
         source_feedback_id: body.source_feedback_id || null,
-        created_by: user.id,
+        created_by: claims.subject,
       })
       .select()
       .single();
