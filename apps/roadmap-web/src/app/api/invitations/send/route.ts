@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import nodemailer from 'nodemailer'
 import { createClient } from '@/lib/supabase/server'
+import { getAuthClaims } from '@/lib/auth/get-auth-claims'
 
 // Create SMTP transporter (supports any SMTP provider)
 const transporter = nodemailer.createTransport({
@@ -26,12 +27,9 @@ export async function POST(request: NextRequest) {
 
     const supabase = await createClient()
 
-    // Get current user
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims()
+    if (!claims) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
     }
 
@@ -65,7 +63,7 @@ export async function POST(request: NextRequest) {
       .from('team_members')
       .select('role')
       .eq('team_id', invitation.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!membership || (membership.role !== 'owner' && membership.role !== 'admin')) {

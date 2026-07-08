@@ -9,6 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getAuthClaims } from '@/lib/auth/get-auth-claims'
 import { embedQuery, formatEmbeddingForPgvector } from '@/lib/ai/embeddings/embedding-service'
 import type { DocumentSearchResult, SearchDocumentsRequest, SearchDocumentsResponse } from '@/lib/types/knowledge'
 
@@ -28,13 +29,10 @@ export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims()
 
-    if (authError || !user) {
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -42,7 +40,7 @@ export async function POST(request: NextRequest) {
     const { data: membership, error: memberError } = await supabase
       .from('team_members')
       .select('team_id')
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (memberError || !membership) {
@@ -116,7 +114,7 @@ export async function POST(request: NextRequest) {
         id: queryId,
         team_id: teamId,
         workspace_id: workspaceId,
-        user_id: user.id,
+        user_id: claims.subject,
         query_text: query,
         result_count: searchResults.length,
         result_chunk_ids: searchResults.map((r) => r.chunkId),

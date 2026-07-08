@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getAuthClaims } from '@/lib/auth/get-auth-claims'
 import { runCompressionJob, listJobs } from '@/lib/ai/compression'
 import { embedMindMap } from '@/lib/ai/embeddings/mindmap-embedding-service'
 import {
@@ -40,13 +41,10 @@ export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims()
 
-    if (authError || !user) {
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -54,7 +52,7 @@ export async function POST(request: NextRequest) {
     const { data: membership, error: memberError } = await supabase
       .from('team_members')
       .select('team_id')
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (memberError || !membership) {
@@ -88,7 +86,7 @@ export async function POST(request: NextRequest) {
         Math.max(1, batchLimit || MINDMAP_EMBED_CONFIG.defaultBatchLimit),
         MINDMAP_EMBED_CONFIG.maxBatchLimit
       )
-      const result = await runMindmapEmbedJob(supabase, teamId, workspaceId, user.id, effectiveBatchLimit)
+      const result = await runMindmapEmbedJob(supabase, teamId, workspaceId, claims.subject, effectiveBatchLimit)
       return NextResponse.json({
         job: result,
         message: `Mind map embedding job completed: ${result.processed} processed, ${result.failed} failed`,
@@ -101,7 +99,7 @@ export async function POST(request: NextRequest) {
       workspaceId,
       jobType,
       documentIds,
-      triggeredBy: user.id,
+      triggeredBy: claims.subject,
     })
 
     return NextResponse.json({
@@ -131,13 +129,10 @@ export async function GET(request: NextRequest) {
   try {
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims()
 
-    if (authError || !user) {
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -145,7 +140,7 @@ export async function GET(request: NextRequest) {
     const { data: membership, error: memberError } = await supabase
       .from('team_members')
       .select('team_id')
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (memberError || !membership) {

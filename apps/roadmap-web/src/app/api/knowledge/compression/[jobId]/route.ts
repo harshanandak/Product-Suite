@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getAuthClaims } from '@/lib/auth/get-auth-claims'
 import { getJobStatus, cancelJob } from '@/lib/ai/compression'
 
 interface RouteContext {
@@ -26,13 +27,10 @@ export async function GET(
     const { jobId } = await context.params
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims()
 
-    if (authError || !user) {
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -47,7 +45,7 @@ export async function GET(
     const { data: membership } = await supabase
       .from('team_members')
       .select('team_id')
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .eq('team_id', job.teamId)
       .single()
 
@@ -78,13 +76,10 @@ export async function DELETE(
     const { jobId } = await context.params
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims()
 
-    if (authError || !user) {
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -99,7 +94,7 @@ export async function DELETE(
     const { data: membership } = await supabase
       .from('team_members')
       .select('team_id')
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .eq('team_id', job.teamId)
       .single()
 

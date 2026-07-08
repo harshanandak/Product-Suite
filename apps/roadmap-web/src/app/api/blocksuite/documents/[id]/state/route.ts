@@ -14,6 +14,7 @@
  */
 
 import { createClient } from '@/lib/supabase/server'
+import { getAuthClaims } from '@/lib/auth/get-auth-claims'
 import { NextRequest, NextResponse } from 'next/server'
 import { isValidId } from '@/components/blocksuite/persistence-types'
 import { rateLimiters, checkRateLimit, getRateLimitIdentifier, createRateLimitHeaders } from '@/lib/rate-limiter'
@@ -54,17 +55,15 @@ export async function GET(
 
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims()
 
-    if (!user) {
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     // SECURITY: Rate limiting with Upstash Redis (higher limit for reads)
-    const rateLimitId = getRateLimitIdentifier(user.id)
+    const rateLimitId = getRateLimitIdentifier(claims.subject)
     const rateLimitResult = await checkRateLimit(rateLimiters.blocksuiteDocuments, rateLimitId)
 
     if (!rateLimitResult.success) {
@@ -79,7 +78,7 @@ export async function GET(
     const { data: memberships } = await supabase
       .from('team_members')
       .select('team_id')
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
 
     const teamIds = memberships?.map((m) => m.team_id) ?? []
     if (teamIds.length === 0) {
@@ -163,22 +162,20 @@ export async function PUT(
 
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims()
 
-    if (!user) {
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     // SECURITY: Rate limiting with Upstash Redis
-    const rateLimitId = getRateLimitIdentifier(user.id)
+    const rateLimitId = getRateLimitIdentifier(claims.subject)
     const rateLimitResult = await checkRateLimit(rateLimiters.blocksuiteState, rateLimitId)
 
     if (!rateLimitResult.success) {
       auditLog('rate_limit_exceeded', {
-        userId: user.id,
+        userId: claims.subject,
         documentId: id,
         endpoint: 'state_upload',
         resetAt: rateLimitResult.reset,
@@ -196,7 +193,7 @@ export async function PUT(
     const { data: memberships } = await supabase
       .from('team_members')
       .select('team_id')
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
 
     const teamIds = memberships?.map((m) => m.team_id) ?? []
     if (teamIds.length === 0) {
@@ -230,7 +227,7 @@ export async function PUT(
     // Size limit: 10MB
     if (state.length > 10485760) {
       auditLog('state_upload_rejected', {
-        userId: user.id,
+        userId: claims.subject,
         documentId: id,
         teamId: doc.team_id,
         reason: 'size_exceeded',
@@ -302,7 +299,7 @@ export async function PUT(
     // SECURITY: Audit log for large uploads (>100KB)
     if (state.length > 102400) {
       auditLog('large_state_upload', {
-        userId: user.id,
+        userId: claims.subject,
         documentId: id,
         teamId: doc.team_id,
         size: state.length,

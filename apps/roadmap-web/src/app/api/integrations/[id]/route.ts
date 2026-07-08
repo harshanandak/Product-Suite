@@ -8,6 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getAuthClaims } from '@/lib/auth/get-auth-claims'
 import type { IntegrationDisplay, IntegrationStatus } from '@/lib/types/integrations'
 
 interface RouteContext {
@@ -24,13 +25,9 @@ export async function GET(request: NextRequest, context: RouteContext) {
     const { id } = await context.params
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-
-    if (authError || !user) {
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims()
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -38,7 +35,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
     const { data: membership, error: memberError } = await supabase
       .from('team_members')
       .select('team_id')
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (memberError || !membership) {
@@ -113,13 +110,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const { id } = await context.params
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-
-    if (authError || !user) {
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims()
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -127,7 +120,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const { data: membership, error: memberError } = await supabase
       .from('team_members')
       .select('team_id')
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (memberError || !membership) {
@@ -194,13 +187,9 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     const { id } = await context.params
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-
-    if (authError || !user) {
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims()
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -208,7 +197,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     const { data: membership, error: memberError } = await supabase
       .from('team_members')
       .select('team_id')
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (memberError || !membership) {

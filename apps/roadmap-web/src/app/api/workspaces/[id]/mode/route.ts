@@ -12,6 +12,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getAuthClaims } from '@/lib/auth/get-auth-claims'
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -50,12 +51,9 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
       )
     }
 
-    // Validate authentication
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-    if (authError || !user) {
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims()
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -78,7 +76,7 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
       .from('team_members')
       .select('role')
       .eq('team_id', workspace.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!membership) {
@@ -110,7 +108,7 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
 
     // Log the mode change (optional: could add to activity feed)
     console.log(
-      `Workspace ${workspaceId} mode changed from ${workspace.mode} to ${mode} by user ${user.id}`
+      `Workspace ${workspaceId} mode changed from ${workspace.mode} to ${mode} by user ${claims.subject}`
     )
 
     return NextResponse.json({
@@ -136,12 +134,9 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     const supabase = await createClient()
     const { id: workspaceId } = await params
 
-    // Validate authentication
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-    if (authError || !user) {
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims()
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -164,7 +159,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       .from('team_members')
       .select('id')
       .eq('team_id', workspace.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!membership) {

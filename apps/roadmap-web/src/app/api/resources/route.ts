@@ -11,6 +11,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getAuthClaims } from '@/lib/auth/get-auth-claims'
 import type {
   CreateResourceRequest,
   ResourceWithMeta,
@@ -49,8 +50,8 @@ export async function GET(req: NextRequest) {
     }
 
     // Validate team membership
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    const claims = await getAuthClaims()
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -58,7 +59,7 @@ export async function GET(req: NextRequest) {
       .from('team_members')
       .select('id')
       .eq('team_id', teamId)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!membership) {
@@ -169,8 +170,8 @@ export async function POST(req: NextRequest) {
     }
 
     // Validate team membership
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    const claims = await getAuthClaims()
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -178,7 +179,7 @@ export async function POST(req: NextRequest) {
       .from('team_members')
       .select('id')
       .eq('team_id', team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!membership) {
@@ -205,7 +206,7 @@ export async function POST(req: NextRequest) {
         resource_type,
         image_url: image_url || null,
         source_domain,
-        created_by: user.id,
+        created_by: claims.subject,
       })
       .select()
       .single()
@@ -223,8 +224,8 @@ export async function POST(req: NextRequest) {
       id: `${Date.now()}_${Math.floor(Math.random() * 1000)}`,
       resource_id: resource.id,
       action: 'created',
-      actor_id: user.id,
-      actor_email: user.email,
+      actor_id: claims.subject,
+      actor_email: claims.email,
       changes: { title: { old: null, new: title } },
       team_id,
       workspace_id,
@@ -240,7 +241,7 @@ export async function POST(req: NextRequest) {
           team_id,
           tab_type,
           context_note: context_note || null,
-          added_by: user.id,
+          added_by: claims.subject,
           display_order: 0,
         })
 
@@ -254,8 +255,8 @@ export async function POST(req: NextRequest) {
           resource_id: resource.id,
           work_item_id,
           action: 'linked',
-          actor_id: user.id,
-          actor_email: user.email,
+          actor_id: claims.subject,
+          actor_email: claims.email,
           changes: { tab_type: { old: null, new: tab_type } },
           team_id,
           workspace_id,

@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { getAuthClaims } from '@/lib/auth/get-auth-claims'
 import { NextResponse } from 'next/server'
 import { calculateCriticalPath } from '@/lib/algorithms/critical-path'
 import { detectCycles } from '@/lib/algorithms/cycle-detection'
@@ -18,12 +19,10 @@ export async function POST(request: Request) {
 
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims()
 
-    if (!user) {
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -43,7 +42,7 @@ export async function POST(request: Request) {
       .from('team_members')
       .select('role')
       .eq('team_id', workspace.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!teamMember) {

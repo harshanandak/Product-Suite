@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { getAuthClaims } from '@/lib/auth/get-auth-claims'
 import { NextResponse } from 'next/server'
 import crypto from 'crypto'
 
@@ -20,12 +21,8 @@ export async function GET(request: Request) {
     }
 
     // Get current user
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-
-    if (authError || !user) {
+    const claims = await getAuthClaims()
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -47,7 +44,7 @@ export async function GET(request: Request) {
       .from('team_members')
       .select('id')
       .eq('team_id', workspace.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!teamMember) {
@@ -111,12 +108,8 @@ export async function POST(request: Request) {
     }
 
     // Get current user
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-
-    if (authError || !user) {
+    const claims = await getAuthClaims()
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -138,7 +131,7 @@ export async function POST(request: Request) {
       .from('team_members')
       .select('id')
       .eq('team_id', workspace.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!teamMember) {
@@ -159,7 +152,7 @@ export async function POST(request: Request) {
       name: name || null,
       expires_at: expires_at || null,
       is_active: true,
-      created_by: user.id,
+      created_by: claims.subject,
     }
 
     const { data: newLink, error: createError } = await supabase

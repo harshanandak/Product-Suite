@@ -10,6 +10,7 @@
  */
 
 import { createClient } from '@/lib/supabase/server'
+import { getAuthClaims } from '@/lib/auth/get-auth-claims'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { isValidId, getStoragePath } from '@/components/blocksuite/persistence-types'
@@ -43,22 +44,20 @@ export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims()
 
-    if (!user) {
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     // SECURITY: Rate limiting with Upstash Redis
-    const rateLimitId = getRateLimitIdentifier(user.id)
+    const rateLimitId = getRateLimitIdentifier(claims.subject)
     const rateLimitResult = await checkRateLimit(rateLimiters.blocksuiteDocuments, rateLimitId)
 
     if (!rateLimitResult.success) {
       auditLog('rate_limit_exceeded', {
-        userId: user.id,
+        userId: claims.subject,
         endpoint: 'document_create',
         resetAt: rateLimitResult.reset,
       })
@@ -106,12 +105,12 @@ export async function POST(request: NextRequest) {
       .from('team_members')
       .select('role')
       .eq('team_id', workspace.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!membership) {
       auditLog('unauthorized_document_create', {
-        userId: user.id,
+        userId: claims.subject,
         workspaceId,
         teamId: workspace.team_id,
       })
@@ -139,7 +138,7 @@ export async function POST(request: NextRequest) {
 
     if (insertError) {
       auditLog('document_create_failed', {
-        userId: user.id,
+        userId: claims.subject,
         workspaceId,
         error: insertError.message,
       })
@@ -150,7 +149,7 @@ export async function POST(request: NextRequest) {
     }
 
     auditLog('document_created', {
-      userId: user.id,
+      userId: claims.subject,
       documentId,
       workspaceId,
       teamId: workspace.team_id,
@@ -183,12 +182,10 @@ export async function GET(request: NextRequest) {
   try {
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims()
 
-    if (!user) {
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -219,7 +216,7 @@ export async function GET(request: NextRequest) {
       .from('team_members')
       .select('role')
       .eq('team_id', workspace.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!membership) {

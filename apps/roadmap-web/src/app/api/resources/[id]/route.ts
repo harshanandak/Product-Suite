@@ -11,6 +11,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getAuthClaims } from '@/lib/auth/get-auth-claims'
 import type { UpdateResourceRequest } from '@/lib/types/resources'
 import { extractDomain } from '@/lib/types/resources'
 
@@ -29,8 +30,8 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     const supabase = await createClient()
 
     // Validate user
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    const claims = await getAuthClaims()
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -96,8 +97,8 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     const action = searchParams.get('action')
 
     // Validate user
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    const claims = await getAuthClaims()
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -131,7 +132,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
           deleted_at: null,
           deleted_by: null,
           updated_at: new Date().toISOString(),
-          last_modified_by: user.id,
+          last_modified_by: claims.subject,
         })
         .eq('id', id)
         .select()
@@ -150,8 +151,8 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
         id: `${Date.now()}_${Math.floor(Math.random() * 1000)}`,
         resource_id: id,
         action: 'restored',
-        actor_id: user.id,
-        actor_email: user.email,
+        actor_id: claims.subject,
+        actor_email: claims.email,
         changes: { is_deleted: { old: true, new: false } },
         team_id: currentResource.team_id,
         workspace_id: currentResource.workspace_id,
@@ -166,7 +167,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     // Build update object and track changes
     const updates: Record<string, unknown> = {
       updated_at: new Date().toISOString(),
-      last_modified_by: user.id,
+      last_modified_by: claims.subject,
     }
     const changes: Record<string, { old: unknown; new: unknown }> = {}
 
@@ -223,8 +224,8 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
         id: `${Date.now()}_${Math.floor(Math.random() * 1000)}`,
         resource_id: id,
         action: 'updated',
-        actor_id: user.id,
-        actor_email: user.email,
+        actor_id: claims.subject,
+        actor_email: claims.email,
         changes,
         team_id: currentResource.team_id,
         workspace_id: currentResource.workspace_id,
@@ -255,8 +256,8 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
     const permanent = searchParams.get('permanent') === 'true'
 
     // Validate user
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    const claims = await getAuthClaims()
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -280,10 +281,10 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
         .from('team_members')
         .select('role')
         .eq('team_id', currentResource.team_id)
-        .eq('user_id', user.id)
+        .eq('user_id', claims.subject)
         .single()
 
-      const isCreator = currentResource.created_by === user.id
+      const isCreator = currentResource.created_by === claims.subject
       const isAdmin = membership?.role === 'owner' || membership?.role === 'admin'
 
       if (!isCreator && !isAdmin) {
@@ -316,7 +317,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       .update({
         is_deleted: true,
         deleted_at: new Date().toISOString(),
-        deleted_by: user.id,
+        deleted_by: claims.subject,
         updated_at: new Date().toISOString(),
       })
       .eq('id', id)
@@ -336,8 +337,8 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       id: `${Date.now()}_${Math.floor(Math.random() * 1000)}`,
       resource_id: id,
       action: 'deleted',
-      actor_id: user.id,
-      actor_email: user.email,
+      actor_id: claims.subject,
+      actor_email: claims.email,
       changes: { is_deleted: { old: false, new: true } },
       team_id: currentResource.team_id,
       workspace_id: currentResource.workspace_id,

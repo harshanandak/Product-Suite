@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { getAuthClaims } from '@/lib/auth/get-auth-claims'
 import { NextResponse } from 'next/server'
 import type { ConnectionType } from '@/lib/types/dependencies'
 
@@ -17,12 +18,10 @@ export async function GET(request: Request) {
 
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims()
 
-    if (!user) {
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -42,7 +41,7 @@ export async function GET(request: Request) {
       .from('team_members')
       .select('role')
       .eq('team_id', workspace.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!teamMember) {
@@ -123,12 +122,10 @@ export async function POST(request: Request) {
 
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims()
 
-    if (!user) {
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -148,7 +145,7 @@ export async function POST(request: Request) {
       .from('team_members')
       .select('role')
       .eq('team_id', workspace.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!teamMember) {
@@ -205,7 +202,7 @@ export async function POST(request: Request) {
       .from('work_item_connections')
       .insert({
         id: connectionId,
-        user_id: user.id,
+        user_id: claims.subject,
         workspace_id,
         source_work_item_id,
         target_work_item_id,

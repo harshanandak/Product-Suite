@@ -1,22 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { getAuthClaims } from '@/lib/auth/get-auth-claims';
 
 export async function GET(_request: NextRequest) {
   try {
     const supabase = await createClient();
 
-    const {
-      data: { user: authUser },
-    } = await supabase.auth.getUser();
-
-    if (!authUser) {
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims();
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const { data: userProfile, error } = await supabase
       .from('users')
       .select('*')
-      .eq('id', authUser.id)
+      .eq('id', claims.subject)
       .single();
 
     if (error) {
@@ -25,8 +24,8 @@ export async function GET(_request: NextRequest) {
     }
 
     return NextResponse.json({
-      id: authUser.id,
-      email: authUser.email,
+      id: claims.subject,
+      email: claims.email,
       name: userProfile?.name,
       avatar_url: userProfile?.avatar_url,
       created_at: userProfile?.created_at,
@@ -46,11 +45,9 @@ export async function PUT(request: NextRequest) {
   try {
     const supabase = await createClient();
 
-    const {
-      data: { user: authUser },
-    } = await supabase.auth.getUser();
-
-    if (!authUser) {
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims();
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -81,7 +78,7 @@ export async function PUT(request: NextRequest) {
     const { data, error } = await supabase
       .from('users')
       .update(updateData)
-      .eq('id', authUser.id)
+      .eq('id', claims.subject)
       .select()
       .single();
 
