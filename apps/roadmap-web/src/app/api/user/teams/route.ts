@@ -1,17 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard';
 
 export async function GET(_request: NextRequest) {
   try {
     const supabase = await createClient();
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth();
+    if (auth instanceof NextResponse) return auth;
+    const claims = auth;
 
     const { data: teamMemberships, error } = await supabase
       .from('team_members')
@@ -25,7 +23,7 @@ export async function GET(_request: NextRequest) {
           plan
         )
       `)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .order('joined_at', { ascending: false });
 
     if (error) {
@@ -34,11 +32,7 @@ export async function GET(_request: NextRequest) {
     }
 
     return NextResponse.json({ teams: teamMemberships || [] });
-  } catch (error: unknown) {
-    console.error('Error in GET /api/user/teams:', error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Internal server error' },
-      { status: 500 }
-    );
+  } catch (error) {
+    return handleRouteError(error, 'Error in GET /api/user/teams');
   }
 }

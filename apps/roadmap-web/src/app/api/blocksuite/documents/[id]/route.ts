@@ -14,6 +14,7 @@
  */
 
 import { createClient } from '@/lib/supabase/server'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 import { NextResponse } from 'next/server'
 import { isValidId } from '@/components/blocksuite/persistence-types'
 import { safeValidateDocumentUpdate } from '@/components/blocksuite/schema'
@@ -104,20 +105,16 @@ export async function GET(
 
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get user's team memberships for explicit filtering
     const { data: memberships } = await supabase
       .from('team_members')
       .select('team_id')
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
 
     const teamIds = memberships?.map((m) => m.team_id) ?? []
     if (teamIds.length === 0) {
@@ -137,11 +134,8 @@ export async function GET(
     }
 
     return NextResponse.json({ document })
-  } catch (error: unknown) {
-    console.error('Error in GET /api/blocksuite/documents/[id]:', error)
-    const message =
-      error instanceof Error ? error.message : 'An unexpected error occurred'
-    return NextResponse.json({ error: message }, { status: 500 })
+  } catch (error) {
+    return handleRouteError(error, 'GET /api/blocksuite/documents/[id]')
   }
 }
 
@@ -179,19 +173,15 @@ export async function PATCH(
 
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // SECURITY: Rate limiting
-    if (!checkRateLimit(user.id)) {
+    if (!checkRateLimit(claims.subject)) {
       auditLog('rate_limit_exceeded', {
-        userId: user.id,
+        userId: claims.subject,
         documentId: id,
         endpoint: 'document_update',
       })
@@ -205,7 +195,7 @@ export async function PATCH(
     const { data: memberships } = await supabase
       .from('team_members')
       .select('team_id')
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
 
     const teamIds = memberships?.map((m) => m.team_id) ?? []
     if (teamIds.length === 0) {
@@ -240,17 +230,14 @@ export async function PATCH(
     // SECURITY: Audit log
     auditLog('document_updated', {
       documentId: id,
-      userId: user.id,
+      userId: claims.subject,
       teamId: document.team_id,
       fields: Object.keys(updates).filter((k) => k !== 'updated_at'),
     })
 
     return NextResponse.json({ document })
-  } catch (error: unknown) {
-    console.error('Error in PATCH /api/blocksuite/documents/[id]:', error)
-    const message =
-      error instanceof Error ? error.message : 'An unexpected error occurred'
-    return NextResponse.json({ error: message }, { status: 500 })
+  } catch (error) {
+    return handleRouteError(error, 'PATCH /api/blocksuite/documents/[id]')
   }
 }
 
@@ -275,19 +262,15 @@ export async function DELETE(
 
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // SECURITY: Rate limiting (DELETE is especially sensitive)
-    if (!checkRateLimit(user.id)) {
+    if (!checkRateLimit(claims.subject)) {
       auditLog('rate_limit_exceeded', {
-        userId: user.id,
+        userId: claims.subject,
         documentId: id,
         endpoint: 'document_delete',
       })
@@ -301,7 +284,7 @@ export async function DELETE(
     const { data: memberships } = await supabase
       .from('team_members')
       .select('team_id')
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
 
     const teamIds = memberships?.map((m) => m.team_id) ?? []
     if (teamIds.length === 0) {
@@ -323,7 +306,7 @@ export async function DELETE(
     // SECURITY: Audit log before deletion
     auditLog('document_delete_attempt', {
       documentId: id,
-      userId: user.id,
+      userId: claims.subject,
       teamId: document.team_id,
     })
 
@@ -352,15 +335,12 @@ export async function DELETE(
     // SECURITY: Audit log successful deletion
     auditLog('document_deleted', {
       documentId: id,
-      userId: user.id,
+      userId: claims.subject,
       teamId: document.team_id,
     })
 
     return NextResponse.json({ success: true })
-  } catch (error: unknown) {
-    console.error('Error in DELETE /api/blocksuite/documents/[id]:', error)
-    const message =
-      error instanceof Error ? error.message : 'An unexpected error occurred'
-    return NextResponse.json({ error: message }, { status: 500 })
+  } catch (error) {
+    return handleRouteError(error, 'DELETE /api/blocksuite/documents/[id]')
   }
 }

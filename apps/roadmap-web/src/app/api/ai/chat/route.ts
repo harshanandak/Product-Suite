@@ -13,7 +13,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { requireAuth } from '@/lib/auth/api-guard'
 import { callOpenRouter, streamOpenRouter, type ChatMessage } from '@/lib/ai/openrouter'
 import { ParallelAI, type ParallelChatMessage } from '@/lib/ai/parallel-ai'
 import { getModelByKey } from '@/lib/ai/models'
@@ -54,17 +54,9 @@ interface ChatResponse {
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient()
-
-    // Check authentication
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
 
     // Parse request body
     const body: ChatRequest = await request.json()

@@ -14,6 +14,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { handleRouteError, requireAuth, requireTeamMembership } from '@/lib/auth/api-guard';
 import type { DepartmentInsert } from '@/lib/types/department';
 
 /**
@@ -25,6 +26,9 @@ import type { DepartmentInsert } from '@/lib/types/department';
  */
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requireAuth();
+    if (auth instanceof NextResponse) return auth;
+
     const supabase = await createClient();
     const { searchParams } = new URL(req.url);
     const teamId = searchParams.get('team_id');
@@ -36,29 +40,9 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Validate authentication
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
-
-    // Validate team membership
-    const { data: membership } = await supabase
-      .from('team_members')
-      .select('id')
-      .eq('team_id', teamId)
-      .eq('user_id', user.id)
-      .single();
-
-    if (!membership) {
-      return NextResponse.json(
-        { error: 'Not a team member' },
-        { status: 403 }
-      );
-    }
+    // Auth + team-membership guard (see lib/auth/api-guard)
+    const guard = await requireTeamMembership(supabase, teamId);
+    if (guard instanceof NextResponse) return guard;
 
     // Get departments with work item count
     const { data: departments, error } = await supabase
@@ -113,11 +97,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ data: departmentsWithStats });
   } catch (error) {
-    console.error('Error in GET /api/departments:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return handleRouteError(error, 'Error in GET /api/departments');
   }
 }
 
@@ -137,6 +117,10 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requireAuth();
+    if (auth instanceof NextResponse) return auth;
+    const claims = auth;
+
     const supabase = await createClient();
     const body = await req.json() as DepartmentInsert;
 
@@ -157,21 +141,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Validate authentication
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
-
     // Validate admin/owner role
     const { data: membership } = await supabase
       .from('team_members')
       .select('role')
       .eq('team_id', team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single();
 
     if (!membership) {
@@ -221,7 +196,7 @@ export async function POST(req: NextRequest) {
         icon: icon || 'folder',
         is_default: is_default || false,
         sort_order: nextSortOrder,
-        created_by: user.id,
+        created_by: claims.subject,
       })
       .select()
       .single();
@@ -246,10 +221,6 @@ export async function POST(req: NextRequest) {
       { status: 201 }
     );
   } catch (error) {
-    console.error('Error in POST /api/departments:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return handleRouteError(error, 'Error in POST /api/departments');
   }
 }

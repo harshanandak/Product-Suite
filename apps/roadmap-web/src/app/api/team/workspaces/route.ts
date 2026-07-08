@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { requireAuth, requireTeamMembership, handleRouteError } from '@/lib/auth/api-guard'
 import { NextRequest, NextResponse } from 'next/server'
 
 /**
@@ -7,17 +8,10 @@ import { NextRequest, NextResponse } from 'next/server'
  */
 export async function GET(request: NextRequest) {
   try {
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+
     const supabase = await createClient()
-
-    // Get current user
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser()
-
-    if (userError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
 
     // Get team_id from query params
     const searchParams = request.nextUrl.searchParams
@@ -27,17 +21,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'team_id is required' }, { status: 400 })
     }
 
-    // Verify user is a member of this team
-    const { data: membership, error: membershipError } = await supabase
-      .from('team_members')
-      .select('id, role')
-      .eq('team_id', teamId)
-      .eq('user_id', user.id)
-      .single()
-
-    if (membershipError || !membership) {
-      return NextResponse.json({ error: 'Not a member of this team' }, { status: 403 })
-    }
+    // Auth + team-membership guard (see lib/auth/api-guard)
+    const guard = await requireTeamMembership(supabase, teamId)
+    if (guard instanceof NextResponse) return guard
 
     // Fetch all workspaces for this team
     const { data: workspaces, error: workspacesError } = await supabase
@@ -53,7 +39,6 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(workspaces || [])
   } catch (error) {
-    console.error('Error in GET /api/team/workspaces:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return handleRouteError(error, 'Error in GET /api/team/workspaces')
   }
 }

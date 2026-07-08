@@ -14,7 +14,7 @@
  */
 
 import { streamText, convertToModelMessages, type UIMessage, type LanguageModel } from 'ai'
-import { createClient } from '@/lib/supabase/server'
+import { getAuthClaims } from '@/lib/auth/get-auth-claims'
 import { openrouter, aiModels, getModelFromConfig } from '@/lib/ai/ai-sdk-client'
 import { parallelAITools, parallelAIQuickTools } from '@/lib/ai/tools/parallel-ai-tools'
 import { getModelByKey } from '@/lib/ai/models'
@@ -56,15 +56,10 @@ Be concise, helpful, and provide actionable insights. When citing information fr
  */
 export async function POST(request: Request) {
   try {
-    const supabase = await createClient()
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims()
 
-    // Check authentication
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-
-    if (authError || !user) {
+    if (!claims) {
       return new Response('Unauthorized', { status: 401 })
     }
 

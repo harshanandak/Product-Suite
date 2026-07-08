@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard';
 
 // Type for insight data from Supabase relation
 interface InsightData {
@@ -42,14 +43,9 @@ export async function GET(
     const supabase = await createClient();
     const { id: workItemId } = await params;
 
-    // Validate user auth
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const auth = await requireAuth();
+    if (auth instanceof NextResponse) return auth;
+    const claims = auth;
 
     // Fetch work item to get team_id
     const { data: workItem, error: workItemError } = await supabase
@@ -67,7 +63,7 @@ export async function GET(
       .from('team_members')
       .select('id')
       .eq('team_id', workItem.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single();
 
     if (!membership) {
@@ -202,11 +198,7 @@ export async function GET(
       count: insightsWithMeta?.length || 0,
     });
   } catch (error) {
-    console.error('Error in GET /api/work-items/[id]/insights:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return handleRouteError(error, 'Error in GET /api/work-items/[id]/insights');
   }
 }
 
@@ -232,14 +224,9 @@ export async function POST(
       );
     }
 
-    // Validate user auth
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const auth = await requireAuth();
+    if (auth instanceof NextResponse) return auth;
+    const claims = auth;
 
     // Fetch work item to get team_id
     const { data: workItem, error: workItemError } = await supabase
@@ -257,7 +244,7 @@ export async function POST(
       .from('team_members')
       .select('id')
       .eq('team_id', workItem.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single();
 
     if (!membership) {
@@ -308,7 +295,7 @@ export async function POST(
         team_id: workItem.team_id,
         relevance_score: relevance_score ?? 5,
         notes: notes || null,
-        linked_by: user.id,
+        linked_by: claims.subject,
       })
       .select()
       .single();
@@ -330,10 +317,6 @@ export async function POST(
 
     return NextResponse.json({ data: link }, { status: 201 });
   } catch (error) {
-    console.error('Error in POST /api/work-items/[id]/insights:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return handleRouteError(error, 'Error in POST /api/work-items/[id]/insights');
   }
 }

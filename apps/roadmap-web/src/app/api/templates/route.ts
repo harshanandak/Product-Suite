@@ -15,6 +15,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 import type { CreateTemplateInput } from '@/lib/templates/template-types'
 
 /**
@@ -34,14 +35,10 @@ export async function GET(req: NextRequest) {
     const mode = searchParams.get('mode')
     const systemOnly = searchParams.get('system_only') === 'true'
 
-    // Validate authentication
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Build query for system templates
     let query = supabase
@@ -58,7 +55,7 @@ export async function GET(req: NextRequest) {
         .from('team_members')
         .select('id')
         .eq('team_id', teamId)
-        .eq('user_id', user.id)
+        .eq('user_id', claims.subject)
         .single()
 
       if (!membership) {
@@ -89,11 +86,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ data: templates })
   } catch (error) {
-    console.error('Error in GET /api/templates:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'GET /api/templates')
   }
 }
 
@@ -148,21 +141,17 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Validate authentication
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Validate admin/owner role
     const { data: membership } = await supabase
       .from('team_members')
       .select('role')
       .eq('team_id', team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!membership) {
@@ -188,7 +177,7 @@ export async function POST(req: NextRequest) {
         mode,
         is_system: false,
         template_data: template_data || { departments: [], workItems: [], tags: [] },
-        created_by: user.id,
+        created_by: claims.subject,
       })
       .select()
       .single()
@@ -203,10 +192,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ data: template }, { status: 201 })
   } catch (error) {
-    console.error('Error in POST /api/templates:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'POST /api/templates')
   }
 }

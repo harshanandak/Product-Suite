@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { handleRouteError, requireAuth } from '@/lib/auth/api-guard'
 import type { WorkspaceIntegrationDisplay, IntegrationProvider, IntegrationStatus } from '@/lib/types/integrations'
 
 interface RouteContext {
@@ -23,15 +24,10 @@ export async function GET(request: NextRequest, context: RouteContext) {
     const { id: workspaceId } = await context.params
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get workspace and verify team membership
     const { data: workspace, error: workspaceError } = await supabase
@@ -48,7 +44,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
     const { data: membership, error: memberError } = await supabase
       .from('team_members')
       .select('team_id')
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .eq('team_id', workspace.team_id)
       .single()
 
@@ -129,8 +125,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
       count: integrations.length,
     })
   } catch (error) {
-    console.error('[Workspace Integrations API] Error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return handleRouteError(error, '[Workspace Integrations API] Error')
   }
 }
 
@@ -150,15 +145,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const { id: workspaceId } = await context.params
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get workspace and verify team membership
     const { data: workspace, error: workspaceError } = await supabase
@@ -175,7 +165,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const { data: membership, error: memberError } = await supabase
       .from('team_members')
       .select('team_id')
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .eq('team_id', workspace.team_id)
       .single()
 
@@ -259,7 +249,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
         enabled_tools: enabledTools || [],
         default_project: defaultProject,
         settings: settings || {},
-        enabled_by: user.id,
+        enabled_by: claims.subject,
       })
 
     if (insertError) {
@@ -275,7 +265,6 @@ export async function POST(request: NextRequest, context: RouteContext) {
       { status: 201 }
     )
   } catch (error) {
-    console.error('[Workspace Integrations API] Error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return handleRouteError(error, '[Workspace Integrations API] Error')
   }
 }

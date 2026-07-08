@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { handleRouteError, requireAuth } from '@/lib/auth/api-guard'
 import { NextResponse } from 'next/server'
 
 /**
@@ -13,15 +14,10 @@ export async function GET(
     const supabase = await createClient()
     const { id } = await params
 
-    // Get current user
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get review link
     const { data: reviewLink, error: linkError } = await supabase
@@ -42,7 +38,7 @@ export async function GET(
       .from('team_members')
       .select('id')
       .eq('team_id', reviewLink.workspaces.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!teamMember) {
@@ -50,13 +46,8 @@ export async function GET(
     }
 
     return NextResponse.json(reviewLink)
-  } catch (error: unknown) {
-    console.error('Error fetching review link:', error)
-    const message = error instanceof Error ? error.message : 'Failed to fetch review link'
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    )
+  } catch (error) {
+    return handleRouteError(error, 'Error fetching review link')
   }
 }
 
@@ -75,15 +66,10 @@ export async function PUT(
 
     const { is_active, expires_at, name } = body
 
-    // Get current user
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get review link to verify access
     const { data: reviewLink, error: linkError } = await supabase
@@ -104,7 +90,7 @@ export async function PUT(
       .from('team_members')
       .select('id')
       .eq('team_id', reviewLink.workspaces.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!teamMember) {
@@ -129,13 +115,8 @@ export async function PUT(
     }
 
     return NextResponse.json(updatedLink)
-  } catch (error: unknown) {
-    console.error('Error updating review link:', error)
-    const message = error instanceof Error ? error.message : 'Failed to update review link'
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    )
+  } catch (error) {
+    return handleRouteError(error, 'Error updating review link')
   }
 }
 
@@ -151,15 +132,10 @@ export async function DELETE(
     const supabase = await createClient()
     const { id } = await params
 
-    // Get current user
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get review link to verify access
     const { data: reviewLink, error: linkError } = await supabase
@@ -180,7 +156,7 @@ export async function DELETE(
       .from('team_members')
       .select('id')
       .eq('team_id', reviewLink.workspaces.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!teamMember) {
@@ -200,12 +176,7 @@ export async function DELETE(
     }
 
     return NextResponse.json({ success: true, link: deletedLink })
-  } catch (error: unknown) {
-    console.error('Error deleting review link:', error)
-    const message = error instanceof Error ? error.message : 'Failed to delete review link'
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    )
+  } catch (error) {
+    return handleRouteError(error, 'Error deleting review link')
   }
 }

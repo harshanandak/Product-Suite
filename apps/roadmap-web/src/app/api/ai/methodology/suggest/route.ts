@@ -21,6 +21,7 @@
  */
 
 import { createClient } from '@/lib/supabase/server'
+import { requireAuth } from '@/lib/auth/api-guard'
 import { NextResponse } from 'next/server'
 import { generateObject } from 'ai'
 import { getDefaultModel, getModelByKey, type AIModel } from '@/lib/ai/models'
@@ -85,21 +86,17 @@ export async function POST(request: Request) {
 
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Check if user has access to this team
     const { data: teamMember } = await supabase
       .from('team_members')
       .select('role')
       .eq('team_id', team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!teamMember) {
@@ -208,7 +205,7 @@ export async function POST(request: Request) {
         id: Date.now().toString(),
         team_id: team_id,
         workspace_id: workspace_id || null,
-        user_id: user.id,
+        user_id: claims.subject,
         model_key: model_key,
         model_id: configModel.id,
         model_name: configModel.name,

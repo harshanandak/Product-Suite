@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { requireAuth, requireTeamMembership, handleRouteError } from '@/lib/auth/api-guard';
 import type {
   CustomerInsightWithMeta,
   CreateInsightRequest,
@@ -12,6 +13,9 @@ import type {
  */
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requireAuth();
+    if (auth instanceof NextResponse) return auth;
+
     const supabase = await createClient();
     const { searchParams } = new URL(req.url);
 
@@ -24,26 +28,9 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Validate user auth
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    // Validate team membership
-    const { data: membership } = await supabase
-      .from('team_members')
-      .select('id')
-      .eq('team_id', teamId)
-      .eq('user_id', user.id)
-      .single();
-
-    if (!membership) {
-      return NextResponse.json({ error: 'Not a team member' }, { status: 403 });
-    }
+    // Auth + team-membership guard (see lib/auth/api-guard)
+    const guard = await requireTeamMembership(supabase, teamId);
+    if (guard instanceof NextResponse) return guard;
 
     // Parse filters
     const filters: InsightFilters = {
@@ -180,11 +167,7 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('Error in GET /api/insights:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return handleRouteError(error, 'Error in GET /api/insights');
   }
 }
 
@@ -194,6 +177,9 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requireAuth();
+    if (auth instanceof NextResponse) return auth;
+
     const supabase = await createClient();
     const body: CreateInsightRequest = await req.json();
 
@@ -205,26 +191,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Validate user auth
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    // Validate team membership
-    const { data: membership } = await supabase
-      .from('team_members')
-      .select('id')
-      .eq('team_id', body.team_id)
-      .eq('user_id', user.id)
-      .single();
-
-    if (!membership) {
-      return NextResponse.json({ error: 'Not a team member' }, { status: 403 });
-    }
+    // Auth + team-membership guard (see lib/auth/api-guard)
+    const guard = await requireTeamMembership(supabase, body.team_id);
+    if (guard instanceof NextResponse) return guard;
+    const { claims } = guard;
 
     // Generate timestamp-based ID
     const id = Date.now().toString();
@@ -252,7 +222,7 @@ export async function POST(req: NextRequest) {
         frequency: body.frequency ?? 1,
         tags: body.tags || [],
         source_feedback_id: body.source_feedback_id || null,
-        created_by: user.id,
+        created_by: claims.subject,
       })
       .select()
       .single();
@@ -267,10 +237,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ data: insight }, { status: 201 });
   } catch (error) {
-    console.error('Error in POST /api/insights:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return handleRouteError(error, 'Error in POST /api/insights');
   }
 }

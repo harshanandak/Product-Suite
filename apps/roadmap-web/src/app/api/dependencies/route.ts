@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 import { NextResponse } from 'next/server'
 import type { ConnectionType } from '@/lib/types/dependencies'
 
@@ -17,14 +18,10 @@ export async function GET(request: Request) {
 
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get workspace to verify access
     const { data: workspace } = await supabase
@@ -42,7 +39,7 @@ export async function GET(request: Request) {
       .from('team_members')
       .select('role')
       .eq('team_id', workspace.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!teamMember) {
@@ -66,10 +63,8 @@ export async function GET(request: Request) {
       connections: connections || [],
       totalCount: connections?.length || 0,
     })
-  } catch (error: unknown) {
-    console.error('Error in GET /api/dependencies:', error)
-    const message = error instanceof Error ? error.message : 'Unknown error'
-    return NextResponse.json({ error: message }, { status: 500 })
+  } catch (error) {
+    return handleRouteError(error, 'GET /api/dependencies')
   }
 }
 
@@ -123,14 +118,10 @@ export async function POST(request: Request) {
 
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get workspace to verify access
     const { data: workspace } = await supabase
@@ -148,7 +139,7 @@ export async function POST(request: Request) {
       .from('team_members')
       .select('role')
       .eq('team_id', workspace.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!teamMember) {
@@ -205,7 +196,7 @@ export async function POST(request: Request) {
       .from('work_item_connections')
       .insert({
         id: connectionId,
-        user_id: user.id,
+        user_id: claims.subject,
         workspace_id,
         source_work_item_id,
         target_work_item_id,
@@ -229,9 +220,7 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({ connection }, { status: 201 })
-  } catch (error: unknown) {
-    console.error('Error in POST /api/dependencies:', error)
-    const message = error instanceof Error ? error.message : 'Unknown error'
-    return NextResponse.json({ error: message }, { status: 500 })
+  } catch (error) {
+    return handleRouteError(error, 'POST /api/dependencies')
   }
 }

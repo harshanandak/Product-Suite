@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { handleRouteError, requireAuth } from '@/lib/auth/api-guard'
 import { NextResponse } from 'next/server'
 import crypto from 'crypto'
 
@@ -19,15 +20,10 @@ export async function GET(request: Request) {
       )
     }
 
-    // Get current user
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Verify user has access to workspace (team member)
     const { data: workspace, error: workspaceError } = await supabase
@@ -47,7 +43,7 @@ export async function GET(request: Request) {
       .from('team_members')
       .select('id')
       .eq('team_id', workspace.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!teamMember) {
@@ -66,13 +62,8 @@ export async function GET(request: Request) {
     }
 
     return NextResponse.json(reviewLinks || [])
-  } catch (error: unknown) {
-    console.error('Error fetching review links:', error)
-    const message = error instanceof Error ? error.message : 'Failed to fetch review links'
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    )
+  } catch (error) {
+    return handleRouteError(error, 'Error fetching review links')
   }
 }
 
@@ -110,15 +101,10 @@ export async function POST(request: Request) {
       )
     }
 
-    // Get current user
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Verify user has access to workspace
     const { data: workspace, error: workspaceError } = await supabase
@@ -138,7 +124,7 @@ export async function POST(request: Request) {
       .from('team_members')
       .select('id')
       .eq('team_id', workspace.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!teamMember) {
@@ -159,7 +145,7 @@ export async function POST(request: Request) {
       name: name || null,
       expires_at: expires_at || null,
       is_active: true,
-      created_by: user.id,
+      created_by: claims.subject,
     }
 
     const { data: newLink, error: createError } = await supabase
@@ -193,12 +179,7 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json(newLink, { status: 201 })
-  } catch (error: unknown) {
-    console.error('Error creating review link:', error)
-    const message = error instanceof Error ? error.message : 'Failed to create review link'
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    )
+  } catch (error) {
+    return handleRouteError(error, 'Error creating review link')
   }
 }

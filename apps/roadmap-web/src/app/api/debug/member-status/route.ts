@@ -1,18 +1,15 @@
 import { createClient } from '@/lib/supabase/server'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 import { NextRequest, NextResponse } from 'next/server'
 
 export async function GET(request: NextRequest) {
   try {
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get email from query params
     const searchParams = request.nextUrl.searchParams
@@ -26,7 +23,7 @@ export async function GET(request: NextRequest) {
     const { data: userTeamMember } = await supabase
       .from('team_members')
       .select('team_id, role')
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!userTeamMember) {
@@ -75,11 +72,7 @@ export async function GET(request: NextRequest) {
         memberError: memberError?.message,
       },
     })
-  } catch (error: unknown) {
-    console.error('Debug API error:', error)
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Internal server error' },
-      { status: 500 }
-    )
+  } catch (error) {
+    return handleRouteError(error, 'Debug API error')
   }
 }

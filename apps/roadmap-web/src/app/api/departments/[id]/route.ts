@@ -15,6 +15,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { handleRouteError, requireAuth } from '@/lib/auth/api-guard';
 import type { DepartmentUpdate } from '@/lib/types/department';
 
 interface RouteParams {
@@ -31,14 +32,10 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     const supabase = await createClient();
     const { id } = await params;
 
-    // Validate authentication
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth();
+    if (auth instanceof NextResponse) return auth;
+    const claims = auth;
 
     // Get the department
     const { data: department, error } = await supabase
@@ -59,7 +56,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       .from('team_members')
       .select('id')
       .eq('team_id', department.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single();
 
     if (!membership) {
@@ -82,11 +79,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       },
     });
   } catch (error) {
-    console.error('Error in GET /api/departments/[id]:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return handleRouteError(error, 'Error in GET /api/departments/[id]');
   }
 }
 
@@ -110,14 +103,10 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     const { id } = await params;
     const body = await req.json() as DepartmentUpdate;
 
-    // Validate authentication
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth();
+    if (auth instanceof NextResponse) return auth;
+    const claims = auth;
 
     // Get the department first
     const { data: department, error: fetchError } = await supabase
@@ -138,7 +127,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       .from('team_members')
       .select('role')
       .eq('team_id', department.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single();
 
     if (!membership) {
@@ -215,11 +204,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({ data: updated });
   } catch (error) {
-    console.error('Error in PATCH /api/departments/[id]:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return handleRouteError(error, 'Error in PATCH /api/departments/[id]');
   }
 }
 
@@ -235,14 +220,10 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
     const supabase = await createClient();
     const { id } = await params;
 
-    // Validate authentication
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth();
+    if (auth instanceof NextResponse) return auth;
+    const claims = auth;
 
     // Get the department first
     const { data: department, error: fetchError } = await supabase
@@ -263,7 +244,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       .from('team_members')
       .select('role')
       .eq('team_id', department.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single();
 
     if (!membership) {
@@ -312,10 +293,6 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({ message: 'Department deleted successfully' });
   } catch (error) {
-    console.error('Error in DELETE /api/departments/[id]:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return handleRouteError(error, 'Error in DELETE /api/departments/[id]');
   }
 }

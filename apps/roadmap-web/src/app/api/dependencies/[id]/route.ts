@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 import { NextResponse } from 'next/server'
 import type { ConnectionType } from '@/lib/types/dependencies'
 
@@ -11,14 +12,10 @@ export async function GET(
     const { id } = await params
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get connection
     const { data: connection, error } = await supabase
@@ -49,7 +46,7 @@ export async function GET(
       .from('team_members')
       .select('role')
       .eq('team_id', workspace.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!teamMember) {
@@ -57,10 +54,8 @@ export async function GET(
     }
 
     return NextResponse.json({ connection })
-  } catch (error: unknown) {
-    console.error('Error in GET /api/dependencies/[id]:', error)
-    const message = error instanceof Error ? error.message : 'Unknown error'
-    return NextResponse.json({ error: message }, { status: 500 })
+  } catch (error) {
+    return handleRouteError(error, 'GET /api/dependencies/[id]')
   }
 }
 
@@ -76,14 +71,10 @@ export async function PATCH(
 
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get existing connection
     const { data: existingConnection, error: fetchError } = await supabase
@@ -112,7 +103,7 @@ export async function PATCH(
       .from('team_members')
       .select('role')
       .eq('team_id', teamId)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!teamMember) {
@@ -182,10 +173,8 @@ export async function PATCH(
     }
 
     return NextResponse.json({ connection })
-  } catch (error: unknown) {
-    console.error('Error in PATCH /api/dependencies/[id]:', error)
-    const message = error instanceof Error ? error.message : 'Unknown error'
-    return NextResponse.json({ error: message }, { status: 500 })
+  } catch (error) {
+    return handleRouteError(error, 'PATCH /api/dependencies/[id]')
   }
 }
 
@@ -198,14 +187,10 @@ export async function DELETE(
     const { id } = await params
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get connection to verify access
     const { data: connection, error: fetchError } = await supabase
@@ -236,7 +221,7 @@ export async function DELETE(
       .from('team_members')
       .select('role')
       .eq('team_id', workspace.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!teamMember) {
@@ -255,9 +240,7 @@ export async function DELETE(
     }
 
     return NextResponse.json({ success: true })
-  } catch (error: unknown) {
-    console.error('Error in DELETE /api/dependencies/[id]:', error)
-    const message = error instanceof Error ? error.message : 'Unknown error'
-    return NextResponse.json({ error: message }, { status: 500 })
+  } catch (error) {
+    return handleRouteError(error, 'DELETE /api/dependencies/[id]')
   }
 }

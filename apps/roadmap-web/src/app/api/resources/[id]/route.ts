@@ -11,6 +11,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { handleRouteError, requireAuth } from '@/lib/auth/api-guard'
 import type { UpdateResourceRequest } from '@/lib/types/resources'
 import { extractDomain } from '@/lib/types/resources'
 
@@ -28,11 +29,9 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     const { id } = await params
     const supabase = await createClient()
 
-    // Validate user
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (RLS handles team access; see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
 
     // Fetch resource (RLS will handle team access)
     const { data: resource, error } = await supabase
@@ -72,11 +71,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       },
     })
   } catch (error) {
-    console.error('Resource GET error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Resource GET error')
   }
 }
 
@@ -95,11 +90,10 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     const { searchParams } = new URL(req.url)
     const action = searchParams.get('action')
 
-    // Validate user
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (RLS handles team access; see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Fetch current resource (RLS handles access)
     const { data: currentResource, error: fetchError } = await supabase
@@ -131,7 +125,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
           deleted_at: null,
           deleted_by: null,
           updated_at: new Date().toISOString(),
-          last_modified_by: user.id,
+          last_modified_by: claims.subject,
         })
         .eq('id', id)
         .select()
@@ -150,8 +144,8 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
         id: `${Date.now()}_${Math.floor(Math.random() * 1000)}`,
         resource_id: id,
         action: 'restored',
-        actor_id: user.id,
-        actor_email: user.email,
+        actor_id: claims.subject,
+        actor_email: claims.email,
         changes: { is_deleted: { old: true, new: false } },
         team_id: currentResource.team_id,
         workspace_id: currentResource.workspace_id,
@@ -166,7 +160,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     // Build update object and track changes
     const updates: Record<string, unknown> = {
       updated_at: new Date().toISOString(),
-      last_modified_by: user.id,
+      last_modified_by: claims.subject,
     }
     const changes: Record<string, { old: unknown; new: unknown }> = {}
 
@@ -223,8 +217,8 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
         id: `${Date.now()}_${Math.floor(Math.random() * 1000)}`,
         resource_id: id,
         action: 'updated',
-        actor_id: user.id,
-        actor_email: user.email,
+        actor_id: claims.subject,
+        actor_email: claims.email,
         changes,
         team_id: currentResource.team_id,
         workspace_id: currentResource.workspace_id,
@@ -233,11 +227,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({ data: updatedResource })
   } catch (error) {
-    console.error('Resource PATCH error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Resource PATCH error')
   }
 }
 
@@ -254,11 +244,10 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
     const { searchParams } = new URL(req.url)
     const permanent = searchParams.get('permanent') === 'true'
 
-    // Validate user
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (RLS handles team access; see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Fetch current resource
     const { data: currentResource, error: fetchError } = await supabase
@@ -280,10 +269,10 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
         .from('team_members')
         .select('role')
         .eq('team_id', currentResource.team_id)
-        .eq('user_id', user.id)
+        .eq('user_id', claims.subject)
         .single()
 
-      const isCreator = currentResource.created_by === user.id
+      const isCreator = currentResource.created_by === claims.subject
       const isAdmin = membership?.role === 'owner' || membership?.role === 'admin'
 
       if (!isCreator && !isAdmin) {
@@ -316,7 +305,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       .update({
         is_deleted: true,
         deleted_at: new Date().toISOString(),
-        deleted_by: user.id,
+        deleted_by: claims.subject,
         updated_at: new Date().toISOString(),
       })
       .eq('id', id)
@@ -336,8 +325,8 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       id: `${Date.now()}_${Math.floor(Math.random() * 1000)}`,
       resource_id: id,
       action: 'deleted',
-      actor_id: user.id,
-      actor_email: user.email,
+      actor_id: claims.subject,
+      actor_email: claims.email,
       changes: { is_deleted: { old: false, new: true } },
       team_id: currentResource.team_id,
       workspace_id: currentResource.workspace_id,
@@ -348,10 +337,6 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       message: 'Resource moved to trash. It will be permanently deleted after 30 days.',
     })
   } catch (error) {
-    console.error('Resource DELETE error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Resource DELETE error')
   }
 }

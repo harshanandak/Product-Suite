@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 
 /**
  * DELETE /api/team/invitations/[id]
@@ -12,14 +13,10 @@ export async function DELETE(
   try {
     const supabase = await createClient()
 
-    // Get authenticated user
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    if (authError || !user) {
-      return NextResponse.json(
-        { error: 'Unauthorized', success: false },
-        { status: 401 }
-      )
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     const { id: invitationId } = await params
 
@@ -50,7 +47,7 @@ export async function DELETE(
       .from('team_members')
       .select('role')
       .eq('team_id', invitation.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (membershipError || !membership) {
@@ -60,7 +57,7 @@ export async function DELETE(
       )
     }
 
-    const isInviter = invitation.invited_by === user.id
+    const isInviter = invitation.invited_by === claims.subject
     const isOwnerOrAdmin = membership.role === 'owner' || membership.role === 'admin'
 
     if (!isInviter && !isOwnerOrAdmin) {
@@ -90,10 +87,6 @@ export async function DELETE(
     })
 
   } catch (error) {
-    console.error('Error in DELETE /api/team/invitations/[id]:', error)
-    return NextResponse.json(
-      { error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error', success: false },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Error in DELETE /api/team/invitations/[id]')
   }
 }

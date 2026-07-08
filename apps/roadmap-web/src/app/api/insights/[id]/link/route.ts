@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard';
 import type { LinkInsightRequest } from '@/lib/types/customer-insight';
 
 /**
@@ -23,14 +24,10 @@ export async function POST(
       );
     }
 
-    // Validate user auth
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth();
+    if (auth instanceof NextResponse) return auth;
+    const claims = auth;
 
     // Fetch insight to get team_id
     const { data: insight, error: insightError } = await supabase
@@ -48,7 +45,7 @@ export async function POST(
       .from('team_members')
       .select('id')
       .eq('team_id', insight.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single();
 
     if (!membership) {
@@ -99,7 +96,7 @@ export async function POST(
         team_id: insight.team_id,
         relevance_score: body.relevance_score ?? 5,
         notes: body.notes || null,
-        linked_by: user.id,
+        linked_by: claims.subject,
       })
       .select(
         `
@@ -133,11 +130,7 @@ export async function POST(
 
     return NextResponse.json({ data: link }, { status: 201 });
   } catch (error) {
-    console.error('Error in POST /api/insights/[id]/link:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return handleRouteError(error, 'Error in POST /api/insights/[id]/link');
   }
 }
 
@@ -162,14 +155,10 @@ export async function DELETE(
       );
     }
 
-    // Validate user auth
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth();
+    if (auth instanceof NextResponse) return auth;
+    const claims = auth;
 
     // Fetch link to verify it exists and get team_id
     const { data: link, error: linkError } = await supabase
@@ -188,7 +177,7 @@ export async function DELETE(
       .from('team_members')
       .select('id')
       .eq('team_id', link.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single();
 
     if (!membership) {
@@ -211,10 +200,6 @@ export async function DELETE(
 
     return NextResponse.json({ message: 'Link removed successfully' });
   } catch (error) {
-    console.error('Error in DELETE /api/insights/[id]/link:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return handleRouteError(error, 'Error in DELETE /api/insights/[id]/link');
   }
 }

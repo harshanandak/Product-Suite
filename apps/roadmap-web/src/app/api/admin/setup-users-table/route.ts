@@ -1,18 +1,20 @@
 import { createClient } from '@/lib/supabase/server'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 import { NextResponse } from 'next/server'
 
 export async function POST() {
+  // One-off bootstrap utility that executes DDL via exec_sql. It must never be
+  // reachable in production, where a logged-in user could trigger schema changes.
+  if (process.env.NODE_ENV === 'production') {
+    return NextResponse.json({ error: 'Not available in production' }, { status: 403 })
+  }
+
   try {
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
 
     // Run the SQL to create the users table
     const { data, error } = await supabase.rpc('exec_sql', {
@@ -98,11 +100,7 @@ export async function POST() {
       message: 'Users table created successfully',
       data
     })
-  } catch (error: unknown) {
-    console.error('Setup error:', error)
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Internal server error' },
-      { status: 500 }
-    )
+  } catch (error) {
+    return handleRouteError(error, 'Setup error')
   }
 }

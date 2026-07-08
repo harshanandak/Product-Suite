@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard';
 import type { UpdateInsightRequest } from '@/lib/types/customer-insight';
 
 /**
@@ -14,14 +15,10 @@ export async function GET(
     const supabase = await createClient();
     const { id } = await params;
 
-    // Validate user auth
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth();
+    if (auth instanceof NextResponse) return auth;
+    const claims = auth;
 
     // Fetch insight with relations
     const { data: insight, error } = await supabase
@@ -45,7 +42,7 @@ export async function GET(
       .from('team_members')
       .select('id')
       .eq('team_id', insight.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single();
 
     if (!membership) {
@@ -67,7 +64,7 @@ export async function GET(
       .from('insight_votes')
       .select('vote_type')
       .eq('insight_id', id)
-      .eq('voter_id', user.id)
+      .eq('voter_id', claims.subject)
       .single();
 
     // Get linked work items
@@ -103,11 +100,7 @@ export async function GET(
       },
     });
   } catch (error) {
-    console.error('Error in GET /api/insights/[id]:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return handleRouteError(error, 'Error in GET /api/insights/[id]');
   }
 }
 
@@ -124,14 +117,10 @@ export async function PATCH(
     const { id } = await params;
     const body: UpdateInsightRequest = await req.json();
 
-    // Validate user auth
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth();
+    if (auth instanceof NextResponse) return auth;
+    const claims = auth;
 
     // Fetch current insight
     const { data: currentInsight, error: fetchError } = await supabase
@@ -149,7 +138,7 @@ export async function PATCH(
       .from('team_members')
       .select('id')
       .eq('team_id', currentInsight.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single();
 
     if (!membership) {
@@ -202,11 +191,7 @@ export async function PATCH(
 
     return NextResponse.json({ data: updatedInsight });
   } catch (error) {
-    console.error('Error in PATCH /api/insights/[id]:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return handleRouteError(error, 'Error in PATCH /api/insights/[id]');
   }
 }
 
@@ -222,14 +207,10 @@ export async function DELETE(
     const supabase = await createClient();
     const { id } = await params;
 
-    // Validate user auth
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth();
+    if (auth instanceof NextResponse) return auth;
+    const claims = auth;
 
     // Fetch current insight
     const { data: insight, error: fetchError } = await supabase
@@ -247,7 +228,7 @@ export async function DELETE(
       .from('team_members')
       .select('role')
       .eq('team_id', insight.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single();
 
     if (!membership) {
@@ -278,10 +259,6 @@ export async function DELETE(
 
     return NextResponse.json({ message: 'Insight deleted successfully' });
   } catch (error) {
-    console.error('Error in DELETE /api/insights/[id]:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return handleRouteError(error, 'Error in DELETE /api/insights/[id]');
   }
 }

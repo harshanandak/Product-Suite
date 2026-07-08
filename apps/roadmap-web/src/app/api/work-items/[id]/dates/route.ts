@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 import { NextRequest, NextResponse } from 'next/server'
 
 export async function PATCH(
@@ -9,14 +10,9 @@ export async function PATCH(
     const { id } = await params
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Parse request body
     const body = await request.json()
@@ -72,7 +68,7 @@ export async function PATCH(
       .from('team_members')
       .select('role')
       .eq('team_id', teamId)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!membership) {
@@ -100,12 +96,7 @@ export async function PATCH(
     }
 
     return NextResponse.json(updatedItem)
-  } catch (error: unknown) {
-    console.error('Error in PATCH /api/work-items/[id]/dates:', error)
-    const message = error instanceof Error ? error.message : 'Internal server error'
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    )
+  } catch (error) {
+    return handleRouteError(error, 'Error in PATCH /api/work-items/[id]/dates')
   }
 }

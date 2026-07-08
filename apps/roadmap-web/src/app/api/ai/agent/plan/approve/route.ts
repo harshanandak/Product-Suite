@@ -16,8 +16,9 @@
  * Response: SSE stream with execution progress events
  */
 
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { handleRouteError, requireAuth } from '@/lib/auth/api-guard'
 import { executeTaskPlanWithAgentCore as executeTaskPlan } from '@/lib/ai/agent-core-adapter'
 import { createCancelSignal, type CancelSignal } from '@/lib/ai/agent-loop'
 import type { TaskPlan } from '@/lib/ai/task-planner'
@@ -52,16 +53,10 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Get user session
+    // Auth guard (see lib/auth/api-guard)
     const supabase = await createClient()
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser()
-
-    if (userError || !user) {
-      return Response.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
 
     // Get the plan from thread metadata
     const { data: thread, error: threadError } = await supabase
@@ -173,11 +168,7 @@ export async function POST(req: NextRequest) {
       },
     })
   } catch (error) {
-    console.error('[Plan Approve API] Error:', error)
-    return Response.json(
-      { error: error instanceof Error ? error.message : 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, '[Plan Approve API] Error')
   }
 }
 

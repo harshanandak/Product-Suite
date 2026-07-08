@@ -15,6 +15,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { requireAuth, requireTeamMembership, handleRouteError } from '@/lib/auth/api-guard'
 import type { StrategyType } from '@/lib/types/strategy'
 
 interface ProgressByType {
@@ -57,6 +58,9 @@ interface StatsResponse {
  */
 export async function GET(req: NextRequest): Promise<NextResponse<StatsResponse | { error: string }>> {
   try {
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth as NextResponse<{ error: string }>
+
     const supabase = await createClient()
     const { searchParams } = new URL(req.url)
 
@@ -70,23 +74,9 @@ export async function GET(req: NextRequest): Promise<NextResponse<StatsResponse 
       )
     }
 
-    // Validate user
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    // Validate team membership
-    const { data: membership } = await supabase
-      .from('team_members')
-      .select('id')
-      .eq('team_id', teamId)
-      .eq('user_id', user.id)
-      .single()
-
-    if (!membership) {
-      return NextResponse.json({ error: 'Not a team member' }, { status: 403 })
-    }
+    // Auth + team-membership guard (see lib/auth/api-guard)
+    const guard = await requireTeamMembership(supabase, teamId)
+    if (guard instanceof NextResponse) return guard as NextResponse<{ error: string }>
 
     // Build base query for strategies
     let strategiesQuery = supabase
@@ -263,10 +253,6 @@ export async function GET(req: NextRequest): Promise<NextResponse<StatsResponse 
       },
     })
   } catch (error) {
-    console.error('Strategy stats GET error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Strategy stats GET error') as NextResponse<{ error: string }>
   }
 }

@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 import { NextResponse } from 'next/server'
 
 /**
@@ -14,15 +15,10 @@ export async function GET(
     const supabase = await createClient()
     const { reviewLinkId } = await params
 
-    // Get current user
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get review link to verify access
     const { data: reviewLink, error: linkError } = await supabase
@@ -43,7 +39,7 @@ export async function GET(
       .from('team_members')
       .select('id')
       .eq('team_id', reviewLink.workspaces.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!teamMember) {
@@ -86,11 +82,7 @@ export async function GET(
       feedback: feedback || [],
       summary,
     })
-  } catch (error: unknown) {
-    console.error('Error fetching feedback:', error)
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to fetch feedback' },
-      { status: 500 }
-    )
+  } catch (error) {
+    return handleRouteError(error, 'Error fetching feedback')
   }
 }
