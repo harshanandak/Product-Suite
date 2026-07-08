@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { getAuthClaims } from '@/lib/auth/get-auth-claims'
+import { requireTeamMembership } from '@/lib/auth/api-guard'
 import { NextRequest, NextResponse } from 'next/server'
 
 /**
@@ -10,12 +10,6 @@ export async function GET(request: NextRequest) {
   try {
     const supabase = await createClient()
 
-    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
-    const claims = await getAuthClaims()
-    if (!claims) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
     // Get team_id from query params
     const searchParams = request.nextUrl.searchParams
     const teamId = searchParams.get('team_id')
@@ -24,17 +18,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'team_id is required' }, { status: 400 })
     }
 
-    // Verify user is a member of this team
-    const { data: membership, error: membershipError } = await supabase
-      .from('team_members')
-      .select('id, role')
-      .eq('team_id', teamId)
-      .eq('user_id', claims.subject)
-      .single()
-
-    if (membershipError || !membership) {
-      return NextResponse.json({ error: 'Not a member of this team' }, { status: 403 })
-    }
+    // Auth + team-membership guard (see lib/auth/api-guard)
+    const guard = await requireTeamMembership(supabase, teamId)
+    if (guard instanceof NextResponse) return guard
 
     // Fetch all workspaces for this team
     const { data: workspaces, error: workspacesError } = await supabase

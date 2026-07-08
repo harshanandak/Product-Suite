@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { getAuthClaims } from '@/lib/auth/get-auth-claims'
+import { requireAuth } from '@/lib/auth/api-guard'
 import {
   type ReviewAction,
   type ReviewStatus,
@@ -59,11 +59,9 @@ export async function POST(
       )
     }
 
-    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
-    const claims = await getAuthClaims()
-    if (!claims) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Fetch the work item
     const { data: workItem, error: fetchError } = await supabase
@@ -187,11 +185,9 @@ export async function PATCH(
       )
     }
 
-    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
-    const claims = await getAuthClaims()
-    if (!claims) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Fetch the work item
     const { data: workItem, error: fetchError } = await supabase

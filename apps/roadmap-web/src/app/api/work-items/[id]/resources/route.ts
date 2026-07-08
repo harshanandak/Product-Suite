@@ -11,7 +11,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { getAuthClaims } from '@/lib/auth/get-auth-claims'
+import { requireAuth } from '@/lib/auth/api-guard'
 import type {
   WorkItemResourcesResponse,
   LinkResourceRequest,
@@ -33,11 +33,8 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     const { id: workItemId } = await params
     const supabase = await createClient()
 
-    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
-    const claims = await getAuthClaims()
-    if (!claims) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
 
     // Verify work item exists and user has access (RLS handles team check)
     const { data: workItem, error: workItemError } = await supabase
@@ -124,11 +121,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     const supabase = await createClient()
     const body = await req.json()
 
-    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
-    const claims = await getAuthClaims()
-    if (!claims) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Verify work item exists and get team_id
     const { data: workItem, error: workItemError } = await supabase
@@ -383,11 +378,9 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       )
     }
 
-    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
-    const claims = await getAuthClaims()
-    if (!claims) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Verify work item exists
     const { data: workItem, error: workItemError } = await supabase

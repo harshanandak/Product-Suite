@@ -19,9 +19,9 @@
  * }
  */
 
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { getAuthClaims } from '@/lib/auth/get-auth-claims'
+import { requireAuth } from '@/lib/auth/api-guard'
 import { activePlanSignals } from '../approve/route'
 import type { TaskPlan } from '@/lib/ai/task-planner'
 
@@ -49,13 +49,10 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Get user session — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    // Auth guard (see lib/auth/api-guard)
     const supabase = await createClient()
-    const claims = await getAuthClaims()
-
-    if (!claims) {
-      return Response.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
 
     // Get the cancel signal for this plan
     const cancelSignal = activePlanSignals.get(planId)

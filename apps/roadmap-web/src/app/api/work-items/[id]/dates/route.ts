@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { getAuthClaims } from '@/lib/auth/get-auth-claims'
+import { requireAuth } from '@/lib/auth/api-guard'
 import { NextRequest, NextResponse } from 'next/server'
 
 export async function PATCH(
@@ -10,11 +10,9 @@ export async function PATCH(
     const { id } = await params
     const supabase = await createClient()
 
-    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
-    const claims = await getAuthClaims()
-    if (!claims) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Parse request body
     const body = await request.json()

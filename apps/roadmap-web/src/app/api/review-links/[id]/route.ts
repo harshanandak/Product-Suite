@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { getAuthClaims } from '@/lib/auth/get-auth-claims'
+import { requireAuth } from '@/lib/auth/api-guard'
 import { NextResponse } from 'next/server'
 
 /**
@@ -14,11 +14,10 @@ export async function GET(
     const supabase = await createClient()
     const { id } = await params
 
-    // Get current user
-    const claims = await getAuthClaims()
-    if (!claims) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get review link
     const { data: reviewLink, error: linkError } = await supabase
@@ -72,11 +71,10 @@ export async function PUT(
 
     const { is_active, expires_at, name } = body
 
-    // Get current user
-    const claims = await getAuthClaims()
-    if (!claims) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get review link to verify access
     const { data: reviewLink, error: linkError } = await supabase
@@ -144,11 +142,10 @@ export async function DELETE(
     const supabase = await createClient()
     const { id } = await params
 
-    // Get current user
-    const claims = await getAuthClaims()
-    if (!claims) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get review link to verify access
     const { data: reviewLink, error: linkError } = await supabase

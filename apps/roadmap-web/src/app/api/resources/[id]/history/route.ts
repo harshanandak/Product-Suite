@@ -8,7 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { getAuthClaims } from '@/lib/auth/get-auth-claims'
+import { requireAuth } from '@/lib/auth/api-guard'
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -24,11 +24,9 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     const { id } = await params
     const supabase = await createClient()
 
-    // Validate user
-    const claims = await getAuthClaims()
-    if (!claims) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (RLS handles team check; see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
 
     // Fetch resource to verify access (RLS handles team check)
     const { data: resource, error: resourceError } = await supabase

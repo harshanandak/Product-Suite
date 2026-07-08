@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { getAuthClaims } from '@/lib/auth/get-auth-claims'
+import { requireAuth } from '@/lib/auth/api-guard'
 import { NextResponse } from 'next/server'
 
 export async function POST() {
@@ -12,12 +12,10 @@ export async function POST() {
   try {
     const supabase = await createClient()
 
-    // Check authentication (canonical claims)
-    const claims = await getAuthClaims()
-
-    if (!claims) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Run the SQL to create the users table
     const { data, error } = await supabase.rpc('exec_sql', {

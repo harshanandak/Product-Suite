@@ -14,7 +14,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { getAuthClaims } from '@/lib/auth/get-auth-claims';
+import { requireAuth, requireTeamMembership } from '@/lib/auth/api-guard';
 import type { DepartmentInsert } from '@/lib/types/department';
 
 /**
@@ -37,29 +37,9 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
-    const claims = await getAuthClaims();
-    if (!claims) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
-
-    // Validate team membership
-    const { data: membership } = await supabase
-      .from('team_members')
-      .select('id')
-      .eq('team_id', teamId)
-      .eq('user_id', claims.subject)
-      .single();
-
-    if (!membership) {
-      return NextResponse.json(
-        { error: 'Not a team member' },
-        { status: 403 }
-      );
-    }
+    // Auth + team-membership guard (see lib/auth/api-guard)
+    const guard = await requireTeamMembership(supabase, teamId);
+    if (guard instanceof NextResponse) return guard;
 
     // Get departments with work item count
     const { data: departments, error } = await supabase
@@ -158,14 +138,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
-    const claims = await getAuthClaims();
-    if (!claims) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth();
+    if (auth instanceof NextResponse) return auth;
+    const claims = auth;
 
     // Validate admin/owner role
     const { data: membership } = await supabase

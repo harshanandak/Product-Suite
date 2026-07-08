@@ -11,7 +11,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { getAuthClaims } from '@/lib/auth/get-auth-claims'
+import { requireTeamMembership } from '@/lib/auth/api-guard'
 import type {
   CreateResourceRequest,
   ResourceWithMeta,
@@ -49,22 +49,9 @@ export async function GET(req: NextRequest) {
       )
     }
 
-    // Validate team membership
-    const claims = await getAuthClaims()
-    if (!claims) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const { data: membership } = await supabase
-      .from('team_members')
-      .select('id')
-      .eq('team_id', teamId)
-      .eq('user_id', claims.subject)
-      .single()
-
-    if (!membership) {
-      return NextResponse.json({ error: 'Not a team member' }, { status: 403 })
-    }
+    // Auth + team-membership guard (see lib/auth/api-guard)
+    const guard = await requireTeamMembership(supabase, teamId)
+    if (guard instanceof NextResponse) return guard
 
     // Build query
     let query = supabase
@@ -169,22 +156,10 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Validate team membership
-    const claims = await getAuthClaims()
-    if (!claims) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const { data: membership } = await supabase
-      .from('team_members')
-      .select('id')
-      .eq('team_id', team_id)
-      .eq('user_id', claims.subject)
-      .single()
-
-    if (!membership) {
-      return NextResponse.json({ error: 'Not a team member' }, { status: 403 })
-    }
+    // Auth + team-membership guard (see lib/auth/api-guard)
+    const guard = await requireTeamMembership(supabase, team_id)
+    if (guard instanceof NextResponse) return guard
+    const { claims } = guard
 
     // Generate timestamp-based ID
     const id = Date.now().toString()

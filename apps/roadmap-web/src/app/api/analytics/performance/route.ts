@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { getAuthClaims } from '@/lib/auth/get-auth-claims'
+import { requireTeamMembership } from '@/lib/auth/api-guard'
 import type {
   TeamPerformanceData,
   PieChartData,
@@ -34,24 +34,9 @@ export async function GET(req: NextRequest) {
       )
     }
 
-    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
-    const claims = await getAuthClaims()
-
-    if (!claims) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    // Verify team membership
-    const { data: membership } = await supabase
-      .from('team_members')
-      .select('id')
-      .eq('team_id', teamId)
-      .eq('user_id', claims.subject)
-      .single()
-
-    if (!membership) {
-      return NextResponse.json({ error: 'Not a team member' }, { status: 403 })
-    }
+    // Auth + team-membership guard (see lib/auth/api-guard)
+    const guard = await requireTeamMembership(supabase, teamId)
+    if (guard instanceof NextResponse) return guard
 
     // Fetch tasks
     let tasksQuery = supabase

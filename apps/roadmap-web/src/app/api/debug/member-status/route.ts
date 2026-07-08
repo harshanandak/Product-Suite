@@ -1,17 +1,15 @@
 import { createClient } from '@/lib/supabase/server'
-import { getAuthClaims } from '@/lib/auth/get-auth-claims'
+import { requireAuth } from '@/lib/auth/api-guard'
 import { NextRequest, NextResponse } from 'next/server'
 
 export async function GET(request: NextRequest) {
   try {
     const supabase = await createClient()
 
-    // Check authentication (canonical claims)
-    const claims = await getAuthClaims()
-
-    if (!claims) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get email from query params
     const searchParams = request.nextUrl.searchParams

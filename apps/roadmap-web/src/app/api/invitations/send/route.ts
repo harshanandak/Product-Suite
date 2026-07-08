@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import nodemailer from 'nodemailer'
 import { createClient } from '@/lib/supabase/server'
-import { getAuthClaims } from '@/lib/auth/get-auth-claims'
+import { requireAuth } from '@/lib/auth/api-guard'
 
 // Create SMTP transporter (supports any SMTP provider)
 const transporter = nodemailer.createTransport({
@@ -27,11 +27,10 @@ export async function POST(request: NextRequest) {
 
     const supabase = await createClient()
 
-    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
-    const claims = await getAuthClaims()
-    if (!claims) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get invitation details
     const { data: invitation, error: inviteError } = await supabase

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { getAuthClaims } from '@/lib/auth/get-auth-claims'
+import { requireAuth, requireTeamMembership } from '@/lib/auth/api-guard'
 import { z } from 'zod'
 import { randomBytes } from 'crypto'
 
@@ -30,15 +30,6 @@ export async function GET(request: NextRequest) {
   try {
     const supabase = await createClient()
 
-    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
-    const claims = await getAuthClaims()
-    if (!claims) {
-      return NextResponse.json(
-        { error: 'Unauthorized', success: false },
-        { status: 401 }
-      )
-    }
-
     // Get team_id from query params
     const searchParams = request.nextUrl.searchParams
     const team_id = searchParams.get('team_id')
@@ -50,20 +41,9 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Check if user is a member of the team
-    const { data: membership, error: membershipError } = await supabase
-      .from('team_members')
-      .select('id')
-      .eq('team_id', team_id)
-      .eq('user_id', claims.subject)
-      .single()
-
-    if (membershipError || !membership) {
-      return NextResponse.json(
-        { error: 'You are not a member of this team', success: false },
-        { status: 403 }
-      )
-    }
+    // Auth + team-membership guard (see lib/auth/api-guard)
+    const guard = await requireTeamMembership(supabase, team_id)
+    if (guard instanceof NextResponse) return guard
 
     // Get all pending invitations for the team
     const { data: invitations, error: invitationsError } = await supabase
@@ -107,14 +87,10 @@ export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient()
 
-    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
-    const claims = await getAuthClaims()
-    if (!claims) {
-      return NextResponse.json(
-        { error: 'Unauthorized', success: false },
-        { status: 401 }
-      )
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Parse and validate request body
     const body = await request.json()

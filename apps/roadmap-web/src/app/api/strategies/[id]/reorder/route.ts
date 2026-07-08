@@ -14,7 +14,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { getAuthClaims } from '@/lib/auth/get-auth-claims'
+import { requireAuth } from '@/lib/auth/api-guard'
 import type { StrategyType } from '@/lib/types/strategy'
 
 // Strategy type hierarchy order (lower = higher in tree)
@@ -68,11 +68,10 @@ export async function POST(
 
     const supabase = await createClient()
 
-    // Validate user
-    const claims = await getAuthClaims()
-    if (!claims) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get the strategy being moved
     const { data: strategy, error: strategyError } = await supabase

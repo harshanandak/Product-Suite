@@ -10,7 +10,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { generateObject } from 'ai'
-import { getAuthClaims } from '@/lib/auth/get-auth-claims'
+import { requireAuth } from '@/lib/auth/api-guard'
 import { aiModels, getModelFromConfig } from '@/lib/ai/ai-sdk-client'
 import { SuggestedWorkItemSchema, type SuggestedWorkItem } from '@/lib/ai/schemas'
 import { getModelByKey } from '@/lib/ai/models'
@@ -39,12 +39,9 @@ interface AnalyzeNoteResponse {
 
 export async function POST(request: NextRequest) {
   try {
-    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
-    const claims = await getAuthClaims()
-
-    if (!claims) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
 
     // Parse request body
     const body: AnalyzeNoteRequest = await request.json()

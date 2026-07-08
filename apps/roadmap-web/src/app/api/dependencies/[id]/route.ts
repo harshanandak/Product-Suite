@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { getAuthClaims } from '@/lib/auth/get-auth-claims'
+import { requireAuth } from '@/lib/auth/api-guard'
 import { NextResponse } from 'next/server'
 import type { ConnectionType } from '@/lib/types/dependencies'
 
@@ -13,11 +13,9 @@ export async function GET(
     const supabase = await createClient()
 
     // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
-    const claims = await getAuthClaims()
-
-    if (!claims) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get connection
     const { data: connection, error } = await supabase
@@ -76,11 +74,9 @@ export async function PATCH(
     const supabase = await createClient()
 
     // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
-    const claims = await getAuthClaims()
-
-    if (!claims) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get existing connection
     const { data: existingConnection, error: fetchError } = await supabase
@@ -196,11 +192,9 @@ export async function DELETE(
     const supabase = await createClient()
 
     // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
-    const claims = await getAuthClaims()
-
-    if (!claims) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get connection to verify access
     const { data: connection, error: fetchError } = await supabase

@@ -11,7 +11,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { getAuthClaims } from '@/lib/auth/get-auth-claims'
+import { requireAuth } from '@/lib/auth/api-guard'
 import type { UpdateResourceRequest } from '@/lib/types/resources'
 import { extractDomain } from '@/lib/types/resources'
 
@@ -29,11 +29,9 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     const { id } = await params
     const supabase = await createClient()
 
-    // Validate user
-    const claims = await getAuthClaims()
-    if (!claims) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (RLS handles team access; see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
 
     // Fetch resource (RLS will handle team access)
     const { data: resource, error } = await supabase
@@ -96,11 +94,10 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     const { searchParams } = new URL(req.url)
     const action = searchParams.get('action')
 
-    // Validate user
-    const claims = await getAuthClaims()
-    if (!claims) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (RLS handles team access; see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Fetch current resource (RLS handles access)
     const { data: currentResource, error: fetchError } = await supabase
@@ -255,11 +252,10 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
     const { searchParams } = new URL(req.url)
     const permanent = searchParams.get('permanent') === 'true'
 
-    // Validate user
-    const claims = await getAuthClaims()
-    if (!claims) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (RLS handles team access; see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Fetch current resource
     const { data: currentResource, error: fetchError } = await supabase

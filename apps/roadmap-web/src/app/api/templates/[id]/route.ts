@@ -17,7 +17,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { getAuthClaims } from '@/lib/auth/get-auth-claims'
+import { requireAuth } from '@/lib/auth/api-guard'
 import type { UpdateTemplateInput } from '@/lib/templates/template-types'
 
 interface RouteParams {
@@ -35,10 +35,9 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     const { id } = await params
 
     // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
-    const claims = await getAuthClaims()
-    if (!claims) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get the template
     const { data: template, error } = await supabase
@@ -89,10 +88,9 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
     const body = await req.json() as UpdateTemplateInput
 
     // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
-    const claims = await getAuthClaims()
-    if (!claims) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get the template first
     const { data: template, error: fetchError } = await supabase
@@ -185,10 +183,9 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
     const { id } = await params
 
     // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
-    const claims = await getAuthClaims()
-    if (!claims) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get the template first
     const { data: template, error: fetchError } = await supabase

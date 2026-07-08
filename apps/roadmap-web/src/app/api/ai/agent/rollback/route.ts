@@ -21,7 +21,7 @@
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { getAuthClaims } from '@/lib/auth/get-auth-claims'
+import { requireAuth } from '@/lib/auth/api-guard'
 import { agentExecutor } from '@/lib/ai/agent-executor'
 import { RollbackRequestSchema } from '@/lib/ai/schemas/agentic-schemas'
 
@@ -29,13 +29,11 @@ export const maxDuration = 300 // Match vercel.json for AI routes
 
 export async function POST(request: Request) {
   try {
-    // Authenticate user — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    // Auth guard (see lib/auth/api-guard)
     const supabase = await createClient()
-    const claims = await getAuthClaims()
-
-    if (!claims) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Parse and validate request body
     const body = await request.json()

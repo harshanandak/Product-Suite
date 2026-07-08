@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { getAuthClaims } from '@/lib/auth/get-auth-claims'
+import { requireAuth } from '@/lib/auth/api-guard'
 import { NextResponse } from 'next/server'
 import crypto from 'crypto'
 
@@ -20,11 +20,10 @@ export async function GET(request: Request) {
       )
     }
 
-    // Get current user
-    const claims = await getAuthClaims()
-    if (!claims) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Verify user has access to workspace (team member)
     const { data: workspace, error: workspaceError } = await supabase
@@ -107,11 +106,10 @@ export async function POST(request: Request) {
       )
     }
 
-    // Get current user
-    const claims = await getAuthClaims()
-    if (!claims) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Verify user has access to workspace
     const { data: workspace, error: workspaceError } = await supabase

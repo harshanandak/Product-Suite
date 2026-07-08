@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { getAuthClaims } from '@/lib/auth/get-auth-claims';
+import { requireAuth } from '@/lib/auth/api-guard';
 
 // Type for insight data from Supabase relation
 interface InsightData {
@@ -43,11 +43,9 @@ export async function GET(
     const supabase = await createClient();
     const { id: workItemId } = await params;
 
-    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
-    const claims = await getAuthClaims();
-    if (!claims) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const auth = await requireAuth();
+    if (auth instanceof NextResponse) return auth;
+    const claims = auth;
 
     // Fetch work item to get team_id
     const { data: workItem, error: workItemError } = await supabase
@@ -230,11 +228,9 @@ export async function POST(
       );
     }
 
-    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
-    const claims = await getAuthClaims();
-    if (!claims) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const auth = await requireAuth();
+    if (auth instanceof NextResponse) return auth;
+    const claims = auth;
 
     // Fetch work item to get team_id
     const { data: workItem, error: workItemError } = await supabase

@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { getAuthClaims } from '@/lib/auth/get-auth-claims'
+import { requireAuth } from '@/lib/auth/api-guard'
 import { getDefaultPhaseForType } from '@/lib/constants/workspace-phases'
 import { z } from 'zod'
 
@@ -58,11 +58,10 @@ export async function POST(
     }
     const validatedBody = parseResult.data
 
-    // 1. Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
-    const claims = await getAuthClaims()
-    if (!claims) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // 1. Auth check
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // 2. Fetch the original work item
     const { data: originalItem, error: fetchError } = await supabase
