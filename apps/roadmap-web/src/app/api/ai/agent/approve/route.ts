@@ -34,6 +34,7 @@
 
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getAuthClaims } from '@/lib/auth/get-auth-claims'
 import { agentExecutor } from '@/lib/ai/agent-executor'
 import { z } from 'zod'
 
@@ -57,14 +58,11 @@ export const maxDuration = 300 // Match vercel.json for AI routes
 
 export async function POST(request: Request) {
   try {
-    // Authenticate user
+    // Authenticate user — provider-neutral canonical claims (see lib/auth/get-auth-claims)
     const supabase = await createClient()
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
+    const claims = await getAuthClaims()
 
-    if (authError || !user) {
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -112,7 +110,7 @@ export async function POST(request: Request) {
         .from('team_members')
         .select('role')
         .eq('team_id', action.team_id)
-        .eq('user_id', user.id)
+        .eq('user_id', claims.subject)
         .single()
 
       if (memberError || !member) {
@@ -123,7 +121,7 @@ export async function POST(request: Request) {
       }
 
       // Approve the action
-      const result = await agentExecutor.approve(actionId, user.id)
+      const result = await agentExecutor.approve(actionId, claims.subject)
       return NextResponse.json(result)
     }
 
@@ -155,7 +153,7 @@ export async function POST(request: Request) {
     const { data: memberships } = await supabase
       .from('team_members')
       .select('team_id')
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .in('team_id', teamIds)
 
     const accessibleTeams = new Set(memberships?.map(m => m.team_id) || [])
@@ -178,7 +176,7 @@ export async function POST(request: Request) {
     }
 
     // Approve all accessible pending actions
-    const result = await agentExecutor.approveAll(approvalIds, user.id)
+    const result = await agentExecutor.approveAll(approvalIds, claims.subject)
 
     // Add actions that weren't in approvalIds to failed
     const skippedIds = actionIds.filter(id => !approvalIds.includes(id))

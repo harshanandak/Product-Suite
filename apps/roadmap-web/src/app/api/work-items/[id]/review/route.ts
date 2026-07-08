@@ -9,6 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getAuthClaims } from '@/lib/auth/get-auth-claims'
 import {
   type ReviewAction,
   type ReviewStatus,
@@ -58,12 +59,9 @@ export async function POST(
       )
     }
 
-    // Get current user
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims()
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -83,7 +81,7 @@ export async function POST(
       .from('team_members')
       .select('role')
       .eq('team_id', workItem.workspace.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!membership) {
@@ -189,12 +187,9 @@ export async function PATCH(
       )
     }
 
-    // Get current user
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims()
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -214,7 +209,7 @@ export async function PATCH(
       .from('team_members')
       .select('role')
       .eq('team_id', workItem.workspace.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!membership) {

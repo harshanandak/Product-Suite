@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getAuthClaims } from '@/lib/auth/get-auth-claims'
 import { z } from 'zod'
 
 // Validation schema for updating member role
@@ -18,9 +19,9 @@ export async function PATCH(
   try {
     const supabase = await createClient()
 
-    // Get authenticated user
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    if (authError || !user) {
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims()
+    if (!claims) {
       return NextResponse.json(
         { error: 'Unauthorized', success: false },
         { status: 401 }
@@ -56,7 +57,7 @@ export async function PATCH(
     }
 
     // Check if user is trying to change their own role
-    if (targetMember.user_id === user.id) {
+    if (targetMember.user_id === claims.subject) {
       return NextResponse.json(
         { error: 'You cannot change your own role', success: false },
         { status: 400 }
@@ -68,7 +69,7 @@ export async function PATCH(
       .from('team_members')
       .select('role')
       .eq('team_id', targetMember.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (requesterError || !requesterMembership) {
@@ -160,9 +161,9 @@ export async function DELETE(
   try {
     const supabase = await createClient()
 
-    // Get authenticated user
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    if (authError || !user) {
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims()
+    if (!claims) {
       return NextResponse.json(
         { error: 'Unauthorized', success: false },
         { status: 401 }
@@ -186,7 +187,7 @@ export async function DELETE(
     }
 
     // Check if user is trying to remove themselves (should use leave team endpoint)
-    if (targetMember.user_id === user.id) {
+    if (targetMember.user_id === claims.subject) {
       return NextResponse.json(
         { error: 'Use the leave team endpoint to remove yourself', success: false },
         { status: 400 }
@@ -198,7 +199,7 @@ export async function DELETE(
       .from('team_members')
       .select('role')
       .eq('team_id', targetMember.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (requesterError || !requesterMembership) {

@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { getAuthClaims } from '@/lib/auth/get-auth-claims'
 import { NextRequest, NextResponse } from 'next/server'
 
 export async function PATCH(
@@ -9,12 +10,9 @@ export async function PATCH(
     const { id } = await params
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims()
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -72,7 +70,7 @@ export async function PATCH(
       .from('team_members')
       .select('role')
       .eq('team_id', teamId)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!membership) {

@@ -10,7 +10,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { generateObject } from 'ai'
-import { createClient } from '@/lib/supabase/server'
+import { getAuthClaims } from '@/lib/auth/get-auth-claims'
 import { aiModels, getModelFromConfig } from '@/lib/ai/ai-sdk-client'
 import { SuggestedWorkItemSchema, type SuggestedWorkItem } from '@/lib/ai/schemas'
 import { getModelByKey } from '@/lib/ai/models'
@@ -39,15 +39,10 @@ interface AnalyzeNoteResponse {
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient()
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims()
 
-    // Check authentication
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-
-    if (authError || !user) {
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 

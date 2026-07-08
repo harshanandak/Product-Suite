@@ -18,6 +18,7 @@
 
 import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getAuthClaims } from '@/lib/auth/get-auth-claims'
 import { executeTaskPlanWithAgentCore as executeTaskPlan } from '@/lib/ai/agent-core-adapter'
 import { createCancelSignal, type CancelSignal } from '@/lib/ai/agent-loop'
 import type { TaskPlan } from '@/lib/ai/task-planner'
@@ -52,14 +53,11 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Get user session
+    // Get user session — provider-neutral canonical claims (see lib/auth/get-auth-claims)
     const supabase = await createClient()
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser()
+    const claims = await getAuthClaims()
 
-    if (userError || !user) {
+    if (!claims) {
       return Response.json({ error: 'Unauthorized' }, { status: 401 })
     }
 

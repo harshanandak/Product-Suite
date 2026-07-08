@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { getAuthClaims } from '@/lib/auth/get-auth-claims'
 import { NextResponse } from 'next/server'
 
 /**
@@ -13,12 +14,9 @@ export async function GET(
     const { id } = await params
     const supabase = await createClient()
 
-    // Get current user
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-    if (authError || !user) {
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims()
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -26,7 +24,7 @@ export async function GET(
     const { data: teamMember } = await supabase
       .from('team_members')
       .select('team_id')
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!teamMember) {

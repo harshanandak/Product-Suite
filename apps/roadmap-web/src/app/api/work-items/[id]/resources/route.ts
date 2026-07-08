@@ -11,6 +11,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getAuthClaims } from '@/lib/auth/get-auth-claims'
 import type {
   WorkItemResourcesResponse,
   LinkResourceRequest,
@@ -32,9 +33,9 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     const { id: workItemId } = await params
     const supabase = await createClient()
 
-    // Validate user
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims()
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -123,9 +124,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     const supabase = await createClient()
     const body = await req.json()
 
-    // Validate user
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims()
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -198,7 +199,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
             unlinked_by: null,
             tab_type,
             context_note: context_note || null,
-            added_by: user.id,
+            added_by: claims.subject,
             added_at: new Date().toISOString(),
           })
           .eq('work_item_id', workItemId)
@@ -232,7 +233,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
             tab_type,
             context_note: context_note || null,
             display_order: nextOrder,
-            added_by: user.id,
+            added_by: claims.subject,
           })
 
         if (insertError) {
@@ -250,8 +251,8 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         resource_id,
         work_item_id: workItemId,
         action: 'linked',
-        actor_id: user.id,
-        actor_email: user.email,
+        actor_id: claims.subject,
+        actor_email: claims.email,
         changes: { tab_type: { old: null, new: tab_type } },
         team_id: workItem.team_id,
         workspace_id: workItem.workspace_id,
@@ -296,7 +297,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
           resource_type,
           image_url: image_url || null,
           source_domain,
-          created_by: user.id,
+          created_by: claims.subject,
         })
         .select()
         .single()
@@ -314,8 +315,8 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         id: `${Date.now()}_${Math.floor(Math.random() * 1000)}`,
         resource_id: resourceId,
         action: 'created',
-        actor_id: user.id,
-        actor_email: user.email,
+        actor_id: claims.subject,
+        actor_email: claims.email,
         changes: { title: { old: null, new: title } },
         team_id: workItem.team_id,
         workspace_id: workItem.workspace_id,
@@ -331,7 +332,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
           tab_type,
           context_note: context_note || null,
           display_order: 0,
-          added_by: user.id,
+          added_by: claims.subject,
         })
 
       if (linkError) {
@@ -344,8 +345,8 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
           resource_id: resourceId,
           work_item_id: workItemId,
           action: 'linked',
-          actor_id: user.id,
-          actor_email: user.email,
+          actor_id: claims.subject,
+          actor_email: claims.email,
           changes: { tab_type: { old: null, new: tab_type } },
           team_id: workItem.team_id,
           workspace_id: workItem.workspace_id,
@@ -382,9 +383,9 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       )
     }
 
-    // Validate user
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims()
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -408,7 +409,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       .update({
         is_unlinked: true,
         unlinked_at: new Date().toISOString(),
-        unlinked_by: user.id,
+        unlinked_by: claims.subject,
       })
       .eq('work_item_id', workItemId)
       .eq('resource_id', resourceId)
@@ -429,8 +430,8 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       resource_id: resourceId,
       work_item_id: workItemId,
       action: 'unlinked',
-      actor_id: user.id,
-      actor_email: user.email,
+      actor_id: claims.subject,
+      actor_email: claims.email,
       changes: { is_unlinked: { old: false, new: true } },
       team_id: workItem.team_id,
       workspace_id: workItem.workspace_id,

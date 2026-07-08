@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { getAuthClaims } from '@/lib/auth/get-auth-claims';
 
 // Type for insight data from Supabase relation
 interface InsightData {
@@ -42,12 +43,9 @@ export async function GET(
     const supabase = await createClient();
     const { id: workItemId } = await params;
 
-    // Validate user auth
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims();
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -67,7 +65,7 @@ export async function GET(
       .from('team_members')
       .select('id')
       .eq('team_id', workItem.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single();
 
     if (!membership) {
@@ -232,12 +230,9 @@ export async function POST(
       );
     }
 
-    // Validate user auth
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims();
+    if (!claims) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -257,7 +252,7 @@ export async function POST(
       .from('team_members')
       .select('id')
       .eq('team_id', workItem.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single();
 
     if (!membership) {
@@ -308,7 +303,7 @@ export async function POST(
         team_id: workItem.team_id,
         relevance_score: relevance_score ?? 5,
         notes: notes || null,
-        linked_by: user.id,
+        linked_by: claims.subject,
       })
       .select()
       .single();
