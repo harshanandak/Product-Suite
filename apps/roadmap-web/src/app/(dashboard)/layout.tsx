@@ -1,3 +1,4 @@
+import { getAuthClaims } from '@/lib/auth/get-auth-claims'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { cookies } from 'next/headers'
@@ -9,28 +10,27 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode
 }) {
-  const supabase = await createClient()
+  // Check authentication (canonical claims)
+  const claims = await getAuthClaims()
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
+  if (!claims) {
     redirect('/login')
   }
+
+  const supabase = await createClient()
 
   // Fetch user profile
   const { data: userProfile } = await supabase
     .from('users')
     .select('*')
-    .eq('id', user.id)
+    .eq('id', claims.subject)
     .single()
 
   // Fetch user's team membership to get team ID
   const { data: membership } = await supabase
     .from('team_members')
     .select('team_id')
-    .eq('user_id', user.id)
+    .eq('user_id', claims.subject)
     .single()
 
   if (!membership) {
@@ -59,8 +59,8 @@ export default async function DashboardLayout({
         workspaceName={defaultWorkspace?.name || 'Workspace'}
         workspaces={workspaces || []}
         teamId={membership.team_id}
-        userEmail={user.email ?? ''}
-        userName={userProfile?.name || user.user_metadata?.full_name || ''}
+        userEmail={claims.email ?? ''}
+        userName={userProfile?.name || ''}
       />
       <SidebarInset>
         <main className="flex-1 overflow-auto">
