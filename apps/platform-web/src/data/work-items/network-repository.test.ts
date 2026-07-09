@@ -50,6 +50,8 @@ describe("createNetworkWorkItemRepository", () => {
       expect(
         (init?.headers as Record<string, string>).Authorization,
       ).toBe("Bearer tok_123");
+      // Every read is bounded by an abort timeout so it can't spin forever.
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
     }
   });
 

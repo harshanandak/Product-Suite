@@ -27,7 +27,16 @@ export interface NetworkRepositoryOptions {
    * always used — the adapter never caches it.
    */
   getToken: () => Promise<string | null>;
+  /**
+   * Per-request timeout in ms (default 15000). A hung/slow API can't leave a read
+   * pending forever — the fetch is aborted and the read rejects, so the hook's
+   * `loading` state resolves to an error instead of spinning indefinitely.
+   */
+  timeoutMs?: number;
 }
+
+/** Default per-request timeout (ms). */
+const DEFAULT_TIMEOUT_MS = 15_000;
 
 /**
  * Methods whose platform-api endpoints do not exist yet (all writes + the
@@ -105,11 +114,14 @@ export function createNetworkWorkItemRepository(
   options: NetworkRepositoryOptions,
 ): WorkItemRepository {
   const { baseUrl, getToken } = options;
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   async function get<T>(path: string): Promise<T> {
     const token = await getToken();
     const response = await fetch(`${baseUrl}${path}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
+      // Abort a hung/slow request so a read never spins forever.
+      signal: AbortSignal.timeout(timeoutMs),
     });
     if (!response.ok) {
       throw new Error(`Request failed (${response.status}): GET ${path}`);
