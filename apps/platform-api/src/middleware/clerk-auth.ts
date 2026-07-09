@@ -7,6 +7,7 @@ export type AuthedEnv = {
   Bindings: {
     CLERK_SECRET_KEY?: string
     CLERK_AUTHORIZED_PARTIES?: string
+    DATABASE_URL?: string
   }
   Variables: {
     claims: AuthClaims

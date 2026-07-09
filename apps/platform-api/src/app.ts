@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 
 import { clerkAuth, type AuthedEnv } from './middleware/clerk-auth'
+import { workItemsRoutes } from './routes/work-items'
 
 /**
  * The unified platform API behind the single Product-Suite surface. Every
@@ -16,5 +17,8 @@ app.use('/api/*', clerkAuth())
 // Keystone endpoint: echoes the verified caller identity. Proves the
 // Clerk-token → verify → AuthClaims spine end-to-end.
 app.get('/api/me', (c) => c.json({ claims: c.get('claims') }))
+
+// Workboard: tenant-scoped work items backed by the real Neon schema.
+app.route('/api/work-items', workItemsRoutes)
 
 export default app

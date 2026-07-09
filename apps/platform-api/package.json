@@ -15,6 +15,7 @@
   "dependencies": {
     "@clerk/backend": "^2.0.0",
     "@product-suite/contracts": "workspace:*",
+    "@product-suite/db": "workspace:*",
     "hono": "^4.6.0"
   },
   "devDependencies": {

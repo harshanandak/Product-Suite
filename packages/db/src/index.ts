@@ -16,3 +16,15 @@ export function createDb(connectionString: string) {
 }
 
 export type Database = ReturnType<typeof createDb>
+
+/**
+ * Raw Neon (serverless HTTP) tagged-template client. Use for queries that span
+ * the Drizzle-managed workboard tables AND the Alembic-owned tenancy tables
+ * (`organization_memberships`, `user_auth_identities`) — e.g. resolving the
+ * caller's tenant scope from their Clerk identity.
+ */
+export function createSql(connectionString: string) {
+  return neon(connectionString)
+}
+
+export type Sql = ReturnType<typeof createSql>
