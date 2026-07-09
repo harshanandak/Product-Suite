@@ -64,8 +64,7 @@ workItemsRoutes.get('/', async (c) => {
              wi.source, wi.project_id, wi.department, wi.assignee_id, wi.due_date,
              wi.archived, wi.created_at, wi.updated_at
       from work_items wi
-      join workspaces w on w.id = wi.workspace_id
-      where w.tenant_id in (
+      where wi.tenant_id in (
         select om.tenant_id
         from organization_memberships om
         join user_auth_identities uai on uai.user_id = om.user_id

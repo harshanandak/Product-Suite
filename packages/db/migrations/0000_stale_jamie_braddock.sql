@@ -15,8 +15,9 @@ CREATE TABLE IF NOT EXISTS "activity_events" (
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "projects" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-	"workspace_id" uuid NOT NULL,
+	"tenant_id" text NOT NULL,
 	"name" text NOT NULL,
+	"kind" text DEFAULT 'general' NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
@@ -33,7 +34,7 @@ CREATE TABLE IF NOT EXISTS "tasks" (
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "work_item_dependencies" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-	"workspace_id" uuid NOT NULL,
+	"tenant_id" text NOT NULL,
 	"source_item_id" uuid NOT NULL,
 	"target_item_id" uuid NOT NULL,
 	"relationship_type" "dependency_relationship" DEFAULT 'depends_on' NOT NULL,
@@ -43,7 +44,7 @@ CREATE TABLE IF NOT EXISTS "work_item_dependencies" (
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "work_items" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-	"workspace_id" uuid NOT NULL,
+	"tenant_id" text NOT NULL,
 	"title" text NOT NULL,
 	"description" text DEFAULT '' NOT NULL,
 	"phase" "phase" DEFAULT 'plan' NOT NULL,
@@ -60,14 +61,6 @@ CREATE TABLE IF NOT EXISTS "work_items" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "workspaces" (
-	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-	"tenant_id" text NOT NULL,
-	"name" text NOT NULL,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
-);
---> statement-breakpoint
 DO $$ BEGIN
  ALTER TABLE "activity_events" ADD CONSTRAINT "activity_events_work_item_id_work_items_id_fk" FOREIGN KEY ("work_item_id") REFERENCES "public"."work_items"("id") ON DELETE cascade ON UPDATE no action;
 EXCEPTION
@@ -75,19 +68,7 @@ EXCEPTION
 END $$;
 --> statement-breakpoint
 DO $$ BEGIN
- ALTER TABLE "projects" ADD CONSTRAINT "projects_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;
-EXCEPTION
- WHEN duplicate_object THEN null;
-END $$;
---> statement-breakpoint
-DO $$ BEGIN
  ALTER TABLE "tasks" ADD CONSTRAINT "tasks_work_item_id_work_items_id_fk" FOREIGN KEY ("work_item_id") REFERENCES "public"."work_items"("id") ON DELETE cascade ON UPDATE no action;
-EXCEPTION
- WHEN duplicate_object THEN null;
-END $$;
---> statement-breakpoint
-DO $$ BEGIN
- ALTER TABLE "work_item_dependencies" ADD CONSTRAINT "work_item_dependencies_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;
 EXCEPTION
  WHEN duplicate_object THEN null;
 END $$;
@@ -105,27 +86,30 @@ EXCEPTION
 END $$;
 --> statement-breakpoint
 DO $$ BEGIN
- ALTER TABLE "work_items" ADD CONSTRAINT "work_items_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;
-EXCEPTION
- WHEN duplicate_object THEN null;
-END $$;
---> statement-breakpoint
-DO $$ BEGIN
  ALTER TABLE "work_items" ADD CONSTRAINT "work_items_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE set null ON UPDATE no action;
 EXCEPTION
  WHEN duplicate_object THEN null;
 END $$;
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "activity_events_work_item_idx" ON "activity_events" USING btree ("work_item_id");--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "projects_workspace_idx" ON "projects" USING btree ("workspace_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "projects_tenant_idx" ON "projects" USING btree ("tenant_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "tasks_work_item_idx" ON "tasks" USING btree ("work_item_id");--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "work_item_dependencies_workspace_idx" ON "work_item_dependencies" USING btree ("workspace_id");--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "work_items_workspace_idx" ON "work_items" USING btree ("workspace_id");--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "workspaces_tenant_idx" ON "workspaces" USING btree ("tenant_id");--> statement-breakpoint
--- Cross-tenancy FKs to the existing (Alembic-owned) tenancy tables. Added here
--- because `tenants`/`users` are not Drizzle-managed table objects.
+CREATE INDEX IF NOT EXISTS "work_item_dependencies_tenant_idx" ON "work_item_dependencies" USING btree ("tenant_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "work_items_tenant_idx" ON "work_items" USING btree ("tenant_id");--> statement-breakpoint
+-- Cross-tool FKs to the Alembic-owned tenancy tables (not Drizzle table objects).
+-- The org (= workspace = tenant) each workboard row belongs to, and the optional assignee.
 DO $$ BEGIN
- ALTER TABLE "workspaces" ADD CONSTRAINT "workspaces_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE cascade ON UPDATE no action;
+ ALTER TABLE "projects" ADD CONSTRAINT "projects_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "work_items" ADD CONSTRAINT "work_items_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "work_item_dependencies" ADD CONSTRAINT "work_item_dependencies_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE cascade ON UPDATE no action;
 EXCEPTION
  WHEN duplicate_object THEN null;
 END $$;--> statement-breakpoint

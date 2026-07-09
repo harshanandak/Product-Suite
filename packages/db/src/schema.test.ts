@@ -5,7 +5,6 @@ import * as schema from './schema'
 describe('workboard schema', () => {
   it('exports the workboard tables', () => {
     for (const table of [
-      'workspaces',
       'projects',
       'workItems',
       'tasks',

@@ -41,8 +41,8 @@ describe('GET /api/dependencies', () => {
       target_item_id: 'wi_2',
       relationship_type: 'depends_on',
     })
-    // workspace_id is the scope anchor — never leaked to the client.
-    expect(body[0]).not.toHaveProperty('workspace_id')
+    // tenant_id is the scope anchor — never leaked to the client.
+    expect(body[0]).not.toHaveProperty('tenant_id')
     const params = sql.mock.calls[0]?.slice(1) ?? []
     expect(params).toContain('user_clerk_1')
   })

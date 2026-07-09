@@ -46,8 +46,7 @@ tasksRoutes.get('/', async (c) => {
       select t.id, t.work_item_id, t.title, t.status, t.due_date, t.created_at, t.updated_at
       from tasks t
       join work_items wi on wi.id = t.work_item_id
-      join workspaces w on w.id = wi.workspace_id
-      where w.tenant_id in (
+      where wi.tenant_id in (
         select om.tenant_id
         from organization_memberships om
         join user_auth_identities uai on uai.user_id = om.user_id
