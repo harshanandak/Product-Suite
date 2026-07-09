@@ -68,6 +68,9 @@ export const projects = pgTable(
       .notNull()
       .references(() => workspaces.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
+    // Freeform category to satisfy the contracts `Project.kind`. Default keeps
+    // existing rows valid; the product can specialize it later.
+    kind: text('kind').notNull().default('general'),
     ...timestamps,
   },
   (t) => ({ byWorkspace: index('projects_workspace_idx').on(t.workspaceId) }),
