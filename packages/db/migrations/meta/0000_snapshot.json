@@ -1,5 +1,5 @@
 {
-  "id": "a1a918ff-3437-4e49-bbf9-f25717d35086",
+  "id": "b8aa7dad-ee40-4d43-8e4f-c21e062d5c5a",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -91,9 +91,9 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "text",
           "primaryKey": false,
           "notNull": true
         },
@@ -102,6 +102,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'general'"
         },
         "created_at": {
           "name": "created_at",
@@ -119,11 +126,11 @@
         }
       },
       "indexes": {
-        "projects_workspace_idx": {
-          "name": "projects_workspace_idx",
+        "projects_tenant_idx": {
+          "name": "projects_tenant_idx",
           "columns": [
             {
-              "expression": "workspace_id",
+              "expression": "tenant_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -135,21 +142,7 @@
           "with": {}
         }
       },
-      "foreignKeys": {
-        "projects_workspace_id_workspaces_id_fk": {
-          "name": "projects_workspace_id_workspaces_id_fk",
-          "tableFrom": "projects",
-          "tableTo": "workspaces",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -257,9 +250,9 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "text",
           "primaryKey": false,
           "notNull": true
         },
@@ -292,11 +285,11 @@
         }
       },
       "indexes": {
-        "work_item_dependencies_workspace_idx": {
-          "name": "work_item_dependencies_workspace_idx",
+        "work_item_dependencies_tenant_idx": {
+          "name": "work_item_dependencies_tenant_idx",
           "columns": [
             {
-              "expression": "workspace_id",
+              "expression": "tenant_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -309,19 +302,6 @@
         }
       },
       "foreignKeys": {
-        "work_item_dependencies_workspace_id_workspaces_id_fk": {
-          "name": "work_item_dependencies_workspace_id_workspaces_id_fk",
-          "tableFrom": "work_item_dependencies",
-          "tableTo": "workspaces",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
         "work_item_dependencies_source_item_id_work_items_id_fk": {
           "name": "work_item_dependencies_source_item_id_work_items_id_fk",
           "tableFrom": "work_item_dependencies",
@@ -375,9 +355,9 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "text",
           "primaryKey": false,
           "notNull": true
         },
@@ -480,97 +460,8 @@
         }
       },
       "indexes": {
-        "work_items_workspace_idx": {
-          "name": "work_items_workspace_idx",
-          "columns": [
-            {
-              "expression": "workspace_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "work_items_workspace_id_workspaces_id_fk": {
-          "name": "work_items_workspace_id_workspaces_id_fk",
-          "tableFrom": "work_items",
-          "tableTo": "workspaces",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "work_items_project_id_projects_id_fk": {
-          "name": "work_items_project_id_projects_id_fk",
-          "tableFrom": "work_items",
-          "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.workspaces": {
-      "name": "workspaces",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "workspaces_tenant_idx": {
-          "name": "workspaces_tenant_idx",
+        "work_items_tenant_idx": {
+          "name": "work_items_tenant_idx",
           "columns": [
             {
               "expression": "tenant_id",
@@ -585,7 +476,21 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "work_items_project_id_projects_id_fk": {
+          "name": "work_items_project_id_projects_id_fk",
+          "tableFrom": "work_items",
+          "tableTo": "projects",
+          "columnsFrom": [
+            "project_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},

@@ -1,1 +1,0 @@
-ALTER TABLE "projects" ADD COLUMN "kind" text DEFAULT 'general' NOT NULL;

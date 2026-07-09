@@ -17,15 +17,21 @@ import {
  * (Alembic-managed): `tenants`, `organization_memberships`, `users`,
  * `user_auth_identities`. We do NOT recreate those. Drizzle manages only the new
  * workboard tables below; they reference the existing tenancy by id:
- *   - `workspaces.tenant_id`  → tenants.id   (text)
+ *   - `work_items.tenant_id`  → tenants.id   (text)  — the org IS the workspace
+ *   - `projects.tenant_id`    → tenants.id   (text)
  *   - `work_items.assignee_id`→ users.id     (text, nullable)
  * Those cross-tool FK constraints are added in the migration (the referenced
  * tables are Alembic-owned, so they aren't Drizzle table objects here).
  *
+ * Model note: workspace = organization = tenant — ONE level (a Clerk Organization
+ * maps to a `tenants` row, the org boundary). Work items belong directly to the
+ * org and are grouped WITHIN it by `department` (a swimlane label) + an optional
+ * `project`. There is deliberately no separate workspace layer.
+ *
  * Auth: the Clerk identity (`claims.subject`) resolves to an internal user via
  * `user_auth_identities(provider='clerk', provider_user_id=subject)`, and to a
  * tenant + role via `organization_memberships`. The API scopes every query to
- * the caller's tenant → workspace; ids are never trusted from the client.
+ * the caller's tenant; ids are never trusted from the client.
  *
  * Enums mirror `@product-suite/contracts` exactly.
  */
@@ -44,45 +50,29 @@ const timestamps = {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }
 
-/**
- * A workspace — a sub-scope within a `tenant` (the product's workspace switcher).
- * `tenantId` references the existing Alembic-owned `tenants(id)` table (FK added
- * in the migration).
- */
-export const workspaces = pgTable(
-  'workspaces',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    tenantId: text('tenant_id').notNull(),
-    name: text('name').notNull(),
-    ...timestamps,
-  },
-  (t) => ({ byTenant: index('workspaces_tenant_idx').on(t.tenantId) }),
-)
-
 export const projects = pgTable(
   'projects',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    workspaceId: uuid('workspace_id')
-      .notNull()
-      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    // The org (= workspace = tenant). References the Alembic-owned tenants(id);
+    // FK added in the migration.
+    tenantId: text('tenant_id').notNull(),
     name: text('name').notNull(),
     // Freeform category to satisfy the contracts `Project.kind`. Default keeps
     // existing rows valid; the product can specialize it later.
     kind: text('kind').notNull().default('general'),
     ...timestamps,
   },
-  (t) => ({ byWorkspace: index('projects_workspace_idx').on(t.workspaceId) }),
+  (t) => ({ byTenant: index('projects_tenant_idx').on(t.tenantId) }),
 )
 
 export const workItems = pgTable(
   'work_items',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    workspaceId: uuid('workspace_id')
-      .notNull()
-      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    // The org (= workspace = tenant). References the Alembic-owned tenants(id);
+    // FK added in the migration.
+    tenantId: text('tenant_id').notNull(),
     title: text('title').notNull(),
     description: text('description').notNull().default(''),
     phase: phaseEnum('phase').notNull().default('plan'),
@@ -98,7 +88,7 @@ export const workItems = pgTable(
     archived: boolean('archived').notNull().default(false),
     ...timestamps,
   },
-  (t) => ({ byWorkspace: index('work_items_workspace_idx').on(t.workspaceId) }),
+  (t) => ({ byTenant: index('work_items_tenant_idx').on(t.tenantId) }),
 )
 
 export const tasks = pgTable(
@@ -120,9 +110,9 @@ export const workItemDependencies = pgTable(
   'work_item_dependencies',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    workspaceId: uuid('workspace_id')
-      .notNull()
-      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    // The org (= workspace = tenant). References the Alembic-owned tenants(id);
+    // FK added in the migration.
+    tenantId: text('tenant_id').notNull(),
     sourceItemId: uuid('source_item_id')
       .notNull()
       .references(() => workItems.id, { onDelete: 'cascade' }),
@@ -134,7 +124,7 @@ export const workItemDependencies = pgTable(
   },
   (t) => ({
     edgeUniq: unique('work_item_dependencies_edge_uniq').on(t.sourceItemId, t.targetItemId),
-    byWorkspace: index('work_item_dependencies_workspace_idx').on(t.workspaceId),
+    byTenant: index('work_item_dependencies_tenant_idx').on(t.tenantId),
   }),
 )
 
