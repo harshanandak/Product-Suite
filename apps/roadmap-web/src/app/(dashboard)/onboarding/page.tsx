@@ -1,24 +1,23 @@
+import { getAuthClaims } from '@/lib/auth/get-auth-claims'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { OnboardingFlow } from '@/components/onboarding/onboarding-flow'
 
 export default async function OnboardingPage() {
-  const supabase = await createClient()
+  // Check authentication (canonical claims)
+  const claims = await getAuthClaims()
 
-  // Check authentication
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
+  if (!claims) {
     redirect('/login')
   }
+
+  const supabase = await createClient()
 
   // Check if user already has teams
   const { data: teamMembers } = await supabase
     .from('team_members')
     .select('team_id')
-    .eq('user_id', user.id)
+    .eq('user_id', claims.subject)
     .limit(1)
 
   // If user has teams, redirect to dashboard (which will redirect to workspace)
@@ -28,7 +27,7 @@ export default async function OnboardingPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center p-4">
-      <OnboardingFlow user={user} />
+      <OnboardingFlow user={{ id: claims.subject, email: claims.email }} />
     </div>
   )
 }

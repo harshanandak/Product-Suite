@@ -1,3 +1,4 @@
+import { getAuthClaims } from '@/lib/auth/get-auth-claims'
 import { createClient } from '@/lib/supabase/server'
 import { redirect, notFound } from 'next/navigation'
 import { WorkspaceContent } from './_components/workspace-content'
@@ -12,16 +13,14 @@ export default async function WorkspacePage({
 }) {
   const { id } = await params
   const { view = 'dashboard' } = await searchParams
-  const supabase = await createClient()
+  // Check authentication (canonical claims)
+  const claims = await getAuthClaims()
 
-  // Check authentication
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
+  if (!claims) {
     redirect('/login')
   }
+
+  const supabase = await createClient()
 
   // Get workspace
   const { data: workspace, error } = await supabase
@@ -39,7 +38,7 @@ export default async function WorkspacePage({
     .from('team_members')
     .select('role')
     .eq('team_id', workspace.team_id)
-    .eq('user_id', user.id)
+    .eq('user_id', claims.subject)
     .single()
 
   if (!teamMember) {
@@ -130,7 +129,7 @@ export default async function WorkspacePage({
     supabase
       .from('users')
       .select('*')
-      .eq('id', user.id)
+      .eq('id', claims.subject)
       .single(),
   ])
 
@@ -159,7 +158,7 @@ export default async function WorkspacePage({
     id: workspace.team_id,
     name: team?.name || 'Unknown Team',
     created_at: new Date().toISOString(),
-    owner_id: user.id,
+    owner_id: claims.subject,
     plan: (team?.subscription_plan as 'free' | 'pro' | null) || 'free',
   }
 
@@ -200,9 +199,9 @@ export default async function WorkspacePage({
       teamSize={teamSize || 0}
       phaseDistribution={phaseDistribution}
       onboardingState={onboardingState}
-      currentUserId={user.id}
-      userEmail={user.email}
-      userName={userProfile?.name || user.user_metadata?.full_name}
+      currentUserId={claims.subject}
+      userEmail={claims.email}
+      userName={userProfile?.name}
     />
   )
 }
