@@ -57,22 +57,30 @@ workItemsRoutes.get('/', async (c) => {
   const claims = c.get('claims')
   const sql = sqlFrom(c.env ?? {})
 
-  const rows = (await sql`
-    select wi.id, wi.title, wi.description, wi.phase, wi.type, wi.priority, wi.tags,
-           wi.source, wi.project_id, wi.department, wi.assignee_id, wi.due_date,
-           wi.archived, wi.created_at, wi.updated_at
-    from work_items wi
-    join workspaces w on w.id = wi.workspace_id
-    where w.tenant_id in (
-      select om.tenant_id
-      from organization_memberships om
-      join user_auth_identities uai on uai.user_id = om.user_id
-      where uai.provider = 'clerk'
-        and uai.provider_user_id = ${claims.subject}
-        and om.status = 'active'
-    )
-    order by wi.updated_at desc
-  `) as WorkItemRow[]
+  let rows: WorkItemRow[]
+  try {
+    rows = (await sql`
+      select wi.id, wi.title, wi.description, wi.phase, wi.type, wi.priority, wi.tags,
+             wi.source, wi.project_id, wi.department, wi.assignee_id, wi.due_date,
+             wi.archived, wi.created_at, wi.updated_at
+      from work_items wi
+      join workspaces w on w.id = wi.workspace_id
+      where w.tenant_id in (
+        select om.tenant_id
+        from organization_memberships om
+        join user_auth_identities uai on uai.user_id = om.user_id
+        where uai.provider = 'clerk'
+          and uai.provider_user_id = ${claims.subject}
+          and om.status = 'active'
+      )
+      order by wi.updated_at desc
+    `) as WorkItemRow[]
+  } catch (cause) {
+    // Network/timeout/connection failures against Neon must not surface as an
+    // opaque unhandled 500 — log for diagnosis and return a structured error.
+    console.error('[work-items] list query failed', cause)
+    return c.json({ error: 'Failed to load work items' }, 500)
+  }
 
   return c.json(rows.map(toWorkItem))
 })

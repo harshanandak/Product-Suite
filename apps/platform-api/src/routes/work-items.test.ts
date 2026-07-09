@@ -60,6 +60,23 @@ describe('GET /api/work-items', () => {
     expect(params).toContain('user_clerk_1')
   })
 
+  it('returns a structured 500 when the DB query fails (not an opaque crash)', async () => {
+    const sql = vi.fn(async () => {
+      throw new Error('connection reset')
+    })
+    createSql.mockReturnValue(sql)
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const res = await app.request('/api/work-items', {
+      headers: { Authorization: 'Bearer token' },
+    })
+
+    expect(res.status).toBe(500)
+    expect(await res.json()).toEqual({ error: 'Failed to load work items' })
+    expect(errorSpy).toHaveBeenCalled()
+    errorSpy.mockRestore()
+  })
+
   it('returns 401 without a bearer token (auth gate before any DB access)', async () => {
     const sql = vi.fn(async () => [ROW])
     createSql.mockReturnValue(sql)

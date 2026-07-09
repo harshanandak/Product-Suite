@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { verifyToken } = vi.hoisted(() => ({ verifyToken: vi.fn() }))
 
@@ -15,9 +15,18 @@ function testApp() {
 }
 
 describe('clerkAuth middleware', () => {
+  let warnSpy: ReturnType<typeof vi.spyOn>
+
   beforeEach(() => {
     verifyToken.mockReset()
     process.env.CLERK_SECRET_KEY = 'sk_test'
+    delete process.env.CLERK_AUTHORIZED_PARTIES
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    warnSpy.mockRestore()
+    delete process.env.CLERK_AUTHORIZED_PARTIES
   })
 
   it('returns 401 without a bearer token (and never verifies)', async () => {
@@ -49,5 +58,24 @@ describe('clerkAuth middleware', () => {
       email: 'u@example.com',
       tenant_id: 'org_1',
     })
+  })
+
+  it('warns when CLERK_AUTHORIZED_PARTIES is unset (origin not enforced)', async () => {
+    verifyToken.mockResolvedValue({ sub: 'user_1', exp: 9999999999 })
+    await testApp().request('/', { headers: { Authorization: 'Bearer good' } })
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('CLERK_AUTHORIZED_PARTIES is not set'),
+    )
+  })
+
+  it('does not warn when CLERK_AUTHORIZED_PARTIES is configured', async () => {
+    process.env.CLERK_AUTHORIZED_PARTIES = 'https://app.example.com'
+    verifyToken.mockResolvedValue({ sub: 'user_1', exp: 9999999999 })
+    await testApp().request('/', { headers: { Authorization: 'Bearer good' } })
+    expect(warnSpy).not.toHaveBeenCalled()
+    expect(verifyToken).toHaveBeenCalledWith(
+      'good',
+      expect.objectContaining({ authorizedParties: ['https://app.example.com'] }),
+    )
   })
 })

@@ -45,6 +45,17 @@ export function clerkAuth(): MiddlewareHandler<AuthedEnv> {
       .map((party) => party.trim())
       .filter(Boolean)
 
+    if (!authorizedParties?.length) {
+      // With no origin allow-list, Clerk accepts a valid token regardless of its
+      // `azp` (authorized party) claim — a weaker posture that permits tokens
+      // minted for other origins. Warn loudly so a missing
+      // CLERK_AUTHORIZED_PARTIES in a real deployment is visible rather than
+      // silent. Left non-fatal so local/dev without the var still functions.
+      console.warn(
+        '[clerkAuth] CLERK_AUTHORIZED_PARTIES is not set — token origin (azp) is NOT enforced',
+      )
+    }
+
     let payload: ClerkJwtPayload
     try {
       payload = (await verifyToken(token, {
