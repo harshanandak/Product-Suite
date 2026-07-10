@@ -27,9 +27,9 @@ function toDependency(row: DependencyRow): WorkItemDependency {
 export const dependenciesRoutes = new Hono<AuthedEnv>()
 
 /**
- * List the dependency edges the caller can see — tenant-scoped through the
- * edge's workspace to the tenants the caller is an active member of. The edge's
- * own `workspace_id` is the scope anchor (never returned to the client).
+ * List the dependency edges the caller can see — tenant-scoped by the edge's own
+ * `tenant_id` (the org), to the tenants the caller is an active member of. The
+ * `tenant_id` is the scope anchor (never returned to the client).
  */
 dependenciesRoutes.get('/', async (c) => {
   const claims = c.get('claims')
@@ -40,8 +40,7 @@ dependenciesRoutes.get('/', async (c) => {
     rows = (await sql`
       select d.id, d.source_item_id, d.target_item_id, d.relationship_type, d.created_at
       from work_item_dependencies d
-      join workspaces w on w.id = d.workspace_id
-      where w.tenant_id in (
+      where d.tenant_id in (
         select om.tenant_id
         from organization_memberships om
         join user_auth_identities uai on uai.user_id = om.user_id

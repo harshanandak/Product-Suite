@@ -39,8 +39,7 @@ projectsRoutes.get('/', async (c) => {
     rows = (await sql`
       select p.id, p.name, p.kind, p.created_at, p.updated_at
       from projects p
-      join workspaces w on w.id = p.workspace_id
-      where w.tenant_id in (
+      where p.tenant_id in (
         select om.tenant_id
         from organization_memberships om
         join user_auth_identities uai on uai.user_id = om.user_id
