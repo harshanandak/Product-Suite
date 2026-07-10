@@ -13,9 +13,9 @@ import {
 
 import {
   getDefaultRepository,
+  useItemTasks,
   useRepositoryContext,
   useWorkItems,
-  type Task,
   type WorkItem,
   type WorkItemPatch,
   type WorkItemRepository,
@@ -154,9 +154,9 @@ function generateViewId(existing: ReadonlyArray<SavedView>): string {
  * everything" (with a one-click clear that resets search AND facets so the user
  * is never stranded in a no-match view).
  *
- * Tasks are read once from the repository (the hook surfaces only rows +
- * projects + owners) and passed whole to the editor, which filters them per item
- * — one deterministic fetch, no per-selection race.
+ * The editor's read-only task list is fetched PER-ITEM on open (via
+ * {@link useItemTasks}), not by reading every task on the board — so opening the
+ * board never pulls the whole task set just to feed one item's editor (PR3).
  */
 export function WorkboardScreen({
   repository,
@@ -178,26 +178,6 @@ export function WorkboardScreen({
 
   const { items, owners, loading, error, update, pendingIds, create, refetch } =
     useWorkItems({ repository: repo });
-
-  // Tasks for the editor (derived health + the read-only task list). Loaded once;
-  // tasks do not change on a work-item save, so no refetch is wired.
-  const [tasks, setTasks] = useState<ReadonlyArray<Task>>([]);
-  useEffect(() => {
-    let cancelled = false;
-    repo
-      .listTasks()
-      .then((loaded) => {
-        if (!cancelled) setTasks(loaded);
-      })
-      .catch(() => {
-        // Tasks are supplementary to the editor; a failure simply yields an
-        // editor with no task list / "on track" derived health. The table's
-        // own error path covers the primary load.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [repo]);
 
   // The single shared toolbar ⇄ table view state. Lazily hydrated from the
   // persisted blob (merged OVER a fresh default, so any missing/invalid field
@@ -337,6 +317,15 @@ export function WorkboardScreen({
   // value assigns directly; a `WorkItemRow` from a table activation is assignable
   // to `WorkItem`, so both paths type-check.
   const [selected, setSelected] = useState<WorkItem | null>(null);
+
+  // Tasks for the OPEN editor only (its read-only list + derived health),
+  // fetched per-item on open — never the whole board's tasks (PR3). The editor
+  // is reserved for the New flow here, so this is empty until an item is opened;
+  // the hook's own list-level task read (board health/counts) is unaffected.
+  const { tasks: editorTasks } = useItemTasks({
+    repository: repo,
+    workItemId: selected?.id ?? null,
+  });
 
   // Row activation (table + kanban) opens the full detail PAGE — a durable,
   // linkable home. The editor Sheet is reserved for quick-edit: the New flow
@@ -627,7 +616,7 @@ export function WorkboardScreen({
         open={liveSelected !== null}
         onOpenChange={handleOpenChange}
         onSave={handleSave}
-        tasks={tasks}
+        tasks={editorTasks}
         owners={owners}
       />
     </section>
