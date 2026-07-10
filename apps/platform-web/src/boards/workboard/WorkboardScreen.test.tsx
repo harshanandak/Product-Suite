@@ -14,6 +14,7 @@ import { ThemeProvider, Toaster, toast } from "@product-suite/ui";
 
 import {
   createMockWorkItemRepository,
+  RepositoryProvider,
   type WorkItemPatch,
 } from "@/data/work-items";
 
@@ -39,6 +40,12 @@ const navMock = vi.hoisted(() => ({ fn: vi.fn(() => Promise.resolve()) }));
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => navMock.fn,
   useParams: () => ({ workspace: "acme" }),
+}));
+
+// For the context-repository test: a signed-in Clerk token so the network repo
+// attaches a bearer and issues real fetches.
+vi.mock("@clerk/clerk-react", () => ({
+  useAuth: () => ({ getToken: async () => "tok_test" }),
 }));
 
 /**
@@ -817,5 +824,35 @@ describe("WorkboardScreen", () => {
     expect(
       await screen.findByRole("menuitem", { name: "Restored lane" }),
     ).toBeInTheDocument();
+  });
+});
+
+describe("WorkboardScreen repository selection", () => {
+  it("uses the context (network) repository when no repository prop is given", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => [],
+    })) as unknown as typeof fetch;
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      render(
+        <ThemeProvider defaultTheme="light">
+          <RepositoryProvider>
+            <WorkboardScreen />
+          </RepositoryProvider>
+        </ThemeProvider>,
+      );
+      // The provider's network repo fetches the API on mount; the mock never
+      // would — this is exactly the regression the fix closes.
+      await waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith(
+          expect.stringContaining("/api/work-items"),
+          expect.anything(),
+        ),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

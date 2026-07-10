@@ -4,6 +4,7 @@ import { Skeleton } from "@product-suite/ui";
 
 import {
   getDefaultRepository,
+  useRepositoryContext,
   useWorkItems,
   type Task,
   type WorkItem,
@@ -68,8 +69,9 @@ export interface WorkboardGraphScreenProps {
 export function WorkboardGraphScreen({
   repository,
 }: Readonly<WorkboardGraphScreenProps> = {}) {
+  const contextRepo = useRepositoryContext();
   const [repo] = useState<WorkItemRepository>(
-    () => repository ?? getDefaultRepository(),
+    () => repository ?? contextRepo ?? getDefaultRepository(),
   );
 
   const {
