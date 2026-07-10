@@ -19,7 +19,7 @@
  */
 
 import { streamText, convertToModelMessages, type UIMessage } from 'ai'
-import { createClient } from '@/lib/supabase/server'
+import { getAuthClaims } from '@/lib/auth/get-auth-claims'
 import { parallelAITools, parallelAIQuickTools } from '@/lib/ai/tools/parallel-ai-tools'
 import { chatAgenticTools } from '@/lib/ai/tools/chat-agentic-tools'
 import { optimizationTools } from '@/lib/ai/tools/optimization-tools'
@@ -205,20 +205,15 @@ function getUnifiedTools(quickMode: boolean = false) {
  */
 export async function POST(request: Request) {
   try {
-    const supabase = await createClient()
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const claims = await getAuthClaims()
 
-    // Check authentication
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-
-    if (authError || !user) {
+    if (!claims) {
       return new Response('Unauthorized', { status: 401 })
     }
 
     // Check if user is in dev mode
-    const userIsDevMode = isDevMode(user.email)
+    const userIsDevMode = isDevMode(claims.email)
 
     // Parse request body
     const body = await request.json()

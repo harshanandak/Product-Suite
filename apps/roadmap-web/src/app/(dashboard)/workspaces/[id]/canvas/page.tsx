@@ -1,4 +1,5 @@
 import { Suspense } from 'react'
+import { getAuthClaims } from '@/lib/auth/get-auth-claims'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { Button } from '@/components/ui/button'
@@ -29,16 +30,15 @@ const typeLabels = {
 
 export default async function CanvasListPage({ params }: PageProps) {
   const { id: workspaceId } = await params
-  const supabase = await createClient()
 
-  // Get user
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  // Check authentication (canonical claims)
+  const claims = await getAuthClaims()
 
-  if (!user) {
+  if (!claims) {
     redirect('/login')
   }
+
+  const supabase = await createClient()
 
   // Get workspace to verify access
   const { data: workspace, error: workspaceError } = await supabase
@@ -56,7 +56,7 @@ export default async function CanvasListPage({ params }: PageProps) {
     .from('team_members')
     .select('role')
     .eq('team_id', workspace.team_id)
-    .eq('user_id', user.id)
+    .eq('user_id', claims.subject)
     .single()
 
   if (!teamMember) {

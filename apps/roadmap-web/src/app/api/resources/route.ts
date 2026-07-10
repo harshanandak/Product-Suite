@@ -11,6 +11,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { handleRouteError, requireAuth, requireTeamMembership } from '@/lib/auth/api-guard'
 import type {
   CreateResourceRequest,
   ResourceWithMeta,
@@ -31,6 +32,9 @@ import { extractDomain } from '@/lib/types/resources'
  */
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+
     const supabase = await createClient()
     const { searchParams } = new URL(req.url)
 
@@ -48,22 +52,9 @@ export async function GET(req: NextRequest) {
       )
     }
 
-    // Validate team membership
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const { data: membership } = await supabase
-      .from('team_members')
-      .select('id')
-      .eq('team_id', teamId)
-      .eq('user_id', user.id)
-      .single()
-
-    if (!membership) {
-      return NextResponse.json({ error: 'Not a team member' }, { status: 403 })
-    }
+    // Auth + team-membership guard (see lib/auth/api-guard)
+    const guard = await requireTeamMembership(supabase, teamId)
+    if (guard instanceof NextResponse) return guard
 
     // Build query
     let query = supabase
@@ -128,11 +119,7 @@ export async function GET(req: NextRequest) {
       },
     })
   } catch (error) {
-    console.error('Resources GET error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Resources GET error')
   }
 }
 
@@ -144,6 +131,9 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+
     const supabase = await createClient()
     const body: CreateResourceRequest = await req.json()
 
@@ -168,22 +158,10 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Validate team membership
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const { data: membership } = await supabase
-      .from('team_members')
-      .select('id')
-      .eq('team_id', team_id)
-      .eq('user_id', user.id)
-      .single()
-
-    if (!membership) {
-      return NextResponse.json({ error: 'Not a team member' }, { status: 403 })
-    }
+    // Auth + team-membership guard (see lib/auth/api-guard)
+    const guard = await requireTeamMembership(supabase, team_id)
+    if (guard instanceof NextResponse) return guard
+    const { claims } = guard
 
     // Generate timestamp-based ID
     const id = Date.now().toString()
@@ -205,7 +183,7 @@ export async function POST(req: NextRequest) {
         resource_type,
         image_url: image_url || null,
         source_domain,
-        created_by: user.id,
+        created_by: claims.subject,
       })
       .select()
       .single()
@@ -223,8 +201,8 @@ export async function POST(req: NextRequest) {
       id: `${Date.now()}_${Math.floor(Math.random() * 1000)}`,
       resource_id: resource.id,
       action: 'created',
-      actor_id: user.id,
-      actor_email: user.email,
+      actor_id: claims.subject,
+      actor_email: claims.email,
       changes: { title: { old: null, new: title } },
       team_id,
       workspace_id,
@@ -240,7 +218,7 @@ export async function POST(req: NextRequest) {
           team_id,
           tab_type,
           context_note: context_note || null,
-          added_by: user.id,
+          added_by: claims.subject,
           display_order: 0,
         })
 
@@ -254,8 +232,8 @@ export async function POST(req: NextRequest) {
           resource_id: resource.id,
           work_item_id,
           action: 'linked',
-          actor_id: user.id,
-          actor_email: user.email,
+          actor_id: claims.subject,
+          actor_email: claims.email,
           changes: { tab_type: { old: null, new: tab_type } },
           team_id,
           workspace_id,
@@ -265,10 +243,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ data: resource }, { status: 201 })
   } catch (error) {
-    console.error('Resources POST error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Resources POST error')
   }
 }

@@ -17,6 +17,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { requireAuth } from '@/lib/auth/api-guard'
 import { analyzeWorkspace } from '@/lib/workspace/analyzer-service'
 
 interface RouteParams {
@@ -57,18 +58,10 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       10
     )
 
-    // Validate authentication
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-
-    if (authError || !user) {
-      return NextResponse.json(
-        { error: 'Authentication required', code: 'UNAUTHENTICATED' },
-        { status: 401 }
-      )
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get workspace to find team_id
     const { data: workspace, error: wsError } = await supabase
@@ -89,7 +82,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       .from('team_members')
       .select('id, role')
       .eq('team_id', workspace.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!membership) {

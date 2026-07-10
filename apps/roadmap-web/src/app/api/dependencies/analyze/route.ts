@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 import { NextResponse } from 'next/server'
 import { calculateCriticalPath } from '@/lib/algorithms/critical-path'
 import { detectCycles } from '@/lib/algorithms/cycle-detection'
@@ -18,14 +19,10 @@ export async function POST(request: Request) {
 
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get workspace to verify access
     const { data: workspace } = await supabase
@@ -43,7 +40,7 @@ export async function POST(request: Request) {
       .from('team_members')
       .select('role')
       .eq('team_id', workspace.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!teamMember) {
@@ -121,8 +118,7 @@ export async function POST(request: Request) {
       healthScore: criticalPathResult.healthScore,
       warnings: criticalPathResult.warnings,
     })
-  } catch (error: unknown) {
-    console.error('Error in POST /api/dependencies/analyze:', error)
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Internal server error' }, { status: 500 })
+  } catch (error) {
+    return handleRouteError(error, 'POST /api/dependencies/analyze')
   }
 }

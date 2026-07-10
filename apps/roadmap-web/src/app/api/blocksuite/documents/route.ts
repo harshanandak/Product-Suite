@@ -10,6 +10,7 @@
  */
 
 import { createClient } from '@/lib/supabase/server'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { isValidId, getStoragePath } from '@/components/blocksuite/persistence-types'
@@ -43,22 +44,18 @@ export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // SECURITY: Rate limiting with Upstash Redis
-    const rateLimitId = getRateLimitIdentifier(user.id)
+    const rateLimitId = getRateLimitIdentifier(claims.subject)
     const rateLimitResult = await checkRateLimit(rateLimiters.blocksuiteDocuments, rateLimitId)
 
     if (!rateLimitResult.success) {
       auditLog('rate_limit_exceeded', {
-        userId: user.id,
+        userId: claims.subject,
         endpoint: 'document_create',
         resetAt: rateLimitResult.reset,
       })
@@ -106,12 +103,12 @@ export async function POST(request: NextRequest) {
       .from('team_members')
       .select('role')
       .eq('team_id', workspace.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!membership) {
       auditLog('unauthorized_document_create', {
-        userId: user.id,
+        userId: claims.subject,
         workspaceId,
         teamId: workspace.team_id,
       })
@@ -139,7 +136,7 @@ export async function POST(request: NextRequest) {
 
     if (insertError) {
       auditLog('document_create_failed', {
-        userId: user.id,
+        userId: claims.subject,
         workspaceId,
         error: insertError.message,
       })
@@ -150,7 +147,7 @@ export async function POST(request: NextRequest) {
     }
 
     auditLog('document_created', {
-      userId: user.id,
+      userId: claims.subject,
       documentId,
       workspaceId,
       teamId: workspace.team_id,
@@ -167,11 +164,7 @@ export async function POST(request: NextRequest) {
       },
     })
   } catch (error) {
-    console.error('[API] Document creation error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, '[API] Document creation error')
   }
 }
 
@@ -183,14 +176,10 @@ export async function GET(request: NextRequest) {
   try {
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get workspaceId from query params
     const { searchParams } = new URL(request.url)
@@ -219,7 +208,7 @@ export async function GET(request: NextRequest) {
       .from('team_members')
       .select('role')
       .eq('team_id', workspace.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!membership) {
@@ -245,10 +234,6 @@ export async function GET(request: NextRequest) {
       documents: documents || [],
     })
   } catch (error) {
-    console.error('[API] Document list error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, '[API] Document list error')
   }
 }

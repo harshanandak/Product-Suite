@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 
 /**
  * GET /api/insights/stats
@@ -29,21 +30,17 @@ export async function GET(req: NextRequest) {
       )
     }
 
-    // Verify user has access to this team
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Check team membership
     const { data: membership } = await supabase
       .from('team_members')
       .select('id')
       .eq('team_id', teamId)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!membership) {
@@ -106,10 +103,6 @@ export async function GET(req: NextRequest) {
       },
     })
   } catch (error) {
-    console.error('Error in GET /api/insights/stats:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Error in GET /api/insights/stats')
   }
 }

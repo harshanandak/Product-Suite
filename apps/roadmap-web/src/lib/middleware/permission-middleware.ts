@@ -27,7 +27,7 @@
  * ```
  */
 
-import { createClient } from '@/lib/supabase/server'
+import { getAuthClaims } from '@/lib/auth/get-auth-claims'
 import { NextResponse } from 'next/server'
 import type { WorkspacePhase } from '@/lib/constants/workspace-phases'
 import { canUserEditPhase, isUserAdminOrOwner } from '@/lib/utils/phase-permissions'
@@ -117,21 +117,16 @@ export async function validatePhasePermission({
   phase: WorkspacePhase
   action: 'view' | 'edit' | 'delete'
 }): Promise<{ id: string; email?: string }> {
-  const supabase = await createClient()
+  // 1. Check authentication (canonical claims)
+  const claims = await getAuthClaims()
 
-  // 1. Check authentication
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser()
-
-  if (authError || !user) {
+  if (!claims) {
     throw new UnauthenticatedError()
   }
 
   // 2. Check permission
   const result = await checkPhasePermission({
-    userId: user.id,
+    userId: claims.subject,
     workspaceId,
     teamId,
     phase,
@@ -139,10 +134,10 @@ export async function validatePhasePermission({
   })
 
   if (!result.granted) {
-    throw new PermissionDeniedError(user.id, action, phase, result.reason ?? 'Unknown reason')
+    throw new PermissionDeniedError(claims.subject, action, phase, result.reason ?? 'Unknown reason')
   }
 
-  return user
+  return { id: claims.subject, email: claims.email }
 }
 
 /**
@@ -318,31 +313,26 @@ export function handlePermissionError(error: unknown): NextResponse {
 export async function validateAdminPermission(
   teamId: string
 ): Promise<{ id: string; email?: string }> {
-  const supabase = await createClient()
+  // 1. Check authentication (canonical claims)
+  const claims = await getAuthClaims()
 
-  // 1. Check authentication
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser()
-
-  if (authError || !user) {
+  if (!claims) {
     throw new UnauthenticatedError()
   }
 
   // 2. Check admin status
-  const isAdmin = await isUserAdminOrOwner(user.id, teamId)
+  const isAdmin = await isUserAdminOrOwner(claims.subject, teamId)
 
   if (!isAdmin) {
     throw new PermissionDeniedError(
-      user.id,
+      claims.subject,
       'admin action',
       'launch', // Dummy phase for admin actions (updated 2025-12-13: 'complete' → 'launch')
       'This action requires admin or owner privileges'
     )
   }
 
-  return user
+  return { id: claims.subject, email: claims.email }
 }
 
 /**

@@ -25,6 +25,7 @@ import {
 
 import {
   getDefaultRepository,
+  useRepositoryContext,
   useWorkItems,
   type ActivityEvent,
   type Owner,
@@ -307,8 +308,9 @@ export function WorkItemDetailScreen({
     from: "/w/$workspace/workboard/item/$itemId",
   });
 
+  const contextRepo = useRepositoryContext();
   const [repo] = useState<WorkItemRepository>(
-    () => repository ?? getDefaultRepository(),
+    () => repository ?? contextRepo ?? getDefaultRepository(),
   );
 
   const {

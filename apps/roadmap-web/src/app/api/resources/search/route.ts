@@ -9,6 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { handleRouteError, requireAuth, requireTeamMembership } from '@/lib/auth/api-guard'
 import type { ResourceWithMeta } from '@/lib/types/resources'
 
 /**
@@ -27,6 +28,9 @@ import type { ResourceWithMeta } from '@/lib/types/resources'
  */
 export async function GET(req: NextRequest) {
   try {
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+
     const supabase = await createClient()
     const { searchParams } = new URL(req.url)
 
@@ -52,22 +56,9 @@ export async function GET(req: NextRequest) {
       )
     }
 
-    // Validate user and team membership
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const { data: membership } = await supabase
-      .from('team_members')
-      .select('id')
-      .eq('team_id', teamId)
-      .eq('user_id', user.id)
-      .single()
-
-    if (!membership) {
-      return NextResponse.json({ error: 'Not a team member' }, { status: 403 })
-    }
+    // Auth + team-membership guard (see lib/auth/api-guard)
+    const guard = await requireTeamMembership(supabase, teamId)
+    if (guard instanceof NextResponse) return guard
 
     // Use the search_resources database function
     const { data: searchResults, error } = await supabase
@@ -123,10 +114,6 @@ export async function GET(req: NextRequest) {
       },
     })
   } catch (error) {
-    console.error('Resources search error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Resources search error')
   }
 }

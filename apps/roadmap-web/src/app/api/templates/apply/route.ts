@@ -13,6 +13,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 import type { ApplyTemplateOptions, ApplyTemplateResult } from '@/lib/templates/template-types'
 
 /**
@@ -55,14 +56,10 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Validate authentication
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get the workspace to find team_id
     const { data: workspace, error: wsError } = await supabase
@@ -83,7 +80,7 @@ export async function POST(req: NextRequest) {
       .from('team_members')
       .select('role')
       .eq('team_id', workspace.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!membership) {
@@ -172,7 +169,7 @@ export async function POST(req: NextRequest) {
           color: dept.color || '#6366f1',
           icon: dept.icon || 'folder',
           sort_order: nextSortOrder++,
-          created_by: user.id,
+          created_by: claims.subject,
         })
 
         if (deptError) {
@@ -207,7 +204,7 @@ export async function POST(req: NextRequest) {
           phase: 'design',
           status: 'not_started',
           department_id: departmentId,
-          created_by: user.id,
+          created_by: claims.subject,
         })
 
         if (itemError) {
@@ -232,10 +229,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ data: result })
   } catch (error) {
-    console.error('Error in POST /api/templates/apply:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'POST /api/templates/apply')
   }
 }

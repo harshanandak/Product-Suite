@@ -6,6 +6,8 @@
     "apps/meeting-web",
     "apps/roadmap-web",
     "apps/platform-web",
+    "apps/platform-api",
+    "packages/db",
     "packages/contracts",
     "packages/sdk",
     "packages/ui",

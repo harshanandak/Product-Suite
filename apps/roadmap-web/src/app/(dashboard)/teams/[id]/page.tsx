@@ -1,3 +1,4 @@
+import { getAuthClaims } from '@/lib/auth/get-auth-claims'
 import { createClient } from '@/lib/supabase/server'
 import { redirect, notFound } from 'next/navigation'
 import { Button } from '@/components/ui/button'
@@ -20,16 +21,15 @@ export default async function TeamSettingsPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const supabase = await createClient()
 
-  // Check authentication
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  // Check authentication (canonical claims)
+  const claims = await getAuthClaims()
 
-  if (!user) {
+  if (!claims) {
     redirect('/login')
   }
+
+  const supabase = await createClient()
 
   // Get team details
   const { data: team, error: teamError } = await supabase
@@ -47,7 +47,7 @@ export default async function TeamSettingsPage({
     .from('team_members')
     .select('role')
     .eq('team_id', id)
-    .eq('user_id', user.id)
+    .eq('user_id', claims.subject)
     .single()
 
   if (!membership) {
@@ -174,7 +174,7 @@ export default async function TeamSettingsPage({
                   users: userInfo || null,
                 };
               })}
-              currentUserId={user.id}
+              currentUserId={claims.subject}
               currentUserRole={membership.role}
               teamId={id}
             />

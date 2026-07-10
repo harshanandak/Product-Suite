@@ -12,6 +12,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 import type {
   UpdateStrategyRequest,
   StrategyWithChildren,
@@ -33,11 +34,10 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     const { id } = await params
     const supabase = await createClient()
 
-    // Validate user
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Fetch strategy with owner
     const { data: strategy, error: strategyError } = await supabase
@@ -58,7 +58,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       .from('team_members')
       .select('id')
       .eq('team_id', strategy.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!membership) {
@@ -154,11 +154,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       aligned_work_items: alignedWorkItems,
     })
   } catch (error) {
-    console.error('Strategy GET error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Strategy GET error')
   }
 }
 
@@ -173,11 +169,10 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     const supabase = await createClient()
     const body: UpdateStrategyRequest = await req.json()
 
-    // Validate user
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Fetch existing strategy
     const { data: existingStrategy, error: fetchError } = await supabase
@@ -195,7 +190,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       .from('team_members')
       .select('id')
       .eq('team_id', existingStrategy.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!membership) {
@@ -307,11 +302,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({ data: updatedStrategy })
   } catch (error) {
-    console.error('Strategy PATCH error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Strategy PATCH error')
   }
 }
 
@@ -325,11 +316,10 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
     const { id } = await params
     const supabase = await createClient()
 
-    // Validate user
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Fetch strategy to get team_id
     const { data: strategy, error: fetchError } = await supabase
@@ -347,7 +337,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       .from('team_members')
       .select('role')
       .eq('team_id', strategy.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!membership) {
@@ -377,10 +367,6 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    console.error('Strategy DELETE error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Strategy DELETE error')
   }
 }

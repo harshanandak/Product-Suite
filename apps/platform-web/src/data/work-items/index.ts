@@ -52,6 +52,7 @@ export {
 } from "./fixtures";
 
 export { getDefaultRepository, useWorkItems } from "./use-work-items";
+export { RepositoryProvider, useRepositoryContext } from "./RepositoryProvider";
 export type {
   UseWorkItemsOptions,
   UseWorkItemsResult,

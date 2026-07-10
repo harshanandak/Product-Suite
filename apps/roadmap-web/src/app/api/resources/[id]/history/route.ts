@@ -8,6 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { handleRouteError, requireAuth } from '@/lib/auth/api-guard'
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -23,11 +24,9 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     const { id } = await params
     const supabase = await createClient()
 
-    // Validate user
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (RLS handles team check; see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
 
     // Fetch resource to verify access (RLS handles team check)
     const { data: resource, error: resourceError } = await supabase
@@ -90,10 +89,6 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       },
     })
   } catch (error) {
-    console.error('Resource history error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Resource history error')
   }
 }

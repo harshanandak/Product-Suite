@@ -7,6 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { requireAuth } from '@/lib/auth/api-guard'
 import { getJobStatus, cancelJob } from '@/lib/ai/compression'
 
 interface RouteContext {
@@ -26,15 +27,10 @@ export async function GET(
     const { jobId } = await context.params
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get job status
     const job = await getJobStatus(jobId)
@@ -47,7 +43,7 @@ export async function GET(
     const { data: membership } = await supabase
       .from('team_members')
       .select('team_id')
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .eq('team_id', job.teamId)
       .single()
 
@@ -78,15 +74,10 @@ export async function DELETE(
     const { jobId } = await context.params
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get job to verify access
     const job = await getJobStatus(jobId)
@@ -99,7 +90,7 @@ export async function DELETE(
     const { data: membership } = await supabase
       .from('team_members')
       .select('team_id')
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .eq('team_id', job.teamId)
       .single()
 

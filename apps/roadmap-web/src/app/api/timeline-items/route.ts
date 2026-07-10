@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { requireAuth, resolveCallerTeam, handleRouteError } from '@/lib/auth/api-guard'
 import { NextResponse } from 'next/server'
 
 /**
@@ -10,25 +11,15 @@ export async function GET(request: Request) {
     const supabase = await createClient()
     const { searchParams } = new URL(request.url)
 
-    // Get current user
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get user's team
-    const { data: teamMember } = await supabase
-      .from('team_members')
-      .select('team_id')
-      .eq('user_id', user.id)
-      .single()
-
-    if (!teamMember) {
-      return NextResponse.json({ error: 'No team found' }, { status: 404 })
-    }
+    const team = await resolveCallerTeam(supabase, claims.subject)
+    if (team instanceof NextResponse) return team
+    const { teamId } = team
 
     // Parse filters
     const workItemId = searchParams.get('work_item_id')
@@ -47,7 +38,7 @@ export async function GET(request: Request) {
         work_item:work_items!work_item_id(id, name, type),
         assigned_to_user:users!assigned_to(id, name, email)
       `)
-      .eq('team_id', teamMember.team_id)
+      .eq('team_id', teamId)
       .order('created_at', { ascending: false })
 
     // Apply filters
@@ -80,13 +71,8 @@ export async function GET(request: Request) {
     }
 
     return NextResponse.json(timelineItems, { status: 200 })
-  } catch (error: unknown) {
-    console.error('Error fetching timeline items:', error)
-    const message = error instanceof Error ? error.message : 'Failed to fetch timeline items'
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    )
+  } catch (error) {
+    return handleRouteError(error, 'GET /api/timeline-items')
   }
 }
 
@@ -99,25 +85,15 @@ export async function POST(request: Request) {
     const supabase = await createClient()
     const body = await request.json()
 
-    // Get current user
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get user's team
-    const { data: teamMember } = await supabase
-      .from('team_members')
-      .select('team_id')
-      .eq('user_id', user.id)
-      .single()
-
-    if (!teamMember) {
-      return NextResponse.json({ error: 'No team found' }, { status: 404 })
-    }
+    const team = await resolveCallerTeam(supabase, claims.subject)
+    if (team instanceof NextResponse) return team
+    const { teamId } = team
 
     const {
       work_item_id,
@@ -174,7 +150,7 @@ export async function POST(request: Request) {
       .from('work_items')
       .select('id, workspace_id, team_id')
       .eq('id', work_item_id)
-      .eq('team_id', teamMember.team_id)
+      .eq('team_id', teamId)
       .single()
 
     if (workItemError || !workItem) {
@@ -189,9 +165,9 @@ export async function POST(request: Request) {
     const timelineItem = {
       id,
       work_item_id,
-      team_id: teamMember.team_id,
+      team_id: teamId,
       workspace_id: workspace_id || workItem.workspace_id,
-      user_id: user.id,
+      user_id: claims.subject,
       timeline,
       difficulty,
       description: description || null,
@@ -223,12 +199,7 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json(newTimelineItem, { status: 201 })
-  } catch (error: unknown) {
-    console.error('Error creating timeline item:', error)
-    const message = error instanceof Error ? error.message : 'Failed to create timeline item'
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    )
+  } catch (error) {
+    return handleRouteError(error, 'POST /api/timeline-items')
   }
 }

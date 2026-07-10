@@ -8,6 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 import type { IntegrationDisplay, IntegrationStatus } from '@/lib/types/integrations'
 
 interface RouteContext {
@@ -24,21 +25,16 @@ export async function GET(request: NextRequest, context: RouteContext) {
     const { id } = await context.params
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get user's team
     const { data: membership, error: memberError } = await supabase
       .from('team_members')
       .select('team_id')
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (memberError || !membership) {
@@ -94,8 +90,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
     return NextResponse.json(display)
   } catch (error) {
-    console.error('[Integration API] Error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return handleRouteError(error, '[Integration API] Error')
   }
 }
 
@@ -113,21 +108,16 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const { id } = await context.params
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get user's team
     const { data: membership, error: memberError } = await supabase
       .from('team_members')
       .select('team_id')
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (memberError || !membership) {
@@ -179,8 +169,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       integration: updated,
     })
   } catch (error) {
-    console.error('[Integration API] Error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return handleRouteError(error, '[Integration API] Error')
   }
 }
 
@@ -194,21 +183,16 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     const { id } = await context.params
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get user's team
     const { data: membership, error: memberError } = await supabase
       .from('team_members')
       .select('team_id')
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (memberError || !membership) {
@@ -241,7 +225,6 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
 
     return NextResponse.json({ message: 'Integration deleted' })
   } catch (error) {
-    console.error('[Integration API] Error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return handleRouteError(error, '[Integration API] Error')
   }
 }

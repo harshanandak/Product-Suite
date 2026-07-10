@@ -1,22 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard';
 
 export async function GET(_request: NextRequest) {
   try {
     const supabase = await createClient();
 
-    const {
-      data: { user: authUser },
-    } = await supabase.auth.getUser();
-
-    if (!authUser) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth();
+    if (auth instanceof NextResponse) return auth;
+    const claims = auth;
 
     const { data: userProfile, error } = await supabase
       .from('users')
       .select('*')
-      .eq('id', authUser.id)
+      .eq('id', claims.subject)
       .single();
 
     if (error) {
@@ -25,20 +23,15 @@ export async function GET(_request: NextRequest) {
     }
 
     return NextResponse.json({
-      id: authUser.id,
-      email: authUser.email,
+      id: claims.subject,
+      email: claims.email,
       name: userProfile?.name,
       avatar_url: userProfile?.avatar_url,
       created_at: userProfile?.created_at,
       updated_at: userProfile?.updated_at,
     });
-  } catch (error: unknown) {
-    console.error('Error in GET /api/user/profile:', error);
-    const message = error instanceof Error ? error.message : 'Internal server error';
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    );
+  } catch (error) {
+    return handleRouteError(error, 'Error in GET /api/user/profile');
   }
 }
 
@@ -46,13 +39,10 @@ export async function PUT(request: NextRequest) {
   try {
     const supabase = await createClient();
 
-    const {
-      data: { user: authUser },
-    } = await supabase.auth.getUser();
-
-    if (!authUser) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth();
+    if (auth instanceof NextResponse) return auth;
+    const claims = auth;
 
     const body = await request.json();
     const { name, avatar_url } = body;
@@ -81,7 +71,7 @@ export async function PUT(request: NextRequest) {
     const { data, error } = await supabase
       .from('users')
       .update(updateData)
-      .eq('id', authUser.id)
+      .eq('id', claims.subject)
       .select()
       .single();
 
@@ -98,12 +88,7 @@ export async function PUT(request: NextRequest) {
       created_at: data.created_at,
       updated_at: data.updated_at,
     });
-  } catch (error: unknown) {
-    console.error('Error in PUT /api/user/profile:', error);
-    const message = error instanceof Error ? error.message : 'Internal server error';
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    );
+  } catch (error) {
+    return handleRouteError(error, 'Error in PUT /api/user/profile');
   }
 }

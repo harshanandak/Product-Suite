@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 import { z } from 'zod'
 
 // Validation schema for updating member role
@@ -18,14 +19,10 @@ export async function PATCH(
   try {
     const supabase = await createClient()
 
-    // Get authenticated user
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    if (authError || !user) {
-      return NextResponse.json(
-        { error: 'Unauthorized', success: false },
-        { status: 401 }
-      )
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Parse and validate request body
     const body = await request.json()
@@ -56,7 +53,7 @@ export async function PATCH(
     }
 
     // Check if user is trying to change their own role
-    if (targetMember.user_id === user.id) {
+    if (targetMember.user_id === claims.subject) {
       return NextResponse.json(
         { error: 'You cannot change your own role', success: false },
         { status: 400 }
@@ -68,7 +65,7 @@ export async function PATCH(
       .from('team_members')
       .select('role')
       .eq('team_id', targetMember.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (requesterError || !requesterMembership) {
@@ -141,11 +138,7 @@ export async function PATCH(
     })
 
   } catch (error) {
-    console.error('Error in PATCH /api/team/members/[id]:', error)
-    return NextResponse.json(
-      { error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error', success: false },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Error in PATCH /api/team/members/[id]')
   }
 }
 
@@ -160,14 +153,10 @@ export async function DELETE(
   try {
     const supabase = await createClient()
 
-    // Get authenticated user
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    if (authError || !user) {
-      return NextResponse.json(
-        { error: 'Unauthorized', success: false },
-        { status: 401 }
-      )
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     const { id: memberId } = await params
 
@@ -186,7 +175,7 @@ export async function DELETE(
     }
 
     // Check if user is trying to remove themselves (should use leave team endpoint)
-    if (targetMember.user_id === user.id) {
+    if (targetMember.user_id === claims.subject) {
       return NextResponse.json(
         { error: 'Use the leave team endpoint to remove yourself', success: false },
         { status: 400 }
@@ -198,7 +187,7 @@ export async function DELETE(
       .from('team_members')
       .select('role')
       .eq('team_id', targetMember.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (requesterError || !requesterMembership) {
@@ -292,10 +281,6 @@ export async function DELETE(
     })
 
   } catch (error) {
-    console.error('Error in DELETE /api/team/members/[id]:', error)
-    return NextResponse.json(
-      { error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error', success: false },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Error in DELETE /api/team/members/[id]')
   }
 }

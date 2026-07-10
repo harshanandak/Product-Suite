@@ -1,3 +1,4 @@
+import { getAuthClaims } from '@/lib/auth/get-auth-claims'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { InsightsDashboard } from '@/components/insights/insights-dashboard'
@@ -25,16 +26,14 @@ export default async function InsightsPage({
   const { id: workspaceId } = await params
   const { tab } = await searchParams
 
-  const supabase = await createClient()
+  // Check authentication (canonical claims)
+  const claims = await getAuthClaims()
 
-  // Get current user
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
+  if (!claims) {
     redirect('/login')
   }
+
+  const supabase = await createClient()
 
   // Fetch workspace with team info
   const { data: workspace, error } = await supabase
@@ -52,7 +51,7 @@ export default async function InsightsPage({
     .from('team_members')
     .select('id, role')
     .eq('team_id', workspace.team_id)
-    .eq('user_id', user.id)
+    .eq('user_id', claims.subject)
     .single()
 
   if (!membership) {

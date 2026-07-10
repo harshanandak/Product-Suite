@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import nodemailer from 'nodemailer'
 import { createClient } from '@/lib/supabase/server'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 
 // Create SMTP transporter (supports any SMTP provider)
 const transporter = nodemailer.createTransport({
@@ -26,14 +27,10 @@ export async function POST(request: NextRequest) {
 
     const supabase = await createClient()
 
-    // Get current user
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get invitation details
     const { data: invitation, error: inviteError } = await supabase
@@ -65,7 +62,7 @@ export async function POST(request: NextRequest) {
       .from('team_members')
       .select('role')
       .eq('team_id', invitation.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!membership || (membership.role !== 'owner' && membership.role !== 'admin')) {
@@ -219,12 +216,7 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       )
     }
-  } catch (error: unknown) {
-    console.error('Error sending invitation:', error)
-    const message = error instanceof Error ? error.message : 'Internal server error'
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    )
+  } catch (error) {
+    return handleRouteError(error, 'Error sending invitation')
   }
 }

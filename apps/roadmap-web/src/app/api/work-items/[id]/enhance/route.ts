@@ -9,6 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { requireAuth } from '@/lib/auth/api-guard'
 import { getDefaultPhaseForType } from '@/lib/constants/workspace-phases'
 import { z } from 'zod'
 
@@ -57,11 +58,10 @@ export async function POST(
     }
     const validatedBody = parseResult.data
 
-    // 1. Check user authentication
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // 1. Auth check
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // 2. Fetch the original work item
     const { data: originalItem, error: fetchError } = await supabase
@@ -81,7 +81,7 @@ export async function POST(
     const { data: membership } = await supabase
       .from('team_members')
       .select('team_id')
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .eq('team_id', originalItem.team_id)
       .single()
 

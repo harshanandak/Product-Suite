@@ -17,6 +17,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 import type { UpdateTemplateInput } from '@/lib/templates/template-types'
 
 interface RouteParams {
@@ -33,14 +34,10 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     const supabase = await createClient()
     const { id } = await params
 
-    // Validate authentication
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get the template
     const { data: template, error } = await supabase
@@ -59,7 +56,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         .from('team_members')
         .select('id')
         .eq('team_id', template.team_id)
-        .eq('user_id', user.id)
+        .eq('user_id', claims.subject)
         .single()
 
       if (!membership) {
@@ -69,11 +66,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({ data: template })
   } catch (error) {
-    console.error('Error in GET /api/templates/[id]:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'GET /api/templates/[id]')
   }
 }
 
@@ -90,14 +83,10 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
     const { id } = await params
     const body = await req.json() as UpdateTemplateInput
 
-    // Validate authentication
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get the template first
     const { data: template, error: fetchError } = await supabase
@@ -123,7 +112,7 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
       .from('team_members')
       .select('role')
       .eq('team_id', template.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!membership) {
@@ -169,11 +158,7 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({ data: updatedTemplate })
   } catch (error) {
-    console.error('Error in PUT /api/templates/[id]:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'PUT /api/templates/[id]')
   }
 }
 
@@ -189,14 +174,10 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
     const supabase = await createClient()
     const { id } = await params
 
-    // Validate authentication
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth check — provider-neutral canonical claims (see lib/auth/get-auth-claims)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get the template first
     const { data: template, error: fetchError } = await supabase
@@ -222,7 +203,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       .from('team_members')
       .select('role')
       .eq('team_id', template.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!membership) {
@@ -252,10 +233,6 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    console.error('Error in DELETE /api/templates/[id]:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'DELETE /api/templates/[id]')
   }
 }

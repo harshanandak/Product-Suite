@@ -13,6 +13,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { requireAuth, resolveCallerTeam, handleRouteError } from '@/lib/auth/api-guard'
 import { embedQuery, formatEmbeddingForPgvector } from '@/lib/ai/embeddings/embedding-service'
 import type { CompressedContext, CompressedContextItem, CompressionLayer } from '@/lib/types/collective-intelligence'
 
@@ -32,28 +33,14 @@ export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient()
 
-    // Check authentication
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    // Get user's team
-    const { data: membership, error: memberError } = await supabase
-      .from('team_members')
-      .select('team_id')
-      .eq('user_id', user.id)
-      .single()
-
-    if (memberError || !membership) {
-      return NextResponse.json({ error: 'Team not found' }, { status: 404 })
-    }
-
-    const teamId = membership.team_id
+    const team = await resolveCallerTeam(supabase, claims.subject)
+    if (team instanceof NextResponse) return team
+    const { teamId } = team
 
     // Parse request body
     const body = await request.json()
@@ -128,11 +115,7 @@ export async function POST(request: NextRequest) {
       durationMs,
     })
   } catch (error) {
-    console.error('[Compressed Context API] Error:', error)
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to get compressed context' },
-      { status: 500 }
-    )
+    return handleRouteError(error, '[Compressed Context API] Error')
   }
 }
 

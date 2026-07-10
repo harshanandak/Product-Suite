@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { requireAuth, resolveCallerTeam } from '@/lib/auth/api-guard'
 import { NextResponse } from 'next/server'
 
 /**
@@ -13,32 +14,21 @@ export async function GET(
     const { id } = await params
     const supabase = await createClient()
 
-    // Get current user
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get user's team
-    const { data: teamMember } = await supabase
-      .from('team_members')
-      .select('team_id')
-      .eq('user_id', user.id)
-      .single()
-
-    if (!teamMember) {
-      return NextResponse.json({ error: 'No team found' }, { status: 404 })
-    }
+    const team = await resolveCallerTeam(supabase, claims.subject)
+    if (team instanceof NextResponse) return team
+    const { teamId } = team
 
     // Verify parent work item exists and belongs to team
     const { data: parentItem, error: parentError } = await supabase
       .from('work_items')
       .select('id, name, type, is_epic')
       .eq('id', id)
-      .eq('team_id', teamMember.team_id)
+      .eq('team_id', teamId)
       .single()
 
     if (parentError || !parentItem) {
@@ -53,7 +43,7 @@ export async function GET(
       .from('work_items')
       .select('id, name, type, is_epic, parent_id, created_at, updated_at')
       .eq('parent_id', id)
-      .eq('team_id', teamMember.team_id)
+      .eq('team_id', teamId)
       .order('created_at', { ascending: true })
 
     if (fetchError) {

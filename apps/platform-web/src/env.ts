@@ -9,11 +9,24 @@ declare global {
     readonly VITE_DEFAULT_WORKSPACE?: string;
     /** Set to "true" only on preview builds to enable the React Grab dev overlay. */
     readonly VITE_ENABLE_REACT_GRAB?: string;
+    /**
+     * Origin of the platform API (no trailing slash), e.g.
+     * `https://api.example.com`. Empty/unset ⇒ same-origin `/api/*` (the Vite
+     * dev proxy or a co-hosted deploy serves it).
+     */
+    readonly VITE_API_BASE_URL?: string;
   }
 }
 
 export const CLERK_PUBLISHABLE_KEY: string =
   import.meta.env.VITE_CLERK_PUBLISHABLE_KEY ?? "";
+
+/**
+ * Base origin for platform-API calls. Empty string ⇒ same-origin requests to
+ * `/api/*` (dev proxy or co-hosted prod). Set `VITE_API_BASE_URL` to target a
+ * cross-origin API host.
+ */
+export const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? "";
 
 const configuredWorkspace = import.meta.env.VITE_DEFAULT_WORKSPACE?.trim();
 export const DEFAULT_WORKSPACE: string =

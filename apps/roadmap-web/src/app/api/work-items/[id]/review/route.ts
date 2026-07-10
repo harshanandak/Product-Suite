@@ -9,6 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { requireAuth } from '@/lib/auth/api-guard'
 import {
   type ReviewAction,
   type ReviewStatus,
@@ -58,14 +59,9 @@ export async function POST(
       )
     }
 
-    // Get current user
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Fetch the work item
     const { data: workItem, error: fetchError } = await supabase
@@ -83,7 +79,7 @@ export async function POST(
       .from('team_members')
       .select('role')
       .eq('team_id', workItem.workspace.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!membership) {
@@ -189,14 +185,9 @@ export async function PATCH(
       )
     }
 
-    // Get current user
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Fetch the work item
     const { data: workItem, error: fetchError } = await supabase
@@ -214,7 +205,7 @@ export async function PATCH(
       .from('team_members')
       .select('role')
       .eq('team_id', workItem.workspace.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!membership) {

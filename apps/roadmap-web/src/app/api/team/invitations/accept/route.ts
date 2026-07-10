@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 import { z } from 'zod'
 
 // Validation schema for accepting invitations
@@ -15,14 +16,10 @@ export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient()
 
-    // Get authenticated user
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    if (authError || !user) {
-      return NextResponse.json(
-        { error: 'Unauthorized', success: false },
-        { status: 401 }
-      )
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Parse and validate request body
     const body = await request.json()
@@ -73,7 +70,7 @@ export async function POST(request: NextRequest) {
     const { data: userData, error: userError } = await supabase
       .from('users')
       .select('email')
-      .eq('id', user.id)
+      .eq('id', claims.subject)
       .single()
 
     if (userError || !userData) {
@@ -97,7 +94,7 @@ export async function POST(request: NextRequest) {
       .from('team_members')
       .select('id')
       .eq('team_id', invitation.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .maybeSingle()
 
     if (existingMemberError) {
@@ -122,7 +119,7 @@ export async function POST(request: NextRequest) {
       .insert({
         id: teamMemberId,
         team_id: invitation.team_id,
-        user_id: user.id,
+        user_id: claims.subject,
         role: invitation.role
       })
       .select()
@@ -141,7 +138,7 @@ export async function POST(request: NextRequest) {
       const phaseAssignments = invitation.phase_assignments.map((assignment: { workspace_id: string; phase: string; can_edit?: boolean; notes?: string | null }) => ({
         id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
         workspace_id: assignment.workspace_id,
-        user_id: user.id,
+        user_id: claims.subject,
         phase: assignment.phase,
         can_edit: assignment.can_edit || false,
         notes: assignment.notes || null
@@ -199,10 +196,6 @@ export async function POST(request: NextRequest) {
     })
 
   } catch (error) {
-    console.error('Error in POST /api/team/invitations/accept:', error)
-    return NextResponse.json(
-      { error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error', success: false },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Error in POST /api/team/invitations/accept')
   }
 }

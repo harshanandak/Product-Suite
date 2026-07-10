@@ -4,6 +4,22 @@
 **Canonical build contract (do not reinvent):** `docs/design/2026-07-05-work-item-port-plan.md`
 **Status:** decisive execution plan. Supersedes the draft; folds in the adversarial critique (B1/B2/B3 + file-contention + honest critical path).
 
+> **2026-07-10 deltas (from the canonical [Vision & Architecture](2026-07-10-vision-and-architecture.md)):**
+> - **Modes are PROJECT-level, org-defaulted.** Jira/Linear/Notion strictness is a preset bundle of
+>   guard-rail settings resolved per project from an org default + optional ceiling (inherit → override
+>   within bounds). Additive: the fixed `work_items` backbone stays; a per-project config/policy governs
+>   behavior. Project becomes a first-class thing carrying its resolved mode.
+> - **Agent-first setup replaces template-dependency.** Default onboarding is "describe your project →
+>   the agent configures the board (mode + fields + workflow) within guard rails." Curated templates are
+>   accelerators layered on top, not the foundation.
+> - **The model router is a core agent-plane component** — classify task difficulty/stakes → dispatch to
+>   the cheapest capable model, with a user-facing budget↔quality dial. Sits alongside CopilotKit/AG-UI/MCP.
+> - **Canvas vs graph (not a reversal):** BlockSuite is the canonical adopt for the freeform **Canvas**
+>   only. The workboard dependency **graph** stays on **React Flow** — §1.13's "re-contract off
+>   BlockSuite" was scoped to the graph and still holds. **License gate:** BlockSuite adoption is
+>   PENDING confirmation of its exact license terms; implementation work must not begin from that
+>   dependency until the license is verified.
+
 ## Grounding rules (inherited, not re-litigated)
 - Single L1 build contract is the Work-Item port plan. Rebuild sequence: **Phase 0** (F1 shell DONE; F2 Neon data plane + F3 seams NOT built) → **Phase 1** boards-on-mock → **Phase 2** convergence/cutover (deletes `apps/meeting-web`, deletes Supabase).
 - Ownership: frontend/contract → **Claude**; backend/schema/infra → **Codex/GPT**; cross-family review.

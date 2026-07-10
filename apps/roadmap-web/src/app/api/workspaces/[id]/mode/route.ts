@@ -12,6 +12,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { handleRouteError, requireAuth } from '@/lib/auth/api-guard'
 
 interface RouteParams {
   params: Promise<{ id: string }>
@@ -50,14 +51,10 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
       )
     }
 
-    // Validate authentication
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get workspace to find team_id
     const { data: workspace, error: wsError } = await supabase
@@ -78,7 +75,7 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
       .from('team_members')
       .select('role')
       .eq('team_id', workspace.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!membership) {
@@ -110,7 +107,7 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
 
     // Log the mode change (optional: could add to activity feed)
     console.log(
-      `Workspace ${workspaceId} mode changed from ${workspace.mode} to ${mode} by user ${user.id}`
+      `Workspace ${workspaceId} mode changed from ${workspace.mode} to ${mode} by user ${claims.subject}`
     )
 
     return NextResponse.json({
@@ -118,11 +115,7 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
       previousMode: workspace.mode,
     })
   } catch (error) {
-    console.error('Error in PUT /api/workspaces/[id]/mode:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Error in PUT /api/workspaces/[id]/mode')
   }
 }
 
@@ -136,14 +129,10 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     const supabase = await createClient()
     const { id: workspaceId } = await params
 
-    // Validate authentication
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Get workspace
     const { data: workspace, error: wsError } = await supabase
@@ -164,7 +153,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       .from('team_members')
       .select('id')
       .eq('team_id', workspace.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!membership) {
@@ -179,10 +168,6 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       },
     })
   } catch (error) {
-    console.error('Error in GET /api/workspaces/[id]/mode:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Error in GET /api/workspaces/[id]/mode')
   }
 }

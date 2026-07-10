@@ -11,6 +11,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { requireAuth, handleRouteError } from '@/lib/auth/api-guard'
 import type {
   AlignWorkItemRequest,
   RemoveAlignmentRequest,
@@ -47,11 +48,10 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       )
     }
 
-    // Validate user
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Fetch strategy
     const { data: strategy, error: strategyError } = await supabase
@@ -88,7 +88,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       .from('team_members')
       .select('id')
       .eq('team_id', strategy.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!membership) {
@@ -149,11 +149,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       }, { status: 201 })
     }
   } catch (error) {
-    console.error('Strategy align POST error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Strategy align POST error')
   }
 }
 
@@ -178,11 +174,10 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       )
     }
 
-    // Validate user
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    // Auth guard (see lib/auth/api-guard)
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const claims = auth
 
     // Fetch strategy to get team_id
     const { data: strategy, error: strategyError } = await supabase
@@ -200,7 +195,7 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       .from('team_members')
       .select('id')
       .eq('team_id', strategy.team_id)
-      .eq('user_id', user.id)
+      .eq('user_id', claims.subject)
       .single()
 
     if (!membership) {
@@ -257,10 +252,6 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
       ...results,
     })
   } catch (error) {
-    console.error('Strategy align DELETE error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    return handleRouteError(error, 'Strategy align DELETE error')
   }
 }
