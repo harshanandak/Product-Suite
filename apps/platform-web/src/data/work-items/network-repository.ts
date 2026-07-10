@@ -9,6 +9,7 @@ import type {
 } from "./repository";
 import { DEFAULT_GRAPH_DEPTH } from "./repository";
 import type {
+  ActivityEvent,
   Owner,
   Project,
   Task,
@@ -37,18 +38,6 @@ export interface NetworkRepositoryOptions {
 
 /** Default per-request timeout (ms). */
 const DEFAULT_TIMEOUT_MS = 15_000;
-
-/**
- * Methods whose platform-api endpoints do not exist yet (all writes + the
- * per-item activity feed). Rejecting with a clear message — rather than silently
- * failing — keeps the mock the safe default until these land; the moment their
- * endpoints ship, each stub becomes a real `POST`/`PATCH`/`GET`.
- */
-function pending(method: string): Promise<never> {
-  return Promise.reject(
-    new Error(`${method}: not yet available — pending platform-api endpoint`),
-  );
-}
 
 /**
  * Undirected `depth`-hop neighborhood of `focusId` over the dependency edges —
@@ -106,9 +95,9 @@ function neighborhood(
 /**
  * The network {@link WorkItemRepository} — the adapter that fills the workboard's
  * data seam against the real platform API (Clerk-verified, tenant-scoped) instead
- * of the in-memory mock. Reads hit the live tenant-scoped endpoints; writes +
- * `listActivity` are stubbed until their endpoints ship (see {@link pending}), so
- * this is safe to build and test ahead of the cutover without breaking edits.
+ * of the in-memory mock. Reads AND writes hit the live tenant-scoped endpoints;
+ * only `getTasks` and `listGraph` retain a client-side shim (filter/BFS) until
+ * the API serves those slices server-side.
  */
 export function createNetworkWorkItemRepository(
   options: NetworkRepositoryOptions,
@@ -116,36 +105,69 @@ export function createNetworkWorkItemRepository(
   const { baseUrl, getToken } = options;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
-  async function get<T>(path: string): Promise<T> {
+  /**
+   * The single fetch primitive behind every method. Attaches JSON + bearer
+   * headers, bounds the request with an abort timeout, and normalizes errors:
+   * a non-OK response surfaces the API's `error` field when present (so a 409
+   * cycle/duplicate message reaches the caller), else `Request failed (<status>)`.
+   * A `204 No Content` resolves to `undefined` (never calls `.json()`).
+   */
+  async function request<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+  ): Promise<T> {
     const token = await getToken();
+    const headers: Record<string, string> = {};
+    if (body !== undefined) headers["Content-Type"] = "application/json";
+    if (token) headers.Authorization = `Bearer ${token}`;
+
     const response = await fetch(`${baseUrl}${path}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-      // Abort a hung/slow request so a read never spins forever.
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      // Abort a hung/slow request so a call never spins forever.
       signal: AbortSignal.timeout(timeoutMs),
     });
+
     if (!response.ok) {
-      throw new Error(`Request failed (${response.status}): GET ${path}`);
+      let message = `Request failed (${response.status})`;
+      try {
+        const errorBody = (await response.json()) as { error?: unknown };
+        if (typeof errorBody?.error === "string") {
+          message = errorBody.error;
+        }
+      } catch {
+        // Non-JSON (or empty) error body — keep the status-based message.
+      }
+      throw new Error(message);
+    }
+
+    // 204 No Content has no body to parse (e.g. DELETE dependency).
+    if (response.status === 204) {
+      return undefined as T;
     }
     return (await response.json()) as T;
   }
 
   return {
-    list: () => get<WorkItem[]>("/api/work-items"),
-    listProjects: () => get<Project[]>("/api/projects"),
-    listOwners: () => get<Owner[]>("/api/owners"),
-    listTasks: () => get<Task[]>("/api/tasks"),
-    listDependencies: () => get<WorkItemDependency[]>("/api/dependencies"),
+    list: () => request<WorkItem[]>("GET", "/api/work-items"),
+    listProjects: () => request<Project[]>("GET", "/api/projects"),
+    listOwners: () => request<Owner[]>("GET", "/api/owners"),
+    listTasks: () => request<Task[]>("GET", "/api/tasks"),
+    listDependencies: () =>
+      request<WorkItemDependency[]>("GET", "/api/dependencies"),
 
     async getTasks(workItemId: string): Promise<Task[]> {
       // No single-item tasks endpoint yet — filter the tenant-scoped list.
-      const tasks = await get<Task[]>("/api/tasks");
+      const tasks = await request<Task[]>("GET", "/api/tasks");
       return tasks.filter((task) => task.work_item_id === workItemId);
     },
 
     async listGraph(options: ListGraphOptions = {}): Promise<WorkItemGraph> {
       const [nodes, dependencies] = await Promise.all([
-        get<WorkItem[]>("/api/work-items"),
-        get<WorkItemDependency[]>("/api/dependencies"),
+        request<WorkItem[]>("GET", "/api/work-items"),
+        request<WorkItemDependency[]>("GET", "/api/dependencies"),
       ]);
       if (options.focusId === undefined) {
         return { nodes, dependencies };
@@ -164,14 +186,22 @@ export function createNetworkWorkItemRepository(
       return () => {};
     },
 
-    // --- Writes + activity feed: pending their platform-api endpoints ---
-    create: (_input: CreateWorkItemInput) => pending("create"),
-    update: (_id: string, _patch: WorkItemPatch) => pending("update"),
-    createTask: (_input: CreateTaskInput) => pending("createTask"),
-    updateTask: (_id: string, _patch: TaskPatch) => pending("updateTask"),
-    toggleStatus: (_id: string) => pending("toggleStatus"),
-    addDependency: (_input: AddDependencyInput) => pending("addDependency"),
-    removeDependency: (_id: string) => pending("removeDependency"),
-    listActivity: (_workItemId: string) => pending("listActivity"),
+    // --- Writes + activity feed: live tenant-scoped endpoints ---
+    create: (input: CreateWorkItemInput) =>
+      request<WorkItem>("POST", "/api/work-items", input),
+    update: (id: string, patch: WorkItemPatch) =>
+      request<WorkItem>("PATCH", `/api/work-items/${id}`, patch),
+    listActivity: (workItemId: string) =>
+      request<ActivityEvent[]>("GET", `/api/work-items/${workItemId}/activity`),
+    createTask: (input: CreateTaskInput) =>
+      request<Task>("POST", "/api/tasks", input),
+    updateTask: (id: string, patch: TaskPatch) =>
+      request<Task>("PATCH", `/api/tasks/${id}`, patch),
+    toggleStatus: (id: string) =>
+      request<Task>("POST", `/api/tasks/${id}/toggle`),
+    addDependency: (input: AddDependencyInput) =>
+      request<WorkItemDependency>("POST", "/api/dependencies", input),
+    removeDependency: (id: string) =>
+      request<void>("DELETE", `/api/dependencies/${id}`),
   };
 }

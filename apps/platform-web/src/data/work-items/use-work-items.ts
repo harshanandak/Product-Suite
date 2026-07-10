@@ -6,6 +6,7 @@ import {
   type CreateWorkItemInput,
   type WorkItemRepository,
 } from "./repository";
+import { useRepositoryContext } from "./RepositoryProvider";
 import {
   deriveHealth,
   type Owner,
@@ -129,9 +130,13 @@ function toRows(workItems: WorkItem[], tasks: Task[], now: number): WorkItemRow[
 export function useWorkItems(
   options: UseWorkItemsOptions = {},
 ): UseWorkItemsResult {
-  // Stabilize the repo: an injected one is used as-is; otherwise the singleton.
+  // Resolve the repo BEFORE the stabilizing useState so its initializer captures
+  // the right one: an explicitly injected repo wins (the test seam); otherwise
+  // the network repo from RepositoryProvider (when mounted); otherwise the
+  // in-memory mock singleton (no-provider fallback for tests/stories).
+  const contextRepository = useRepositoryContext();
   const [repository] = useState<WorkItemRepository>(
-    () => options.repository ?? getDefaultRepository(),
+    () => options.repository ?? contextRepository ?? getDefaultRepository(),
   );
 
   const [workItems, setWorkItems] = useState<WorkItem[]>([]);

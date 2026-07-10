@@ -7,6 +7,7 @@ import { MotionConfig } from "motion/react";
 import { ThemeProvider, Toaster } from "@product-suite/ui";
 
 import "./styles.css";
+import { RepositoryProvider } from "./data/work-items/RepositoryProvider";
 import { CLERK_PUBLISHABLE_KEY, hasClerkKey } from "./env";
 import { router } from "./router";
 import { SetupNotice } from "./shell/SetupNotice";
@@ -45,7 +46,15 @@ createRoot(rootElement).render(
             afterSignOutUrl="/sign-in"
             signInFallbackRedirectUrl="/"
           >
-            <RouterProvider router={router} />
+            {/* Build the network repository ONCE, inside Clerk (so it can read
+                the session token) and above the router (so it never remounts on
+                navigation). Route-level Clerk guards keep data screens behind
+                sign-in; if a data read somehow fires while signed out, getToken
+                resolves to null, the bearer is omitted, and the API answers 401
+                — surfaced through the hook's error state, not a crash. */}
+            <RepositoryProvider>
+              <RouterProvider router={router} />
+            </RepositoryProvider>
           </ClerkProvider>
         ) : (
           <SetupNotice />
