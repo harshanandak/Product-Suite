@@ -14,8 +14,11 @@
 >   accelerators layered on top, not the foundation.
 > - **The model router is a core agent-plane component** — classify task difficulty/stakes → dispatch to
 >   the cheapest capable model, with a user-facing budget↔quality dial. Sits alongside CopilotKit/AG-UI/MCP.
-> - **Canvas note:** BlockSuite is now the canonical canvas/blocks adopt — this supersedes the
->   "canvas re-contract off BlockSuite" item (§1.13) in this roadmap.
+> - **Canvas vs graph (not a reversal):** BlockSuite is the canonical adopt for the freeform **Canvas**
+>   only. The workboard dependency **graph** stays on **React Flow** — §1.13's "re-contract off
+>   BlockSuite" was scoped to the graph and still holds. **License gate:** BlockSuite adoption is
+>   PENDING confirmation of its exact license terms; implementation work must not begin from that
+>   dependency until the license is verified.
 
 ## Grounding rules (inherited, not re-litigated)
 - Single L1 build contract is the Work-Item port plan. Rebuild sequence: **Phase 0** (F1 shell DONE; F2 Neon data plane + F3 seams NOT built) → **Phase 1** boards-on-mock → **Phase 2** convergence/cutover (deletes `apps/meeting-web`, deletes Supabase).

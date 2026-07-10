@@ -140,6 +140,11 @@ Two repos, one data spine:
 **mapping + reconciliation, not translation.** (This is the `packages/contracts` work-item model —
 already the identified moat.)
 
+- **Contract ownership + versioning:** `packages/contracts` is the single owner of the shared
+  work-item shape. Forge consumes it as a **published, semver-pinned** dependency; a breaking schema
+  change ships behind a **version bump + a migration/compat mapping**, never silently. "Mapping-only"
+  reconciliation is valid only while both sides sit on a **compatible contract version** — a
+  version-skew check gates sync so drift surfaces loudly instead of corrupting data.
 - **Forge's skills are ALSO exposed as MCP tools**, so **one agent operates across Forge +
   Product-Suite** through the same uniform capability layer.
 - **Positioning:** a Jira / Linear / Notion alternative and **migration target** — import from
@@ -166,7 +171,9 @@ workflow) within guard rails."** This covers the **long tail** that no template 
 - **Config UX = a conversation + a few safe toggles**, never a 40-field form.
 
 This is the natural payoff of guard-railed flexibility (§5) + modes (§6): the agent has a bounded space
-to configure, so "describe it and go" is safe by construction.
+to configure, so "describe it and go" is safe by construction. **Structural config changes (fields,
+workflow, mode) are delivered as proposals the user reviews and approves** (per `DESIGN.md`), not
+silent direct writes — the review step, not just "risky-move" confirmation, is the guard rail on setup.
 
 ## 10. Model router (efficiency — a first-class component of the agent plane)
 
