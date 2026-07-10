@@ -104,11 +104,14 @@ export function WorkboardGraphScreen({
   const handleSelectItem = useCallback(
     (row: WorkItemRow) => {
       // Fire-and-forget navigation; the trailing .catch keeps this void-returning
-      // handler from floating a promise.
+      // handler from floating a promise — and logs a transient router failure
+      // instead of swallowing it silently (a dead click with no trace).
       navigate({
         to: "/w/$workspace/workboard/item/$itemId",
         params: { workspace, itemId: row.id },
-      }).catch(() => undefined);
+      }).catch((error: unknown) => {
+        console.error("[workboard graph] navigation to item detail failed", error);
+      });
     },
     [navigate, workspace],
   );
