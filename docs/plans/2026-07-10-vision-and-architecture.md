@@ -42,7 +42,7 @@ Jira/Linear (via their APIs) and move in.
 |---|---|
 | Front end | **Vite SPA + React 19 + TanStack Router + TanStack Query** |
 | Auth | **Clerk** (managed); Neon Auth / Stack Auth is the self-host minter behind one claims contract |
-| Hosting | **Cloudflare** — static SPA + **Hono API on Workers**; R2 storage; Durable Objects realtime |
+| Hosting | **Cloudflare Workers for everything** — the SPA served via **Workers Static Assets** (NOT Pages), **same-origin** with the **Hono API** so there is **no CORS** (one Worker serving assets + `/api/*`, or two Workers behind one domain); R2 storage; Durable Objects realtime |
 | Data | **Neon** (Postgres + **pgvector**), host-neutral SQL; branch-per-PR DBs |
 | Realtime / collab | one `RealtimeTransport` seam — Durable Objects (SaaS) / Hocuspocus (self-host); **Yjs** CRDTs |
 | Canvas / blocks | **BlockSuite** (AFFiNE's editor framework) behind `packages/ui-canvas` — the freeform surface only |
