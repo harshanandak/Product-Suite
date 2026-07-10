@@ -1,5 +1,10 @@
 # Build-from-scratch vs. leverage — the Product-Suite map
 
+> **2026-07-10 — see the canonical [Vision & Architecture](2026-07-10-vision-and-architecture.md).**
+> That doc is now the single reference. Newly-confirmed leverage decisions folded in below (the
+> "What we newly ADOPT / INSPIRE" section). One reversal to note: **BlockSuite is IN as the canonical
+> canvas/blocks engine** (adopt behind `ui-canvas`), superseding any "exit BlockSuite" language here.
+
 Date: 2026-07-07 · Question: our memory/AI/systems are the real USPs — so how much do
 we actually build from scratch, and how much can we leverage (the way we already use
 Affine's BlockSuite for the canvas)?
@@ -183,6 +188,21 @@ modules on a fragmented base.
 - **~20% = hand-authored core** (contracts, agent-core, collab boundaries) — and memory is
   *already prototyped twice*, so the from-scratch effort is **consolidation onto Neon +
   contracts**, not a fresh build.
+
+## What we newly ADOPT / INSPIRE (confirmed 2026-07-10)
+
+Extends "What we already leverage" with the founder-confirmed additions from the
+[Vision & Architecture](2026-07-10-vision-and-architecture.md) doc. Same principle — rent the
+machinery, own the model.
+
+| Bucket | Item | Role |
+|---|---|---|
+| **ADOPT** | **BlockSuite** (AFFiNE editor framework; native web components + React-interop + Yjs collab; has a database/table block; license more permissive than AGPL — **confirm exact terms**) | Canvas + blocks surface, behind `packages/ui-canvas` |
+| **ADOPT** | **CopilotKit (MIT) + AG-UI protocol** | In-app agent runtime/UI: shared state, human-in-the-loop, built-in MCP support |
+| **ADOPT** | **MCP** (Model Context Protocol — Anthropic open standard; Tools/Resources/Prompts) | Uniform agent↔capability layer; every module exposes guard-railed tools |
+| **INSPIRE** | **Teable** (real-Postgres flexible DB, AGPL) | Reference model for user-customizable data — copied, not forked |
+| **INSPIRE** | **AppFlowy** (AGPL; Flutter/Rust — concepts only) | Field types, DB views, templates |
+| **INSPIRE** | **NocoDB** | DB-agnostic patterns |
 
 The takeaway: we are not over-building — if anything we've built memory *twice* on stacks
 we're retiring. The scratch surface is small and maps onto the USP, but the USP is **not
