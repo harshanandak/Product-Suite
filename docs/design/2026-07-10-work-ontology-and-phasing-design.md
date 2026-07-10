@@ -23,8 +23,11 @@ clauses of that document stand.
 Two independent reasons, either sufficient:
 
 1. **Licensing.** Every actively-maintained candidate is copyleft. Plane, Vikunja, Kan and Leantime
-   are AGPL-3.0 — the network clause forces source disclosure for anything served over HTTP. Huly is
-   EPL-2.0. OpenProject is GPL-3.0 *and* demands a CLA. Operately ships a non-standard "Other"
+   are AGPL-3.0 — §13's network clause obligates us to offer the **AGPL-covered work's** source
+   (including our modifications to it) to users who interact with it over a network. That doesn't
+   reach *anything* we serve over HTTP, but it does mean forking one of these into a network service
+   pulls our changes to it under the same terms — a real constraint for a would-be-commercial product,
+   though not the absolute go/no-go the stack mismatch (below) already is. Huly is EPL-2.0. OpenProject is GPL-3.0 *and* demands a CLA. Operately ships a non-standard "Other"
    license. Focalboard is AGPL-or-commercial and unmaintained; Tegon is AGPL and archived; Taiga is
    MPL but dead since Dec 2023. The only fully permissive candidate, Kaneo (MIT), is a plain kanban
    board weaker than what we already have.
@@ -377,7 +380,7 @@ honestly.
 |---|---|---|
 | English/EU **batch** w/ speakers | AssemblyAI Universal-2 (+$0.02 diar add-on) | $0.17 |
 | English/EU **streaming** w/ speakers | Deepgram Nova-3 + diarize | $0.408 |
-| **Indic batch** w/ speakers | **Deepgram Nova-3** — the only vendor documenting diarization across *all* its languages | $0.258 |
+| **Indic batch** w/ speakers | **Deepgram Nova-3** — the only vendor documenting diarization across *all* its languages | $0.258 + diar |
 | **Malayalam / Punjabi** | Sarvam (Deepgram covers 8 of 9 Indic; these two are missing) | ₹45 |
 | **Hinglish / code-mixed** | Deepgram `language=multi` (batch **and** streaming); or Sarvam `codemix` for native-script output | — |
 | Speakers **not** needed | **Cloudflare Workers AI** `whisper-large-v3-turbo` — in-stack, and CF states it does **not** train on customer content | **$0.0306** |
@@ -536,7 +539,12 @@ Additionally, `diar_sortformer_4spk-v1` is **CC-BY-NC-4.0 — non-commercial.** 
 
 ## Appendix A: license audit
 
-Verified via `gh api repos/OWNER/REPO/license` on 2026-07-10.
+Verified 2026-07-10 by running `gh api repos/<owner>/<repo>/license --jq .license.spdx_id` against
+each repo named in the table below (e.g. `makeplane/plane`, `hcengineering/platform`, `opf/openproject`,
+`go-vikunja/vikunja`, `Leantime/leantime`). SPDX values are as returned that day; re-run before relying
+on them, since licenses drift (Screenpipe went AGPL→proprietary on 2026-06-10). Adopted-dependency
+licenses (Vexa, LiveKit, faster-whisper, etc.) are tracked in the STT and bot-economics research files,
+several with **unverified** status called out there.
 
 | Tool | Repo | SPDX | State |
 |---|---|---|---|

@@ -113,7 +113,7 @@ Embeds your app's UI inside Meet. Google explicitly directs media access to the 
 - Daily at list audio-only: 5 × 60 × $0.00099 = **$0.297**; at volume rate = **$0.108**.
 - Cloudflare SFU raw: egress-only. Assuming ~32 kbps Opus (≈14.4 MB/participant-hour, *our assumption, not a cited figure*), a 5-way mesh-through-SFU pulls ~288 MB → **~$0.014/meeting-hour**, and the first 1,000 GB/mo is free.
 
-**Cloudflare Realtime SFU is by far the cheapest capture surface that exists** — an order of magnitude below every bot and below RealtimeKit — because you're billed on bytes, not participant-minutes, and audio bytes are tiny.
+**Cloudflare Realtime SFU is the cheapest capture surface here** — because you're billed on bytes, not participant-minutes, and audio bytes are tiny. It is an order of magnitude below the *managed* options (Recall.ai $0.50/hr, RealtimeKit $0.18/hr); against self-hosted bot *compute* (Hetzner ~$0.016/hr) the gap is small (~12%). The saving is real but it only exists for calls you host yourself.
 
 **Is in-app video a moat or a distraction?** The media plumbing is *not* the hard part — LiveKit, Daily, and RealtimeKit hand you echo cancellation (browser WebRTC APM), device selection, screen share, and reconnect. The hard part is **getting anyone to move their meeting out of Zoom/Teams/Meet and into your product**. That is a go-to-market problem, not an engineering one, and no amount of SFU work solves it. **Distraction — unless the meeting itself is the product.** Build it for the calls you already own (in-product demos, support calls), never as a Zoom-replacement play.
 
@@ -136,7 +136,7 @@ Note that **no** mechanism covers **in-person** meetings. That requires device-s
 
 ### Is a self-hosted bot the efficient choice?
 
-**No — not at your stage.** The founder is worried about the wrong line item. Container compute is $0.03/hr; Recall charges $0.50/hr. The 16x markup buys you an engineer you don't have to hire and a UI-breakage treadmill you don't have to run. **Start on Recall.ai.** Revisit self-hosting (Attendee or Vexa, both Apache-2.0) only when you cross **~8,000 meeting-hours/month**, and revisit it as a *cost-reduction project with a named owner*, not as a founding architectural decision.
+**No — not at your stage.** The founder is worried about the wrong line item. Container compute is $0.03/hr; Recall charges $0.50/hr. The 16x markup buys you an engineer you don't have to hire and a UI-breakage treadmill you don't have to run. **Start on Recall.ai.** Revisit self-hosting (Vexa is confirmed Apache-2.0; **Attendee's license is unverified** — pending a license read) only when you cross **~8,000 meeting-hours/month**, and revisit it as a *cost-reduction project with a named owner*, not as a founding architectural decision.
 
 ### The hybrid — yes, and it's the right answer
 

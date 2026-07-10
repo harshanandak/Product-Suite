@@ -89,7 +89,7 @@ Corroborating facts:
 | [OpenAI](https://platform.openai.com/docs/pricing) | Realtime API (WS) | Historically none | gpt-realtime-whisper $1.02 |
 | [**Cloudflare Workers AI** `@cf/openai/whisper-large-v3-turbo`](https://developers.cloudflare.com/workers-ai/models/whisper-large-v3-turbo/) | Batch: Yes (no streaming API documented) | No | **$0.00051/audio-min = $0.0306/hr** |
 
-Workers AI is the cheapest hosted option on this table by ~25× versus Deepgram streaming, and it's already inside the stack. `[verified pricing; comparison is reasoning]`
+Workers AI is the cheapest hosted option on this table — ~**9.4×** below Deepgram Nova-3 monolingual streaming ($0.288/hr) and ~**15×** below Flux multilingual ($0.468/hr) — and it's already inside the stack. (It has no diarization, so the comparison is transcription-only.) `[verified pricing; comparison is reasoning]`
 
 ### 2.3 In-browser (no server)
 
@@ -131,6 +131,8 @@ From https://developers.cloudflare.com/workers/platform/limits/ `[verified]`:
 
 **Recommendation:** you do not need an SFU. You are not routing media between participants — you are shipping one client's audio to one backend. **Raw WebSocket → Durable Object** is sufficient. Add LiveKit only if you later build a bot that must *join* WebRTC calls. `[reasoning]`
 
+**Migration boundary (this is a future streaming path, not a rewrite of today's endpoint).** The current backend contract is `POST /meetings/{id}/transcribe` — multipart chunks, batch. That stays as the **upload/batch** path and is what Cloudflare Whisper drops into first. The Raw-WebSocket → Durable Object path is an **additional, live-streaming** transport added later behind the same `CaptureSource`/`SpeechProvider` seams, not a replacement — clients on the multipart endpoint keep working, and streaming is opt-in per capture tier. `[reasoning]`
+
 **Rust/WASM:** useful in exactly two places — (a) **client-side**: resample/VAD/Opus-encode before upload, and the in-browser engine tier; (b) **self-host container**: whisper.cpp / faster-whisper. It is **not** useful inside a Worker (bundle + memory caps). `[reasoning]`
 
 ---
@@ -151,7 +153,7 @@ The standard pattern is a **provider interface + adapters**, with three tiers �
 ## 6. Synthesis
 
 **Capture strategy.** Ship a **capture ladder** behind one `CaptureSource` seam:
-1. **Tier 0 (web, today):** `getDisplayMedia({video:{displaySurface:"browser"}, audio:true, systemAudio:"exclude", selfBrowserSurface:"exclude"})` + `getUserMedia` mic, mixed via WebAudio. Works on Chrome/Edge desktop for tab-based meetings. Detect and *tell the user* on Safari/Firefox/mobile rather than failing silently. Discard the forced video track.
+1. **Tier 0 (web — TO BUILD, not yet present):** `getDisplayMedia({video:{displaySurface:"browser"}, audio:true, systemAudio:"exclude", selfBrowserSurface:"exclude"})` + `getUserMedia` mic, mixed via WebAudio. (The repo's only current `getDisplayMedia` call is screenshot-only, `audio:false`, in `packages/ui-chat/.../prompt-input.tsx` — no audio-capture path exists yet.) Would work on Chrome/Edge desktop for tab-based meetings. Detect and *tell the user* on Safari/Firefox/mobile rather than failing silently. Discard the forced video track.
 2. **Tier 1 (self-host parity):** a **bot** (Vexa/Attendee-style headless Chrome).
 3. **Tier 2 (hosted convenience):** Recall.ai at $0.50/hr, or a desktop helper.
 

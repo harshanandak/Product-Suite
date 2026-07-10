@@ -92,7 +92,7 @@ Neither is CC-BY-4.0, so both need a license read before shipping. The 3.5 model
 | Provider | $/hr batch | $/hr streaming | # languages | Indic? | Diarization langs | Streaming diarization? | Trains on your data by default? |
 |---|---|---|---|---|---|---|---|
 | AssemblyAI | 0.15 (U-2) + 0.02 diar | 0.15 EN / 0.45 Pro-RT | 99 (U-2), 18 (U-3.5 Pro) | all 9, on U-2 | not documented | Yes, U-3.5 Pro RT only | **Yes** (opt-out is paid-plan-only) |
-| Deepgram | 0.258 | 0.288 + 0.12 diar | ~50 (Nova-3) | 8 of 9 (no ml, pa) | **all** | Yes (v1 diarizer) | Yes unless `mip_opt_out=true` |
+| Deepgram | 0.258 | 0.288 + 0.12 diar | ~50 (Nova-3) | 8 of 9 (no ml, pa) | **all** | Yes (v1 diarizer) | Not documented (opt-out via `mip_opt_out=true`) |
 | Workers AI | 0.0306 | — | Whisper's 99 | yes (Whisper) | none | No | No |
 | Groq | 0.04 (turbo) | — | Whisper's 99 | yes (Whisper) | none | No (ZDR available) |
 | Sarvam | ₹30 (≈$0.34) | WS endpoint, price n/v | 11 codes | all 9 + Odia | not documented | **No — batch only** | Not documented |
@@ -101,7 +101,7 @@ Neither is CC-BY-4.0, so both need a license read before shipping. The 3.5 model
 
 - **English + major EU, batch with speakers** → **AssemblyAI Universal-2** ($0.17/hr all-in). Cheapest hosted option that returns utterances.
 - **English + EU, real-time with speakers** → **Deepgram Nova-3 streaming + diarize** ($0.408/hr). If you need Hindi in the same real-time stream, **AssemblyAI Universal-3.5 Pro Realtime** ($0.45/hr) instead.
-- **Indic batch with speakers** → **Deepgram Nova-3** ($0.258/hr): the only vendor that documents diarization across *all* its languages. Falls over on **Malayalam and Punjabi → route those to Sarvam batch** (₹45/hr).
+- **Indic batch with speakers** → **Deepgram Nova-3** ($0.258/hr transcription; **+ diarization add-on** — the batch add-on price is not listed on the pricing page, so budget the $0.12/hr streaming rate as an upper bound until confirmed): the only vendor that documents diarization across *all* its languages. Falls over on **Malayalam and Punjabi → route those to Sarvam batch** (₹45/hr, diarization included).
 - **Hinglish / code-mixed** → **Deepgram `language=multi`** (batch *and* streaming, Hindi included), or **Sarvam `codemix` mode** when you want native-script output.
 - **No-account / privacy-max** → **faster-whisper (MIT, int8 on CPU)** stays the default; see below. **Workers AI whisper-large-v3-turbo** at $0.0306/hr is the cheap hosted fallback when speakers don't matter and the contract says "we don't train on you."
 
