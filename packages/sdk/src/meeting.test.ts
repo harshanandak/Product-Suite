@@ -50,18 +50,29 @@ describe("meeting API client", () => {
       "deleteMeeting",
       "exchangeHostedSession",
       "exportTranscript",
+      "fetchMeetingLink",
       "generateSummary",
+      "getActionItems",
+      "getChapters",
       "getChatHistory",
       "getCurrentUser",
+      "getDecisions",
       "getHealth",
       "getMeeting",
+      "getMeetingStateCurrent",
       "getOnboardingState",
+      "getOpenQuestions",
+      "getRecentLines",
       "getSummary",
       "getTranscript",
       "listEngines",
       "listLanguages",
       "listMeetings",
+      "queryBuddy",
+      "searchHistory",
       "searchTranscripts",
+      "searchWeb",
+      "searchWorkspace",
       "sendChatMessage",
       "transcribeAudio",
       "translateMeetingTranscript",
@@ -166,6 +177,73 @@ describe("meeting API client", () => {
         options: { params: { format: "md" } },
       },
     ]);
+  });
+
+  test("maps summary-first, buddy, history, and tool endpoints", async () => {
+    const transport = createTransport();
+    const client = createMeetingApiClient({ transport });
+
+    await client.getMeetingStateCurrent("meeting/123");
+    await client.getChapters("meeting/123");
+    await client.getDecisions("meeting/123");
+    await client.getActionItems("meeting/123");
+    await client.getOpenQuestions("meeting/123");
+    await client.getRecentLines("meeting/123");
+    await client.queryBuddy("meeting/123", {
+      message: "What did we decide?",
+      currentContext: "We decided to ship.",
+      historyContext: "Prior billing decision.",
+    });
+    await client.searchHistory("meeting/123", "pricing");
+    await client.searchWeb("latest guidance");
+    await client.searchWorkspace("roadmap doc");
+    await client.fetchMeetingLink("https://example.com/notes");
+
+    expect(transport.calls).toEqual([
+      { method: "get", path: "/meetings/meeting%2F123/state/current", options: undefined },
+      { method: "get", path: "/meetings/meeting%2F123/chapters", options: undefined },
+      { method: "get", path: "/meetings/meeting%2F123/decisions", options: undefined },
+      { method: "get", path: "/meetings/meeting%2F123/action-items", options: undefined },
+      { method: "get", path: "/meetings/meeting%2F123/open-questions", options: undefined },
+      { method: "get", path: "/meetings/meeting%2F123/recent-lines", options: undefined },
+      {
+        method: "post",
+        path: "/meetings/meeting%2F123/buddy/query",
+        body: {
+          message: "What did we decide?",
+          current_context: "We decided to ship.",
+          history_context: "Prior billing decision.",
+        },
+        options: undefined,
+      },
+      {
+        method: "get",
+        path: "/meetings/meeting%2F123/history/search",
+        options: { params: { q: "pricing" } },
+      },
+      { method: "post", path: "/tools/search-web", body: { query: "latest guidance" }, options: undefined },
+      { method: "post", path: "/tools/search-workspace", body: { query: "roadmap doc" }, options: undefined },
+      {
+        method: "post",
+        path: "/tools/fetch-meeting-link",
+        body: { url: "https://example.com/notes" },
+        options: undefined,
+      },
+    ]);
+  });
+
+  test("queryBuddy defaults optional context fields to empty strings", async () => {
+    const transport = createTransport();
+    const client = createMeetingApiClient({ transport });
+
+    await client.queryBuddy("meeting-1", { message: "Summarize" });
+
+    expect(transport.calls[0]).toEqual({
+      method: "post",
+      path: "/meetings/meeting-1/buddy/query",
+      body: { message: "Summarize", current_context: "", history_context: "" },
+      options: undefined,
+    });
   });
 
   test("preserves multipart and utility endpoint options", async () => {

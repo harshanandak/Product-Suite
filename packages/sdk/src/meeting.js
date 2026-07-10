@@ -46,11 +46,32 @@ export function createMeetingApiClient({ transport }) {
         params: { format },
       });
     },
+    fetchMeetingLink(url) {
+      return transport.post("/tools/fetch-meeting-link", { url });
+    },
     generateSummary(meetingId) {
       return transport.post(`/meetings/${encodePathSegment(meetingId)}/summary`);
     },
+    getActionItems(meetingId) {
+      return transport.get(`/meetings/${encodePathSegment(meetingId)}/action-items`);
+    },
+    getChapters(meetingId) {
+      return transport.get(`/meetings/${encodePathSegment(meetingId)}/chapters`);
+    },
     getChatHistory(meetingId) {
       return transport.get(`/meetings/${encodePathSegment(meetingId)}/chat`);
+    },
+    getDecisions(meetingId) {
+      return transport.get(`/meetings/${encodePathSegment(meetingId)}/decisions`);
+    },
+    getMeetingStateCurrent(meetingId) {
+      return transport.get(`/meetings/${encodePathSegment(meetingId)}/state/current`);
+    },
+    getOpenQuestions(meetingId) {
+      return transport.get(`/meetings/${encodePathSegment(meetingId)}/open-questions`);
+    },
+    getRecentLines(meetingId) {
+      return transport.get(`/meetings/${encodePathSegment(meetingId)}/recent-lines`);
     },
     getCurrentUser() {
       return transport.get("/auth/me");
@@ -79,10 +100,28 @@ export function createMeetingApiClient({ transport }) {
     listMeetings() {
       return transport.get("/meetings");
     },
+    queryBuddy(meetingId, { message, currentContext = "", historyContext = "" } = {}) {
+      return transport.post(`/meetings/${encodePathSegment(meetingId)}/buddy/query`, {
+        message,
+        current_context: currentContext,
+        history_context: historyContext,
+      });
+    },
+    searchHistory(meetingId, query) {
+      return transport.get(`/meetings/${encodePathSegment(meetingId)}/history/search`, {
+        params: { q: query },
+      });
+    },
     searchTranscripts(q) {
       return transport.get("/meetings/search/transcripts", {
         params: { q },
       });
+    },
+    searchWeb(query) {
+      return transport.post("/tools/search-web", { query });
+    },
+    searchWorkspace(query) {
+      return transport.post("/tools/search-workspace", { query });
     },
     sendChatMessage(meetingId, content) {
       return transport.post(`/meetings/${encodePathSegment(meetingId)}/chat`, {

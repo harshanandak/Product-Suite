@@ -1,12 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { getStoredAuthToken } from "../lib/api";
-import { getRuntimeConfig } from "../lib/runtimeConfig";
-
-function resolveApiBaseUrl() {
-  const runtimeConfig = getRuntimeConfig();
-  return runtimeConfig.apiBaseUrl || "http://localhost:8000/api";
-}
+import { getRecentLines, getStoredAuthToken } from "../lib/api";
 
 export function buildRealtimeTranscriptRequestHeaders(additionalHeaders = {}) {
   const headers = {
@@ -18,19 +12,6 @@ export function buildRealtimeTranscriptRequestHeaders(additionalHeaders = {}) {
     headers.Authorization = `Bearer ${token}`;
   }
   return headers;
-}
-
-async function fetchJson(path, options = {}) {
-  const response = await fetch(`${resolveApiBaseUrl()}${path}`, {
-    ...options,
-    headers: buildRealtimeTranscriptRequestHeaders(options.headers || {}),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Request failed with status ${response.status}`);
-  }
-
-  return response.json();
 }
 
 export function normalizeRecentTranscriptLines(rows = [], limit = 3) {
@@ -63,8 +44,8 @@ export function useRealtimeTranscript(meetingId, options = {}) {
     setError(null);
 
     try {
-      const payload = await fetchJson(`/meetings/${meetingId}/recent-lines`);
-      const nextLines = normalizeRecentTranscriptLines(payload?.recent_lines || []);
+      const { data } = await getRecentLines(meetingId);
+      const nextLines = normalizeRecentTranscriptLines(data?.recent_lines || []);
       setRecentLines(nextLines);
       return nextLines;
     } catch (nextError) {
