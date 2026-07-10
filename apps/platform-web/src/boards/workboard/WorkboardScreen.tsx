@@ -13,6 +13,7 @@ import {
 
 import {
   getDefaultRepository,
+  useRepositoryContext,
   useWorkItems,
   type Task,
   type WorkItem,
@@ -165,8 +166,9 @@ export function WorkboardScreen({
   // a fresh instance per render would silently desync the two). With no injected
   // prop we route through the SAME module singleton the hook defaults to, so
   // optimistic edits persist across navigation instead of resetting per mount.
+  const contextRepo = useRepositoryContext();
   const [repo] = useState<WorkItemRepository>(
-    () => repository ?? getDefaultRepository(),
+    () => repository ?? contextRepo ?? getDefaultRepository(),
   );
 
   // Row activation navigates to the item's detail PAGE — needs the router's
