@@ -101,8 +101,18 @@ Mechanisms (apply across the spectrum):
 
 ## 6. Modes & inheritance (Jira / Linear / Notion strictness)
 
-**Strictness is a PRESET, applied at the PROJECT level, with an ORG-level DEFAULT + optional ceiling.**
-Resolution is inherit → override within bounds.
+> **AMENDED 2026-07-10.** This section originally placed the mode preset at the **Project** level. That
+> was wrong and is superseded by
+> [2026-07-10-work-ontology-and-phasing-design.md](../design/2026-07-10-work-ontology-and-phasing-design.md) §3.
+> Modes bundle workflow enforcement, cycles on-or-off and required fields — and **Team** owns exactly
+> those. Placing them on Project broke twice: a project may span multiple teams (imposing one team's
+> workflow on another team's items), and `project_id` is nullable (leaving unprojected items
+> ungoverned). Amended text below.
+
+**Strictness is a PRESET, applied at the TEAM level, with an ORG-level DEFAULT + optional ceiling.**
+Resolution is inherit → override within bounds. **Project is a first-class cross-team OUTCOME container**
+— status, lead, target date, milestones — and **does not own workflow**. Project-level overrides are
+deferred.
 
 A **mode is a bundle of guard-rail settings**:
 - required fields
@@ -120,13 +130,22 @@ The three named presets:
 | **Linear** | medium | **the default sweet spot** |
 | **Notion** | loosest | freeform, minimal enforcement |
 
-Presets are **starting points a project further customizes** — not fixed tiers. A **Project becomes a
-first-class thing** that carries its resolved mode/config, stored as **project settings resolved from
-the org default** (org sets a default + optional ceiling; project inherits then overrides within
-bounds).
+Presets are **starting points a team further customizes** — not fixed tiers. A **Team becomes a
+first-class thing** that carries its resolved mode/config, stored as **team settings resolved from the
+org default** (org sets a default + optional ceiling; team inherits then overrides within bounds). This
+mirrors Linear, where the Team — not the Project — owns workflow states, cycles, triage and the issue
+prefix, and it makes Jira/Linear import map team→team losslessly.
 
-**Implementation is ADDITIVE:** the fixed `work_items` backbone stays exactly as built; a **per-project
-config/policy object governs behavior** on top of it. No schema is torn up to add modes.
+**Implementation is ADDITIVE:** the fixed `work_items` backbone stays; `department` is promoted to a
+`teams` table (`team_id NOT NULL`), `phase` is replaced by immutable status **categories** plus a
+per-team `statuses` table, `parent_id` is added for sub-items, and a **per-team config/policy object
+governs behavior** on top. The sub-item **depth cap is a mode policy, not a schema constraint** —
+default 1 for native creation, bypassed by importers so migration stays lossless. No schema is torn up
+to add modes.
+
+**UI labels** (schema names unchanged, so `packages/contracts` takes no semver break): `work_items` = an
+**Item**; a `work_item` with a `parent_id` = a **Sub-item**; a `tasks` row = a **Step** in that Item's
+**Checklist**.
 
 ## 7. Forge ↔ Product-Suite integration
 
@@ -208,7 +227,7 @@ memory.
 - **The Workboard's fixed schema is the CORRECT protected backbone** (§4–§5), not a limitation to be
   "fixed" by making it schema-less. Keep it fixed; extend via views + Canvas + per-project config.
 - **The next layer after the API cutover** (finish Neon/Clerk, move `meeting-api` + agent runtime off
-  Railway into TS/Workers) is the **per-project mode/config object (§6) + agent-first setup (§9)** —
+  Railway into TS/Workers) is the **per-team mode/config object (§6, amended) + agent-first setup (§9)** —
   both additive on top of the existing backbone.
 - **BlockSuite is the next big ADOPT — for the Canvas surface only** (§3, §4). It does **not** touch
   the workboard dependency **graph**, which stays on **React Flow** (the earlier "re-contract off
