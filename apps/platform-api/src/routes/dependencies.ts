@@ -32,6 +32,13 @@ function toDependency(row: DependencyRow): WorkItemDependency {
   }
 }
 
+/** The valid dependency relationship kinds (mirrors the DB enum). */
+const DEPENDENCY_RELATIONSHIPS: readonly WorkItemDependency['relationship_type'][] = [
+  'depends_on',
+  'blocks',
+  'complements',
+]
+
 /** True for a Postgres unique-violation error (SQLSTATE 23505). */
 function isUniqueViolation(cause: unknown): boolean {
   return (
@@ -103,6 +110,10 @@ dependenciesRoutes.post('/', async (c) => {
     if (source === target) {
       return c.json({ error: 'A work item cannot depend on itself' }, 400)
     }
+    const relationshipType = body.relationship_type ?? 'depends_on'
+    if (!DEPENDENCY_RELATIONSHIPS.includes(relationshipType)) {
+      return c.json({ error: 'Invalid relationship_type' }, 400)
+    }
 
     // Both endpoints must exist and be in one of the caller's orgs.
     const items = (await sql`
@@ -116,30 +127,30 @@ dependenciesRoutes.post('/', async (c) => {
     }
     const tenantId = first.tenant_id
 
-    // Adding source → target closes a cycle iff `target` already reaches `source`
-    // by following existing dependency edges (within this org).
-    const cyclic = (await sql`
-      with recursive reachable(id) as (
-        select target_item_id from work_item_dependencies
-          where source_item_id = ${target} and tenant_id = ${tenantId}
-        union
-        select d.target_item_id
-          from work_item_dependencies d
-          join reachable r on d.source_item_id = r.id
-          where d.tenant_id = ${tenantId}
-      )
-      select 1 from reachable where id = ${source} limit 1
-    `) as unknown[]
-    if (cyclic.length > 0) {
-      return c.json({ error: 'Dependency would create a cycle' }, 409)
-    }
-
+    // Cycle guard + insert as a SINGLE atomic statement. Adding source → target
+    // closes a cycle iff `target` already reaches `source` via existing edges, so
+    // we insert only WHERE NOT EXISTS such a path. Neon's HTTP driver has no
+    // interactive transactions, so folding the check into the INSERT is how we keep
+    // check-and-insert atomic — a separate check-then-insert could let two
+    // concurrent requests each pass the check and then both write a cycle.
     let rows: DependencyRow[]
     try {
       rows = (await sql`
         insert into work_item_dependencies
           (tenant_id, source_item_id, target_item_id, relationship_type)
-        values (${tenantId}, ${source}, ${target}, ${body.relationship_type ?? 'depends_on'})
+        select ${tenantId}, ${source}, ${target}, ${relationshipType}
+        where not exists (
+          with recursive reachable(id) as (
+            select target_item_id from work_item_dependencies
+              where source_item_id = ${target} and tenant_id = ${tenantId}
+            union
+            select d.target_item_id
+              from work_item_dependencies d
+              join reachable r on d.source_item_id = r.id
+              where d.tenant_id = ${tenantId}
+          )
+          select 1 from reachable where id = ${source}
+        )
         returning id, source_item_id, target_item_id, relationship_type, created_at
       `) as DependencyRow[]
     } catch (cause) {
@@ -150,7 +161,9 @@ dependenciesRoutes.post('/', async (c) => {
     }
     const created = rows[0]
     if (!created) {
-      return c.json({ error: 'Failed to create dependency' }, 500)
+      // No row and no unique violation → the WHERE NOT EXISTS blocked it: the edge
+      // would create a cycle.
+      return c.json({ error: 'Dependency would create a cycle' }, 409)
     }
     return c.json(toDependency(created), 201)
   } catch (cause) {

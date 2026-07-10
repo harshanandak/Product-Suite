@@ -43,8 +43,7 @@ describe('dependency writes', () => {
     sql
       .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
       .mockResolvedValueOnce(OWNED_ITEMS) // both items owned, same org
-      .mockResolvedValueOnce([]) // cycle check -> none
-      .mockResolvedValueOnce([DEP_ROW]) // insert returning
+      .mockResolvedValueOnce([DEP_ROW]) // atomic insert (cycle check folded in) -> row
     createSql.mockReturnValue(sql)
     const res = await app.request('/api/dependencies', { method: 'POST', ...auth, body: addBody() })
     expect(res.status).toBe(201)
@@ -58,6 +57,17 @@ describe('dependency writes', () => {
       method: 'POST',
       ...auth,
       body: addBody('wi_1', 'wi_1'),
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('POST rejects an invalid relationship_type (400)', async () => {
+    const sql = vi.fn().mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
+    createSql.mockReturnValue(sql)
+    const res = await app.request('/api/dependencies', {
+      method: 'POST',
+      ...auth,
+      body: JSON.stringify({ source_item_id: 'wi_1', target_item_id: 'wi_2', relationship_type: 'bogus' }),
     })
     expect(res.status).toBe(400)
   })
@@ -77,7 +87,7 @@ describe('dependency writes', () => {
     sql
       .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
       .mockResolvedValueOnce(OWNED_ITEMS) // both owned
-      .mockResolvedValueOnce([{ id: 'wi_1' }]) // cycle check -> reachable
+      .mockResolvedValueOnce([]) // atomic insert blocked by WHERE NOT EXISTS -> no row = cycle
     createSql.mockReturnValue(sql)
     const res = await app.request('/api/dependencies', { method: 'POST', ...auth, body: addBody() })
     expect(res.status).toBe(409)
@@ -89,8 +99,7 @@ describe('dependency writes', () => {
     sql
       .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
       .mockResolvedValueOnce(OWNED_ITEMS) // both owned
-      .mockResolvedValueOnce([]) // cycle check -> none
-      .mockRejectedValueOnce(Object.assign(new Error('dup'), { code: '23505' })) // insert
+      .mockRejectedValueOnce(Object.assign(new Error('dup'), { code: '23505' })) // atomic insert -> unique violation
     createSql.mockReturnValue(sql)
     const res = await app.request('/api/dependencies', { method: 'POST', ...auth, body: addBody() })
     expect(res.status).toBe(409)
