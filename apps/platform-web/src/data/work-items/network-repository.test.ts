@@ -4,8 +4,24 @@ import { createNetworkWorkItemRepository } from "./network-repository";
 
 const BASE = "https://api.test";
 
-function jsonOk(body: unknown) {
-  return { ok: true, status: 200, json: async () => body } as Response;
+function jsonOk(body: unknown, status = 200) {
+  return { ok: true, status, json: async () => body } as Response;
+}
+
+/** A 204 whose `.json()` throws — proves the adapter never parses a no-content body. */
+function noContent() {
+  return {
+    ok: true,
+    status: 204,
+    json: async () => {
+      throw new Error("204 has no body — json() must not be called");
+    },
+  } as unknown as Response;
+}
+
+/** A non-OK response carrying the API's `{ error }` envelope. */
+function jsonError(status: number, error: string) {
+  return { ok: false, status, json: async () => ({ error }) } as Response;
 }
 
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -98,20 +114,109 @@ describe("createNetworkWorkItemRepository", () => {
     expect((callArgs().init?.headers as Record<string, string>).Authorization).toBeUndefined();
   });
 
-  it("write + activity methods reject as pending until their endpoints ship", async () => {
-    const repo = makeRepo();
-    await expect(repo.create({})).rejects.toThrow("create: not yet available");
-    await expect(repo.update("x", {})).rejects.toThrow("update: not yet available");
-    await expect(repo.createTask({ work_item_id: "x" })).rejects.toThrow(
-      "createTask: not yet available",
+  it("surfaces the API's error message on a non-OK write (e.g. a 409 cycle)", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonError(409, "Dependency would create a cycle: a → b"),
     );
-    await expect(repo.toggleStatus("x")).rejects.toThrow("toggleStatus: not yet available");
     await expect(
-      repo.addDependency({ source_item_id: "a", target_item_id: "b" }),
-    ).rejects.toThrow("addDependency: not yet available");
-    await expect(repo.listActivity("x")).rejects.toThrow("listActivity: not yet available");
-    // No network for pure stubs.
-    expect(fetchMock).not.toHaveBeenCalled();
+      makeRepo().addDependency({ source_item_id: "a", target_item_id: "b" }),
+    ).rejects.toThrow("Dependency would create a cycle: a → b");
+  });
+
+  it("create POSTs the input with a bearer and maps the returned work item", async () => {
+    const created = { id: "wi_9", title: "New" };
+    fetchMock.mockResolvedValueOnce(jsonOk(created, 201));
+    const result = await makeRepo().create({ title: "New" });
+    expect(result).toEqual(created);
+    const { url, init } = callArgs();
+    expect(url).toBe(`${BASE}/api/work-items`);
+    expect(init?.method).toBe("POST");
+    expect(init?.body).toBe(JSON.stringify({ title: "New" }));
+    const headers = init?.headers as Record<string, string>;
+    expect(headers.Authorization).toBe("Bearer tok_123");
+    expect(headers["Content-Type"]).toBe("application/json");
+  });
+
+  it("update PATCHes /api/work-items/:id with the patch body", async () => {
+    const updated = { id: "wi_1", title: "Renamed" };
+    fetchMock.mockResolvedValueOnce(jsonOk(updated));
+    const result = await makeRepo().update("wi_1", { title: "Renamed" });
+    expect(result).toEqual(updated);
+    const { url, init } = callArgs();
+    expect(url).toBe(`${BASE}/api/work-items/wi_1`);
+    expect(init?.method).toBe("PATCH");
+    expect(init?.body).toBe(JSON.stringify({ title: "Renamed" }));
+  });
+
+  it("listActivity GETs the per-item activity feed", async () => {
+    const events = [{ id: "act_1", work_item_id: "wi_1" }];
+    fetchMock.mockResolvedValueOnce(jsonOk(events));
+    const result = await makeRepo().listActivity("wi_1");
+    expect(result).toEqual(events);
+    const { url, init } = callArgs();
+    expect(url).toBe(`${BASE}/api/work-items/wi_1/activity`);
+    expect(init?.method).toBe("GET");
+  });
+
+  it("createTask POSTs /api/tasks with the input", async () => {
+    const created = { id: "t_9", work_item_id: "wi_1", title: "T", status: "todo" };
+    fetchMock.mockResolvedValueOnce(jsonOk(created, 201));
+    const result = await makeRepo().createTask({ work_item_id: "wi_1", title: "T" });
+    expect(result).toEqual(created);
+    const { url, init } = callArgs();
+    expect(url).toBe(`${BASE}/api/tasks`);
+    expect(init?.method).toBe("POST");
+    expect(init?.body).toBe(JSON.stringify({ work_item_id: "wi_1", title: "T" }));
+  });
+
+  it("updateTask PATCHes /api/tasks/:id with the patch", async () => {
+    const updated = { id: "t_1", work_item_id: "wi_1", title: "X", status: "completed" };
+    fetchMock.mockResolvedValueOnce(jsonOk(updated));
+    const result = await makeRepo().updateTask("t_1", { status: "completed" });
+    expect(result).toEqual(updated);
+    const { url, init } = callArgs();
+    expect(url).toBe(`${BASE}/api/tasks/t_1`);
+    expect(init?.method).toBe("PATCH");
+    expect(init?.body).toBe(JSON.stringify({ status: "completed" }));
+  });
+
+  it("toggleStatus POSTs /api/tasks/:id/toggle with no body", async () => {
+    const toggled = { id: "t_1", work_item_id: "wi_1", title: "X", status: "in_progress" };
+    fetchMock.mockResolvedValueOnce(jsonOk(toggled));
+    const result = await makeRepo().toggleStatus("t_1");
+    expect(result).toEqual(toggled);
+    const { url, init } = callArgs();
+    expect(url).toBe(`${BASE}/api/tasks/t_1/toggle`);
+    expect(init?.method).toBe("POST");
+    expect(init?.body).toBeUndefined();
+    // No body ⇒ no Content-Type, but the bearer is still attached.
+    const headers = init?.headers as Record<string, string>;
+    expect(headers["Content-Type"]).toBeUndefined();
+    expect(headers.Authorization).toBe("Bearer tok_123");
+  });
+
+  it("addDependency POSTs /api/dependencies and maps the created edge", async () => {
+    const edge = { id: "dep_9", source_item_id: "a", target_item_id: "b" };
+    fetchMock.mockResolvedValueOnce(jsonOk(edge, 201));
+    const result = await makeRepo().addDependency({
+      source_item_id: "a",
+      target_item_id: "b",
+    });
+    expect(result).toEqual(edge);
+    const { url, init } = callArgs();
+    expect(url).toBe(`${BASE}/api/dependencies`);
+    expect(init?.method).toBe("POST");
+    expect(init?.body).toBe(
+      JSON.stringify({ source_item_id: "a", target_item_id: "b" }),
+    );
+  });
+
+  it("removeDependency DELETEs and treats 204 as success (no .json())", async () => {
+    fetchMock.mockResolvedValueOnce(noContent());
+    await expect(makeRepo().removeDependency("dep_1")).resolves.toBeUndefined();
+    const { url, init } = callArgs();
+    expect(url).toBe(`${BASE}/api/dependencies/dep_1`);
+    expect(init?.method).toBe("DELETE");
   });
 });
 
