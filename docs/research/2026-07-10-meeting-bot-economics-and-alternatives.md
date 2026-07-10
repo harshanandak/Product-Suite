@@ -156,5 +156,5 @@ Note that **no** mechanism covers **in-person** meetings. That requires device-s
 - **Attendee's published sizing / cost-per-hour notes.** The self-hosting blog contains no CPU, RAM, or dollar figures. The "up to 10x cheaper" claim is unquantified.
 - **Vexa's per-bot CPU/RAM requirements.** The README documents GPU-free bots + separate GPU STT unit, but no per-bot envelope. Third-party snippets citing "16 GB / 4-core" and "2-core/4 GB for 10 concurrent meetings" trace to marketing pages, not primary docs — **do not plan capacity on these.**
 - **Cold-start latency** for a headless-Chrome bot booting and joining a call. No primary benchmark found from Vexa, Attendee, or any operator blog.
-- **Hetzner and AWS Fargate rates** were taken from search results and third-party trackers, not fetched from the vendors' own pages (both are JS-rendered). Treat as `[claim]` and confirm before budgeting.
+- **Hetzner rate** was taken from a third-party tracker, not Hetzner's own page — treat as `[claim]` and confirm before budgeting. (The **AWS Fargate** rate is from AWS's own pricing page, cited in the table above.)
 - **Whether a Cloudflare Durable Object can sustain a multi-hour outbound WebSocket to Zoom RTMS under load.** Architecturally sound, but untested — no source confirms anyone has done it.

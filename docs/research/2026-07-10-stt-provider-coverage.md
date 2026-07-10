@@ -94,7 +94,7 @@ Neither is CC-BY-4.0, so both need a license read before shipping. The 3.5 model
 | AssemblyAI | 0.15 (U-2) + 0.02 diar | 0.15 EN / 0.45 Pro-RT | 99 (U-2), 18 (U-3.5 Pro) | all 9, on U-2 | not documented | Yes, U-3.5 Pro RT only | **Yes** (opt-out is paid-plan-only) |
 | Deepgram | 0.258 | 0.288 + 0.12 diar | ~50 (Nova-3) | 8 of 9 (no ml, pa) | **all** | Yes (v1 diarizer) | Not documented (opt-out via `mip_opt_out=true`) |
 | Workers AI | 0.0306 | — | Whisper's 99 | yes (Whisper) | none | No | No |
-| Groq | 0.04 (turbo) | — | Whisper's 99 | yes (Whisper) | none | No (ZDR available) |
+| Groq | 0.04 (turbo) | — | Whisper's 99 | yes (Whisper) | none | No training; temp logging by default, ZDR opt-in |
 | Sarvam | ₹30 (≈$0.34) | WS endpoint, price n/v | 11 codes | all 9 + Odia | not documented | **No — batch only** | Not documented |
 
 ### Recommended default routing
