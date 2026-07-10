@@ -62,8 +62,8 @@ issues.
 Tenant (= Clerk Org = Workspace — one level, unchanged)
   └── Team ............ MANDATORY owner. Carries the mode. Owns statuses, cycles, triage, key.
         └── Item .......... the atom. status, assignee, priority, type.
-              ├── Sub-item ... a FULL Item with a parent_id. No create button (§2.6.1).
-              └── Step ....... a Checklist row. Frozen: title, status, due_date.
+              ├── Task ....... a FULL Item with a parent_id — owned work. Native create (§2.6.1).
+              └── Check ...... a Checklist row. Frozen: title, status, due_date.
 
   └── Project ......... OPTIONAL, cross-team OUTCOME container.
                         status, lead, target date, milestones. Owns NO workflow.
@@ -96,31 +96,52 @@ no single-parent constraint to violate; the DB cannot stop a cycle."* OpenProjec
 
 | Layer | Name | Definition |
 |---|---|---|
-| Container | **Project** | Cross-team outcome. Owns milestones, not workflow. |
 | Partition | **Team** | Mandatory owner. Carries the mode. |
+| Container | **Project** | Cross-team outcome. Owns milestones, not workflow. |
 | Unit | **Item** | The atom: status, assignee, priority, type. |
-| Child | **Sub-item** | A full Item with a parent. Rare; see §2.6.1. |
-| Checklist | **Step** | A row in an Item's *Checklist*. |
+| Child | **Task** | A full Item with a parent — owned work. Native create (§2.6.1). |
+| Checklist | **Check** | A row in an Item's *Checklist*. Frozen, tickable, not owned. |
 
-**Rejected: `Task` as the top-level word.** Renaming `work item` → *Task* (with *Items* beneath) fails
-twice. An "Item" nested inside a "Task" sounds *smaller than its parent* — the same inversion bug,
-relocated. And decisively: **the schema's `tasks` table IS the checklist.** A UI where "Task" means
-`work_items` while `tasks` means checklist rows is a permanent trap, and specifically dangerous here —
-`work_items.source` has an `agent` value, so an agent told to "create a task" writes the wrong table.
+**The whole model is one rule:** *needs an owner → it's a **Task**; you just tick it off → it's a
+**Check**.* Teaching sentence: "Teams run Projects; a Project holds Items of work; break an Item into
+Tasks when a piece needs its own owner; anything you just tick goes on its Checklist as a Check."
 
-**Item** is "work item" minus "work": the label stays adjacent to the schema. Checklist rows are
-**Steps**, under a section headed **Checklist**, which dissolves the "item twice" collision.
+Why these words, cross-vertical (software / procurement / logistics / ops):
 
-**Labels only. No rename in schema or contracts.** `work_item` stays in the schema, `WorkItem` stays
-in `packages/contracts`. Renaming the contract type is a **major semver break and Forge depends on
-it.**
+- **Project** — the one universal container word; every vertical "runs projects." Initiative stays
+  reserved above it, Milestone under it.
+- **Item** — generic on purpose, so it never collides with a vertical's own nouns (procurement's "line
+  item" reinforces it). `WorkItem` stays the contract type; "Item" is its natural shortening.
+- **Task** — the word people already use for "a piece with an owner and a status." A distinct noun, not
+  a `sub-` prefix: it says what it *is*, not what it's under.
+- **Check** — defined by the only thing you do to it: tick it. It **cannot** be mistaken for ownable
+  work, and reads natively everywhere (compliance / safety / QA / pre-launch checks). This is why
+  **"Step" was wrong, not just clunky**: steps imply sequence and process *stages*, which are often
+  owned — blurring the exact Task-vs-Check line the model needs sharp.
 
-| UI label | Backing |
+**This REVERSES the earlier "reject Task, labels-only" position, and does so deliberately.** The old
+plan kept the schema's `tasks` table as the checklist and refused "Task" as a UI word to avoid the
+collision. But that leaves a standing landmine: **today the contract's `Task` type IS the checkbox,
+while every human and agent instinct says "task = owned work."** In an agent-first product the agent
+would create checkboxes when asked for tasks. So we fix it at the source — rename, don't avoid:
+
+| UI label | Backing (after rename) |
 |---|---|
 | Item | `work_items` |
-| Sub-item | `work_items` with `parent_id` |
-| Step | `tasks` |
-| Checklist | the `tasks` collection under one Item |
+| Task | `work_items` with `parent_id` (contract: `Task` = `WorkItem & { parentId }`) |
+| Check | `checks` table (contract: `Check`) |
+| Checklist | the `checks` collection under one Item |
+
+**Rename required** (folded into the migration wave, §2.7): table `tasks` → `checks`; contract `Task`
+→ `Check`; then re-mint `Task` as the owned-child type. After this, **UI, DB, and contract all agree**
+— Task = owned work everywhere, Check = checkbox everywhere. `work_items` / `WorkItem`, `projects` /
+`Project`, Team, statuses, dependencies are unchanged.
+
+> **Forge coordination — verify before executing.** Renaming the `Task` contract type is a coordinated
+> **major** bump; Forge consumes the contract. Fable judged the impact "one type, worth it," but
+> Forge's actual usage of `Task` has **not** been verified from the Forge repo. Confirm usage and plan
+> the dual-repo rollout before running the rename. The naming decision stands regardless; only the
+> rollout care depends on it.
 
 ### 2.4 Decisions
 
@@ -131,7 +152,7 @@ it.**
 | O3 | `project_id` stays NULLABLE | Unprojected Items are governed by their team. **No fake Inbox projects** — most Linear issues have no project; inventing one corrupts import semantics. A team backlog view surfaces them. |
 | O4 | `work_items.parent_id UUID NULL`, self-FK | Reverses "keep it flat." Migration-target positioning changes the constraint set: a Linear sub-issue carries assignee, priority and dependencies, with no lossless landing in a checklist. |
 | O5 | **Depth cap is a mode policy, not a schema constraint** | §2.5. |
-| O6 | `tasks` **survives**, frozen | §2.6. |
+| O6 | the checklist tier **survives**, frozen (table `tasks`→`checks`) | §2.6. |
 | O7 | Single parent FK + cycle prevention on write | A single parent is what makes a recursive CTE terminate. |
 | O8 | Rollups **always derived, never stored** | OpenProject sums children's progress and *ignores* work entered on parents. Stored rollups drift. |
 | O9 | Status **categories** immutable, names customizable | §2.6.2. |
@@ -155,42 +176,45 @@ Why 1:
   *"any existing nested subtasks are not impacted."* Lowering is impossible. monday.com *raised* depth
   1→4 and could ship it only on **newly created boards**, because the storage *shape* changed. Raising
   is cheap **if the shape is already right**. So: ship the cap low, ship the shape deep.
-- **We already have a second tier.** Item → Sub-item → Step is Jira's exact shape.
+- **We already have a second tier.** Item → Task → Check is Jira's exact shape (Story → Sub-task →
+  checklist).
 
 Recorded honestly, the strongest argument against: we are a migration target and Linear is the marquee
 source. It is defused twice — imports bypass the cap, and **Linear's issue depth is not documented
 anywhere**, so we cannot be "lossy by N" against an unspecified N. (The widely-repeated "5 levels"
 figure applies to Linear *initiatives*, not issues.)
 
-### 2.6 Why `tasks` survives
+### 2.6 Why the Checklist tier survives (as its own table)
 
-The teardown recommends collapsing `work_items` + `tasks` into one table with a `type_id` FK, since
-*no surveyed product ships a two-table split.* That conflates two different things.
+The teardown recommends collapsing `work_items` + the checklist table into one table with a `type_id`
+FK, since *no surveyed product ships a two-table split.* That conflates two different things.
 
 Plane's and OpenProject's single-table lesson is about **work-item types** — bug, feature, epic,
 milestone as *data* rather than an enum. We already honor that with `work_items.type`. It does **not**
-argue for merging checklists into issues. Every product cited has **both**: Linear has sub-issues *and*
+argue for merging Checklists into Items. Every product cited has **both**: Linear has sub-issues *and*
 markdown checklists; Jira has sub-tasks *and* checklists.
 
 Once `parent_id` exists, the "two-table hierarchy tax" disappears: hierarchy, rollups and relations are
-written once, against `work_items` only. `tasks` joins nothing. Making a five-Step checklist mint five
-full Items would pollute boards, counts and identifiers.
+written once, against `work_items` only. The `checks` table joins nothing. Making a five-Check
+checklist mint five full Items would pollute boards, counts and identifiers.
 
-#### 2.6.1 Sub-items have no create button
+#### 2.6.1 Tasks have a native "Add" — the checklist is just primary
 
-The founder's challenge — *"why would any person add a sub-task? Make it a checklist instead"* — is
-correct about the **affordance**, and is upheld.
+Fable's original ruling was "no create button; sub-items born only from import/promote." That is
+**reversed** — **Tasks get a native "Add Task."** The anti-sprawl guard the old rule defended is now
+*structural*: depth is hard-capped at this one tier (a Task cannot have a Task; below it is only the
+Checklist), so the runaway nesting that rule feared **cannot happen**. And for procurement / marketing
+/ ops, breaking an Item into owned pieces is the *first* motion, not an advanced one — hiding "Add
+Task" behind a toggle reads as a missing feature, not discipline.
 
-- **There is no "Add sub-item" action in the default UI.** The everyday way to break work down is the
-  Checklist.
-- **Sub-items are born exactly two ways:** an **import**, or a **promote-from-Step**.
-- `parent_id` remains for import fidelity and as promote's landing spot.
-- A mode may later enable direct sub-item creation (Jira-refugee teams expect it). That is a **mode
-  toggle**, not a default.
-
-Keep promote. A Step that grows an assignee or a discussion needs somewhere to go; without the valve,
-users file duplicate Items. `tasks` stays frozen at `title/status/due_date` — the moment anyone wants
-an assignee, priority or dependency on a Step, the answer is *promote it*.
+- **"Add Task" is present but secondary; the Checklist is visually primary** on the Item. The everyday
+  motion is still to tick off Checks; promoting to a Task is the step up.
+- **Promote-from-Check stays a first-class, celebrated flow:** a Check that grows an owner or a
+  discussion becomes a Task. Without the valve, users file duplicate Items.
+- The `checks` table stays frozen at `title / status / due_date` — the moment a Check needs an
+  assignee, priority or dependency, the answer is *promote it to a Task*.
+- Imports also land Tasks (a Jira sub-task / Linear sub-issue) directly, at true depth, via the cap
+  bypass (§2.5).
 
 #### 2.6.2 Status: categories and statuses replace `phase`
 
@@ -233,9 +257,14 @@ during.
    `plan→backlog`, `execute→started`, `review→started` + an "In Review" status, `done→completed`
 6. `ADD COLUMN parent_id`, `ADD COLUMN depth`
 7. `projects` enrichment: `status`, `lead_id`, `target_date`
+8. **Rename `tasks` → `checks`** (and contract `Task` → `Check`; re-mint `Task` as the owned-child
+   type). This is the one **non-additive** step — a coordinated Forge major bump — so it is gated on
+   the Forge-usage verification (§2.3) and may land in its own beat rather than the same statement
+   batch. Everything in 1–7 is additive and can ship first.
 
 `department` and `phase` are retained, deprecated, for one contract cycle — **Forge depends on them.**
-Dropping both is the future major. Contracts take a **minor** semver bump; everything here is additive.
+Dropping both is the future major. The additive changes (1–7) take a **minor** contract bump; the
+`Task`/`Check` rename (8) is the **major** bump and carries its own rollout.
 
 Cycle-safe reparenting is a single `UPDATE` guarded by a `NOT EXISTS` recursive CTE. For the residual
 A→B / B→A race under read-committed, use `sql.transaction()` at Serializable.
@@ -578,7 +607,7 @@ proprietary on 2026-06-10.**
    set includes Mandarin corpora, so "English-only" may be too pessimistic — but it is unknown.
 1. **Price of a Zoom RTMS credit.** Unverified; Zoom's developer pricing page is JS-rendered. **Model
    before choosing RTMS.**
-2. **Sub-item depth cap default per mode.** Jira-tight = 1. Does Notion-loose = 3?
+2. **Task (sub-item) depth cap default per mode.** Jira-tight = 1. Does Notion-loose = 3?
 3. **Mode config typing.** `mode_config` must not become an untyped JSONB swamp. Version the presets in
    `packages/contracts`; the Forge version-skew gate must cover mode *semantics*, not just field shape.
 4. **Importer vs mode enforcement.** Imported Items missing required fields must bypass validation with

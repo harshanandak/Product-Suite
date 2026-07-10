@@ -143,9 +143,12 @@ governs behavior** on top. The sub-item **depth cap is a mode policy, not a sche
 default 1 for native creation, bypassed by importers so migration stays lossless. No schema is torn up
 to add modes.
 
-**UI labels** (schema names unchanged, so `packages/contracts` takes no semver break): `work_items` = an
-**Item**; a `work_item` with a `parent_id` = a **Sub-item**; a `tasks` row = a **Step** in that Item's
-**Checklist**.
+**Naming model** — Team → Project → **Item** → **Task** → **Check**. `work_items` = an **Item**; a
+`work_item` with a `parent_id` = a **Task** (owned child, native create); a checklist row = a **Check**.
+Rule: *needs an owner → Task; just tick it → Check.* This entails renaming the `tasks` table → `checks`
+and contract `Task` → `Check` (re-minting `Task` for the owned child) — a coordinated Forge **major**
+bump, gated on verifying Forge's usage; see the ontology design doc §2.3. The additive schema changes
+(teams, statuses, parent_id) ship first under a minor bump.
 
 ## 7. Forge ↔ Product-Suite integration
 
