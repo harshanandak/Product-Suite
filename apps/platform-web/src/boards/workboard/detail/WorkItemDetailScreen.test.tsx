@@ -1,6 +1,12 @@
 import type { ReactNode } from "react";
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { createMockWorkItemRepository } from "@/data/work-items/repository";
@@ -87,5 +93,65 @@ describe("WorkItemDetailScreen", () => {
     activityTab.focus();
     fireEvent.click(activityTab);
     expect(await screen.findByText(events[0]!.summary)).toBeInTheDocument();
+  });
+
+  it("checks off a task, advancing it around the status triad (move ②)", async () => {
+    const repo = createMockWorkItemRepository();
+    // wi_realtime seeds t_rt_2 "Define RealtimeTransport" as a "todo" task.
+    routerMock.params = { workspace: "acme", itemId: "wi_realtime" };
+
+    render(<WorkItemDetailScreen repository={repo} />);
+    await screen.findByRole("heading", { level: 1 });
+
+    const tasksTab = screen.getByRole("tab", { name: /tasks/i });
+    tasksTab.focus();
+    fireEvent.click(tasksTab);
+
+    const checkbox = await screen.findByLabelText(
+      "Advance status of Define RealtimeTransport",
+    );
+    const row = checkbox.closest("li");
+    expect(row).not.toBeNull();
+    // Seeds as To-do.
+    expect(within(row!).getByText("To-do")).toBeInTheDocument();
+
+    fireEvent.click(checkbox);
+
+    // One toggle advances todo → in_progress (persisted through the repo).
+    await waitFor(() => {
+      expect(within(row!).getByText("In progress")).toBeInTheDocument();
+    });
+    const persisted = await repo.getTasks("wi_realtime");
+    expect(
+      persisted.find((task) => task.id === "t_rt_2")?.status,
+    ).toBe("in_progress");
+  });
+
+  it("adds a task from the Tasks tab and updates the progress count", async () => {
+    const repo = createMockWorkItemRepository();
+    routerMock.params = { workspace: "acme", itemId: "wi_realtime" };
+
+    render(<WorkItemDetailScreen repository={repo} />);
+    await screen.findByRole("heading", { level: 1 });
+
+    const tasksTab = screen.getByRole("tab", { name: /tasks/i });
+    tasksTab.focus();
+    fireEvent.click(tasksTab);
+
+    const input = await screen.findByLabelText("New task title");
+    fireEvent.change(input, { target: { value: "Wire the transport stub" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+
+    // The new task appears in the list…
+    expect(
+      await screen.findByText("Wire the transport stub"),
+    ).toBeInTheDocument();
+    // …and it was persisted through the repository.
+    await waitFor(async () => {
+      const persisted = await repo.getTasks("wi_realtime");
+      expect(
+        persisted.some((task) => task.title === "Wire the transport stub"),
+      ).toBe(true);
+    });
   });
 });

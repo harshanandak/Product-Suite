@@ -57,3 +57,10 @@ export type {
   UseWorkItemsOptions,
   UseWorkItemsResult,
 } from "./use-work-items";
+
+export { useItemTasks } from "./use-item-tasks";
+export type {
+  CreateItemTaskInput,
+  UseItemTasksOptions,
+  UseItemTasksResult,
+} from "./use-item-tasks";
