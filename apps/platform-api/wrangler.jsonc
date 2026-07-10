@@ -1,0 +1,27 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "platform-api",
+  "main": "src/app.ts",
+  "compatibility_date": "2026-07-01",
+  // nodejs_compat covers `process.env` fallbacks + any node built-ins the Clerk /
+  // Neon SDKs touch; the Neon serverless + Hono paths are Workers-native.
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  // Non-secret vars only. SECRETS are set out-of-band and never committed:
+  //   wrangler secret put CLERK_SECRET_KEY
+  //   wrangler secret put DATABASE_URL
+  // CLERK_AUTHORIZED_PARTIES is the allow-list of frontend origins (comma-separated);
+  // set it once the platform-web URL is known:
+  //   wrangler secret put CLERK_AUTHORIZED_PARTIES   (or move to "vars" below)
+  "vars": {},
+  // `deploy` uses the top-level config (Worker: platform-api).
+  // `deploy:prod` (--env production) uses this block (Worker: platform-api-production).
+  // Secrets are per-environment: add `--env production` to `wrangler secret put ...`.
+  "env": {
+    "production": {
+      "name": "platform-api-production",
+      "vars": {}
+    }
+  }
+}
+
