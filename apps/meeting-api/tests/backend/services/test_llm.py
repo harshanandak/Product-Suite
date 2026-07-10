@@ -97,6 +97,7 @@ def test_responder_sends_only_the_question_when_context_is_blank():
 
     asyncio.run(responder("   ", "What is the status?"))
 
+    assert len(client.chat.completions.calls) == 1
     user_content = client.chat.completions.calls[0]["messages"][1]["content"]
     assert user_content == "What is the status?"
     assert "Meeting context" not in user_content
@@ -108,6 +109,7 @@ def test_responder_uses_a_custom_system_prompt_when_provided():
 
     asyncio.run(responder("ctx", "q"))
 
+    assert len(client.chat.completions.calls) == 1
     assert client.chat.completions.calls[0]["messages"][0]["content"] == "CUSTOM GROUNDING"
 
 
