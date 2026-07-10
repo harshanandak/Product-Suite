@@ -10,11 +10,12 @@ extends — it does not replace — the companion docs:
 [mastra-vs-ai-sdk-reevaluation](mastra-vs-ai-sdk-reevaluation-2026-06-18.md).
 
 > **Two deltas vs. earlier docs, decided by the founder and binding here:**
-> 1. **BlockSuite is back IN as the canonical canvas/blocks engine** (adopt, not exit). The
->    2026-06-12 stack doc listed BlockSuite as EXIT (→ React Flow + TipTap) and the
->    parallelization roadmap §1.13 calls for a "canvas re-contract off BlockSuite." Superseded:
->    BlockSuite is the next big adopt for the Canvas. Keep the `packages/ui-canvas` boundary
->    (own the seam, rent the engine); confirm BlockSuite's exact license before locking.
+> 1. **Graph and Canvas are two DIFFERENT surfaces — this is not a reversal.** The workboard's
+>    dependency **graph** (work items as nodes, dependencies as edges) stays on **React Flow** — the
+>    earlier "exit BlockSuite → React Flow" (2026-06-12 stack doc; roadmap §1.13) was scoped to the
+>    *graph* and still holds. The freeform **Canvas** is a *separate* surface built on **BlockSuite**
+>    (blocks + collab). Two surfaces, two right tools. Keep the `packages/ui-canvas` boundary (own
+>    the seam, rent the engine); confirm BlockSuite's exact license before locking.
 > 2. **The agent plane is now spelled out** as CopilotKit (MIT) + AG-UI + MCP + Forge-skills-as-tools
 >    + a model router + memory (ctx), most of it assembled from open standards.
 
@@ -44,7 +45,8 @@ Jira/Linear (via their APIs) and move in.
 | Hosting | **Cloudflare** — static SPA + **Hono API on Workers**; R2 storage; Durable Objects realtime |
 | Data | **Neon** (Postgres + **pgvector**), host-neutral SQL; branch-per-PR DBs |
 | Realtime / collab | one `RealtimeTransport` seam — Durable Objects (SaaS) / Hocuspocus (self-host); **Yjs** CRDTs |
-| Canvas / blocks | **BlockSuite** (AFFiNE's editor framework) behind `packages/ui-canvas` |
+| Canvas / blocks | **BlockSuite** (AFFiNE's editor framework) behind `packages/ui-canvas` — the freeform surface only |
+| Dependency graph | **React Flow** (workboard graph view: nodes = work items, edges = dependencies) — distinct from the Canvas |
 | Agent runtime | **Vercel AI SDK v6 + OpenRouter** loop; **CopilotKit (MIT) + AG-UI** for in-app agent UI |
 | Meetings | LiveKit + STT provider behind an interface; extraction via OpenRouter models |
 | Off-Railway | `meeting-api` + agent runtime rebuilt in TS on Workers |
@@ -201,9 +203,10 @@ memory.
 - **The next layer after the API cutover** (finish Neon/Clerk, move `meeting-api` + agent runtime off
   Railway into TS/Workers) is the **per-project mode/config object (§6) + agent-first setup (§9)** —
   both additive on top of the existing backbone.
-- **BlockSuite is the next big ADOPT** — for the Canvas surface (§3, §4). This supersedes the earlier
-  "re-contract off BlockSuite" direction; keep the `packages/ui-canvas` boundary and **confirm
-  BlockSuite's license terms** before locking it in.
+- **BlockSuite is the next big ADOPT — for the Canvas surface only** (§3, §4). It does **not** touch
+  the workboard dependency **graph**, which stays on **React Flow** (the earlier "re-contract off
+  BlockSuite" was about the graph and still holds — no reversal). Keep the `packages/ui-canvas`
+  boundary and **confirm BlockSuite's license terms** before locking it in.
 - Sequencing that still holds from the roadmap: consolidate onto Neon/Clerk and unify memory **before**
   building new modules; the model router and the CopilotKit/AG-UI/MCP plane are **core agent-plane
   components**, not add-ons.
