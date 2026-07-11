@@ -145,10 +145,19 @@ to add modes.
 
 **Naming model** — Team → Project → **Item** → **Task** → **Check**. `work_items` = an **Item**; a
 `work_item` with a `parent_id` = a **Task** (owned child, native create); a checklist row = a **Check**.
-Rule: *needs an owner → Task; just tick it → Check.* This entails renaming the `tasks` table → `checks`
-and contract `Task` → `Check` (re-minting `Task` for the owned child) — a coordinated Forge **major**
-bump, gated on verifying Forge's usage; see the ontology design doc §2.3. The additive schema changes
-(teams, statuses, parent_id) ship first under a minor bump.
+Rule: *needs an owner → Task; just tick it → Check.* This entails renaming the **platform-api workboard**
+`tasks` table → `checks` and its `packages/contracts` `Task` type → `Check` (re-minting `Task` for the
+owned child) — a coordinated Forge **major** bump, gated on verifying Forge's usage; see the ontology
+design doc §2.3. The additive schema changes (teams, statuses, parent_id) ship first under a minor bump.
+
+**Scope + collision to reconcile:** the rename touches ONLY the platform-api `Task` (a frozen checklist:
+`{status, due_date}`). The **roadmap-web app has a separate, richer `ProductTask`**
+(`apps/roadmap-web/src/lib/types/product-tasks.ts` — its own status/type/priority/assignment, linkable to
+work items or timeline items); it is *not* the same model and is *not* renamed here. After the rename the
+new "Task = owned child work item" aligns conceptually with `ProductTask`, so when the roadmap and
+workboard surfaces converge on the one canonical contract, `ProductTask` ↔ `Task` reconciliation is its
+own migration (map existing `ProductTask` rows → child `work_items`), scoped separately. **Existing-data
+migration for both is part of the gated contract audit, not assumed trivial.**
 
 ## 7. Forge ↔ Product-Suite integration
 

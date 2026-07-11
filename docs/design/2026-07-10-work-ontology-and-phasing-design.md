@@ -103,8 +103,9 @@ no single-parent constraint to violate; the DB cannot stop a cycle."* OpenProjec
 | Checklist | **Check** | A row in an Item's *Checklist*. Frozen, tickable, not owned. |
 
 **The whole model is one rule:** *needs an owner → it's a **Task**; you just tick it off → it's a
-**Check**.* Teaching sentence: "Teams run Projects; a Project holds Items of work; break an Item into
-Tasks when a piece needs its own owner; anything you just tick goes on its Checklist as a Check."
+**Check**.* Teaching sentence: "Teams own the work; a Project (optional) groups Items toward an
+outcome; break an Item into Tasks when a piece needs its own owner; anything you just tick goes on its
+Checklist as a Check." (Items need a Team, not a Project — `project_id` is nullable, per O3.)
 
 Why these words, cross-vertical (software / procurement / logistics / ops):
 
@@ -176,8 +177,11 @@ Why 1:
   *"any existing nested subtasks are not impacted."* Lowering is impossible. monday.com *raised* depth
   1→4 and could ship it only on **newly created boards**, because the storage *shape* changed. Raising
   is cheap **if the shape is already right**. So: ship the cap low, ship the shape deep.
-- **We already have a second tier.** Item → Task → Check is Jira's exact shape (Story → Sub-task →
-  checklist).
+- **We already have a second tier.** Item → Task → Check mirrors Jira's *effective* shape (Story →
+  Sub-task → checklist). **The 1-level cap is on NATIVE creation only** — imports bypass it (§2.5) and
+  land trees at true depth, so an imported Task may itself have a Task descendant. Rollup and
+  tree-walk code must therefore not assume a hard one-tier depth; the cap is a creation policy, not a
+  structural invariant.
 
 Recorded honestly, the strongest argument against: we are a migration target and Linear is the marquee
 source. It is defused twice — imports bypass the cap, and **Linear's issue depth is not documented
