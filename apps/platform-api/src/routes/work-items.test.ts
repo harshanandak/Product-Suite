@@ -18,6 +18,7 @@ const ROW = {
   tags: ['platform'],
   source: 'manual',
   project_id: null,
+  team_id: 'team_1',
   department: 'Engineering',
   assignee_id: null,
   due_date: null,

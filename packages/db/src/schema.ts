@@ -24,9 +24,10 @@ import {
  * tables are Alembic-owned, so they aren't Drizzle table objects here).
  *
  * Model note: workspace = organization = tenant — ONE level (a Clerk Organization
- * maps to a `tenants` row, the org boundary). Work items belong directly to the
- * org and are grouped WITHIN it by `department` (a swimlane label) + an optional
- * `project`. There is deliberately no separate workspace layer.
+ * maps to a `tenants` row, the org boundary). Work items belong to a mandatory
+ * `team` WITHIN the org (the owner/partition, promoted from the old free-text
+ * `department`, which is retained deprecated) plus an optional `project`. There is
+ * deliberately no separate workspace layer.
  *
  * Auth: the Clerk identity (`claims.subject`) resolves to an internal user via
  * `user_auth_identities(provider='clerk', provider_user_id=subject)`, and to a
@@ -66,6 +67,30 @@ export const projects = pgTable(
   (t) => ({ byTenant: index('projects_tenant_idx').on(t.tenantId) }),
 )
 
+/**
+ * Teams — the mandatory owner/partition WITHIN an org (promoted from the old
+ * free-text `work_items.department`). A Team is what carries the mode and, later,
+ * owns the workflow statuses, cycles and triage. Every work item belongs to
+ * exactly one team; teams belong to exactly one tenant (org).
+ */
+export const teams = pgTable(
+  'teams',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    // The org (= workspace = tenant). References the Alembic-owned tenants(id);
+    // FK added in the migration.
+    tenantId: text('tenant_id').notNull(),
+    name: text('name').notNull(),
+    ...timestamps,
+  },
+  (t) => ({
+    byTenant: index('teams_tenant_idx').on(t.tenantId),
+    // A team name is unique within its org (the backfill maps DISTINCT department
+    // 1:1, so this also guards against re-introducing duplicates).
+    nameUniq: unique('teams_tenant_name_uniq').on(t.tenantId, t.name),
+  }),
+)
+
 export const workItems = pgTable(
   'work_items',
   {
@@ -73,6 +98,11 @@ export const workItems = pgTable(
     // The org (= workspace = tenant). References the Alembic-owned tenants(id);
     // FK added in the migration.
     tenantId: text('tenant_id').notNull(),
+    // The owning Team (mandatory). Promoted from the old `department` string,
+    // which is retained (deprecated) for one contract cycle for Forge/back-compat.
+    teamId: uuid('team_id')
+      .notNull()
+      .references(() => teams.id, { onDelete: 'restrict' }),
     title: text('title').notNull(),
     description: text('description').notNull().default(''),
     phase: phaseEnum('phase').notNull().default('plan'),

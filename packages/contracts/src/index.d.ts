@@ -501,6 +501,23 @@ export interface Project {
 }
 
 /**
+ * A team — the mandatory owner/partition WITHIN an org (promoted from the old
+ * free-text `WorkItem.department`). Every work item belongs to exactly one team
+ * via its required `team_id`; teams belong to exactly one tenant (org). Unlike
+ * {@link Project}, a Team carries its `tenant_id` on the wire (its members are in
+ * that org already, so it is not a cross-tenant leak — it anchors the team to its
+ * org for the picker).
+ */
+export interface Team {
+  readonly id: string;
+  /** The owning org (= workspace = tenant). Server-owned. */
+  readonly tenant_id: string;
+  name: string;
+  readonly created_at: string;
+  readonly updated_at: string;
+}
+
+/**
  * A person who can own a work item — the resolved display target for an item's
  * `assignee_id` (§1 owner concept). The store holds only `assignee_id`; views
  * resolve id → {@link Owner} via the `owners` lookup (never embed the owner on
@@ -540,7 +557,13 @@ export interface WorkItem {
   source: WorkItemSource;
   /** Nullable — a work item may belong to no project (§1 / §11). */
   project_id: string | null;
-  /** Workspace-defined department NAME used for swimlanes / grouping (§1). */
+  /**
+   * The owning {@link Team} id — MANDATORY (every work item belongs to exactly
+   * one team). Promoted from the free-text `department`, which is retained
+   * (deprecated) for one contract cycle for back-compat.
+   */
+  team_id: string;
+  /** @deprecated Workspace-defined department NAME (superseded by `team_id`); still populated for back-compat (§1). */
   department: string;
   /** Owner of the item, or `null` when routed to a department queue (§1). */
   assignee_id: string | null;
@@ -617,6 +640,7 @@ export type WorkItemPatch = Partial<
     | "priority"
     | "tags"
     | "project_id"
+    | "team_id"
     | "department"
     | "assignee_id"
     | "due_date"
@@ -661,6 +685,7 @@ export interface WorkItemsCore {
   taskPatchFields: readonly ("title" | "status" | "due_date")[];
   objects: Record<
     | "Project"
+    | "Team"
     | "Owner"
     | "WorkItem"
     | "Task"
