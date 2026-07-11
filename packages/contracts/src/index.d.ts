@@ -606,7 +606,8 @@ export interface WorkItem {
    * Optional PARENT work item — a Task is a work item with a parent (the owned
    * child tier). `null` at top level. A child inherits its parent's `team_id`;
    * native creation is depth-capped at 1 (a parent must itself be top-level).
-   * Cleared to `null` (ON DELETE SET NULL) when the parent is deleted.
+   * The self-FK is ON DELETE RESTRICT: a parent that still has sub-items cannot
+   * be hard-deleted until they are detached (children are never auto-orphaned).
    */
   parent_id: string | null;
   /**

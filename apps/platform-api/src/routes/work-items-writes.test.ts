@@ -443,6 +443,26 @@ describe('work-item writes', () => {
     })
   })
 
+  it('PATCH rejects changing the team of a top-level item that HAS sub-items', async () => {
+    const sql = vi.fn()
+    sql
+      .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
+      .mockResolvedValueOnce([WI_ROW]) // scoped select (owned, top-level, no parent)
+      .mockResolvedValueOnce([{ one: 1 }]) // team reassign: team_2 in tenant
+      .mockResolvedValueOnce([{ one: 1 }]) // has-children check: item HAS sub-items
+    createSql.mockReturnValue(sql)
+
+    const res = await app.request('/api/work-items/wi_1', {
+      method: 'PATCH',
+      ...auth,
+      body: JSON.stringify({ team_id: 'team_2' }),
+    })
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({
+      error: 'cannot change the team of an item with sub-items; move or detach them first',
+    })
+  })
+
   it('PATCH clearing parent_id resets depth to 0 (no parent lookup)', async () => {
     const CHILD_ROW = { ...WI_ROW, parent_id: 'wi_parent', depth: 1 }
     const sql = vi.fn()

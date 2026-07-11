@@ -271,6 +271,21 @@ workItemsRoutes.patch('/:id', async (c) => {
       if (ownedTeam.length === 0) {
         return c.json({ error: 'Unknown team' }, 400)
       }
+      // A Task and its parent must share a team, so an item that is part of a
+      // hierarchy cannot change team on its own — either side would strand the
+      // other. Reject a team move while the item is a child (has a parent) OR a
+      // parent (has children). Detach the hierarchy first, then move.
+      if (patch.team_id !== current.team_id) {
+        if (current.parent_id != null) {
+          return c.json({ error: 'cannot change a sub-item’s team; re-parent or unparent it first' }, 400)
+        }
+        const kids = (await sql`
+          select 1 from work_items where parent_id = ${id} limit 1
+        `) as unknown[]
+        if (kids.length > 0) {
+          return c.json({ error: 'cannot change the team of an item with sub-items; move or detach them first' }, 400)
+        }
+      }
     }
 
     // A reassigned status must belong to the item's (possibly newly-set) team.
@@ -342,18 +357,6 @@ workItemsRoutes.patch('/:id', async (c) => {
         nextParentId = patch.parent_id
         nextDepth = 1
       }
-    }
-    // Same-team invariant (parent untouched): a sub-item's team follows its parent.
-    // When parent_id is NOT in this patch but team_id changes on an already-parented
-    // item, the child would drift onto a different team than its parent — reject.
-    // (When parent_id IS in the patch, the effectiveTeamId check above already covers it.)
-    if (
-      nextParentId != null &&
-      !('parent_id' in patch) &&
-      patch.team_id != null &&
-      patch.team_id !== current.team_id
-    ) {
-      return c.json({ error: 'cannot change a sub-item’s team; re-parent or unparent it first' }, 400)
     }
 
     const next = { ...current, ...patch }
