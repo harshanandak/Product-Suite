@@ -127,12 +127,14 @@ dependenciesRoutes.post('/', async (c) => {
     }
     const tenantId = first.tenant_id
 
-    // Cycle guard + insert as a SINGLE atomic statement. Adding source → target
-    // closes a cycle iff `target` already reaches `source` via existing edges, so
-    // we insert only WHERE NOT EXISTS such a path. Neon's HTTP driver has no
-    // interactive transactions, so folding the check into the INSERT is how we keep
-    // check-and-insert atomic — a separate check-then-insert could let two
-    // concurrent requests each pass the check and then both write a cycle.
+    // Cycle guard folded into the INSERT: add source → target only WHERE NOT EXISTS
+    // a path from target back to source. One statement removes the check-then-insert
+    // gap where a request inserts after another has already committed a reaching path.
+    // It does NOT fully serialize: two concurrent complementary inserts (A→B and B→A)
+    // can each pass their reachability check under READ COMMITTED — neither sees the
+    // other's uncommitted row — and jointly form a cycle. Closing that needs
+    // SERIALIZABLE (sql.transaction); acceptable to omit while dependency writes are
+    // low-volume, revisit if that changes.
     let rows: DependencyRow[]
     try {
       rows = (await sql`
