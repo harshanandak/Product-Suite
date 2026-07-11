@@ -5,7 +5,15 @@ import json
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
-from backend.server import DEFAULT_TENANT_ID, fetch_meeting, get_db_connection, require_authenticated_actor
+from backend.server import (
+    DEFAULT_TENANT_ID,
+    OPENAI_CHAT_MODEL,
+    fetch_meeting,
+    get_db_connection,
+    openai_client,
+    require_authenticated_actor,
+)
+from backend.services.llm import build_openai_buddy_responder
 from backend.services.tool_router import answer_buddy_query, build_agent_invocation_record, build_agent_response_record
 
 router = APIRouter(prefix="/api")
@@ -37,10 +45,12 @@ async def query_buddy(meeting_id: str, data: BuddyQueryRequest, actor=Depends(re
             speaker_label=getattr(actor, "name", None),
             trigger_text=data.message,
         )
-        response = answer_buddy_query(
+        responder = build_openai_buddy_responder(openai_client, OPENAI_CHAT_MODEL) if openai_client else None
+        response = await answer_buddy_query(
             data.message,
             current_context=data.current_context,
             history_context=data.history_context,
+            responder=responder,
             web_search_fn=None,
         )
         response_record = build_agent_response_record(

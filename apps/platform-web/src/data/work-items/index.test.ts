@@ -45,6 +45,11 @@ describe("work-items barrel (./index)", () => {
     expect(typeof workItemsSeam.getDefaultRepository).toBe("function");
   });
 
+  it("re-exports the per-item tasks hook (task-write seam)", () => {
+    expect(workItemsSeam.useItemTasks).toBeDefined();
+    expect(typeof workItemsSeam.useItemTasks).toBe("function");
+  });
+
   it("exposes a single shared default repository instance (singleton)", () => {
     const first = workItemsSeam.getDefaultRepository();
     const second = workItemsSeam.getDefaultRepository();

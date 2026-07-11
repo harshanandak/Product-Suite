@@ -3,6 +3,16 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { createMockWorkItemRepository } from "@/data/work-items";
 
+// Node activation now navigates to the detail route. Mock the router so the
+// screen's useNavigate/useParams resolve without a RouterProvider, and capture
+// the navigate call. The real TanStack `navigate` returns a Promise the screen
+// calls `.catch(...)` on, so the mock must resolve to keep that chain valid.
+const navMock = vi.hoisted(() => ({ fn: vi.fn(() => Promise.resolve()) }));
+vi.mock("@tanstack/react-router", () => ({
+  useNavigate: () => navMock.fn,
+  useParams: () => ({ workspace: "acme" }),
+}));
+
 import { WorkboardGraphScreen } from "./WorkboardGraphScreen";
 
 /**
@@ -68,7 +78,8 @@ describe("WorkboardGraphScreen", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("opens the editor when a graph node is clicked (action parity)", async () => {
+  it("navigates to the item's detail page when a graph node is activated (parity)", async () => {
+    navMock.fn.mockClear();
     render(<WorkboardGraphScreen repository={createMockWorkItemRepository()} />);
 
     const open = await screen.findByLabelText(
@@ -78,8 +89,15 @@ describe("WorkboardGraphScreen", () => {
     );
     fireEvent.click(open);
 
-    // The same editor Sheet a table row / kanban card opens appears.
-    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    // Node activation routes to the detail PAGE — the SAME target the table +
+    // kanban use — not the quick-edit Sheet.
+    await waitFor(() => {
+      expect(navMock.fn).toHaveBeenCalledWith({
+        to: "/w/$workspace/workboard/item/$itemId",
+        params: { workspace: "acme", itemId: "wi_auth" },
+      });
+    });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("narrows the graph to the matching nodes when the in-canvas search is used", async () => {

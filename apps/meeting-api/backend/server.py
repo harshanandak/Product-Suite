@@ -88,6 +88,7 @@ SARVAM_API_KEY = settings.sarvam_api_key
 OPENAI_TEXT_MODEL = settings.openai_text_model
 OPENAI_TRANSLATE_MODEL = settings.openai_translate_model
 OPENAI_TRANSCRIBE_MODEL = settings.openai_transcribe_model
+OPENAI_CHAT_MODEL = settings.openai_chat_model
 OPENAI_TTS_MODEL = settings.openai_tts_model
 OPENAI_TTS_VOICE = settings.openai_tts_voice
 

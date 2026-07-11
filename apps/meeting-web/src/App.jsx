@@ -39,6 +39,7 @@ import {
   listEngines,
   listMeetings,
   searchTranscripts,
+  sendChatMessage,
   setAuthToken,
   signOutHostedSession,
   transcribeAudio,
@@ -996,6 +997,20 @@ function App() {
                 buddyLoading={buddyAgent.loading}
                 buddyError={buddyAgent.error}
                 onAskBuddy={(message) => buddyAgent.askBuddy(message, summaryState)}
+                onSendChatMessage={async (content) => {
+                  if (!activeMeeting?.id) {
+                    return;
+                  }
+                  setChatMessages((prev) => [...prev, { role: "user", content }]);
+                  try {
+                    const { data } = await sendChatMessage(activeMeeting.id, content);
+                    setChatMessages((prev) => [...prev, data]);
+                  } catch (err) {
+                    // Surface the failure so the optimistic message isn't left
+                    // looking delivered when the request actually failed.
+                    toast.error(describeRequestError(err, "Failed to send chat message"));
+                  }
+                }}
                 onStartRecording={handleStartRecording}
                 onPauseRecording={handlePauseRecording}
                 onResumeRecording={handleResumeRecording}

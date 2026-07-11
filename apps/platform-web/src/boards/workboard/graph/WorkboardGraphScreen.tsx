@@ -1,4 +1,6 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useMemo, useState } from "react";
+
+import { useNavigate, useParams } from "@tanstack/react-router";
 
 import { Skeleton } from "@product-suite/ui";
 
@@ -6,14 +8,10 @@ import {
   getDefaultRepository,
   useRepositoryContext,
   useWorkItems,
-  type Task,
-  type WorkItem,
-  type WorkItemPatch,
   type WorkItemRepository,
   type WorkItemRow,
 } from "@/data/work-items";
 
-import { WorkItemEditor } from "../editor/WorkItemEditor";
 import {
   applyWorkboardFilters,
   defaultWorkboardFilterState,
@@ -58,9 +56,9 @@ export interface WorkboardGraphScreenProps {
  * Its OWN sub-board route (`/w/$workspace/workboard/graph`), not an inline tab:
  * the graph is an unbounded canvas, so it takes the whole content area rather
  * than a cramped slice beneath the work-items table. It reuses the data seam and
- * the same {@link WorkItemEditor} so a node click opens the SAME editor a table
- * row / kanban card opens (action parity, §1) — and edge-drag / phase changes
- * flow through the seam mutators (gestures are real mutations, §10).
+ * activating a node navigates to the item's detail PAGE — the SAME target a
+ * table row / kanban card opens (action parity, §1) — while edge-drag / phase
+ * changes flow through the seam mutators (gestures are real mutations, §10).
  *
  * The canvas renders ALL items (unfiltered) in v1; scoping (project switcher,
  * focused-neighborhood load) is the Slice B scale layer. The page is deliberately
@@ -74,6 +72,11 @@ export function WorkboardGraphScreen({
     () => repository ?? contextRepo ?? getDefaultRepository(),
   );
 
+  // Node activation routes to the item's detail PAGE (parity with the table +
+  // kanban) — needs the router's navigate + the current workspace param.
+  const navigate = useNavigate();
+  const { workspace } = useParams({ from: "/w/$workspace/workboard/graph" });
+
   const {
     items,
     owners,
@@ -86,23 +89,6 @@ export function WorkboardGraphScreen({
     removeDependency,
   } = useWorkItems({ repository: repo });
 
-  // Tasks for the editor's derived health + read-only task list (loaded once).
-  const [tasks, setTasks] = useState<ReadonlyArray<Task>>([]);
-  useEffect(() => {
-    let cancelled = false;
-    repo
-      .listTasks()
-      .then((loaded) => {
-        if (!cancelled) setTasks(loaded);
-      })
-      .catch(() => {
-        // Supplementary to the editor; the graph's own error path covers load.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [repo]);
-
   // Filter state for the in-canvas filter cluster. The graph renders only the
   // rows that pass the active search + facets (same engine the Table uses).
   const [filterState, setFilterState] = useState(defaultWorkboardFilterState());
@@ -112,31 +98,22 @@ export function WorkboardGraphScreen({
     [items, filterState, owners],
   );
 
-  const [selected, setSelected] = useState<WorkItem | null>(null);
-
-  const handleSelectItem = useCallback((row: WorkItemRow) => {
-    setSelected(row);
-  }, []);
-
-  const handleOpenChange = useCallback((open: boolean) => {
-    if (!open) setSelected(null);
-  }, []);
-
-  const handleSave = useCallback(
-    async (id: string, patch: WorkItemPatch): Promise<void> => {
-      await update(id, patch);
+  // Node activation opens the item's durable detail PAGE (same target the table
+  // + kanban use), not the quick-edit Sheet — the graph's own inline edit
+  // affordances (phase pill, edge drag) still flow through the seam mutators.
+  const handleSelectItem = useCallback(
+    (row: WorkItemRow) => {
+      // Fire-and-forget navigation; the trailing .catch keeps this void-returning
+      // handler from floating a promise — and logs a transient router failure
+      // instead of swallowing it silently (a dead click with no trace).
+      navigate({
+        to: "/w/$workspace/workboard/item/$itemId",
+        params: { workspace, itemId: row.id },
+      }).catch((error: unknown) => {
+        console.error("[workboard graph] navigation to item detail failed", error);
+      });
     },
-    [update],
-  );
-
-  // Keep the open editor's snapshot fresh after a node/inline edit reflows items.
-  const selectedId = selected?.id ?? null;
-  const liveSelected = useMemo<WorkItem | null>(
-    () =>
-      selectedId === null
-        ? null
-        : (items.find((row) => row.id === selectedId) ?? selected),
-    [items, selectedId, selected],
+    [navigate, workspace],
   );
 
   // No page header/chrome — the canvas is full-bleed and owns the whole content
@@ -167,15 +144,6 @@ export function WorkboardGraphScreen({
           />
         </Suspense>
       </div>
-
-      <WorkItemEditor
-        item={liveSelected}
-        open={liveSelected !== null}
-        onOpenChange={handleOpenChange}
-        onSave={handleSave}
-        tasks={tasks}
-        owners={owners}
-      />
     </section>
   );
 }

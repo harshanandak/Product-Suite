@@ -67,6 +67,7 @@ class Settings:
     openai_text_model: str
     openai_translate_model: str
     openai_transcribe_model: str
+    openai_chat_model: str
     openai_tts_model: str
     openai_tts_voice: str
     cors_origins: list[str]
@@ -204,6 +205,7 @@ def load_settings() -> Settings:
         openai_text_model=os.environ.get("OPENAI_TEXT_MODEL", "gpt-5.4-nano"),
         openai_translate_model=os.environ.get("OPENAI_TRANSLATE_MODEL", os.environ.get("OPENAI_TEXT_MODEL", "gpt-5.4-nano")),
         openai_transcribe_model=os.environ.get("OPENAI_TRANSCRIBE_MODEL", "gpt-4o-transcribe"),
+        openai_chat_model=os.environ.get("OPENAI_CHAT_MODEL", os.environ.get("OPENAI_TEXT_MODEL", "gpt-5.4-nano")),
         openai_tts_model=os.environ.get("OPENAI_TTS_MODEL", "tts-1"),
         openai_tts_voice=os.environ.get("OPENAI_TTS_VOICE", "nova"),
         cors_origins=cors_origins,
