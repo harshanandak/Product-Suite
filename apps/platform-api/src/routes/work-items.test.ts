@@ -19,6 +19,7 @@ const ROW = {
   source: 'manual',
   project_id: null,
   team_id: 'team_1',
+  status_id: 'status_1',
   department: 'Engineering',
   assignee_id: null,
   due_date: null,
@@ -52,6 +53,7 @@ describe('GET /api/work-items', () => {
       description: '', // null -> '' at the contract edge
       tags: ['platform'],
       phase: 'plan',
+      status_id: 'status_1',
       archived: false,
       due_date: null,
     })

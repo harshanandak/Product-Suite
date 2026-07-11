@@ -35,6 +35,8 @@ export type {
   DependencyRelationship,
   Owner,
   Project,
+  Status,
+  StatusCategory,
   Task,
   WorkItem,
   WorkItemDependency,

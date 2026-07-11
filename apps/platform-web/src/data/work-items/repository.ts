@@ -292,6 +292,9 @@ export function createMockWorkItemRepository(
         // team_id is mandatory: use the caller's, else the first existing item's
         // team (the active workspace's primary lane), else a safe fallback.
         team_id: input.team_id ?? workItems[0]?.team_id ?? "team_default",
+        // status_id is mandatory: use the caller's, else the first existing item's
+        // status (the active workspace's primary lane), else a safe fallback.
+        status_id: input.status_id ?? workItems[0]?.status_id ?? "status_default",
         // Default to the caller's department, else the first existing item's
         // department (the active workspace's primary lane), else a safe fallback.
         department: input.department ?? workItems[0]?.department ?? "General",

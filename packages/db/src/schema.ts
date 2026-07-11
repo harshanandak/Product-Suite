@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm'
 import {
   boolean,
   index,
+  integer,
   pgEnum,
   pgTable,
   text,
@@ -45,6 +46,18 @@ export const taskStatusEnum = pgEnum('task_status', ['todo', 'in_progress', 'com
 export const workItemSourceEnum = pgEnum('work_item_source', ['manual', 'meeting', 'agent', 'feedback'])
 export const dependencyRelationshipEnum = pgEnum('dependency_relationship', ['depends_on', 'blocks', 'complements'])
 export const activityEventKindEnum = pgEnum('activity_event_kind', ['created', 'updated', 'dependency_added', 'dependency_removed'])
+// Immutable status CATEGORIES (global, never mode-editable). A team's named
+// statuses each map to exactly one category; every rollup/automation reads the
+// category, never the name. Replaces the old `phase` enum. `triage` is reserved
+// for the integration/agent inbox.
+export const statusCategoryEnum = pgEnum('status_category', [
+  'backlog',
+  'unstarted',
+  'started',
+  'completed',
+  'canceled',
+  'triage',
+])
 
 const timestamps = {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -91,6 +104,30 @@ export const teams = pgTable(
   }),
 )
 
+/**
+ * Statuses — a team's named workflow states. Each belongs to one immutable
+ * `category`; teams customize the NAME and order (`position`), never the category.
+ * A work item's lifecycle state is `status_id` (replacing the old `phase` enum,
+ * which is retained deprecated). Cascades with its team.
+ */
+export const statuses = pgTable(
+  'statuses',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    teamId: uuid('team_id')
+      .notNull()
+      .references(() => teams.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    category: statusCategoryEnum('category').notNull(),
+    position: integer('position').notNull().default(0),
+    ...timestamps,
+  },
+  (t) => ({
+    byTeam: index('statuses_team_idx').on(t.teamId),
+    nameUniq: unique('statuses_team_name_uniq').on(t.teamId, t.name),
+  }),
+)
+
 export const workItems = pgTable(
   'work_items',
   {
@@ -103,6 +140,11 @@ export const workItems = pgTable(
     teamId: uuid('team_id')
       .notNull()
       .references(() => teams.id, { onDelete: 'restrict' }),
+    // The workflow state (mandatory), one of the owning team's `statuses`.
+    // Replaces `phase` (retained deprecated). Its category drives all rollups.
+    statusId: uuid('status_id')
+      .notNull()
+      .references(() => statuses.id, { onDelete: 'restrict' }),
     title: text('title').notNull(),
     description: text('description').notNull().default(''),
     phase: phaseEnum('phase').notNull().default('plan'),

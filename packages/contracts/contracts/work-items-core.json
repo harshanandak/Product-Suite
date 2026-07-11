@@ -6,6 +6,9 @@
   "activityEventKind": {
     "values": ["created", "updated", "dependency_added", "dependency_removed"]
   },
+  "statusCategory": {
+    "values": ["backlog", "unstarted", "started", "completed", "canceled", "triage"]
+  },
   "workItemPatchFields": [
     "title",
     "description",
@@ -15,6 +18,7 @@
     "tags",
     "project_id",
     "team_id",
+    "status_id",
     "department",
     "assignee_id",
     "due_date",
@@ -40,6 +44,17 @@
         "updated_at": { "type": "string", "readonly": true }
       }
     },
+    "Status": {
+      "fields": {
+        "id": { "type": "string", "readonly": true },
+        "team_id": { "type": "string", "readonly": true },
+        "name": { "type": "string" },
+        "category": { "type": { "kind": "enum", "enum": "statusCategory" } },
+        "position": { "type": "number" },
+        "created_at": { "type": "string", "readonly": true },
+        "updated_at": { "type": "string", "readonly": true }
+      }
+    },
     "Owner": {
       "fields": {
         "id": { "type": "string", "readonly": true },
@@ -59,6 +74,7 @@
         "source": { "type": { "kind": "enum", "enum": "workItemSource" } },
         "project_id": { "type": "string", "nullable": true },
         "team_id": { "type": "string" },
+        "status_id": { "type": "string" },
         "department": { "type": "string" },
         "assignee_id": { "type": "string", "nullable": true },
         "due_date": { "type": "string", "nullable": true },
