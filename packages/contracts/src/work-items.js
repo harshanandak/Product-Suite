@@ -62,6 +62,22 @@ export const STATUS_CATEGORY_VALUES = [
 ];
 
 /**
+ * Project lifecycle status — the cross-team OUTCOME container's OWN state, distinct
+ * from a work item's team-scoped workflow {@link Status}/{@link StatusCategory}.
+ * A closed set mirroring Linear's project states; server default is `backlog`.
+ * Mirrors the DB `project_status` enum. Project `health` stays DERIVED (never a
+ * stored field).
+ */
+export const PROJECT_STATUS_VALUES = [
+  "backlog",
+  "planned",
+  "in_progress",
+  "paused",
+  "completed",
+  "canceled",
+];
+
+/**
  * The editable surface of a work item (the {@link WorkItemPatch} keys) shared
  * VERBATIM by the repository `update`, the hook, and the Editor. Excludes managed
  * fields (`id`, timestamps), the derived `health`, and `source` (provenance is
@@ -116,6 +132,9 @@ export const workItemsCore = {
   statusCategory: {
     values: STATUS_CATEGORY_VALUES,
   },
+  projectStatus: {
+    values: PROJECT_STATUS_VALUES,
+  },
   workItemPatchFields: WORK_ITEM_PATCH_FIELDS,
   taskPatchFields: TASK_PATCH_FIELDS,
   objects: {
@@ -124,6 +143,9 @@ export const workItemsCore = {
         id: { type: "string", readonly: true },
         name: { type: "string" },
         kind: { type: "string" },
+        status: { type: { kind: "enum", enum: "projectStatus" } },
+        lead_id: { type: "string", nullable: true },
+        target_date: { type: "string", nullable: true },
         created_at: { type: "string", readonly: true },
         updated_at: { type: "string", readonly: true },
       },
