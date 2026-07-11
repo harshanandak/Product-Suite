@@ -196,6 +196,8 @@ interface WorkItemOptions {
   teamId?: string;
   /** Owning workflow status id; defaults to a stable id derived from the `phase`. */
   statusId?: string;
+  /** Optional parent work item id; `null` (default) = a top-level item. */
+  parentId?: string | null;
   assigneeId?: string | null;
   dueDate?: string | null;
   archived?: boolean;
@@ -230,6 +232,10 @@ function workItemOf(
     // `status_engineering_execute`) so the dataset satisfies the required
     // `status_id` without a separate statuses table.
     statusId = `status_${department.toLowerCase()}_${phase}`,
+    // Fixtures are all top-level today (no nested Tasks), so `parent_id` defaults
+    // to null and `depth` derives to 0. `depth` is server-derived (1 under a
+    // parent) — mirror that here rather than storing it independently.
+    parentId = null,
     assigneeId = null,
     dueDate = null,
     archived = false,
@@ -248,6 +254,8 @@ function workItemOf(
     project_id: projectId,
     team_id: teamId,
     status_id: statusId,
+    parent_id: parentId,
+    depth: parentId === null ? 0 : 1,
     department,
     assignee_id: assigneeId,
     due_date: dueDate === null ? null : T(dueDate),

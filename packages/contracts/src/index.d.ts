@@ -602,6 +602,19 @@ export interface WorkItem {
    * deprecated `phase`, whose category-equivalent it now drives.
    */
   status_id: string;
+  /**
+   * Optional PARENT work item — a Task is a work item with a parent (the owned
+   * child tier). `null` at top level. A child inherits its parent's `team_id`;
+   * native creation is depth-capped at 1 (a parent must itself be top-level).
+   * The self-FK is ON DELETE RESTRICT: a parent that still has sub-items cannot
+   * be hard-deleted until they are detached (children are never auto-orphaned).
+   */
+  parent_id: string | null;
+  /**
+   * Materialized tree depth (0 = top-level, 1 = a Task under a parent).
+   * Server-derived from `parent_id` — never accepted in a create/patch body.
+   */
+  readonly depth: number;
   /** @deprecated Workspace-defined department NAME (superseded by `team_id`); still populated for back-compat (§1). */
   department: string;
   /** Owner of the item, or `null` when routed to a department queue (§1). */
@@ -681,6 +694,7 @@ export type WorkItemPatch = Partial<
     | "project_id"
     | "team_id"
     | "status_id"
+    | "parent_id"
     | "department"
     | "assignee_id"
     | "due_date"

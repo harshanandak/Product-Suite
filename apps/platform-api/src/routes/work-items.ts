@@ -19,6 +19,8 @@ interface WorkItemRow {
   project_id: string | null
   team_id: string
   status_id: string
+  parent_id: string | null
+  depth: number
   department: string
   assignee_id: string | null
   due_date: string | Date | null
@@ -40,6 +42,8 @@ function toWorkItem(row: WorkItemRow): WorkItem {
     project_id: row.project_id,
     team_id: row.team_id,
     status_id: row.status_id,
+    parent_id: row.parent_id ?? null,
+    depth: row.depth ?? 0,
     department: row.department,
     assignee_id: row.assignee_id,
     due_date: row.due_date == null ? null : String(row.due_date),
@@ -98,7 +102,8 @@ workItemsRoutes.get('/', async (c) => {
   try {
     rows = (await sql`
       select wi.id, wi.title, wi.description, wi.phase, wi.type, wi.priority, wi.tags,
-             wi.source, wi.project_id, wi.team_id, wi.status_id, wi.department, wi.assignee_id,
+             wi.source, wi.project_id, wi.team_id, wi.status_id, wi.parent_id, wi.depth,
+             wi.department, wi.assignee_id,
              wi.due_date, wi.archived, wi.created_at, wi.updated_at
       from work_items wi
       where wi.tenant_id in (
@@ -178,15 +183,42 @@ workItemsRoutes.post('/', async (c) => {
       }
     }
 
+    // parent_id is OPTIONAL — supplying it makes this a Task (a work item with a
+    // parent). When present it must resolve to a parent that is (a) in the same
+    // tenant, (b) on the SAME team (a Task inherits its parent's team — a
+    // different team_id is rejected, not silently coerced, for clarity), and (c)
+    // itself top-level. (c) is the DEPTH CAP = 1: the default MODE POLICY,
+    // hardcoded here until modes exist (imports may bypass it and land deeper
+    // trees). depth is server-derived (1 under a parent, else 0) — never trusted
+    // from the body.
+    let depth = 0
+    if (body.parent_id != null) {
+      const parentRows = (await sql`
+        select team_id, parent_id from work_items
+        where id = ${body.parent_id} and tenant_id = ${tenantId}
+      `) as { team_id: string; parent_id: string | null }[]
+      const parent = parentRows[0]
+      if (!parent) {
+        return c.json({ error: 'Unknown parent' }, 400)
+      }
+      if (parent.team_id !== body.team_id) {
+        return c.json({ error: 'parent belongs to a different team' }, 400)
+      }
+      if (parent.parent_id != null) {
+        return c.json({ error: 'max nesting depth is 1' }, 400)
+      }
+      depth = 1
+    }
+
     const rows = (await sql`
       insert into work_items
         (tenant_id, title, description, phase, type, priority, tags, source,
-         project_id, team_id, status_id, department, assignee_id, due_date, archived)
+         project_id, team_id, status_id, parent_id, depth, department, assignee_id, due_date, archived)
       values
         (${tenantId}, ${body.title ?? 'Untitled work item'}, ${body.description ?? ''},
          ${body.phase ?? 'plan'}, ${body.type ?? 'feature'}, ${body.priority ?? 'medium'},
          ${body.tags ?? []}, 'manual', ${body.project_id ?? null}, ${body.team_id},
-         ${body.status_id}, ${body.department ?? 'General'},
+         ${body.status_id}, ${body.parent_id ?? null}, ${depth}, ${body.department ?? 'General'},
          ${body.assignee_id ?? null}, ${body.due_date ?? null}, ${body.archived ?? false})
       returning *
     `) as WorkItemRow[]
@@ -239,6 +271,21 @@ workItemsRoutes.patch('/:id', async (c) => {
       if (ownedTeam.length === 0) {
         return c.json({ error: 'Unknown team' }, 400)
       }
+      // A Task and its parent must share a team, so an item that is part of a
+      // hierarchy cannot change team on its own — either side would strand the
+      // other. Reject a team move while the item is a child (has a parent) OR a
+      // parent (has children). Detach the hierarchy first, then move.
+      if (patch.team_id !== current.team_id) {
+        if (current.parent_id != null) {
+          return c.json({ error: 'cannot change a sub-item’s team; re-parent or unparent it first' }, 400)
+        }
+        const kids = (await sql`
+          select 1 from work_items where parent_id = ${id} limit 1
+        `) as unknown[]
+        if (kids.length > 0) {
+          return c.json({ error: 'cannot change the team of an item with sub-items; move or detach them first' }, 400)
+        }
+      }
     }
 
     // A reassigned status must belong to the item's (possibly newly-set) team.
@@ -264,7 +311,64 @@ workItemsRoutes.patch('/:id', async (c) => {
       }
     }
 
+    // parent_id patch: SETTING a parent establishes the Task tier; CLEARING it
+    // (explicit null) promotes the item back to top-level. Absent ⇒ unchanged.
+    // Same-tenant + same-team + depth-cap-1 guards as create (the effective team
+    // is the patched team if reassigned, else the item's current one). Self-parent
+    // is rejected here; a proposed parent that is already a descendant is caught by
+    // the depth cap (it would have a parent) AND, as a race backstop, by the
+    // recursive-ancestors guard folded into the UPDATE below. depth is derived
+    // (0 when cleared, 1 under a parent) — never trusted from the body.
+    let nextParentId: string | null = current.parent_id
+    let nextDepth = current.depth
+    const settingParent = 'parent_id' in patch && patch.parent_id != null
+    if ('parent_id' in patch) {
+      if (patch.parent_id == null) {
+        nextParentId = null
+        nextDepth = 0
+      } else {
+        if (patch.parent_id === id) {
+          return c.json({ error: 'A work item cannot be its own parent' }, 400)
+        }
+        // Depth cap (child side): an item that already HAS children cannot itself
+        // be nested — that would create a depth-2 tree (grandchildren) past the
+        // native cap of 1. Reject; the user must first move/detach the children.
+        const childRows = (await sql`
+          select 1 from work_items where parent_id = ${id} limit 1
+        `) as unknown[]
+        if (childRows.length > 0) {
+          return c.json({ error: 'cannot nest an item that has its own sub-items' }, 400)
+        }
+        const effectiveTeamId = patch.team_id ?? current.team_id
+        const parentRows = (await sql`
+          select team_id, parent_id from work_items
+          where id = ${patch.parent_id} and tenant_id = any(${tenantIds})
+        `) as { team_id: string; parent_id: string | null }[]
+        const parent = parentRows[0]
+        if (!parent) {
+          return c.json({ error: 'Unknown parent' }, 400)
+        }
+        if (parent.team_id !== effectiveTeamId) {
+          return c.json({ error: 'parent belongs to a different team' }, 400)
+        }
+        if (parent.parent_id != null) {
+          return c.json({ error: 'max nesting depth is 1' }, 400)
+        }
+        nextParentId = patch.parent_id
+        nextDepth = 1
+      }
+    }
+
     const next = { ...current, ...patch }
+    // The parent-set is folded into this single UPDATE with a WHERE NOT EXISTS
+    // reachability guard — the same one-statement approach documented in
+    // routes/dependencies.ts. It closes the check-then-write gap where a concurrent
+    // request commits a reaching path between our pre-check and this write. It does
+    // NOT fully serialize: two concurrent complementary sets (A→B and B→A) can each
+    // pass under READ COMMITTED (neither sees the other's uncommitted row) and form
+    // a 2-cycle; closing that needs SERIALIZABLE (sql.transaction). Acceptable while
+    // parent writes are low-volume (revisit if that changes). When no parent is
+    // being set (${nextParentId} is null) the guard is a no-op.
     const rows = (await sql`
       update work_items set
         title = ${next.title},
@@ -276,16 +380,38 @@ workItemsRoutes.patch('/:id', async (c) => {
         project_id = ${next.project_id ?? null},
         team_id = ${next.team_id},
         status_id = ${next.status_id},
+        parent_id = ${nextParentId},
+        depth = ${nextDepth},
         department = ${next.department},
         assignee_id = ${next.assignee_id ?? null},
         due_date = ${next.due_date ?? null},
         archived = ${next.archived ?? false},
         updated_at = now()
       where id = ${id} and tenant_id = any(${tenantIds})
+        and (
+          ${nextParentId}::uuid is null
+          or not exists (
+            with recursive ancestors(id) as (
+              select parent_id as id from work_items
+                where id = ${nextParentId} and parent_id is not null
+              union
+              select w.parent_id as id from work_items w
+                join ancestors a on w.id = a.id
+                where w.parent_id is not null
+            )
+            select 1 from ancestors where id = ${id}
+          )
+        )
       returning *
     `) as WorkItemRow[]
     const updated = rows[0]
     if (!updated) {
+      // The row exists (fetched above) — a no-match now means the reachability
+      // guard blocked a parent-set that would close a cycle. Otherwise it is a
+      // genuine not-found (e.g. a concurrent delete).
+      if (settingParent) {
+        return c.json({ error: 'parent_id would create a cycle' }, 400)
+      }
       return c.json({ error: 'Not found' }, 404)
     }
 

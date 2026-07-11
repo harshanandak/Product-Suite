@@ -295,6 +295,11 @@ export function createMockWorkItemRepository(
         // status_id is mandatory: use the caller's, else the first existing item's
         // status (the active workspace's primary lane), else a safe fallback.
         status_id: input.status_id ?? workItems[0]?.status_id ?? "status_default",
+        // parent_id is optional (a Task is a work item with a parent); default to
+        // top-level. depth is server-derived (1 under a parent, else 0) — the mock
+        // mirrors that rather than trusting an input `depth`.
+        parent_id: input.parent_id ?? null,
+        depth: input.parent_id == null ? 0 : 1,
         // Default to the caller's department, else the first existing item's
         // department (the active workspace's primary lane), else a safe fallback.
         department: input.department ?? workItems[0]?.department ?? "General",
@@ -423,6 +428,11 @@ export function createMockWorkItemRepository(
         ...patch,
         // Copy any incoming tags so the store never aliases the caller's array.
         ...(patch.tags ? { tags: [...patch.tags] } : {}),
+        // depth is derived, never patched directly: keep it consistent with a
+        // parent_id change (0 top-level, 1 under a parent).
+        ...("parent_id" in patch
+          ? { depth: patch.parent_id == null ? 0 : 1 }
+          : {}),
         updated_at: new Date().toISOString(),
       };
       workItems[index] = updated;
