@@ -18,6 +18,7 @@ interface WorkItemRow {
   source: WorkItem['source']
   project_id: string | null
   team_id: string
+  status_id: string
   department: string
   assignee_id: string | null
   due_date: string | Date | null
@@ -38,6 +39,7 @@ function toWorkItem(row: WorkItemRow): WorkItem {
     source: row.source,
     project_id: row.project_id,
     team_id: row.team_id,
+    status_id: row.status_id,
     department: row.department,
     assignee_id: row.assignee_id,
     due_date: row.due_date == null ? null : String(row.due_date),
@@ -96,8 +98,8 @@ workItemsRoutes.get('/', async (c) => {
   try {
     rows = (await sql`
       select wi.id, wi.title, wi.description, wi.phase, wi.type, wi.priority, wi.tags,
-             wi.source, wi.project_id, wi.team_id, wi.department, wi.assignee_id, wi.due_date,
-             wi.archived, wi.created_at, wi.updated_at
+             wi.source, wi.project_id, wi.team_id, wi.status_id, wi.department, wi.assignee_id,
+             wi.due_date, wi.archived, wi.created_at, wi.updated_at
       from work_items wi
       where wi.tenant_id in (
         select om.tenant_id
@@ -153,6 +155,20 @@ workItemsRoutes.post('/', async (c) => {
       return c.json({ error: 'Unknown team' }, 400)
     }
 
+    // status_id is mandatory and must be a status of the SAME team. Never trust
+    // the client id: a status from another team (or tenant) fails this guard and
+    // is rejected as unknown (no cross-team/tenant leak). The team was just
+    // verified in-tenant, so matching on team_id also confines it to the tenant.
+    if (!body.status_id) {
+      return c.json({ error: 'status_id is required' }, 400)
+    }
+    const ownedStatus = (await sql`
+      select 1 from statuses where id = ${body.status_id} and team_id = ${body.team_id}
+    `) as unknown[]
+    if (ownedStatus.length === 0) {
+      return c.json({ error: 'Unknown status' }, 400)
+    }
+
     if (body.project_id != null) {
       const owned = (await sql`
         select 1 from projects where id = ${body.project_id} and tenant_id = ${tenantId}
@@ -165,12 +181,12 @@ workItemsRoutes.post('/', async (c) => {
     const rows = (await sql`
       insert into work_items
         (tenant_id, title, description, phase, type, priority, tags, source,
-         project_id, team_id, department, assignee_id, due_date, archived)
+         project_id, team_id, status_id, department, assignee_id, due_date, archived)
       values
         (${tenantId}, ${body.title ?? 'Untitled work item'}, ${body.description ?? ''},
          ${body.phase ?? 'plan'}, ${body.type ?? 'feature'}, ${body.priority ?? 'medium'},
          ${body.tags ?? []}, 'manual', ${body.project_id ?? null}, ${body.team_id},
-         ${body.department ?? 'General'},
+         ${body.status_id}, ${body.department ?? 'General'},
          ${body.assignee_id ?? null}, ${body.due_date ?? null}, ${body.archived ?? false})
       returning *
     `) as WorkItemRow[]
@@ -225,6 +241,20 @@ workItemsRoutes.patch('/:id', async (c) => {
       }
     }
 
+    // A reassigned status must belong to the item's (possibly newly-set) team.
+    // The effective team is the patched team if present, else the current one —
+    // both already confined to the caller's tenant, so matching on team_id keeps
+    // the status in-tenant too.
+    if (patch.status_id != null) {
+      const effectiveTeamId = patch.team_id ?? current.team_id
+      const ownedStatus = (await sql`
+        select 1 from statuses where id = ${patch.status_id} and team_id = ${effectiveTeamId}
+      `) as unknown[]
+      if (ownedStatus.length === 0) {
+        return c.json({ error: 'Unknown status' }, 400)
+      }
+    }
+
     if (patch.project_id != null) {
       const owned = (await sql`
         select 1 from projects where id = ${patch.project_id} and tenant_id = any(${tenantIds})
@@ -245,6 +275,7 @@ workItemsRoutes.patch('/:id', async (c) => {
         tags = ${next.tags ?? []},
         project_id = ${next.project_id ?? null},
         team_id = ${next.team_id},
+        status_id = ${next.status_id},
         department = ${next.department},
         assignee_id = ${next.assignee_id ?? null},
         due_date = ${next.due_date ?? null},

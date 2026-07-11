@@ -47,6 +47,21 @@ export const ACTIVITY_EVENT_KIND_VALUES = [
 ];
 
 /**
+ * Immutable status CATEGORIES — the closed set every {@link Status} maps to. A
+ * team customizes a status's NAME and order, never its category; all rollups /
+ * automation read the category, never the name. `triage` is reserved for the
+ * integration/agent inbox. Mirrors the DB `status_category` enum.
+ */
+export const STATUS_CATEGORY_VALUES = [
+  "backlog",
+  "unstarted",
+  "started",
+  "completed",
+  "canceled",
+  "triage",
+];
+
+/**
  * The editable surface of a work item (the {@link WorkItemPatch} keys) shared
  * VERBATIM by the repository `update`, the hook, and the Editor. Excludes managed
  * fields (`id`, timestamps), the derived `health`, and `source` (provenance is
@@ -62,6 +77,7 @@ export const WORK_ITEM_PATCH_FIELDS = [
   "tags",
   "project_id",
   "team_id",
+  "status_id",
   "department",
   "assignee_id",
   "due_date",
@@ -96,6 +112,9 @@ export const workItemsCore = {
   activityEventKind: {
     values: ACTIVITY_EVENT_KIND_VALUES,
   },
+  statusCategory: {
+    values: STATUS_CATEGORY_VALUES,
+  },
   workItemPatchFields: WORK_ITEM_PATCH_FIELDS,
   taskPatchFields: TASK_PATCH_FIELDS,
   objects: {
@@ -113,6 +132,17 @@ export const workItemsCore = {
         id: { type: "string", readonly: true },
         tenant_id: { type: "string", readonly: true },
         name: { type: "string" },
+        created_at: { type: "string", readonly: true },
+        updated_at: { type: "string", readonly: true },
+      },
+    },
+    Status: {
+      fields: {
+        id: { type: "string", readonly: true },
+        team_id: { type: "string", readonly: true },
+        name: { type: "string" },
+        category: { type: { kind: "enum", enum: "statusCategory" } },
+        position: { type: "number" },
         created_at: { type: "string", readonly: true },
         updated_at: { type: "string", readonly: true },
       },
@@ -136,6 +166,7 @@ export const workItemsCore = {
         source: { type: { kind: "enum", enum: "workItemSource" } },
         project_id: { type: "string", nullable: true },
         team_id: { type: "string" },
+        status_id: { type: "string" },
         department: { type: "string" },
         assignee_id: { type: "string", nullable: true },
         due_date: { type: "string", nullable: true },

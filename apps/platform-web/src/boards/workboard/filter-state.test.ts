@@ -30,6 +30,7 @@ function rowOf(overrides: Partial<WorkItemRow> = {}): WorkItemRow {
     source: "manual",
     project_id: null,
     team_id: "team_engineering",
+    status_id: "status_engineering_plan",
     department: "Engineering",
     assignee_id: null,
     due_date: null,

@@ -4,6 +4,7 @@ import { clerkAuth, type AuthedEnv } from './middleware/clerk-auth'
 import { dependenciesRoutes } from './routes/dependencies'
 import { ownersRoutes } from './routes/owners'
 import { projectsRoutes } from './routes/projects'
+import { statusesRoutes } from './routes/statuses'
 import { tasksRoutes } from './routes/tasks'
 import { teamsRoutes } from './routes/teams'
 import { workItemsRoutes } from './routes/work-items'
@@ -29,6 +30,7 @@ app.route('/api/tasks', tasksRoutes)
 app.route('/api/dependencies', dependenciesRoutes)
 app.route('/api/projects', projectsRoutes)
 app.route('/api/teams', teamsRoutes)
+app.route('/api/statuses', statusesRoutes)
 app.route('/api/owners', ownersRoutes)
 
 export default app

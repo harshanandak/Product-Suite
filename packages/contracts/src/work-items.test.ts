@@ -90,6 +90,9 @@ describe("@product-suite/contracts work-items core — drift guard", () => {
     expect(workItemsModule.ACTIVITY_EVENT_KIND_VALUES).toEqual(
       workItemsCore.activityEventKind.values,
     );
+    expect(workItemsModule.STATUS_CATEGORY_VALUES).toEqual(
+      workItemsCore.statusCategory.values,
+    );
     expect(workItemsModule.WORK_ITEM_PATCH_FIELDS).toEqual(
       workItemsCore.workItemPatchFields,
     );
@@ -110,6 +113,14 @@ describe("@product-suite/contracts work-items core — drift guard", () => {
     const jsValues = workItemsCore.activityEventKind.values;
     const jsonValues = coreJson.activityEventKind.values;
     const tsMembers = unionMembers("ActivityEventKind");
+    expect(sorted(jsValues)).toEqual(sorted(jsonValues));
+    expect(sorted(tsMembers)).toEqual(sorted(jsValues));
+  });
+
+  test("StatusCategory: JS values, JSON, and the .d.ts union agree", () => {
+    const jsValues = workItemsCore.statusCategory.values;
+    const jsonValues = coreJson.statusCategory.values;
+    const tsMembers = unionMembers("StatusCategory");
     expect(sorted(jsValues)).toEqual(sorted(jsonValues));
     expect(sorted(tsMembers)).toEqual(sorted(jsValues));
   });
@@ -139,6 +150,7 @@ describe("@product-suite/contracts work-items core — drift guard", () => {
       ...Object.keys(enums),
       "dependencyRelationship",
       "activityEventKind",
+      "statusCategory",
     ]);
     for (const object of Object.values(workItemsCore.objects)) {
       for (const field of Object.values(object.fields)) {

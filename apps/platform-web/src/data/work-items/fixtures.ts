@@ -194,6 +194,8 @@ interface WorkItemOptions {
   projectId?: string | null;
   /** Owning team id; defaults to a stable id derived from the `department` name. */
   teamId?: string;
+  /** Owning workflow status id; defaults to a stable id derived from the `phase`. */
+  statusId?: string;
   assigneeId?: string | null;
   dueDate?: string | null;
   archived?: boolean;
@@ -223,6 +225,11 @@ function workItemOf(
     // to a stable per-department team id (`Engineering` → `team_engineering`) so
     // the mock dataset satisfies the required `team_id` without a separate table.
     teamId = `team_${department.toLowerCase()}`,
+    // Every work item has a mandatory workflow status. The mock maps each `phase`
+    // to a stable per-team status id (`Engineering` + `execute` →
+    // `status_engineering_execute`) so the dataset satisfies the required
+    // `status_id` without a separate statuses table.
+    statusId = `status_${department.toLowerCase()}_${phase}`,
     assigneeId = null,
     dueDate = null,
     archived = false,
@@ -240,6 +247,7 @@ function workItemOf(
     source,
     project_id: projectId,
     team_id: teamId,
+    status_id: statusId,
     department,
     assignee_id: assigneeId,
     due_date: dueDate === null ? null : T(dueDate),

@@ -15,6 +15,13 @@
       "when": 1783756745497,
       "tag": "0001_dear_the_enforcers",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783760581267,
+      "tag": "0002_polite_orphan",
+      "breakpoints": true
     }
   ]
 }

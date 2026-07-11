@@ -485,6 +485,19 @@ export type ActivityEventKind =
   | "updated"
   | "dependency_added"
   | "dependency_removed";
+/**
+ * Immutable status CATEGORY — the closed set every {@link Status} maps to. A team
+ * customizes a status's NAME and order, never its category; all rollups /
+ * automation read the category, never the name. `triage` is reserved for the
+ * integration/agent inbox. Mirrors the DB `status_category` enum.
+ */
+export type StatusCategory =
+  | "backlog"
+  | "unstarted"
+  | "started"
+  | "completed"
+  | "canceled"
+  | "triage";
 
 /**
  * A project — top of the object ladder (§1). A "category of work as one
@@ -513,6 +526,26 @@ export interface Team {
   /** The owning org (= workspace = tenant). Server-owned. */
   readonly tenant_id: string;
   name: string;
+  readonly created_at: string;
+  readonly updated_at: string;
+}
+
+/**
+ * A status — a team's named workflow state. Each maps to exactly one immutable
+ * {@link StatusCategory}; the team customizes the `name` and order (`position`),
+ * never the category. A work item's lifecycle state is its required `status_id`
+ * (one of its owning team's statuses), superseding the deprecated `phase`. The
+ * `team_id` is server-owned and scopes the status to its team.
+ */
+export interface Status {
+  readonly id: string;
+  /** The owning {@link Team} id. Server-owned. */
+  readonly team_id: string;
+  name: string;
+  /** The immutable category this status maps to (drives every rollup). */
+  category: StatusCategory;
+  /** Sort order within the team's board (ascending). */
+  position: number;
   readonly created_at: string;
   readonly updated_at: string;
 }
@@ -563,6 +596,12 @@ export interface WorkItem {
    * (deprecated) for one contract cycle for back-compat.
    */
   team_id: string;
+  /**
+   * The owning team's {@link Status} id — MANDATORY (every work item has exactly
+   * one workflow state). Must belong to the item's `team_id`. Supersedes the
+   * deprecated `phase`, whose category-equivalent it now drives.
+   */
+  status_id: string;
   /** @deprecated Workspace-defined department NAME (superseded by `team_id`); still populated for back-compat (§1). */
   department: string;
   /** Owner of the item, or `null` when routed to a department queue (§1). */
@@ -641,6 +680,7 @@ export type WorkItemPatch = Partial<
     | "tags"
     | "project_id"
     | "team_id"
+    | "status_id"
     | "department"
     | "assignee_id"
     | "due_date"
@@ -663,7 +703,7 @@ export interface WorkItemRow extends WorkItem {
 
 /** A field descriptor in {@link workItemsCore} — a language-neutral shape spec. */
 export interface WorkItemsCoreFieldDescriptor {
-  type: "string" | "boolean" | "string[]" | { kind: "enum"; enum: string };
+  type: "string" | "boolean" | "number" | "string[]" | { kind: "enum"; enum: string };
   nullable?: boolean;
   optional?: boolean;
   readonly?: boolean;
@@ -681,11 +721,13 @@ export interface WorkItemsCore {
     default: DependencyRelationship;
   };
   activityEventKind: { values: readonly ActivityEventKind[] };
+  statusCategory: { values: readonly StatusCategory[] };
   workItemPatchFields: readonly (keyof WorkItemPatch)[];
   taskPatchFields: readonly ("title" | "status" | "due_date")[];
   objects: Record<
     | "Project"
     | "Team"
+    | "Status"
     | "Owner"
     | "WorkItem"
     | "Task"
@@ -698,6 +740,7 @@ export interface WorkItemsCore {
 export const DEPENDENCY_RELATIONSHIP_VALUES: readonly DependencyRelationship[];
 export const DEPENDENCY_RELATIONSHIP_DEFAULT: DependencyRelationship;
 export const ACTIVITY_EVENT_KIND_VALUES: readonly ActivityEventKind[];
+export const STATUS_CATEGORY_VALUES: readonly StatusCategory[];
 export const WORK_ITEM_PATCH_FIELDS: readonly (keyof WorkItemPatch)[];
 export const TASK_PATCH_FIELDS: readonly ("title" | "status" | "due_date")[];
 export const workItemsCore: WorkItemsCore;

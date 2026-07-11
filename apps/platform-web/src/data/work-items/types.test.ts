@@ -24,6 +24,7 @@ function workItem(overrides: Partial<WorkItem> = {}): WorkItem {
     source: "manual",
     project_id: null,
     team_id: "team_engineering",
+    status_id: "status_engineering_execute",
     department: "Engineering",
     assignee_id: null,
     due_date: null,
