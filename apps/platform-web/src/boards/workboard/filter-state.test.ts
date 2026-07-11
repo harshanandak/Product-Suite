@@ -31,6 +31,8 @@ function rowOf(overrides: Partial<WorkItemRow> = {}): WorkItemRow {
     project_id: null,
     team_id: "team_engineering",
     status_id: "status_engineering_plan",
+    parent_id: null,
+    depth: 0,
     department: "Engineering",
     assignee_id: null,
     due_date: null,

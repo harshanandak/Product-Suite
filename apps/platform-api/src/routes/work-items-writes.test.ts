@@ -20,6 +20,8 @@ const WI_ROW = {
   project_id: null,
   team_id: 'team_1',
   status_id: 'status_1',
+  parent_id: null,
+  depth: 0,
   department: 'Eng',
   assignee_id: null,
   due_date: null,
@@ -240,6 +242,188 @@ describe('work-item writes', () => {
     })
     expect(res.status).toBe(200)
     expect(((await res.json()) as { status_id: string }).status_id).toBe('status_2')
+  })
+
+  it('POST creates a Task under a top-level parent (depth=1, parent verified in-tenant + same team)', async () => {
+    const sql = vi.fn()
+    sql
+      .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
+      .mockResolvedValueOnce([{ n: 1 }]) // team ownership check (owned)
+      .mockResolvedValueOnce([{ n: 1 }]) // status belongs-to-team check (owned)
+      .mockResolvedValueOnce([{ team_id: 'team_1', parent_id: null }]) // parent: top-level, same team
+      .mockResolvedValueOnce([{ ...WI_ROW, parent_id: 'wi_parent', depth: 1 }]) // insert returning
+      .mockResolvedValueOnce([]) // activity insert
+    createSql.mockReturnValue(sql)
+
+    const res = await app.request('/api/work-items', {
+      method: 'POST',
+      ...auth,
+      body: JSON.stringify({
+        title: 'A',
+        team_id: 'team_1',
+        status_id: 'status_1',
+        parent_id: 'wi_parent',
+      }),
+    })
+    expect(res.status).toBe(201)
+    const created = (await res.json()) as { parent_id: string; depth: number }
+    expect(created.parent_id).toBe('wi_parent')
+    expect(created.depth).toBe(1)
+    // The parent was looked up scoped to the caller's resolved tenant, not trusted.
+    const parentCheckParams = sql.mock.calls[3]?.slice(1) ?? []
+    expect(parentCheckParams).toContain('wi_parent')
+    expect(parentCheckParams).toContain('t_1')
+  })
+
+  it('POST rejects a parent on a different team (a Task inherits its parent’s team)', async () => {
+    const sql = vi.fn()
+    sql
+      .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
+      .mockResolvedValueOnce([{ n: 1 }]) // team ownership check (owned)
+      .mockResolvedValueOnce([{ n: 1 }]) // status belongs-to-team check (owned)
+      .mockResolvedValueOnce([{ team_id: 'team_other', parent_id: null }]) // parent: different team
+    createSql.mockReturnValue(sql)
+
+    const res = await app.request('/api/work-items', {
+      method: 'POST',
+      ...auth,
+      body: JSON.stringify({ title: 'A', team_id: 'team_1', status_id: 'status_1', parent_id: 'wi_parent' }),
+    })
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'parent belongs to a different team' })
+  })
+
+  it('POST rejects nesting past depth 1 (the parent already has a parent)', async () => {
+    const sql = vi.fn()
+    sql
+      .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
+      .mockResolvedValueOnce([{ n: 1 }]) // team ownership check (owned)
+      .mockResolvedValueOnce([{ n: 1 }]) // status belongs-to-team check (owned)
+      .mockResolvedValueOnce([{ team_id: 'team_1', parent_id: 'wi_grandparent' }]) // parent is itself a child
+    createSql.mockReturnValue(sql)
+
+    const res = await app.request('/api/work-items', {
+      method: 'POST',
+      ...auth,
+      body: JSON.stringify({ title: 'A', team_id: 'team_1', status_id: 'status_1', parent_id: 'wi_parent' }),
+    })
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'max nesting depth is 1' })
+  })
+
+  it('POST rejects an unknown/out-of-tenant parent', async () => {
+    const sql = vi.fn()
+    sql
+      .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
+      .mockResolvedValueOnce([{ n: 1 }]) // team ownership check (owned)
+      .mockResolvedValueOnce([{ n: 1 }]) // status belongs-to-team check (owned)
+      .mockResolvedValueOnce([]) // parent lookup: not in tenant -> unknown
+    createSql.mockReturnValue(sql)
+
+    const res = await app.request('/api/work-items', {
+      method: 'POST',
+      ...auth,
+      body: JSON.stringify({ title: 'A', team_id: 'team_1', status_id: 'status_1', parent_id: 'wi_ghost' }),
+    })
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'Unknown parent' })
+  })
+
+  it('PATCH sets a parent on an owned item (depth=1) and returns it', async () => {
+    const sql = vi.fn()
+    sql
+      .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
+      .mockResolvedValueOnce([WI_ROW]) // scoped select (owned, top-level)
+      .mockResolvedValueOnce([{ team_id: 'team_1', parent_id: null }]) // parent: top-level, same team
+      .mockResolvedValueOnce([{ ...WI_ROW, parent_id: 'wi_parent', depth: 1 }]) // update returning
+      .mockResolvedValueOnce([]) // activity insert
+    createSql.mockReturnValue(sql)
+
+    const res = await app.request('/api/work-items/wi_1', {
+      method: 'PATCH',
+      ...auth,
+      body: JSON.stringify({ parent_id: 'wi_parent' }),
+    })
+    expect(res.status).toBe(200)
+    const updated = (await res.json()) as { parent_id: string; depth: number }
+    expect(updated.parent_id).toBe('wi_parent')
+    expect(updated.depth).toBe(1)
+  })
+
+  it('PATCH rejects making an item its own parent (self-cycle, no lookup)', async () => {
+    const sql = vi.fn()
+    sql
+      .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
+      .mockResolvedValueOnce([WI_ROW]) // scoped select (owned)
+    createSql.mockReturnValue(sql)
+
+    const res = await app.request('/api/work-items/wi_1', {
+      method: 'PATCH',
+      ...auth,
+      body: JSON.stringify({ parent_id: 'wi_1' }),
+    })
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'A work item cannot be its own parent' })
+    // Rejected before any parent lookup — only tenant + scoped-select ran.
+    expect(sql).toHaveBeenCalledTimes(2)
+  })
+
+  it('PATCH rejects a descendant as parent (proposed parent already has a parent → depth cap)', async () => {
+    const sql = vi.fn()
+    sql
+      .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
+      .mockResolvedValueOnce([WI_ROW]) // scoped select (owned)
+      .mockResolvedValueOnce([{ team_id: 'team_1', parent_id: 'wi_1' }]) // proposed parent is a child of wi_1
+    createSql.mockReturnValue(sql)
+
+    const res = await app.request('/api/work-items/wi_1', {
+      method: 'PATCH',
+      ...auth,
+      body: JSON.stringify({ parent_id: 'wi_child' }),
+    })
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'max nesting depth is 1' })
+  })
+
+  it('PATCH returns 400 (cycle) when the atomic guard blocks a parent-set', async () => {
+    const sql = vi.fn()
+    sql
+      .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
+      .mockResolvedValueOnce([WI_ROW]) // scoped select (owned)
+      .mockResolvedValueOnce([{ team_id: 'team_1', parent_id: null }]) // parent passes pre-checks
+      .mockResolvedValueOnce([]) // update matched no row -> reachability guard blocked it
+    createSql.mockReturnValue(sql)
+
+    const res = await app.request('/api/work-items/wi_1', {
+      method: 'PATCH',
+      ...auth,
+      body: JSON.stringify({ parent_id: 'wi_parent' }),
+    })
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'parent_id would create a cycle' })
+  })
+
+  it('PATCH clearing parent_id resets depth to 0 (no parent lookup)', async () => {
+    const CHILD_ROW = { ...WI_ROW, parent_id: 'wi_parent', depth: 1 }
+    const sql = vi.fn()
+    sql
+      .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
+      .mockResolvedValueOnce([CHILD_ROW]) // scoped select (owned, a Task)
+      .mockResolvedValueOnce([{ ...CHILD_ROW, parent_id: null, depth: 0 }]) // update returning
+      .mockResolvedValueOnce([]) // activity insert
+    createSql.mockReturnValue(sql)
+
+    const res = await app.request('/api/work-items/wi_1', {
+      method: 'PATCH',
+      ...auth,
+      body: JSON.stringify({ parent_id: null }),
+    })
+    expect(res.status).toBe(200)
+    const updated = (await res.json()) as { parent_id: string | null; depth: number }
+    expect(updated.parent_id).toBeNull()
+    expect(updated.depth).toBe(0)
+    // No parent lookup ran for a clear — tenant, select, update, activity only.
+    expect(sql).toHaveBeenCalledTimes(4)
   })
 
   it('GET /:id/activity returns the feed for an owned item', async () => {

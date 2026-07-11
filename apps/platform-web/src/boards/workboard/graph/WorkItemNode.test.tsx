@@ -68,6 +68,8 @@ const ROW: WorkItemRow = {
   project_id: null,
   team_id: "team_engineering",
   status_id: "status_engineering_execute",
+  parent_id: null,
+  depth: 0,
   department: "Engineering",
   assignee_id: "user_amara",
   due_date: "2026-07-10T00:00:00.000Z",
