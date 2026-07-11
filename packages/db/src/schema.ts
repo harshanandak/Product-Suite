@@ -146,11 +146,12 @@ export const workItems = pgTable(
       .notNull()
       .references(() => statuses.id, { onDelete: 'restrict' }),
     // Optional parent — a Task is a work item with a parent (the owned child tier).
-    // Self-FK added in the migration (ON DELETE SET NULL, so deleting a parent
-    // promotes its children to top-level rather than destroying work). Native
-    // creation is depth-capped at 1 (a parent must itself be top-level); the cap
-    // is a MODE POLICY enforced in the API, not a schema constraint — imports may
-    // bypass it and land deeper trees (see design §2.5).
+    // Self-FK added in the migration (ON DELETE RESTRICT: a parent with sub-items
+    // can't be hard-deleted until they're detached, so `depth` never goes stale).
+    // Native creation is depth-capped at 1 (a parent must itself be top-level, and
+    // an item that already has children cannot itself be nested); the cap is a MODE
+    // POLICY enforced in the API, not a schema constraint — imports may bypass it
+    // and land deeper trees (see design §2.5).
     parentId: uuid('parent_id'),
     // Materialized tree depth (0 = top-level). Stored from day one so the depth
     // cap can be raised later without a data migration. Maintained by the API.

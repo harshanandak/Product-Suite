@@ -315,6 +315,15 @@ workItemsRoutes.patch('/:id', async (c) => {
         if (patch.parent_id === id) {
           return c.json({ error: 'A work item cannot be its own parent' }, 400)
         }
+        // Depth cap (child side): an item that already HAS children cannot itself
+        // be nested — that would create a depth-2 tree (grandchildren) past the
+        // native cap of 1. Reject; the user must first move/detach the children.
+        const childRows = (await sql`
+          select 1 from work_items where parent_id = ${id} limit 1
+        `) as unknown[]
+        if (childRows.length > 0) {
+          return c.json({ error: 'cannot nest an item that has its own sub-items' }, 400)
+        }
         const effectiveTeamId = patch.team_id ?? current.team_id
         const parentRows = (await sql`
           select team_id, parent_id from work_items
@@ -333,6 +342,18 @@ workItemsRoutes.patch('/:id', async (c) => {
         nextParentId = patch.parent_id
         nextDepth = 1
       }
+    }
+    // Same-team invariant (parent untouched): a sub-item's team follows its parent.
+    // When parent_id is NOT in this patch but team_id changes on an already-parented
+    // item, the child would drift onto a different team than its parent — reject.
+    // (When parent_id IS in the patch, the effectiveTeamId check above already covers it.)
+    if (
+      nextParentId != null &&
+      !('parent_id' in patch) &&
+      patch.team_id != null &&
+      patch.team_id !== current.team_id
+    ) {
+      return c.json({ error: 'cannot change a sub-item’s team; re-parent or unparent it first' }, 400)
     }
 
     const next = { ...current, ...patch }

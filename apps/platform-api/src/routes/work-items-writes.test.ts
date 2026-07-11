@@ -334,6 +334,7 @@ describe('work-item writes', () => {
     sql
       .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
       .mockResolvedValueOnce([WI_ROW]) // scoped select (owned, top-level)
+      .mockResolvedValueOnce([]) // child-existence check: item has no sub-items
       .mockResolvedValueOnce([{ team_id: 'team_1', parent_id: null }]) // parent: top-level, same team
       .mockResolvedValueOnce([{ ...WI_ROW, parent_id: 'wi_parent', depth: 1 }]) // update returning
       .mockResolvedValueOnce([]) // activity insert
@@ -373,6 +374,7 @@ describe('work-item writes', () => {
     sql
       .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
       .mockResolvedValueOnce([WI_ROW]) // scoped select (owned)
+      .mockResolvedValueOnce([]) // child-existence check: no sub-items
       .mockResolvedValueOnce([{ team_id: 'team_1', parent_id: 'wi_1' }]) // proposed parent is a child of wi_1
     createSql.mockReturnValue(sql)
 
@@ -390,6 +392,7 @@ describe('work-item writes', () => {
     sql
       .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
       .mockResolvedValueOnce([WI_ROW]) // scoped select (owned)
+      .mockResolvedValueOnce([]) // child-existence check: no sub-items
       .mockResolvedValueOnce([{ team_id: 'team_1', parent_id: null }]) // parent passes pre-checks
       .mockResolvedValueOnce([]) // update matched no row -> reachability guard blocked it
     createSql.mockReturnValue(sql)
@@ -401,6 +404,43 @@ describe('work-item writes', () => {
     })
     expect(res.status).toBe(400)
     expect(await res.json()).toEqual({ error: 'parent_id would create a cycle' })
+  })
+
+  it('PATCH rejects nesting an item that already has sub-items (child-side depth cap)', async () => {
+    const sql = vi.fn()
+    sql
+      .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
+      .mockResolvedValueOnce([WI_ROW]) // scoped select (owned, top-level)
+      .mockResolvedValueOnce([{ one: 1 }]) // child-existence check: item HAS sub-items
+    createSql.mockReturnValue(sql)
+
+    const res = await app.request('/api/work-items/wi_1', {
+      method: 'PATCH',
+      ...auth,
+      body: JSON.stringify({ parent_id: 'wi_parent' }),
+    })
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'cannot nest an item that has its own sub-items' })
+  })
+
+  it('PATCH rejects changing a sub-item’s team while it stays parented', async () => {
+    const CHILD = { ...WI_ROW, parent_id: 'wi_parent', depth: 1 }
+    const sql = vi.fn()
+    sql
+      .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
+      .mockResolvedValueOnce([CHILD]) // scoped select (owned, already parented)
+      .mockResolvedValueOnce([{ one: 1 }]) // team reassign: team_2 is in the caller's tenant
+    createSql.mockReturnValue(sql)
+
+    const res = await app.request('/api/work-items/wi_1', {
+      method: 'PATCH',
+      ...auth,
+      body: JSON.stringify({ team_id: 'team_2' }),
+    })
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({
+      error: 'cannot change a sub-item’s team; re-parent or unparent it first',
+    })
   })
 
   it('PATCH clearing parent_id resets depth to 0 (no parent lookup)', async () => {
