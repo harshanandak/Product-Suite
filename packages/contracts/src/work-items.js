@@ -61,6 +61,7 @@ export const WORK_ITEM_PATCH_FIELDS = [
   "priority",
   "tags",
   "project_id",
+  "team_id",
   "department",
   "assignee_id",
   "due_date",
@@ -107,6 +108,15 @@ export const workItemsCore = {
         updated_at: { type: "string", readonly: true },
       },
     },
+    Team: {
+      fields: {
+        id: { type: "string", readonly: true },
+        tenant_id: { type: "string", readonly: true },
+        name: { type: "string" },
+        created_at: { type: "string", readonly: true },
+        updated_at: { type: "string", readonly: true },
+      },
+    },
     Owner: {
       fields: {
         id: { type: "string", readonly: true },
@@ -125,6 +135,7 @@ export const workItemsCore = {
         tags: { type: "string[]" },
         source: { type: { kind: "enum", enum: "workItemSource" } },
         project_id: { type: "string", nullable: true },
+        team_id: { type: "string" },
         department: { type: "string" },
         assignee_id: { type: "string", nullable: true },
         due_date: { type: "string", nullable: true },

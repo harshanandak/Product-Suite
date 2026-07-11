@@ -22,6 +22,17 @@ describe("work-item fixtures", () => {
     expect(departments.size).toBeLessThanOrEqual(3);
   });
 
+  it("gives every work item a mandatory team_id derived from its department", () => {
+    const items = createWorkItemFixtures();
+    for (const item of items) {
+      expect(item.team_id).toBe(`team_${item.department.toLowerCase()}`);
+    }
+    // One team per department (the promotion is 1:1).
+    const teams = new Set(items.map((item) => item.team_id));
+    const departments = new Set(items.map((item) => item.department));
+    expect(teams.size).toBe(departments.size);
+  });
+
   it("includes 1-2 projects and some loose (null project_id) work items", () => {
     const projects = createProjectFixtures();
     expect(projects.length).toBeGreaterThanOrEqual(1);

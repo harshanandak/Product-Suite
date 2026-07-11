@@ -18,6 +18,7 @@ const WI_ROW = {
   tags: [],
   source: 'manual',
   project_id: null,
+  team_id: 'team_1',
   department: 'Eng',
   assignee_id: null,
   due_date: null,
@@ -39,10 +40,11 @@ describe('work-item writes', () => {
     verifyToken.mockResolvedValue({ sub: 'user_clerk_1', exp: 9999999999 })
   })
 
-  it('POST creates in the caller’s single org and returns 201', async () => {
+  it('POST creates in the caller’s single org (with a tenant-owned team) and returns 201', async () => {
     const sql = vi.fn()
     sql
       .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
+      .mockResolvedValueOnce([{ n: 1 }]) // team ownership check (owned)
       .mockResolvedValueOnce([WI_ROW]) // insert ... returning *
       .mockResolvedValueOnce([]) // activity insert
     createSql.mockReturnValue(sql)
@@ -50,23 +52,64 @@ describe('work-item writes', () => {
     const res = await app.request('/api/work-items', {
       method: 'POST',
       ...auth,
-      body: JSON.stringify({ title: 'A', department: 'Eng' }),
+      body: JSON.stringify({ title: 'A', team_id: 'team_1', department: 'Eng' }),
     })
     expect(res.status).toBe(201)
     expect(((await res.json()) as { id: string }).id).toBe('wi_1')
+    // The team was verified against the caller's resolved tenant, not trusted from the body.
+    const teamCheckParams = sql.mock.calls[1]?.slice(1) ?? []
+    expect(teamCheckParams).toContain('team_1')
+    expect(teamCheckParams).toContain('t_1')
+  })
+
+  it('POST returns 400 when team_id is missing (team is mandatory)', async () => {
+    const sql = vi.fn().mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
+    createSql.mockReturnValue(sql)
+    const res = await app.request('/api/work-items', {
+      method: 'POST',
+      ...auth,
+      body: JSON.stringify({ title: 'A' }),
+    })
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'team_id is required' })
+    // Rejected before any insert — only the tenant lookup ran.
+    expect(sql).toHaveBeenCalledTimes(1)
+  })
+
+  it('POST returns 400 for a team belonging to another tenant (no cross-tenant use)', async () => {
+    const sql = vi.fn()
+    sql
+      .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
+      .mockResolvedValueOnce([]) // team check: not in caller's tenant -> unknown
+    createSql.mockReturnValue(sql)
+    const res = await app.request('/api/work-items', {
+      method: 'POST',
+      ...auth,
+      body: JSON.stringify({ title: 'A', team_id: 'team_other' }),
+    })
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'Unknown team' })
   })
 
   it('POST returns 403 when the caller is in no org', async () => {
     const sql = vi.fn().mockResolvedValueOnce([]) // callerTenantIds -> []
     createSql.mockReturnValue(sql)
-    const res = await app.request('/api/work-items', { method: 'POST', ...auth, body: '{}' })
+    const res = await app.request('/api/work-items', {
+      method: 'POST',
+      ...auth,
+      body: JSON.stringify({ team_id: 'team_1' }),
+    })
     expect(res.status).toBe(403)
   })
 
   it('POST returns 400 when the caller is in multiple orgs (ambiguous target)', async () => {
     const sql = vi.fn().mockResolvedValueOnce([{ tenant_id: 't_1' }, { tenant_id: 't_2' }])
     createSql.mockReturnValue(sql)
-    const res = await app.request('/api/work-items', { method: 'POST', ...auth, body: '{}' })
+    const res = await app.request('/api/work-items', {
+      method: 'POST',
+      ...auth,
+      body: JSON.stringify({ team_id: 'team_1' }),
+    })
     expect(res.status).toBe(400)
   })
 
@@ -99,6 +142,22 @@ describe('work-item writes', () => {
     })
     expect(res.status).toBe(200)
     expect(((await res.json()) as { phase: string }).phase).toBe('done')
+  })
+
+  it('PATCH returns 400 when reassigning to a team outside the caller’s org', async () => {
+    const sql = vi.fn()
+    sql
+      .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
+      .mockResolvedValueOnce([WI_ROW]) // scoped select (owned)
+      .mockResolvedValueOnce([]) // team check: not in caller's tenant -> unknown
+    createSql.mockReturnValue(sql)
+    const res = await app.request('/api/work-items/wi_1', {
+      method: 'PATCH',
+      ...auth,
+      body: JSON.stringify({ team_id: 'team_other' }),
+    })
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'Unknown team' })
   })
 
   it('GET /:id/activity returns the feed for an owned item', async () => {

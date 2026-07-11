@@ -66,6 +66,9 @@ describe("createMockWorkItemRepository", () => {
     expect(created.archived).toBe(false);
     // Department defaults to the first existing item's lane.
     expect(created.department).toBe(before[0]?.department);
+    // team_id is mandatory: it defaults to the first existing item's team.
+    expect(created.team_id).toBe(before[0]?.team_id);
+    expect(created.team_id).toBeTruthy();
     expect(Date.parse(created.created_at)).not.toBeNaN();
 
     // Persisted (and prepended) across reads.
@@ -88,6 +91,12 @@ describe("createMockWorkItemRepository", () => {
     expect(created.priority).toBe("high");
     expect(created.department).toBe("Platform");
     expect(created.tags).toEqual(["spike"]);
+  });
+
+  it("honours a provided team_id when creating a work item", async () => {
+    const repo = createMockWorkItemRepository();
+    const created = await repo.create({ title: "Owned", team_id: "team_sourcing" });
+    expect(created.team_id).toBe("team_sourcing");
   });
 
   it("honours the archived flag when creating a work item", async () => {

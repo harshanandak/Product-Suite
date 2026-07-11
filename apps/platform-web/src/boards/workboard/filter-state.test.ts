@@ -29,6 +29,7 @@ function rowOf(overrides: Partial<WorkItemRow> = {}): WorkItemRow {
     tags: [],
     source: "manual",
     project_id: null,
+    team_id: "team_engineering",
     department: "Engineering",
     assignee_id: null,
     due_date: null,

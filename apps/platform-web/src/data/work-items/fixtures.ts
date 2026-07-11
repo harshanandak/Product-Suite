@@ -192,6 +192,8 @@ interface WorkItemOptions {
   tags?: string[];
   source?: WorkItem["source"];
   projectId?: string | null;
+  /** Owning team id; defaults to a stable id derived from the `department` name. */
+  teamId?: string;
   assigneeId?: string | null;
   dueDate?: string | null;
   archived?: boolean;
@@ -217,6 +219,10 @@ function workItemOf(
     tags = [],
     source = "manual",
     projectId = null,
+    // Every work item has a mandatory team; the fixtures promote each `department`
+    // to a stable per-department team id (`Engineering` → `team_engineering`) so
+    // the mock dataset satisfies the required `team_id` without a separate table.
+    teamId = `team_${department.toLowerCase()}`,
     assigneeId = null,
     dueDate = null,
     archived = false,
@@ -233,6 +239,7 @@ function workItemOf(
     tags: [...tags],
     source,
     project_id: projectId,
+    team_id: teamId,
     department,
     assignee_id: assigneeId,
     due_date: dueDate === null ? null : T(dueDate),

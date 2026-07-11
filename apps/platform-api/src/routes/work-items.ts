@@ -17,6 +17,7 @@ interface WorkItemRow {
   tags: string[] | null
   source: WorkItem['source']
   project_id: string | null
+  team_id: string
   department: string
   assignee_id: string | null
   due_date: string | Date | null
@@ -36,6 +37,7 @@ function toWorkItem(row: WorkItemRow): WorkItem {
     tags: row.tags ?? [],
     source: row.source,
     project_id: row.project_id,
+    team_id: row.team_id,
     department: row.department,
     assignee_id: row.assignee_id,
     due_date: row.due_date == null ? null : String(row.due_date),
@@ -94,7 +96,7 @@ workItemsRoutes.get('/', async (c) => {
   try {
     rows = (await sql`
       select wi.id, wi.title, wi.description, wi.phase, wi.type, wi.priority, wi.tags,
-             wi.source, wi.project_id, wi.department, wi.assignee_id, wi.due_date,
+             wi.source, wi.project_id, wi.team_id, wi.department, wi.assignee_id, wi.due_date,
              wi.archived, wi.created_at, wi.updated_at
       from work_items wi
       where wi.tenant_id in (
@@ -118,8 +120,10 @@ workItemsRoutes.get('/', async (c) => {
 /**
  * Create a work item in the caller's org. The target org is the caller's single
  * active tenant — unambiguous now that org = workspace. Rejects when the caller
- * is in no org (403) or in several (400, ambiguous). A `project_id`, if given,
- * must belong to the same org.
+ * is in no org (403) or in several (400, ambiguous). `team_id` is REQUIRED and
+ * must belong to the same org (a team from another tenant is indistinguishable
+ * from an unknown one → 400, no leak). A `project_id`, if given, must likewise
+ * belong to the same org.
  */
 workItemsRoutes.post('/', async (c) => {
   const claims = c.get('claims')
@@ -136,6 +140,19 @@ workItemsRoutes.post('/', async (c) => {
       return c.json({ error: 'No active organization' }, 403)
     }
 
+    // team_id is mandatory and must be one of the caller's org's teams. Never
+    // trust the client id: a team from another tenant fails this guard and is
+    // rejected as unknown (no cross-tenant leak).
+    if (!body.team_id) {
+      return c.json({ error: 'team_id is required' }, 400)
+    }
+    const ownedTeam = (await sql`
+      select 1 from teams where id = ${body.team_id} and tenant_id = ${tenantId}
+    `) as unknown[]
+    if (ownedTeam.length === 0) {
+      return c.json({ error: 'Unknown team' }, 400)
+    }
+
     if (body.project_id != null) {
       const owned = (await sql`
         select 1 from projects where id = ${body.project_id} and tenant_id = ${tenantId}
@@ -148,11 +165,12 @@ workItemsRoutes.post('/', async (c) => {
     const rows = (await sql`
       insert into work_items
         (tenant_id, title, description, phase, type, priority, tags, source,
-         project_id, department, assignee_id, due_date, archived)
+         project_id, team_id, department, assignee_id, due_date, archived)
       values
         (${tenantId}, ${body.title ?? 'Untitled work item'}, ${body.description ?? ''},
          ${body.phase ?? 'plan'}, ${body.type ?? 'feature'}, ${body.priority ?? 'medium'},
-         ${body.tags ?? []}, 'manual', ${body.project_id ?? null}, ${body.department ?? 'General'},
+         ${body.tags ?? []}, 'manual', ${body.project_id ?? null}, ${body.team_id},
+         ${body.department ?? 'General'},
          ${body.assignee_id ?? null}, ${body.due_date ?? null}, ${body.archived ?? false})
       returning *
     `) as WorkItemRow[]
@@ -198,6 +216,15 @@ workItemsRoutes.patch('/:id', async (c) => {
       return c.json({ error: 'Not found' }, 404)
     }
 
+    if (patch.team_id != null) {
+      const ownedTeam = (await sql`
+        select 1 from teams where id = ${patch.team_id} and tenant_id = any(${tenantIds})
+      `) as unknown[]
+      if (ownedTeam.length === 0) {
+        return c.json({ error: 'Unknown team' }, 400)
+      }
+    }
+
     if (patch.project_id != null) {
       const owned = (await sql`
         select 1 from projects where id = ${patch.project_id} and tenant_id = any(${tenantIds})
@@ -217,6 +244,7 @@ workItemsRoutes.patch('/:id', async (c) => {
         priority = ${next.priority},
         tags = ${next.tags ?? []},
         project_id = ${next.project_id ?? null},
+        team_id = ${next.team_id},
         department = ${next.department},
         assignee_id = ${next.assignee_id ?? null},
         due_date = ${next.due_date ?? null},
