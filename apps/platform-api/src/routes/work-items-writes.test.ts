@@ -49,8 +49,12 @@ describe('work-item writes', () => {
       .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
       .mockResolvedValueOnce([{ n: 1 }]) // team ownership check (owned)
       .mockResolvedValueOnce([{ n: 1 }]) // status belongs-to-team check (owned)
-      .mockResolvedValueOnce([WI_ROW]) // insert ... returning *
-      .mockResolvedValueOnce([]) // activity insert
+      .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId
+    // The item + its "created" event are written as ONE atomic batch via
+    // sql.transaction (recordWriteTx); it returns the first row of each statement.
+    ;(sql as unknown as { transaction: ReturnType<typeof vi.fn> }).transaction = vi
+      .fn()
+      .mockResolvedValue([[WI_ROW], [{}]])
     createSql.mockReturnValue(sql)
 
     const res = await app.request('/api/work-items', {
@@ -251,8 +255,10 @@ describe('work-item writes', () => {
       .mockResolvedValueOnce([{ n: 1 }]) // team ownership check (owned)
       .mockResolvedValueOnce([{ n: 1 }]) // status belongs-to-team check (owned)
       .mockResolvedValueOnce([{ team_id: 'team_1', parent_id: null }]) // parent: top-level, same team
-      .mockResolvedValueOnce([{ ...WI_ROW, parent_id: 'wi_parent', depth: 1 }]) // insert returning
-      .mockResolvedValueOnce([]) // activity insert
+      .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId
+    ;(sql as unknown as { transaction: ReturnType<typeof vi.fn> }).transaction = vi
+      .fn()
+      .mockResolvedValue([[{ ...WI_ROW, parent_id: 'wi_parent', depth: 1 }], [{}]])
     createSql.mockReturnValue(sql)
 
     const res = await app.request('/api/work-items', {

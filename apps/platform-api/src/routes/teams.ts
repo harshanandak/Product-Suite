@@ -107,8 +107,7 @@ teamsRoutes.post('/', async (c) => {
     // supplied by the caller (the body is read field-by-field, never spread).
     const created = await recordWrite<TeamRow>(
       sql,
-      'teams',
-      { tenant_id: tenantId, name },
+      { table: 'teams', operation: 'insert', values: { tenant_id: tenantId, name } },
       { actorType: 'human', actorId },
     )
     return c.json(toTeam(created), 201)

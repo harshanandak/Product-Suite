@@ -2,9 +2,10 @@ import { Hono } from 'hono'
 
 import type { ActivityEvent, WorkItem, WorkItemPatch } from '@product-suite/contracts'
 
-import { callerTenantIds } from '../auth/tenant-scope'
+import { callerTenantIds, callerUserId } from '../auth/tenant-scope'
 import { sqlFrom } from '../db'
 import type { AuthedEnv } from '../middleware/clerk-auth'
+import { recordWriteTx } from '../provenance/record-write'
 
 /** Row shape returned by the tenant-scoped work_items query (snake_case DB columns). */
 interface WorkItemRow {
@@ -210,27 +211,64 @@ workItemsRoutes.post('/', async (c) => {
       depth = 1
     }
 
-    const rows = (await sql`
-      insert into work_items
-        (tenant_id, title, description, phase, type, priority, tags, source,
-         project_id, team_id, status_id, parent_id, depth, department, assignee_id, due_date, archived)
-      values
-        (${tenantId}, ${body.title ?? 'Untitled work item'}, ${body.description ?? ''},
-         ${body.phase ?? 'plan'}, ${body.type ?? 'feature'}, ${body.priority ?? 'medium'},
-         ${body.tags ?? []}, 'manual', ${body.project_id ?? null}, ${body.team_id},
-         ${body.status_id}, ${body.parent_id ?? null}, ${depth}, ${body.department ?? 'General'},
-         ${body.assignee_id ?? null}, ${body.due_date ?? null}, ${body.archived ?? false})
-      returning *
-    `) as WorkItemRow[]
-    const created = rows[0]
-    if (!created) {
+    // The human actor for provenance (any caller past tenant scoping resolves;
+    // a null is a server-side integrity anomaly, not a client error).
+    const actorId = await callerUserId(sql, claims)
+    if (!actorId) {
+      console.error('[work-items] create: tenant resolved but no user identity for subject')
       return c.json({ error: 'Failed to create work item' }, 500)
     }
 
-    await sql`
-      insert into activity_events (work_item_id, kind, summary)
-      values (${created.id}, 'created', ${`Created “${created.title}”`})
-    `
+    // The item and its "created" activity event are written as ONE atomic Neon
+    // batch. The id is generated client-side (same distribution as the DB default)
+    // and passed into BOTH statements, so the batch stays non-interactive — the
+    // event never references the item's server-generated output. recordWriteTx
+    // stamps provenance on both rows from the server-derived actor.
+    const workItemId = crypto.randomUUID()
+    const title = body.title ?? 'Untitled work item'
+    const [created] = await recordWriteTx<WorkItemRow>(
+      sql,
+      [
+        {
+          table: 'work_items',
+          operation: 'insert',
+          values: {
+            id: workItemId,
+            tenant_id: tenantId,
+            title,
+            description: body.description ?? '',
+            phase: body.phase ?? 'plan',
+            type: body.type ?? 'feature',
+            priority: body.priority ?? 'medium',
+            tags: body.tags ?? [],
+            source: 'manual',
+            project_id: body.project_id ?? null,
+            team_id: body.team_id,
+            status_id: body.status_id,
+            parent_id: body.parent_id ?? null,
+            depth,
+            department: body.department ?? 'General',
+            assignee_id: body.assignee_id ?? null,
+            due_date: body.due_date ?? null,
+            archived: body.archived ?? false,
+          },
+        },
+        {
+          table: 'activity_events',
+          operation: 'insert',
+          values: {
+            id: crypto.randomUUID(),
+            work_item_id: workItemId,
+            kind: 'created',
+            summary: `Created “${title}”`,
+          },
+        },
+      ],
+      { actorType: 'human', actorId },
+    )
+    if (!created) {
+      return c.json({ error: 'Failed to create work item' }, 500)
+    }
     return c.json(toWorkItem(created), 201)
   } catch (cause) {
     console.error('[work-items] create failed', cause)
