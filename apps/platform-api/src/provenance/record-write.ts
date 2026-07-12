@@ -195,7 +195,14 @@ export function buildWrite(spec: WriteSpec, actor: ActorContext): { text: string
   }
 }
 
-/** Run a built statement (ordinary neon form) and return its rows. */
+/**
+ * Run a built statement and return its rows. Uses neon's **ordinary function
+ * form** `sql(text, params)` — a documented, typed overload in the pinned
+ * `@neondatabase/serverless@0.10.4` (verified: it returns a NeonQueryPromise, and
+ * `sql.query` does NOT exist on the client in this version). NOTE: neon v1.x
+ * removes the callable form in favor of `sql.query(text, params)` — a driver
+ * upgrade must migrate `runQuery` and the `recordWriteTx` batch builder to it.
+ */
 function runQuery<Row>(sql: Sql, text: string, params: unknown[]): Promise<Row[]> {
   return (sql as unknown as (q: string, p: unknown[]) => Promise<Row[]>)(text, params)
 }
@@ -239,5 +246,14 @@ export async function recordWriteTx<Row = Record<string, unknown>>(
   const results = (await (sql as unknown as { transaction: (q: unknown[]) => Promise<Row[][]> }).transaction(
     queries,
   )) as Row[][]
-  return results.map((rows) => rows[0]).filter((r): r is Row => r != null)
+  // One output row per input spec, IN ORDER. Every spec uses `returning *`, so a
+  // missing row is a real failure — dropping it (rather than throwing) would shift
+  // later rows into the wrong statement's position and hand a caller the wrong row.
+  return results.map((rows, i) => {
+    const row = rows[0]
+    if (!row) {
+      throw new Error(`recordWriteTx: ${specs[i]?.operation} on "${specs[i]?.table}" returned no row`)
+    }
+    return row
+  })
 }

@@ -166,4 +166,27 @@ describe('recordWriteTx', () => {
     expect((transaction.mock.calls[0]?.[0] as unknown[]).length).toBe(2)
     expect(rows).toEqual([{ id: 'wi_1' }, { id: 'ev_1' }])
   })
+
+  it('throws (never shifts) when a statement returns no row — preserves positional alignment', async () => {
+    const query = vi.fn((t: string) => ({ t }))
+    // First statement returns nothing; the naive filter-drop would hand the caller
+    // the SECOND statement's row as if it were the first. We throw instead.
+    const transaction = vi.fn(async (_q: unknown[]) => [[], [{ id: 'ev_1' }]])
+    const sql = Object.assign(query, { transaction }) as unknown as Sql
+
+    await expect(
+      recordWriteTx(
+        sql,
+        [
+          { table: 'work_items', operation: 'insert', values: { id: 'wi_1', tenant_id: 't_1', title: 'X' } },
+          {
+            table: 'activity_events',
+            operation: 'insert',
+            values: { id: 'ev_1', work_item_id: 'wi_1', kind: 'created', summary: 'X' },
+          },
+        ],
+        human,
+      ),
+    ).rejects.toThrow(/work_items.*returned no row/)
+  })
 })
