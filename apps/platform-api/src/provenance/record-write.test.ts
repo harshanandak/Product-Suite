@@ -62,6 +62,26 @@ describe('recordWrite', () => {
     expect(query).not.toHaveBeenCalled()
   })
 
+  it('rejects an agent write missing on_behalf_of or run_id (no anonymous agent writes)', async () => {
+    const { sql, query } = stubSql()
+    // A loosely-typed caller tries to stamp an agent write without the human/run.
+    await expect(
+      recordWrite(sql, 'teams', { tenant_id: 't_1', name: 'Eng' }, {
+        actorType: 'agent',
+        actorId: 'run_9',
+      } as unknown as Parameters<typeof recordWrite>[3]),
+    ).rejects.toThrow(/agent write requires on_behalf_of and run_id/)
+    expect(query).not.toHaveBeenCalled()
+  })
+
+  it('rejects a write with an empty actor_id', async () => {
+    const { sql, query } = stubSql()
+    await expect(
+      recordWrite(sql, 'teams', { tenant_id: 't_1', name: 'Eng' }, { actorType: 'human', actorId: '' }),
+    ).rejects.toThrow(/actor_id is required/)
+    expect(query).not.toHaveBeenCalled()
+  })
+
   it('rejects an unregistered table', async () => {
     const { sql, query } = stubSql()
     await expect(recordWrite(sql, 'secrets', { name: 'x' }, human)).rejects.toThrow(

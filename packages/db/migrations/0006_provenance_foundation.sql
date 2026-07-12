@@ -95,6 +95,12 @@ EXCEPTION WHEN duplicate_object THEN null; END $$;--> statement-breakpoint
 -- human. on_behalf_of stays NULL (no known authorizing human). The ADD COLUMN
 -- above set them to 'human' via the default; this re-labels only the pre-existing
 -- rows. Small tables at this stage; a single UPDATE each is safe.
+--
+-- FAST-FOLLOW NOTE (before `SET NOT NULL` on actor_id): rows written by
+-- not-yet-converted routes BETWEEN this migration and the conversion land as
+-- actor_type='human', actor_id=NULL. Those residual NULLs must be backfilled as
+-- 'human' + nil-UUID sentinel (they ARE live human writes), NOT re-run through
+-- this 'import' UPDATE — do not reuse this statement for that backfill.
 UPDATE "projects" SET "actor_type" = 'import', "actor_id" = '00000000-0000-0000-0000-000000000000' WHERE "actor_id" IS NULL;--> statement-breakpoint
 UPDATE "teams" SET "actor_type" = 'import', "actor_id" = '00000000-0000-0000-0000-000000000000' WHERE "actor_id" IS NULL;--> statement-breakpoint
 UPDATE "statuses" SET "actor_type" = 'import', "actor_id" = '00000000-0000-0000-0000-000000000000' WHERE "actor_id" IS NULL;--> statement-breakpoint

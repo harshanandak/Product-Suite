@@ -16,6 +16,15 @@ import type { Sql } from '@product-suite/db'
  * actor from `ctx` — it never reads request state mid-transaction. The neon `sql`
  * client is called in its ordinary (non-tagged) form — `sql(text, params)` — for
  * the dynamically-built column list; every VALUE is a bound `$n` parameter.
+ *
+ * SCOPE (this cut): single-row INSERT only. Two shapes are deferred to the
+ * fast-follow's design, on purpose, so they are decided against real consumers
+ * rather than guessed here:
+ *   - UPDATE provenance — an `operation` dimension keyed `(table, operation)` per
+ *     design §3.3. Until then, update paths stay direct-write (unstamped).
+ *   - Atomic multi-row writes (e.g. a work_item + its activity_event) — these need
+ *     `sql.transaction([...])` batching; this helper does not compose into a batch
+ *     yet. Convert such routes only after that shape lands, or lose atomicity.
  */
 
 /** The four provenance columns — stamped here, NEVER accepted from a caller. */
@@ -29,7 +38,7 @@ export const PROVENANCE_COLUMNS = ['actor_type', 'actor_id', 'on_behalf_of', 'ru
 export type ActorContext =
   | { actorType: 'human'; actorId: string; onBehalfOf?: null; runId?: null }
   | { actorType: 'agent'; actorId: string; onBehalfOf: string; runId: string }
-  | { actorType: 'system'; actorId: string; onBehalfOf?: null; runId?: null }
+  | { actorType: 'system'; actorId: string; onBehalfOf?: null; runId?: string | null }
   | { actorType: 'import'; actorId: string; onBehalfOf?: string | null; runId?: null }
 
 /**
@@ -72,6 +81,16 @@ export async function recordWrite<Row = Record<string, unknown>>(
     if (!allowed.includes(col)) {
       throw new Error(`recordWrite: "${col}" is not an insertable column on "${table}"`)
     }
+  }
+
+  // Runtime enforcement of the ActorContext invariants (the type union is
+  // compile-time only; a loosely-typed future caller must not slip an anonymous
+  // agent write past it). Design §1: an agent write is NEVER anonymous.
+  if (!actor.actorId) {
+    throw new Error('recordWrite: actor_id is required (no anonymous writes)')
+  }
+  if (actor.actorType === 'agent' && (!actor.onBehalfOf || !actor.runId)) {
+    throw new Error('recordWrite: an agent write requires on_behalf_of and run_id')
   }
 
   const actorColumns: Record<string, unknown> = {
