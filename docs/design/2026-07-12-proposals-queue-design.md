@@ -48,7 +48,7 @@ different `operation`s over different `target_type`s.
 
 ## 2. Schema
 
-```
+```text
 proposals(
   id            uuid pk,
   tenant_id     text  not null,                 -- scoped like every table
@@ -64,18 +64,34 @@ proposals(
   rationale     text,             -- the agent's one-line "why" (shown in review)
   confidence    real,             -- optional agent self-score, for ranking/auto-accept thresholds
 
+  -- optimistic concurrency (see §5.1 stale detection)
+  target_version bigint,          -- the target row's version/xmin snapshot at propose time; null for a create
+
   -- lifecycle
-  status        text  not null default 'pending',  -- pending | accepted | rejected | superseded | expired
-  decided_by    text,             -- the human (users.id) who accepted/rejected
+  status        text  not null default 'pending',  -- pending | accepted | rejected | superseded | expired | applied
+  decided_by    text,             -- the human (users.id) who accepted/rejected = the APPROVER
   decided_at    timestamptz,
   applied_write jsonb,            -- what actually happened on accept (the created id / the diff applied)
 
-  -- provenance (see companion doc) — actor is the run/agent, on_behalf_of the human
-  actor_type    text  not null default 'agent',
-  on_behalf_of  text,
+  -- provenance (see companion doc) — the SAME actor_* shape as every write table
+  actor_type    text  not null,   -- 'agent' (run-produced) | 'human' (human-drafted). NO default: set explicitly.
+  actor_id      text  not null,   -- run_id when actor_type='agent'; users.id when 'human'
+  on_behalf_of  text,             -- the TRIGGERER (users.id) for agent proposals; null for human-drafted
   created_at, updated_at
 )
 ```
+
+**Allowed provenance combinations (enforced, not conventional):**
+
+| `actor_type` | `run_id` | `actor_id` | `on_behalf_of` | who drafted it |
+|---|---|---|---|---|
+| `agent` | **not null** (the run) | = `run_id` | the triggering human | an agent run |
+| `human` | null | the user's id | null | a person, by hand |
+
+`actor_type` has **no default** (the prior `default 'agent'` was wrong — a human-drafted proposal has
+`run_id` null yet would have been mislabeled `agent`). `actor_id` is required and mirrors the companion
+provenance shape, so a proposal is never anonymous. `on_behalf_of` on the proposal is the **triggerer**;
+the **approver** is `decided_by` — the two are distinct humans (companion §4).
 
 Indexes: `(tenant_id, status)` (the review inbox), `(run_id)` (a run's batch), `(target_type,target_id)`
 (what's pending against this row — see §5 conflicts).
@@ -90,7 +106,7 @@ layer already uses.
 
 ## 3. Lifecycle
 
-```
+```text
             (agent run emits)
 pending ───────────────────────────────► accepted ──► applied (real write, via the guard/recordWrite path)
    │                                          
@@ -135,12 +151,33 @@ surface. Until modes ship, **all modes behave as Jira-tight (review everything).
 ## 5. The hard parts
 
 1. **Stale proposals (conflict).** A proposal is made against a target's state at run time; the human may
-   accept minutes later after the target changed. At apply time, re-validate against *current* state
-   through the guard; if the invariant no longer holds (e.g., the parent was deleted, the status moved),
-   the accept **fails cleanly** with a "stale — regenerate" rather than force a bad write. `(target_type,
-   target_id)` index surfaces "N pending proposals touch this row."
-2. **Idempotency.** Accept must be exactly-once — a double-click can't apply twice. Status transition
-   `pending→accepted` is the guard (atomic `UPDATE … WHERE status='pending'`).
+   accept minutes later after the target changed. Two layers guard this:
+   - **Optimistic-concurrency check.** The proposal captures the target's version at propose time in
+     `target_version` (a monotonic row version — a `version` column we bump on write, or the row's
+     `xmin`/`updated_at` snapshot). At apply time, the guarded write is conditioned on the version being
+     unchanged (`… WHERE id = :target_id AND version = :target_version`). If it moved, the target was
+     edited since — the accept **fails cleanly** as "stale — regenerate" rather than clobbering the newer
+     state. (Creates have no target, so `target_version` is null and this check is skipped.)
+   - **Invariant re-validation.** Independently, re-run the target module's guard against *current* state
+     (the parent may have been deleted, the status moved) so an accept never forces a write that violates
+     an invariant even if the version happened to match.
+
+   `(target_type, target_id)` index surfaces "N pending proposals touch this row."
+2. **Exactly-once apply (idempotency + crash-safety).** A `pending→accepted` status flip followed by a
+   *separate* write is **not** exactly-once: a crash between them leaves a proposal marked accepted but
+   never applied, and a naive retry can apply twice. So the apply is **one transaction** that does both:
+   ```text
+   BEGIN
+     UPDATE proposals SET status='applied', applied_write=…, decided_by=:approver, decided_at=now()
+       WHERE id=:id AND status='pending'          -- 0 rows ⇒ already handled ⇒ no-op, COMMIT
+     <the guarded recordWrite to the target, version-checked per §5.1>
+   COMMIT                                          -- both land or neither does
+   ```
+   The `WHERE status='pending'` makes a double-click / retry a no-op (idempotent), and because the status
+   transition and the real write commit in the **same** transaction there is no crash window where one
+   happened without the other. (`sql.transaction()` on the Neon driver gives this; §7.2.) The lifecycle
+   distinguishes `accepted` (decision recorded) from `applied` (write committed) — but under this
+   single-transaction apply they flip together, so a stuck `accepted`-but-unapplied row cannot occur.
 3. **Ordering within a batch.** A run may propose "create Item, then add a dependency to it." Accepting
    out of order breaks. Either apply a batch as an ordered unit, or make later proposals reference
    earlier ones by proposal-id and resolve on apply. Start: apply a batch in creation order, stop on

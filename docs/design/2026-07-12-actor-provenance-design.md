@@ -59,9 +59,29 @@ This means an agent's authority is *strictly a subset* of the human's, time-boxe
 the machine-identity answer the vision doc left open ("machine identity + scoped agent tokens are
 unsolved").
 
-> **Open:** the token minter/verifier is small but new. Candidates: a signed JWT the Worker issues and
-> verifies (no new dependency, symmetric or asymmetric key), or Clerk M2M if it fits the per-run,
-> short-lived shape. Lean JWT — see §7.
+### 2.1 Verifier requirements — fail-closed (independent of JWT vs M2M)
+
+A short TTL alone does **not** stop replay within the window, nor a token minted for run A being replayed
+against run B, nor an algorithm-confusion forgery. The verifier is a security boundary and MUST reject
+(fail-closed — reject on *any* missing/failed check, never "allow if absent") unless **all** of:
+
+1. **Signature** verifies against our current signing key, and the token's `alg` matches an **allowlist**
+   of exactly the algorithm(s) we mint with (e.g. `EdDSA`/`RS256`). Reject `alg:none` and any symmetric
+   algorithm when we sign asymmetrically (blocks the classic key-confusion forgery).
+2. **`iss`** equals our issuer and **`aud`** equals the write API's expected audience — a token minted for
+   a different purpose/service is refused (blocks cross-purpose acceptance).
+3. **`exp`** (and `nbf`/`iat`) are valid with minimal clock skew; **`kid`** resolves to a currently-valid
+   key so **key rotation** revokes old tokens rather than leaving them honored.
+4. **Run authorization:** `run_id` names a run whose `status='running'` **and** whose `tenant_id` matches
+   the token's `tenant_id`; a completed/failed/canceled run can no longer write. This binds the token to
+   one live run and stops replay against a different (or finished) run.
+5. **`scope`** covers the attempted operation; anything outside the granted scope is refused.
+
+Replay *within* the TTL is further bounded by (4): once the run leaves `running`, its tokens are dead. If
+finer single-use is needed later, add a `jti` + short-lived seen-set — reserved, not required for v1.
+
+> **Open:** JWT (Worker-minted, asymmetric key we rotate) vs Clerk M2M — the checks above apply either
+> way. Lean JWT — see §7.
 
 ---
 
@@ -71,7 +91,7 @@ unsolved").
 
 A run is a real entity — it has a lifecycle, an owner, a status, and everything it did links back to it.
 
-```
+```text
 agent_runs(
   id            uuid pk,
   tenant_id     text  not null,            -- the org, scoped like every table
@@ -88,7 +108,7 @@ agent_runs(
 Added to `work_items`, `checks`, `work_item_dependencies`, `projects`, `teams`, `statuses`,
 `activity_events`, and the future `proposals` and meeting tables. Same five columns, same helper:
 
-```
+```text
 actor_type    enum (human | agent | system | import)  not null default 'human'
 actor_id      text  not null            -- users.id | run_id | system id
 on_behalf_of  text                      -- users.id when actor_type='agent'/'import', else null
@@ -103,22 +123,53 @@ run_id        uuid  references agent_runs(id) on delete set null   -- when part 
 
 ### 3.3 One write helper — the enforcement point
 
-A single `recordWrite(sql, table, values, actor)` in the guard/policy layer (the same centralized module
-Fable prescribed for invariants) stamps the `actor_*` columns from the verified token/claims. Endpoints,
-the promote-flow, and agent writes all call it. Provenance is *impossible to forget* because the write
-path requires an `actor`. This is the uniformity mechanism.
+A single `recordWrite(sql, table, values, ctx)` in the guard/policy layer (the same centralized module
+Fable prescribed for invariants) stamps the `actor_*` columns. Endpoints, the promote-flow, and agent
+writes all call it. Provenance is *impossible to forget* because the write path requires it. This is the
+uniformity mechanism — but "uniform" only holds if callers can't spoof the fields, so the helper owns
+them:
+
+- **Actor is server-derived, never caller-supplied.** `recordWrite` reads `actor_type/actor_id/
+  on_behalf_of/run_id` **only** from the verified request context (the Clerk claim or the verified
+  agent-run token) — it does **not** accept `actor_*` in `values`. Any `actor_*` key present in a
+  caller's `values` is a bug and is rejected, not merged. A leaked-token or confused agent cannot claim
+  to be `human`, cannot forge another user's `on_behalf_of`, and cannot point at a different `run_id`.
+- **Allowlisted table + column mapping.** `table` must be one of the registered write tables, and
+  `values` is filtered to that table's known columns — no free-form column injection through the generic
+  helper.
+- **Operation registry.** The write is validated against a registry keyed by `(table, operation)` — the
+  same registry the proposals apply path dispatches on (companion §5) — so the set of writable
+  targets/operations is explicit and closed, not "whatever the caller passed."
 
 ---
 
 ## 4. How it composes with proposals
 
-Provenance and the proposals queue are two halves of the same story:
+Provenance and the proposals queue are two halves of the same story. **Two distinct humans** can be
+involved — the person who *triggered* the run and the person who *approved* the resulting write — and
+they are not always the same (Amir triggers a triage run; Priya reviews the inbox and accepts). The model
+keeps both, in two different places, and never overloads one column to mean both:
+
+- **Triggerer** lives on the run: `agent_runs.triggered_by`. It is also what the run token binds as
+  `on_behalf_of` (§2) — so an agent's **direct** writes (the auto-accept path, later) stamp
+  `on_behalf_of = triggerer`, which is correct: no human approved that specific write, the triggerer
+  authorized the run.
+- **Approver** lives on the accepted write. An accepted proposal is **not** written by the agent's token;
+  it is written by the approver's own authenticated (Clerk) request when they click accept. So the apply
+  path stamps `actor_type='agent'` (origin — the agent authored the change), `on_behalf_of = the
+  approver` (the human who authorized *this* write), and `run_id` (the originating run). The triggerer is
+  never lost — it is one join away via `run_id → agent_runs.triggered_by`.
+
+So the flow:
 
 1. An agent run produces a **proposal** (not a direct write). The proposal row carries the run's
-   provenance: `actor_type='agent'`, `on_behalf_of`=the triggering human, `run_id`.
-2. A human **reviews and accepts** it. The resulting *actual* write records `actor_type='agent'`,
-   `on_behalf_of`=**the approver**, `run_id` — so the audit trail shows *both* "the agent proposed it"
-   (on the proposal) and "Priya approved it" (on the write). Accountability is complete.
+   provenance: `actor_type='agent'`, `on_behalf_of = triggerer`, `run_id`, plus `actor_id`
+   (companion §2). The proposal's own `decided_by` records the approver.
+2. A human **reviews and accepts** it. The *actual* write records `actor_type='agent'`, `on_behalf_of =
+   approver`, `run_id`. The audit trail then shows *all three*: the agent proposed it (proposal row +
+   `run_id`), the triggerer started the run (`agent_runs.triggered_by`), and Priya approved it (the
+   write's `on_behalf_of`, mirrored by the proposal's `decided_by`). Accountability is complete even when
+   triggerer ≠ approver.
 3. **Undo-by-actor / undo-by-run** falls out for free: "revert everything run X wrote" = the set of rows
    with that `run_id`.
 

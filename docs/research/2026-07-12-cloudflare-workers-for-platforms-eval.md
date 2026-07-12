@@ -54,7 +54,7 @@ Four components ([how-it-works](https://developers.cloudflare.com/cloudflare-for
 **Adopt at the user-extensibility phase, NOT now.**
 
 - **Trigger that flips the decision:** the first feature where a *user authors and deploys their own executable logic* (a skill/gate/workflow as code, or AI-generated code) that must run server-side in isolation. Until then, gates/skills are config + our own code, which need no sandbox.
-- **Strongest reason FOR:** it is the purpose-built, primary-sourced answer to the extensibility north star — a self-serve ($25/mo) sandbox for untrusted customer/AI code with per-tenant isolation, egress control, and denial-of-wallet caps. No custom sandbox to build.
+- **Strongest reason FOR:** it is the purpose-built, primary-sourced answer to the extensibility north star — a self-serve ($25/mo) sandbox for untrusted customer/AI code with per-tenant **compute/cache** isolation, egress control, and denial-of-wallet caps. (It isolates *execution and cache*, not data: shared Neon Postgres, our APIs, and any bindings still require `callerTenantIds` query scoping — WFP adds a compute boundary, it does not replace the data boundary.) No custom sandbox to build.
 - **Strongest reason AGAINST:** it solves a problem we don't yet have (zero users, no user-authored code today) and does **not** replace DB-layer tenant scoping or lift the agent-loop CPU limit — so it earns its $25/mo floor only once real user-code extensibility ships.
 
 **Revisit signals:** (a) product commits to user-deployable code; or (b) a compliance/security requirement demands compute-level tenant isolation beyond query scoping. Neither is true today.
