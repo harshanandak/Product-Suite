@@ -23,8 +23,8 @@ export const PHASE_LABELS = {
 /** Canonical loop order (same as declaration order). Source for selects/sorts. */
 export const PHASE_ORDER = ["plan", "execute", "review", "done"];
 
-/** Task / agent-run status triad — never on work items (§5 / §11). */
-export const TASK_STATUS_VALUES = ["todo", "in_progress", "completed"];
+/** Check / agent-run status triad — never on work items (§5 / §11). */
+export const CHECK_STATUS_VALUES = ["todo", "in_progress", "completed"];
 
 export const STATUS_LABELS = {
   todo: "To-do",
@@ -32,7 +32,7 @@ export const STATUS_LABELS = {
   completed: "Completed",
 };
 
-export const TASK_STATUS_ORDER = ["todo", "in_progress", "completed"];
+export const CHECK_STATUS_ORDER = ["todo", "in_progress", "completed"];
 
 /** Derived work-item health (never stored — §3 / §5). */
 export const HEALTH_VALUES = ["on_track", "at_risk", "blocked"];
@@ -98,10 +98,10 @@ export const ASSIGNEE_UNASSIGNED_VALUE = "__unassigned__";
  */
 export const enums = {
   phase: { values: PHASE_VALUES, labels: PHASE_LABELS, order: PHASE_ORDER },
-  taskStatus: {
-    values: TASK_STATUS_VALUES,
+  checkStatus: {
+    values: CHECK_STATUS_VALUES,
     labels: STATUS_LABELS,
-    order: TASK_STATUS_ORDER,
+    order: CHECK_STATUS_ORDER,
   },
   health: { values: HEALTH_VALUES, labels: HEALTH_LABELS, order: HEALTH_ORDER },
   priority: {

@@ -13,7 +13,7 @@ import {
 
 import {
   getDefaultRepository,
-  useItemTasks,
+  useItemChecks,
   useRepositoryContext,
   useWorkItems,
   type WorkItem,
@@ -154,15 +154,15 @@ function generateViewId(existing: ReadonlyArray<SavedView>): string {
  * everything" (with a one-click clear that resets search AND facets so the user
  * is never stranded in a no-match view).
  *
- * The editor's read-only task list is fetched PER-ITEM on open (via
- * {@link useItemTasks}), not by reading every task on the board — so opening the
- * board never pulls the whole task set just to feed one item's editor (PR3).
+ * The editor's read-only check list is fetched PER-ITEM on open (via
+ * {@link useItemChecks}), not by reading every check on the board — so opening the
+ * board never pulls the whole check set just to feed one item's editor (PR3).
  */
 export function WorkboardScreen({
   repository,
 }: Readonly<WorkboardScreenProps> = {}) {
   // Stabilize the repository for the lifetime of the screen so the hook and our
-  // own task read share ONE store (the hook captures its repo once, on mount —
+  // own check read share ONE store (the hook captures its repo once, on mount —
   // a fresh instance per render would silently desync the two). With no injected
   // prop we route through the SAME module singleton the hook defaults to, so
   // optimistic edits persist across navigation instead of resetting per mount.
@@ -318,11 +318,11 @@ export function WorkboardScreen({
   // to `WorkItem`, so both paths type-check.
   const [selected, setSelected] = useState<WorkItem | null>(null);
 
-  // Tasks for the OPEN editor only (its read-only list + derived health),
-  // fetched per-item on open — never the whole board's tasks (PR3). The editor
+  // Checks for the OPEN editor only (its read-only list + derived health),
+  // fetched per-item on open — never the whole board's checks (PR3). The editor
   // is reserved for the New flow here, so this is empty until an item is opened;
-  // the hook's own list-level task read (board health/counts) is unaffected.
-  const { tasks: editorTasks } = useItemTasks({
+  // the hook's own list-level check read (board health/counts) is unaffected.
+  const { checks: editorChecks } = useItemChecks({
     repository: repo,
     workItemId: selected?.id ?? null,
   });
@@ -616,7 +616,7 @@ export function WorkboardScreen({
         open={liveSelected !== null}
         onOpenChange={handleOpenChange}
         onSave={handleSave}
-        tasks={editorTasks}
+        checks={editorChecks}
         owners={owners}
       />
     </section>

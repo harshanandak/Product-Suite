@@ -419,8 +419,8 @@ export const canvasCoreContract: CanvasCoreContract;
 
 /** Universal work-item phase loop (§1 / §5). */
 export type Phase = "plan" | "execute" | "review" | "done";
-/** Task / agent-run status triad — never on work items (§5 / §11). */
-export type TaskStatus = "todo" | "in_progress" | "completed";
+/** Check / agent-run status triad — never on work items (§5 / §11). */
+export type CheckStatus = "todo" | "in_progress" | "completed";
 /** Derived work-item health — never stored (§3 / §5). */
 export type Health = "on_track" | "at_risk" | "blocked";
 /** Stored work-item priority / severity (§5 / §11). */
@@ -433,9 +433,9 @@ export type WorkItemSource = "manual" | "meeting" | "agent" | "feedback";
 export const PHASE_VALUES: readonly Phase[];
 export const PHASE_LABELS: Record<Phase, string>;
 export const PHASE_ORDER: readonly Phase[];
-export const TASK_STATUS_VALUES: readonly TaskStatus[];
-export const STATUS_LABELS: Record<TaskStatus, string>;
-export const TASK_STATUS_ORDER: readonly TaskStatus[];
+export const CHECK_STATUS_VALUES: readonly CheckStatus[];
+export const STATUS_LABELS: Record<CheckStatus, string>;
+export const CHECK_STATUS_ORDER: readonly CheckStatus[];
 export const HEALTH_VALUES: readonly Health[];
 export const HEALTH_LABELS: Record<Health, string>;
 export const HEALTH_ORDER: readonly Health[];
@@ -458,7 +458,7 @@ export interface EnumDescriptor<T extends string> {
 
 export const enums: {
   phase: EnumDescriptor<Phase>;
-  taskStatus: EnumDescriptor<TaskStatus>;
+  checkStatus: EnumDescriptor<CheckStatus>;
   health: EnumDescriptor<Health>;
   priority: EnumDescriptor<Priority>;
   workItemType: EnumDescriptor<WorkItemType>;
@@ -655,17 +655,17 @@ export interface WorkItem {
 }
 
 /**
- * A task — the atom (§1, bottom of the object ladder). One action one person
- * takes, with the fixed three-state {@link TaskStatus} lifecycle. Lives under a
+ * A check — the atom (§1, bottom of the object ladder). One action one person
+ * takes, with the fixed three-state {@link CheckStatus} lifecycle. Lives under a
  * work item (its `work_item_id`).
  */
-export interface Task {
+export interface Check {
   readonly id: string;
   work_item_id: string;
   title: string;
-  /** Task status triad (§1 / §11) — never appears on work items. */
-  status: TaskStatus;
-  /** Optional due date; an overdue incomplete task raises item health. */
+  /** Check status triad (§1 / §11) — never appears on work items. */
+  status: CheckStatus;
+  /** Optional due date; an overdue incomplete check raises item health. */
   due_date: string | null;
   readonly created_at: string;
   readonly updated_at: string;
@@ -731,15 +731,15 @@ export type WorkItemPatch = Partial<
 
 /**
  * The Table/list view-model row: a {@link WorkItem} plus its read-time derived
- * health and task roll-up counts. Health stays computed-on-read, never stored.
+ * health and check roll-up counts. Health stays computed-on-read, never stored.
  */
 export interface WorkItemRow extends WorkItem {
   /** Derived per {@link deriveHealth} at read time — never persisted. */
   readonly health: Health;
-  /** Total tasks under this item. */
-  readonly taskCount: number;
-  /** Tasks whose status is `completed`. */
-  readonly completedTaskCount: number;
+  /** Total checks under this item. */
+  readonly checkCount: number;
+  /** Checks whose status is `completed`. */
+  readonly completedCheckCount: number;
 }
 
 /** A field descriptor in {@link workItemsCore} — a language-neutral shape spec. */
@@ -765,14 +765,14 @@ export interface WorkItemsCore {
   statusCategory: { values: readonly StatusCategory[] };
   projectStatus: { values: readonly ProjectStatus[] };
   workItemPatchFields: readonly (keyof WorkItemPatch)[];
-  taskPatchFields: readonly ("title" | "status" | "due_date")[];
+  checkPatchFields: readonly ("title" | "status" | "due_date")[];
   objects: Record<
     | "Project"
     | "Team"
     | "Status"
     | "Owner"
     | "WorkItem"
-    | "Task"
+    | "Check"
     | "ActivityEvent"
     | "WorkItemDependency",
     WorkItemsCoreObject
@@ -785,16 +785,16 @@ export const ACTIVITY_EVENT_KIND_VALUES: readonly ActivityEventKind[];
 export const STATUS_CATEGORY_VALUES: readonly StatusCategory[];
 export const PROJECT_STATUS_VALUES: readonly ProjectStatus[];
 export const WORK_ITEM_PATCH_FIELDS: readonly (keyof WorkItemPatch)[];
-export const TASK_PATCH_FIELDS: readonly ("title" | "status" | "due_date")[];
+export const CHECK_PATCH_FIELDS: readonly ("title" | "status" | "due_date")[];
 export const workItemsCore: WorkItemsCore;
 
 /**
  * Pure health derivation (DESIGN §1 / §3 — health is ALWAYS derived, never
- * stored). Maps `(workItem, tasks)` to a {@link Health} value. `now` is injected
+ * stored). Maps `(workItem, checks)` to a {@link Health} value. `now` is injected
  * (defaulted to `Date.now()`) so callers and tests stay deterministic.
  */
 export function deriveHealth(
   workItem: Pick<WorkItem, "phase" | "due_date">,
-  tasks: ReadonlyArray<Pick<Task, "status" | "due_date">>,
+  checks: ReadonlyArray<Pick<Check, "status" | "due_date">>,
   now?: number,
 ): Health;

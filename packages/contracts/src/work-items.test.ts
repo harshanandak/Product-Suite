@@ -99,7 +99,7 @@ describe("@product-suite/contracts work-items core — drift guard", () => {
     expect(workItemsModule.WORK_ITEM_PATCH_FIELDS).toEqual(
       workItemsCore.workItemPatchFields,
     );
-    expect(workItemsModule.TASK_PATCH_FIELDS).toEqual(workItemsCore.taskPatchFields);
+    expect(workItemsModule.CHECK_PATCH_FIELDS).toEqual(workItemsCore.checkPatchFields);
   });
 
   test("DependencyRelationship: JS values, JSON, and the .d.ts union agree", () => {
@@ -177,13 +177,13 @@ describe("@product-suite/contracts work-items core — drift guard", () => {
     const NOW = Date.parse("2026-06-20T00:00:00.000Z");
     const PAST = "2026-06-10T00:00:00.000Z";
     const FUTURE = "2026-07-10T00:00:00.000Z";
-    // Overdue item + open task → blocked (beats at_risk).
+    // Overdue item + open check → blocked (beats at_risk).
     expect(
       deriveHealth({ phase: "execute", due_date: PAST }, [
         { status: "todo", due_date: PAST },
       ], NOW),
     ).toBe("blocked");
-    // Future item, one overdue open task → at_risk.
+    // Future item, one overdue open check → at_risk.
     expect(
       deriveHealth({ phase: "execute", due_date: FUTURE }, [
         { status: "in_progress", due_date: PAST },

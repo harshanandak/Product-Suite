@@ -3,16 +3,16 @@ import { describe, expect, it } from "vitest";
 import { createMockWorkItemRepository } from "./repository";
 
 describe("createMockWorkItemRepository", () => {
-  it("lists work items, tasks, and projects", async () => {
+  it("lists work items, checks, and projects", async () => {
     const repo = createMockWorkItemRepository();
-    const [items, tasks, projects] = await Promise.all([
+    const [items, checks, projects] = await Promise.all([
       repo.list(),
-      repo.listTasks(),
+      repo.listChecks(),
       repo.listProjects(),
     ]);
 
     expect(items.length).toBeGreaterThan(0);
-    expect(tasks.length).toBeGreaterThan(0);
+    expect(checks.length).toBeGreaterThan(0);
     expect(projects.length).toBeGreaterThan(0);
   });
 
@@ -125,13 +125,13 @@ describe("createMockWorkItemRepository", () => {
     expect(reloaded?.tags).toEqual(["one"]);
   });
 
-  it("returns tasks scoped to a single work item via getTasks", async () => {
+  it("returns checks scoped to a single work item via getChecks", async () => {
     const repo = createMockWorkItemRepository();
     const items = await repo.list();
     const target = items[0];
 
-    const scoped = await repo.getTasks(target.id);
-    expect(scoped.every((task) => task.work_item_id === target.id)).toBe(true);
+    const scoped = await repo.getChecks(target.id);
+    expect(scoped.every((check) => check.work_item_id === target.id)).toBe(true);
   });
 
   it("updates a work item, applies the patch, and bumps updated_at", async () => {
@@ -390,34 +390,34 @@ describe("createMockWorkItemRepository — dependencies", () => {
   });
 });
 
-describe("createMockWorkItemRepository — task writes", () => {
-  /** A known-seeded work item that owns fixture tasks. */
+describe("createMockWorkItemRepository — check writes", () => {
+  /** A known-seeded work item that owns fixture checks. */
   const PARENT = "wi_auth";
 
-  it("creates a fully-defaulted task from a minimal input and persists it", async () => {
+  it("creates a fully-defaulted check from a minimal input and persists it", async () => {
     const repo = createMockWorkItemRepository();
-    const before = await repo.getTasks(PARENT);
+    const before = await repo.getChecks(PARENT);
 
-    const created = await repo.createTask({ work_item_id: PARENT });
+    const created = await repo.createCheck({ work_item_id: PARENT });
     expect(created.id).toBeTruthy();
     expect(created.work_item_id).toBe(PARENT);
-    expect(created.title).toBe("Untitled task");
+    expect(created.title).toBe("Untitled check");
     expect(created.status).toBe("todo");
     expect(created.due_date).toBeNull();
     expect(Date.parse(created.created_at)).not.toBeNaN();
     expect(created.updated_at).toBe(created.created_at);
 
-    // Persisted under the parent AND in the global task list.
-    const afterScoped = await repo.getTasks(PARENT);
+    // Persisted under the parent AND in the global check list.
+    const afterScoped = await repo.getChecks(PARENT);
     expect(afterScoped.length).toBe(before.length + 1);
     expect(afterScoped.some((t) => t.id === created.id)).toBe(true);
-    const all = await repo.listTasks();
+    const all = await repo.listChecks();
     expect(all.some((t) => t.id === created.id)).toBe(true);
   });
 
-  it("honours provided fields when creating a task", async () => {
+  it("honours provided fields when creating a check", async () => {
     const repo = createMockWorkItemRepository();
-    const created = await repo.createTask({
+    const created = await repo.createCheck({
       work_item_id: PARENT,
       title: "Write migration",
       status: "in_progress",
@@ -428,23 +428,23 @@ describe("createMockWorkItemRepository — task writes", () => {
     expect(created.due_date).toBe("2026-08-01T00:00:00.000Z");
   });
 
-  it("generates a unique id per created task", async () => {
+  it("generates a unique id per created check", async () => {
     const repo = createMockWorkItemRepository();
-    const a = await repo.createTask({ work_item_id: PARENT });
-    const b = await repo.createTask({ work_item_id: PARENT });
+    const a = await repo.createCheck({ work_item_id: PARENT });
+    const b = await repo.createCheck({ work_item_id: PARENT });
     expect(a.id).not.toBe(b.id);
   });
 
-  it("rejects creating a task under an unknown work item", async () => {
+  it("rejects creating a check under an unknown work item", async () => {
     const repo = createMockWorkItemRepository();
     await expect(
-      repo.createTask({ work_item_id: "wi_ghost" }),
+      repo.createCheck({ work_item_id: "wi_ghost" }),
     ).rejects.toThrow(/Unknown work item/);
   });
 
-  it("logs a task-create activity event on the parent work item", async () => {
+  it("logs a check-create activity event on the parent work item", async () => {
     const repo = createMockWorkItemRepository();
-    const created = await repo.createTask({
+    const created = await repo.createCheck({
       work_item_id: PARENT,
       title: "Draft RFC",
     });
@@ -455,47 +455,47 @@ describe("createMockWorkItemRepository — task writes", () => {
     expect(created.title).toBe("Draft RFC");
   });
 
-  it("applies a patch through updateTask and bumps updated_at", async () => {
+  it("applies a patch through updateCheck and bumps updated_at", async () => {
     const repo = createMockWorkItemRepository();
-    const [task] = await repo.getTasks(PARENT);
+    const [check] = await repo.getChecks(PARENT);
 
-    const updated = await repo.updateTask(task.id, {
-      title: "Renamed task",
+    const updated = await repo.updateCheck(check.id, {
+      title: "Renamed check",
       status: "completed",
     });
-    expect(updated.id).toBe(task.id);
-    expect(updated.title).toBe("Renamed task");
+    expect(updated.id).toBe(check.id);
+    expect(updated.title).toBe("Renamed check");
     expect(updated.status).toBe("completed");
     expect(Date.parse(updated.updated_at)).toBeGreaterThanOrEqual(
-      Date.parse(task.updated_at),
+      Date.parse(check.updated_at),
     );
 
     // Persisted across reads.
-    const reloaded = (await repo.getTasks(PARENT)).find((t) => t.id === task.id);
-    expect(reloaded?.title).toBe("Renamed task");
+    const reloaded = (await repo.getChecks(PARENT)).find((t) => t.id === check.id);
+    expect(reloaded?.title).toBe("Renamed check");
     expect(reloaded?.status).toBe("completed");
   });
 
-  it("rejects updating an unknown task", async () => {
+  it("rejects updating an unknown check", async () => {
     const repo = createMockWorkItemRepository();
     await expect(
-      repo.updateTask("t_does_not_exist", { status: "completed" }),
-    ).rejects.toThrow(/Unknown task/);
+      repo.updateCheck("t_does_not_exist", { status: "completed" }),
+    ).rejects.toThrow(/Unknown check/);
   });
 
-  it("logs a task-update activity event on the parent work item", async () => {
+  it("logs a check-update activity event on the parent work item", async () => {
     const repo = createMockWorkItemRepository();
-    const [task] = await repo.getTasks(PARENT);
-    await repo.updateTask(task.id, { status: "completed" });
+    const [check] = await repo.getChecks(PARENT);
+    await repo.updateCheck(check.id, { status: "completed" });
     const events = await repo.listActivity(PARENT);
     expect(events[0].kind).toBe("updated");
     expect(events[0].summary).toMatch(/completed/i);
   });
 
-  it("advances a task around the status triad via toggleStatus", async () => {
+  it("advances a check around the status triad via toggleStatus", async () => {
     const repo = createMockWorkItemRepository();
-    // Seed a task with a known starting status.
-    const created = await repo.createTask({
+    // Seed a check with a known starting status.
+    const created = await repo.createCheck({
       work_item_id: PARENT,
       status: "todo",
     });
@@ -508,25 +508,25 @@ describe("createMockWorkItemRepository — task writes", () => {
     expect(c.status).toBe("todo");
 
     // Persisted across reads.
-    const reloaded = (await repo.getTasks(PARENT)).find((t) => t.id === created.id);
+    const reloaded = (await repo.getChecks(PARENT)).find((t) => t.id === created.id);
     expect(reloaded?.status).toBe("todo");
   });
 
-  it("rejects toggling an unknown task", async () => {
+  it("rejects toggling an unknown check", async () => {
     const repo = createMockWorkItemRepository();
     await expect(repo.toggleStatus("t_does_not_exist")).rejects.toThrow(
-      /Unknown task/,
+      /Unknown check/,
     );
   });
 
-  it("does not retain the caller's task by reference after a write", async () => {
+  it("does not retain the caller's check by reference after a write", async () => {
     const repo = createMockWorkItemRepository();
-    const created = await repo.createTask({ work_item_id: PARENT });
+    const created = await repo.createCheck({ work_item_id: PARENT });
     created.title = "tampered";
 
-    const reloaded = (await repo.getTasks(PARENT)).find(
+    const reloaded = (await repo.getChecks(PARENT)).find(
       (t) => t.id === created.id,
     );
-    expect(reloaded?.title).toBe("Untitled task");
+    expect(reloaded?.title).toBe("Untitled check");
   });
 });

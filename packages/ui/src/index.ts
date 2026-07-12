@@ -35,7 +35,7 @@ export { PhaseSelect, PHASE_SELECT_OPTIONS } from "./components/phase-select";
 export type { PhaseSelectProps } from "./components/phase-select";
 
 export { StatusPill, STATUS_LABELS } from "./components/status-pill";
-export type { TaskStatus, StatusPillProps } from "./components/status-pill";
+export type { CheckStatus, StatusPillProps } from "./components/status-pill";
 
 export { HealthBadge, HEALTH_LABELS } from "./components/health-badge";
 export type { Health, HealthBadgeProps } from "./components/health-badge";

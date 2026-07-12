@@ -1,29 +1,29 @@
 import * as React from "react";
 
-import { STATUS_LABELS, type TaskStatus } from "@product-suite/contracts";
+import { STATUS_LABELS, type CheckStatus } from "@product-suite/contracts";
 
 import { cn } from "../lib/cn";
 
 /**
- * Status pill (DESIGN §5 / §14). Status lives on TASKS and AGENT RUNS ONLY —
- * never on work items (those carry phase via `PhasePill`). Task status is the
+ * Status pill (DESIGN §5 / §14). Status lives on CHECKS and AGENT RUNS ONLY —
+ * never on work items (those carry phase via `PhasePill`). Check status is the
  * fixed triad To-do / In progress / Completed.
  *
- * `TaskStatus` and `STATUS_LABELS` are the framework-neutral single source of
+ * `CheckStatus` and `STATUS_LABELS` are the framework-neutral single source of
  * truth in `@product-suite/contracts`; re-exported here so existing UI
  * consumers are unaffected.
  */
-export type { TaskStatus };
+export type { CheckStatus };
 export { STATUS_LABELS };
 
-const STATUS_STYLES: Record<TaskStatus, string> = {
+const STATUS_STYLES: Record<CheckStatus, string> = {
   todo: "border border-border text-muted-foreground",
   in_progress: "bg-accent text-accent-foreground",
   completed: "bg-primary text-primary-foreground",
 };
 
 export interface StatusPillProps extends React.HTMLAttributes<HTMLSpanElement> {
-  status: TaskStatus;
+  status: CheckStatus;
 }
 
 export function StatusPill({

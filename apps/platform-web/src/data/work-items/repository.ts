@@ -1,4 +1,4 @@
-import { TASK_STATUS_ORDER } from "@product-suite/contracts";
+import { CHECK_STATUS_ORDER } from "@product-suite/contracts";
 
 import {
   dependencyExists,
@@ -9,7 +9,7 @@ import {
   createDependencyFixtures,
   createOwnerFixtures,
   createProjectFixtures,
-  createTaskFixtures,
+  createCheckFixtures,
   createWorkItemFixtures,
 } from "./fixtures";
 import type {
@@ -18,7 +18,7 @@ import type {
   DependencyRelationship,
   Owner,
   Project,
-  Task,
+  Check,
   WorkItem,
   WorkItemDependency,
   WorkItemPatch,
@@ -35,15 +35,15 @@ function summarizeUpdate(patch: WorkItemPatch): string {
 }
 
 /**
- * Map a task {@link TaskPatch} to a human-readable activity one-liner. Task
- * mutations are logged against the PARENT work item (tasks have no independent
+ * Map a check {@link CheckPatch} to a human-readable activity one-liner. Check
+ * mutations are logged against the PARENT work item (checks have no independent
  * feed), consistent with how work-item edits/dependency changes are recorded.
  */
-function summarizeTaskUpdate(taskTitle: string, patch: TaskPatch): string {
-  if (patch.status) return `Task “${taskTitle}” set to ${patch.status}`;
-  if (patch.title !== undefined) return `Task renamed to “${patch.title}”`;
-  if (patch.due_date !== undefined) return `Task “${taskTitle}” due date updated`;
-  return `Task “${taskTitle}” updated`;
+function summarizeCheckUpdate(checkTitle: string, patch: CheckPatch): string {
+  if (patch.status) return `Check “${checkTitle}” set to ${patch.status}`;
+  if (patch.title !== undefined) return `Check renamed to “${patch.title}”`;
+  if (patch.due_date !== undefined) return `Check “${checkTitle}” due date updated`;
+  return `Check “${checkTitle}” updated`;
 }
 
 /**
@@ -95,24 +95,24 @@ export const DEFAULT_GRAPH_DEPTH = 2;
 export type CreateWorkItemInput = { title?: string } & Partial<WorkItemPatch>;
 
 /**
- * The editable surface of a TASK — the frozen task-write shape (move ②). Shared
- * by {@link WorkItemRepository.updateTask} and (as the optional tail of)
- * {@link CreateTaskInput}. Excludes managed fields (`id`, `work_item_id`,
- * timestamps): a task never moves work items and its id/timestamps are
- * repository-owned. Tasks are read-only in the UI today; freezing this shape lets
+ * The editable surface of a CHECK — the frozen check-write shape (move ②). Shared
+ * by {@link WorkItemRepository.updateCheck} and (as the optional tail of)
+ * {@link CreateCheckInput}. Excludes managed fields (`id`, `work_item_id`,
+ * timestamps): a check never moves work items and its id/timestamps are
+ * repository-owned. Checks are read-only in the UI today; freezing this shape lets
  * F2 author the `product_tasks` table against a stable contract before any write
  * UI is wired.
  */
-export type TaskPatch = Partial<Pick<Task, "title" | "status" | "due_date">>;
+export type CheckPatch = Partial<Pick<Check, "title" | "status" | "due_date">>;
 
 /**
- * Input to {@link WorkItemRepository.createTask}. `work_item_id` is REQUIRED (a
- * task is always born under a work item — §1); `title` is surfaced explicitly
- * (name-then-edit) and the remaining editable fields reuse {@link TaskPatch} so
+ * Input to {@link WorkItemRepository.createCheck}. `work_item_id` is REQUIRED (a
+ * check is always born under a work item — §1); `title` is surfaced explicitly
+ * (name-then-edit) and the remaining editable fields reuse {@link CheckPatch} so
  * the create surface can never drift from the edit surface. The id, `work_item_id`
  * aside, and timestamps are repository-owned and are NOT part of the input.
  */
-export type CreateTaskInput = { work_item_id: string; title?: string } & Partial<TaskPatch>;
+export type CreateCheckInput = { work_item_id: string; title?: string } & Partial<CheckPatch>;
 
 /**
  * Workboard repository SEAM (DESIGN §10 — backend-mediated only; built ahead of
@@ -130,29 +130,29 @@ export interface WorkItemRepository {
   listProjects(): Promise<Project[]>;
   /** All owners (resolves a work item's `assignee_id` → display + the owner filter). */
   listOwners(): Promise<Owner[]>;
-  /** All tasks across all items — lets the hook derive list-level health in one read. */
-  listTasks(): Promise<Task[]>;
-  /** Tasks for one work item (the coalition's task section). */
-  getTasks(workItemId: string): Promise<Task[]>;
+  /** All checks across all items — lets the hook derive list-level health in one read. */
+  listChecks(): Promise<Check[]>;
+  /** Checks for one work item (the coalition's check section). */
+  getChecks(workItemId: string): Promise<Check[]>;
   /**
-   * Create a new task under a work item, filling defaults for every omitted
-   * field (`title` → "Untitled task", `status` → `todo`, `due_date` → null),
+   * Create a new check under a work item, filling defaults for every omitted
+   * field (`title` → "Untitled check", `status` → `todo`, `due_date` → null),
    * insert it, and return the created record. The id and timestamps are
-   * generated repository-side. Rejects if `work_item_id` is unknown (a task
-   * cannot exist without a parent — §1). See {@link CreateTaskInput}.
+   * generated repository-side. Rejects if `work_item_id` is unknown (a check
+   * cannot exist without a parent — §1). See {@link CreateCheckInput}.
    */
-  createTask(input: CreateTaskInput): Promise<Task>;
+  createCheck(input: CreateCheckInput): Promise<Check>;
   /**
-   * Apply an editable {@link TaskPatch} to a task and return the updated record.
+   * Apply an editable {@link CheckPatch} to a check and return the updated record.
    * Rejects if the id is unknown. Bumps `updated_at`.
    */
-  updateTask(id: string, patch: TaskPatch): Promise<Task>;
+  updateCheck(id: string, patch: CheckPatch): Promise<Check>;
   /**
-   * Advance a task through the status triad (`todo → in_progress → completed →
-   * todo`, in {@link TASK_STATUS_ORDER}) and return the updated record — the
+   * Advance a check through the status triad (`todo → in_progress → completed →
+   * todo`, in {@link CHECK_STATUS_ORDER}) and return the updated record — the
    * one-tap lifecycle gesture. Rejects if the id is unknown. Bumps `updated_at`.
    */
-  toggleStatus(id: string): Promise<Task>;
+  toggleStatus(id: string): Promise<Check>;
   /** Append-only activity log for one work item (newest first). */
   listActivity(workItemId: string): Promise<ActivityEvent[]>;
   /**
@@ -213,7 +213,7 @@ export function createMockWorkItemRepository(
   const projects: Project[] = createProjectFixtures();
   const owners: Owner[] = createOwnerFixtures();
   const workItems: WorkItem[] = createWorkItemFixtures();
-  const tasks: Task[] = createTaskFixtures();
+  const checks: Check[] = createCheckFixtures();
   const dependencies: WorkItemDependency[] = createDependencyFixtures();
   const activity: ActivityEvent[] = createActivityFixtures();
 
@@ -245,10 +245,10 @@ export function createMockWorkItemRepository(
     return `dep_new_${Date.now().toString(36)}_${depSeq}`;
   };
 
-  let taskSeq = 0;
-  const nextTaskId = (): string => {
-    taskSeq += 1;
-    return `task_new_${Date.now().toString(36)}_${taskSeq}`;
+  let checkSeq = 0;
+  const nextCheckId = (): string => {
+    checkSeq += 1;
+    return `check_new_${Date.now().toString(36)}_${checkSeq}`;
   };
 
   // Append-only activity log: every mutation records a one-liner so the detail
@@ -322,80 +322,80 @@ export function createMockWorkItemRepository(
       return settle(owners.map(clone));
     },
 
-    listTasks() {
-      return settle(tasks.map(clone));
+    listChecks() {
+      return settle(checks.map(clone));
     },
 
-    getTasks(workItemId: string) {
+    getChecks(workItemId: string) {
       return settle(
-        tasks.filter((task) => task.work_item_id === workItemId).map(clone),
+        checks.filter((check) => check.work_item_id === workItemId).map(clone),
       );
     },
 
-    createTask(input: CreateTaskInput) {
+    createCheck(input: CreateCheckInput) {
       if (!workItemExists(input.work_item_id)) {
         return Promise.reject(
           new Error(`Unknown work item: ${input.work_item_id}`),
         );
       }
       const now = new Date().toISOString();
-      const created: Task = {
-        id: nextTaskId(),
+      const created: Check = {
+        id: nextCheckId(),
         work_item_id: input.work_item_id,
-        title: input.title ?? "Untitled task",
+        title: input.title ?? "Untitled check",
         status: input.status ?? "todo",
         due_date: input.due_date ?? null,
         created_at: now,
         updated_at: now,
       };
-      tasks.push(created);
-      // Tasks have no independent feed — log against the parent work item, like
+      checks.push(created);
+      // Checks have no independent feed — log against the parent work item, like
       // every other mutation.
       logActivity(
         created.work_item_id,
         "updated",
-        `Added task “${created.title}”`,
+        `Added check “${created.title}”`,
       );
       return settle(clone(created));
     },
 
-    updateTask(id: string, patch: TaskPatch) {
-      const index = tasks.findIndex((task) => task.id === id);
+    updateCheck(id: string, patch: CheckPatch) {
+      const index = checks.findIndex((check) => check.id === id);
       if (index === -1) {
-        return Promise.reject(new Error(`Unknown task: ${id}`));
+        return Promise.reject(new Error(`Unknown check: ${id}`));
       }
-      const updated: Task = {
-        ...tasks[index],
+      const updated: Check = {
+        ...checks[index],
         ...patch,
         updated_at: new Date().toISOString(),
       };
-      tasks[index] = updated;
+      checks[index] = updated;
       logActivity(
         updated.work_item_id,
         "updated",
-        summarizeTaskUpdate(updated.title, patch),
+        summarizeCheckUpdate(updated.title, patch),
       );
       return settle(clone(updated));
     },
 
     toggleStatus(id: string) {
-      const index = tasks.findIndex((task) => task.id === id);
+      const index = checks.findIndex((check) => check.id === id);
       if (index === -1) {
-        return Promise.reject(new Error(`Unknown task: ${id}`));
+        return Promise.reject(new Error(`Unknown check: ${id}`));
       }
-      const current = tasks[index];
+      const current = checks[index];
       // Advance one step around the triad; unknown/legacy statuses restart at the
       // loop head so the gesture is always defined.
-      const position = TASK_STATUS_ORDER.indexOf(current.status);
+      const position = CHECK_STATUS_ORDER.indexOf(current.status);
       const next =
-        TASK_STATUS_ORDER[(position + 1) % TASK_STATUS_ORDER.length];
-      const updated: Task = {
+        CHECK_STATUS_ORDER[(position + 1) % CHECK_STATUS_ORDER.length];
+      const updated: Check = {
         ...current,
         status: next,
         updated_at: new Date().toISOString(),
       };
-      tasks[index] = updated;
-      logActivity(updated.work_item_id, "updated", `Task “${updated.title}” set to ${next}`);
+      checks[index] = updated;
+      logActivity(updated.work_item_id, "updated", `Check “${updated.title}” set to ${next}`);
       return settle(clone(updated));
     },
 

@@ -6,7 +6,7 @@ import { cn } from "../lib/cn";
 
 /**
  * Health badge (DESIGN §3/§5). Health is ALWAYS DERIVED — never hand-set,
- * never a stored column. Rendered from computed signals (overdue tasks,
+ * never a stored column. Rendered from computed signals (overdue checks,
  * blockers). Token-pure: only semantic tokens, no ad-hoc colors.
  *
  * `Health` and `HEALTH_LABELS` are the framework-neutral single source of truth

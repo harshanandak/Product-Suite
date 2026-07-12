@@ -26,7 +26,7 @@ import {
   type Owner,
   type Phase,
   type Priority,
-  type Task,
+  type Check,
   type WorkItem,
   type WorkItemPatch,
   type WorkItemType,
@@ -39,14 +39,14 @@ import {
  * shared by EVERY surface that opens the editor — table row, future kanban card,
  * future graph node — so the editor stays view-agnostic.
  *
- * `tasks` and `owners` are the two ADDITIVE, OPTIONAL extensions: the contract
- * intentionally passes `WorkItem` (which carries neither tasks, owners, nor
- * stored health), yet the editor must show the item's tasks, its DERIVED health
+ * `checks` and `owners` are the two ADDITIVE, OPTIONAL extensions: the contract
+ * intentionally passes `WorkItem` (which carries neither checks, owners, nor
+ * stored health), yet the editor must show the item's checks, its DERIVED health
  * (§3 — health is computed on read, never stored), and resolve `assignee_id` to
  * a pickable owner. Rather than self-fetch (which would spin up a repository
  * disconnected from the opening surface's store), the caller supplies what it
  * already holds. A caller that passes exactly the four required props still
- * type-checks (`tasks`/`owners` default to empty arrays — the owner picker then
+ * type-checks (`checks`/`owners` default to empty arrays — the owner picker then
  * offers only "Unassigned", which is correct for an empty roster).
  */
 export interface WorkItemEditorProps {
@@ -63,10 +63,10 @@ export interface WorkItemEditorProps {
    */
   onSave: (id: string, patch: WorkItemPatch) => Promise<void>;
   /**
-   * The item's tasks (read-only) — feed derived health + the task list. The
-   * caller passes the tasks it already holds; defaults to none.
+   * The item's checks (read-only) — feed derived health + the check list. The
+   * caller passes the checks it already holds; defaults to none.
    */
-  tasks?: ReadonlyArray<Task>;
+  checks?: ReadonlyArray<Check>;
   /**
    * The pickable owners, used to resolve `assignee_id` → display in the owner
    * picker. The caller passes the roster it already holds; defaults to none
@@ -169,7 +169,7 @@ function diffPatch(item: WorkItem, form: EditorForm): WorkItemPatch {
  * {@link WorkItemPatch} surface — title, type, phase, priority, owner, due date,
  * department, tags — through shared `@product-suite/ui` primitives only (no bare
  * HTML form controls — §5). Shows the item's DERIVED health, its read-only
- * provenance ({@link ProvenanceChip}), and its tasks with status. Accessibility
+ * provenance ({@link ProvenanceChip}), and its checks with status. Accessibility
  * (focus trap, Esc-to-close, overlay dismiss) comes from the Sheet's controlled
  * `open`/`onOpenChange`; every field is explicitly labelled.
  */
@@ -178,7 +178,7 @@ export function WorkItemEditor({
   open,
   onOpenChange,
   onSave,
-  tasks = [],
+  checks = [],
   owners = [],
 }: Readonly<WorkItemEditorProps>) {
   const titleId = useId();
@@ -206,15 +206,15 @@ export function WorkItemEditor({
     setError(null);
   }, [item, itemId, open]);
 
-  // Tasks belonging to this item (the caller may pass a superset).
-  const itemTasks = useMemo(
-    () => (item ? tasks.filter((task) => task.work_item_id === item.id) : []),
-    [item, tasks],
+  // Checks belonging to this item (the caller may pass a superset).
+  const itemChecks = useMemo(
+    () => (item ? checks.filter((check) => check.work_item_id === item.id) : []),
+    [item, checks],
   );
 
   const health = useMemo(
-    () => (item ? deriveHealth(item, itemTasks) : null),
-    [item, itemTasks],
+    () => (item ? deriveHealth(item, itemChecks) : null),
+    [item, itemChecks],
   );
 
   const handleSave = async (): Promise<void> => {
@@ -409,32 +409,32 @@ export function WorkItemEditor({
                 )}
               </div>
               <p className="text-xs text-muted-foreground">
-                Derived from tasks and dates — not editable.
+                Derived from checks and dates — not editable.
               </p>
             </div>
 
-            {/* Tasks (read-only) */}
+            {/* Checks (read-only) */}
             <div className="flex flex-col gap-2">
               <span className="text-sm font-medium leading-none">
-                Tasks
-                {itemTasks.length > 0 ? ` (${itemTasks.length})` : ""}
+                Checks
+                {itemChecks.length > 0 ? ` (${itemChecks.length})` : ""}
               </span>
-              {itemTasks.length > 0 ? (
+              {itemChecks.length > 0 ? (
                 <ul className="flex flex-col gap-2">
-                  {itemTasks.map((task) => (
+                  {itemChecks.map((check) => (
                     <li
-                      key={task.id}
+                      key={check.id}
                       className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2"
                     >
                       <span className="min-w-0 truncate text-sm">
-                        {task.title}
+                        {check.title}
                       </span>
-                      <StatusPill status={task.status} />
+                      <StatusPill status={check.status} />
                     </li>
                   ))}
                 </ul>
               ) : (
-                <p className="text-sm text-muted-foreground">No tasks yet.</p>
+                <p className="text-sm text-muted-foreground">No checks yet.</p>
               )}
             </div>
 

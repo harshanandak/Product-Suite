@@ -42,7 +42,7 @@ import {
 export const phaseEnum = pgEnum('phase', ['plan', 'execute', 'review', 'done'])
 export const workItemTypeEnum = pgEnum('work_item_type', ['feature', 'bug', 'chore', 'research'])
 export const priorityEnum = pgEnum('priority', ['critical', 'high', 'medium', 'low'])
-export const taskStatusEnum = pgEnum('task_status', ['todo', 'in_progress', 'completed'])
+export const checkStatusEnum = pgEnum('check_status', ['todo', 'in_progress', 'completed'])
 export const workItemSourceEnum = pgEnum('work_item_source', ['manual', 'meeting', 'agent', 'feedback'])
 export const dependencyRelationshipEnum = pgEnum('dependency_relationship', ['depends_on', 'blocks', 'complements'])
 export const activityEventKindEnum = pgEnum('activity_event_kind', ['created', 'updated', 'dependency_added', 'dependency_removed'])
@@ -191,19 +191,22 @@ export const workItems = pgTable(
   (t) => ({ byTenant: index('work_items_tenant_idx').on(t.tenantId) }),
 )
 
-export const tasks = pgTable(
-  'tasks',
+// Checks — the frozen checklist rows under an Item (title / status / due date,
+// no owner). Renamed from `tasks`: "Task" is now the owned CHILD tier (a work
+// item with a parent), so the checkbox tier is a Check to keep the two distinct.
+export const checks = pgTable(
+  'checks',
   {
     id: uuid('id').primaryKey().defaultRandom(),
     workItemId: uuid('work_item_id')
       .notNull()
       .references(() => workItems.id, { onDelete: 'cascade' }),
     title: text('title').notNull(),
-    status: taskStatusEnum('status').notNull().default('todo'),
+    status: checkStatusEnum('status').notNull().default('todo'),
     dueDate: timestamp('due_date', { withTimezone: true }),
     ...timestamps,
   },
-  (t) => ({ byWorkItem: index('tasks_work_item_idx').on(t.workItemId) }),
+  (t) => ({ byWorkItem: index('checks_work_item_idx').on(t.workItemId) }),
 )
 
 export const workItemDependencies = pgTable(

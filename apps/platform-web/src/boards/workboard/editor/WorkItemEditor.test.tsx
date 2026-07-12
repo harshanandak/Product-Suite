@@ -3,10 +3,10 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   createOwnerFixtures,
-  createTaskFixtures,
+  createCheckFixtures,
   createWorkItemFixtures,
   type Owner,
-  type Task,
+  type Check,
   type WorkItem,
 } from "@/data/work-items";
 
@@ -60,8 +60,8 @@ function getFixtureItem(id = "wi_auth"): WorkItem {
   return item;
 }
 
-function getFixtureTasks(workItemId: string): Task[] {
-  return createTaskFixtures().filter((task) => task.work_item_id === workItemId);
+function getFixtureChecks(workItemId: string): Check[] {
+  return createCheckFixtures().filter((check) => check.work_item_id === workItemId);
 }
 
 function getOwners(): Owner[] {
@@ -69,9 +69,9 @@ function getOwners(): Owner[] {
 }
 
 describe("WorkItemEditor", () => {
-  it("seeds every editable field from the item and shows read-only provenance + tasks", () => {
+  it("seeds every editable field from the item and shows read-only provenance + checks", () => {
     const item = getFixtureItem(); // feature / high / user_amara / 2026-07-10 / [security, backend] / manual
-    const tasks = getFixtureTasks(item.id);
+    const checks = getFixtureChecks(item.id);
 
     render(
       <WorkItemEditor
@@ -79,7 +79,7 @@ describe("WorkItemEditor", () => {
         open
         onOpenChange={() => {}}
         onSave={vi.fn().mockResolvedValue(undefined)}
-        tasks={tasks}
+        checks={checks}
         owners={getOwners()}
       />,
     );
@@ -114,7 +114,7 @@ describe("WorkItemEditor", () => {
       screen.queryByRole("combobox", { name: /source/i }),
     ).not.toBeInTheDocument();
 
-    // Tasks render with their status pills.
+    // Checks render with their status pills.
     expect(screen.getByText("Token verifier interface")).toBeInTheDocument();
     expect(screen.getByText("Session bridge wiring")).toBeInTheDocument();
     expect(screen.getByText("In progress")).toBeInTheDocument();
@@ -131,7 +131,7 @@ describe("WorkItemEditor", () => {
         open
         onOpenChange={onOpenChange}
         onSave={onSave}
-        tasks={getFixtureTasks(item.id)}
+        checks={getFixtureChecks(item.id)}
         owners={getOwners()}
       />,
     );
@@ -169,7 +169,7 @@ describe("WorkItemEditor", () => {
         open
         onOpenChange={onOpenChange}
         onSave={onSave}
-        tasks={getFixtureTasks(item.id)}
+        checks={getFixtureChecks(item.id)}
         owners={getOwners()}
       />,
     );

@@ -45,7 +45,7 @@ const sorted = (xs: readonly string[]): string[] => [...xs].sort();
 // enum key in enums.json → its union type name in index.d.ts
 const CASES: ReadonlyArray<{ key: string; unionType: string }> = [
   { key: "phase", unionType: "Phase" },
-  { key: "taskStatus", unionType: "TaskStatus" },
+  { key: "checkStatus", unionType: "CheckStatus" },
   { key: "health", unionType: "Health" },
   { key: "priority", unionType: "Priority" },
   { key: "workItemType", unionType: "WorkItemType" },
@@ -85,8 +85,8 @@ describe("@product-suite/contracts enums — tri-directional sync", () => {
     expect(enumsModule.PHASE_VALUES).toEqual(enums.phase.values);
     expect(enumsModule.PHASE_LABELS).toEqual(enums.phase.labels);
     expect(enumsModule.PHASE_ORDER).toEqual(enums.phase.order);
-    expect(enumsModule.STATUS_LABELS).toEqual(enums.taskStatus.labels);
-    expect(enumsModule.TASK_STATUS_VALUES).toEqual(enums.taskStatus.values);
+    expect(enumsModule.STATUS_LABELS).toEqual(enums.checkStatus.labels);
+    expect(enumsModule.CHECK_STATUS_VALUES).toEqual(enums.checkStatus.values);
     expect(enumsModule.HEALTH_LABELS).toEqual(enums.health.labels);
     expect(enumsModule.PRIORITY_ORDER).toEqual(enums.priority.order);
     expect(enumsModule.WORK_ITEM_TYPE_ORDER).toEqual(enums.workItemType.order);

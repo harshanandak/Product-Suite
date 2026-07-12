@@ -5,7 +5,7 @@ import {
   createMockWorkItemRepository,
   createOwnerFixtures,
   deriveHealth,
-  type Task,
+  type Check,
   type WorkItem,
   type WorkItemDependency,
   type WorkItemPatch,
@@ -65,21 +65,21 @@ afterAll(() => {
 /** Build real fixture-backed rows via the seam (mirrors the Kanban test). */
 async function loadRows(): Promise<WorkItemRow[]> {
   const repository = createMockWorkItemRepository();
-  const [items, tasks] = await Promise.all([
+  const [items, checks] = await Promise.all([
     repository.list(),
-    repository.listTasks(),
+    repository.listChecks(),
   ]);
   const now = Date.parse("2026-06-20T00:00:00.000Z");
   return items.map((item: WorkItem): WorkItemRow => {
-    const itemTasks = tasks.filter((task: Task) => task.work_item_id === item.id);
-    const completedTaskCount = itemTasks.filter(
-      (task) => task.status === "completed",
+    const itemChecks = checks.filter((check: Check) => check.work_item_id === item.id);
+    const completedCheckCount = itemChecks.filter(
+      (check) => check.status === "completed",
     ).length;
     return {
       ...item,
-      health: deriveHealth(item, itemTasks, now),
-      taskCount: itemTasks.length,
-      completedTaskCount,
+      health: deriveHealth(item, itemChecks, now),
+      checkCount: itemChecks.length,
+      completedCheckCount,
     };
   });
 }

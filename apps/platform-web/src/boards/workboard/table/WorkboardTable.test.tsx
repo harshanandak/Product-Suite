@@ -142,19 +142,19 @@ function selectOption(combobox: HTMLElement, optionName: string | RegExp): void 
 /** Build real fixture-backed rows via the seam so health/counts are realistic. */
 async function loadRows(): Promise<WorkItemRow[]> {
   const repository = createMockWorkItemRepository();
-  const [items, tasks] = await Promise.all([
+  const [items, checks] = await Promise.all([
     repository.list(),
-    repository.listTasks(),
+    repository.listChecks(),
   ]);
   const now = Date.parse("2026-06-20T00:00:00.000Z");
   const { deriveHealth } = await import("@/data/work-items");
   return items.map((item) => {
-    const itemTasks = tasks.filter((task) => task.work_item_id === item.id);
+    const itemChecks = checks.filter((check) => check.work_item_id === item.id);
     return {
       ...item,
-      health: deriveHealth(item, itemTasks, now),
-      taskCount: itemTasks.length,
-      completedTaskCount: itemTasks.filter((t) => t.status === "completed")
+      health: deriveHealth(item, itemChecks, now),
+      checkCount: itemChecks.length,
+      completedCheckCount: itemChecks.filter((t) => t.status === "completed")
         .length,
     };
   });

@@ -52,7 +52,7 @@ describe("createNetworkWorkItemRepository", () => {
       ["list", "/api/work-items"],
       ["listProjects", "/api/projects"],
       ["listOwners", "/api/owners"],
-      ["listTasks", "/api/tasks"],
+      ["listChecks", "/api/checks"],
       ["listDependencies", "/api/dependencies"],
     ];
     for (const [method, path] of cases) {
@@ -71,17 +71,17 @@ describe("createNetworkWorkItemRepository", () => {
     }
   });
 
-  it("getTasks fetches the tenant-scoped tasks and filters by work item", async () => {
+  it("getChecks fetches the tenant-scoped checks and filters by work item", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonOk([
         { id: "t1", work_item_id: "wi_1", title: "A", status: "todo" },
         { id: "t2", work_item_id: "wi_2", title: "B", status: "todo" },
       ]),
     );
-    const tasks = await makeRepo().getTasks("wi_1");
-    expect(tasks).toHaveLength(1);
-    expect(tasks[0].id).toBe("t1");
-    expect(callArgs().url).toBe(`${BASE}/api/tasks`);
+    const checks = await makeRepo().getChecks("wi_1");
+    expect(checks).toHaveLength(1);
+    expect(checks[0].id).toBe("t1");
+    expect(callArgs().url).toBe(`${BASE}/api/checks`);
   });
 
   it("listGraph composes nodes + edges, and slices a focus neighborhood", async () => {
@@ -158,35 +158,35 @@ describe("createNetworkWorkItemRepository", () => {
     expect(init?.method).toBe("GET");
   });
 
-  it("createTask POSTs /api/tasks with the input", async () => {
+  it("createCheck POSTs /api/checks with the input", async () => {
     const created = { id: "t_9", work_item_id: "wi_1", title: "T", status: "todo" };
     fetchMock.mockResolvedValueOnce(jsonOk(created, 201));
-    const result = await makeRepo().createTask({ work_item_id: "wi_1", title: "T" });
+    const result = await makeRepo().createCheck({ work_item_id: "wi_1", title: "T" });
     expect(result).toEqual(created);
     const { url, init } = callArgs();
-    expect(url).toBe(`${BASE}/api/tasks`);
+    expect(url).toBe(`${BASE}/api/checks`);
     expect(init?.method).toBe("POST");
     expect(init?.body).toBe(JSON.stringify({ work_item_id: "wi_1", title: "T" }));
   });
 
-  it("updateTask PATCHes /api/tasks/:id with the patch", async () => {
+  it("updateCheck PATCHes /api/checks/:id with the patch", async () => {
     const updated = { id: "t_1", work_item_id: "wi_1", title: "X", status: "completed" };
     fetchMock.mockResolvedValueOnce(jsonOk(updated));
-    const result = await makeRepo().updateTask("t_1", { status: "completed" });
+    const result = await makeRepo().updateCheck("t_1", { status: "completed" });
     expect(result).toEqual(updated);
     const { url, init } = callArgs();
-    expect(url).toBe(`${BASE}/api/tasks/t_1`);
+    expect(url).toBe(`${BASE}/api/checks/t_1`);
     expect(init?.method).toBe("PATCH");
     expect(init?.body).toBe(JSON.stringify({ status: "completed" }));
   });
 
-  it("toggleStatus POSTs /api/tasks/:id/toggle with no body", async () => {
+  it("toggleStatus POSTs /api/checks/:id/toggle with no body", async () => {
     const toggled = { id: "t_1", work_item_id: "wi_1", title: "X", status: "in_progress" };
     fetchMock.mockResolvedValueOnce(jsonOk(toggled));
     const result = await makeRepo().toggleStatus("t_1");
     expect(result).toEqual(toggled);
     const { url, init } = callArgs();
-    expect(url).toBe(`${BASE}/api/tasks/t_1/toggle`);
+    expect(url).toBe(`${BASE}/api/checks/t_1/toggle`);
     expect(init?.method).toBe("POST");
     expect(init?.body).toBeUndefined();
     // No body ⇒ no Content-Type, but the bearer is still attached.

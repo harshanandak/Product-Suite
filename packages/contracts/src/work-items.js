@@ -2,7 +2,7 @@
  * Framework-neutral Workboard core vocabulary (DESIGN §1 / §2 / §11).
  *
  * The single runtime source of truth for the work-item OBJECT MODEL — the
- * Project / WorkItem / Task / WorkItemDependency / ActivityEvent shapes, the two
+ * Project / WorkItem / Check / WorkItemDependency / ActivityEvent shapes, the two
  * closed sets they carry that are NOT already in `enums.js` (dependency
  * relationship + activity-event kind), the editable work-item patch surface, and
  * the derived-health helper. Framework-neutral so the React `@product-suite/ui`
@@ -15,7 +15,7 @@
  * (`work-items.test.ts`) fails if the JS object, the JSON, and the `.d.ts`
  * enumerable content ever disagree.
  *
- * The enum vocabularies this model references by name (`phase`, `taskStatus`,
+ * The enum vocabularies this model references by name (`phase`, `checkStatus`,
  * `priority`, `workItemType`, `workItemSource`, `health`) live in `enums.js` /
  * `enums.json` — this module never re-declares them; the object schema just
  * points at them via `{ "kind": "enum", "enum": "<name>" }`.
@@ -102,10 +102,10 @@ export const WORK_ITEM_PATCH_FIELDS = [
 ];
 
 /**
- * The editable surface of a task (the task-write `TaskPatch` keys). Frozen here
+ * The editable surface of a check (the check-write `CheckPatch` keys). Frozen here
  * so F2 can author `product_tasks` writes against a stable contract.
  */
-export const TASK_PATCH_FIELDS = ["title", "status", "due_date"];
+export const CHECK_PATCH_FIELDS = ["title", "status", "due_date"];
 
 /**
  * Canonical mirror of `../contracts/work-items-core.json` (deep-equal in the sync
@@ -136,7 +136,7 @@ export const workItemsCore = {
     values: PROJECT_STATUS_VALUES,
   },
   workItemPatchFields: WORK_ITEM_PATCH_FIELDS,
-  taskPatchFields: TASK_PATCH_FIELDS,
+  checkPatchFields: CHECK_PATCH_FIELDS,
   objects: {
     Project: {
       fields: {
@@ -200,12 +200,12 @@ export const workItemsCore = {
         updated_at: { type: "string", readonly: true },
       },
     },
-    Task: {
+    Check: {
       fields: {
         id: { type: "string", readonly: true },
         work_item_id: { type: "string" },
         title: { type: "string" },
-        status: { type: { kind: "enum", enum: "taskStatus" } },
+        status: { type: { kind: "enum", enum: "checkStatus" } },
         due_date: { type: "string", nullable: true },
         created_at: { type: "string", readonly: true },
         updated_at: { type: "string", readonly: true },
@@ -236,42 +236,42 @@ export const workItemsCore = {
 
 /**
  * Pure health derivation (DESIGN §1 / §3 — health is ALWAYS derived, never
- * stored or hand-set). Maps `(workItem, tasks)` to a health value in the
+ * stored or hand-set). Maps `(workItem, checks)` to a health value in the
  * `enums.js` `health` set (`on_track` | `at_risk` | `blocked`).
  *
  * Rules (deterministic, in priority order):
  *  1. `blocked`  — the item is past its `due_date` and still has incomplete
- *     tasks (the work cannot land on time).
- *  2. `at_risk`  — any task is past its own `due_date` while still incomplete,
- *     OR the item is past `due_date` with no tasks to show progress.
- *  3. `on_track` — `phase === "done"`, or every task is completed, or nothing
+ *     checks (the work cannot land on time).
+ *  2. `at_risk`  — any check is past its own `due_date` while still incomplete,
+ *     OR the item is past `due_date` with no checks to show progress.
+ *  3. `on_track` — `phase === "done"`, or every check is completed, or nothing
  *     above fired.
  *
  * `now` is injected (defaulted to `Date.now()`) so callers and tests stay
  * deterministic — never read the clock implicitly.
  *
  * @param {{ phase: string, due_date: string | null }} workItem the item whose health to compute.
- * @param {ReadonlyArray<{ status: string, due_date: string | null }>} tasks the item's tasks (may be empty).
+ * @param {ReadonlyArray<{ status: string, due_date: string | null }>} checks the item's checks (may be empty).
  * @param {number} [now] reference epoch ms; defaults to the current time.
  * @returns {"on_track" | "at_risk" | "blocked"}
  */
-export function deriveHealth(workItem, tasks, now = Date.now()) {
+export function deriveHealth(workItem, checks, now = Date.now()) {
   const isComplete = (status) => status === "completed";
   const isOverdue = (due) => due !== null && Date.parse(due) < now;
 
-  const incompleteTasks = tasks.filter((task) => !isComplete(task.status));
+  const incompleteChecks = checks.filter((check) => !isComplete(check.status));
   const itemOverdue = isOverdue(workItem.due_date);
 
   // 1. Past due with work still open → blocked.
-  if (itemOverdue && incompleteTasks.length > 0) {
+  if (itemOverdue && incompleteChecks.length > 0) {
     return "blocked";
   }
 
-  // 2. An overdue-and-incomplete task, or an overdue item with no tasks → at risk.
-  const hasOverdueOpenTask = incompleteTasks.some((task) =>
-    isOverdue(task.due_date),
+  // 2. An overdue-and-incomplete check, or an overdue item with no checks → at risk.
+  const hasOverdueOpenCheck = incompleteChecks.some((check) =>
+    isOverdue(check.due_date),
   );
-  if (hasOverdueOpenTask || (itemOverdue && tasks.length === 0)) {
+  if (hasOverdueOpenCheck || (itemOverdue && checks.length === 0)) {
     return "at_risk";
   }
 

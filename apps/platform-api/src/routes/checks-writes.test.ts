@@ -8,8 +8,8 @@ vi.mock('@product-suite/db', () => ({ createSql }))
 
 import app from '../app'
 
-const TASK_ROW = {
-  id: 'task_1',
+const CHECK_ROW = {
+  id: 'check_1',
   work_item_id: 'wi_1',
   title: 'T',
   status: 'todo',
@@ -22,7 +22,7 @@ const auth = {
   headers: { Authorization: 'Bearer t', 'Content-Type': 'application/json' },
 }
 
-describe('task writes', () => {
+describe('check writes', () => {
   beforeEach(() => {
     verifyToken.mockReset()
     createSql.mockReset()
@@ -31,14 +31,14 @@ describe('task writes', () => {
     verifyToken.mockResolvedValue({ sub: 'user_clerk_1', exp: 9999999999 })
   })
 
-  it('POST creates a task under an owned work item (201)', async () => {
+  it('POST creates a check under an owned work item (201)', async () => {
     const sql = vi.fn()
     sql
       .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
       .mockResolvedValueOnce([{ n: 1 }]) // parent ownership check
-      .mockResolvedValueOnce([TASK_ROW]) // insert returning
+      .mockResolvedValueOnce([CHECK_ROW]) // insert returning
     createSql.mockReturnValue(sql)
-    const res = await app.request('/api/tasks', {
+    const res = await app.request('/api/checks', {
       method: 'POST',
       ...auth,
       body: JSON.stringify({ work_item_id: 'wi_1', title: 'T' }),
@@ -53,7 +53,7 @@ describe('task writes', () => {
       .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
       .mockResolvedValueOnce([]) // parent ownership check -> none
     createSql.mockReturnValue(sql)
-    const res = await app.request('/api/tasks', {
+    const res = await app.request('/api/checks', {
       method: 'POST',
       ...auth,
       body: JSON.stringify({ work_item_id: 'wi_other' }),
@@ -64,7 +64,7 @@ describe('task writes', () => {
   it('POST returns 400 without a work_item_id', async () => {
     const sql = vi.fn().mockResolvedValueOnce([{ tenant_id: 't_1' }])
     createSql.mockReturnValue(sql)
-    const res = await app.request('/api/tasks', { method: 'POST', ...auth, body: '{}' })
+    const res = await app.request('/api/checks', { method: 'POST', ...auth, body: '{}' })
     expect(res.status).toBe(400)
   })
 
@@ -72,21 +72,21 @@ describe('task writes', () => {
     const sql = vi.fn()
     sql
       .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
-      .mockResolvedValueOnce([TASK_ROW]) // ownedTask (status todo)
-      .mockResolvedValueOnce([{ ...TASK_ROW, status: 'in_progress' }]) // update returning
+      .mockResolvedValueOnce([CHECK_ROW]) // ownedCheck (status todo)
+      .mockResolvedValueOnce([{ ...CHECK_ROW, status: 'in_progress' }]) // update returning
     createSql.mockReturnValue(sql)
-    const res = await app.request('/api/tasks/task_1/toggle', { method: 'POST', headers: auth.headers })
+    const res = await app.request('/api/checks/check_1/toggle', { method: 'POST', headers: auth.headers })
     expect(res.status).toBe(200)
     expect(((await res.json()) as { status: string }).status).toBe('in_progress')
   })
 
-  it('PATCH returns 404 for a task outside the caller’s org', async () => {
+  it('PATCH returns 404 for a check outside the caller’s org', async () => {
     const sql = vi.fn()
     sql
       .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
-      .mockResolvedValueOnce([]) // ownedTask -> none
+      .mockResolvedValueOnce([]) // ownedCheck -> none
     createSql.mockReturnValue(sql)
-    const res = await app.request('/api/tasks/task_x', {
+    const res = await app.request('/api/checks/check_x', {
       method: 'PATCH',
       ...auth,
       body: JSON.stringify({ title: 'x' }),

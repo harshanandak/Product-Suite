@@ -30,8 +30,8 @@ describe("work-items barrel (./index)", () => {
   it("re-exports the fixtures helpers", () => {
     expect(workItemsSeam.createProjectFixtures).toBeDefined();
     expect(typeof workItemsSeam.createProjectFixtures).toBe("function");
-    expect(workItemsSeam.createTaskFixtures).toBeDefined();
-    expect(typeof workItemsSeam.createTaskFixtures).toBe("function");
+    expect(workItemsSeam.createCheckFixtures).toBeDefined();
+    expect(typeof workItemsSeam.createCheckFixtures).toBe("function");
     expect(workItemsSeam.createWorkItemFixtures).toBeDefined();
     expect(typeof workItemsSeam.createWorkItemFixtures).toBe("function");
     expect(workItemsSeam.createOwnerFixtures).toBeDefined();
@@ -45,9 +45,9 @@ describe("work-items barrel (./index)", () => {
     expect(typeof workItemsSeam.getDefaultRepository).toBe("function");
   });
 
-  it("re-exports the per-item tasks hook (task-write seam)", () => {
-    expect(workItemsSeam.useItemTasks).toBeDefined();
-    expect(typeof workItemsSeam.useItemTasks).toBe("function");
+  it("re-exports the per-item checks hook (check-write seam)", () => {
+    expect(workItemsSeam.useItemChecks).toBeDefined();
+    expect(typeof workItemsSeam.useItemChecks).toBe("function");
   });
 
   it("exposes a single shared default repository instance (singleton)", () => {
