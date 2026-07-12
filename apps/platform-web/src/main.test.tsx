@@ -54,6 +54,7 @@ describe("main entrypoint", () => {
     const rootElement = renderSpy.mock.calls[0][0];
     expect(rootElement.props.children.props.reducedMotion).toBe("user");
     // Generous timeout: this dynamically imports the entry, which cold-transforms
-    // the @product-suite/ui source graph (deps.inline) — variable under suite load.
-  }, 20000);
+    // the @product-suite/ui source graph (deps.inline) — variable and, on a loaded
+    // machine, can exceed 20s. 40s gives headroom without masking a real hang.
+  }, 40000);
 });

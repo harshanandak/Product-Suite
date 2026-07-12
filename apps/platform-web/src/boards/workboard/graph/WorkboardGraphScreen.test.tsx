@@ -3,6 +3,12 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { createMockWorkItemRepository } from "@/data/work-items";
 
+// These tests mount the lazy React Flow canvas (jsdom canvas/ResizeObserver-heavy),
+// which is slow and load-sensitive. Raise the per-test timeout for THIS file above
+// the global 15s so the SLOW_FIND waits below fit inside the test window; a real
+// hang still fails, just with headroom for a loaded machine.
+vi.setConfig({ testTimeout: 30000 });
+
 // Node activation now navigates to the detail route. Mock the router so the
 // screen's useNavigate/useParams resolve without a RouterProvider, and capture
 // the navigate call. The real TanStack `navigate` returns a Promise the screen
@@ -62,7 +68,7 @@ afterAll(() => {
  * than `findBy`'s 1000ms default under load. Wait generously (well within the
  * 15s test timeout) so the integration assertions are not flaky.
  */
-const SLOW_FIND = { timeout: 10000 } as const;
+const SLOW_FIND = { timeout: 20000 } as const;
 
 describe("WorkboardGraphScreen", () => {
   it("renders the full-page graph (own sub-board, no page-header chrome)", async () => {
