@@ -2,12 +2,12 @@ import { describe, expect, test } from "bun:test";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { STATUS_LABELS, StatusPill, type TaskStatus } from "./status-pill";
+import { STATUS_LABELS, StatusPill, type CheckStatus } from "./status-pill";
 
-const STATUSES: TaskStatus[] = ["todo", "in_progress", "completed"];
+const STATUSES: CheckStatus[] = ["todo", "in_progress", "completed"];
 
 describe("StatusPill", () => {
-  test("exposes the fixed task-status triad labels", () => {
+  test("exposes the fixed check-status triad labels", () => {
     expect(STATUS_LABELS).toEqual({
       todo: "To-do",
       in_progress: "In progress",
@@ -15,7 +15,7 @@ describe("StatusPill", () => {
     });
   });
 
-  test("renders each TaskStatus with its label and data-status", () => {
+  test("renders each CheckStatus with its label and data-status", () => {
     for (const status of STATUSES) {
       const html = renderToStaticMarkup(<StatusPill status={status} />);
       expect(html).toContain(`data-status="${status}"`);

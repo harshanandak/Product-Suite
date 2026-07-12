@@ -47,7 +47,7 @@ import { type GroupByField, workboardDepartments } from "../filter-state";
 /**
  * Workboard KANBAN view (DESIGN §5 board grammar).
  *
- * Renders {@link WorkItemRow}s — which already carry derived `health` and task
+ * Renders {@link WorkItemRow}s — which already carry derived `health` and check
  * roll-up counts from the data seam — as a configurable group-by board. The
  * board re-pivots on the toolbar's "Group by" control ({@link GroupByField}):
  * `phase` (the universal loop `plan → execute → review → done`), `priority`,
@@ -74,7 +74,7 @@ import { type GroupByField, workboardDepartments } from "../filter-state";
 export interface WorkboardKanbanProps {
   /**
    * Rows already searched + filtered by the parent, each carrying derived
-   * `health`, `taskCount`, `completedTaskCount`. Render badges from the row;
+   * `health`, `checkCount`, `completedCheckCount`. Render badges from the row;
    * never re-derive here (DESIGN §3 — health is computed once, on read). The
    * board does NOT filter — it renders exactly these rows, grouped by `groupBy`.
    */

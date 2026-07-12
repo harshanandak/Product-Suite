@@ -28,7 +28,7 @@
     "due_date",
     "archived"
   ],
-  "taskPatchFields": ["title", "status", "due_date"],
+  "checkPatchFields": ["title", "status", "due_date"],
   "objects": {
     "Project": {
       "fields": {
@@ -92,12 +92,12 @@
         "updated_at": { "type": "string", "readonly": true }
       }
     },
-    "Task": {
+    "Check": {
       "fields": {
         "id": { "type": "string", "readonly": true },
         "work_item_id": { "type": "string" },
         "title": { "type": "string" },
-        "status": { "type": { "kind": "enum", "enum": "taskStatus" } },
+        "status": { "type": { "kind": "enum", "enum": "checkStatus" } },
         "due_date": { "type": "string", "nullable": true },
         "created_at": { "type": "string", "readonly": true },
         "updated_at": { "type": "string", "readonly": true }

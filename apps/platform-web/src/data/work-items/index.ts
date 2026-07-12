@@ -14,8 +14,8 @@ export type {
   Phase,
   Priority,
   Project,
-  Task,
-  TaskStatus,
+  Check,
+  CheckStatus,
   WorkItem,
   WorkItemDependency,
   WorkItemPatch,
@@ -27,10 +27,10 @@ export { deriveHealth } from "./types";
 
 export type {
   AddDependencyInput,
-  CreateTaskInput,
+  CreateCheckInput,
   CreateWorkItemInput,
   ListGraphOptions,
-  TaskPatch,
+  CheckPatch,
   WorkItemGraph,
   WorkItemRepository,
 } from "./repository";
@@ -47,7 +47,7 @@ export {
   createDependencyFixtures,
   createOwnerFixtures,
   createProjectFixtures,
-  createTaskFixtures,
+  createCheckFixtures,
   createWorkItemFixtures,
 } from "./fixtures";
 
@@ -58,9 +58,9 @@ export type {
   UseWorkItemsResult,
 } from "./use-work-items";
 
-export { useItemTasks } from "./use-item-tasks";
+export { useItemChecks } from "./use-item-checks";
 export type {
-  CreateItemTaskInput,
-  UseItemTasksOptions,
-  UseItemTasksResult,
-} from "./use-item-tasks";
+  CreateItemCheckInput,
+  UseItemChecksOptions,
+  UseItemChecksResult,
+} from "./use-item-checks";

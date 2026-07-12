@@ -7,7 +7,7 @@ import type { WorkItem } from "./types";
 import { useWorkItems } from "./use-work-items";
 
 describe("useWorkItems", () => {
-  it("loads rows with derived health + task counts and clears loading", async () => {
+  it("loads rows with derived health + check counts and clears loading", async () => {
     const repository = createMockWorkItemRepository();
     const { result } = renderHook(() => useWorkItems({ repository }));
 
@@ -21,8 +21,8 @@ describe("useWorkItems", () => {
 
     const row = result.current.items[0];
     expect(row).toHaveProperty("health");
-    expect(row).toHaveProperty("taskCount");
-    expect(row).toHaveProperty("completedTaskCount");
+    expect(row).toHaveProperty("checkCount");
+    expect(row).toHaveProperty("completedCheckCount");
     expect(["on_track", "at_risk", "blocked"]).toContain(row.health);
   });
 
@@ -58,7 +58,7 @@ describe("useWorkItems", () => {
     expect(result.current.items[0].title).toBe("Brand new item");
     // The created row carries derived view-model fields.
     expect(result.current.items[0]).toHaveProperty("health");
-    expect(result.current.items[0].taskCount).toBe(0);
+    expect(result.current.items[0].checkCount).toBe(0);
   });
 
   it("rolls back the optimistic update when the repository rejects", async () => {

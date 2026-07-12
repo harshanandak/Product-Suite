@@ -1,9 +1,9 @@
 import type {
   AddDependencyInput,
-  CreateTaskInput,
+  CreateCheckInput,
   CreateWorkItemInput,
   ListGraphOptions,
-  TaskPatch,
+  CheckPatch,
   WorkItemGraph,
   WorkItemRepository,
 } from "./repository";
@@ -12,7 +12,7 @@ import type {
   ActivityEvent,
   Owner,
   Project,
-  Task,
+  Check,
   WorkItem,
   WorkItemDependency,
   WorkItemPatch,
@@ -96,7 +96,7 @@ function neighborhood(
  * The network {@link WorkItemRepository} — the adapter that fills the workboard's
  * data seam against the real platform API (Clerk-verified, tenant-scoped) instead
  * of the in-memory mock. Reads AND writes hit the live tenant-scoped endpoints;
- * only `getTasks` and `listGraph` retain a client-side shim (filter/BFS) until
+ * only `getChecks` and `listGraph` retain a client-side shim (filter/BFS) until
  * the API serves those slices server-side.
  */
 export function createNetworkWorkItemRepository(
@@ -154,14 +154,14 @@ export function createNetworkWorkItemRepository(
     list: () => request<WorkItem[]>("GET", "/api/work-items"),
     listProjects: () => request<Project[]>("GET", "/api/projects"),
     listOwners: () => request<Owner[]>("GET", "/api/owners"),
-    listTasks: () => request<Task[]>("GET", "/api/tasks"),
+    listChecks: () => request<Check[]>("GET", "/api/checks"),
     listDependencies: () =>
       request<WorkItemDependency[]>("GET", "/api/dependencies"),
 
-    async getTasks(workItemId: string): Promise<Task[]> {
-      // No single-item tasks endpoint yet — filter the tenant-scoped list.
-      const tasks = await request<Task[]>("GET", "/api/tasks");
-      return tasks.filter((task) => task.work_item_id === workItemId);
+    async getChecks(workItemId: string): Promise<Check[]> {
+      // No single-item checks endpoint yet — filter the tenant-scoped list.
+      const checks = await request<Check[]>("GET", "/api/checks");
+      return checks.filter((check) => check.work_item_id === workItemId);
     },
 
     async listGraph(options: ListGraphOptions = {}): Promise<WorkItemGraph> {
@@ -193,12 +193,12 @@ export function createNetworkWorkItemRepository(
       request<WorkItem>("PATCH", `/api/work-items/${id}`, patch),
     listActivity: (workItemId: string) =>
       request<ActivityEvent[]>("GET", `/api/work-items/${workItemId}/activity`),
-    createTask: (input: CreateTaskInput) =>
-      request<Task>("POST", "/api/tasks", input),
-    updateTask: (id: string, patch: TaskPatch) =>
-      request<Task>("PATCH", `/api/tasks/${id}`, patch),
+    createCheck: (input: CreateCheckInput) =>
+      request<Check>("POST", "/api/checks", input),
+    updateCheck: (id: string, patch: CheckPatch) =>
+      request<Check>("PATCH", `/api/checks/${id}`, patch),
     toggleStatus: (id: string) =>
-      request<Task>("POST", `/api/tasks/${id}/toggle`),
+      request<Check>("POST", `/api/checks/${id}/toggle`),
     addDependency: (input: AddDependencyInput) =>
       request<WorkItemDependency>("POST", "/api/dependencies", input),
     removeDependency: (id: string) =>

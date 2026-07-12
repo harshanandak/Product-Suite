@@ -145,10 +145,10 @@ to add modes.
 
 **Naming model** — Team → Project → **Item** → **Task** → **Check**. `work_items` = an **Item**; a
 `work_item` with a `parent_id` = a **Task** (owned child, native create); a checklist row = a **Check**.
-Rule: *needs an owner → Task; just tick it → Check.* This entails renaming the **platform-api workboard**
-`tasks` table → `checks` and its `packages/contracts` `Task` type → `Check` (re-minting `Task` for the
-owned child) — a coordinated Forge **major** bump, gated on verifying Forge's usage; see the ontology
-design doc §2.3. The additive schema changes (teams, statuses, parent_id) ship first under a minor bump.
+Rule: *needs an owner → Task; just tick it → Check.* The additive schema changes (teams, statuses,
+parent_id, projects) shipped first; the `tasks`→`checks` / `Task`→`Check` rename is an **internal atomic
+monorepo change** (RENAME migration, all consumers updated in one PR — Forge does not consume the
+contract, so no coordination; see design doc §2.3). "Task" is freed for the owned-child tier.
 
 **Scope + collision to reconcile:** the rename touches ONLY the platform-api `Task` (a frozen checklist:
 `{status, due_date}`). The **roadmap-web app has a separate, richer `ProductTask`**

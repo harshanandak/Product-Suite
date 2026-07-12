@@ -15,7 +15,7 @@ import { ThemeProvider, Toaster, toast } from "@product-suite/ui";
 import {
   createMockWorkItemRepository,
   RepositoryProvider,
-  type Task,
+  type Check,
   type WorkItemPatch,
 } from "@/data/work-items";
 
@@ -297,14 +297,14 @@ describe("WorkboardScreen", () => {
     expect(items.find((item) => item.id === "wi_realtime")?.phase).toBe("plan");
   });
 
-  it("creates a work item from the New button, opens the editor, and shows that item's per-item tasks", async () => {
+  it("creates a work item from the New button, opens the editor, and shows that item's per-item checks", async () => {
     const base = createMockWorkItemRepository();
-    const NEW_ITEM_TASK_TITLE = "Kickoff task for the new item";
-    // The editor's task list is fed by a PER-ITEM read (useItemTasks), not the
-    // board-wide task set. A freshly created item gets the mock's generated
-    // "wi_new_…" id, so seed a task for whatever new id is fetched — proving the
+    const NEW_ITEM_TASK_TITLE = "Kickoff check for the new item";
+    // The editor's check list is fed by a PER-ITEM read (useItemChecks), not the
+    // board-wide check set. A freshly created item gets the mock's generated
+    // "wi_new_…" id, so seed a check for whatever new id is fetched — proving the
     // per-item fetch runs for the created item and feeds the sheet.
-    const getTasks = vi.fn((workItemId: string) =>
+    const getChecks = vi.fn((workItemId: string) =>
       workItemId.startsWith("wi_new_")
         ? Promise.resolve([
             {
@@ -315,11 +315,11 @@ describe("WorkboardScreen", () => {
               due_date: null,
               created_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
-            } satisfies Task,
+            } satisfies Check,
           ])
-        : base.getTasks(workItemId),
+        : base.getChecks(workItemId),
     );
-    const repository = { ...base, getTasks };
+    const repository = { ...base, getChecks };
 
     render(<WorkboardScreen repository={repository} />);
 
@@ -334,14 +334,14 @@ describe("WorkboardScreen", () => {
     expect(dialog).toBeInTheDocument();
     expect(screen.getByLabelText("Title")).toHaveValue("Untitled work item");
 
-    // useItemTasks fetched THAT item's tasks per-item (its generated id) — never
+    // useItemChecks fetched THAT item's checks per-item (its generated id) — never
     // a board-wide read…
     await waitFor(() => {
-      expect(getTasks).toHaveBeenCalledWith(
+      expect(getChecks).toHaveBeenCalledWith(
         expect.stringMatching(/^wi_new_/),
       );
     });
-    // …and those tasks render inside the editor sheet.
+    // …and those checks render inside the editor sheet.
     expect(
       await within(dialog).findByText(NEW_ITEM_TASK_TITLE),
     ).toBeInTheDocument();

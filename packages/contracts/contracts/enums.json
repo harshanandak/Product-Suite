@@ -9,7 +9,7 @@
     },
     "order": ["plan", "execute", "review", "done"]
   },
-  "taskStatus": {
+  "checkStatus": {
     "values": ["todo", "in_progress", "completed"],
     "labels": {
       "todo": "To-do",

@@ -50,7 +50,7 @@ describe("WorkItemDetailScreen", () => {
     ).toBeInTheDocument();
 
     // The tab set is present (only tabs backed by real data are shipped).
-    for (const name of [/overview/i, /tasks/i, /activity/i]) {
+    for (const name of [/overview/i, /checks/i, /activity/i]) {
       expect(screen.getByRole("tab", { name })).toBeInTheDocument();
     }
 
@@ -95,17 +95,17 @@ describe("WorkItemDetailScreen", () => {
     expect(await screen.findByText(events[0]!.summary)).toBeInTheDocument();
   });
 
-  it("checks off a task, advancing it around the status triad (move ②)", async () => {
+  it("checks off a check, advancing it around the status triad (move ②)", async () => {
     const repo = createMockWorkItemRepository();
-    // wi_realtime seeds t_rt_2 "Define RealtimeTransport" as a "todo" task.
+    // wi_realtime seeds t_rt_2 "Define RealtimeTransport" as a "todo" check.
     routerMock.params = { workspace: "acme", itemId: "wi_realtime" };
 
     render(<WorkItemDetailScreen repository={repo} />);
     await screen.findByRole("heading", { level: 1 });
 
-    const tasksTab = screen.getByRole("tab", { name: /tasks/i });
-    tasksTab.focus();
-    fireEvent.click(tasksTab);
+    const checksTab = screen.getByRole("tab", { name: /checks/i });
+    checksTab.focus();
+    fireEvent.click(checksTab);
 
     const checkbox = await screen.findByLabelText(
       "Advance status of Define RealtimeTransport",
@@ -121,36 +121,36 @@ describe("WorkItemDetailScreen", () => {
     await waitFor(() => {
       expect(within(row!).getByText("In progress")).toBeInTheDocument();
     });
-    const persisted = await repo.getTasks("wi_realtime");
+    const persisted = await repo.getChecks("wi_realtime");
     expect(
-      persisted.find((task) => task.id === "t_rt_2")?.status,
+      persisted.find((check) => check.id === "t_rt_2")?.status,
     ).toBe("in_progress");
   });
 
-  it("adds a task from the Tasks tab and updates the progress count", async () => {
+  it("adds a check from the Checks tab and updates the progress count", async () => {
     const repo = createMockWorkItemRepository();
     routerMock.params = { workspace: "acme", itemId: "wi_realtime" };
 
     render(<WorkItemDetailScreen repository={repo} />);
     await screen.findByRole("heading", { level: 1 });
 
-    const tasksTab = screen.getByRole("tab", { name: /tasks/i });
-    tasksTab.focus();
-    fireEvent.click(tasksTab);
+    const checksTab = screen.getByRole("tab", { name: /checks/i });
+    checksTab.focus();
+    fireEvent.click(checksTab);
 
-    const input = await screen.findByLabelText("New task title");
+    const input = await screen.findByLabelText("New check title");
     fireEvent.change(input, { target: { value: "Wire the transport stub" } });
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
 
-    // The new task appears in the list…
+    // The new check appears in the list…
     expect(
       await screen.findByText("Wire the transport stub"),
     ).toBeInTheDocument();
     // …and it was persisted through the repository.
     await waitFor(async () => {
-      const persisted = await repo.getTasks("wi_realtime");
+      const persisted = await repo.getChecks("wi_realtime");
       expect(
-        persisted.some((task) => task.title === "Wire the transport stub"),
+        persisted.some((check) => check.title === "Wire the transport stub"),
       ).toBe(true);
     });
   });

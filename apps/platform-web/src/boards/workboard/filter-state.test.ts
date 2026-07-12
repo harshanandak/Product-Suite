@@ -39,8 +39,8 @@ function rowOf(overrides: Partial<WorkItemRow> = {}): WorkItemRow {
     created_at: "2026-05-01T09:00:00.000Z",
     updated_at: "2026-06-19T09:00:00.000Z",
     health: "on_track",
-    taskCount: 0,
-    completedTaskCount: 0,
+    checkCount: 0,
+    completedCheckCount: 0,
     ...overrides,
   };
 }

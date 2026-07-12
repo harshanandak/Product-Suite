@@ -138,11 +138,12 @@ would create checkboxes when asked for tasks. So we fix it at the source — ren
 — Task = owned work everywhere, Check = checkbox everywhere. `work_items` / `WorkItem`, `projects` /
 `Project`, Team, statuses, dependencies are unchanged.
 
-> **Forge coordination — verify before executing.** Renaming the `Task` contract type is a coordinated
-> **major** bump; Forge consumes the contract. Fable judged the impact "one type, worth it," but
-> Forge's actual usage of `Task` has **not** been verified from the Forge repo. Confirm usage and plan
-> the dual-repo rollout before running the rename. The naming decision stands regardless; only the
-> rollout care depends on it.
+> **Forge coordination — RESOLVED (2026-07-12): not needed.** Verified the Forge repo does **not**
+> import `@product-suite/contracts` anywhere (no package.json dep, no source import). So the rename is a
+> plain **internal atomic monorepo change** — every consumer (`platform-api`, `platform-web`,
+> `packages/ui`) lives in this repo and is updated in the same PR. No external semver coordination. The
+> Forge↔Product-Suite contract sharing is aspirational/future and Forge is deprioritized ("decoration,
+> add later"), so it does not gate this or any near-term change.
 
 ### 2.4 Decisions
 
@@ -261,10 +262,10 @@ during.
    `plan→backlog`, `execute→started`, `review→started` + an "In Review" status, `done→completed`
 6. `ADD COLUMN parent_id`, `ADD COLUMN depth`
 7. `projects` enrichment: `status`, `lead_id`, `target_date`
-8. **Rename `tasks` → `checks`** (and contract `Task` → `Check`; re-mint `Task` as the owned-child
-   type). This is the one **non-additive** step — a coordinated Forge major bump — so it is gated on
-   the Forge-usage verification (§2.3) and may land in its own beat rather than the same statement
-   batch. Everything in 1–7 is additive and can ship first.
+8. **Rename `tasks` → `checks`** (and contract `Task`/`TaskStatus` → `Check`/`CheckStatus`; "Task" is
+   freed for the owned-child tier). The one **non-additive** step — a `RENAME` migration (rows
+   preserved), an internal atomic change across `contracts`/`ui`/`platform-api`/`platform-web` in one
+   PR (no Forge coordination — §2.3). Lands in its own beat, after the additive 1–7. **Done 2026-07-12.**
 
 `department` and `phase` are retained, deprecated, for one contract cycle — **Forge depends on them.**
 Dropping both is the future major. The additive changes (1–7) take a **minor** contract bump; the

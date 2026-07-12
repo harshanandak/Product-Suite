@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   createOwnerFixtures,
   createProjectFixtures,
-  createTaskFixtures,
+  createCheckFixtures,
   createWorkItemFixtures,
 } from "./fixtures";
 import { deriveHealth } from "./types";
@@ -43,23 +43,23 @@ describe("work-item fixtures", () => {
     expect(items.some((item) => item.project_id !== null)).toBe(true);
   });
 
-  it("covers every phase and mixed task statuses", () => {
+  it("covers every phase and mixed check statuses", () => {
     const phases = new Set(createWorkItemFixtures().map((item) => item.phase));
     expect(phases).toEqual(new Set(["plan", "execute", "review", "done"]));
 
-    const statuses = new Set(createTaskFixtures().map((task) => task.status));
+    const statuses = new Set(createCheckFixtures().map((check) => check.status));
     expect(statuses).toEqual(new Set(["todo", "in_progress", "completed"]));
   });
 
   it("produces varied derived health across all three values", () => {
     const items = createWorkItemFixtures();
-    const tasks = createTaskFixtures();
+    const checks = createCheckFixtures();
 
     const healthValues = new Set(
       items.map((item) =>
         deriveHealth(
           item,
-          tasks.filter((task) => task.work_item_id === item.id),
+          checks.filter((check) => check.work_item_id === item.id),
           NOW,
         ),
       ),

@@ -7,7 +7,7 @@ describe('workboard schema', () => {
     for (const table of [
       'projects',
       'workItems',
-      'tasks',
+      'checks',
       'workItemDependencies',
       'activityEvents',
     ] as const) {
@@ -17,7 +17,7 @@ describe('workboard schema', () => {
 
   it('mirrors the @product-suite/contracts enum values exactly', () => {
     expect(schema.phaseEnum.enumValues).toEqual(['plan', 'execute', 'review', 'done'])
-    expect(schema.taskStatusEnum.enumValues).toEqual(['todo', 'in_progress', 'completed'])
+    expect(schema.checkStatusEnum.enumValues).toEqual(['todo', 'in_progress', 'completed'])
     expect(schema.priorityEnum.enumValues).toEqual(['critical', 'high', 'medium', 'low'])
     expect(schema.workItemTypeEnum.enumValues).toEqual(['feature', 'bug', 'chore', 'research'])
     expect(schema.workItemSourceEnum.enumValues).toEqual(['manual', 'meeting', 'agent', 'feedback'])

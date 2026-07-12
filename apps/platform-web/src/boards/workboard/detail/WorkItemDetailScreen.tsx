@@ -29,12 +29,12 @@ import {
 
 import {
   getDefaultRepository,
-  useItemTasks,
+  useItemChecks,
   useRepositoryContext,
   useWorkItems,
   type ActivityEvent,
   type Owner,
-  type Task,
+  type Check,
   type WorkItemPatch,
   type WorkItemRepository,
   type WorkItemRow,
@@ -111,13 +111,13 @@ function OverviewTab({
         <div className="mb-1.5 flex items-baseline justify-between text-sm">
           <span className="font-medium">Progress</span>
           <span className="text-muted-foreground tabular-nums">
-            {completed} of {total} tasks · {pct}%
+            {completed} of {total} checks · {pct}%
           </span>
         </div>
         <div
           className="h-2 w-full overflow-hidden rounded-full bg-muted"
           role="progressbar"
-          aria-label="Task progress"
+          aria-label="Check progress"
           aria-valuenow={pct}
           aria-valuemin={0}
           aria-valuemax={100}
@@ -152,30 +152,30 @@ function OverviewTab({
   );
 }
 
-/** Order a copy of the tasks with open ones first, completed last. */
-function openFirst(tasks: ReadonlyArray<Task>): Task[] {
-  return [...tasks].sort((a, b) =>
+/** Order a copy of the checks with open ones first, completed last. */
+function openFirst(checks: ReadonlyArray<Check>): Check[] {
+  return [...checks].sort((a, b) =>
     a.status === b.status ? 0 : a.status === "completed" ? 1 : -1,
   );
 }
 
 /**
- * Tasks tab — the item's real task records (open first), now WRITABLE (move ②).
- * Each row's checkbox advances the task one step around the status triad
- * (`onToggle` → repo `toggleStatus`); the header form adds a task (`onAdd` →
- * repo `createTask`). Both surface a transient pending cue and never block the
+ * Checks tab — the item's real check records (open first), now WRITABLE (move ②).
+ * Each row's checkbox advances the check one step around the status triad
+ * (`onToggle` → repo `toggleStatus`); the header form adds a check (`onAdd` →
+ * repo `createCheck`). Both surface a transient pending cue and never block the
  * whole tab — a failure is reported by the parent via a toast.
  */
-function TasksTab({
-  tasks,
+function ChecksTab({
+  checks,
   onToggle,
   onAdd,
-  pendingTaskIds,
+  pendingCheckIds,
 }: Readonly<{
-  tasks: ReadonlyArray<Task>;
+  checks: ReadonlyArray<Check>;
   onToggle: (id: string) => void;
   onAdd: (title: string) => Promise<void>;
-  pendingTaskIds: ReadonlySet<string>;
+  pendingCheckIds: ReadonlySet<string>;
 }>) {
   const inputId = useId();
   const [title, setTitle] = useState("");
@@ -204,8 +204,8 @@ function TasksTab({
           id={inputId}
           value={title}
           disabled={adding}
-          placeholder="Add a task…"
-          aria-label="New task title"
+          placeholder="Add a check…"
+          aria-label="New check title"
           onChange={(event) => setTitle(event.target.value)}
         />
         <Button
@@ -218,27 +218,27 @@ function TasksTab({
         </Button>
       </form>
 
-      {tasks.length === 0 ? (
+      {checks.length === 0 ? (
         <EmptyTab
-          title="No tasks yet"
-          description="Break this work item into tasks to track progress."
+          title="No checks yet"
+          description="Break this work item into checks to track progress."
         />
       ) : (
         <ul className="flex flex-col gap-2">
-          {openFirst(tasks).map((task) => {
-            const pending = pendingTaskIds.has(task.id);
-            const completed = task.status === "completed";
+          {openFirst(checks).map((check) => {
+            const pending = pendingCheckIds.has(check.id);
+            const completed = check.status === "completed";
             return (
               <li
-                key={task.id}
+                key={check.id}
                 className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2.5"
               >
                 <div className="flex min-w-0 items-center gap-3">
                   <Checkbox
                     checked={completed}
                     disabled={pending}
-                    aria-label={`Advance status of ${task.title}`}
-                    onCheckedChange={() => onToggle(task.id)}
+                    aria-label={`Advance status of ${check.title}`}
+                    onCheckedChange={() => onToggle(check.id)}
                   />
                   <span
                     className={`min-w-0 truncate text-sm${
@@ -247,19 +247,19 @@ function TasksTab({
                         : ""
                     }`}
                   >
-                    {task.title}
+                    {check.title}
                   </span>
                 </div>
                 <div className="flex shrink-0 items-center gap-3">
                   {pending ? (
                     <Spinner className="size-3.5 text-muted-foreground" />
                   ) : null}
-                  {task.due_date ? (
+                  {check.due_date ? (
                     <span className="text-xs text-muted-foreground tabular-nums">
-                      {formatDate(task.due_date)}
+                      {formatDate(check.due_date)}
                     </span>
                   ) : null}
-                  <StatusPill status={task.status} />
+                  <StatusPill status={check.status} />
                 </div>
               </li>
             );
@@ -382,7 +382,7 @@ function PropertiesRail({
  * linkable home. It self-fetches through the same {@link useWorkItems} seam every
  * other surface uses, resolves the item by route param, and composes entirely
  * from `@product-suite/ui` primitives (§5 — tokens via semantic classes). Tabs
- * backed by real model data (Overview · Tasks · Activity) render live; Edit opens
+ * backed by real model data (Overview · Checks · Activity) render live; Edit opens
  * the shared {@link WorkItemEditor} Sheet and the Activity feed refreshes on save.
  */
 export function WorkItemDetailScreen({
@@ -408,14 +408,14 @@ export function WorkItemDetailScreen({
     update,
   } = useWorkItems({ repository: repo });
 
-  // Tasks for this item's Tasks tab + progress rollup (per-item fetch), now with
+  // Checks for this item's Checks tab + progress rollup (per-item fetch), now with
   // the two write gestures (check-off + add) wired through the repository.
   const {
-    tasks,
-    createTask,
+    checks,
+    createCheck,
     toggleStatus,
-    pendingTaskIds,
-  } = useItemTasks({ repository: repo, workItemId: itemId });
+    pendingCheckIds,
+  } = useItemChecks({ repository: repo, workItemId: itemId });
 
   // Activity log for the Activity tab (append-only; loaded per item).
   const [activity, setActivity] = useState<ReadonlyArray<ActivityEvent>>([]);
@@ -434,7 +434,7 @@ export function WorkItemDetailScreen({
     };
   }, [repo, itemId]);
 
-  // Every mutation (work-item edit, task add/toggle) appends an ActivityEvent —
+  // Every mutation (work-item edit, check add/toggle) appends an ActivityEvent —
   // re-read the feed so the change shows immediately. Non-fatal on failure.
   const refreshActivity = useCallback(async (): Promise<void> => {
     try {
@@ -454,32 +454,32 @@ export function WorkItemDetailScreen({
     [update, refreshActivity],
   );
 
-  // Check-off gesture: advance a task one step around the status triad. Optimistic
+  // Check-off gesture: advance a check one step around the status triad. Optimistic
   // in the hook; a failure rolls back there and is surfaced here as a toast.
-  const handleToggleTask = useCallback(
+  const handleToggleCheck = useCallback(
     (id: string): void => {
       toggleStatus(id)
         .then(refreshActivity)
         .catch(() => {
-          toast.error("Couldn't update the task — please try again.");
+          toast.error("Couldn't update the check — please try again.");
         });
     },
     [toggleStatus, refreshActivity],
   );
 
-  // Add gesture: create a task under this item. Re-throws on failure so the
-  // Tasks form keeps the typed title for a retry (it also gets the toast).
-  const handleAddTask = useCallback(
+  // Add gesture: create a check under this item. Re-throws on failure so the
+  // Checks form keeps the typed title for a retry (it also gets the toast).
+  const handleAddCheck = useCallback(
     async (title: string): Promise<void> => {
       try {
-        await createTask({ title });
+        await createCheck({ title });
         await refreshActivity();
       } catch (cause) {
-        toast.error("Couldn't add the task — please try again.");
+        toast.error("Couldn't add the check — please try again.");
         throw cause;
       }
     },
-    [createTask, refreshActivity],
+    [createCheck, refreshActivity],
   );
 
   const row = useMemo<WorkItemRow | undefined>(
@@ -549,11 +549,11 @@ export function WorkItemDetailScreen({
     );
   }
 
-  // Derive progress from the LIVE per-item tasks (not the hook's list-level
+  // Derive progress from the LIVE per-item checks (not the hook's list-level
   // snapshot) so a check-off / add updates the header + progress bar instantly,
-  // in lock-step with the Tasks tab — one source of truth for this item.
-  const total = tasks.length;
-  const completed = tasks.filter((task) => task.status === "completed").length;
+  // in lock-step with the Checks tab — one source of truth for this item.
+  const total = checks.length;
+  const completed = checks.filter((check) => check.status === "completed").length;
   const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
 
   return (
@@ -590,7 +590,7 @@ export function WorkItemDetailScreen({
               <span>Due {formatDate(row.due_date)}</span>
               <span>·</span>
               <span>
-                {completed}/{total} tasks
+                {completed}/{total} checks
               </span>
               {projectName ? (
                 <>
@@ -604,8 +604,8 @@ export function WorkItemDetailScreen({
           <Tabs defaultValue="overview" className="mt-6">
             <TabsList>
               <TabsTrigger value="overview">Overview</TabsTrigger>
-              <TabsTrigger value="tasks">
-                Tasks{total > 0 ? ` · ${total}` : ""}
+              <TabsTrigger value="checks">
+                Checks{total > 0 ? ` · ${total}` : ""}
               </TabsTrigger>
               <TabsTrigger value="activity">Activity</TabsTrigger>
             </TabsList>
@@ -619,12 +619,12 @@ export function WorkItemDetailScreen({
               />
             </TabsContent>
 
-            <TabsContent value="tasks" className="pt-5">
-              <TasksTab
-                tasks={tasks}
-                onToggle={handleToggleTask}
-                onAdd={handleAddTask}
-                pendingTaskIds={pendingTaskIds}
+            <TabsContent value="checks" className="pt-5">
+              <ChecksTab
+                checks={checks}
+                onToggle={handleToggleCheck}
+                onAdd={handleAddCheck}
+                pendingCheckIds={pendingCheckIds}
               />
             </TabsContent>
 
@@ -649,7 +649,7 @@ export function WorkItemDetailScreen({
         open={editing}
         onOpenChange={setEditing}
         onSave={handleSave}
-        tasks={tasks}
+        checks={checks}
         owners={owners}
       />
     </div>

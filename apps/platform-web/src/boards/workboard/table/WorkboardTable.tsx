@@ -81,7 +81,7 @@ export interface ColumnFilter {
 /**
  * Workboard TABLE view (DESIGN §2 / §4 / §5).
  *
- * Renders {@link WorkItemRow}s — which already carry derived `health` and task
+ * Renders {@link WorkItemRow}s — which already carry derived `health` and check
  * roll-up counts from the data seam — as a virtualized, accessible grid deepened
  * to the wireframe (`plan-table`) column set: a structural selection checkbox
  * plus Name · Type · Phase · Priority · Owner · Due · Tags · Source. Which data
@@ -115,7 +115,7 @@ export interface ColumnFilter {
 export interface WorkItemTableProps {
   /**
    * Rows already searched + filtered by the parent, each carrying derived
-   * `health`, `taskCount`, `completedTaskCount`. Render `HealthBadge` / read-only
+   * `health`, `checkCount`, `completedCheckCount`. Render `HealthBadge` / read-only
    * badges from the row; never re-derive here (DESIGN §3 — health is computed
    * once, on read). The table does NOT filter — it renders exactly these rows.
    */

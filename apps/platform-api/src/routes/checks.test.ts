@@ -9,7 +9,7 @@ vi.mock('@product-suite/db', () => ({ createSql }))
 import app from '../app'
 
 const ROW = {
-  id: 'task_1',
+  id: 'check_1',
   work_item_id: 'wi_1',
   title: 'Wire the adapter',
   status: 'in_progress',
@@ -18,7 +18,7 @@ const ROW = {
   updated_at: '2026-07-02T00:00:00.000Z',
 }
 
-describe('GET /api/tasks', () => {
+describe('GET /api/checks', () => {
   beforeEach(() => {
     verifyToken.mockReset()
     createSql.mockReset()
@@ -27,16 +27,16 @@ describe('GET /api/tasks', () => {
     verifyToken.mockResolvedValue({ sub: 'user_clerk_1', exp: 9999999999 })
   })
 
-  it('returns tenant-scoped tasks mapped to the contracts shape', async () => {
+  it('returns tenant-scoped checks mapped to the contracts shape', async () => {
     const sql = vi.fn(async () => [ROW])
     createSql.mockReturnValue(sql)
 
-    const res = await app.request('/api/tasks', { headers: { Authorization: 'Bearer token' } })
+    const res = await app.request('/api/checks', { headers: { Authorization: 'Bearer token' } })
 
     expect(res.status).toBe(200)
     const body = (await res.json()) as unknown[]
     expect(body[0]).toMatchObject({
-      id: 'task_1',
+      id: 'check_1',
       work_item_id: 'wi_1',
       status: 'in_progress',
       due_date: null,
@@ -52,16 +52,16 @@ describe('GET /api/tasks', () => {
       }),
     )
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const res = await app.request('/api/tasks', { headers: { Authorization: 'Bearer token' } })
+    const res = await app.request('/api/checks', { headers: { Authorization: 'Bearer token' } })
     expect(res.status).toBe(500)
-    expect(await res.json()).toEqual({ error: 'Failed to load tasks' })
+    expect(await res.json()).toEqual({ error: 'Failed to load checks' })
     errorSpy.mockRestore()
   })
 
   it('returns 401 without a bearer token (no DB access)', async () => {
     const sql = vi.fn(async () => [ROW])
     createSql.mockReturnValue(sql)
-    const res = await app.request('/api/tasks')
+    const res = await app.request('/api/checks')
     expect(res.status).toBe(401)
     expect(sql).not.toHaveBeenCalled()
   })

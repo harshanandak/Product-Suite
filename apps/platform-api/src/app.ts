@@ -1,11 +1,11 @@
 import { Hono } from 'hono'
 
 import { clerkAuth, type AuthedEnv } from './middleware/clerk-auth'
+import { checksRoutes } from './routes/checks'
 import { dependenciesRoutes } from './routes/dependencies'
 import { ownersRoutes } from './routes/owners'
 import { projectsRoutes } from './routes/projects'
 import { statusesRoutes } from './routes/statuses'
-import { tasksRoutes } from './routes/tasks'
 import { teamsRoutes } from './routes/teams'
 import { workItemsRoutes } from './routes/work-items'
 
@@ -26,7 +26,7 @@ app.get('/api/me', (c) => c.json({ claims: c.get('claims') }))
 
 // Workboard: tenant-scoped reads backed by the real Neon schema.
 app.route('/api/work-items', workItemsRoutes)
-app.route('/api/tasks', tasksRoutes)
+app.route('/api/checks', checksRoutes)
 app.route('/api/dependencies', dependenciesRoutes)
 app.route('/api/projects', projectsRoutes)
 app.route('/api/teams', teamsRoutes)

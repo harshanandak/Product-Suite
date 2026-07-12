@@ -4,7 +4,7 @@ import type {
   DependencyRelationship,
   Owner,
   Project,
-  Task,
+  Check,
   WorkItem,
   WorkItemDependency,
 } from "./types";
@@ -13,7 +13,7 @@ import type {
  * In-memory mock dataset for the Workboard data seam.
  *
  * Realistic shape per the task: ~8-12 work items across 2-3 departments, mixed
- * phases, with tasks (mixed status) so derived health VARIES across all three
+ * phases, with checks (mixed status) so derived health VARIES across all three
  * values; 1-2 projects plus some null `project_id` (loose work items — §1
  * containment-optional rule).
  *
@@ -23,10 +23,10 @@ import type {
  * blocked when evaluated around that date. The per-item health outcome is noted
  * inline; the authoritative assertions live in the deriveHealth tests.
  *
- * `WORK_ITEMS`, `TASKS`, and `PROJECTS` are exported deep-clone factories so the
+ * `WORK_ITEMS`, `CHECKS`, and `PROJECTS` are exported deep-clone factories so the
  * mock repository can mutate freely without poisoning the source fixtures
  * (important for test isolation). Rows are built through the `workItemOf` /
- * `taskOf` factories so the repeated record shape lives in one place.
+ * `checkOf` factories so the repeated record shape lives in one place.
  */
 
 const T = (iso: string): string => iso;
@@ -69,65 +69,65 @@ const RAW_PROJECTS: ReadonlyArray<Project> = [
 
 const RAW_WORK_ITEMS: ReadonlyArray<WorkItem> = [
   // --- Engineering (proj_v2) ---
-  // future due, no overdue tasks → on_track
+  // future due, no overdue checks → on_track
   workItemOf("wi_auth", "Workspace auth hardening", "execute", "Engineering", { description: "Harden workspace auth before v2.0: add a token-verifier interface, wire the session bridge, and close the gaps the Q2 security review surfaced.", type: "feature", priority: "high", tags: ["security", "backend"], source: "manual", projectId: "proj_v2", assigneeId: "user_amara", dueDate: "2026-07-10T00:00:00.000Z", createdAt: "2026-05-01T09:00:00.000Z", updatedAt: "2026-06-19T09:00:00.000Z" }),
-  // item overdue + open task → blocked
+  // item overdue + open check → blocked
   workItemOf("wi_realtime", "Realtime transport seam", "plan", "Engineering", { description: "Define the RealtimeTransport seam so the workboard can subscribe to server-side invalidations. Spike Durable Objects first; the interface lands before F2.", type: "feature", priority: "critical", tags: ["infra", "realtime"], source: "agent", projectId: "proj_v2", assigneeId: "user_dev", dueDate: "2026-06-12T00:00:00.000Z", createdAt: "2026-04-20T09:00:00.000Z", updatedAt: "2026-06-16T09:00:00.000Z" }),
-  // future due, but one task overdue+open → at_risk
+  // future due, but one check overdue+open → at_risk
   workItemOf("wi_migration", "Neon migration runner", "review", "Engineering", { type: "chore", priority: "high", tags: ["infra", "database"], source: "manual", projectId: "proj_v2", assigneeId: "user_amara", dueDate: "2026-06-30T00:00:00.000Z", createdAt: "2026-05-05T09:00:00.000Z", updatedAt: "2026-06-19T09:00:00.000Z" }),
-  // overdue, but phase done + all tasks complete → on_track
+  // overdue, but phase done + all checks complete → on_track
   workItemOf("wi_tabletoken", "Design token audit", "done", "Engineering", { type: "chore", priority: "low", tags: ["design-system"], source: "feedback", projectId: "proj_v2", assigneeId: "user_dev", dueDate: "2026-06-01T00:00:00.000Z", createdAt: "2026-04-15T09:00:00.000Z", updatedAt: "2026-06-02T09:00:00.000Z" }),
   // --- Marketing (proj_diwali) ---
-  // item overdue + open task → blocked
+  // item overdue + open check → blocked
   workItemOf("wi_creatives", "Diwali creative set", "execute", "Marketing", { description: "Produce the Diwali campaign creative set — hero banner, story templates, and channel cutdowns — ready for the landing page and paid social.", type: "feature", priority: "high", tags: ["campaign", "design"], source: "manual", projectId: "proj_diwali", assigneeId: "user_priya", dueDate: "2026-06-15T00:00:00.000Z", createdAt: "2026-05-12T09:00:00.000Z", updatedAt: "2026-06-18T09:00:00.000Z" }),
-  // null assignee (department queue, §1); future, open tasks not overdue → on_track
+  // null assignee (department queue, §1); future, open checks not overdue → on_track
   workItemOf("wi_landing", "Campaign landing page", "plan", "Marketing", { type: "feature", priority: "medium", tags: ["campaign", "web"], source: "meeting", projectId: "proj_diwali", assigneeId: null, dueDate: "2026-08-01T00:00:00.000Z", createdAt: "2026-06-01T09:00:00.000Z", updatedAt: "2026-06-17T09:00:00.000Z" }),
-  // item overdue + no tasks → at_risk
+  // item overdue + no checks → at_risk
   workItemOf("wi_adspend", "Ad spend forecast", "review", "Marketing", { type: "research", priority: "medium", tags: ["budget"], source: "agent", projectId: "proj_diwali", assigneeId: "user_priya", dueDate: "2026-06-10T00:00:00.000Z", createdAt: "2026-05-20T09:00:00.000Z", updatedAt: "2026-06-16T09:00:00.000Z" }),
   // --- Sourcing (no project — loose work items, §1 containment optional) ---
-  // future, but one task overdue+open → at_risk
+  // future, but one check overdue+open → at_risk
   workItemOf("wi_supplier", "Q3 supplier shortlist", "execute", "Sourcing", { description: "Shortlist Q3 suppliers: collect quotes, audit lead times against the warehouse intake plan, and recommend two primaries plus a backup.", type: "research", priority: "high", tags: ["sourcing", "q3"], source: "meeting", projectId: null, assigneeId: "user_kenji", dueDate: "2026-07-20T00:00:00.000Z", createdAt: "2026-05-25T09:00:00.000Z", updatedAt: "2026-06-19T09:00:00.000Z" }),
-  // no due date, all tasks complete → on_track
+  // no due date, all checks complete → on_track
   workItemOf("wi_samples", "Sample QC checklist", "done", "Sourcing", { type: "chore", priority: "low", tags: ["quality"], source: "manual", projectId: null, assigneeId: "user_kenji", dueDate: null, archived: true, createdAt: "2026-04-30T09:00:00.000Z", updatedAt: "2026-06-05T09:00:00.000Z" }),
-  // item overdue + open task → blocked
+  // item overdue + open check → blocked
   workItemOf("wi_logistics", "Warehouse intake flow", "plan", "Sourcing", { type: "bug", priority: "critical", tags: ["ops", "logistics"], source: "feedback", projectId: null, assigneeId: null, dueDate: "2026-06-05T00:00:00.000Z", createdAt: "2026-05-15T09:00:00.000Z", updatedAt: "2026-06-14T09:00:00.000Z" }),
 ];
 
-const RAW_TASKS: ReadonlyArray<Task> = [
-  // wi_auth — execute, future due, mixed open tasks (none overdue) → on_track
-  taskOf("t_auth_1", "wi_auth", "Token verifier interface", "completed", null),
-  taskOf("t_auth_2", "wi_auth", "Session bridge wiring", "in_progress", "2026-07-05T00:00:00.000Z"),
+const RAW_CHECKS: ReadonlyArray<Check> = [
+  // wi_auth — execute, future due, mixed open checks (none overdue) → on_track
+  checkOf("t_auth_1", "wi_auth", "Token verifier interface", "completed", null),
+  checkOf("t_auth_2", "wi_auth", "Session bridge wiring", "in_progress", "2026-07-05T00:00:00.000Z"),
 
-  // wi_realtime — plan, item overdue + open tasks → blocked
-  taskOf("t_rt_1", "wi_realtime", "Spike Durable Objects", "in_progress", "2026-06-20T00:00:00.000Z"),
-  taskOf("t_rt_2", "wi_realtime", "Define RealtimeTransport", "todo", null),
+  // wi_realtime — plan, item overdue + open checks → blocked
+  checkOf("t_rt_1", "wi_realtime", "Spike Durable Objects", "in_progress", "2026-06-20T00:00:00.000Z"),
+  checkOf("t_rt_2", "wi_realtime", "Define RealtimeTransport", "todo", null),
 
-  // wi_migration — review, item future due, but one task overdue+open → at_risk
-  taskOf("t_mig_1", "wi_migration", "Port pg_cron job", "completed", null),
-  taskOf("t_mig_2", "wi_migration", "Codegen step", "in_progress", "2026-06-12T00:00:00.000Z"),
+  // wi_migration — review, item future due, but one check overdue+open → at_risk
+  checkOf("t_mig_1", "wi_migration", "Port pg_cron job", "completed", null),
+  checkOf("t_mig_2", "wi_migration", "Codegen step", "in_progress", "2026-06-12T00:00:00.000Z"),
 
-  // wi_tabletoken — done, item overdue but all tasks complete → on_track
-  taskOf("t_tok_1", "wi_tabletoken", "Replace hex colors", "completed", null),
-  taskOf("t_tok_2", "wi_tabletoken", "Add missing tokens", "completed", null),
+  // wi_tabletoken — done, item overdue but all checks complete → on_track
+  checkOf("t_tok_1", "wi_tabletoken", "Replace hex colors", "completed", null),
+  checkOf("t_tok_2", "wi_tabletoken", "Add missing tokens", "completed", null),
 
-  // wi_creatives — execute, item overdue + open task → blocked
-  taskOf("t_cr_1", "wi_creatives", "Hero banner", "completed", null),
-  taskOf("t_cr_2", "wi_creatives", "Story templates", "todo", null),
+  // wi_creatives — execute, item overdue + open check → blocked
+  checkOf("t_cr_1", "wi_creatives", "Hero banner", "completed", null),
+  checkOf("t_cr_2", "wi_creatives", "Story templates", "todo", null),
 
-  // wi_landing — plan, item future, open tasks not overdue → on_track
-  taskOf("t_ld_1", "wi_landing", "Wireframe", "in_progress", "2026-07-25T00:00:00.000Z"),
+  // wi_landing — plan, item future, open checks not overdue → on_track
+  checkOf("t_ld_1", "wi_landing", "Wireframe", "in_progress", "2026-07-25T00:00:00.000Z"),
 
-  // wi_adspend — review, item overdue + NO tasks → at_risk (no tasks added)
+  // wi_adspend — review, item overdue + NO checks → at_risk (no checks added)
 
-  // wi_supplier — execute, item future, but one task overdue+open → at_risk
-  taskOf("t_sup_1", "wi_supplier", "Collect quotes", "completed", null),
-  taskOf("t_sup_2", "wi_supplier", "Audit lead times", "todo", "2026-06-18T00:00:00.000Z"),
+  // wi_supplier — execute, item future, but one check overdue+open → at_risk
+  checkOf("t_sup_1", "wi_supplier", "Collect quotes", "completed", null),
+  checkOf("t_sup_2", "wi_supplier", "Audit lead times", "todo", "2026-06-18T00:00:00.000Z"),
 
   // wi_samples — done, no due date, all complete → on_track
-  taskOf("t_sam_1", "wi_samples", "Define QC criteria", "completed", null),
+  checkOf("t_sam_1", "wi_samples", "Define QC criteria", "completed", null),
 
-  // wi_logistics — plan, item overdue + open task → blocked
-  taskOf("t_log_1", "wi_logistics", "Map intake stations", "in_progress", null),
+  // wi_logistics — plan, item overdue + open check → blocked
+  checkOf("t_log_1", "wi_logistics", "Map intake stations", "in_progress", null),
 ];
 
 /**
@@ -271,13 +271,13 @@ function workItemOf(
   };
 }
 
-function taskOf(
+function checkOf(
   id: string,
   workItemId: string,
   title: string,
-  status: Task["status"],
+  status: Check["status"],
   dueDate: string | null,
-): Task {
+): Check {
   return {
     id,
     work_item_id: workItemId,
@@ -325,9 +325,9 @@ export function createWorkItemFixtures(): WorkItem[] {
   return RAW_WORK_ITEMS.map((item) => ({ ...item, tags: [...item.tags] }));
 }
 
-/** Deep-clone factory: fresh `Task[]` per call (mutation-safe for the mock). */
-export function createTaskFixtures(): Task[] {
-  return RAW_TASKS.map((task) => ({ ...task }));
+/** Deep-clone factory: fresh `Check[]` per call (mutation-safe for the mock). */
+export function createCheckFixtures(): Check[] {
+  return RAW_CHECKS.map((check) => ({ ...check }));
 }
 
 /**
