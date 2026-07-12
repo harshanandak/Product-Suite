@@ -110,7 +110,12 @@ export const agentRuns = pgTable(
  * away the real work it produced). See the design doc for the actor model.
  */
 const provenance = {
-  actorType: actorTypeEnum('actor_type').notNull().default('human'),
+  // Defaults to 'system' (unattributed), NOT 'human', on purpose: a write only
+  // earns the 'human' label by explicitly stamping a real `actor_id` through
+  // recordWrite. So the invariant "actor_type='human' ⇒ actor_id is a real user"
+  // always holds — a not-yet-converted route's unstamped write reads honestly as
+  // unattributed, never as a human write with an untraceable identity.
+  actorType: actorTypeEnum('actor_type').notNull().default('system'),
   // users.id (human) | run_id (agent) | a reserved system id. Polymorphic across
   // those sources, so no FK. NOT NULL lands in the fast-follow (see above).
   actorId: text('actor_id'),

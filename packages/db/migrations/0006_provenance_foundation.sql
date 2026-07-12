@@ -32,35 +32,36 @@ CREATE TABLE IF NOT EXISTS "agent_runs" (
 CREATE INDEX IF NOT EXISTS "agent_runs_tenant_idx" ON "agent_runs" ("tenant_id");--> statement-breakpoint
 
 -- 3. Provenance columns on every write table --------------------------------
--- Each: actor_type (default 'human' so new writes from not-yet-converted routes
--- are attributed to a human), actor_id (nullable this cut), on_behalf_of, run_id
--- (nullable FK, SET NULL on run delete so a deleted run never cascades away real
--- work). Repeated per table rather than looped for a readable, reviewable diff.
-ALTER TABLE "projects" ADD COLUMN IF NOT EXISTS "actor_type" "public"."actor_type" DEFAULT 'human' NOT NULL;--> statement-breakpoint
+-- Each: actor_type (default 'system' = unattributed, so a not-yet-converted
+-- route's unstamped write never falsely claims 'human'; only an explicit
+-- recordWrite stamp with a real actor_id earns 'human'), actor_id (nullable this
+-- cut), on_behalf_of, run_id (nullable FK, SET NULL on run delete so a deleted
+-- run never cascades away real work). Repeated per table for a readable diff.
+ALTER TABLE "projects" ADD COLUMN IF NOT EXISTS "actor_type" "public"."actor_type" DEFAULT 'system' NOT NULL;--> statement-breakpoint
 ALTER TABLE "projects" ADD COLUMN IF NOT EXISTS "actor_id" text;--> statement-breakpoint
 ALTER TABLE "projects" ADD COLUMN IF NOT EXISTS "on_behalf_of" text;--> statement-breakpoint
 ALTER TABLE "projects" ADD COLUMN IF NOT EXISTS "run_id" uuid;--> statement-breakpoint
-ALTER TABLE "teams" ADD COLUMN IF NOT EXISTS "actor_type" "public"."actor_type" DEFAULT 'human' NOT NULL;--> statement-breakpoint
+ALTER TABLE "teams" ADD COLUMN IF NOT EXISTS "actor_type" "public"."actor_type" DEFAULT 'system' NOT NULL;--> statement-breakpoint
 ALTER TABLE "teams" ADD COLUMN IF NOT EXISTS "actor_id" text;--> statement-breakpoint
 ALTER TABLE "teams" ADD COLUMN IF NOT EXISTS "on_behalf_of" text;--> statement-breakpoint
 ALTER TABLE "teams" ADD COLUMN IF NOT EXISTS "run_id" uuid;--> statement-breakpoint
-ALTER TABLE "statuses" ADD COLUMN IF NOT EXISTS "actor_type" "public"."actor_type" DEFAULT 'human' NOT NULL;--> statement-breakpoint
+ALTER TABLE "statuses" ADD COLUMN IF NOT EXISTS "actor_type" "public"."actor_type" DEFAULT 'system' NOT NULL;--> statement-breakpoint
 ALTER TABLE "statuses" ADD COLUMN IF NOT EXISTS "actor_id" text;--> statement-breakpoint
 ALTER TABLE "statuses" ADD COLUMN IF NOT EXISTS "on_behalf_of" text;--> statement-breakpoint
 ALTER TABLE "statuses" ADD COLUMN IF NOT EXISTS "run_id" uuid;--> statement-breakpoint
-ALTER TABLE "work_items" ADD COLUMN IF NOT EXISTS "actor_type" "public"."actor_type" DEFAULT 'human' NOT NULL;--> statement-breakpoint
+ALTER TABLE "work_items" ADD COLUMN IF NOT EXISTS "actor_type" "public"."actor_type" DEFAULT 'system' NOT NULL;--> statement-breakpoint
 ALTER TABLE "work_items" ADD COLUMN IF NOT EXISTS "actor_id" text;--> statement-breakpoint
 ALTER TABLE "work_items" ADD COLUMN IF NOT EXISTS "on_behalf_of" text;--> statement-breakpoint
 ALTER TABLE "work_items" ADD COLUMN IF NOT EXISTS "run_id" uuid;--> statement-breakpoint
-ALTER TABLE "checks" ADD COLUMN IF NOT EXISTS "actor_type" "public"."actor_type" DEFAULT 'human' NOT NULL;--> statement-breakpoint
+ALTER TABLE "checks" ADD COLUMN IF NOT EXISTS "actor_type" "public"."actor_type" DEFAULT 'system' NOT NULL;--> statement-breakpoint
 ALTER TABLE "checks" ADD COLUMN IF NOT EXISTS "actor_id" text;--> statement-breakpoint
 ALTER TABLE "checks" ADD COLUMN IF NOT EXISTS "on_behalf_of" text;--> statement-breakpoint
 ALTER TABLE "checks" ADD COLUMN IF NOT EXISTS "run_id" uuid;--> statement-breakpoint
-ALTER TABLE "work_item_dependencies" ADD COLUMN IF NOT EXISTS "actor_type" "public"."actor_type" DEFAULT 'human' NOT NULL;--> statement-breakpoint
+ALTER TABLE "work_item_dependencies" ADD COLUMN IF NOT EXISTS "actor_type" "public"."actor_type" DEFAULT 'system' NOT NULL;--> statement-breakpoint
 ALTER TABLE "work_item_dependencies" ADD COLUMN IF NOT EXISTS "actor_id" text;--> statement-breakpoint
 ALTER TABLE "work_item_dependencies" ADD COLUMN IF NOT EXISTS "on_behalf_of" text;--> statement-breakpoint
 ALTER TABLE "work_item_dependencies" ADD COLUMN IF NOT EXISTS "run_id" uuid;--> statement-breakpoint
-ALTER TABLE "activity_events" ADD COLUMN IF NOT EXISTS "actor_type" "public"."actor_type" DEFAULT 'human' NOT NULL;--> statement-breakpoint
+ALTER TABLE "activity_events" ADD COLUMN IF NOT EXISTS "actor_type" "public"."actor_type" DEFAULT 'system' NOT NULL;--> statement-breakpoint
 ALTER TABLE "activity_events" ADD COLUMN IF NOT EXISTS "actor_id" text;--> statement-breakpoint
 ALTER TABLE "activity_events" ADD COLUMN IF NOT EXISTS "on_behalf_of" text;--> statement-breakpoint
 ALTER TABLE "activity_events" ADD COLUMN IF NOT EXISTS "run_id" uuid;--> statement-breakpoint
@@ -93,14 +94,15 @@ EXCEPTION WHEN duplicate_object THEN null; END $$;--> statement-breakpoint
 -- an 'import' (they are being migrated into the provenance regime) with the
 -- reserved nil-UUID sentinel actor, rather than mislabeling them as a specific
 -- human. on_behalf_of stays NULL (no known authorizing human). The ADD COLUMN
--- above set them to 'human' via the default; this re-labels only the pre-existing
--- rows. Small tables at this stage; a single UPDATE each is safe.
+-- above set them to 'system' via the default; this re-labels the pre-existing
+-- rows to the more precise 'import'. Small tables here; one UPDATE each is safe.
 --
 -- FAST-FOLLOW NOTE (before `SET NOT NULL` on actor_id): rows written by
 -- not-yet-converted routes BETWEEN this migration and the conversion land as
--- actor_type='human', actor_id=NULL. Those residual NULLs must be backfilled as
--- 'human' + nil-UUID sentinel (they ARE live human writes), NOT re-run through
--- this 'import' UPDATE — do not reuse this statement for that backfill.
+-- actor_type='system' (the default), actor_id=NULL — i.e. genuinely unattributed
+-- (we never captured which human). The fast-follow only needs to fill those
+-- residual NULL actor_ids with the nil-UUID sentinel (keeping actor_type as-is);
+-- it must NOT relabel them 'human' or 'import'. Then `SET NOT NULL` is safe.
 UPDATE "projects" SET "actor_type" = 'import', "actor_id" = '00000000-0000-0000-0000-000000000000' WHERE "actor_id" IS NULL;--> statement-breakpoint
 UPDATE "teams" SET "actor_type" = 'import', "actor_id" = '00000000-0000-0000-0000-000000000000' WHERE "actor_id" IS NULL;--> statement-breakpoint
 UPDATE "statuses" SET "actor_type" = 'import', "actor_id" = '00000000-0000-0000-0000-000000000000' WHERE "actor_id" IS NULL;--> statement-breakpoint
