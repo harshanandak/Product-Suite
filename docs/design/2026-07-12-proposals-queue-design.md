@@ -110,18 +110,25 @@ pending ────────────────────────
 
 ---
 
-## 4. Modes tie-in (the auto-accept dial)
+## 4. Modes tie-in (the auto-accept dial) — DEFERRED
 
-The proposals queue is where **agent autonomy** (a mode setting, deferred but reserved) becomes concrete:
-a mode declares how much review is required. `confidence` + mode policy decide whether a proposal needs
-a human or auto-applies within bounds:
+> **v1 DECISION (founder, 2026-07-12): review everything.** The first thin agent slice ships with
+> **no auto-accept** — every proposal, regardless of confidence or operation, requires an explicit human
+> accept. We prove the propose→review→accept loop (and that it *feels* right) before adding the
+> complexity of deciding which proposals may skip review. The `confidence` column and the mode hooks
+> below are **reserved** so auto-accept lands later with modes and needs no schema change.
 
-- **Jira-tight**: everything requires human accept.
+The proposals queue is where **agent autonomy** (a mode setting) *will* become concrete when modes ship:
+a mode declares how much review is required, and `confidence` + mode policy decide whether a proposal
+auto-applies within bounds. The intended future dial:
+
+- **Jira-tight**: everything requires human accept. **(= today's v1 behavior for all modes.)**
 - **Linear-default**: low-risk operations auto-accept; structural/config changes require review.
 - **Notion-loose**: most auto-accept.
 
-Auto-accept is still a *guarded* write (same apply path, provenance recorded) — never an unguarded
-mutation. This is why modes and proposals were always coupled; the queue is the enforcement surface.
+Even then, auto-accept is still a *guarded* write (same apply path, provenance recorded) — never an
+unguarded mutation. This is why modes and proposals were always coupled; the queue is the enforcement
+surface. Until modes ship, **all modes behave as Jira-tight (review everything).**
 
 ---
 
@@ -166,5 +173,6 @@ mutation. This is why modes and proposals were always coupled; the queue is the 
    supports any.)
 4. **Retention** of decided/expired proposals — audit value vs table growth. Keep decided proposals
    (they're the audit trail with provenance); archive expired after N days.
-5. **Confidence-threshold auto-accept** per mode — exact thresholds are a mode-tuning question, deferred
-   with modes; the column is reserved so no migration is needed when modes land.
+5. **Confidence-threshold auto-accept** per mode — **DECIDED (2026-07-12): deferred.** v1 reviews
+   everything (§4); auto-accept and its thresholds land with modes. The `confidence` column is reserved
+   so no migration is needed then.
