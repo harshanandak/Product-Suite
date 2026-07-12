@@ -109,7 +109,7 @@ Added to `work_items`, `checks`, `work_item_dependencies`, `projects`, `teams`, 
 `activity_events`, and the future `proposals` and meeting tables. Same five columns, same helper:
 
 ```text
-actor_type    enum (human | agent | system | import)  not null default 'human'
+actor_type    enum (human | agent | system | import)  not null default 'system'
 actor_id      text  not null            -- users.id | run_id | system id
 on_behalf_of  text                      -- users.id when actor_type='agent'/'import', else null
 run_id        uuid  references agent_runs(id) on delete set null   -- when part of a run
@@ -118,8 +118,10 @@ run_id        uuid  references agent_runs(id) on delete set null   -- when part 
 
 - **Backfill is trivial**: existing rows → `actor_type='human'`, `actor_id` = whatever created them (or
   a legacy sentinel where unknown). No traffic, tiny data.
-- **Default `'human'`** so existing app write paths keep working unchanged until they're threaded through
-  the provenance helper; agent/import paths set it explicitly.
+- **Default `'system'` (unattributed), not `'human'`** so existing/not-yet-converted write paths keep
+  working unchanged *without* falsely claiming human attribution — the invariant `actor_type='human' ⇒
+  actor_id is a real user` holds because only an explicit `recordWrite` stamp earns `'human'`. Agent/
+  import paths set their type explicitly too.
 
 ### 3.3 One write helper — the enforcement point
 

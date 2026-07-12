@@ -2,9 +2,10 @@ import { Hono } from 'hono'
 
 import type { Team } from '@product-suite/contracts'
 
-import { callerTenantIds } from '../auth/tenant-scope'
+import { callerTenantIds, callerUserId } from '../auth/tenant-scope'
 import { sqlFrom } from '../db'
 import type { AuthedEnv } from '../middleware/clerk-auth'
+import { recordWrite } from '../provenance/record-write'
 
 /** Row shape from the tenant-scoped teams query (snake_case DB columns). */
 interface TeamRow {
@@ -92,15 +93,24 @@ teamsRoutes.post('/', async (c) => {
       return c.json({ error: 'name is required' }, 400)
     }
 
-    const rows = (await sql`
-      insert into teams (tenant_id, name)
-      values (${tenantId}, ${name})
-      returning id, tenant_id, name, created_at, updated_at
-    `) as TeamRow[]
-    const created = rows[0]
-    if (!created) {
+    // The human actor for provenance. Any caller who passed tenant scoping above
+    // has a resolvable user id (same `user_auth_identities` row); a null here is a
+    // server-side integrity anomaly, not a client error.
+    const actorId = await callerUserId(sql, claims)
+    if (!actorId) {
+      console.error('[teams] create: tenant resolved but no user identity for subject')
       return c.json({ error: 'Failed to create team' }, 500)
     }
+
+    // Provenance is stamped by recordWrite from the server-derived actor; only the
+    // allowlisted `tenant_id`/`name` are passed, and `actor_*` can never be
+    // supplied by the caller (the body is read field-by-field, never spread).
+    const created = await recordWrite<TeamRow>(
+      sql,
+      'teams',
+      { tenant_id: tenantId, name },
+      { actorType: 'human', actorId },
+    )
     return c.json(toTeam(created), 201)
   } catch (cause) {
     console.error('[teams] create failed', cause)

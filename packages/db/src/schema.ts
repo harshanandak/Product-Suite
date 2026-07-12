@@ -59,9 +59,69 @@ export const statusCategoryEnum = pgEnum('status_category', [
   'triage',
 ])
 
+// --- Provenance (see docs/design/2026-07-12-actor-provenance-design.md) ---
+// Who performed a write: a human, an agent acting for a human, platform
+// automation, or a migration/import. `actor_type` drives attribution, audit,
+// and undo-by-run. Uniform across every write table via the `provenance` spread.
+export const actorTypeEnum = pgEnum('actor_type', ['human', 'agent', 'system', 'import'])
+// A run's two invocation modes (one agent plane): synchronous chat vs a queued
+// agent run.
+export const agentRunKindEnum = pgEnum('agent_run_kind', ['chat', 'agent_run'])
+export const agentRunStatusEnum = pgEnum('agent_run_status', [
+  'running',
+  'completed',
+  'failed',
+  'canceled',
+])
+
 const timestamps = {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}
+
+/**
+ * A run is first-class — it has a lifecycle, an owner, a status, and everything
+ * it did links back to it via each write row's `run_id`. Minted when a human
+ * triggers an agent (chat or "run this"); `triggered_by` is that human and is
+ * what agent writes stamp as `on_behalf_of`. Drizzle-owned (new concept), scoped
+ * to a tenant like every workboard table.
+ */
+export const agentRuns = pgTable(
+  'agent_runs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: text('tenant_id').notNull(),
+    // The human (users.id) who triggered the run = the run token's on_behalf_of.
+    triggeredBy: text('triggered_by').notNull(),
+    kind: agentRunKindEnum('kind').notNull(),
+    status: agentRunStatusEnum('status').notNull().default('running'),
+    summary: text('summary'),
+    ...timestamps,
+  },
+  (t) => ({ byTenant: index('agent_runs_tenant_idx').on(t.tenantId) }),
+)
+
+/**
+ * The uniform provenance columns, spread into every write table so attribution
+ * is impossible to forget and never per-table one-offs. `actor_id` is nullable
+ * in this first cut (the provenance-foundation PR) — it becomes NOT NULL in the
+ * fast-follow once every route writes through `recordWrite`, so no route can
+ * insert a NULL. `run_id` is set-null on run delete (a deleted run must not cascade
+ * away the real work it produced). See the design doc for the actor model.
+ */
+const provenance = {
+  // Defaults to 'system' (unattributed), NOT 'human', on purpose: a write only
+  // earns the 'human' label by explicitly stamping a real `actor_id` through
+  // recordWrite. So the invariant "actor_type='human' ⇒ actor_id is a real user"
+  // always holds — a not-yet-converted route's unstamped write reads honestly as
+  // unattributed, never as a human write with an untraceable identity.
+  actorType: actorTypeEnum('actor_type').notNull().default('system'),
+  // users.id (human) | run_id (agent) | a reserved system id. Polymorphic across
+  // those sources, so no FK. NOT NULL lands in the fast-follow (see above).
+  actorId: text('actor_id'),
+  // users.id when actor_type is 'agent'/'import' (the human authorizing it), else null.
+  onBehalfOf: text('on_behalf_of'),
+  runId: uuid('run_id').references(() => agentRuns.id, { onDelete: 'set null' }),
 }
 
 // Project lifecycle status (the cross-team OUTCOME container's own state, distinct
@@ -92,6 +152,7 @@ export const projects = pgTable(
     status: projectStatusEnum('status').notNull().default('backlog'),
     leadId: text('lead_id'),
     targetDate: timestamp('target_date', { withTimezone: true }),
+    ...provenance,
     ...timestamps,
   },
   (t) => ({ byTenant: index('projects_tenant_idx').on(t.tenantId) }),
@@ -111,6 +172,7 @@ export const teams = pgTable(
     // FK added in the migration.
     tenantId: text('tenant_id').notNull(),
     name: text('name').notNull(),
+    ...provenance,
     ...timestamps,
   },
   (t) => ({
@@ -137,6 +199,7 @@ export const statuses = pgTable(
     name: text('name').notNull(),
     category: statusCategoryEnum('category').notNull(),
     position: integer('position').notNull().default(0),
+    ...provenance,
     ...timestamps,
   },
   (t) => ({
@@ -186,6 +249,7 @@ export const workItems = pgTable(
     assigneeId: text('assignee_id'),
     dueDate: timestamp('due_date', { withTimezone: true }),
     archived: boolean('archived').notNull().default(false),
+    ...provenance,
     ...timestamps,
   },
   (t) => ({ byTenant: index('work_items_tenant_idx').on(t.tenantId) }),
@@ -204,6 +268,7 @@ export const checks = pgTable(
     title: text('title').notNull(),
     status: checkStatusEnum('status').notNull().default('todo'),
     dueDate: timestamp('due_date', { withTimezone: true }),
+    ...provenance,
     ...timestamps,
   },
   (t) => ({ byWorkItem: index('checks_work_item_idx').on(t.workItemId) }),
@@ -223,6 +288,7 @@ export const workItemDependencies = pgTable(
       .notNull()
       .references(() => workItems.id, { onDelete: 'cascade' }),
     relationshipType: dependencyRelationshipEnum('relationship_type').notNull().default('depends_on'),
+    ...provenance,
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
@@ -240,6 +306,7 @@ export const activityEvents = pgTable(
       .references(() => workItems.id, { onDelete: 'cascade' }),
     kind: activityEventKindEnum('kind').notNull(),
     summary: text('summary').notNull(),
+    ...provenance,
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({ byWorkItem: index('activity_events_work_item_idx').on(t.workItemId) }),

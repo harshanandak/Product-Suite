@@ -74,11 +74,12 @@ describe('POST /api/teams', () => {
     verifyToken.mockResolvedValue({ sub: 'user_clerk_1', exp: 9999999999 })
   })
 
-  it('creates a team in the caller’s single org and returns 201', async () => {
+  it('creates a team in the caller’s single org and returns 201, stamping human provenance', async () => {
     const sql = vi.fn()
     sql
-      .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
-      .mockResolvedValueOnce([ROW]) // insert ... returning
+      .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds (tagged)
+      .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId (tagged)
+      .mockResolvedValueOnce([ROW]) // recordWrite insert — ordinary sql(text, params)
     createSql.mockReturnValue(sql)
 
     const res = await app.request('/api/teams', {
@@ -89,9 +90,58 @@ describe('POST /api/teams', () => {
     expect(res.status).toBe(201)
     const created = (await res.json()) as { id: string; tenant_id: string }
     expect(created.id).toBe('team_1')
-    // The insert is anchored to the caller's resolved tenant — never a client-supplied org.
-    const insertParams = sql.mock.calls[1]?.slice(1) ?? []
+
+    // The insert (3rd sql call) is anchored to the caller's resolved tenant —
+    // never a client org — and stamps the human actor (actor_type='human',
+    // actor_id=the caller's user id).
+    const [insertText, insertParams] = sql.mock.calls[2] ?? []
+    expect(insertText).toContain('insert into "teams"')
+    expect(insertText).toContain('returning *')
     expect(insertParams).toContain('t_1')
+    expect(insertParams).toContain('human')
+    expect(insertParams).toContain('u_1')
+  })
+
+  it('ignores any actor_* smuggled in the request body (provenance is server-derived)', async () => {
+    const sql = vi.fn()
+    sql
+      .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
+      .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId
+      .mockResolvedValueOnce([ROW]) // recordWrite insert
+    createSql.mockReturnValue(sql)
+
+    const res = await app.request('/api/teams', {
+      method: 'POST',
+      ...auth,
+      // Attacker tries to attribute the write to someone else / a fake actor.
+      body: JSON.stringify({ name: 'Engineering', actor_type: 'system', actor_id: 'u_evil' }),
+    })
+    expect(res.status).toBe(201)
+    // The forged values never reach the insert — only the server-derived human actor
+    // does (the route reads the body field-by-field, never spreading it).
+    const insertParams = (sql.mock.calls[2]?.[1] ?? []) as unknown[]
+    expect(insertParams).not.toContain('u_evil')
+    expect(insertParams).not.toContain('system')
+    expect(insertParams).toContain('human')
+  })
+
+  it('returns 500 when the tenant resolves but the user identity does not', async () => {
+    const sql = vi.fn()
+    sql
+      .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
+      .mockResolvedValueOnce([]) // callerUserId -> no row
+    createSql.mockReturnValue(sql)
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const res = await app.request('/api/teams', {
+      method: 'POST',
+      ...auth,
+      body: JSON.stringify({ name: 'Engineering' }),
+    })
+    expect(res.status).toBe(500)
+    // No write is attempted without an attributable actor: only the two lookups ran.
+    expect(sql).toHaveBeenCalledTimes(2)
+    errorSpy.mockRestore()
   })
 
   it('returns 403 when the caller is in no org', async () => {
