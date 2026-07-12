@@ -1,30 +1,21 @@
 import type { Sql } from '@product-suite/db'
 
 /**
- * The single provenance-stamping write path (see
- * docs/design/2026-07-12-actor-provenance-design.md §3.3).
+ * The provenance write layer (see docs/design/2026-07-12-actor-provenance-design.md
+ * §3.3–§3.4). Two tiers, both sourcing the actor ONLY from the server-derived
+ * request context — a caller can never spoof who-wrote-it:
  *
- * `recordWrite` OWNS the `actor_*` columns: it derives them from the verified
- * request context, refuses any caller-supplied provenance, and appends them to
- * every insert. It also allowlists the insertable columns per table, so a caller
- * can neither spoof who-wrote-it nor inject arbitrary columns through the generic
- * helper. This is the uniformity mechanism — provenance is impossible to forget
- * because writes go through here.
+ *  - Tier 1 — the generic builder for boring writes. `buildWrite` owns the column
+ *    allowlist + actor stamping; `recordWrite` runs one statement, `recordWriteTx`
+ *    runs an atomic Neon batch for unconditional multi-writes.
+ *  - Tier 2 — the escape hatch for irreducible writes (custom WHERE / conditional
+ *    logic, e.g. work_items UPDATE's recursive-CTE cycle guard). Those keep their
+ *    own tagged-template SQL and stamp the same columns inline from
+ *    `actorAssignments(actor)`.
  *
- * Neon's HTTP driver batches transactions (no interactive/read-then-write in one
- * txn), so this helper is a single parameterized INSERT that server-derives the
- * actor from `ctx` — it never reads request state mid-transaction. The neon `sql`
- * client is called in its ordinary (non-tagged) form — `sql(text, params)` — for
- * the dynamically-built column list; every VALUE is a bound `$n` parameter.
- *
- * SCOPE (this cut): single-row INSERT only. Two shapes are deferred to the
- * fast-follow's design, on purpose, so they are decided against real consumers
- * rather than guessed here:
- *   - UPDATE provenance — an `operation` dimension keyed `(table, operation)` per
- *     design §3.3. Until then, update paths stay direct-write (unstamped).
- *   - Atomic multi-row writes (e.g. a work_item + its activity_event) — these need
- *     `sql.transaction([...])` batching; this helper does not compose into a batch
- *     yet. Convert such routes only after that shape lands, or lose atomicity.
+ * Neon's HTTP driver batches transactions (non-interactive: no statement reads a
+ * prior statement's output), so multi-writes generate ids client-side and the
+ * `sql` client is called in its ordinary `sql(text, params)` form.
  */
 
 /** The four provenance columns — stamped here, NEVER accepted from a caller. */
@@ -41,81 +32,228 @@ export type ActorContext =
   | { actorType: 'system'; actorId: string; onBehalfOf?: null; runId?: string | null }
   | { actorType: 'import'; actorId: string; onBehalfOf?: string | null; runId?: null }
 
-/**
- * Registered write tables → their caller-insertable columns (the allowlist).
- * A table absent here cannot be written through `recordWrite`; a column absent
- * from a table's list is rejected. Provenance columns are appended by the helper
- * and must NOT appear here. Grows as routes convert (the fast-follow PR).
- */
-const WRITE_TABLES: Record<string, readonly string[]> = {
-  teams: ['tenant_id', 'name'],
+/** The provenance values as a plain object, for a Tier-2 route to interpolate. */
+export interface ActorAssignments {
+  actorType: ActorContext['actorType']
+  actorId: string
+  onBehalfOf: string | null
+  runId: string | null
 }
 
 /**
- * Insert `values` into `table`, stamping the provenance columns from `actor`.
- * Throws when the table is unregistered, a column is not allowlisted, or the
- * caller tried to set a provenance column — all programmer errors, surfaced
- * loudly rather than silently written.
+ * Validate the ActorContext invariants and return the four provenance values as a
+ * plain object. Shared by both tiers: the generic builder maps these onto the
+ * `actor_*` columns, and a Tier-2 route interpolates them into its own statement
+ * as ordinary `${}` params. Design §1: an agent write is NEVER anonymous.
  */
-export async function recordWrite<Row = Record<string, unknown>>(
-  sql: Sql,
-  table: string,
-  values: Record<string, unknown>,
-  actor: ActorContext,
-): Promise<Row> {
-  const allowed = WRITE_TABLES[table]
-  if (!allowed) {
-    throw new Error(`recordWrite: "${table}" is not a registered write table`)
-  }
-
-  // Actor is server-derived: reject any caller-supplied provenance outright.
-  for (const col of PROVENANCE_COLUMNS) {
-    if (col in values) {
-      throw new Error(`recordWrite: caller may not set provenance column "${col}"`)
-    }
-  }
-
-  // No arbitrary column injection: every value column must be allowlisted.
-  const cols = Object.keys(values)
-  for (const col of cols) {
-    if (!allowed.includes(col)) {
-      throw new Error(`recordWrite: "${col}" is not an insertable column on "${table}"`)
-    }
-  }
-
-  // Runtime enforcement of the ActorContext invariants (the type union is
-  // compile-time only; a loosely-typed future caller must not slip an anonymous
-  // agent write past it). Design §1: an agent write is NEVER anonymous.
+export function actorAssignments(actor: ActorContext): ActorAssignments {
   if (!actor.actorId) {
     throw new Error('recordWrite: actor_id is required (no anonymous writes)')
   }
   if (actor.actorType === 'agent' && (!actor.onBehalfOf || !actor.runId)) {
     throw new Error('recordWrite: an agent write requires on_behalf_of and run_id')
   }
+  return {
+    actorType: actor.actorType,
+    actorId: actor.actorId,
+    onBehalfOf: actor.onBehalfOf ?? null,
+    runId: actor.runId ?? null,
+  }
+}
 
+/**
+ * Registered write tables. `insert` is the caller-insertable column allowlist
+ * (includes `id` where a route generates it client-side for a batched pair).
+ * `update.set` is the updatable column allowlist (never includes `id`), and
+ * `update.match` is the REQUIRED-and-complete predicate key set (every listed key
+ * must be present; `tenant_id` is included wherever the table has it). Provenance
+ * columns are appended by the builder and must NOT appear here. Grows as routes
+ * convert (the fast-follow).
+ */
+const WRITE_TABLES: Record<
+  string,
+  { insert?: readonly string[]; update?: { set: readonly string[]; match: readonly string[] } }
+> = {
+  teams: {
+    insert: ['tenant_id', 'name'],
+    update: { set: ['name'], match: ['id', 'tenant_id'] },
+  },
+  work_items: {
+    insert: [
+      'id',
+      'tenant_id',
+      'title',
+      'description',
+      'phase',
+      'type',
+      'priority',
+      'tags',
+      'source',
+      'project_id',
+      'team_id',
+      'status_id',
+      'parent_id',
+      'depth',
+      'department',
+      'assignee_id',
+      'due_date',
+      'archived',
+    ],
+  },
+  activity_events: {
+    insert: ['id', 'work_item_id', 'kind', 'summary'],
+  },
+}
+
+/** What a write wants to do: insert `values`, or update `values` where `match`. */
+export interface WriteSpec {
+  table: string
+  operation: 'insert' | 'update'
+  values: Record<string, unknown>
+  /** Required for `update`: the tenant-scoped predicate (e.g. `{ id, tenant_id }`). */
+  match?: Record<string, unknown>
+}
+
+function rejectCallerProvenance(source: Record<string, unknown>): void {
+  for (const col of PROVENANCE_COLUMNS) {
+    if (col in source) {
+      throw new Error(`recordWrite: caller may not set provenance column "${col}"`)
+    }
+  }
+}
+
+/**
+ * Build a parameterized INSERT/UPDATE with the `actor_*` columns stamped from the
+ * server-derived actor. PURE — no DB. Identifiers come only from the static
+ * allowlist (never request data); every VALUE is a bound `$n` param.
+ */
+export function buildWrite(spec: WriteSpec, actor: ActorContext): { text: string; params: unknown[] } {
+  const config = WRITE_TABLES[spec.table]
+  if (!config) {
+    throw new Error(`recordWrite: "${spec.table}" is not a registered write table`)
+  }
+  rejectCallerProvenance(spec.values)
+  if (spec.match) rejectCallerProvenance(spec.match)
+
+  const a = actorAssignments(actor)
   const actorColumns: Record<string, unknown> = {
-    actor_type: actor.actorType,
-    actor_id: actor.actorId,
-    on_behalf_of: actor.onBehalfOf ?? null,
-    run_id: actor.runId ?? null,
+    actor_type: a.actorType,
+    actor_id: a.actorId,
+    on_behalf_of: a.onBehalfOf,
+    run_id: a.runId,
   }
 
-  const allColumns = [...cols, ...Object.keys(actorColumns)]
-  const allValues = [...cols.map((c) => values[c]), ...Object.values(actorColumns)]
-  // Identifiers come only from the allowlist above (never from request data), so
-  // they are safe to interpolate; every VALUE is a bound parameter.
-  const columnList = allColumns.map((c) => `"${c}"`).join(', ')
-  const placeholders = allColumns.map((_, i) => `$${i + 1}`).join(', ')
-  const text = `insert into "${table}" (${columnList}) values (${placeholders}) returning *`
+  if (spec.operation === 'insert') {
+    const allowed = config.insert
+    if (!allowed) throw new Error(`recordWrite: insert is not supported on "${spec.table}"`)
+    const cols = Object.keys(spec.values)
+    for (const col of cols) {
+      if (!allowed.includes(col)) {
+        throw new Error(`recordWrite: "${col}" is not an insertable column on "${spec.table}"`)
+      }
+    }
+    const allColumns = [...cols, ...Object.keys(actorColumns)]
+    const params = [...cols.map((c) => spec.values[c]), ...Object.values(actorColumns)]
+    const columnList = allColumns.map((c) => `"${c}"`).join(', ')
+    const placeholders = allColumns.map((_, i) => `$${i + 1}`).join(', ')
+    return {
+      text: `insert into "${spec.table}" (${columnList}) values (${placeholders}) returning *`,
+      params,
+    }
+  }
 
-  // Ordinary (non-tagged) neon call: a query string with $n placeholders + params.
-  const rows = (await (sql as unknown as (q: string, p: unknown[]) => Promise<Row[]>)(
-    text,
-    allValues,
-  )) as Row[]
+  // update
+  const upd = config.update
+  if (!upd) throw new Error(`recordWrite: update is not supported on "${spec.table}"`)
+  const match = spec.match ?? {}
+  // Required-and-complete: every registered match key must be present and set —
+  // an allowlist alone could drop tenant scoping or compile an unqualified UPDATE.
+  for (const key of upd.match) {
+    if (match[key] === undefined || match[key] === null) {
+      throw new Error(`recordWrite: update on "${spec.table}" requires match key "${key}"`)
+    }
+  }
+  for (const key of Object.keys(match)) {
+    if (!upd.match.includes(key)) {
+      throw new Error(`recordWrite: "${key}" is not a match column on "${spec.table}"`)
+    }
+  }
+  const setCols = Object.keys(spec.values)
+  for (const col of setCols) {
+    if (!upd.set.includes(col)) {
+      throw new Error(`recordWrite: "${col}" is not an updatable column on "${spec.table}"`)
+    }
+  }
+  const assignColumns = [...setCols, ...Object.keys(actorColumns)]
+  const assignValues = [...setCols.map((c) => spec.values[c]), ...Object.values(actorColumns)]
+  let p = 0
+  const setClause = assignColumns.map((c) => `"${c}" = $${++p}`).join(', ')
+  const whereClause = upd.match.map((k) => `"${k}" = $${++p}`).join(' and ')
+  return {
+    text: `update "${spec.table}" set ${setClause}, "updated_at" = now() where ${whereClause} returning *`,
+    params: [...assignValues, ...upd.match.map((k) => match[k])],
+  }
+}
+
+/**
+ * Run a built statement and return its rows. Uses neon's **ordinary function
+ * form** `sql(text, params)` — a documented, typed overload in the pinned
+ * `@neondatabase/serverless@0.10.4` (verified: it returns a NeonQueryPromise, and
+ * `sql.query` does NOT exist on the client in this version). NOTE: neon v1.x
+ * removes the callable form in favor of `sql.query(text, params)` — a driver
+ * upgrade must migrate `runQuery` and the `recordWriteTx` batch builder to it.
+ */
+function runQuery<Row>(sql: Sql, text: string, params: unknown[]): Promise<Row[]> {
+  return (sql as unknown as (q: string, p: unknown[]) => Promise<Row[]>)(text, params)
+}
+
+/**
+ * Stamp + execute a single write, returning the affected row. Throws when the
+ * table/column is not allowlisted, the caller tried to set a provenance column,
+ * or (for a create) nothing was returned. For an update, a no-match returns
+ * undefined-row → throws; routes that need to distinguish "not found" from a
+ * guard block should build their own statement (Tier 2).
+ */
+export async function recordWrite<Row = Record<string, unknown>>(
+  sql: Sql,
+  spec: WriteSpec,
+  actor: ActorContext,
+): Promise<Row> {
+  const { text, params } = buildWrite(spec, actor)
+  const rows = await runQuery<Row>(sql, text, params)
   const row = rows[0]
   if (!row) {
-    throw new Error(`recordWrite: insert into "${table}" returned no row`)
+    throw new Error(`recordWrite: ${spec.operation} on "${spec.table}" returned no row`)
   }
   return row
+}
+
+/**
+ * Stamp + execute several writes as ONE atomic Neon batch (`sql.transaction`).
+ * For UNCONDITIONAL multi-writes only — the batch is non-interactive, so no
+ * statement may depend on another's output (generate shared ids client-side).
+ * Returns the first row of each statement, in spec order.
+ */
+export async function recordWriteTx<Row = Record<string, unknown>>(
+  sql: Sql,
+  specs: WriteSpec[],
+  actor: ActorContext,
+): Promise<Row[]> {
+  const queries = specs.map((spec) => {
+    const { text, params } = buildWrite(spec, actor)
+    return (sql as unknown as (q: string, p: unknown[]) => unknown)(text, params)
+  })
+  const results = (await (sql as unknown as { transaction: (q: unknown[]) => Promise<Row[][]> }).transaction(
+    queries,
+  )) as Row[][]
+  // One output row per input spec, IN ORDER. Every spec uses `returning *`, so a
+  // missing row is a real failure — dropping it (rather than throwing) would shift
+  // later rows into the wrong statement's position and hand a caller the wrong row.
+  return results.map((rows, i) => {
+    const row = rows[0]
+    if (!row) {
+      throw new Error(`recordWriteTx: ${specs[i]?.operation} on "${specs[i]?.table}" returned no row`)
+    }
+    return row
+  })
 }

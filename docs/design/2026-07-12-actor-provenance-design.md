@@ -143,6 +143,49 @@ them:
   same registry the proposals apply path dispatches on (companion §5) — so the set of writable
   targets/operations is explicit and closed, not "whatever the caller passed."
 
+### 3.4 Two tiers of write — generic builder + escape hatch
+
+Reality (verified against the real routes) is that most writes are boring but a few are irreducible, so
+provenance stamping has **two tiers**, both sourcing the actor only from the server-derived context:
+
+**Tier 1 — the generic builder (the common case).** A pure `buildWrite({table, operation, values,
+match?}, actor) → {text, params}` owns the column allowlist + actor stamping; two thin executors share
+it so single and batched paths can't drift:
+- `recordWrite(sql, spec, actor) → Row` — one statement (`sql(text, params)`), returns the row.
+- `recordWriteTx(sql, specs[], actor) → Row[]` — an **atomic** batch via `sql.transaction([...])` for
+  writes that must land together and **whose statements don't read each other's output** (Neon HTTP
+  batches are non-interactive). The canonical case: `work_items` CREATE = insert the item + insert its
+  `activity_events` row, where the item id is **generated client-side** (`crypto.randomUUID()`, same
+  distribution as the DB default) and passed into *both* specs, so no statement needs a prior one's
+  result. `id` is allowlisted on **inserts only**, never in an update `SET`.
+- `operation ∈ insert | update`. An **update's `match` is a required-and-complete per-table key set** —
+  the builder throws on a missing/empty match, and `tenant_id` is mandatory for every table that has it.
+  An allowlist alone is unsafe (it would let `match:{id}` silently drop tenant scoping, or an empty match
+  compile to an unqualified `UPDATE`).
+
+**Tier 2 — the escape hatch (irreducible writes).** Some statements can't be a generic `SET … WHERE
+id,tenant` and must not be force-fit into the builder (that makes the "safe" builder leaky). The known
+case: `work_items` UPDATE carries a **recursive-CTE reparent cycle guard** in its `WHERE` (the
+concurrency backstop for the #81 bug) plus a tenant-as-array match. These routes keep their own
+hand-written tagged-template statement and stamp the *same* columns inline from
+`actorAssignments(actor) → { actorType, actorId, onBehalfOf, runId }` — a **plain values object** the
+route interpolates as ordinary `${}` params (not a pre-built SQL fragment, to avoid tagged-template
+composition footguns). The anti-spoofing guarantee still holds because no route spreads the request
+body — the actor comes only from the server-derived context.
+
+**Atomicity boundary.** `recordWriteTx` fits only *unconditional* multi-writes. `work_items` UPDATE's
+`activity_events` row is **conditional** (skipped when the cycle guard blocks the update, → 400), and a
+non-interactive batch can't read the update's rowcount to decide — so that pair stays two sequential
+statements, ordered **update-first, event-second**, so the only failure mode is a *missing* event, never
+a *phantom* event for a blocked update. (A WebSocket-Pool interactive transaction would fix it but is a
+disproportionate second driver path for one audit row.)
+
+**The durable guarantee is the DB, not discipline.** Inline (Tier-2) stamping erodes "impossible to
+forget" slightly; the real backstop is the fast-follow's `SET NOT NULL` on `actor_id` — after it, a
+forgotten stamp fails at the database, not silently. Until then, a cheap **source-scan tripwire test**
+asserts every `insert`/`update` on an audited table in the route files goes through `recordWrite*` or
+`actorAssignments` — catching the one real failure mode (a new route added without stamping).
+
 ---
 
 ## 4. How it composes with proposals
