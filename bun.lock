@@ -105,6 +105,7 @@
       "dependencies": {
         "@clerk/backend": "^2.0.0",
         "@product-suite/contracts": "workspace:*",
+        "@product-suite/db": "workspace:*",
         "hono": "^4.6.0",
       },
       "devDependencies": {
@@ -289,7 +290,7 @@
       "name": "@product-suite/db",
       "version": "0.0.0",
       "dependencies": {
-        "@neondatabase/serverless": "^0.10.0",
+        "@neondatabase/serverless": "^1.1.0",
         "drizzle-orm": "^0.36.0",
       },
       "devDependencies": {
@@ -891,7 +892,7 @@
 
     "@neondatabase/postgrest-js": ["@neondatabase/postgrest-js@0.2.0-beta", "", { "dependencies": { "@supabase/postgrest-js": "2.79.0" } }, "sha512-Uq+Qzr6g5lD41KG0TFS5lc2Wo7UnQ1PE+HWdYg8Rr4X5f2pfJvJxciaPlXxOqZji6sEeO6WmLquMG40B/0sSGQ=="],
 
-    "@neondatabase/serverless": ["@neondatabase/serverless@0.10.4", "", { "dependencies": { "@types/pg": "8.11.6" } }, "sha512-2nZuh3VUO9voBauuh+IGYRhGU/MskWHt1IuZvHcJw6GLjDgtqj/KViKo7SIrLdGLdot7vFbiRRw+BgEy3wT9HA=="],
+    "@neondatabase/serverless": ["@neondatabase/serverless@1.1.0", "", {}, "sha512-r3ZZhRjEcfEdKIZnoB1RusNgvHuaBRqfCzV4Gi+5A9yUX0S4HTws/ASWqt13wL4y4I+0rqsWGdA2w7EQXHi3+Q=="],
 
     "@next/env": ["@next/env@16.2.6", "", {}, "sha512-gd8HoHN4ufj73WmR3JmVolrpJR47ILK6LouP5xElPglaVxir6e1a7VzvTvDWkOoPXT9rkkTzyCxBu4yeZfZwcw=="],
 

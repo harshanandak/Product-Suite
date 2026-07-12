@@ -14,8 +14,8 @@ import type { Sql } from '@product-suite/db'
  *    `actorAssignments(actor)`.
  *
  * Neon's HTTP driver batches transactions (non-interactive: no statement reads a
- * prior statement's output), so multi-writes generate ids client-side and the
- * `sql` client is called in its ordinary `sql(text, params)` form.
+ * prior statement's output), so multi-writes generate ids client-side; parameterized
+ * statements use the `sql.query(text, params)` form (neon v1.x).
  */
 
 /** The four provenance columns — stamped here, NEVER accepted from a caller. */
@@ -196,15 +196,15 @@ export function buildWrite(spec: WriteSpec, actor: ActorContext): { text: string
 }
 
 /**
- * Run a built statement and return its rows. Uses neon's **ordinary function
- * form** `sql(text, params)` — a documented, typed overload in the pinned
- * `@neondatabase/serverless@0.10.4` (verified: it returns a NeonQueryPromise, and
- * `sql.query` does NOT exist on the client in this version). NOTE: neon v1.x
- * removes the callable form in favor of `sql.query(text, params)` — a driver
- * upgrade must migrate `runQuery` and the `recordWriteTx` batch builder to it.
+ * Run a built statement and return its rows via neon's `sql.query(text, params)`
+ * — the documented parameterized API in `@neondatabase/serverless@1.x`. (The
+ * ordinary callable `sql(text, params)` form was REMOVED in v1.0; verified against
+ * the installed 1.1.0 that `sql.query` returns a NeonQueryPromise and that its
+ * results compose into `sql.transaction([...])`, which recordWriteTx relies on.
+ * Route tagged-templates are unaffected by the v1 change.)
  */
 function runQuery<Row>(sql: Sql, text: string, params: unknown[]): Promise<Row[]> {
-  return (sql as unknown as (q: string, p: unknown[]) => Promise<Row[]>)(text, params)
+  return (sql as unknown as { query: (q: string, p: unknown[]) => Promise<Row[]> }).query(text, params)
 }
 
 /**
@@ -241,7 +241,7 @@ export async function recordWriteTx<Row = Record<string, unknown>>(
 ): Promise<Row[]> {
   const queries = specs.map((spec) => {
     const { text, params } = buildWrite(spec, actor)
-    return (sql as unknown as (q: string, p: unknown[]) => unknown)(text, params)
+    return (sql as unknown as { query: (q: string, p: unknown[]) => unknown }).query(text, params)
   })
   const results = (await (sql as unknown as { transaction: (q: unknown[]) => Promise<Row[][]> }).transaction(
     queries,

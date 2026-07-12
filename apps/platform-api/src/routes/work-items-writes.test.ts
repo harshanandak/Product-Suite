@@ -52,6 +52,8 @@ describe('work-item writes', () => {
       .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId
     // The item + its "created" event are written as ONE atomic batch via
     // sql.transaction (recordWriteTx); it returns the first row of each statement.
+    // recordWriteTx builds each statement via sql.query, then batches via sql.transaction.
+    ;(sql as unknown as { query: ReturnType<typeof vi.fn> }).query = vi.fn()
     ;(sql as unknown as { transaction: ReturnType<typeof vi.fn> }).transaction = vi
       .fn()
       .mockResolvedValue([[WI_ROW], [{}]])
@@ -256,6 +258,8 @@ describe('work-item writes', () => {
       .mockResolvedValueOnce([{ n: 1 }]) // status belongs-to-team check (owned)
       .mockResolvedValueOnce([{ team_id: 'team_1', parent_id: null }]) // parent: top-level, same team
       .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId
+    // recordWriteTx builds each statement via sql.query, then batches via sql.transaction.
+    ;(sql as unknown as { query: ReturnType<typeof vi.fn> }).query = vi.fn()
     ;(sql as unknown as { transaction: ReturnType<typeof vi.fn> }).transaction = vi
       .fn()
       .mockResolvedValue([[{ ...WI_ROW, parent_id: 'wi_parent', depth: 1 }], [{}]])

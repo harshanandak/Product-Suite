@@ -79,7 +79,9 @@ describe('POST /api/teams', () => {
     sql
       .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds (tagged)
       .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId (tagged)
-      .mockResolvedValueOnce([ROW]) // recordWrite insert — ordinary sql(text, params)
+    // recordWrite writes through sql.query(text, params) (neon v1.x).
+    const sqlQuery = vi.fn().mockResolvedValueOnce([ROW])
+    ;(sql as unknown as { query: typeof sqlQuery }).query = sqlQuery
     createSql.mockReturnValue(sql)
 
     const res = await app.request('/api/teams', {
@@ -91,10 +93,9 @@ describe('POST /api/teams', () => {
     const created = (await res.json()) as { id: string; tenant_id: string }
     expect(created.id).toBe('team_1')
 
-    // The insert (3rd sql call) is anchored to the caller's resolved tenant —
-    // never a client org — and stamps the human actor (actor_type='human',
-    // actor_id=the caller's user id).
-    const [insertText, insertParams] = sql.mock.calls[2] ?? []
+    // The insert is anchored to the caller's resolved tenant — never a client org —
+    // and stamps the human actor (actor_type='human', actor_id=the caller's user id).
+    const [insertText, insertParams] = sqlQuery.mock.calls[0] ?? []
     expect(insertText).toContain('insert into "teams"')
     expect(insertText).toContain('returning *')
     expect(insertParams).toContain('t_1')
@@ -107,7 +108,8 @@ describe('POST /api/teams', () => {
     sql
       .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
       .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId
-      .mockResolvedValueOnce([ROW]) // recordWrite insert
+    const sqlQuery = vi.fn().mockResolvedValueOnce([ROW]) // recordWrite insert (sql.query)
+    ;(sql as unknown as { query: typeof sqlQuery }).query = sqlQuery
     createSql.mockReturnValue(sql)
 
     const res = await app.request('/api/teams', {
@@ -119,7 +121,7 @@ describe('POST /api/teams', () => {
     expect(res.status).toBe(201)
     // The forged values never reach the insert — only the server-derived human actor
     // does (the route reads the body field-by-field, never spreading it).
-    const insertParams = (sql.mock.calls[2]?.[1] ?? []) as unknown[]
+    const insertParams = (sqlQuery.mock.calls[0]?.[1] ?? []) as unknown[]
     expect(insertParams).not.toContain('u_evil')
     expect(insertParams).not.toContain('system')
     expect(insertParams).toContain('human')

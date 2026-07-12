@@ -125,7 +125,7 @@ describe('buildWrite — update', () => {
 
 describe('recordWrite', () => {
   it('runs the built statement and returns the row', async () => {
-    const sql = vi.fn(async (_t: string, _p: unknown[]) => [{ id: 'team_1' }]) as unknown as Sql
+    const sql = { query: vi.fn(async (_t: string, _p: unknown[]) => [{ id: 'team_1' }]) } as unknown as Sql
     const row = await recordWrite(
       sql,
       { table: 'teams', operation: 'insert', values: { tenant_id: 't_1', name: 'Eng' } },
@@ -135,7 +135,7 @@ describe('recordWrite', () => {
   })
 
   it('throws when the write returns no row', async () => {
-    const sql = vi.fn(async () => []) as unknown as Sql
+    const sql = { query: vi.fn(async () => []) } as unknown as Sql
     await expect(
       recordWrite(sql, { table: 'teams', operation: 'insert', values: { name: 'Eng' } }, human),
     ).rejects.toThrow(/returned no row/)
@@ -146,7 +146,7 @@ describe('recordWriteTx', () => {
   it('runs all specs as one atomic batch and returns the first row of each', async () => {
     const query = vi.fn((t: string) => ({ t }))
     const transaction = vi.fn(async (_queries: unknown[]) => [[{ id: 'wi_1' }], [{ id: 'ev_1' }]])
-    const sql = Object.assign(query, { transaction }) as unknown as Sql
+    const sql = { query, transaction } as unknown as Sql
 
     const rows = await recordWriteTx(
       sql,
@@ -172,7 +172,7 @@ describe('recordWriteTx', () => {
     // First statement returns nothing; the naive filter-drop would hand the caller
     // the SECOND statement's row as if it were the first. We throw instead.
     const transaction = vi.fn(async (_q: unknown[]) => [[], [{ id: 'ev_1' }]])
-    const sql = Object.assign(query, { transaction }) as unknown as Sql
+    const sql = { query, transaction } as unknown as Sql
 
     await expect(
       recordWriteTx(
