@@ -64,6 +64,17 @@ const timestamps = {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }
 
+// Project lifecycle status (the cross-team OUTCOME container's own state, distinct
+// from a work item's team-scoped workflow status). Mirrors Linear's project states.
+export const projectStatusEnum = pgEnum('project_status', [
+  'backlog',
+  'planned',
+  'in_progress',
+  'paused',
+  'completed',
+  'canceled',
+])
+
 export const projects = pgTable(
   'projects',
   {
@@ -75,6 +86,12 @@ export const projects = pgTable(
     // Freeform category to satisfy the contracts `Project.kind`. Default keeps
     // existing rows valid; the product can specialize it later.
     kind: text('kind').notNull().default('general'),
+    // Outcome-container enrichment: its own lifecycle status, an optional lead
+    // (references the Alembic-owned users(id); FK added in the migration), and an
+    // optional target date. Health stays DERIVED (never stored).
+    status: projectStatusEnum('status').notNull().default('backlog'),
+    leadId: text('lead_id'),
+    targetDate: timestamp('target_date', { withTimezone: true }),
     ...timestamps,
   },
   (t) => ({ byTenant: index('projects_tenant_idx').on(t.tenantId) }),

@@ -9,6 +9,9 @@
   "statusCategory": {
     "values": ["backlog", "unstarted", "started", "completed", "canceled", "triage"]
   },
+  "projectStatus": {
+    "values": ["backlog", "planned", "in_progress", "paused", "completed", "canceled"]
+  },
   "workItemPatchFields": [
     "title",
     "description",
@@ -32,6 +35,9 @@
         "id": { "type": "string", "readonly": true },
         "name": { "type": "string" },
         "kind": { "type": "string" },
+        "status": { "type": { "kind": "enum", "enum": "projectStatus" } },
+        "lead_id": { "type": "string", "nullable": true },
+        "target_date": { "type": "string", "nullable": true },
         "created_at": { "type": "string", "readonly": true },
         "updated_at": { "type": "string", "readonly": true }
       }

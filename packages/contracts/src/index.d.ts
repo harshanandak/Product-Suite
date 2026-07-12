@@ -498,6 +498,20 @@ export type StatusCategory =
   | "completed"
   | "canceled"
   | "triage";
+/**
+ * Project lifecycle status — the cross-team OUTCOME container's OWN state, distinct
+ * from a work item's team-scoped workflow {@link Status} / {@link StatusCategory}.
+ * A closed set mirroring Linear's project states; the server defaults it to
+ * `backlog`. Mirrors the DB `project_status` enum. A project's `health` stays
+ * DERIVED (never stored).
+ */
+export type ProjectStatus =
+  | "backlog"
+  | "planned"
+  | "in_progress"
+  | "paused"
+  | "completed"
+  | "canceled";
 
 /**
  * A project — top of the object ladder (§1). A "category of work as one
@@ -509,6 +523,19 @@ export interface Project {
   name: string;
   /** Project kind drives playbook/department defaults (§1 / §11). */
   kind: string;
+  /**
+   * The project's OWN lifecycle status (its outcome-container state), distinct
+   * from any work item's team-scoped workflow status. Server-defaulted to
+   * `backlog` on create. Health remains DERIVED — never stored here.
+   */
+  status: ProjectStatus;
+  /**
+   * Optional project lead — the internal user id (matches an {@link Owner} id /
+   * a work item's `assignee_id`). `null` when unassigned. Never a provider id.
+   */
+  lead_id: string | null;
+  /** Optional target/ship date (ISO-8601); `null` when none is set. */
+  target_date: string | null;
   readonly created_at: string;
   readonly updated_at: string;
 }
@@ -736,6 +763,7 @@ export interface WorkItemsCore {
   };
   activityEventKind: { values: readonly ActivityEventKind[] };
   statusCategory: { values: readonly StatusCategory[] };
+  projectStatus: { values: readonly ProjectStatus[] };
   workItemPatchFields: readonly (keyof WorkItemPatch)[];
   taskPatchFields: readonly ("title" | "status" | "due_date")[];
   objects: Record<
@@ -755,6 +783,7 @@ export const DEPENDENCY_RELATIONSHIP_VALUES: readonly DependencyRelationship[];
 export const DEPENDENCY_RELATIONSHIP_DEFAULT: DependencyRelationship;
 export const ACTIVITY_EVENT_KIND_VALUES: readonly ActivityEventKind[];
 export const STATUS_CATEGORY_VALUES: readonly StatusCategory[];
+export const PROJECT_STATUS_VALUES: readonly ProjectStatus[];
 export const WORK_ITEM_PATCH_FIELDS: readonly (keyof WorkItemPatch)[];
 export const TASK_PATCH_FIELDS: readonly ("title" | "status" | "due_date")[];
 export const workItemsCore: WorkItemsCore;
