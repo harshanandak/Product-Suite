@@ -11,6 +11,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core'
 
@@ -252,10 +253,20 @@ export const workItems = pgTable(
     assigneeId: text('assignee_id'),
     dueDate: timestamp('due_date', { withTimezone: true }),
     archived: boolean('archived').notNull().default(false),
+    // Idempotency for proposal apply (design §14): the proposal this row was CREATED
+    // from, if any. UNIQUE (partial, non-null) so a re-drive after a crash between the
+    // proposal claim and the write can't double-create — it finds the existing row.
+    // Null for human-created items and for updates (updates use target_version).
+    appliedFromProposalId: uuid('applied_from_proposal_id'),
     ...provenance,
     ...timestamps,
   },
-  (t) => ({ byTenant: index('work_items_tenant_idx').on(t.tenantId) }),
+  (t) => ({
+    byTenant: index('work_items_tenant_idx').on(t.tenantId),
+    appliedFromProposalUniq: uniqueIndex('work_items_applied_from_proposal_uniq').on(
+      t.appliedFromProposalId,
+    ),
+  }),
 )
 
 // Checks — the frozen checklist rows under an Item (title / status / due date,
@@ -326,6 +337,11 @@ export const proposalStatusEnum = pgEnum('proposal_status', [
   'superseded',
   'expired',
   'applied',
+  // Terminal APPLY failure — the claim succeeded but the validated command rejected
+  // the payload permanently (e.g. the target's team was deleted). Distinct from a
+  // human 'rejected' so the decision corpus keeps them separate. A transient/stale
+  // failure instead returns the proposal to 'pending' (see apply design §14).
+  'failed',
 ])
 
 /**

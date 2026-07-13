@@ -46,7 +46,9 @@ describe('workboard schema', () => {
       'superseded',
       'expired',
       'applied',
+      'failed',
     ])
+    expect(Object.keys(schema.workItems)).toContain('appliedFromProposalId')
   })
 
   it('mirrors the @product-suite/contracts enum values exactly', () => {

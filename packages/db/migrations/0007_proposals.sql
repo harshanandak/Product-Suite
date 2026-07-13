@@ -5,7 +5,7 @@
 -- model_id, prompt_version, context_ref) that must exist from day one. Hand-authored
 -- (drizzle-kit generate unavailable in the worktree; purely additive).
 DO $$ BEGIN
- CREATE TYPE "public"."proposal_status" AS ENUM('pending','accepted','accepted_with_edits','rejected','superseded','expired','applied');
+ CREATE TYPE "public"."proposal_status" AS ENUM('pending','accepted','accepted_with_edits','rejected','superseded','expired','applied','failed');
 EXCEPTION WHEN duplicate_object THEN null; END $$;--> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "proposals" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
@@ -39,4 +39,10 @@ CREATE INDEX IF NOT EXISTS "proposals_run_idx" ON "proposals" ("run_id");--> sta
 CREATE INDEX IF NOT EXISTS "proposals_target_idx" ON "proposals" ("target_type","target_id");--> statement-breakpoint
 DO $$ BEGIN
  ALTER TABLE "proposals" ADD CONSTRAINT "proposals_run_id_agent_runs_id_fk" FOREIGN KEY ("run_id") REFERENCES "public"."agent_runs"("id") ON DELETE set null ON UPDATE no action;
-EXCEPTION WHEN duplicate_object THEN null; END $$;
+EXCEPTION WHEN duplicate_object THEN null; END $$;--> statement-breakpoint
+-- Idempotency for proposal apply (design §14): the proposal a work item was created
+-- from. A UNIQUE index (NULLs distinct → many human-created rows, unique per proposal)
+-- makes a post-crash re-drive safe — the second create hits the constraint and the
+-- apply path fetches the existing row instead of double-creating.
+ALTER TABLE "work_items" ADD COLUMN IF NOT EXISTS "applied_from_proposal_id" uuid;--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "work_items_applied_from_proposal_uniq" ON "work_items" ("applied_from_proposal_id");
