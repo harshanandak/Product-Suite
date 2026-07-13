@@ -2,9 +2,10 @@ import { Hono } from 'hono'
 
 import { STATUS_CATEGORY_VALUES, type Status, type StatusCategory } from '@product-suite/contracts'
 
-import { callerTenantIds } from '../auth/tenant-scope'
+import { callerTenantIds, callerUserId } from '../auth/tenant-scope'
 import { sqlFrom } from '../db'
 import type { AuthedEnv } from '../middleware/clerk-auth'
+import { recordWrite } from '../provenance/record-write'
 
 /** Row shape from the tenant-scoped statuses query (snake_case DB columns). */
 interface StatusRow {
@@ -120,13 +121,23 @@ statusesRoutes.post('/', async (c) => {
     }
 
     const position = Number.isFinite(body.position) ? Number(body.position) : 0
-    let rows: StatusRow[]
+    // The human actor for provenance (resolves for any caller past tenant scoping).
+    const actorId = await callerUserId(sql, claims)
+    if (!actorId) {
+      console.error('[statuses] create: tenant resolved but no user identity for subject')
+      return c.json({ error: 'Failed to create status' }, 500)
+    }
+    let created: StatusRow
     try {
-      rows = (await sql`
-        insert into statuses (team_id, name, category, position)
-        values (${body.team_id}, ${name}, ${body.category}, ${position})
-        returning id, team_id, name, category, position, created_at, updated_at
-      `) as StatusRow[]
+      created = await recordWrite<StatusRow>(
+        sql,
+        {
+          table: 'statuses',
+          operation: 'insert',
+          values: { team_id: body.team_id, name, category: body.category, position },
+        },
+        { actorType: 'human', actorId },
+      )
     } catch (cause) {
       // Unique (team_id, name) violation → a friendly 409 (not a 500).
       const message = cause instanceof Error ? cause.message : String(cause)
@@ -135,7 +146,6 @@ statusesRoutes.post('/', async (c) => {
       }
       throw cause
     }
-    const created = rows[0]
     if (!created) {
       return c.json({ error: 'Failed to create status' }, 500)
     }

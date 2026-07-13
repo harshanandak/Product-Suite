@@ -26,7 +26,9 @@ const AUDITED_TABLES = [
   'activity_events',
 ]
 
-const PENDING_CONVERSION = new Set(['checks.ts', 'projects.ts', 'statuses.ts', 'dependencies.ts'])
+// Empty: every route that writes to an audited table now stamps provenance
+// (Tier-1 recordWrite or Tier-2 actorAssignments). A NEW unstamped write fails here.
+const PENDING_CONVERSION = new Set<string>([])
 
 const writeRe = new RegExp(
   `insert\\s+into\\s+"?(?:${AUDITED_TABLES.join('|')})"?|update\\s+"?(?:${AUDITED_TABLES.join('|')})"?\\s+set`,

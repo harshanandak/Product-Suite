@@ -87,7 +87,9 @@ describe('POST /api/projects', () => {
     const sql = vi.fn()
     sql
       .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
-      .mockResolvedValueOnce([ROW]) // insert ... returning
+      .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId
+    const sqlQuery = vi.fn().mockResolvedValueOnce([ROW]) // insert ... returning (recordWrite)
+    ;(sql as unknown as { query: typeof sqlQuery }).query = sqlQuery
     createSql.mockReturnValue(sql)
 
     const res = await app.request('/api/projects', {
@@ -100,7 +102,7 @@ describe('POST /api/projects', () => {
     expect(created.id).toBe('proj_1')
     expect(created.status).toBe('backlog')
     // The insert is anchored to the caller's resolved tenant, with the default status.
-    const insertParams = sql.mock.calls[1]?.slice(1) ?? []
+    const insertParams = sqlQuery.mock.calls[0]?.[1] ?? []
     expect(insertParams).toContain('t_1')
     expect(insertParams).toContain('backlog')
   })
@@ -109,7 +111,13 @@ describe('POST /api/projects', () => {
     const sql = vi.fn()
     sql
       .mockResolvedValueOnce([{ tenant_id: 't_1' }])
-      .mockResolvedValueOnce([{ ...ROW, status: 'planned', lead_id: 'user_kenji', target_date: '2026-09-01T00:00:00.000Z' }])
+      .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId
+    const sqlQuery = vi
+      .fn()
+      .mockResolvedValueOnce([
+        { ...ROW, status: 'planned', lead_id: 'user_kenji', target_date: '2026-09-01T00:00:00.000Z' },
+      ]) // insert ... returning (recordWrite)
+    ;(sql as unknown as { query: typeof sqlQuery }).query = sqlQuery
     createSql.mockReturnValue(sql)
 
     const res = await app.request('/api/projects', {
@@ -129,7 +137,7 @@ describe('POST /api/projects', () => {
       lead_id: 'user_kenji',
       target_date: '2026-09-01T00:00:00.000Z',
     })
-    const insertParams = sql.mock.calls[1]?.slice(1) ?? []
+    const insertParams = sqlQuery.mock.calls[0]?.[1] ?? []
     expect(insertParams).toContain('planned')
     expect(insertParams).toContain('user_kenji')
   })
@@ -194,6 +202,7 @@ describe('PATCH /api/projects/:id', () => {
     sql
       .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
       .mockResolvedValueOnce([ROW]) // select existing
+      .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId
       .mockResolvedValueOnce([updated]) // update returning
     createSql.mockReturnValue(sql)
 
@@ -213,7 +222,7 @@ describe('PATCH /api/projects/:id', () => {
       lead_id: 'user_kenji',
       target_date: '2026-10-01T00:00:00.000Z',
     })
-    const updateParams = sql.mock.calls[2]?.slice(1) ?? []
+    const updateParams = sql.mock.calls[3]?.slice(1) ?? []
     expect(updateParams).toContain('in_progress')
   })
 

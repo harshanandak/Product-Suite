@@ -2,9 +2,10 @@ import { Hono } from 'hono'
 
 import { PROJECT_STATUS_VALUES, type Project, type ProjectStatus } from '@product-suite/contracts'
 
-import { callerTenantIds } from '../auth/tenant-scope'
+import { callerTenantIds, callerUserId } from '../auth/tenant-scope'
 import { sqlFrom } from '../db'
 import type { AuthedEnv } from '../middleware/clerk-auth'
+import { actorAssignments, recordWrite } from '../provenance/record-write'
 
 /** Row shape from the tenant-scoped projects query (snake_case DB columns). */
 interface ProjectRow {
@@ -124,16 +125,28 @@ projectsRoutes.post('/', async (c) => {
     const status: ProjectStatus = body.status ?? 'backlog'
     const kind = body.kind?.trim() || 'general'
 
-    const rows = (await sql`
-      insert into projects (tenant_id, name, kind, status, lead_id, target_date)
-      values (${tenantId}, ${name}, ${kind}, ${status},
-              ${body.lead_id ?? null}, ${body.target_date ?? null})
-      returning id, name, kind, status, lead_id, target_date, created_at, updated_at
-    `) as ProjectRow[]
-    const created = rows[0]
-    if (!created) {
+    // The human actor for provenance (resolves for any caller past tenant scoping).
+    const actorId = await callerUserId(sql, claims)
+    if (!actorId) {
+      console.error('[projects] create: tenant resolved but no user identity for subject')
       return c.json({ error: 'Failed to create project' }, 500)
     }
+    const created = await recordWrite<ProjectRow>(
+      sql,
+      {
+        table: 'projects',
+        operation: 'insert',
+        values: {
+          tenant_id: tenantId,
+          name,
+          kind,
+          status,
+          lead_id: body.lead_id ?? null,
+          target_date: body.target_date ?? null,
+        },
+      },
+      { actorType: 'human', actorId },
+    )
     return c.json(toProject(created), 201)
   } catch (cause) {
     console.error('[projects] create failed', cause)
@@ -182,6 +195,16 @@ projectsRoutes.patch('/:id', async (c) => {
       target_date: 'target_date' in body ? (body.target_date ?? null) : current.target_date,
     }
 
+    // Tier-2 escape hatch: this update keeps its array-scoped tenant match, so it
+    // can't go through the generic builder — it stamps the same server-derived
+    // provenance inline. All four actor_* columns are set on THIS update.
+    const actorId = await callerUserId(sql, claims)
+    if (!actorId) {
+      console.error('[projects] update: tenant resolved but no user identity for subject')
+      return c.json({ error: 'Failed to update project' }, 500)
+    }
+    const actor = actorAssignments({ actorType: 'human', actorId })
+
     const rows = (await sql`
       update projects set
         name = ${next.name},
@@ -189,6 +212,10 @@ projectsRoutes.patch('/:id', async (c) => {
         status = ${next.status},
         lead_id = ${next.lead_id},
         target_date = ${next.target_date},
+        actor_type = ${actor.actorType},
+        actor_id = ${actor.actorId},
+        on_behalf_of = ${actor.onBehalfOf},
+        run_id = ${actor.runId},
         updated_at = now()
       where id = ${id} and tenant_id = any(${tenantIds})
       returning id, name, kind, status, lead_id, target_date, created_at, updated_at

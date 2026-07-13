@@ -2,9 +2,10 @@ import { Hono } from 'hono'
 
 import type { WorkItemDependency } from '@product-suite/contracts'
 
-import { callerTenantIds } from '../auth/tenant-scope'
+import { callerTenantIds, callerUserId } from '../auth/tenant-scope'
 import { sqlFrom } from '../db'
 import type { AuthedEnv } from '../middleware/clerk-auth'
+import { actorAssignments } from '../provenance/record-write'
 
 /** Row shape from the tenant-scoped dependencies query (snake_case DB columns). */
 interface DependencyRow {
@@ -135,12 +136,23 @@ dependenciesRoutes.post('/', async (c) => {
     // other's uncommitted row — and jointly form a cycle. Closing that needs
     // SERIALIZABLE (sql.transaction); acceptable to omit while dependency writes are
     // low-volume, revisit if that changes.
+    // Tier-2 escape hatch: the cycle guard is a WHERE NOT EXISTS(CTE), so this
+    // insert keeps its own SQL. The actor_* columns are stamped on the OUTER
+    // SELECT (the values being inserted) — NOT inside the reachability CTE.
+    const actorId = await callerUserId(sql, claims)
+    if (!actorId) {
+      console.error('[dependencies] create: tenant resolved but no user identity for subject')
+      return c.json({ error: 'Failed to create dependency' }, 500)
+    }
+    const actor = actorAssignments({ actorType: 'human', actorId })
     let rows: DependencyRow[]
     try {
       rows = (await sql`
         insert into work_item_dependencies
-          (tenant_id, source_item_id, target_item_id, relationship_type)
-        select ${tenantId}, ${source}, ${target}, ${relationshipType}
+          (tenant_id, source_item_id, target_item_id, relationship_type,
+           actor_type, actor_id, on_behalf_of, run_id)
+        select ${tenantId}, ${source}, ${target}, ${relationshipType},
+               ${actor.actorType}, ${actor.actorId}, ${actor.onBehalfOf}, ${actor.runId}
         where not exists (
           with recursive reachable(id) as (
             select target_item_id from work_item_dependencies

@@ -98,7 +98,9 @@ describe('POST /api/statuses', () => {
     sql
       .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
       .mockResolvedValueOnce([{ n: 1 }]) // team ownership check (owned)
-      .mockResolvedValueOnce([ROW]) // insert ... returning
+      .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId
+    const sqlQuery = vi.fn().mockResolvedValueOnce([ROW]) // insert ... returning (recordWrite)
+    ;(sql as unknown as { query: typeof sqlQuery }).query = sqlQuery
     createSql.mockReturnValue(sql)
 
     const res = await app.request('/api/statuses', {
