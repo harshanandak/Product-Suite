@@ -7,9 +7,9 @@ import type { Sql } from '@product-suite/db'
 import { callerTenantIds, callerUserId } from '../auth/tenant-scope'
 import { sqlFrom } from '../db'
 import { DomainError, domainErrorStatus } from '../domain/errors'
-import { createWorkItem, type WorkItemRow } from '../domain/work-items'
+import { createWorkItem, updateWorkItem, type WorkItemRow } from '../domain/work-items'
 import type { AuthedEnv } from '../middleware/clerk-auth'
-import { actorAssignments, recordWrite, type ActorContext } from '../provenance/record-write'
+import type { ActorContext } from '../provenance/record-write'
 
 /**
  * Resolve the human actor for a write, LAZILY: the caller's internal user id is
@@ -72,16 +72,6 @@ function toActivityEvent(row: ActivityRow): ActivityEvent {
 
 /** Editable fields accepted on create (the update patch + an explicit title). */
 type CreateWorkItemBody = { title?: string } & Partial<WorkItemPatch>
-
-/** One-line activity summary for a work-item update (most-relevant field wins). */
-function summarizeUpdate(patch: WorkItemPatch): string {
-  if (patch.phase) return `Phase set to ${patch.phase}`
-  if (patch.title !== undefined) return `Renamed to “${patch.title}”`
-  if (patch.priority) return `Priority set to ${patch.priority}`
-  if (patch.archived !== undefined) return patch.archived ? 'Archived' : 'Unarchived'
-  const fields = Object.keys(patch)
-  return fields.length > 0 ? `Updated ${fields.join(', ')}` : 'Updated'
-}
 
 export const workItemsRoutes = new Hono<AuthedEnv>()
 
@@ -175,199 +165,25 @@ workItemsRoutes.patch('/:id', async (c) => {
   const patch = (await c.req.json().catch(() => ({}))) as WorkItemPatch
 
   try {
+    // No active org ⇒ the item can't be theirs (short-circuit before any read,
+    // indistinguishable from not-found — no leak). Every other invariant, the
+    // scoped fetch, and the cycle-guarded write live in the domain command.
     const tenantIds = await callerTenantIds(sql, claims)
     if (tenantIds.length === 0) {
       return c.json({ error: 'Not found' }, 404)
     }
 
-    const existing = (await sql`
-      select * from work_items where id = ${id} and tenant_id = any(${tenantIds})
-    `) as WorkItemRow[]
-    const current = existing[0]
-    if (!current) {
-      return c.json({ error: 'Not found' }, 404)
-    }
-
-    if (patch.team_id != null) {
-      const ownedTeam = (await sql`
-        select 1 from teams where id = ${patch.team_id} and tenant_id = any(${tenantIds})
-      `) as unknown[]
-      if (ownedTeam.length === 0) {
-        return c.json({ error: 'Unknown team' }, 400)
-      }
-      // A Task and its parent must share a team, so an item that is part of a
-      // hierarchy cannot change team on its own — either side would strand the
-      // other. Reject a team move while the item is a child (has a parent) OR a
-      // parent (has children). Detach the hierarchy first, then move.
-      if (patch.team_id !== current.team_id) {
-        if (current.parent_id != null) {
-          return c.json({ error: 'cannot change a sub-item’s team; re-parent or unparent it first' }, 400)
-        }
-        const kids = (await sql`
-          select 1 from work_items where parent_id = ${id} limit 1
-        `) as unknown[]
-        if (kids.length > 0) {
-          return c.json({ error: 'cannot change the team of an item with sub-items; move or detach them first' }, 400)
-        }
-      }
-    }
-
-    // A reassigned status must belong to the item's (possibly newly-set) team.
-    // The effective team is the patched team if present, else the current one —
-    // both already confined to the caller's tenant, so matching on team_id keeps
-    // the status in-tenant too.
-    if (patch.status_id != null) {
-      const effectiveTeamId = patch.team_id ?? current.team_id
-      const ownedStatus = (await sql`
-        select 1 from statuses where id = ${patch.status_id} and team_id = ${effectiveTeamId}
-      `) as unknown[]
-      if (ownedStatus.length === 0) {
-        return c.json({ error: 'Unknown status' }, 400)
-      }
-    }
-
-    if (patch.project_id != null) {
-      const owned = (await sql`
-        select 1 from projects where id = ${patch.project_id} and tenant_id = any(${tenantIds})
-      `) as unknown[]
-      if (owned.length === 0) {
-        return c.json({ error: 'Unknown project' }, 400)
-      }
-    }
-
-    // parent_id patch: SETTING a parent establishes the Task tier; CLEARING it
-    // (explicit null) promotes the item back to top-level. Absent ⇒ unchanged.
-    // Same-tenant + same-team + depth-cap-1 guards as create (the effective team
-    // is the patched team if reassigned, else the item's current one). Self-parent
-    // is rejected here; a proposed parent that is already a descendant is caught by
-    // the depth cap (it would have a parent) AND, as a race backstop, by the
-    // recursive-ancestors guard folded into the UPDATE below. depth is derived
-    // (0 when cleared, 1 under a parent) — never trusted from the body.
-    let nextParentId: string | null = current.parent_id
-    let nextDepth = current.depth
-    const settingParent = 'parent_id' in patch && patch.parent_id != null
-    if ('parent_id' in patch) {
-      if (patch.parent_id == null) {
-        nextParentId = null
-        nextDepth = 0
-      } else {
-        if (patch.parent_id === id) {
-          return c.json({ error: 'A work item cannot be its own parent' }, 400)
-        }
-        // Depth cap (child side): an item that already HAS children cannot itself
-        // be nested — that would create a depth-2 tree (grandchildren) past the
-        // native cap of 1. Reject; the user must first move/detach the children.
-        const childRows = (await sql`
-          select 1 from work_items where parent_id = ${id} limit 1
-        `) as unknown[]
-        if (childRows.length > 0) {
-          return c.json({ error: 'cannot nest an item that has its own sub-items' }, 400)
-        }
-        const effectiveTeamId = patch.team_id ?? current.team_id
-        const parentRows = (await sql`
-          select team_id, parent_id from work_items
-          where id = ${patch.parent_id} and tenant_id = any(${tenantIds})
-        `) as { team_id: string; parent_id: string | null }[]
-        const parent = parentRows[0]
-        if (!parent) {
-          return c.json({ error: 'Unknown parent' }, 400)
-        }
-        if (parent.team_id !== effectiveTeamId) {
-          return c.json({ error: 'parent belongs to a different team' }, 400)
-        }
-        if (parent.parent_id != null) {
-          return c.json({ error: 'max nesting depth is 1' }, 400)
-        }
-        nextParentId = patch.parent_id
-        nextDepth = 1
-      }
-    }
-
-    const next = { ...current, ...patch }
-    // The parent-set is folded into this single UPDATE with a WHERE NOT EXISTS
-    // reachability guard — the same one-statement approach documented in
-    // routes/dependencies.ts. It closes the check-then-write gap where a concurrent
-    // request commits a reaching path between our pre-check and this write. It does
-    // NOT fully serialize: two concurrent complementary sets (A→B and B→A) can each
-    // pass under READ COMMITTED (neither sees the other's uncommitted row) and form
-    // a 2-cycle; closing that needs SERIALIZABLE (sql.transaction). Acceptable while
-    // parent writes are low-volume (revisit if that changes). When no parent is
-    // being set (${nextParentId} is null) the guard is a no-op.
-    // Tier-2 escape hatch: this update carries the recursive-CTE cycle guard and an
-    // array-scoped tenant match, so it keeps its own SQL and stamps all four actor_*
-    // columns inline — on the OUTER update's SET, never inside the ancestors CTE.
-    const actorId = await callerUserId(sql, claims)
-    if (!actorId) {
-      console.error('[work-items] update: tenant resolved but no user identity for subject')
-      return c.json({ error: 'Failed to update work item' }, 500)
-    }
-    const actor = actorAssignments({ actorType: 'human', actorId })
-
-    const rows = (await sql`
-      update work_items set
-        title = ${next.title},
-        description = ${next.description ?? ''},
-        phase = ${next.phase},
-        type = ${next.type},
-        priority = ${next.priority},
-        tags = ${next.tags ?? []},
-        project_id = ${next.project_id ?? null},
-        team_id = ${next.team_id},
-        status_id = ${next.status_id},
-        parent_id = ${nextParentId},
-        depth = ${nextDepth},
-        department = ${next.department},
-        assignee_id = ${next.assignee_id ?? null},
-        due_date = ${next.due_date ?? null},
-        archived = ${next.archived ?? false},
-        actor_type = ${actor.actorType},
-        actor_id = ${actor.actorId},
-        on_behalf_of = ${actor.onBehalfOf},
-        run_id = ${actor.runId},
-        updated_at = now()
-      where id = ${id} and tenant_id = any(${tenantIds})
-        and (
-          ${nextParentId}::uuid is null
-          or not exists (
-            with recursive ancestors(id) as (
-              select parent_id as id from work_items
-                where id = ${nextParentId} and parent_id is not null
-              union
-              select w.parent_id as id from work_items w
-                join ancestors a on w.id = a.id
-                where w.parent_id is not null
-            )
-            select 1 from ancestors where id = ${id}
-          )
-        )
-      returning *
-    `) as WorkItemRow[]
-    const updated = rows[0]
-    if (!updated) {
-      // The row exists (fetched above) — a no-match now means the reachability
-      // guard blocked a parent-set that would close a cycle. Otherwise it is a
-      // genuine not-found (e.g. a concurrent delete).
-      if (settingParent) {
-        return c.json({ error: 'parent_id would create a cycle' }, 400)
-      }
-      return c.json({ error: 'Not found' }, 404)
-    }
-
-    // The activity event is a separate (non-atomic) write here — it runs only when
-    // the update above matched, so it can't share the conditional update's batch
-    // (Neon HTTP has no interactive txn). Ordered update-first/event-second: the
-    // only failure mode is a missing event, never a phantom one. Stamped via recordWrite.
-    await recordWrite(
+    const updated = await updateWorkItem(
       sql,
-      {
-        table: 'activity_events',
-        operation: 'insert',
-        values: { work_item_id: id, kind: 'updated', summary: summarizeUpdate(patch) },
-      },
-      { actorType: 'human', actorId },
+      { tenantIds, actor: () => resolveHumanActor(sql, claims) },
+      id,
+      patch,
     )
     return c.json(toWorkItem(updated))
   } catch (cause) {
+    if (cause instanceof DomainError) {
+      return c.json({ error: cause.message }, domainErrorStatus(cause.code))
+    }
     console.error('[work-items] update failed', cause)
     return c.json({ error: 'Failed to update work item' }, 500)
   }
