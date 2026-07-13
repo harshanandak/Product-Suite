@@ -8,6 +8,7 @@ import {
 
 import { Button, EmptyState, ErrorState } from "@product-suite/ui";
 
+import { InboxScreen } from "./boards/inbox/InboxScreen";
 import { WorkItemDetailScreen } from "./boards/workboard/detail/WorkItemDetailScreen";
 import { WorkboardGraphScreen } from "./boards/workboard/graph/WorkboardGraphScreen";
 import { WorkboardScreen } from "./boards/workboard/WorkboardScreen";
@@ -66,10 +67,12 @@ const homeReviewRoute = createRoute({
   path: "review",
   component: BoardScreen,
 });
+// The review inbox renders the live proposals screen (list + detail pane); all
+// other home board routes remain on the BoardScreen placeholder.
 const homeInboxRoute = createRoute({
   getParentRoute: () => workspaceRoute,
   path: "inbox",
-  component: BoardScreen,
+  component: InboxScreen,
 });
 
 const workboardRoute = createRoute({

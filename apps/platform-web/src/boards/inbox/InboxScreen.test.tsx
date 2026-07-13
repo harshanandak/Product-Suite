@@ -1,0 +1,91 @@
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+
+import type { ProposalRepository } from "@/data/proposals";
+import type { AcceptResult, Proposal } from "@/data/proposals";
+
+vi.mock("@tanstack/react-router", () => ({
+  useParams: () => ({ workspace: "acme" }),
+}));
+
+// The detail pane fetches its update target through the work-items hook; stub it.
+vi.mock("@/data/work-items", () => ({
+  useWorkItems: () => ({ items: [] }),
+}));
+
+import { InboxScreen } from "./InboxScreen";
+
+function proposal(id: string, title: string): Proposal {
+  return {
+    id,
+    target_type: "work_item",
+    target_id: null,
+    operation: "create",
+    payload: { title },
+    rationale: `Rationale for ${title}`,
+    confidence: 0.7,
+    status: "pending",
+    run_id: "r1",
+    model_id: "m1",
+    created_at: "2026-07-13T09:12:00.000Z",
+  };
+}
+
+function repoWith(proposals: Proposal[]): ProposalRepository {
+  return {
+    list: vi.fn(async () => proposals),
+    accept: vi.fn(async (): Promise<AcceptResult> => ({ outcome: "stale" })),
+    reject: vi.fn(async () => undefined),
+  };
+}
+
+describe("InboxScreen", () => {
+  it("renders a list row per pending proposal", async () => {
+    render(
+      <InboxScreen
+        repository={repoWith([proposal("p1", "Alpha"), proposal("p2", "Beta")])}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getAllByRole("listitem")).toHaveLength(2),
+    );
+    expect(screen.getByText("Alpha")).toBeInTheDocument();
+    expect(screen.getByText("Beta")).toBeInTheDocument();
+    expect(screen.getByText("2 pending")).toBeInTheDocument();
+  });
+
+  it("shows the empty state when there are no proposals", async () => {
+    render(<InboxScreen repository={repoWith([])} />);
+    await waitFor(() =>
+      expect(screen.getByText("No proposals to review")).toBeInTheDocument(),
+    );
+  });
+
+  it("shows the error surface when the load fails", async () => {
+    const repository = repoWith([]);
+    repository.list = vi.fn(async () => {
+      throw new Error("boom");
+    });
+    render(<InboxScreen repository={repository} />);
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(screen.getByText("boom")).toBeInTheDocument();
+  });
+
+  it("selects the first proposal by default and swaps detail on row click", async () => {
+    render(
+      <InboxScreen
+        repository={repoWith([proposal("p1", "Alpha"), proposal("p2", "Beta")])}
+      />,
+    );
+    // Default selection → Alpha's detail sentence is shown.
+    await waitFor(() =>
+      expect(
+        screen.getByText("Create work item “Alpha”"),
+      ).toBeInTheDocument(),
+    );
+
+    // Clicking Beta's row swaps the detail pane to Beta.
+    fireEvent.click(screen.getByRole("button", { name: /Beta/ }));
+    expect(screen.getByText("Create work item “Beta”")).toBeInTheDocument();
+  });
+});

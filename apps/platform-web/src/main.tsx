@@ -7,6 +7,7 @@ import { MotionConfig } from "motion/react";
 import { ThemeProvider, Toaster } from "@product-suite/ui";
 
 import "./styles.css";
+import { ProposalRepositoryProvider } from "./data/proposals";
 import { RepositoryProvider } from "./data/work-items/RepositoryProvider";
 import { CLERK_PUBLISHABLE_KEY, hasClerkKey } from "./env";
 import { router } from "./router";
@@ -53,7 +54,13 @@ createRoot(rootElement).render(
                 resolves to null, the bearer is omitted, and the API answers 401
                 — surfaced through the hook's error state, not a crash. */}
             <RepositoryProvider>
-              <RouterProvider router={router} />
+              {/* The review inbox reads/disposes of agent proposals through its
+                  own network repository — built once here, inside Clerk (for the
+                  session token) and above the router, mirroring the work-items
+                  RepositoryProvider. */}
+              <ProposalRepositoryProvider>
+                <RouterProvider router={router} />
+              </ProposalRepositoryProvider>
             </RepositoryProvider>
           </ClerkProvider>
         ) : (
