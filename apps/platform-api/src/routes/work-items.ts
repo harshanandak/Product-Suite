@@ -1,33 +1,30 @@
 import { Hono } from 'hono'
 
-import type { ActivityEvent, WorkItem, WorkItemPatch } from '@product-suite/contracts'
+import type { ActivityEvent, AuthClaims, WorkItem, WorkItemPatch } from '@product-suite/contracts'
+
+import type { Sql } from '@product-suite/db'
 
 import { callerTenantIds, callerUserId } from '../auth/tenant-scope'
 import { sqlFrom } from '../db'
+import { DomainError, domainErrorStatus } from '../domain/errors'
+import { createWorkItem, type WorkItemRow } from '../domain/work-items'
 import type { AuthedEnv } from '../middleware/clerk-auth'
-import { actorAssignments, recordWrite, recordWriteTx } from '../provenance/record-write'
+import { actorAssignments, recordWrite, type ActorContext } from '../provenance/record-write'
 
-/** Row shape returned by the tenant-scoped work_items query (snake_case DB columns). */
-interface WorkItemRow {
-  id: string
-  title: string
-  description: string | null
-  phase: WorkItem['phase']
-  type: WorkItem['type']
-  priority: WorkItem['priority']
-  tags: string[] | null
-  source: WorkItem['source']
-  project_id: string | null
-  team_id: string
-  status_id: string
-  parent_id: string | null
-  depth: number
-  department: string
-  assignee_id: string | null
-  due_date: string | Date | null
-  archived: boolean | null
-  created_at: string | Date
-  updated_at: string | Date
+/**
+ * Resolve the human actor for a write, LAZILY: the caller's internal user id is
+ * looked up only after the domain command has run its ownership validation, so the
+ * validation's DB queries keep their original ordering. A missing user id is a
+ * server-side integrity anomaly (any caller past tenant scoping resolves one), so
+ * it throws a plain Error → mapped to 500 at the route's catch, never a 4xx.
+ */
+async function resolveHumanActor(sql: Sql, claims: AuthClaims): Promise<ActorContext> {
+  const actorId = await callerUserId(sql, claims)
+  if (!actorId) {
+    console.error('[work-items] tenant resolved but no user identity for subject')
+    throw new Error('no attributable actor')
+  }
+  return { actorType: 'human', actorId }
 }
 
 function toWorkItem(row: WorkItemRow): WorkItem {
@@ -139,6 +136,8 @@ workItemsRoutes.post('/', async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as CreateWorkItemBody
 
   try {
+    // The target org is the caller's single active tenant (ambiguity/absence are
+    // the route's concern); the domain command owns every other invariant.
     const tenantIds = await callerTenantIds(sql, claims)
     if (tenantIds.length > 1) {
       return c.json({ error: 'Ambiguous organization' }, 400)
@@ -148,129 +147,16 @@ workItemsRoutes.post('/', async (c) => {
       return c.json({ error: 'No active organization' }, 403)
     }
 
-    // team_id is mandatory and must be one of the caller's org's teams. Never
-    // trust the client id: a team from another tenant fails this guard and is
-    // rejected as unknown (no cross-tenant leak).
-    if (!body.team_id) {
-      return c.json({ error: 'team_id is required' }, 400)
-    }
-    const ownedTeam = (await sql`
-      select 1 from teams where id = ${body.team_id} and tenant_id = ${tenantId}
-    `) as unknown[]
-    if (ownedTeam.length === 0) {
-      return c.json({ error: 'Unknown team' }, 400)
-    }
-
-    // status_id is mandatory and must be a status of the SAME team. Never trust
-    // the client id: a status from another team (or tenant) fails this guard and
-    // is rejected as unknown (no cross-team/tenant leak). The team was just
-    // verified in-tenant, so matching on team_id also confines it to the tenant.
-    if (!body.status_id) {
-      return c.json({ error: 'status_id is required' }, 400)
-    }
-    const ownedStatus = (await sql`
-      select 1 from statuses where id = ${body.status_id} and team_id = ${body.team_id}
-    `) as unknown[]
-    if (ownedStatus.length === 0) {
-      return c.json({ error: 'Unknown status' }, 400)
-    }
-
-    if (body.project_id != null) {
-      const owned = (await sql`
-        select 1 from projects where id = ${body.project_id} and tenant_id = ${tenantId}
-      `) as unknown[]
-      if (owned.length === 0) {
-        return c.json({ error: 'Unknown project' }, 400)
-      }
-    }
-
-    // parent_id is OPTIONAL — supplying it makes this a Task (a work item with a
-    // parent). When present it must resolve to a parent that is (a) in the same
-    // tenant, (b) on the SAME team (a Task inherits its parent's team — a
-    // different team_id is rejected, not silently coerced, for clarity), and (c)
-    // itself top-level. (c) is the DEPTH CAP = 1: the default MODE POLICY,
-    // hardcoded here until modes exist (imports may bypass it and land deeper
-    // trees). depth is server-derived (1 under a parent, else 0) — never trusted
-    // from the body.
-    let depth = 0
-    if (body.parent_id != null) {
-      const parentRows = (await sql`
-        select team_id, parent_id from work_items
-        where id = ${body.parent_id} and tenant_id = ${tenantId}
-      `) as { team_id: string; parent_id: string | null }[]
-      const parent = parentRows[0]
-      if (!parent) {
-        return c.json({ error: 'Unknown parent' }, 400)
-      }
-      if (parent.team_id !== body.team_id) {
-        return c.json({ error: 'parent belongs to a different team' }, 400)
-      }
-      if (parent.parent_id != null) {
-        return c.json({ error: 'max nesting depth is 1' }, 400)
-      }
-      depth = 1
-    }
-
-    // The human actor for provenance (any caller past tenant scoping resolves;
-    // a null is a server-side integrity anomaly, not a client error).
-    const actorId = await callerUserId(sql, claims)
-    if (!actorId) {
-      console.error('[work-items] create: tenant resolved but no user identity for subject')
-      return c.json({ error: 'Failed to create work item' }, 500)
-    }
-
-    // The item and its "created" activity event are written as ONE atomic Neon
-    // batch. The id is generated client-side (same distribution as the DB default)
-    // and passed into BOTH statements, so the batch stays non-interactive — the
-    // event never references the item's server-generated output. recordWriteTx
-    // stamps provenance on both rows from the server-derived actor.
-    const workItemId = crypto.randomUUID()
-    const title = body.title ?? 'Untitled work item'
-    const [created] = await recordWriteTx<WorkItemRow>(
+    const created = await createWorkItem(
       sql,
-      [
-        {
-          table: 'work_items',
-          operation: 'insert',
-          values: {
-            id: workItemId,
-            tenant_id: tenantId,
-            title,
-            description: body.description ?? '',
-            phase: body.phase ?? 'plan',
-            type: body.type ?? 'feature',
-            priority: body.priority ?? 'medium',
-            tags: body.tags ?? [],
-            source: 'manual',
-            project_id: body.project_id ?? null,
-            team_id: body.team_id,
-            status_id: body.status_id,
-            parent_id: body.parent_id ?? null,
-            depth,
-            department: body.department ?? 'General',
-            assignee_id: body.assignee_id ?? null,
-            due_date: body.due_date ?? null,
-            archived: body.archived ?? false,
-          },
-        },
-        {
-          table: 'activity_events',
-          operation: 'insert',
-          values: {
-            id: crypto.randomUUID(),
-            work_item_id: workItemId,
-            kind: 'created',
-            summary: `Created “${title}”`,
-          },
-        },
-      ],
-      { actorType: 'human', actorId },
+      { tenantId, actor: () => resolveHumanActor(sql, claims) },
+      body,
     )
-    if (!created) {
-      return c.json({ error: 'Failed to create work item' }, 500)
-    }
     return c.json(toWorkItem(created), 201)
   } catch (cause) {
+    if (cause instanceof DomainError) {
+      return c.json({ error: cause.message }, domainErrorStatus(cause.code))
+    }
     console.error('[work-items] create failed', cause)
     return c.json({ error: 'Failed to create work item' }, 500)
   }
