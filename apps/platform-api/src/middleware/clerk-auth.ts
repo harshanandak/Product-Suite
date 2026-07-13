@@ -8,6 +8,10 @@ export type AuthedEnv = {
     CLERK_SECRET_KEY?: string
     CLERK_AUTHORIZED_PARTIES?: string
     DATABASE_URL?: string
+    // Agent runtime config (OpenRouter): the key is a Workers secret; the model id
+    // is a swappable config value (see agent/models.ts). Both optional here.
+    OPENROUTER_API_KEY?: string
+    AGENT_MODEL?: string
   }
   Variables: {
     claims: AuthClaims
