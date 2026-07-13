@@ -19,14 +19,23 @@ import { describe, expect, it } from 'vitest'
  * never counts. Update this map when a route gains/loses an escape-hatch statement.
  */
 const ROUTES_DIR = fileURLToPath(new URL('../routes', import.meta.url))
+const DOMAIN_DIR = fileURLToPath(new URL('../domain', import.meta.url))
 const PROVENANCE_COLUMNS = ['actor_type', 'actor_id', 'on_behalf_of', 'run_id'] as const
 
-// Expected number of inline (Tier-2) provenance stamp-groups per route file.
+// Expected number of inline (Tier-2) provenance stamp-groups per file. The single
+// write path moved the work-items Tier-2 UPDATE out of the route and into the
+// domain command, so the route is now stamp-free (Tier-1 via the commands) and the
+// domain module carries the one escape-hatch UPDATE.
 const EXPECTED_STAMP_GROUPS: Record<string, number> = {
-  'projects.ts': 1, // 1 escape-hatch UPDATE (create is Tier-1 recordWrite)
-  'checks.ts': 2, // 2 escape-hatch UPDATEs (patch + toggle); create is Tier-1
-  'dependencies.ts': 1, // 1 escape-hatch INSERT (cycle-guard); delete stamps nothing
-  'work-items.ts': 1, // 1 escape-hatch UPDATE (create/activity are recordWrite*)
+  'routes/projects.ts': 1, // 1 escape-hatch UPDATE (create is Tier-1 recordWrite)
+  'routes/checks.ts': 2, // 2 escape-hatch UPDATEs (patch + toggle); create is Tier-1
+  'routes/dependencies.ts': 1, // 1 escape-hatch INSERT (cycle-guard); delete stamps nothing
+  'routes/work-items.ts': 0, // thin route — writes go through the domain commands
+  'domain/work-items.ts': 1, // 1 escape-hatch UPDATE (create/activity are recordWrite*)
+}
+
+function dirFor(relPath: string): string {
+  return relPath.startsWith('domain/') ? DOMAIN_DIR : ROUTES_DIR
 }
 
 function countColumn(src: string, col: string): number {
@@ -40,7 +49,8 @@ function countColumn(src: string, col: string): number {
 describe('Tier-2 provenance stamp completeness', () => {
   for (const [file, expected] of Object.entries(EXPECTED_STAMP_GROUPS)) {
     it(`${file}: every escape-hatch statement stamps all four actor_* columns (${expected}×)`, () => {
-      const src = readFileSync(`${ROUTES_DIR}/${file}`, 'utf8')
+      const base = file.slice(file.indexOf('/') + 1)
+      const src = readFileSync(`${dirFor(file)}/${base}`, 'utf8')
       const counts = PROVENANCE_COLUMNS.map((col) => countColumn(src, col))
       // All four counts equal each other → no partial stamp.
       expect(new Set(counts).size).toBe(1)
