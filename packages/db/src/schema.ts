@@ -1,10 +1,13 @@
 import { sql } from 'drizzle-orm'
 import {
+  bigint,
   boolean,
   index,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
+  real,
   text,
   timestamp,
   unique,
@@ -310,4 +313,68 @@ export const activityEvents = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({ byWorkItem: index('activity_events_work_item_idx').on(t.workItemId) }),
+)
+
+// Proposal lifecycle (see docs/design/2026-07-12-proposals-queue-design.md +
+// 2026-07-13-agent-slice-v1-design.md §5). Append-only transitions; `applied` is
+// the terminal write state, `accepted_with_edits` captures a human-corrected payload.
+export const proposalStatusEnum = pgEnum('proposal_status', [
+  'pending',
+  'accepted',
+  'accepted_with_edits',
+  'rejected',
+  'superseded',
+  'expired',
+  'applied',
+])
+
+/**
+ * Proposals — "agents propose, humans dispose". A module-agnostic reviewable intent
+ * to change something (target_type/target_id/operation/payload), applied through the
+ * SAME validated domain-command layer as the human UI. Carries the decision-corpus
+ * capture columns (edited_payload = the gold-label diff; model_id/prompt_version/
+ * context_ref = generation metadata) so a future learning loop is reconstructible.
+ * Provenance columns are the run/agent actor (companion doc).
+ */
+export const proposals = pgTable(
+  'proposals',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: text('tenant_id').notNull(),
+    // The run that produced it (nullable: human-drafted). SET NULL on run delete.
+    runId: uuid('run_id').references(() => agentRuns.id, { onDelete: 'set null' }),
+    // WHAT it wants to change (module-agnostic; payload validated at APPLY time).
+    targetType: text('target_type').notNull(),
+    targetId: uuid('target_id'),
+    operation: text('operation').notNull(),
+    payload: jsonb('payload').notNull(),
+    rationale: text('rationale'),
+    confidence: real('confidence'),
+    // Placeholder for the future policy engine (the auto-accept dial); null in v1.
+    riskLevel: text('risk_level'),
+    // Lifecycle.
+    status: proposalStatusEnum('status').notNull().default('pending'),
+    decidedBy: text('decided_by'),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    // The payload ACTUALLY applied — its diff vs `payload` is the gold-label correction.
+    editedPayload: jsonb('edited_payload'),
+    rejectionReason: text('rejection_reason'),
+    appliedWrite: jsonb('applied_write'),
+    // Optimistic concurrency: the target's version at propose time (see design §14).
+    targetVersion: bigint('target_version', { mode: 'number' }),
+    // Generation metadata — so a model/prompt swap is measurable, not vibes.
+    modelId: text('model_id'),
+    promptVersion: text('prompt_version'),
+    contextRef: text('context_ref'), // → the retrieval set shown to the model
+    // Provenance (companion doc): the actor is the run/agent, on_behalf_of the human.
+    actorType: actorTypeEnum('actor_type').notNull().default('agent'),
+    actorId: text('actor_id'),
+    onBehalfOf: text('on_behalf_of'),
+    ...timestamps,
+  },
+  (t) => ({
+    byInbox: index('proposals_tenant_status_idx').on(t.tenantId, t.status),
+    byRun: index('proposals_run_idx').on(t.runId),
+    byTarget: index('proposals_target_idx').on(t.targetType, t.targetId),
+  }),
 )

@@ -50,6 +50,13 @@
       "when": 1784050800000,
       "tag": "0006_provenance_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1784131200000,
+      "tag": "0007_proposals",
+      "breakpoints": true
     }
   ]
 }
