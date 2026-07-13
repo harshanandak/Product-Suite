@@ -107,6 +107,7 @@ const WRITE_TABLES: Record<
       'assignee_id',
       'due_date',
       'archived',
+      'applied_from_proposal_id',
     ],
   },
   activity_events: {

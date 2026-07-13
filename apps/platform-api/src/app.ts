@@ -5,6 +5,7 @@ import { checksRoutes } from './routes/checks'
 import { dependenciesRoutes } from './routes/dependencies'
 import { ownersRoutes } from './routes/owners'
 import { projectsRoutes } from './routes/projects'
+import { proposalsRoutes } from './routes/proposals'
 import { statusesRoutes } from './routes/statuses'
 import { teamsRoutes } from './routes/teams'
 import { workItemsRoutes } from './routes/work-items'
@@ -32,5 +33,8 @@ app.route('/api/projects', projectsRoutes)
 app.route('/api/teams', teamsRoutes)
 app.route('/api/statuses', statusesRoutes)
 app.route('/api/owners', ownersRoutes)
+
+// Agent decision inbox: proposals reviewed + applied through the single write path.
+app.route('/api/agent/proposals', proposalsRoutes)
 
 export default app

@@ -242,19 +242,44 @@ edit delta, outcome)` must be **reconstructible offline**.
 
 ---
 
-## 14. Exactly-once apply (the trap)
+## 14. Exactly-once apply — Design C (claim-then-command)
 
-Neon HTTP has no interactive transactions, so a naive "flip status, then write" can
-double-apply or apply a stale payload. Apply is **one batched `sql.transaction`**:
+Neon HTTP has **no interactive transactions**, and the domain command (§4) does
+validation *reads then writes* — so it **cannot** live inside a single non-interactive
+`sql.transaction`, and forcing the write into one batch would hand-write the domain
+mutation and **fork the single write path** (§4), the one thing v1 must not do. So apply
+is **claim-then-command**, not one transaction:
 
-1. `UPDATE proposals SET status='applied', … WHERE id=$1 AND status='pending' RETURNING *`
-   (0 rows ⇒ already handled ⇒ no-op).
-2. the target write, **conditioned on `target_version`** (`WHERE version = $expected`),
-   through the §4 command layer — fails the whole batch (surfaced as 409) if either guard
-   misses.
+1. **Claim** — the atomic exactly-once gate, a single statement:
+   `UPDATE proposals SET status='applied', decided_by=$me, decided_at=now(),
+   edited_payload=$payload WHERE id=$1 AND status='pending' RETURNING *`.
+   **0 rows ⇒ `not_pending`** (someone else won / already handled) — no-op.
+2. **Command** — *only the winner* calls the shared `createWorkItem`/`updateWorkItem`
+   (§4), as `actor_type='agent'`, `on_behalf_of`=approver.
+3. **Compensate** on the command's `DomainError` (guarded by `status='applied' AND
+   decided_by=$me`, so only the winner can revert):
+   - **`stale`** (transient — target moved) → back to **`pending`** (retriable/re-reviewable).
+   - **any other (invalid, permanent** — e.g. the target's team was deleted) → terminal
+     **`failed`** with `rejection_reason`. **Never `pending`** — invalid→pending
+     infinite-retry-loops.
 
-**Test a concurrent-accept case in PR1.** Secondary: sweep orphaned `running` runs
-(`updated_at < now() - interval '10 min' → failed`).
+**Crash-window / self-healing:** a crash *between* claim and command leaves a
+claimed-but-unwritten proposal. `work_items.applied_from_proposal_id` is **UNIQUE**, so a
+re-drive can't double-create (the second create hits the constraint and the command
+returns the existing row). Ship the column now; a sweeper re-drives later.
+
+**The compensation race is benign:** a concurrent accept during the winner's command run
+sees `applied` → `not_pending` (a spurious rejection, *never* a double-write); idempotent
+retry covers it.
+
+**Tested in PR1:** concurrent-accept (exactly one applies, command runs once), idempotent
+double-accept, stale→pending, invalid→failed, create idempotent re-drive. Secondary: sweep
+orphaned `running` runs (`updated_at < now() - interval '10 min' → failed`).
+
+> Design history: an earlier sketch used one gated `sql.transaction` (flip + write). It
+> was reversed (Fable ruling, peer-flagged) because it violated the §4 keystone and was
+> infeasible under Neon's non-interactive batches. Design C keeps the single write path;
+> its crash window is bounded, detectable, and self-healing.
 
 ---
 

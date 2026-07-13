@@ -384,6 +384,15 @@ it('listPending scopes by tenant array and pending status', async () => {
 
 ### Task 5: exactly-once `applyProposal` (the crux)
 
+> **SUPERSEDED — implemented as Design C (claim-then-command), see design doc §14.**
+> The single-`sql.transaction` sketch below is infeasible (the domain command does
+> read-then-write; Neon batches are non-interactive) and would fork the §4 write path.
+> As built: (1) atomic CLAIM `UPDATE … WHERE status='pending' RETURNING *` (0 rows ⇒
+> `not_pending`); (2) *only the winner* calls the shared `createWorkItem`/`updateWorkItem`;
+> (3) compensate on `DomainError`, guarded by `status='applied' AND decided_by=$me` —
+> `stale`→`pending`, otherwise→terminal `failed`. `work_items.applied_from_proposal_id`
+> UNIQUE makes a post-crash re-drive idempotent.
+
 **Files:**
 - Create: `apps/platform-api/src/proposals/apply.ts`
 - Test: `apps/platform-api/src/proposals/apply.test.ts`
