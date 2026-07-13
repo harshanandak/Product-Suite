@@ -117,10 +117,12 @@ export function buildTools(sql: Sql, ctx: ToolContext): ToolSet {
       inputSchema: z.object({ id: z.string() }),
       execute: async ({ id }) => {
         if (!ctx.tenantId) return null
+        // Exclude archived, consistent with list_work_items + retrieve — the agent
+        // must not read or (via propose_update) target an archived item.
         const text = `
           select id, title, status_id, priority, team_id, description, phase, type
           from work_items
-          where id = $1 and tenant_id = $2
+          where id = $1 and tenant_id = $2 and archived = false
           limit 1
         `
         const rows = await runQuery<Record<string, unknown>>(sql, text, [id, ctx.tenantId])
