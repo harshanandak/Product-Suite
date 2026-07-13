@@ -19,6 +19,7 @@ export type DomainErrorCode =
   | 'parent_has_children'
   | 'cannot_change_team_in_hierarchy'
   | 'cycle'
+  | 'stale'
   | 'not_found'
 
 export class DomainError extends Error {

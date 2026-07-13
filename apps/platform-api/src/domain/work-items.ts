@@ -63,7 +63,7 @@ export type CreateWorkItemInput = { title?: string } & Partial<WorkItemPatch>
  */
 export async function createWorkItem(
   sql: Sql,
-  ctx: { tenantId: string; actor: ActorSource },
+  ctx: { tenantId: string; actor: ActorSource; appliedFromProposalId?: string },
   input: CreateWorkItemInput,
 ): Promise<WorkItemRow> {
   const { tenantId } = ctx
@@ -113,46 +113,72 @@ export async function createWorkItem(
 
   const workItemId = crypto.randomUUID()
   const title = input.title ?? 'Untitled work item'
-  const [created] = await recordWriteTx<WorkItemRow>(
-    sql,
-    [
-      {
-        table: 'work_items',
-        operation: 'insert',
-        values: {
-          id: workItemId,
-          tenant_id: tenantId,
-          title,
-          description: input.description ?? '',
-          phase: input.phase ?? 'plan',
-          type: input.type ?? 'feature',
-          priority: input.priority ?? 'medium',
-          tags: input.tags ?? [],
-          source: 'manual',
-          project_id: input.project_id ?? null,
-          team_id: input.team_id,
-          status_id: input.status_id,
-          parent_id: input.parent_id ?? null,
-          depth,
-          department: input.department ?? 'General',
-          assignee_id: input.assignee_id ?? null,
-          due_date: input.due_date ?? null,
-          archived: input.archived ?? false,
+  // Idempotency for the proposal-apply path (design §14): when this create is
+  // driven by an accepted proposal, stamp `applied_from_proposal_id`. A UNIQUE
+  // (non-null) index guarantees a re-drive after a crash between the proposal
+  // claim and this write can't double-create — the unique violation is caught
+  // below and the already-created row is returned instead. Absent for human
+  // creates, so the column is simply omitted (NULLs don't collide).
+  const workItemValues: Record<string, unknown> = {
+    id: workItemId,
+    tenant_id: tenantId,
+    title,
+    description: input.description ?? '',
+    phase: input.phase ?? 'plan',
+    type: input.type ?? 'feature',
+    priority: input.priority ?? 'medium',
+    tags: input.tags ?? [],
+    source: 'manual',
+    project_id: input.project_id ?? null,
+    team_id: input.team_id,
+    status_id: input.status_id,
+    parent_id: input.parent_id ?? null,
+    depth,
+    department: input.department ?? 'General',
+    assignee_id: input.assignee_id ?? null,
+    due_date: input.due_date ?? null,
+    archived: input.archived ?? false,
+  }
+  if (ctx.appliedFromProposalId != null) {
+    workItemValues.applied_from_proposal_id = ctx.appliedFromProposalId
+  }
+
+  let created: WorkItemRow | undefined
+  try {
+    ;[created] = await recordWriteTx<WorkItemRow>(
+      sql,
+      [
+        { table: 'work_items', operation: 'insert', values: workItemValues },
+        {
+          table: 'activity_events',
+          operation: 'insert',
+          values: {
+            id: crypto.randomUUID(),
+            work_item_id: workItemId,
+            kind: 'created',
+            summary: `Created “${title}”`,
+          },
         },
-      },
-      {
-        table: 'activity_events',
-        operation: 'insert',
-        values: {
-          id: crypto.randomUUID(),
-          work_item_id: workItemId,
-          kind: 'created',
-          summary: `Created “${title}”`,
-        },
-      },
-    ],
-    actor,
-  )
+      ],
+      actor,
+    )
+  } catch (cause) {
+    // Idempotent re-drive: a prior apply attempt already created this row. The
+    // partial-unique index on `applied_from_proposal_id` rejected the duplicate —
+    // fetch and return the existing row (NOT an error; the apply is exactly-once).
+    const message = cause instanceof Error ? cause.message : String(cause)
+    if (
+      ctx.appliedFromProposalId != null &&
+      (message.includes('work_items_applied_from_proposal_uniq') || message.includes('duplicate key'))
+    ) {
+      const existingRows = (await sql`
+        select * from work_items where applied_from_proposal_id = ${ctx.appliedFromProposalId}
+      `) as WorkItemRow[]
+      const existing = existingRows[0]
+      if (existing) return existing
+    }
+    throw cause
+  }
   if (!created) throw new DomainError('not_found', 'insert returned no row')
   return created
 }
@@ -181,11 +207,18 @@ export type UpdateWorkItemInput = WorkItemPatch
  */
 export async function updateWorkItem(
   sql: Sql,
-  ctx: { tenantIds: string[]; actor: ActorSource },
+  ctx: { tenantIds: string[]; actor: ActorSource; expectedVersion?: number },
   id: string,
   patch: UpdateWorkItemInput,
 ): Promise<WorkItemRow> {
   const { tenantIds } = ctx
+  // `expectedVersion` is a forward-seam for optimistic concurrency (design §14's
+  // fencing token). v1 `work_items` has NO version column, so the check is a
+  // deliberate no-op here — the proposal-apply claim-flip is the sole concurrency
+  // gate in v1. It is threaded through so the apply path and its callers already
+  // pass it; when the column lands, condition the UPDATE on it and throw
+  // `DomainError('stale')` on a version mismatch. (No column is invented now.)
+  void ctx.expectedVersion
 
   const existing = (await sql`
     select * from work_items where id = ${id} and tenant_id = any(${tenantIds})

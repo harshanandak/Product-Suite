@@ -80,6 +80,32 @@ describe('createWorkItem', () => {
     expect(resolveActor).toHaveBeenCalledTimes(1)
     expect(sql).toHaveBeenCalledTimes(2)
   })
+
+  it('idempotent re-drive: a unique violation on applied_from_proposal_id returns the existing row', async () => {
+    const EXISTING = { ...WI_ROW, id: 'wi_existing' }
+    const sql = vi.fn()
+    sql
+      .mockResolvedValueOnce([{ n: 1 }]) // team owned
+      .mockResolvedValueOnce([{ n: 1 }]) // status owned
+      .mockResolvedValueOnce([EXISTING]) // select by applied_from_proposal_id (idempotent fetch)
+    ;(sql as unknown as { query: ReturnType<typeof vi.fn> }).query = vi.fn()
+    ;(sql as unknown as { transaction: ReturnType<typeof vi.fn> }).transaction = vi
+      .fn()
+      .mockRejectedValue(
+        new Error(
+          'duplicate key value violates unique constraint "work_items_applied_from_proposal_uniq"',
+        ),
+      )
+
+    const created = await createWorkItem(
+      sql as unknown as Sql,
+      { tenantId: 't_1', actor, appliedFromProposalId: 'p1' },
+      { title: 'A', team_id: 'team_1', status_id: 'status_1' },
+    )
+    // The re-drive returns the row a prior apply attempt already wrote — no error,
+    // no second create (the apply is exactly-once).
+    expect(created.id).toBe('wi_existing')
+  })
 })
 
 describe('updateWorkItem', () => {
