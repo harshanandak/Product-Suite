@@ -180,6 +180,56 @@ describe("ProposalDetail", () => {
     expect(reject).toHaveBeenCalledWith("p1", undefined);
   });
 
+  it("Accept transport error surfaces a VISIBLE banner (never a silent failure)", async () => {
+    const accept = vi.fn(async (): Promise<AcceptResult> => {
+      throw new Error("Server error (500)");
+    });
+    renderDetail(proposal(), { accept });
+    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+    await waitFor(() =>
+      expect(screen.getByText("Server error (500)")).toBeInTheDocument(),
+    );
+    // Announced via aria-live (role=status), like WorkboardScreen's errors.
+    expect(screen.getByText("Server error (500)")).toHaveAttribute(
+      "role",
+      "status",
+    );
+  });
+
+  it("Reject transport error keeps the form OPEN with the reason intact (no false success)", async () => {
+    const reject = vi.fn(async () => {
+      throw new Error("Server error (500)");
+    });
+    renderDetail(proposal(), { reject });
+    fireEvent.click(screen.getByRole("button", { name: "Reject" }));
+    fireEvent.click(screen.getByRole("button", { name: "wrong target" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reject proposal" }));
+    await waitFor(() =>
+      expect(screen.getByText("Server error (500)")).toBeInTheDocument(),
+    );
+    // Form stays open (confirm button still present) and the reason is preserved.
+    expect(
+      screen.getByRole("button", { name: "Reject proposal" }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Rejection reason")).toHaveValue(
+      "wrong target",
+    );
+  });
+
+  it("Reject success shows a terminal Rejected state with NO live Accept/Reject buttons", async () => {
+    const reject = vi.fn(async () => undefined);
+    renderDetail(proposal(), { reject });
+    fireEvent.click(screen.getByRole("button", { name: "Reject" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reject proposal" }));
+    await waitFor(() => expect(screen.getByText("Rejected.")).toBeInTheDocument());
+    expect(
+      screen.queryByRole("button", { name: "Accept" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Reject" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("renders provenance fine-print and a collapsible raw payload", () => {
     itemsMock.items = [];
     renderDetail(proposal());

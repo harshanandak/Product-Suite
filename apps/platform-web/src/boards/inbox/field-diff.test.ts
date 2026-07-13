@@ -37,15 +37,18 @@ const target = {
 } as unknown as WorkItem;
 
 describe("formatValue", () => {
-  it("formats primitives, arrays, and nullish", () => {
+  it("formats primitives and arrays", () => {
     expect(formatValue("hi")).toBe("hi");
-    expect(formatValue("")).toBe("—");
     expect(formatValue(3)).toBe("3");
     expect(formatValue(false)).toBe("false");
     expect(formatValue(["a", "b"])).toBe("a, b");
-    expect(formatValue([])).toBe("—");
-    expect(formatValue(null)).toBe("—");
+  });
+
+  it("renders empties DISTINGUISHABLY (so a real empty→empty change never looks unchanged)", () => {
     expect(formatValue(undefined)).toBe("—");
+    expect(formatValue(null)).toBe("null");
+    expect(formatValue("")).toBe("(empty)");
+    expect(formatValue([])).toBe("(none)");
   });
 });
 
@@ -92,6 +95,34 @@ describe("buildFieldRows — update", () => {
     expect(changed).toEqual([
       { field: "tags", current: "a, b", proposed: "a, c" },
     ]);
+  });
+
+  it("shows an empty-to-null change as a REAL change (not — → —)", () => {
+    const emptyTarget = { id: "wi_1", note: "" } as unknown as WorkItem;
+    const rows = buildFieldRows(
+      proposal({ operation: "update", target_id: "wi_1", payload: { note: null } }),
+      emptyTarget,
+    );
+    expect(rows).toEqual([
+      { field: "note", current: "(empty)", proposed: "null" },
+    ]);
+  });
+
+  it("treats a reordered-but-equal object as UNCHANGED (key-order-insensitive)", () => {
+    const objTarget = {
+      id: "wi_1",
+      meta: { a: 1, b: 2 },
+    } as unknown as WorkItem;
+    const unchanged = buildFieldRows(
+      proposal({
+        operation: "update",
+        target_id: "wi_1",
+        // Same object, keys in a different order — must NOT show as a change.
+        payload: { meta: { b: 2, a: 1 } },
+      }),
+      objTarget,
+    );
+    expect(unchanged).toEqual([]);
   });
 
   it("shows all payload fields when the target is unknown (never a silent empty diff)", () => {

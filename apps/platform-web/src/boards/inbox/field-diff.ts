@@ -17,15 +17,22 @@ export interface FieldRow {
   proposed: string;
 }
 
-/** Format an unknown payload/work-item value for display. Never throws. */
+/**
+ * Format an unknown payload/work-item value for display. Never throws. The
+ * "empty" kinds render DISTINGUISHABLY — `undefined`/absent as an em-dash,
+ * `null` as `null`, `""` as `(empty)`, `[]` as `(none)` — so a genuine change
+ * between two empties (e.g. `"" → null`) never collapses into `— → —`, which
+ * would look unchanged and silently hide a real edit.
+ */
 export function formatValue(value: unknown): string {
-  if (value === null || value === undefined) return "—";
-  if (typeof value === "string") return value.length > 0 ? value : "—";
+  if (value === undefined) return "—";
+  if (value === null) return "null";
+  if (typeof value === "string") return value.length > 0 ? value : "(empty)";
   if (typeof value === "number" || typeof value === "boolean") {
     return String(value);
   }
   if (Array.isArray(value)) {
-    return value.length > 0 ? value.map(formatValue).join(", ") : "—";
+    return value.length > 0 ? value.map(formatValue).join(", ") : "(none)";
   }
   try {
     return JSON.stringify(value);
@@ -34,12 +41,32 @@ export function formatValue(value: unknown): string {
   }
 }
 
-/** Structural equality via canonical JSON (order-sensitive), normalizing nullish. */
+/**
+ * Recursively normalize a value for structural comparison: nullish collapses to
+ * `null`, and plain-object keys are SORTED so a reordered-but-equal object
+ * compares equal. Array order is preserved (element order is meaningful).
+ */
+function normalizeForCompare(value: unknown): unknown {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map(normalizeForCompare);
+  const record = value as Record<string, unknown>;
+  const sorted: Record<string, unknown> = {};
+  for (const key of Object.keys(record).sort()) {
+    sorted[key] = normalizeForCompare(record[key]);
+  }
+  return sorted;
+}
+
+/** Structural equality via canonical JSON, KEY-ORDER-INSENSITIVE for objects. */
 function sameValue(a: unknown, b: unknown): boolean {
-  const norm = (v: unknown) => (v === undefined ? null : v);
   try {
-    return JSON.stringify(norm(a)) === JSON.stringify(norm(b));
+    return (
+      JSON.stringify(normalizeForCompare(a)) ===
+      JSON.stringify(normalizeForCompare(b))
+    );
   } catch {
+    const norm = (v: unknown) => (v === undefined ? null : v);
     return norm(a) === norm(b);
   }
 }

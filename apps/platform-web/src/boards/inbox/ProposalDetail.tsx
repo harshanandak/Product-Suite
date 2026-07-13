@@ -34,6 +34,7 @@ export interface ProposalDetailProps {
 type DisposeStatus =
   | { kind: "idle" }
   | { kind: "applied"; itemId: string }
+  | { kind: "rejected" }
   | { kind: "stale" }
   | { kind: "invalid" };
 
@@ -73,25 +74,54 @@ export function ProposalDetail({
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("");
   const [rawOpen, setRawOpen] = useState(false);
+  // Transport failure (5xx/401/network) surfaced VISIBLY. The repository throws on
+  // these — without a catch a failed accept/reject is an unhandled rejection with
+  // the pane sitting idle (an invisible failure). We mirror WorkboardScreen's
+  // aria-live error surfacing so the user always sees a failed disposition.
+  const [error, setError] = useState<string | null>(null);
 
   const onAccept = (): void => {
     // The hook refetches the list on settle; we branch on the SURFACED outcome so
-    // a stale/invalid disposition is never a silent failure.
-    void accept(proposal.id).then((result) => {
-      setStatus(
-        result.outcome === "applied"
-          ? { kind: "applied", itemId: result.item.id }
-          : result.outcome === "stale"
-            ? { kind: "stale" }
-            : { kind: "invalid" },
-      );
-    });
+    // a stale/invalid disposition is never a silent failure. A THROWN error
+    // (transport 5xx/401/network) surfaces as a visible banner, never silence.
+    setError(null);
+    void accept(proposal.id)
+      .then((result) => {
+        setStatus(
+          result.outcome === "applied"
+            ? { kind: "applied", itemId: result.item.id }
+            : result.outcome === "stale"
+              ? { kind: "stale" }
+              : { kind: "invalid" },
+        );
+      })
+      .catch((err: unknown) => {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Couldn't accept this proposal. Please try again.",
+        );
+      });
   };
 
   const onReject = (): void => {
     const trimmed = reason.trim();
-    void reject(proposal.id, trimmed === "" ? undefined : trimmed);
-    setRejecting(false);
+    // Only close the form + mark rejected on SUCCESS. On a thrown error we keep
+    // the form open with the reason intact (never discard it) and surface the
+    // failure — a failed reject must never read as success.
+    setError(null);
+    void reject(proposal.id, trimmed === "" ? undefined : trimmed)
+      .then(() => {
+        setStatus({ kind: "rejected" });
+        setRejecting(false);
+      })
+      .catch((err: unknown) => {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Couldn't reject this proposal. Please try again.",
+        );
+      });
   };
 
   return (
@@ -174,9 +204,22 @@ export function ProposalDetail({
         )}
       </div>
 
+      {/* Transport-error banner — a failed accept/reject is NEVER silent. */}
+      {error ? (
+        <div
+          role="status"
+          className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive"
+        >
+          {error}
+        </div>
+      ) : null}
+
       {/* Actions / terminal disposition status */}
       {status.kind === "applied" ? (
-        <div className="rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-sm text-foreground">
+        <div
+          role="status"
+          className="rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-sm text-foreground"
+        >
           Applied.{" "}
           <Link
             to="/w/$workspace/workboard/item/$itemId"
@@ -185,6 +228,13 @@ export function ProposalDetail({
           >
             View item →
           </Link>
+        </div>
+      ) : status.kind === "rejected" ? (
+        <div
+          role="status"
+          className="rounded-md border border-border bg-muted px-3 py-2 text-sm text-muted-foreground"
+        >
+          Rejected.
         </div>
       ) : status.kind === "stale" ? (
         <div
@@ -251,8 +301,8 @@ export function ProposalDetail({
           <Button
             size="sm"
             className={cn(
-              "bg-green-600 text-white hover:bg-green-700",
-              "focus-visible:ring-green-600/40",
+              "bg-success text-success-foreground hover:bg-success/90",
+              "focus-visible:ring-success/40",
             )}
             disabled={isMutating}
             onClick={onAccept}

@@ -29,6 +29,13 @@
   --destructive: oklch(0.5800 0.2200 27);
   --destructive-foreground: oklch(0.9700 0.0140 254.6040);
   /*
+   * Semantic success (affirmative/accept). A green tuned to mirror the
+   * destructive pair — same surface lightness/foreground contrast — so an
+   * Accept action reads as the positive twin of Reject and themes in dark mode.
+   */
+  --success: oklch(0.6000 0.1400 150);
+  --success-foreground: oklch(0.9800 0.0150 155);
+  /*
    * Workboard badge ramps (DESIGN §5). Chroma-bearing, dark-mode-durable hues
    * so Type / Phase / Priority / Health never collapse to one gray pill. Each
    * level owns a hue: surface = soft tint, `-foreground` = strong same-hue
@@ -105,6 +112,12 @@
   --destructive: oklch(0.7040 0.1910 22.2160);
   --destructive-foreground: oklch(0.9700 0.0140 254.6040);
   /*
+   * Semantic success — dark. Surface lifts (like destructive dark) so the
+   * green stays vivid against the near-black canvas; foreground stays near-white.
+   */
+  --success: oklch(0.6900 0.1500 150);
+  --success-foreground: oklch(0.9800 0.0150 155);
+  /*
    * Workboard badge ramps — dark. Surfaces darken, foregrounds lift so each
    * hue stays legible (AA, ≥4.5:1) against the near-black canvas where the
    * neutral tokens previously read as identical gray.
@@ -176,6 +189,8 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
   --color-priority-critical: var(--priority-critical);
   --color-priority-critical-foreground: var(--priority-critical-foreground);
   --color-priority-high: var(--priority-high);
