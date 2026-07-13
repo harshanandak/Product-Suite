@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ProposalRepository } from "@/data/proposals";
@@ -6,6 +7,18 @@ import type { AcceptResult, Proposal } from "@/data/proposals";
 
 vi.mock("@tanstack/react-router", () => ({
   useParams: () => ({ workspace: "acme" }),
+  // The detail pane renders TanStack Link; stub it as a plain anchor (drop the
+  // router-only `to`/`params` props so they don't hit the DOM).
+  Link: ({
+    children,
+    to: _to,
+    params: _params,
+    ...rest
+  }: {
+    children: ReactNode;
+    to?: string;
+    params?: Record<string, string>;
+  } & Record<string, unknown>) => <a {...rest}>{children}</a>,
 }));
 
 // The detail pane fetches its update target through the work-items hook; stub it.

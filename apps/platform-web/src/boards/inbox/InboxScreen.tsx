@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useParams } from "@tanstack/react-router";
 
@@ -6,6 +6,7 @@ import { Button, EmptyState, ErrorState } from "@product-suite/ui";
 
 import {
   useProposals,
+  type Proposal,
   type ProposalRepository,
 } from "@/data/proposals";
 
@@ -38,21 +39,30 @@ export function InboxScreen({ repository }: Readonly<InboxScreenProps> = {}) {
   const { proposals, isLoading, error, accept, reject, isMutating, refetch } =
     useProposals({ repository });
 
-  // The selected proposal id (detail-pane target). Reconciled whenever the list
-  // changes: a refetch that removes the selected proposal (accepted/rejected)
-  // falls back to the first remaining one, so the pane never strands on a ghost.
+  // The selected proposal id (detail-pane target). Default to the first proposal
+  // once the list arrives, then NEVER auto-jump: a proposal disposed of via the
+  // detail pane leaves the pending list on refetch, but we keep its terminal
+  // confirmation ("Applied → view item" / stale) visible until the user picks
+  // another row instead of yanking the pane to a different proposal.
   const [selectedId, setSelectedId] = useState<string | null>(null);
   useEffect(() => {
-    setSelectedId((current) => {
-      if (current !== null && proposals.some((p) => p.id === current)) {
-        return current;
-      }
-      return proposals[0]?.id ?? null;
-    });
+    setSelectedId((current) => current ?? proposals[0]?.id ?? null);
+  }, [proposals]);
+
+  // Cache every proposal we've shown so the detail pane can keep rendering a
+  // just-disposed proposal (dropped from the refetched list) with its terminal
+  // status, rather than blanking the moment the server confirms the disposition.
+  const seenRef = useRef<Map<string, Proposal>>(new Map());
+  useEffect(() => {
+    for (const proposal of proposals) seenRef.current.set(proposal.id, proposal);
   }, [proposals]);
 
   const selected =
-    proposals.find((proposal) => proposal.id === selectedId) ?? null;
+    selectedId === null
+      ? null
+      : (proposals.find((proposal) => proposal.id === selectedId) ??
+        seenRef.current.get(selectedId) ??
+        null);
 
   if (isLoading) {
     return (
