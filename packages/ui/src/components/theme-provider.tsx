@@ -28,10 +28,26 @@ function getSystemTheme(): ResolvedTheme {
 }
 
 export function applyTheme(resolved: ResolvedTheme): void {
-  if (typeof document !== "undefined") {
-    document.documentElement.classList.toggle("dark", resolved === "dark");
-    document.documentElement.style.colorScheme = resolved;
-  }
+  if (typeof document === "undefined") return;
+  const root = document.documentElement;
+  // Swap the theme WITHOUT animating. Many surfaces use `transition-colors`, so
+  // flipping the `.dark` class would morph every color at once — a janky,
+  // staggered full-page transition. Disable all transitions for the swap, force a
+  // reflow to commit it instantly, then re-enable — so the theme change is snappy
+  // while hover/layout transitions are unaffected afterwards.
+  const disable = document.createElement("style");
+  disable.appendChild(
+    document.createTextNode("*,*::before,*::after{transition:none !important}"),
+  );
+  document.head.appendChild(disable);
+
+  root.classList.toggle("dark", resolved === "dark");
+  root.style.colorScheme = resolved;
+
+  // Reading a computed style forces the browser to apply the swap while
+  // transitions are off; then remove the override so later interactions animate.
+  void globalThis.getComputedStyle(root).transitionProperty;
+  disable.remove();
 }
 
 export function ThemeProvider({
