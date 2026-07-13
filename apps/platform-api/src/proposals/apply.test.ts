@@ -78,7 +78,7 @@ function makeSql(opts: { proposal?: Record<string, unknown> } = {}) {
   }) as unknown as Sql
   ;(sql as unknown as { query: typeof query }).query = query
 
-  return { sql, getStatus: () => status }
+  return { sql, getStatus: () => status, query }
 }
 
 const ctx = { tenantIds: ['t_1'], approverUserId: 'u_approver' }
@@ -106,7 +106,7 @@ describe('applyProposal (Design C: claim-then-command)', () => {
   })
 
   it('(a) two concurrent accepts race: exactly one applies, the domain command runs once', async () => {
-    const { sql } = makeSql({})
+    const { sql, query } = makeSql({})
     const [a, b] = await Promise.all([applyProposal(sql, ctx, 'p1'), applyProposal(sql, ctx, 'p1')])
     const applied = [a, b].filter((r) => r.applied)
     const rejected = [a, b].filter((r) => !r.applied)
@@ -115,6 +115,16 @@ describe('applyProposal (Design C: claim-then-command)', () => {
     expect(rejected[0]).toEqual({ applied: false, reason: 'not_pending' })
     // The claim gate let exactly one winner reach the command.
     expect(createWorkItem).toHaveBeenCalledTimes(1)
+    // The gate is the SQL itself, not this mock: the CLAIM UPDATE must carry the
+    // exactly-once guard `status = 'pending'`. Assert on the real SQL text so that
+    // deleting the guard from apply.ts would fail here (the mock alone wouldn't).
+    const claimCalls = (query.mock.calls as [string, unknown[]][]).filter(([t]) =>
+      t.includes("set status = 'applied'"),
+    )
+    expect(claimCalls.length).toBeGreaterThanOrEqual(1)
+    for (const [text] of claimCalls) {
+      expect(text).toContain("status = 'pending'")
+    }
   })
 
   it('(b) a second accept of an already-applied proposal is a no-op (not_pending)', async () => {
@@ -128,7 +138,7 @@ describe('applyProposal (Design C: claim-then-command)', () => {
 
   it('(c) stale: the update command throws DomainError(stale) → proposal reverts to pending', async () => {
     updateWorkItem.mockReset().mockRejectedValue(new DomainError('stale', 'target changed'))
-    const { sql, getStatus } = makeSql({
+    const { sql, getStatus, query } = makeSql({
       proposal: { operation: 'update', target_id: 'wi_1', payload: { phase: 'done' } },
     })
     const res = await applyProposal(sql, ctx, 'p1')
@@ -136,15 +146,28 @@ describe('applyProposal (Design C: claim-then-command)', () => {
     expect(getStatus()).toBe('pending') // reverted → still reviewable
     expect(updateWorkItem).toHaveBeenCalledTimes(1)
     expect(createWorkItem).not.toHaveBeenCalled()
+    // The revert must be GUARDED to the row THIS call claimed: it only touches an
+    // `applied` row whose `decided_by` is this approver (never another accept's row).
+    const revert = (query.mock.calls as [string, unknown[]][]).find(([t]) =>
+      t.includes("set status = 'pending'"),
+    )
+    expect(revert?.[0]).toContain("status = 'applied'")
+    expect(revert?.[0]).toContain('decided_by')
   })
 
   it('(d) invalid: the create command throws DomainError(unknown_team) → proposal terminally failed', async () => {
     createWorkItem.mockReset().mockRejectedValue(new DomainError('unknown_team', 'Unknown team'))
-    const { sql, getStatus } = makeSql({})
+    const { sql, getStatus, query } = makeSql({})
     const res = await applyProposal(sql, ctx, 'p1')
     expect(res).toEqual({ applied: false, reason: 'invalid' })
     expect(getStatus()).toBe('failed') // terminal, distinct from human 'rejected'
     expect(createWorkItem).toHaveBeenCalledTimes(1)
+    // The terminal fail is GUARDED to this call's claimed row (applied + this approver).
+    const fail = (query.mock.calls as [string, unknown[]][]).find(([t]) =>
+      t.includes("set status = 'failed'"),
+    )
+    expect(fail?.[0]).toContain("status = 'applied'")
+    expect(fail?.[0]).toContain('decided_by')
   })
 
   it('returns not_found for a proposal outside the caller tenants (no claim)', async () => {
@@ -154,11 +177,24 @@ describe('applyProposal (Design C: claim-then-command)', () => {
     expect(createWorkItem).not.toHaveBeenCalled()
   })
 
-  it('returns invalid for an unsupported target/operation (before any claim)', async () => {
+  it('returns invalid for an unsupported target/operation AND terminally fails it (never claimed)', async () => {
     const { sql, getStatus } = makeSql({ proposal: { target_type: 'invoice', operation: 'create' } })
     const res = await applyProposal(sql, ctx, 'p1')
     expect(res).toEqual({ applied: false, reason: 'invalid' })
-    expect(getStatus()).toBe('pending') // never claimed
+    // A permanently-invalid proposal goes TERMINAL (failed) so it can't sit pending
+    // in listPending forever; the command never runs.
+    expect(getStatus()).toBe('failed')
     expect(createWorkItem).not.toHaveBeenCalled()
+  })
+
+  it('a proposal with null run_id terminally fails; a second accept is not_pending', async () => {
+    const { sql, getStatus } = makeSql({ proposal: { run_id: null } })
+    const res = await applyProposal(sql, ctx, 'p1')
+    expect(res).toEqual({ applied: false, reason: 'invalid' })
+    expect(getStatus()).toBe('failed') // no longer pending → out of listPending
+    expect(createWorkItem).not.toHaveBeenCalled()
+    // The proposal is now terminal: re-accepting it is a no-op, not a perpetual 422.
+    const second = await applyProposal(sql, ctx, 'p1')
+    expect(second).toEqual({ applied: false, reason: 'not_pending' })
   })
 })

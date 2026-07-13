@@ -35,6 +35,21 @@ function sqlQuery<Row = Record<string, unknown>>(
 }
 
 /**
+ * Terminally fail a permanently-invalid proposal (a structural pre-check failure)
+ * and report `invalid`. The flip is GUARDED on `status='pending'` so it is a no-op
+ * if the proposal was already decided — it never resurrects or re-decides a row.
+ */
+async function failInvalid(sql: Sql, proposalId: string, reason: string): Promise<ApplyResult> {
+  await sqlQuery(
+    sql,
+    `update proposals set status = 'failed', rejection_reason = $1, updated_at = now()
+     where id = $2 and status = 'pending'`,
+    [reason, proposalId],
+  )
+  return { applied: false, reason: 'invalid' }
+}
+
+/**
  * Apply a pending proposal EXACTLY ONCE, through the SAME validated domain command
  * the human UI uses — the moat's single write path (Design C: claim-then-command).
  *
@@ -74,31 +89,37 @@ export async function applyProposal(
   if (!proposal) return { applied: false, reason: 'not_found' }
   if (proposal.status !== 'pending') return { applied: false, reason: 'not_pending' }
 
-  // Structural pre-checks (BEFORE the claim, so a malformed proposal never flips):
-  // the (target_type, operation) must be one we can apply, an agent write must be
-  // attributable to a run, and an update must name a target.
+  // Structural pre-checks. Each is a PERMANENT invariant failure (this slice can
+  // never apply the proposal), so it must terminally FAIL the proposal instead of
+  // leaving it pending forever in `listPending`. The guarded flip (only while still
+  // `pending`) is a no-op if another path already decided it. The (target_type,
+  // operation) must be one we can apply, an agent write must be attributable to a
+  // run, and an update must name a target.
   if (!SUPPORTED.has(`${proposal.target_type}:${proposal.operation}`)) {
-    return { applied: false, reason: 'invalid' }
+    return failInvalid(sql, proposalId, `unsupported ${proposal.target_type}:${proposal.operation}`)
   }
-  if (!proposal.run_id) return { applied: false, reason: 'invalid' }
+  if (!proposal.run_id) return failInvalid(sql, proposalId, 'missing run_id (no attributable actor)')
   if (proposal.operation === 'update' && !proposal.target_id) {
-    return { applied: false, reason: 'invalid' }
+    return failInvalid(sql, proposalId, 'update proposal has no target_id')
   }
 
-  // The payload actually applied is the human-edited one when present, else the
-  // agent's original (this is the gold-label the claim records on the proposal).
-  const appliedPayload = (proposal.edited_payload ?? proposal.payload) as Record<string, unknown>
-
-  // (3) CLAIM — the exactly-once gate (a single statement).
+  // (3) CLAIM — the exactly-once gate (a single statement). It flips ONLY the
+  // lifecycle columns; `edited_payload` is the human's gold-label correction and
+  // MUST stay null unless a human actually edited (schema.ts) — the claim never
+  // stamps it. The applied payload is READ from the claimed row below.
   const claimedRows = await sqlQuery<ProposalRow>(
     sql,
     `update proposals set status = 'applied', decided_by = $1, decided_at = now(),
-       edited_payload = $2::jsonb, updated_at = now()
-     where id = $3 and status = 'pending' returning *`,
-    [approverUserId, JSON.stringify(appliedPayload), proposalId],
+       updated_at = now()
+     where id = $2 and status = 'pending' returning *`,
+    [approverUserId, proposalId],
   )
   const claimed = claimedRows[0]
   if (!claimed) return { applied: false, reason: 'not_pending' }
+
+  // The payload actually applied is the human-edited one when present, else the
+  // agent's original — read from the CLAIMED row (never re-stamped by the claim).
+  const appliedPayload = (claimed.edited_payload ?? claimed.payload) as Record<string, unknown>
 
   // (2) actor — the winner writes as the agent acting on behalf of the approver.
   const actor: ActorContext = {

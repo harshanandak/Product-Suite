@@ -49,8 +49,13 @@ async function resolveActor(source: ActorSource): Promise<ActorContext> {
   return typeof source === 'function' ? source() : source
 }
 
-/** Editable fields accepted on create (the update patch + an explicit title). */
-export type CreateWorkItemInput = { title?: string } & Partial<WorkItemPatch>
+/**
+ * Editable fields accepted on create (the update patch + an explicit title).
+ * `source` is provenance (excluded from the update patch), but a create MAY set it
+ * so an agent-applied create can carry `source: 'agent'` from its payload; it
+ * defaults to `'manual'` for a human create.
+ */
+export type CreateWorkItemInput = { title?: string; source?: WorkItem['source'] } & Partial<WorkItemPatch>
 
 /**
  * Create a work item in one org, through the single validated write path. Anchors
@@ -128,7 +133,7 @@ export async function createWorkItem(
     type: input.type ?? 'feature',
     priority: input.priority ?? 'medium',
     tags: input.tags ?? [],
-    source: 'manual',
+    source: input.source ?? 'manual',
     project_id: input.project_id ?? null,
     team_id: input.team_id,
     status_id: input.status_id,
@@ -311,8 +316,8 @@ export async function updateWorkItem(
   // columns inline — on the OUTER update's SET, never inside the ancestors CTE. The
   // WHERE NOT EXISTS reachability guard closes the check-then-write gap where a
   // concurrent request commits a reaching path; a no-op when no parent is set.
-  const actor = actorAssignments(await resolveActor(ctx.actor))
-  const resolved: ActorContext = { actorType: 'human', actorId: actor.actorId }
+  const resolvedActor = await resolveActor(ctx.actor)
+  const actor = actorAssignments(resolvedActor)
 
   const rows = (await sql`
     update work_items set
@@ -365,7 +370,9 @@ export async function updateWorkItem(
   // The activity event is a separate (non-atomic) write — it runs only when the
   // update matched, so it can't share the conditional update's batch. Ordered
   // update-first/event-second: the only failure mode is a missing event, never a
-  // phantom one. The actor is re-narrowed to the resolved ActorContext.
+  // phantom one. It is stamped with the SAME real actor as the UPDATE above — an
+  // agent-applied update records an `agent` event (run + on_behalf_of), never a
+  // spoofed `human`.
   await recordWrite(
     sql,
     {
@@ -373,7 +380,7 @@ export async function updateWorkItem(
       operation: 'insert',
       values: { work_item_id: id, kind: 'updated', summary: summarizeUpdate(patch) },
     },
-    resolved,
+    resolvedActor,
   )
   return updated
 }

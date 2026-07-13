@@ -16,7 +16,15 @@ export interface ProposalRow {
   rationale: string | null
   confidence: number | null
   risk_level: string | null
-  status: 'pending' | 'accepted' | 'accepted_with_edits' | 'rejected' | 'superseded' | 'expired' | 'applied'
+  status:
+    | 'pending'
+    | 'accepted'
+    | 'accepted_with_edits'
+    | 'rejected'
+    | 'superseded'
+    | 'expired'
+    | 'applied'
+    | 'failed'
   decided_by: string | null
   decided_at: string | Date | null
   edited_payload: unknown

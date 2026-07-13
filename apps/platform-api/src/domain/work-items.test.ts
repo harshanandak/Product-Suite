@@ -154,4 +154,39 @@ describe('updateWorkItem', () => {
     expect(updated.phase).toBe('done')
     expect(resolveActor).toHaveBeenCalledTimes(1)
   })
+
+  it('an agent-applied update stamps the activity event with the REAL agent actor (run + on_behalf_of), never a spoofed human', async () => {
+    const agentActor = {
+      actorType: 'agent',
+      actorId: 'run_1',
+      onBehalfOf: 'u_approver',
+      runId: 'run_1',
+    } as const
+    const sql = vi.fn()
+    sql
+      .mockResolvedValueOnce([WI_ROW]) // scoped select
+      .mockResolvedValueOnce([{ ...WI_ROW, phase: 'done' }]) // guarded UPDATE returns the row
+    const query = vi.fn().mockResolvedValueOnce([{}]) // activity_events insert (recordWrite → sql.query)
+    ;(sql as unknown as { query: typeof query }).query = query
+
+    await updateWorkItem(
+      sql as unknown as Sql,
+      { tenantIds: ['t_1'], actor: agentActor },
+      'wi_1',
+      { phase: 'done' },
+    )
+
+    // The activity_events insert must carry the agent's provenance, NOT actor_type
+    // 'human' with the run id masquerading as a user (the H1 corruption).
+    expect(query).toHaveBeenCalledTimes(1)
+    const [text, params] = query.mock.calls[0] ?? []
+    expect(text).toContain('activity_events')
+    const p = params as unknown[]
+    expect(p).toContain('agent') // actor_type
+    expect(p).toContain('u_approver') // on_behalf_of = approver
+    // run id is stamped as BOTH actor_id and run_id
+    expect(p.filter((v) => v === 'run_1')).toHaveLength(2)
+    // and it is NOT stamped as a human
+    expect(p).not.toContain('human')
+  })
 })
