@@ -57,6 +57,13 @@
       "when": 1784131200000,
       "tag": "0007_proposals",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1784217600000,
+      "tag": "0008_agent_transcript",
+      "breakpoints": true
     }
   ]
 }

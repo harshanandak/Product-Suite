@@ -100,6 +100,10 @@ export const agentRuns = pgTable(
     kind: agentRunKindEnum('kind').notNull(),
     status: agentRunStatusEnum('status').notNull().default('running'),
     summary: text('summary'),
+    // The full messages + tool-calls array, written once at run end (design §13).
+    // Nullable: it is null while the run is 'running' and populated on completion,
+    // making a completed run a self-contained, replayable decision-corpus record.
+    transcript: jsonb('transcript'),
     ...timestamps,
   },
   (t) => ({ byTenant: index('agent_runs_tenant_idx').on(t.tenantId) }),

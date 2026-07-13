@@ -20,6 +20,7 @@ export async function callerTenantIds(sql: Sql, claims: AuthClaims): Promise<str
     where uai.provider = 'clerk'
       and uai.provider_user_id = ${claims.subject}
       and om.status = 'active'
+    order by om.tenant_id
   `) as { tenant_id: string }[]
   return rows.map((row) => row.tenant_id)
 }

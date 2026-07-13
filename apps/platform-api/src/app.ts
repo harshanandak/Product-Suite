@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 
 import { clerkAuth, type AuthedEnv } from './middleware/clerk-auth'
+import { agentChatRoutes } from './routes/agent-chat'
 import { checksRoutes } from './routes/checks'
 import { dependenciesRoutes } from './routes/dependencies'
 import { ownersRoutes } from './routes/owners'
@@ -36,5 +37,8 @@ app.route('/api/owners', ownersRoutes)
 
 // Agent decision inbox: proposals reviewed + applied through the single write path.
 app.route('/api/agent/proposals', proposalsRoutes)
+
+// Agent chat: prompt → read the workboard → propose changes into the queue above.
+app.route('/api/agent/chat', agentChatRoutes)
 
 export default app

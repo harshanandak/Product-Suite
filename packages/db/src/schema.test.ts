@@ -51,6 +51,12 @@ describe('workboard schema', () => {
     expect(Object.keys(schema.workItems)).toContain('appliedFromProposalId')
   })
 
+  it('agent_runs exposes the transcript column for decision-corpus capture', () => {
+    // The full messages+tool-calls array is written at run end (design §13), so a
+    // completed run is a self-contained, replayable record of what the agent did.
+    expect(Object.keys(schema.agentRuns)).toContain('transcript')
+  })
+
   it('mirrors the @product-suite/contracts enum values exactly', () => {
     expect(schema.phaseEnum.enumValues).toEqual(['plan', 'execute', 'review', 'done'])
     expect(schema.checkStatusEnum.enumValues).toEqual(['todo', 'in_progress', 'completed'])
