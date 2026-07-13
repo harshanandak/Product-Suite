@@ -6,16 +6,24 @@ import type { Sql } from '@product-suite/db'
 import { createProposal } from '../proposals/repository'
 import { retrieve, type ItemHit } from './retrieve'
 
+/** The prompt template version stamped on every proposal for the decision corpus. */
+export const PROMPT_VERSION = 'agent-v1'
+
 /**
  * The authority the tools act under. The agent has NO identity of its own — it
- * acts as the chatting human (`userId`) within a specific run (`runId`), scoped to
- * the orgs that human belongs to (`tenantIds`). Every read filters by `tenantIds`;
- * every proposal is stamped with `runId` + `on_behalf_of=userId`.
+ * acts as the chatting human (`userId`) within a specific run (`runId`), anchored
+ * to ONE org (`tenantId`). The whole run — reads, retrieval, AND proposals — is
+ * scoped to that single `tenantId`, so a proposal can never be stamped org-A while
+ * targeting an org-B row. Every proposal is stamped with `runId` +
+ * `on_behalf_of=userId` + provenance (`modelId`, `PROMPT_VERSION`).
  */
 export interface ToolContext {
-  tenantIds: string[]
+  /** The single org the whole run (reads + proposals) is anchored to. */
+  tenantId: string
   userId: string
   runId: string
+  /** The resolved model id string, stamped on proposals for the decision corpus. */
+  modelId: string | null
 }
 
 /** Outcome of a `propose_*` tool: a queued proposal id, or a refusal reason. */
@@ -44,22 +52,29 @@ export function buildTools(sql: Sql, ctx: ToolContext): ToolSet {
     rationale: string | undefined,
     targetId?: string,
   ): Promise<ProposeResult> {
-    const tenantId = ctx.tenantIds[0]
+    const tenantId = ctx.tenantId
     if (!tenantId) return { proposed: false, error: 'No tenant in scope' }
-    const row = await createProposal(sql, {
-      tenant_id: tenantId,
-      run_id: ctx.runId,
-      target_type: 'work_item',
-      target_id: targetId ?? null,
-      operation,
-      payload,
-      rationale: rationale ?? null,
-      actor_type: 'agent',
-      actor_id: ctx.runId,
-      on_behalf_of: ctx.userId,
-      context_ref: ctx.runId,
-    })
-    return { proposed: true, proposal_id: row.id }
+    try {
+      const row = await createProposal(sql, {
+        tenant_id: tenantId,
+        run_id: ctx.runId,
+        target_type: 'work_item',
+        target_id: targetId ?? null,
+        operation,
+        payload,
+        rationale: rationale ?? null,
+        model_id: ctx.modelId,
+        prompt_version: PROMPT_VERSION,
+        actor_type: 'agent',
+        actor_id: ctx.runId,
+        on_behalf_of: ctx.userId,
+        context_ref: ctx.runId,
+      })
+      return { proposed: true, proposal_id: row.id }
+    } catch {
+      // Never stream raw DB error text back to the model — a generic refusal only.
+      return { proposed: false, error: 'could not create proposal' }
+    }
   }
 
   return {
@@ -72,9 +87,9 @@ export function buildTools(sql: Sql, ctx: ToolContext): ToolSet {
         limit: z.number().int().min(1).max(50).optional(),
       }),
       execute: async ({ team_id, status_id, limit }): Promise<ItemHit[]> => {
-        if (ctx.tenantIds.length === 0) return []
-        const params: unknown[] = [ctx.tenantIds]
-        let where = 'tenant_id = any($1) and archived = false'
+        if (!ctx.tenantId) return []
+        const params: unknown[] = [ctx.tenantId]
+        let where = 'tenant_id = $1 and archived = false'
         if (team_id) {
           params.push(team_id)
           where += ` and team_id = $${params.length}`
@@ -101,14 +116,14 @@ export function buildTools(sql: Sql, ctx: ToolContext): ToolSet {
         'Fetch a single work item by id (scoped to the current workspace). Returns its core fields, or null if not found / not in scope.',
       inputSchema: z.object({ id: z.string() }),
       execute: async ({ id }) => {
-        if (ctx.tenantIds.length === 0) return null
+        if (!ctx.tenantId) return null
         const text = `
           select id, title, status_id, priority, team_id, description, phase, type
           from work_items
-          where id = $1 and tenant_id = any($2)
+          where id = $1 and tenant_id = $2
           limit 1
         `
-        const rows = await runQuery<Record<string, unknown>>(sql, text, [id, ctx.tenantIds])
+        const rows = await runQuery<Record<string, unknown>>(sql, text, [id, ctx.tenantId])
         return rows[0] ?? null
       },
     }),
@@ -121,7 +136,7 @@ export function buildTools(sql: Sql, ctx: ToolContext): ToolSet {
         limit: z.number().int().min(1).max(25).optional(),
       }),
       execute: async ({ query, limit }): Promise<ItemHit[]> =>
-        retrieve(sql, { tenantIds: ctx.tenantIds }, query, limit ?? 8),
+        retrieve(sql, { tenantIds: ctx.tenantId ? [ctx.tenantId] : [] }, query, limit ?? 8),
     }),
 
     propose_create: tool({

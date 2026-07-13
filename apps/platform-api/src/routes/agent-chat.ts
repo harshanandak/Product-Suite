@@ -26,9 +26,26 @@ agentChatRoutes.post('/', async (c) => {
 
   try {
     const tenantIds = await callerTenantIds(sql, claims)
-    const tenantId = tenantIds[0]
-    if (!tenantId) {
+    if (tenantIds.length === 0) {
       return c.json({ error: 'No active organization' }, 403)
+    }
+
+    const body = (await c.req.json().catch(() => ({}))) as { messages?: UIMessage[]; org_id?: string }
+
+    // Anchor the ENTIRE run to ONE org: reads, retrieval, and proposals all scope to
+    // this single tenant, so nothing crosses tenants. Use the requested `org_id` when
+    // the caller belongs to it; else the sole org; else refuse as ambiguous.
+    let tenantId: string
+    if (body.org_id && tenantIds.includes(body.org_id)) {
+      tenantId = body.org_id
+    } else if (body.org_id) {
+      // A requested org the caller is not a member of — treat as ambiguous, never
+      // silently fall through to another org.
+      return c.json({ error: 'Ambiguous organization; specify org_id' }, 400)
+    } else if (tenantIds.length === 1) {
+      tenantId = tenantIds[0]!
+    } else {
+      return c.json({ error: 'Ambiguous organization; specify org_id' }, 400)
     }
 
     // The human the agent acts on behalf of. Any caller who passed tenant scoping
@@ -39,14 +56,23 @@ agentChatRoutes.post('/', async (c) => {
       return c.json({ error: 'Failed to start agent run' }, 500)
     }
 
-    const body = (await c.req.json().catch(() => ({}))) as { messages?: UIMessage[] }
     const messages = body.messages
     if (!Array.isArray(messages) || messages.length === 0) {
       return c.json({ error: 'messages is required' }, 400)
     }
 
+    // Workers `executionCtx.waitUntil`, when reachable, keeps the run's persistence
+    // alive past the response. The getter throws off-Workers, so guard it.
+    let waitUntil: ((promise: Promise<unknown>) => void) | undefined
+    try {
+      const ec = c.executionCtx
+      if (ec && typeof ec.waitUntil === 'function') waitUntil = ec.waitUntil.bind(ec)
+    } catch {
+      waitUntil = undefined
+    }
+
     const model = agentModel(c.env ?? {})
-    return await runAgentChat(sql, { tenantIds, tenantId, userId, model }, messages)
+    return await runAgentChat(sql, { tenantId, userId, model, waitUntil }, messages)
   } catch (cause) {
     console.error('[agent-chat] run failed', cause)
     return c.json({ error: 'Failed to start agent run' }, 500)

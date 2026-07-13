@@ -18,14 +18,33 @@ export const AGENT_SYSTEM_PROMPT = [
 
 /** The authority + model the run executes under. Request-free by design. */
 export interface AgentRunContext {
-  /** Orgs the caller may read across (reads are scoped to these). */
-  tenantIds: string[]
-  /** The single org the run + its proposals are anchored to. */
+  /**
+   * The single org the whole run — reads, retrieval, AND proposals — is anchored
+   * to. One consistent org per run, so nothing crosses tenants.
+   */
   tenantId: string
   /** The human (users.id) the agent acts on behalf of. */
   userId: string
   /** The resolved language model (from `agentModel(env)`). */
   model: LanguageModel
+  /**
+   * Optional Workers `executionCtx.waitUntil`, threaded from the Hono context when
+   * reachable. Keeps the worker alive until the stream is fully consumed and the
+   * run is closed, even after the client aborts / the Response has returned.
+   */
+  waitUntil?: (promise: Promise<unknown>) => void
+}
+
+/** Resolve the model id string for provenance (LanguageModel may be a bare id). */
+function resolveModelId(model: LanguageModel): string | null {
+  if (typeof model === 'string') return model
+  const id = (model as { modelId?: unknown }).modelId
+  return typeof id === 'string' ? id : null
+}
+
+/** Coerce any thrown value to a short message string. */
+function errMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 function runQuery<Row>(sql: Sql, text: string, params: unknown[]): Promise<Row[]> {
@@ -45,7 +64,11 @@ async function mintRun(sql: Sql, tenantId: string, userId: string): Promise<stri
   return id
 }
 
-/** Close a run: persist the transcript + final status + a short summary. */
+/**
+ * Close a run: persist the transcript + final status + a short summary. The
+ * `status = 'running'` guard makes this a one-way latch — once `onError` flips the
+ * run to `failed`, a later `onFinish` cannot overwrite it back to `completed`.
+ */
 async function closeRun(
   sql: Sql,
   runId: string,
@@ -57,9 +80,28 @@ async function closeRun(
     sql,
     `update "agent_runs"
      set status = $1, summary = $2, transcript = $3::jsonb, updated_at = now()
-     where id = $4`,
+     where id = $4 and status = 'running'`,
     [status, summary.slice(0, 500), JSON.stringify(transcript ?? null), runId],
   )
+}
+
+/**
+ * Close a run without ever throwing. `onFinish`/`onError` run detached from the
+ * request, so a DB error here must be swallowed (logged) rather than surface as an
+ * unhandled rejection that could crash the isolate.
+ */
+async function safeCloseRun(
+  sql: Sql,
+  runId: string,
+  status: 'completed' | 'failed',
+  summary: string,
+  transcript: unknown,
+): Promise<void> {
+  try {
+    await closeRun(sql, runId, status, summary, transcript)
+  } catch (cause) {
+    console.error('[agent-runtime] closeRun failed', { runId, status, cause })
+  }
 }
 
 /**
@@ -75,26 +117,45 @@ export async function runAgentChat(
   messages: UIMessage[],
 ): Promise<Response> {
   const runId = await mintRun(sql, ctx.tenantId, ctx.userId)
-  const tools = buildTools(sql, { tenantIds: ctx.tenantIds, userId: ctx.userId, runId })
+  const modelId = resolveModelId(ctx.model)
+  const tools = buildTools(sql, { tenantId: ctx.tenantId, userId: ctx.userId, runId, modelId })
 
-  const result = streamText({
-    model: ctx.model,
-    system: AGENT_SYSTEM_PROMPT,
-    // v6 `convertToModelMessages` is async (it may resolve file/data parts).
-    messages: await convertToModelMessages(messages),
-    tools,
-    stopWhen: stepCountIs(8),
-    onFinish: async ({ text, response, steps }) => {
-      // The decision corpus: the response messages (assistant + tool calls/results)
-      // plus the step count, captured once the loop settles (design §13).
-      const transcript = { messages: response.messages, steps: steps.length }
-      await closeRun(sql, runId, 'completed', text, transcript)
-    },
-    onError: async ({ error }) => {
-      const message = error instanceof Error ? error.message : String(error)
-      await closeRun(sql, runId, 'failed', message, null)
-    },
-  })
+  let result: ReturnType<typeof streamText>
+  try {
+    // v6 `convertToModelMessages` is async and THROWS on malformed `parts`. It must
+    // run inside this guard so a bogus message flips the (already-minted) run to
+    // `failed` instead of stranding it `running` forever.
+    const modelMessages = await convertToModelMessages(messages)
+    result = streamText({
+      model: ctx.model,
+      system: AGENT_SYSTEM_PROMPT,
+      messages: modelMessages,
+      tools,
+      stopWhen: stepCountIs(8),
+      onFinish: async ({ text, response, steps }) => {
+        // The decision corpus: the response messages (assistant + tool calls/results)
+        // plus the step count, captured once the loop settles (design §13). Guarded
+        // by `status = 'running'`, so it never overwrites an `onError` failure.
+        const transcript = { messages: response.messages, steps: steps.length }
+        await safeCloseRun(sql, runId, 'completed', text, transcript)
+      },
+      onError: async ({ error }) => {
+        await safeCloseRun(sql, runId, 'failed', errMessage(error), null)
+      },
+    })
+  } catch (cause) {
+    // Any throw before the stream exists (e.g. malformed messages) must still close
+    // the run — no path may leave it `running`.
+    await safeCloseRun(sql, runId, 'failed', errMessage(cause), null)
+    throw cause
+  }
+
+  // Abort-safety (AI SDK v6): `consumeStream()` drives the stream to completion
+  // server-side so `onFinish`/`onError` always run — even if the client aborts and
+  // never reads the body. `waitUntil` (when on Workers) keeps the isolate alive
+  // until the run is closed. Errors are already handled via `onError`, so swallow.
+  const settled = Promise.resolve(result.consumeStream({ onError: () => {} })).catch(() => {})
+  if (ctx.waitUntil) ctx.waitUntil(settled)
 
   return result.toUIMessageStreamResponse()
 }

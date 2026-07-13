@@ -53,7 +53,10 @@ describe('POST /api/agent/chat', () => {
           steps: [],
         })
       })()
-      return { toUIMessageStreamResponse: () => new Response('stream', { status: 200 }) }
+      return {
+        consumeStream: vi.fn(async () => undefined),
+        toUIMessageStreamResponse: () => new Response('stream', { status: 200 }),
+      }
     })
 
     // Tagged-template calls resolve the caller: tenants, then user id.
@@ -113,5 +116,78 @@ describe('POST /api/agent/chat', () => {
     const res = await app.request('/api/agent/chat', { method: 'POST', ...auth, body: '{}' })
     expect(res.status).toBe(400)
     expect(streamText).not.toHaveBeenCalled()
+  })
+
+  it('returns 400 ambiguous when the caller has multiple orgs and no org_id (never starts a run)', async () => {
+    const sql = vi.fn()
+    sql.mockResolvedValueOnce([{ tenant_id: 't_1' }, { tenant_id: 't_2' }]) // callerTenantIds
+    createSql.mockReturnValue(sql)
+    const res = await app.request('/api/agent/chat', { method: 'POST', ...auth, body })
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'Ambiguous organization; specify org_id' })
+    expect(streamText).not.toHaveBeenCalled()
+  })
+
+  it('returns 400 ambiguous when org_id is not one of the caller’s orgs', async () => {
+    const sql = vi.fn()
+    sql.mockResolvedValueOnce([{ tenant_id: 't_1' }, { tenant_id: 't_2' }]) // callerTenantIds
+    createSql.mockReturnValue(sql)
+    const res = await app.request('/api/agent/chat', {
+      method: 'POST',
+      ...auth,
+      body: JSON.stringify({ org_id: 't_9', messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }] }),
+    })
+    expect(res.status).toBe(400)
+    expect(streamText).not.toHaveBeenCalled()
+  })
+
+  it('anchors the whole run (and its proposals) to the requested org_id when the caller has multiple orgs', async () => {
+    streamText.mockImplementation((opts: MockStreamOpts) => {
+      void (async () => {
+        await opts.tools.propose_create.execute(
+          { title: 'Ship auth', team_id: 'team_1', status_id: 's_1', rationale: 'user asked' },
+          { toolCallId: 'call_1', messages: [] },
+        )
+        await opts.onFinish({
+          text: 'done',
+          response: { messages: [{ role: 'assistant', content: 'done' }] },
+          steps: [],
+        })
+      })()
+      return {
+        consumeStream: vi.fn(async () => undefined),
+        toUIMessageStreamResponse: () => new Response('stream', { status: 200 }),
+      }
+    })
+
+    const sql = vi.fn()
+    sql
+      .mockResolvedValueOnce([{ tenant_id: 't_1' }, { tenant_id: 't_2' }]) // callerTenantIds
+      .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId
+    const sqlQuery = vi.fn(async (text: string, _params?: unknown[]) => {
+      if (/insert into "agent_runs"/i.test(text)) return [{ id: 'run_1' }]
+      if (/insert into "proposals"/i.test(text)) return [{ id: 'prop_1' }]
+      return []
+    })
+    ;(sql as unknown as { query: typeof sqlQuery }).query = sqlQuery
+    createSql.mockReturnValue(sql)
+
+    const res = await app.request('/api/agent/chat', {
+      method: 'POST',
+      ...auth,
+      body: JSON.stringify({ org_id: 't_2', messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }] }),
+    })
+    expect(res.status).toBe(200)
+
+    await vi.waitFor(() => {
+      expect(sqlQuery.mock.calls.some(([t]) => /insert into "proposals"/i.test(String(t)))).toBe(true)
+    })
+
+    // Run minted against the CHOSEN anchor (t_2), and the proposal carries the same
+    // tenant — reads, run, and proposal are one consistent org.
+    const mint = sqlQuery.mock.calls.find(([t]) => /insert into "agent_runs"/i.test(String(t)))
+    expect(mint?.[1]?.[0]).toBe('t_2')
+    const propose = sqlQuery.mock.calls.find(([t]) => /insert into "proposals"/i.test(String(t)))
+    expect((propose?.[1] ?? []) as unknown[]).toContain('t_2')
   })
 })

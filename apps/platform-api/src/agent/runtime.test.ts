@@ -5,12 +5,17 @@ import type { LanguageModel, UIMessage } from 'ai'
 
 // Mock the AI SDK so the loop is fully deterministic without a live model. The
 // tool `execute` still runs for real (driving a real proposals insert), and we
-// drive `onFinish` ourselves — proving prompt → tool → proposal + run lifecycle
-// entirely offline. `tool` is passed through so buildTools still wires executes.
-const { streamText } = vi.hoisted(() => ({ streamText: vi.fn() }))
+// drive `onFinish`/`onError` ourselves — proving prompt → tool → proposal + run
+// lifecycle entirely offline. `tool` is passed through so buildTools still wires
+// executes. `convertToModelMessages` is a real spy (default identity) so a test
+// can make it THROW and prove a malformed message ends the run `failed`.
+const { streamText, convertToModelMessages } = vi.hoisted(() => ({
+  streamText: vi.fn(),
+  convertToModelMessages: vi.fn((m: unknown) => m),
+}))
 vi.mock('ai', () => ({
   streamText,
-  convertToModelMessages: (m: unknown) => m,
+  convertToModelMessages,
   stepCountIs: (n: number) => ({ type: 'step-count', n }),
   tool: (def: unknown) => def,
 }))
@@ -20,6 +25,15 @@ import { runAgentChat } from './runtime'
 type MockStreamOpts = {
   tools: { propose_create: { execute: (input: unknown, options: unknown) => Promise<unknown> } }
   onFinish: (event: { text: string; response: { messages: unknown[] }; steps: unknown[] }) => Promise<void>
+  onError: (event: { error: unknown }) => Promise<void>
+}
+
+/** A streamText return with the v6 abort-safe `consumeStream` the runtime calls. */
+function fakeStreamResult() {
+  return {
+    consumeStream: vi.fn(async () => undefined),
+    toUIMessageStreamResponse: () => new Response('ok', { status: 200 }),
+  }
 }
 
 function fakeSql() {
@@ -38,6 +52,8 @@ const fakeModel = { modelId: 'x/y' } as unknown as LanguageModel
 describe('runAgentChat (request-free runtime + agent_runs lifecycle)', () => {
   beforeEach(() => {
     streamText.mockReset()
+    convertToModelMessages.mockReset()
+    convertToModelMessages.mockImplementation((m: unknown) => m)
   })
 
   it('mints a run, executes propose_create → a real proposal insert, and completes with a transcript', async () => {
@@ -54,7 +70,7 @@ describe('runAgentChat (request-free runtime + agent_runs lifecycle)', () => {
           steps: [{ toolCalls: [{ toolName: 'propose_create' }] }],
         })
       })()
-      return { toUIMessageStreamResponse: () => new Response('ok', { status: 200 }) }
+      return fakeStreamResult()
     })
 
     const { sql, query } = fakeSql()
@@ -64,7 +80,7 @@ describe('runAgentChat (request-free runtime + agent_runs lifecycle)', () => {
 
     const res = await runAgentChat(
       sql,
-      { tenantIds: ['t_1'], tenantId: 't_1', userId: 'u_1', model: fakeModel },
+      { tenantId: 't_1', userId: 'u_1', model: fakeModel },
       messages,
     )
     // Streams back to the caller immediately (request-free: no Request threaded in).
@@ -88,10 +104,88 @@ describe('runAgentChat (request-free runtime + agent_runs lifecycle)', () => {
     expect(proposeParams).toContain('u_1') // on_behalf_of
 
     // (c) Run closed 'completed' with the transcript persisted for the decision corpus.
+    // The UPDATE is latched to `status = 'running'` so it can never clobber a failure.
     const close = query.mock.calls.find(([t]) => /update "agent_runs"/i.test(String(t)))
     const closeParams = (close?.[1] ?? []) as unknown[]
     expect(closeParams[0]).toBe('completed')
     expect(closeParams[3]).toBe('run_1')
     expect(String(closeParams[2])).toContain('Proposed creating the item.')
+    expect(String(close?.[0])).toMatch(/status = 'running'/i)
+  })
+
+  it('drives the stream via consumeStream so onFinish runs even if the client never reads the body', async () => {
+    let result: ReturnType<typeof fakeStreamResult> | undefined
+    streamText.mockImplementation(() => {
+      result = fakeStreamResult()
+      return result
+    })
+    const { sql } = fakeSql()
+    await runAgentChat(
+      sql,
+      { tenantId: 't_1', userId: 'u_1', model: fakeModel },
+      [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }] as unknown as UIMessage[],
+    )
+    expect(result?.consumeStream).toHaveBeenCalledTimes(1)
+  })
+
+  it('routes the consumeStream promise through Workers waitUntil when provided', async () => {
+    streamText.mockImplementation(() => fakeStreamResult())
+    const { sql } = fakeSql()
+    const waitUntil = vi.fn()
+    await runAgentChat(
+      sql,
+      { tenantId: 't_1', userId: 'u_1', model: fakeModel, waitUntil },
+      [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }] as unknown as UIMessage[],
+    )
+    expect(waitUntil).toHaveBeenCalledTimes(1)
+    expect(waitUntil.mock.calls[0]?.[0]).toBeInstanceOf(Promise)
+  })
+
+  it('flips the run to failed when the model stream errors (onError path)', async () => {
+    streamText.mockImplementation((opts: MockStreamOpts) => {
+      void (async () => {
+        await opts.onError({ error: new Error('model exploded') })
+      })()
+      return fakeStreamResult()
+    })
+    const { sql, query } = fakeSql()
+    await runAgentChat(
+      sql,
+      { tenantId: 't_1', userId: 'u_1', model: fakeModel },
+      [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }] as unknown as UIMessage[],
+    )
+    await vi.waitFor(() => {
+      expect(query.mock.calls.some(([t]) => /update "agent_runs"/i.test(String(t)))).toBe(true)
+    })
+    const close = query.mock.calls.find(([t]) => /update "agent_runs"/i.test(String(t)))
+    const closeParams = (close?.[1] ?? []) as unknown[]
+    expect(closeParams[0]).toBe('failed')
+    expect(String(closeParams[1])).toContain('model exploded')
+    // Latched to 'running' so onError's failure is a one-way flip.
+    expect(String(close?.[0])).toMatch(/status = 'running'/i)
+  })
+
+  it('flips the run to failed (never leaves it running) when messages are malformed', async () => {
+    // The real v6 convertToModelMessages THROWS on bogus parts; simulate that.
+    convertToModelMessages.mockImplementation(() => {
+      throw new Error('invalid message parts')
+    })
+    const { sql, query } = fakeSql()
+
+    await expect(
+      runAgentChat(
+        sql,
+        { tenantId: 't_1', userId: 'u_1', model: fakeModel },
+        [{ id: 'm1', role: 'user', parts: [{ type: 'bogus' }] }] as unknown as UIMessage[],
+      ),
+    ).rejects.toThrow('invalid message parts')
+
+    // streamText was never reached — but the minted run MUST be closed 'failed'.
+    expect(streamText).not.toHaveBeenCalled()
+    const close = query.mock.calls.find(([t]) => /update "agent_runs"/i.test(String(t)))
+    expect(close).toBeDefined()
+    const closeParams = (close?.[1] ?? []) as unknown[]
+    expect(closeParams[0]).toBe('failed')
+    expect(closeParams[3]).toBe('run_1')
   })
 })
