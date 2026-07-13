@@ -78,6 +78,15 @@ const WRITE_TABLES: Record<
     insert: ['tenant_id', 'name'],
     update: { set: ['name'], match: ['id', 'tenant_id'] },
   },
+  projects: {
+    insert: ['tenant_id', 'name', 'kind', 'status', 'lead_id', 'target_date'],
+  },
+  checks: {
+    insert: ['work_item_id', 'title', 'status', 'due_date'],
+  },
+  statuses: {
+    insert: ['team_id', 'name', 'category', 'position'],
+  },
   work_items: {
     insert: [
       'id',

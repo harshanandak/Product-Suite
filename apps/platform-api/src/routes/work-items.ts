@@ -5,7 +5,7 @@ import type { ActivityEvent, WorkItem, WorkItemPatch } from '@product-suite/cont
 import { callerTenantIds, callerUserId } from '../auth/tenant-scope'
 import { sqlFrom } from '../db'
 import type { AuthedEnv } from '../middleware/clerk-auth'
-import { recordWriteTx } from '../provenance/record-write'
+import { actorAssignments, recordWrite, recordWriteTx } from '../provenance/record-write'
 
 /** Row shape returned by the tenant-scoped work_items query (snake_case DB columns). */
 interface WorkItemRow {
@@ -407,6 +407,16 @@ workItemsRoutes.patch('/:id', async (c) => {
     // a 2-cycle; closing that needs SERIALIZABLE (sql.transaction). Acceptable while
     // parent writes are low-volume (revisit if that changes). When no parent is
     // being set (${nextParentId} is null) the guard is a no-op.
+    // Tier-2 escape hatch: this update carries the recursive-CTE cycle guard and an
+    // array-scoped tenant match, so it keeps its own SQL and stamps all four actor_*
+    // columns inline — on the OUTER update's SET, never inside the ancestors CTE.
+    const actorId = await callerUserId(sql, claims)
+    if (!actorId) {
+      console.error('[work-items] update: tenant resolved but no user identity for subject')
+      return c.json({ error: 'Failed to update work item' }, 500)
+    }
+    const actor = actorAssignments({ actorType: 'human', actorId })
+
     const rows = (await sql`
       update work_items set
         title = ${next.title},
@@ -424,6 +434,10 @@ workItemsRoutes.patch('/:id', async (c) => {
         assignee_id = ${next.assignee_id ?? null},
         due_date = ${next.due_date ?? null},
         archived = ${next.archived ?? false},
+        actor_type = ${actor.actorType},
+        actor_id = ${actor.actorId},
+        on_behalf_of = ${actor.onBehalfOf},
+        run_id = ${actor.runId},
         updated_at = now()
       where id = ${id} and tenant_id = any(${tenantIds})
         and (
@@ -453,10 +467,19 @@ workItemsRoutes.patch('/:id', async (c) => {
       return c.json({ error: 'Not found' }, 404)
     }
 
-    await sql`
-      insert into activity_events (work_item_id, kind, summary)
-      values (${id}, 'updated', ${summarizeUpdate(patch)})
-    `
+    // The activity event is a separate (non-atomic) write here — it runs only when
+    // the update above matched, so it can't share the conditional update's batch
+    // (Neon HTTP has no interactive txn). Ordered update-first/event-second: the
+    // only failure mode is a missing event, never a phantom one. Stamped via recordWrite.
+    await recordWrite(
+      sql,
+      {
+        table: 'activity_events',
+        operation: 'insert',
+        values: { work_item_id: id, kind: 'updated', summary: summarizeUpdate(patch) },
+      },
+      { actorType: 'human', actorId },
+    )
     return c.json(toWorkItem(updated))
   } catch (cause) {
     console.error('[work-items] update failed', cause)

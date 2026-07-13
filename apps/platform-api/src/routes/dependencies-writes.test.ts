@@ -43,6 +43,7 @@ describe('dependency writes', () => {
     sql
       .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
       .mockResolvedValueOnce(OWNED_ITEMS) // both items owned, same org
+      .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId
       .mockResolvedValueOnce([DEP_ROW]) // atomic insert (cycle check folded in) -> row
     createSql.mockReturnValue(sql)
     const res = await app.request('/api/dependencies', { method: 'POST', ...auth, body: addBody() })
@@ -87,6 +88,7 @@ describe('dependency writes', () => {
     sql
       .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
       .mockResolvedValueOnce(OWNED_ITEMS) // both owned
+      .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId
       .mockResolvedValueOnce([]) // atomic insert blocked by WHERE NOT EXISTS -> no row = cycle
     createSql.mockReturnValue(sql)
     const res = await app.request('/api/dependencies', { method: 'POST', ...auth, body: addBody() })
@@ -99,6 +101,7 @@ describe('dependency writes', () => {
     sql
       .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
       .mockResolvedValueOnce(OWNED_ITEMS) // both owned
+      .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId
       .mockRejectedValueOnce(Object.assign(new Error('dup'), { code: '23505' })) // atomic insert -> unique violation
     createSql.mockReturnValue(sql)
     const res = await app.request('/api/dependencies', { method: 'POST', ...auth, body: addBody() })

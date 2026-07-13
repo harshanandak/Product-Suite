@@ -2,9 +2,10 @@ import { Hono } from 'hono'
 
 import { type Check, CHECK_STATUS_ORDER } from '@product-suite/contracts'
 
-import { callerTenantIds } from '../auth/tenant-scope'
+import { callerTenantIds, callerUserId } from '../auth/tenant-scope'
 import { sqlFrom } from '../db'
 import type { AuthedEnv } from '../middleware/clerk-auth'
+import { actorAssignments, recordWrite } from '../provenance/record-write'
 
 /** Row shape from the tenant-scoped checks query (snake_case DB columns). */
 interface CheckRow {
@@ -96,16 +97,25 @@ checksRoutes.post('/', async (c) => {
       return c.json({ error: 'Not found' }, 404)
     }
 
-    const rows = (await sql`
-      insert into checks (work_item_id, title, status, due_date)
-      values (${body.work_item_id}, ${body.title ?? 'Untitled check'},
-              ${body.status ?? 'todo'}, ${body.due_date ?? null})
-      returning id, work_item_id, title, status, due_date, created_at, updated_at
-    `) as CheckRow[]
-    const created = rows[0]
-    if (!created) {
+    const actorId = await callerUserId(sql, claims)
+    if (!actorId) {
+      console.error('[checks] create: tenant resolved but no user identity for subject')
       return c.json({ error: 'Failed to create check' }, 500)
     }
+    const created = await recordWrite<CheckRow>(
+      sql,
+      {
+        table: 'checks',
+        operation: 'insert',
+        values: {
+          work_item_id: body.work_item_id,
+          title: body.title ?? 'Untitled check',
+          status: body.status ?? 'todo',
+          due_date: body.due_date ?? null,
+        },
+      },
+      { actorType: 'human', actorId },
+    )
     return c.json(toCheck(created), 201)
   } catch (cause) {
     console.error('[checks] create failed', cause)
@@ -149,11 +159,23 @@ checksRoutes.patch('/:id', async (c) => {
     }
 
     const next = { ...current, ...patch }
+    // Tier-2 escape hatch: the tenant scope is a subquery (checks has no tenant_id),
+    // so this update keeps its own SQL and stamps all four actor_* columns inline.
+    const actorId = await callerUserId(sql, claims)
+    if (!actorId) {
+      console.error('[checks] update: tenant resolved but no user identity for subject')
+      return c.json({ error: 'Failed to update check' }, 500)
+    }
+    const actor = actorAssignments({ actorType: 'human', actorId })
     const rows = (await sql`
       update checks set
         title = ${next.title},
         status = ${next.status},
         due_date = ${next.due_date ?? null},
+        actor_type = ${actor.actorType},
+        actor_id = ${actor.actorId},
+        on_behalf_of = ${actor.onBehalfOf},
+        run_id = ${actor.runId},
         updated_at = now()
       where id = ${id}
         and work_item_id in (select id from work_items where tenant_id = any(${tenantIds}))
@@ -193,8 +215,21 @@ checksRoutes.post('/:id/toggle', async (c) => {
     const nextStatus =
       CHECK_STATUS_ORDER[(position + 1) % CHECK_STATUS_ORDER.length] ?? 'todo'
 
+    // Tier-2 escape hatch (same subquery scope) — stamp all four actor_* inline.
+    const actorId = await callerUserId(sql, claims)
+    if (!actorId) {
+      console.error('[checks] toggle: tenant resolved but no user identity for subject')
+      return c.json({ error: 'Failed to update check' }, 500)
+    }
+    const actor = actorAssignments({ actorType: 'human', actorId })
     const rows = (await sql`
-      update checks set status = ${nextStatus}, updated_at = now()
+      update checks set
+        status = ${nextStatus},
+        actor_type = ${actor.actorType},
+        actor_id = ${actor.actorId},
+        on_behalf_of = ${actor.onBehalfOf},
+        run_id = ${actor.runId},
+        updated_at = now()
       where id = ${id}
         and work_item_id in (select id from work_items where tenant_id = any(${tenantIds}))
       returning id, work_item_id, title, status, due_date, created_at, updated_at

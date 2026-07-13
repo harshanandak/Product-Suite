@@ -184,8 +184,10 @@ describe('work-item writes', () => {
     sql
       .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
       .mockResolvedValueOnce([WI_ROW]) // scoped select (owned)
+      .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId
       .mockResolvedValueOnce([{ ...WI_ROW, phase: 'done' }]) // update returning
-      .mockResolvedValueOnce([]) // activity insert
+    const sqlQuery = vi.fn().mockResolvedValueOnce([{}]) // activity insert (recordWrite via sql.query)
+    ;(sql as unknown as { query: typeof sqlQuery }).query = sqlQuery
     createSql.mockReturnValue(sql)
     const res = await app.request('/api/work-items/wi_1', {
       method: 'PATCH',
@@ -238,8 +240,10 @@ describe('work-item writes', () => {
       .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
       .mockResolvedValueOnce([WI_ROW]) // scoped select (owned)
       .mockResolvedValueOnce([{ n: 1 }]) // status check (belongs to team)
+      .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId
       .mockResolvedValueOnce([{ ...WI_ROW, status_id: 'status_2' }]) // update returning
-      .mockResolvedValueOnce([]) // activity insert
+    const sqlQuery = vi.fn().mockResolvedValueOnce([{}]) // activity insert (recordWrite via sql.query)
+    ;(sql as unknown as { query: typeof sqlQuery }).query = sqlQuery
     createSql.mockReturnValue(sql)
     const res = await app.request('/api/work-items/wi_1', {
       method: 'PATCH',
@@ -346,8 +350,10 @@ describe('work-item writes', () => {
       .mockResolvedValueOnce([WI_ROW]) // scoped select (owned, top-level)
       .mockResolvedValueOnce([]) // child-existence check: item has no sub-items
       .mockResolvedValueOnce([{ team_id: 'team_1', parent_id: null }]) // parent: top-level, same team
+      .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId
       .mockResolvedValueOnce([{ ...WI_ROW, parent_id: 'wi_parent', depth: 1 }]) // update returning
-      .mockResolvedValueOnce([]) // activity insert
+    const sqlQuery = vi.fn().mockResolvedValueOnce([{}]) // activity insert (recordWrite via sql.query)
+    ;(sql as unknown as { query: typeof sqlQuery }).query = sqlQuery
     createSql.mockReturnValue(sql)
 
     const res = await app.request('/api/work-items/wi_1', {
@@ -404,6 +410,7 @@ describe('work-item writes', () => {
       .mockResolvedValueOnce([WI_ROW]) // scoped select (owned)
       .mockResolvedValueOnce([]) // child-existence check: no sub-items
       .mockResolvedValueOnce([{ team_id: 'team_1', parent_id: null }]) // parent passes pre-checks
+      .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId
       .mockResolvedValueOnce([]) // update matched no row -> reachability guard blocked it
     createSql.mockReturnValue(sql)
 
@@ -479,8 +486,10 @@ describe('work-item writes', () => {
     sql
       .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
       .mockResolvedValueOnce([CHILD_ROW]) // scoped select (owned, a Task)
+      .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId
       .mockResolvedValueOnce([{ ...CHILD_ROW, parent_id: null, depth: 0 }]) // update returning
-      .mockResolvedValueOnce([]) // activity insert
+    const sqlQuery = vi.fn().mockResolvedValueOnce([{}]) // activity insert (recordWrite via sql.query)
+    ;(sql as unknown as { query: typeof sqlQuery }).query = sqlQuery
     createSql.mockReturnValue(sql)
 
     const res = await app.request('/api/work-items/wi_1', {
@@ -492,7 +501,8 @@ describe('work-item writes', () => {
     const updated = (await res.json()) as { parent_id: string | null; depth: number }
     expect(updated.parent_id).toBeNull()
     expect(updated.depth).toBe(0)
-    // No parent lookup ran for a clear — tenant, select, update, activity only.
+    // No parent lookup ran for a clear — tenant, select, callerUserId, update
+    // (the activity insert is a separate sql.query call, not counted here).
     expect(sql).toHaveBeenCalledTimes(4)
   })
 

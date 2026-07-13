@@ -36,7 +36,9 @@ describe('check writes', () => {
     sql
       .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
       .mockResolvedValueOnce([{ n: 1 }]) // parent ownership check
-      .mockResolvedValueOnce([CHECK_ROW]) // insert returning
+      .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId
+    const sqlQuery = vi.fn().mockResolvedValueOnce([CHECK_ROW]) // insert returning (recordWrite)
+    ;(sql as unknown as { query: typeof sqlQuery }).query = sqlQuery
     createSql.mockReturnValue(sql)
     const res = await app.request('/api/checks', {
       method: 'POST',
@@ -73,6 +75,7 @@ describe('check writes', () => {
     sql
       .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
       .mockResolvedValueOnce([CHECK_ROW]) // ownedCheck (status todo)
+      .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId
       .mockResolvedValueOnce([{ ...CHECK_ROW, status: 'in_progress' }]) // update returning
     createSql.mockReturnValue(sql)
     const res = await app.request('/api/checks/check_1/toggle', { method: 'POST', headers: auth.headers })
