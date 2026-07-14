@@ -138,6 +138,27 @@ describe("InboxScreen", () => {
     );
   });
 
+  it("retargets the pane when a new ?proposal deep-link arrives while already open", async () => {
+    // The inbox is already open on the default (first) row; then the chat panel's
+    // "Review in Inbox →" changes the search param to a DIFFERENT proposal.
+    const repository = repoWith([proposal("p1", "Alpha"), proposal("p2", "Beta")]);
+    const { rerender } = render(<InboxScreen repository={repository} />);
+    await waitFor(() =>
+      expect(screen.getByText("Create work item “Alpha”")).toBeInTheDocument(),
+    );
+
+    searchMock = { proposal: "p2" };
+    rerender(<InboxScreen repository={repository} />);
+
+    // The pane jumps to Beta even though Alpha was already selected.
+    await waitFor(() =>
+      expect(screen.getByText("Create work item “Beta”")).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByText("Create work item “Alpha”"),
+    ).not.toBeInTheDocument();
+  });
+
   it("ignores a row swap while an accept is in flight (keeps the acted-on pane)", async () => {
     let resolveAccept: (result: AcceptResult) => void = () => {};
     const repository = repoWith([proposal("p1", "Alpha"), proposal("p2", "Beta")]);

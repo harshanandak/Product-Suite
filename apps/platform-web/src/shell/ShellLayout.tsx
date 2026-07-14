@@ -199,8 +199,12 @@ function ShellChrome() {
       />
       {/* Kept mounted regardless of `agentOpen` so the ephemeral thread survives
           close/reopen; the linked object is captured from the current screen at
-          open time (navigation never rewrites the thread's context). */}
+          open time (navigation never rewrites the thread's context). Keyed by
+          workspace so switching org/workspace starts a fresh thread bound to the
+          new tenant (a `useChat` instance ignores a rebuilt transport otherwise,
+          leaking the old workspace into requests). */}
       <ShellAgentPanel
+        key={slug}
         open={agentOpen}
         onClose={() => setAgentOpen(false)}
         workspace={slug}
@@ -219,21 +223,41 @@ const FIXTURES_GET_TOKEN = async (): Promise<string | null> => null;
  * proposals `ProposalRepositoryProvider` split: fixtures ⇒ a null resolver;
  * otherwise the real Clerk-backed resolver in {@link ClerkAgentPanel}.
  */
-function ShellAgentPanel(props: Readonly<Omit<AgentChatPanelProps, "getToken">>) {
+function ShellAgentPanel(
+  props: Readonly<Omit<AgentChatPanelProps, "getToken" | "getOrgId">>,
+) {
   if (USE_FIXTURES) {
     return <AgentChatPanel {...props} getToken={FIXTURES_GET_TOKEN} />;
   }
   return <ClerkAgentPanel {...props} />;
 }
 
-/** The real Clerk-backed panel: resolves the session token per request via a ref. */
-function ClerkAgentPanel(props: Readonly<Omit<AgentChatPanelProps, "getToken">>) {
-  const { getToken } = useAuth();
+/**
+ * The real Clerk-backed panel: resolves the session token AND the active org id
+ * per request via refs. The org id is sent as `org_id` so a user in more than one
+ * org anchors the run to their current org (else the API 400s as ambiguous).
+ */
+function ClerkAgentPanel(
+  props: Readonly<Omit<AgentChatPanelProps, "getToken" | "getOrgId">>,
+) {
+  const { getToken, orgId } = useAuth();
   const getTokenRef = React.useRef(getToken);
   getTokenRef.current = getToken;
+  const orgIdRef = React.useRef(orgId);
+  orgIdRef.current = orgId;
   const stableGetToken = React.useMemo(
     () => (): Promise<string | null> => getTokenRef.current(),
     [],
   );
-  return <AgentChatPanel {...props} getToken={stableGetToken} />;
+  const stableGetOrgId = React.useMemo(
+    () => (): string | null => orgIdRef.current ?? null,
+    [],
+  );
+  return (
+    <AgentChatPanel
+      {...props}
+      getToken={stableGetToken}
+      getOrgId={stableGetOrgId}
+    />
+  );
 }

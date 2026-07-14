@@ -50,14 +50,24 @@ export function InboxScreen({ repository }: Readonly<InboxScreenProps> = {}) {
   // view item" / stale) visible until the user picks another row instead of
   // yanking the pane to a different proposal.
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // The last `?proposal=<id>` we honored. A NEW deep-link (the chat panel's
+  // "Review in Inbox →") must retarget the pane even when the inbox is already
+  // open with a different proposal selected — so we react to the id CHANGING,
+  // not just to an empty selection.
+  const appliedRequestRef = useRef<string | undefined>(undefined);
   useEffect(() => {
-    setSelectedId((current) => {
-      if (current !== null) return current;
-      if (requestedId && proposals.some((p) => p.id === requestedId)) {
-        return requestedId;
-      }
-      return proposals[0]?.id ?? null;
-    });
+    if (
+      requestedId &&
+      requestedId !== appliedRequestRef.current &&
+      proposals.some((p) => p.id === requestedId)
+    ) {
+      appliedRequestRef.current = requestedId;
+      setSelectedId(requestedId);
+      return;
+    }
+    // Otherwise default a still-empty selection to the first row once loaded;
+    // never auto-jump an existing selection (keeps a terminal banner visible).
+    setSelectedId((current) => current ?? proposals[0]?.id ?? null);
   }, [proposals, requestedId]);
 
   // Cache every proposal we've shown so the detail pane can keep rendering a

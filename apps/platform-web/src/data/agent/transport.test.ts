@@ -80,6 +80,27 @@ describe("agentChatTransportConfig", () => {
     current = { workspace: "befach-hq" };
     expect(config.body()).toEqual({ context: { workspace: "befach-hq" } });
   });
+
+  it("body() anchors the run with org_id when getOrgId resolves one", () => {
+    const config = agentChatTransportConfig({
+      apiBase: BASE,
+      getToken: async () => "tok",
+      getContext: () => context,
+      getOrgId: () => "org_123",
+    });
+    expect(config.body()).toEqual({ org_id: "org_123", context });
+  });
+
+  it("body() omits org_id when getOrgId is absent/null (single-org fallback)", () => {
+    const config = agentChatTransportConfig({
+      apiBase: BASE,
+      getToken: async () => "tok",
+      getContext: () => context,
+      getOrgId: () => null,
+    });
+    expect(config.body()).toEqual({ context });
+    expect("org_id" in config.body()).toBe(false);
+  });
 });
 
 describe("createAgentChatTransport", () => {

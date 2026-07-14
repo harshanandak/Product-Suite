@@ -124,7 +124,10 @@ describe('POST /api/agent/chat', () => {
       }),
     })
     expect(res.status).toBe(200)
-    expect(captured?.system).toContain('work_item "Ship auth" (id wi_1) in workspace befach-hq')
+    expect(captured?.system).toContain('type="work_item"')
+    expect(captured?.system).toContain('title="Ship auth"')
+    expect(captured?.system).toContain('id="wi_1"')
+    expect(captured?.system).toContain('workspace="befach-hq"')
   })
 
   it('returns 401 without a bearer token (no DB, no model)', async () => {

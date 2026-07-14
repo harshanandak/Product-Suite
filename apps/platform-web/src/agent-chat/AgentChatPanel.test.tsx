@@ -243,6 +243,30 @@ describe("AgentChatPanel", () => {
     ).toHaveAttribute("href", "/w/befach-hq/inbox?proposal=p_1");
   });
 
+  it("shows a quiet failure line (not an endless spinner) when a propose tool errors", () => {
+    chat.messages = [
+      {
+        id: "a1",
+        role: "assistant",
+        parts: [
+          {
+            type: "tool-propose_create",
+            toolCallId: "c1",
+            state: "output-error",
+            input: { title: "Ship auth" },
+            errorText: "input validation failed",
+          },
+        ],
+      },
+    ];
+    renderPanel();
+    expect(
+      screen.getByText(/couldn't queue that proposal/i),
+    ).toBeInTheDocument();
+    // The "Drafting a proposal…" spinner must NOT linger on a failed tool call.
+    expect(screen.queryByText("Drafting a proposal…")).not.toBeInTheDocument();
+  });
+
   it("shows a friendly org-required panel on 403, with no input", () => {
     chat.error = new Error('{"error":"No active organization"}');
     renderPanel();

@@ -61,15 +61,13 @@ export function proposalCardFromToolPart(
     };
   }
 
-  // propose_update: title from the patch when present, else name the target id.
+  // propose_update: title from the patch when present, else a generic label —
+  // never a raw uuid (noise in the transcript; the Inbox shows the real target).
   const patch = (input.patch ?? {}) as Record<string, unknown>;
-  const targetId = firstString(input.id);
   return {
     operation: "update",
     proposalId,
-    title:
-      firstString(patch.title) ??
-      (targetId ? `Update to ${targetId}` : "Proposed update"),
+    title: firstString(patch.title) ?? "Proposed update",
     summary: firstString(input.rationale),
   };
 }

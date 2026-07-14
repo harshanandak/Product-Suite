@@ -39,6 +39,14 @@ export interface CreateAgentChatTransportOptions {
    * thread here") panel sends fresh context without rebuilding the transport.
    */
   getContext: () => AgentChatContext | undefined;
+  /**
+   * Resolve the caller's ACTIVE org id (Clerk `useAuth().orgId`), or `null` when
+   * signed out / no active org. Sent as `org_id` so the run anchors to it —
+   * REQUIRED for a user in more than one org, or the API 400s "Ambiguous
+   * organization" and every message fails. Single-org callers can omit it (the
+   * API falls back to their sole org).
+   */
+  getOrgId?: () => string | null;
 }
 
 /**
@@ -64,13 +72,20 @@ export function agentChatTransportConfig(
 ): {
   api: string;
   headers: () => Promise<Record<string, string>>;
-  body: () => { context: AgentChatContext | undefined };
+  body: () => { org_id?: string; context: AgentChatContext | undefined };
 } {
   const apiBase = options.apiBase ?? API_BASE_URL;
   return {
     api: `${apiBase}/api/agent/chat`,
     headers: () => agentChatAuthHeaders(options.getToken),
-    body: () => ({ context: options.getContext() }),
+    body: () => {
+      const orgId = options.getOrgId?.() ?? undefined;
+      // Omit the key entirely when absent so single-org callers keep the API's
+      // sole-org fallback; send it (anchoring the run) whenever we know it.
+      return orgId
+        ? { org_id: orgId, context: options.getContext() }
+        : { context: options.getContext() };
+    },
   };
 }
 

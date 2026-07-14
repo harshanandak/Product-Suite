@@ -50,6 +50,12 @@ export interface AgentChatPanelProps {
    * to render in preview mode with no ClerkProvider.
    */
   getToken: () => Promise<string | null>;
+  /**
+   * Resolve the caller's active org id (Clerk `useAuth().orgId`), or `null`.
+   * Sent as `org_id` so a user in more than one org anchors the run — without it
+   * the API 400s as ambiguous. The shell wires it (null under fixtures).
+   */
+  getOrgId?: () => string | null;
   /** Optional API origin override (defaults to `API_BASE_URL`). */
   apiBase?: string;
 }
@@ -104,8 +110,11 @@ function renderPart(
       // Our tools are static (never dynamic-tool), so this narrowing is safe.
       const card = proposalCardFromToolPart(part as ToolUIPart);
       if (card) return <ProposalCard key={key} data={card} workspace={workspace} />;
-      if (part.state === "output-available") {
-        // A refusal (proposed:false) — rare; keep it quiet but visible.
+      // A settled propose call with no card is a failure: a refusal
+      // (`proposed:false`, output-available) OR a tool error (output-error, e.g.
+      // the model's args failed validation). Both surface the SAME quiet line —
+      // never leave a "Drafting a proposal…" spinner running forever.
+      if (part.state === "output-available" || part.state === "output-error") {
         return (
           <div key={key} className="text-xs text-muted-foreground">
             I couldn&apos;t queue that proposal.
@@ -137,6 +146,7 @@ export function AgentChatPanel({
   workspace,
   currentObject,
   getToken,
+  getOrgId,
   apiBase,
 }: Readonly<AgentChatPanelProps>) {
   // The thread's linked object: `undefined` = not yet captured; `null` =
@@ -150,6 +160,8 @@ export function AgentChatPanel({
 
   const getTokenRef = useRef(getToken);
   getTokenRef.current = getToken;
+  const getOrgIdRef = useRef(getOrgId);
+  getOrgIdRef.current = getOrgId;
 
   const [draft, setDraft] = useState("");
 
@@ -158,6 +170,7 @@ export function AgentChatPanel({
       createAgentChatTransport({
         apiBase,
         getToken: () => getTokenRef.current(),
+        getOrgId: () => getOrgIdRef.current?.() ?? null,
         getContext: () => ({
           workspace,
           object: threadObjectRef.current ?? undefined,

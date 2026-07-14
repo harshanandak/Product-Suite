@@ -88,7 +88,7 @@ describe("proposalCardFromToolPart", () => {
     });
   });
 
-  it("titles an update by target id when the patch has no title", () => {
+  it("titles an update generically (never a raw uuid) when the patch has no title", () => {
     const data = proposalCardFromToolPart(
       toolPart({
         type: "tool-propose_update",
@@ -97,7 +97,10 @@ describe("proposalCardFromToolPart", () => {
         output: { proposed: true, proposal_id: "p_4" },
       }),
     );
-    expect(data?.title).toBe("Update to wi_9");
+    // The raw target uuid is noise in the transcript — the Inbox shows the real
+    // target. Assert the generic label and that the uuid never leaks in.
+    expect(data?.title).toBe("Proposed update");
+    expect(data?.title).not.toContain("wi_9");
   });
 
   it("returns null for a non-propose tool", () => {
