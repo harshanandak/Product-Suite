@@ -6,6 +6,9 @@ import {
 } from "@clerk/clerk-react";
 import { Navigate } from "@tanstack/react-router";
 
+import { USE_FIXTURES } from "@/fixtures-mode";
+
+import { DEFAULT_WORKSPACE } from "../env";
 import { workspaceSlugFromOrg } from "./workspace";
 
 /**
@@ -40,6 +43,18 @@ export function ActiveWorkspaceRedirect() {
  * SignedIn guard so useOrganization is never invoked without a session.
  */
 export function WorkspaceHomeRedirect() {
+  // DEV-ONLY fixtures/preview: there is no Clerk session/org to resolve, so land
+  // straight on the default workspace. USE_FIXTURES folds to `false` in
+  // production, so this branch is dead-code-eliminated (see fixtures-mode.ts).
+  if (USE_FIXTURES) {
+    return (
+      <Navigate
+        to="/w/$workspace"
+        params={{ workspace: DEFAULT_WORKSPACE }}
+        replace
+      />
+    );
+  }
   return (
     <>
       <SignedIn>

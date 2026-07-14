@@ -5,3 +5,7 @@ coverage
 .env
 .env.local
 .env.*.local
+# Re-include the committed DEV-ONLY fixtures/preview env (the repo-root .gitignore
+# excludes all `.env.*`; this negation wins for this directory). It only carries
+# VITE_USE_FIXTURES=true and is inert in production builds.
+!.env.fixtures

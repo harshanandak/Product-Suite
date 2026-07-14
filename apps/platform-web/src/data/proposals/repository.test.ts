@@ -3,14 +3,16 @@ import { describe, expect, it } from "vitest";
 import { createMockProposalRepository } from "./repository";
 
 describe("createMockProposalRepository", () => {
-  it("lists a create and an update fixture proposal", async () => {
+  it("lists a create proposal plus update proposals against real targets", async () => {
     const proposals = await createMockProposalRepository().list();
-    expect(proposals.map((p) => p.operation).sort()).toEqual([
-      "create",
-      "update",
-    ]);
-    const update = proposals.find((p) => p.operation === "update");
-    expect(update?.target_id).not.toBeNull();
+    const operations = proposals.map((p) => p.operation);
+    expect(operations).toContain("create");
+    expect(operations).toContain("update");
+
+    // Every update targets an existing item; the create targets nothing.
+    const updates = proposals.filter((p) => p.operation === "update");
+    expect(updates.length).toBeGreaterThanOrEqual(1);
+    expect(updates.every((p) => p.target_id !== null)).toBe(true);
     const create = proposals.find((p) => p.operation === "create");
     expect(create?.target_id).toBeNull();
   });

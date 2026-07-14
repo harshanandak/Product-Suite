@@ -9,6 +9,8 @@ import { RedirectToSignIn, SignedIn, SignedOut } from "@clerk/clerk-react";
 
 import { cn } from "@product-suite/ui";
 
+import { USE_FIXTURES } from "@/fixtures-mode";
+
 import { DEFAULT_WORKSPACE } from "../env";
 import { BOARDS, deriveActiveBoard, getBoard, href } from "./boards";
 import { BoardDock } from "./BoardDock";
@@ -38,6 +40,14 @@ function readSidebarCollapsed(): boolean {
  * content clicks — the sidebar is derived purely from the URL-derived board.
  */
 export function ShellLayout() {
+  // DEV-ONLY fixtures/preview: render the chrome directly, treating the visitor as
+  // signed-in, WITHOUT the Clerk gate (there is no ClerkProvider in preview mode).
+  // USE_FIXTURES is compile-time `false` in production (see fixtures-mode.ts), so
+  // this bypass is dead-code-eliminated — a production build ALWAYS renders the
+  // SignedIn/SignedOut gate below and can never skip sign-in.
+  if (USE_FIXTURES) {
+    return <ShellChrome />;
+  }
   return (
     <>
       <SignedIn>

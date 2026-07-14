@@ -10,6 +10,7 @@ import "./styles.css";
 import { ProposalRepositoryProvider } from "./data/proposals";
 import { RepositoryProvider } from "./data/work-items/RepositoryProvider";
 import { CLERK_PUBLISHABLE_KEY, hasClerkKey } from "./env";
+import { USE_FIXTURES } from "./fixtures-mode";
 import { router } from "./router";
 import { SetupNotice } from "./shell/SetupNotice";
 
@@ -40,7 +41,20 @@ createRoot(rootElement).render(
         animated loops AI Elements / @fluid ship that aren't safe by default. */}
     <MotionConfig reducedMotion="user">
       <ThemeProvider defaultTheme="system">
-        {hasClerkKey() ? (
+        {/* DEV-ONLY fixtures/preview: mount the app with NO ClerkProvider — the
+            repository providers serve in-memory fixtures and the shell renders
+            without the auth gate, so the workboard + review inbox are viewable
+            with no backend and no Clerk key (`bun run dev:fixtures`). USE_FIXTURES
+            is compile-time `false` in production, so this branch is dead-code-
+            eliminated from the shipped bundle and prod ALWAYS takes the Clerk
+            path below (see fixtures-mode.ts). */}
+        {USE_FIXTURES ? (
+          <RepositoryProvider>
+            <ProposalRepositoryProvider>
+              <RouterProvider router={router} />
+            </ProposalRepositoryProvider>
+          </RepositoryProvider>
+        ) : hasClerkKey() ? (
           <ClerkProvider
             publishableKey={CLERK_PUBLISHABLE_KEY}
             signInUrl="/sign-in"
