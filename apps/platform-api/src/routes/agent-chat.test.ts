@@ -90,6 +90,43 @@ describe('POST /api/agent/chat', () => {
     expect(params).toContain('u_1')
   })
 
+  it('forwards the object-scoping context into the run system prompt', async () => {
+    let captured: { system?: string } | undefined
+    streamText.mockImplementation((opts: MockStreamOpts & { system?: string }) => {
+      captured = { system: opts.system }
+      void opts.onFinish({
+        text: 'done',
+        response: { messages: [{ role: 'assistant', content: 'done' }] },
+        steps: [],
+      })
+      return {
+        consumeStream: vi.fn(async () => undefined),
+        toUIMessageStreamResponse: () => new Response('stream', { status: 200 }),
+      }
+    })
+
+    const sql = vi.fn()
+    sql
+      .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
+      .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId
+    const sqlQuery = vi.fn(async (text: string) =>
+      /insert into "agent_runs"/i.test(text) ? [{ id: 'run_1' }] : [],
+    )
+    ;(sql as unknown as { query: typeof sqlQuery }).query = sqlQuery
+    createSql.mockReturnValue(sql)
+
+    const res = await app.request('/api/agent/chat', {
+      method: 'POST',
+      ...auth,
+      body: JSON.stringify({
+        messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }],
+        context: { workspace: 'befach-hq', object: { type: 'work_item', id: 'wi_1', title: 'Ship auth' } },
+      }),
+    })
+    expect(res.status).toBe(200)
+    expect(captured?.system).toContain('work_item "Ship auth" (id wi_1) in workspace befach-hq')
+  })
+
   it('returns 401 without a bearer token (no DB, no model)', async () => {
     const sql = vi.fn()
     createSql.mockReturnValue(sql)

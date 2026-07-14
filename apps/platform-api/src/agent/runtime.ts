@@ -13,8 +13,32 @@ export const AGENT_SYSTEM_PROMPT = [
   'You are the Product-Suite workboard copilot.',
   'You help the user understand and improve their work items.',
   'To change anything, you MUST use the propose_* tools — they queue a proposal a human reviews and accepts. You never modify data directly, so never claim you did.',
+  'After using a propose_* tool, say "I\'ve proposed …, pending your review" — never "I\'ve updated", "I\'ve created", or "I\'ve changed", because nothing takes effect until a human accepts the proposal.',
   'Prefer searching/listing before proposing, and give a short rationale with every proposal.',
 ].join(' ')
+
+/**
+ * The object the current chat thread is scoped to (the screen the user was on
+ * when they opened the panel), plus its workspace. Sent as hidden request
+ * context and folded into the system prompt — never injected as a fake user
+ * message (which would pollute the transcript and let the agent quote it back).
+ */
+export interface AgentScope {
+  workspace: string
+  object?: { type: string; id: string; title: string }
+}
+
+/**
+ * Build the run's system prompt: the static base, plus a single context line
+ * naming the object the user is viewing when one is in scope. Absent an object,
+ * the base prompt is returned verbatim (a bare workspace adds nothing useful).
+ */
+export function buildSystemPrompt(scope?: AgentScope): string {
+  const object = scope?.object
+  if (!object) return AGENT_SYSTEM_PROMPT
+  const context = `The user is currently viewing ${object.type} "${object.title}" (id ${object.id}) in workspace ${scope.workspace}.`
+  return `${AGENT_SYSTEM_PROMPT} ${context}`
+}
 
 /** The authority + model the run executes under. Request-free by design. */
 export interface AgentRunContext {
@@ -27,6 +51,12 @@ export interface AgentRunContext {
   userId: string
   /** The resolved language model (from `agentModel(env)`). */
   model: LanguageModel
+  /**
+   * Optional object-scoping for the run: the screen/work item the user was
+   * viewing when they opened the chat. Folded into the system prompt so the
+   * agent knows the context without it polluting the message transcript.
+   */
+  scope?: AgentScope
   /**
    * Optional Workers `executionCtx.waitUntil`, threaded from the Hono context when
    * reachable. Keeps the worker alive until the stream is fully consumed and the
@@ -128,7 +158,7 @@ export async function runAgentChat(
     const modelMessages = await convertToModelMessages(messages)
     result = streamText({
       model: ctx.model,
-      system: AGENT_SYSTEM_PROMPT,
+      system: buildSystemPrompt(ctx.scope),
       messages: modelMessages,
       tools,
       stopWhen: stepCountIs(8),

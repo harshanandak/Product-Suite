@@ -20,7 +20,7 @@ vi.mock('ai', () => ({
   tool: (def: unknown) => def,
 }))
 
-import { runAgentChat } from './runtime'
+import { AGENT_SYSTEM_PROMPT, buildSystemPrompt, runAgentChat } from './runtime'
 
 type MockStreamOpts = {
   tools: { propose_create: { execute: (input: unknown, options: unknown) => Promise<unknown> } }
@@ -165,6 +165,23 @@ describe('runAgentChat (request-free runtime + agent_runs lifecycle)', () => {
     expect(String(close?.[0])).toMatch(/status = 'running'/i)
   })
 
+  it('folds the scoped object into the system prompt handed to the model', async () => {
+    streamText.mockImplementation(() => fakeStreamResult())
+    const { sql } = fakeSql()
+    await runAgentChat(
+      sql,
+      {
+        tenantId: 't_1',
+        userId: 'u_1',
+        model: fakeModel,
+        scope: { workspace: 'befach-hq', object: { type: 'work_item', id: 'wi_1', title: 'Ship auth' } },
+      },
+      [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }] as unknown as UIMessage[],
+    )
+    const opts = streamText.mock.calls[0]?.[0] as { system: string }
+    expect(opts.system).toContain('work_item "Ship auth" (id wi_1) in workspace befach-hq')
+  })
+
   it('flips the run to failed (never leaves it running) when messages are malformed', async () => {
     // The real v6 convertToModelMessages THROWS on bogus parts; simulate that.
     convertToModelMessages.mockImplementation(() => {
@@ -187,5 +204,30 @@ describe('runAgentChat (request-free runtime + agent_runs lifecycle)', () => {
     const closeParams = (close?.[1] ?? []) as unknown[]
     expect(closeParams[0]).toBe('failed')
     expect(closeParams[3]).toBe('run_1')
+  })
+})
+
+describe('buildSystemPrompt (object-scoping seam)', () => {
+  it('returns the base prompt verbatim when no scope is given', () => {
+    expect(buildSystemPrompt()).toBe(AGENT_SYSTEM_PROMPT)
+  })
+
+  it('returns the base prompt when the scope carries no object', () => {
+    expect(buildSystemPrompt({ workspace: 'befach-hq' })).toBe(AGENT_SYSTEM_PROMPT)
+  })
+
+  it('appends a single context line naming the viewed object', () => {
+    const prompt = buildSystemPrompt({
+      workspace: 'befach-hq',
+      object: { type: 'work_item', id: 'wi_1', title: 'Ship auth' },
+    })
+    expect(prompt.startsWith(AGENT_SYSTEM_PROMPT)).toBe(true)
+    expect(prompt).toContain(
+      'The user is currently viewing work_item "Ship auth" (id wi_1) in workspace befach-hq.',
+    )
+  })
+
+  it('enforces the propose (not perfective) tense in the base prompt', () => {
+    expect(AGENT_SYSTEM_PROMPT).toContain("I've proposed")
   })
 })
