@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -70,8 +76,12 @@ describe("InboxScreen", () => {
     await waitFor(() =>
       expect(screen.getAllByRole("listitem")).toHaveLength(2),
     );
-    expect(screen.getByText("Alpha")).toBeInTheDocument();
-    expect(screen.getByText("Beta")).toBeInTheDocument();
+    // Scope title lookups to the LIST: the default-selected proposal's detail
+    // pane also renders its title as a field value, so an unscoped getByText
+    // would race a second "Alpha" match once the pane's rows mount.
+    const list = screen.getByRole("list", { name: "Pending proposals" });
+    expect(within(list).getByText("Alpha")).toBeInTheDocument();
+    expect(within(list).getByText("Beta")).toBeInTheDocument();
     expect(screen.getByText("2 pending")).toBeInTheDocument();
   });
 
