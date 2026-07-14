@@ -207,8 +207,11 @@ export function AgentChatPanel({
   const submit = (message: PromptInputMessage) => {
     const text = message.text.trim();
     if (text.length === 0) return;
-    void sendMessage({ text });
+    // Return the send promise so PromptInput can await it; the draft clears
+    // immediately. Failures surface through useChat's `error` state (the banner).
+    const sent = sendMessage({ text });
     setDraft("");
+    return sent;
   };
 
   const startNewThreadHere = () => {
@@ -316,7 +319,11 @@ export function AgentChatPanel({
                   <span className="flex-1">Something went wrong.</span>
                   <button
                     type="button"
-                    onClick={() => void regenerate()}
+                    onClick={() => {
+                      // The failure re-surfaces through useChat's `error` state;
+                      // swallow the rejection so it isn't an unhandled promise.
+                      regenerate().catch(() => {});
+                    }}
                     className="font-medium hover:underline"
                   >
                     Retry

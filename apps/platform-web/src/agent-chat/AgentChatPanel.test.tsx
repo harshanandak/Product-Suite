@@ -152,9 +152,11 @@ beforeEach(() => {
     messages: [],
     status: "ready",
     error: undefined,
-    sendMessage: vi.fn(),
+    // sendMessage/regenerate return promises in the real useChat — mirror that so
+    // the panel's `.catch()` / returned-promise handling is exercised faithfully.
+    sendMessage: vi.fn(async () => {}),
     stop: vi.fn(),
-    regenerate: vi.fn(),
+    regenerate: vi.fn(async () => {}),
     setMessages: vi.fn(),
   };
 });

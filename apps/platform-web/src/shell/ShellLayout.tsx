@@ -253,8 +253,13 @@ function ClerkAgentPanel(
     () => (): string | null => orgIdRef.current ?? null,
     [],
   );
+  // Remount on org change too: `key={slug}` at the shell handles a workspace
+  // switch, but a Clerk org switch that leaves the slug unchanged would otherwise
+  // keep the old thread + proposals mounted while getOrgId starts anchoring to the
+  // NEW org — a cross-tenant exposure. Keying by orgId starts a fresh thread.
   return (
     <AgentChatPanel
+      key={orgId ?? "no-org"}
       {...props}
       getToken={stableGetToken}
       getOrgId={stableGetOrgId}

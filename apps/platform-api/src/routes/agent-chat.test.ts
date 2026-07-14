@@ -125,9 +125,10 @@ describe('POST /api/agent/chat', () => {
     })
     expect(res.status).toBe(200)
     expect(captured?.system).toContain('type="work_item"')
-    expect(captured?.system).toContain('title="Ship auth"')
     expect(captured?.system).toContain('id="wi_1"')
     expect(captured?.system).toContain('workspace="befach-hq"')
+    // The user-authored title is never forwarded into the system prompt.
+    expect(captured?.system).not.toContain('Ship auth')
   })
 
   it('returns 401 without a bearer token (no DB, no model)', async () => {
