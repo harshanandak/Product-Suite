@@ -9,6 +9,8 @@ vi.mock("@clerk/clerk-react", () => ({
   SignedIn: ({ children }: { children: React.ReactNode }) => children,
   SignedOut: () => null,
   RedirectToSignIn: () => null,
+  // ShellLayout's ClerkAgentPanel resolves the agent chat bearer via useAuth.
+  useAuth: () => ({ getToken: async () => null }),
 }));
 
 vi.mock("./UserMenu", () => ({ UserMenu: () => null }));

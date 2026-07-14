@@ -5,10 +5,15 @@ import {
   useNavigate,
   useParams,
 } from "@tanstack/react-router";
-import { RedirectToSignIn, SignedIn, SignedOut } from "@clerk/clerk-react";
+import { RedirectToSignIn, SignedIn, SignedOut, useAuth } from "@clerk/clerk-react";
 
 import { cn } from "@product-suite/ui";
 
+import {
+  AgentChatPanel,
+  type AgentChatPanelProps,
+} from "@/agent-chat/AgentChatPanel";
+import { resolveLinkedObject } from "@/agent-chat/linked-object";
 import { USE_FIXTURES } from "@/fixtures-mode";
 
 import { DEFAULT_WORKSPACE } from "../env";
@@ -66,6 +71,9 @@ function ShellChrome() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const [paletteOpen, setPaletteOpen] = React.useState(false);
+  // Agent chat panel open-state lifted to the shell so the panel stays mounted
+  // (its ephemeral thread survives close/reopen + in-workspace navigation).
+  const [agentOpen, setAgentOpen] = React.useState(false);
   const [collapsed, setCollapsed] = React.useState(readSidebarCollapsed);
   // Transient reveal of a collapsed rail. Pointer and keyboard focus are tracked
   // independently and OR'd, so a stray mouse-leave can't yank a rail that still
@@ -177,8 +185,8 @@ function ShellChrome() {
       <div className="flex min-w-0 flex-col">
         <TopBar
           workspace={slug}
-          pathname={pathname}
           onOpenPalette={() => setPaletteOpen(true)}
+          onAskAgent={() => setAgentOpen(true)}
         />
         <main className="flex-1 overflow-y-auto p-6">
           <Outlet />
@@ -189,6 +197,43 @@ function ShellChrome() {
         onOpenChange={setPaletteOpen}
         workspace={slug}
       />
+      {/* Kept mounted regardless of `agentOpen` so the ephemeral thread survives
+          close/reopen; the linked object is captured from the current screen at
+          open time (navigation never rewrites the thread's context). */}
+      <ShellAgentPanel
+        open={agentOpen}
+        onClose={() => setAgentOpen(false)}
+        workspace={slug}
+        currentObject={resolveLinkedObject(pathname, slug)}
+      />
     </div>
   );
+}
+
+/** The token resolver used in preview/fixtures mode — there is no real backend. */
+const FIXTURES_GET_TOKEN = async (): Promise<string | null> => null;
+
+/**
+ * Wires the agent panel's Clerk-bearer token WITHOUT importing `useAuth` in a
+ * path that runs under fixtures (no ClerkProvider in preview). Mirrors the
+ * proposals `ProposalRepositoryProvider` split: fixtures ⇒ a null resolver;
+ * otherwise the real Clerk-backed resolver in {@link ClerkAgentPanel}.
+ */
+function ShellAgentPanel(props: Readonly<Omit<AgentChatPanelProps, "getToken">>) {
+  if (USE_FIXTURES) {
+    return <AgentChatPanel {...props} getToken={FIXTURES_GET_TOKEN} />;
+  }
+  return <ClerkAgentPanel {...props} />;
+}
+
+/** The real Clerk-backed panel: resolves the session token per request via a ref. */
+function ClerkAgentPanel(props: Readonly<Omit<AgentChatPanelProps, "getToken">>) {
+  const { getToken } = useAuth();
+  const getTokenRef = React.useRef(getToken);
+  getTokenRef.current = getToken;
+  const stableGetToken = React.useMemo(
+    () => (): Promise<string | null> => getTokenRef.current(),
+    [],
+  );
+  return <AgentChatPanel {...props} getToken={stableGetToken} />;
 }
