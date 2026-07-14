@@ -91,7 +91,9 @@ function ClerkUserMenu() {
       email={email}
       imageUrl={user?.imageUrl}
       onSignOut={() => {
-        signOut({ redirectUrl: "/sign-in" }).catch(() => {});
+        signOut({ redirectUrl: "/sign-in" }).catch((error: unknown) => {
+          console.error("Sign-out failed", error);
+        });
       }}
     />
   );

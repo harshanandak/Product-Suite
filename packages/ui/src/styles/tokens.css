@@ -29,11 +29,13 @@
   --destructive: oklch(0.5800 0.2200 27);
   --destructive-foreground: oklch(0.9700 0.0140 254.6040);
   /*
-   * Semantic success (affirmative/accept). A green tuned to mirror the
-   * destructive pair — same surface lightness/foreground contrast — so an
-   * Accept action reads as the positive twin of Reject and themes in dark mode.
+   * Semantic success (affirmative/accept). A green dark enough that the
+   * near-white `--success-foreground` clears WCAG AA (≥4.5:1) on `bg-success`
+   * — measured 5.05:1 (see success-contrast.test.ts, which fails the build if a
+   * future tweak drops below AA). Same value in light + dark so the Accept
+   * button reads identically as the positive twin of Reject.
    */
-  --success: oklch(0.6000 0.1400 150);
+  --success: oklch(0.5100 0.1500 150);
   --success-foreground: oklch(0.9800 0.0150 155);
   /*
    * Workboard badge ramps (DESIGN §5). Chroma-bearing, dark-mode-durable hues
@@ -112,10 +114,11 @@
   --destructive: oklch(0.7040 0.1910 22.2160);
   --destructive-foreground: oklch(0.9700 0.0140 254.6040);
   /*
-   * Semantic success — dark. Surface lifts (like destructive dark) so the
-   * green stays vivid against the near-black canvas; foreground stays near-white.
+   * Semantic success — dark. Held at the light-mode value: a lighter surface
+   * would drop the near-white foreground below AA (the previous 0.69 measured
+   * only 2.48:1). 5.05:1 against white text; vivid enough on the near-black canvas.
    */
-  --success: oklch(0.6900 0.1500 150);
+  --success: oklch(0.5100 0.1500 150);
   --success-foreground: oklch(0.9800 0.0150 155);
   /*
    * Workboard badge ramps — dark. Surfaces darken, foregrounds lift so each

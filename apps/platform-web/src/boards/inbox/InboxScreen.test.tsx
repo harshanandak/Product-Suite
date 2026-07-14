@@ -101,4 +101,39 @@ describe("InboxScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: /Beta/ }));
     expect(screen.getByText("Create work item “Beta”")).toBeInTheDocument();
   });
+
+  it("ignores a row swap while an accept is in flight (keeps the acted-on pane)", async () => {
+    let resolveAccept: (result: AcceptResult) => void = () => {};
+    const repository = repoWith([proposal("p1", "Alpha"), proposal("p2", "Beta")]);
+    // A never-auto-resolving accept keeps isMutating true across the swap attempt.
+    repository.accept = vi.fn(
+      () =>
+        new Promise<AcceptResult>((resolve) => {
+          resolveAccept = resolve;
+        }),
+    );
+    render(<InboxScreen repository={repository} />);
+    await waitFor(() =>
+      expect(screen.getByText("Create work item “Alpha”")).toBeInTheDocument(),
+    );
+
+    // Start an accept on Alpha → the pending mutation holds isMutating true.
+    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+    await waitFor(() => expect(repository.accept).toHaveBeenCalledTimes(1));
+
+    // Attempt to jump to Beta mid-mutation — the pane must stay on Alpha.
+    fireEvent.click(screen.getByRole("button", { name: /Beta/ }));
+    expect(screen.getByText("Create work item “Alpha”")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Create work item “Beta”"),
+    ).not.toBeInTheDocument();
+
+    // Resolve so the disposition settles (flushes state before teardown).
+    resolveAccept({ outcome: "stale" });
+    await waitFor(() =>
+      expect(
+        screen.getByText(/no longer pending/),
+      ).toBeInTheDocument(),
+    );
+  });
 });

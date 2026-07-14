@@ -46,8 +46,6 @@ export function createMockProposalRepository(
     payload: { ...proposal.payload },
   });
 
-  const now = new Date().toISOString();
-
   return {
     list() {
       return settle(proposals.map(clone));
@@ -60,6 +58,9 @@ export function createMockProposalRepository(
         return settle<AcceptResult>({ outcome: "stale" });
       }
       const [proposal] = proposals.splice(index, 1);
+      // Stamped per accept() (not once per repository) so each dev/demo
+      // acceptance reflects when it actually happened.
+      const now = new Date().toISOString();
       // Synthesize the item accept "produces" so the mock's applied path has a
       // linkable target id, mirroring what the real backend returns.
       const item = {

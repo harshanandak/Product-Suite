@@ -44,9 +44,9 @@ export function applyTheme(resolved: ResolvedTheme): void {
   root.classList.toggle("dark", resolved === "dark");
   root.style.colorScheme = resolved;
 
-  // Reading a computed style forces the browser to apply the swap while
-  // transitions are off; then remove the override so later interactions animate.
-  void globalThis.getComputedStyle(root).transitionProperty;
+  // A layout read forces the browser to flush the class swap while transitions
+  // are off; then remove the override so later interactions animate.
+  root.getBoundingClientRect();
   disable.remove();
 }
 

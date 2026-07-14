@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 
 import { Link } from "@tanstack/react-router";
 
@@ -37,6 +37,172 @@ type DisposeStatus =
   | { kind: "rejected" }
   | { kind: "stale" }
   | { kind: "invalid" };
+
+/** A `role=status` disposition banner — the four terminal states share this shell. */
+function StatusBanner({
+  tone,
+  children,
+}: Readonly<{ tone: "primary" | "muted" | "destructive"; children: ReactNode }>) {
+  const toneClass =
+    tone === "primary"
+      ? "border-primary/40 bg-primary/5 text-foreground"
+      : tone === "destructive"
+        ? "border-destructive/40 bg-destructive/5 text-foreground"
+        : "border-border bg-muted text-muted-foreground";
+  return (
+    <div role="status" className={cn("rounded-md border px-3 py-2 text-sm", toneClass)}>
+      {children}
+    </div>
+  );
+}
+
+/** The reject sub-form: skippable reason chips + note + confirm/cancel. */
+function RejectForm({
+  reason,
+  setReason,
+  isMutating,
+  onReject,
+  onCancel,
+}: Readonly<{
+  reason: string;
+  setReason: (reason: string) => void;
+  isMutating: boolean;
+  onReject: () => void;
+  onCancel: () => void;
+}>) {
+  return (
+    <div className="flex flex-col gap-2.5 rounded-md border border-border p-3">
+      <p className="text-xs font-medium text-muted-foreground">Reason (optional)</p>
+      <div className="flex flex-wrap gap-1.5">
+        {REJECT_CHIPS.map((chip) => (
+          <Button
+            key={chip}
+            type="button"
+            size="xs"
+            variant={reason === chip ? "default" : "outline"}
+            onClick={() => setReason(chip)}
+          >
+            {chip}
+          </Button>
+        ))}
+      </div>
+      <Textarea
+        value={reason}
+        onChange={(event) => setReason(event.target.value)}
+        placeholder="Add a note (optional)"
+        rows={2}
+        aria-label="Rejection reason"
+      />
+      <div className="flex gap-2">
+        <Button size="sm" variant="destructive" disabled={isMutating} onClick={onReject}>
+          Reject proposal
+        </Button>
+        <Button size="sm" variant="ghost" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** Default Accept / Reject affordance (before any disposition). */
+function ActionButtons({
+  isMutating,
+  onAccept,
+  onStartReject,
+}: Readonly<{ isMutating: boolean; onAccept: () => void; onStartReject: () => void }>) {
+  return (
+    <div className="flex items-center gap-2">
+      <Button
+        size="sm"
+        className={cn(
+          "bg-success text-success-foreground hover:bg-success/90",
+          "focus-visible:ring-success/40",
+        )}
+        disabled={isMutating}
+        onClick={onAccept}
+      >
+        Accept
+      </Button>
+      <Button size="sm" variant="destructive" disabled={isMutating} onClick={onStartReject}>
+        Reject
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * The disposition region — terminal banner, reject form, or default actions.
+ * Flat early-returns (not a nested ternary chain) so this stays well under the
+ * cognitive-complexity limit that a five-way inline ternary tripped.
+ */
+function DispositionBlock({
+  status,
+  workspace,
+  rejecting,
+  reason,
+  setReason,
+  isMutating,
+  onAccept,
+  onReject,
+  onStartReject,
+  onCancelReject,
+}: Readonly<{
+  status: DisposeStatus;
+  workspace: string;
+  rejecting: boolean;
+  reason: string;
+  setReason: (reason: string) => void;
+  isMutating: boolean;
+  onAccept: () => void;
+  onReject: () => void;
+  onStartReject: () => void;
+  onCancelReject: () => void;
+}>) {
+  if (status.kind === "applied") {
+    return (
+      <StatusBanner tone="primary">
+        Applied.{" "}
+        <Link
+          to="/w/$workspace/workboard/item/$itemId"
+          params={{ workspace, itemId: status.itemId }}
+          className="font-medium text-primary hover:underline"
+        >
+          View item →
+        </Link>
+      </StatusBanner>
+    );
+  }
+  if (status.kind === "rejected") return <StatusBanner tone="muted">Rejected.</StatusBanner>;
+  if (status.kind === "stale") {
+    return (
+      <StatusBanner tone="muted">
+        This proposal is no longer pending — the list has been refreshed.
+      </StatusBanner>
+    );
+  }
+  if (status.kind === "invalid") {
+    return (
+      <StatusBanner tone="destructive">
+        The server rejected this proposal as invalid.
+      </StatusBanner>
+    );
+  }
+  if (rejecting) {
+    return (
+      <RejectForm
+        reason={reason}
+        setReason={setReason}
+        isMutating={isMutating}
+        onReject={onReject}
+        onCancel={onCancelReject}
+      />
+    );
+  }
+  return (
+    <ActionButtons isMutating={isMutating} onAccept={onAccept} onStartReject={onStartReject} />
+  );
+}
 
 /**
  * The decision surface — *what will actually change* (Agent Slice PR3, Task 3).
@@ -215,110 +381,23 @@ export function ProposalDetail({
       ) : null}
 
       {/* Actions / terminal disposition status */}
-      {status.kind === "applied" ? (
-        <div
-          role="status"
-          className="rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-sm text-foreground"
-        >
-          Applied.{" "}
-          <Link
-            to="/w/$workspace/workboard/item/$itemId"
-            params={{ workspace, itemId: status.itemId }}
-            className="font-medium text-primary hover:underline"
-          >
-            View item →
-          </Link>
-        </div>
-      ) : status.kind === "rejected" ? (
-        <div
-          role="status"
-          className="rounded-md border border-border bg-muted px-3 py-2 text-sm text-muted-foreground"
-        >
-          Rejected.
-        </div>
-      ) : status.kind === "stale" ? (
-        <div
-          role="status"
-          className="rounded-md border border-border bg-muted px-3 py-2 text-sm text-muted-foreground"
-        >
-          This proposal is no longer pending — the list has been refreshed.
-        </div>
-      ) : status.kind === "invalid" ? (
-        <div
-          role="status"
-          className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-foreground"
-        >
-          The server rejected this proposal as invalid.
-        </div>
-      ) : rejecting ? (
-        <div className="flex flex-col gap-2.5 rounded-md border border-border p-3">
-          <p className="text-xs font-medium text-muted-foreground">
-            Reason (optional)
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            {REJECT_CHIPS.map((chip) => (
-              <Button
-                key={chip}
-                type="button"
-                size="xs"
-                variant={reason === chip ? "default" : "outline"}
-                onClick={() => setReason(chip)}
-              >
-                {chip}
-              </Button>
-            ))}
-          </div>
-          <Textarea
-            value={reason}
-            onChange={(event) => setReason(event.target.value)}
-            placeholder="Add a note (optional)"
-            rows={2}
-            aria-label="Rejection reason"
-          />
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant="destructive"
-              disabled={isMutating}
-              onClick={onReject}
-            >
-              Reject proposal
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                setRejecting(false);
-                setReason("");
-              }}
-            >
-              Cancel
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            className={cn(
-              "bg-success text-success-foreground hover:bg-success/90",
-              "focus-visible:ring-success/40",
-            )}
-            disabled={isMutating}
-            onClick={onAccept}
-          >
-            Accept
-          </Button>
-          <Button
-            size="sm"
-            variant="destructive"
-            disabled={isMutating}
-            onClick={() => setRejecting(true)}
-          >
-            Reject
-          </Button>
-        </div>
-      )}
+      <DispositionBlock
+        status={status}
+        workspace={workspace}
+        rejecting={rejecting}
+        reason={reason}
+        setReason={setReason}
+        isMutating={isMutating}
+        onAccept={onAccept}
+        onReject={onReject}
+        onStartReject={() => setRejecting(true)}
+        onCancelReject={() => {
+          setRejecting(false);
+          setReason("");
+          // Clear any prior failed-reject banner — nothing is in flight.
+          setError(null);
+        }}
+      />
 
       {/* provenance — fine print */}
       <dl className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">

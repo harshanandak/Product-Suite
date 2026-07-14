@@ -64,6 +64,13 @@ export function InboxScreen({ repository }: Readonly<InboxScreenProps> = {}) {
         seenRef.current.get(selectedId) ??
         null);
 
+  // Ignore row selection while an accept/reject is in flight, so the detail pane
+  // can't be yanked to a different proposal mid-mutation — the disposition (and
+  // its eventual Applied/Rejected/Stale/Error banner) stays with the item acted on.
+  const selectProposal = (id: string): void => {
+    if (!isMutating) setSelectedId(id);
+  };
+
   if (isLoading) {
     return (
       <output className="block space-y-2.5" aria-label="Loading proposals">
@@ -107,21 +114,20 @@ export function InboxScreen({ repository }: Readonly<InboxScreenProps> = {}) {
       </header>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
-        <div
-          className="flex flex-col gap-2.5"
-          role="list"
+        <ul
+          className="flex list-none flex-col gap-2.5 p-0"
           aria-label="Pending proposals"
         >
           {proposals.map((proposal) => (
-            <div role="listitem" key={proposal.id}>
+            <li key={proposal.id}>
               <ProposalListItem
                 proposal={proposal}
                 selected={proposal.id === selectedId}
-                onSelect={setSelectedId}
+                onSelect={selectProposal}
               />
-            </div>
+            </li>
           ))}
-        </div>
+        </ul>
 
         <div className="lg:sticky lg:top-6 lg:self-start">
           {selected ? (
