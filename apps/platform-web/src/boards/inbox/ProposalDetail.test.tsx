@@ -146,6 +146,20 @@ describe("ProposalDetail", () => {
     );
   });
 
+  it("Accept surfaces a 422 invalid outcome as a message (never silent)", async () => {
+    const accept = vi.fn(
+      async (): Promise<AcceptResult> => ({ outcome: "invalid" }),
+    );
+    renderDetail(proposal(), { accept });
+    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+    expect(accept).toHaveBeenCalledWith("p1");
+    await waitFor(() =>
+      expect(
+        screen.getByText(/rejected this proposal as invalid/i),
+      ).toBeInTheDocument(),
+    );
+  });
+
   it("Accept success shows an Applied → view item link to the created item", async () => {
     const accept = vi.fn(
       async (): Promise<AcceptResult> => ({

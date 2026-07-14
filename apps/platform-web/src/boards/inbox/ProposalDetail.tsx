@@ -106,7 +106,7 @@ function RejectForm({
         <Button size="sm" variant="destructive" disabled={isMutating} onClick={onReject}>
           Reject proposal
         </Button>
-        <Button size="sm" variant="ghost" onClick={onCancel}>
+        <Button size="sm" variant="ghost" disabled={isMutating} onClick={onCancel}>
           Cancel
         </Button>
       </div>
