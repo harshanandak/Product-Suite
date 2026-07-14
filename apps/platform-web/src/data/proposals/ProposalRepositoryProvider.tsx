@@ -52,9 +52,9 @@ function getFixtureProposalRepository(): ProposalRepository {
  */
 export function ProposalRepositoryProvider({
   children,
-}: {
+}: Readonly<{
   children: ReactNode;
-}): ReactNode {
+}>): ReactNode {
   if (USE_FIXTURES) {
     return (
       <ProposalRepositoryContext.Provider value={getFixtureProposalRepository()}>
@@ -77,9 +77,9 @@ export function ProposalRepositoryProvider({
  */
 function NetworkProposalRepositoryProvider({
   children,
-}: {
+}: Readonly<{
   children: ReactNode;
-}): ReactNode {
+}>): ReactNode {
   const { getToken } = useAuth();
 
   const getTokenRef = useRef(getToken);

@@ -189,11 +189,9 @@ describe("ProposalDetail", () => {
     await waitFor(() =>
       expect(screen.getByText("Server error (500)")).toBeInTheDocument(),
     );
-    // Announced via aria-live (role=status), like WorkboardScreen's errors.
-    expect(screen.getByText("Server error (500)")).toHaveAttribute(
-      "role",
-      "status",
-    );
+    // Announced via the status role (the banner is an <output>, whose implicit
+    // ARIA role is "status"), like WorkboardScreen's errors.
+    expect(screen.getByRole("status")).toHaveTextContent("Server error (500)");
   });
 
   it("Reject transport error keeps the form OPEN with the reason intact (no false success)", async () => {

@@ -37,7 +37,8 @@ export function formatValue(value: unknown): string {
   try {
     return JSON.stringify(value);
   } catch {
-    return String(value);
+    // Unstringifiable (e.g. circular) — a stable label beats "[object Object]".
+    return "[unserializable value]";
   }
 }
 
@@ -52,7 +53,9 @@ function normalizeForCompare(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(normalizeForCompare);
   const record = value as Record<string, unknown>;
   const sorted: Record<string, unknown> = {};
-  for (const key of Object.keys(record).sort()) {
+  // Explicit locale compare (not the default sort) so key ordering is stable and
+  // reliable for the canonical-JSON equality below.
+  for (const key of Object.keys(record).sort((a, b) => a.localeCompare(b))) {
     sorted[key] = normalizeForCompare(record[key]);
   }
   return sorted;

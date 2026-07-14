@@ -34,6 +34,49 @@ if (!rootElement) {
   throw new Error("Root element #root not found");
 }
 
+/**
+ * The app tree, minus the ambient providers. Three mutually-exclusive roots,
+ * selected with early returns (not a nested ternary):
+ *  - DEV-ONLY fixtures/preview: NO ClerkProvider — the repository providers serve
+ *    in-memory fixtures and the shell renders without the auth gate, so the
+ *    workboard + review inbox are viewable with no backend and no Clerk key
+ *    (`bun run dev:fixtures`). USE_FIXTURES is compile-time `false` in production,
+ *    so this branch is dead-code-eliminated and prod ALWAYS takes the Clerk path.
+ *  - No Clerk key configured → a setup notice.
+ *  - Normal: the Clerk-gated app. The network repositories are built ONCE here,
+ *    inside Clerk (so they can read the session token) and above the router (so
+ *    they never remount on navigation); a read while signed out omits the bearer
+ *    and the API answers 401, surfaced through the hook's error state.
+ */
+function AppRoot() {
+  if (USE_FIXTURES) {
+    return (
+      <RepositoryProvider>
+        <ProposalRepositoryProvider>
+          <RouterProvider router={router} />
+        </ProposalRepositoryProvider>
+      </RepositoryProvider>
+    );
+  }
+  if (!hasClerkKey()) {
+    return <SetupNotice />;
+  }
+  return (
+    <ClerkProvider
+      publishableKey={CLERK_PUBLISHABLE_KEY}
+      signInUrl="/sign-in"
+      afterSignOutUrl="/sign-in"
+      signInFallbackRedirectUrl="/"
+    >
+      <RepositoryProvider>
+        <ProposalRepositoryProvider>
+          <RouterProvider router={router} />
+        </ProposalRepositoryProvider>
+      </RepositoryProvider>
+    </ClerkProvider>
+  );
+}
+
 createRoot(rootElement).render(
   <StrictMode>
     {/* App-wide motion default: honor the OS reduced-motion preference (DESIGN
@@ -41,45 +84,7 @@ createRoot(rootElement).render(
         animated loops AI Elements / @fluid ship that aren't safe by default. */}
     <MotionConfig reducedMotion="user">
       <ThemeProvider defaultTheme="system">
-        {/* DEV-ONLY fixtures/preview: mount the app with NO ClerkProvider — the
-            repository providers serve in-memory fixtures and the shell renders
-            without the auth gate, so the workboard + review inbox are viewable
-            with no backend and no Clerk key (`bun run dev:fixtures`). USE_FIXTURES
-            is compile-time `false` in production, so this branch is dead-code-
-            eliminated from the shipped bundle and prod ALWAYS takes the Clerk
-            path below (see fixtures-mode.ts). */}
-        {USE_FIXTURES ? (
-          <RepositoryProvider>
-            <ProposalRepositoryProvider>
-              <RouterProvider router={router} />
-            </ProposalRepositoryProvider>
-          </RepositoryProvider>
-        ) : hasClerkKey() ? (
-          <ClerkProvider
-            publishableKey={CLERK_PUBLISHABLE_KEY}
-            signInUrl="/sign-in"
-            afterSignOutUrl="/sign-in"
-            signInFallbackRedirectUrl="/"
-          >
-            {/* Build the network repository ONCE, inside Clerk (so it can read
-                the session token) and above the router (so it never remounts on
-                navigation). Route-level Clerk guards keep data screens behind
-                sign-in; if a data read somehow fires while signed out, getToken
-                resolves to null, the bearer is omitted, and the API answers 401
-                — surfaced through the hook's error state, not a crash. */}
-            <RepositoryProvider>
-              {/* The review inbox reads/disposes of agent proposals through its
-                  own network repository — built once here, inside Clerk (for the
-                  session token) and above the router, mirroring the work-items
-                  RepositoryProvider. */}
-              <ProposalRepositoryProvider>
-                <RouterProvider router={router} />
-              </ProposalRepositoryProvider>
-            </RepositoryProvider>
-          </ClerkProvider>
-        ) : (
-          <SetupNotice />
-        )}
+        <AppRoot />
         {/* Single app-wide toast surface (sonner). Mounted once here, inside the
             ThemeProvider it themes from, so any view can fire `toast(...)` —
             e.g. a failed inline/bulk Workboard edit — and have it announced. */}

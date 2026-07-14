@@ -19,6 +19,18 @@ export interface NetworkProposalRepositoryOptions {
 /** Default per-request timeout (ms). */
 const DEFAULT_TIMEOUT_MS = 15_000;
 
+/** Extract the API's `{ error }` message from a non-OK response, else a status fallback. */
+async function errorMessage(response: Response): Promise<string> {
+  let message = `Request failed (${response.status})`;
+  try {
+    const errorBody = (await response.json()) as { error?: unknown };
+    if (typeof errorBody?.error === "string") message = errorBody.error;
+  } catch {
+    // Non-JSON / empty body — keep the status-based message.
+  }
+  return message;
+}
+
 /**
  * The network {@link ProposalRepository} — the adapter behind the review inbox
  * against the real PR1/PR2 agent endpoints (Clerk-verified, tenant-scoped). It
@@ -50,18 +62,6 @@ export function createNetworkProposalRepository(
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
     });
-  }
-
-  /** Extract the API's `{ error }` message from a non-OK response, else a status fallback. */
-  async function errorMessage(response: Response): Promise<string> {
-    let message = `Request failed (${response.status})`;
-    try {
-      const errorBody = (await response.json()) as { error?: unknown };
-      if (typeof errorBody?.error === "string") message = errorBody.error;
-    } catch {
-      // Non-JSON / empty body — keep the status-based message.
-    }
-    return message;
   }
 
   /** Fetch + normalize like the work-items adapter: throw on non-OK, `204 ⇒ undefined`. */

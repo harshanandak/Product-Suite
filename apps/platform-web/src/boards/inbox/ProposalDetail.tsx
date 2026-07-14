@@ -38,21 +38,30 @@ type DisposeStatus =
   | { kind: "stale" }
   | { kind: "invalid" };
 
-/** A `role=status` disposition banner — the four terminal states share this shell. */
+/** Map an accept outcome to the terminal disposition it leaves the pane in. */
+function outcomeToStatus(result: AcceptResult): DisposeStatus {
+  if (result.outcome === "applied") return { kind: "applied", itemId: result.item.id };
+  if (result.outcome === "stale") return { kind: "stale" };
+  return { kind: "invalid" };
+}
+
+/** Border/surface classes per banner tone. */
+const BANNER_TONE = {
+  primary: "border-primary/40 bg-primary/5 text-foreground",
+  destructive: "border-destructive/40 bg-destructive/5 text-foreground",
+  muted: "border-border bg-muted text-muted-foreground",
+} as const;
+
+/** A status disposition banner (`<output>` = implicit role=status) — the four
+ *  terminal states share this shell. */
 function StatusBanner({
   tone,
   children,
-}: Readonly<{ tone: "primary" | "muted" | "destructive"; children: ReactNode }>) {
-  const toneClass =
-    tone === "primary"
-      ? "border-primary/40 bg-primary/5 text-foreground"
-      : tone === "destructive"
-        ? "border-destructive/40 bg-destructive/5 text-foreground"
-        : "border-border bg-muted text-muted-foreground";
+}: Readonly<{ tone: keyof typeof BANNER_TONE; children: ReactNode }>) {
   return (
-    <div role="status" className={cn("rounded-md border px-3 py-2 text-sm", toneClass)}>
+    <output className={cn("block rounded-md border px-3 py-2 text-sm", BANNER_TONE[tone])}>
       {children}
-    </div>
+    </output>
   );
 }
 
@@ -253,13 +262,7 @@ export function ProposalDetail({
     setError(null);
     void accept(proposal.id)
       .then((result) => {
-        setStatus(
-          result.outcome === "applied"
-            ? { kind: "applied", itemId: result.item.id }
-            : result.outcome === "stale"
-              ? { kind: "stale" }
-              : { kind: "invalid" },
-        );
+        setStatus(outcomeToStatus(result));
       })
       .catch((err: unknown) => {
         setError(
@@ -372,12 +375,9 @@ export function ProposalDetail({
 
       {/* Transport-error banner — a failed accept/reject is NEVER silent. */}
       {error ? (
-        <div
-          role="status"
-          className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive"
-        >
+        <output className="block rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
           {error}
-        </div>
+        </output>
       ) : null}
 
       {/* Actions / terminal disposition status */}

@@ -34,7 +34,7 @@ describe("proposal fixtures", () => {
     (first[0].payload as Record<string, unknown>).title = "MUTATED";
     first.pop();
     const pristine = createProposalFixtures();
-    expect(pristine.length).toBe(second.length);
+    expect(pristine).toHaveLength(second.length);
     expect(pristine[0].payload.title).not.toBe("MUTATED");
   });
 });

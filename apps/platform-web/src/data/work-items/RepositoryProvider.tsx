@@ -54,9 +54,9 @@ function getFixtureRepository(): WorkItemRepository {
  */
 export function RepositoryProvider({
   children,
-}: {
+}: Readonly<{
   children: ReactNode;
-}): ReactNode {
+}>): ReactNode {
   if (USE_FIXTURES) {
     return (
       <RepositoryContext.Provider value={getFixtureRepository()}>
@@ -79,9 +79,9 @@ export function RepositoryProvider({
  */
 function NetworkRepositoryProvider({
   children,
-}: {
+}: Readonly<{
   children: ReactNode;
-}): ReactNode {
+}>): ReactNode {
   const { getToken } = useAuth();
 
   // Keep the resolver current without changing the memo's identity: the adapter
