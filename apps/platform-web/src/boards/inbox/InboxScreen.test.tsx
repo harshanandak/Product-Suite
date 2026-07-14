@@ -1,12 +1,16 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ProposalRepository } from "@/data/proposals";
 import type { AcceptResult, Proposal } from "@/data/proposals";
 
+// Mutable search stub so a test can drive the `?proposal=<id>` deep-link.
+let searchMock: { proposal?: string } = {};
+
 vi.mock("@tanstack/react-router", () => ({
   useParams: () => ({ workspace: "acme" }),
+  useSearch: () => searchMock,
   // The detail pane renders TanStack Link; stub it as a plain anchor (drop the
   // router-only `to`/`params` props so they don't hit the DOM).
   Link: ({
@@ -53,6 +57,10 @@ function repoWith(proposals: Proposal[]): ProposalRepository {
 }
 
 describe("InboxScreen", () => {
+  beforeEach(() => {
+    searchMock = {};
+  });
+
   it("renders a list row per pending proposal", async () => {
     render(
       <InboxScreen
@@ -100,6 +108,34 @@ describe("InboxScreen", () => {
     // Clicking Beta's row swaps the detail pane to Beta.
     fireEvent.click(screen.getByRole("button", { name: /Beta/ }));
     expect(screen.getByText("Create work item “Beta”")).toBeInTheDocument();
+  });
+
+  it("preselects the deep-linked proposal from ?proposal=<id>", async () => {
+    searchMock = { proposal: "p2" };
+    render(
+      <InboxScreen
+        repository={repoWith([proposal("p1", "Alpha"), proposal("p2", "Beta")])}
+      />,
+    );
+    // The requested proposal (Beta), not the first row (Alpha), owns the pane.
+    await waitFor(() =>
+      expect(screen.getByText("Create work item “Beta”")).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByText("Create work item “Alpha”"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("falls back to the first proposal when the deep-linked id is not pending", async () => {
+    searchMock = { proposal: "gone" };
+    render(
+      <InboxScreen
+        repository={repoWith([proposal("p1", "Alpha"), proposal("p2", "Beta")])}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByText("Create work item “Alpha”")).toBeInTheDocument(),
+    );
   });
 
   it("ignores a row swap while an accept is in flight (keeps the acted-on pane)", async () => {
