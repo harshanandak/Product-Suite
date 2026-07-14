@@ -10,6 +10,13 @@ declare global {
     /** Set to "true" only on preview builds to enable the React Grab dev overlay. */
     readonly VITE_ENABLE_REACT_GRAB?: string;
     /**
+     * DEV-ONLY: set to "true" (via `bun run dev:fixtures`) to serve in-memory
+     * fixture data and bypass the Clerk auth gate for local visual review. Has
+     * NO effect in a production build — `import.meta.env.DEV` is compile-time
+     * `false` there, so the guard folds away (see `fixtures-mode.ts`).
+     */
+    readonly VITE_USE_FIXTURES?: string;
+    /**
      * Origin of the platform API (no trailing slash), e.g.
      * `https://api.example.com`. Empty/unset ⇒ same-origin `/api/*` (the Vite
      * dev proxy or a co-hosted deploy serves it).

@@ -38,6 +38,32 @@ Copy `.env.example` → `.env.local` and set:
 | `VITE_CLERK_PUBLISHABLE_KEY` | Clerk publishable key (`pk_test_…` / `pk_live_…`). Without it the app boots to a setup notice; with it, sign-in works end-to-end. |
 | `VITE_DEFAULT_WORKSPACE` | Default workspace slug for the post-sign-in redirect (`/w/<slug>`). Defaults to `befach-hq`. |
 
+## Fixtures / preview mode (DEV-ONLY)
+
+To review the UI (Workboard **and** the review inbox) populated with sample data
+— **no backend API, no Clerk key, no real proposals** — run:
+
+```bash
+bun run --cwd apps/platform-web dev:fixtures   # http://localhost:5180
+```
+
+Open `http://localhost:5180`; it redirects to `/w/befach-hq` (the Workboard). The
+review inbox is at `/w/befach-hq/inbox` — the bell icon in the top bar links there.
+Both surfaces render mock fixtures, and the two `update` proposals show a real
+`current → proposed` field diff against the seeded work items.
+
+`dev:fixtures` runs `vite --mode fixtures`, which loads `.env.fixtures`
+(`VITE_USE_FIXTURES=true`). If your shell can't run the script, set the var
+manually before `bun run dev` (PowerShell: `$env:VITE_USE_FIXTURES="true"`).
+
+**Prod safety:** the fixtures + auth bypass are gated on
+`import.meta.env.DEV && import.meta.env.VITE_USE_FIXTURES === "true"` in
+[`src/fixtures-mode.ts`](./src/fixtures-mode.ts). `import.meta.env.DEV` is
+compile-time `false` in a production build, so the guard folds to `false` and
+every branch behind it (the Clerk bypass, the fixture repositories) is
+**dead-code-eliminated** from the shipped bundle — a production build can never
+serve fixtures or skip sign-in.
+
 ## Deploy (Cloudflare)
 
 Hosted as a Workers Static Assets site (see [`wrangler.jsonc`](./wrangler.jsonc)).
