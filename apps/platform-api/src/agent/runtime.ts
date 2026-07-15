@@ -2,6 +2,7 @@ import { convertToModelMessages, stepCountIs, streamText, type LanguageModel, ty
 
 import type { Sql } from '@product-suite/db'
 
+import { insertAttributions, retrieveForContext } from './memory-retrieval'
 import { buildTools } from './tools'
 import { touchThread } from './threads-repository'
 
@@ -163,8 +164,11 @@ async function mintRun(
 ): Promise<string> {
   const rows = await runQuery<{ id: string }>(
     sql,
-    `insert into "agent_runs" ("tenant_id", "triggered_by", "kind", "status", "thread_id")
-     values ($1, $2, 'chat', 'running', $3) returning id`,
+    // memory_holdout is assigned at run start — always false in P1 (the P2 holdout
+    // assigns true for ~10% of runs to measure the moat). A literal, not a param, so
+    // the mint's bound params stay [tenant_id, triggered_by, thread_id].
+    `insert into "agent_runs" ("tenant_id", "triggered_by", "kind", "status", "thread_id", "memory_holdout")
+     values ($1, $2, 'chat', 'running', $3, false) returning id`,
     [tenantId, userId, threadId ?? null],
   )
   const id = rows[0]?.id
@@ -227,6 +231,24 @@ export async function runAgentChat(
   const runId = await mintRun(sql, ctx.tenantId, ctx.userId, ctx.threadId)
   const modelId = resolveModelId(ctx.model)
   const tools = buildTools(sql, { tenantId: ctx.tenantId, userId: ctx.userId, runId, modelId })
+
+  // Deterministic memory injection (design: AFTER mintRun, no model in the loop, so
+  // attribution is causal). Retrieve the org's scope-cascade active decisions/facts,
+  // fence them as untrusted data (appended AFTER the base prompt), and write ONE
+  // `run_memory_attributions` row per injected memory (injected_via='retrieved') — the
+  // moat rail. Best-effort: a retrieval/attribution failure must never strand the run.
+  let memoryFence = ''
+  try {
+    const memory = await retrieveForContext(sql, { tenantId: ctx.tenantId, scope: ctx.scope })
+    memoryFence = memory.fenced
+    await insertAttributions(
+      sql,
+      { runId, tenantId: ctx.tenantId, via: 'retrieved' },
+      memory.injected.map((m) => ({ memoryId: m.memoryId, rank: m.rank, tokens: m.tokens })),
+    )
+  } catch (cause) {
+    console.error('[agent-runtime] memory injection failed', { runId, cause })
+  }
   // Step count is captured here (streamText.onFinish) and read when the UI stream
   // settles, so the persisted delta records how many tool/reasoning steps it took.
   let stepCount = 0
@@ -241,7 +263,9 @@ export async function runAgentChat(
     const modelMessages = await convertToModelMessages(capped)
     result = streamText({
       model: ctx.model,
-      system: buildSystemPrompt(ctx.scope),
+      // The fenced memory block is appended AFTER the (already-truncated) base prompt —
+      // untrusted data, never instructions. Empty string when nothing was retrieved.
+      system: buildSystemPrompt(ctx.scope) + memoryFence,
       messages: modelMessages,
       tools,
       stopWhen: stepCountIs(8),

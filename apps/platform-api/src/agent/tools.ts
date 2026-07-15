@@ -4,6 +4,7 @@ import { z } from 'zod'
 import type { Sql } from '@product-suite/db'
 
 import { createProposal } from '../proposals/repository'
+import { insertAttributions, resolveChain, searchMemories } from './memory-retrieval'
 import { retrieve, type ItemHit } from './retrieve'
 
 /** The prompt template version stamped on every proposal for the decision corpus. */
@@ -139,6 +140,34 @@ export function buildTools(sql: Sql, ctx: ToolContext): ToolSet {
       }),
       execute: async ({ query, limit }): Promise<ItemHit[]> =>
         retrieve(sql, { tenantIds: ctx.tenantId ? [ctx.tenantId] : [] }, query, limit ?? 8),
+    }),
+
+    search_memory: tool({
+      description:
+        "Search your organization's logged decisions and facts (the memory brain) by text — read this to ground proposals in the org's ACTUAL decisions, not guesses. Returns compact hits (id, kind, title, status, topics). Set include_chain to also get a memory's full supersession history (\"why did this flip?\").",
+      inputSchema: z.object({
+        query: z.string(),
+        limit: z.number().int().min(1).max(25).optional(),
+        include_chain: z.boolean().optional(),
+      }),
+      execute: async ({ query, limit, include_chain }) => {
+        if (!ctx.tenantId) return { hits: [] }
+        const hits = await searchMemories(sql, ctx.tenantId, query, limit ?? 8)
+        // Every returned memory logs an attribution (injected_via='tool') — the moat
+        // rail. Best-effort: a logging failure must not fail the tool result.
+        if (hits.length > 0) {
+          await insertAttributions(
+            sql,
+            { runId: ctx.runId, tenantId: ctx.tenantId, via: 'tool' },
+            hits.map((h, i) => ({ memoryId: h.id, rank: i, tokens: null })),
+          ).catch((cause) => console.error('[search_memory] attribution failed', cause))
+        }
+        if (include_chain && hits.length > 0) {
+          const chains = await Promise.all(hits.map((h) => resolveChain(sql, ctx.tenantId, h.root_id)))
+          return { hits, chains }
+        }
+        return { hits }
+      },
     }),
 
     propose_create: tool({

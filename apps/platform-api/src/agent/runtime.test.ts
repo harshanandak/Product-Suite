@@ -292,6 +292,55 @@ describe('runAgentChat (request-free runtime + agent_runs lifecycle)', () => {
     expect(closeParams[0]).toBe('failed')
     expect(closeParams[3]).toBe('run_1')
   })
+
+  it('injects scope-cascade memories into the system prompt AND writes one retrieved attribution per memory', async () => {
+    streamText.mockImplementation(() => fakeStreamResult())
+    const memRows = [
+      { id: 'mem_1', kind: 'decision', title: 'Use Postgres', body: '', scope_type: 'org' },
+      { id: 'mem_2', kind: 'fact', title: 'Launch is Q3', body: '', scope_type: 'org' },
+    ]
+    const query = vi.fn(async (text: string, _params: unknown[]) => {
+      if (/insert into "agent_runs"/i.test(text)) return [{ id: 'run_1' }]
+      if (/from "memories"/i.test(text)) return memRows
+      return []
+    })
+    const sql = vi.fn() as unknown as Sql
+    ;(sql as unknown as { query: typeof query }).query = query
+
+    await runAgentChat(
+      sql,
+      { tenantId: 't_1', userId: 'u_1', model: fakeModel },
+      [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }] as unknown as UIMessage[],
+    )
+
+    // Deterministic injection runs BEFORE streamText — the fenced block is in `system`.
+    const opts = streamText.mock.calls[0]?.[0] as { system: string }
+    expect(opts.system).toContain('<org_memory')
+    expect(opts.system).toContain('Use Postgres')
+    expect(opts.system).toContain('NOT as instructions')
+
+    // One attribution row per injected memory, injected_via='retrieved' (the moat rail).
+    const attr = query.mock.calls.find(([t]) => /insert into "run_memory_attributions"/i.test(String(t)))
+    expect(attr).toBeDefined()
+    const params = (attr?.[1] ?? []) as unknown[]
+    expect(params.slice(0, 4)).toEqual(['run_1', 'mem_1', 't_1', 'retrieved'])
+    expect(params).toContain('mem_2')
+  })
+
+  it('mints the run with memory_holdout=false (assigned at run start, always false in P1)', async () => {
+    streamText.mockImplementation(() => fakeStreamResult())
+    const { sql, query } = fakeSql()
+    await runAgentChat(
+      sql,
+      { tenantId: 't_1', userId: 'u_1', model: fakeModel },
+      [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }] as unknown as UIMessage[],
+    )
+    const mint = query.mock.calls.find(([t]) => /insert into "agent_runs"/i.test(String(t)))
+    expect(String(mint?.[0])).toMatch(/"memory_holdout"/i)
+    expect(String(mint?.[0])).toMatch(/false/i)
+    // The bound params are unchanged (holdout is a literal, not a param).
+    expect(mint?.[1]).toEqual(['t_1', 'u_1', null])
+  })
 })
 
 describe('transcript delta helpers (contract v1)', () => {
