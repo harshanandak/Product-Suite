@@ -343,6 +343,27 @@ describe("ProposalDetail", () => {
     expect(screen.getAllByText("→").length).toBeGreaterThan(0);
   });
 
+  it("(memory retract) fetches the target and shows its TITLE in the header, not the raw uuid", async () => {
+    itemsMock.items = [];
+    memoryMock.get.mockResolvedValueOnce({
+      memory: { id: "3f2a-mem", title: "Use Postgres", body: "", topics: [] } as unknown,
+      chain: [],
+    });
+    renderDetail(
+      proposal({
+        target_type: "memory",
+        target_id: "3f2a-mem",
+        operation: "retract",
+        payload: {},
+      }),
+    );
+    // The destructive op is identified by the memory's title, not the opaque uuid.
+    await waitFor(() =>
+      expect(screen.getByText(/Retract “Use Postgres”/)).toBeInTheDocument(),
+    );
+    expect(memoryMock.get).toHaveBeenCalledWith("3f2a-mem");
+  });
+
   it("renders provenance fine-print and a collapsible raw payload", () => {
     itemsMock.items = [];
     renderDetail(proposal());

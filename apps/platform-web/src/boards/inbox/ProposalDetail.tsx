@@ -483,12 +483,14 @@ export function ProposalDetail({
       ? undefined
       : items.find((item) => item.id === proposal.target_id);
 
-  // A memory supersede shows current → proposed, so fetch the target memory by id
-  // (it may not be in any loaded list). Only fetched for a memory supersede.
+  // Every non-create memory op (supersede/retract/defer) NAMES a target, so fetch it
+  // by id (it may not be in any loaded list) — a supersede needs it for the
+  // current → proposed diff, and retract/defer need its TITLE in the header so the
+  // reviewer never approves a destructive op identified only by a raw uuid.
   const { get: getMemory } = useMemories();
   const [memoryTarget, setMemoryTarget] = useState<MemoryRow | undefined>(undefined);
   useEffect(() => {
-    if (!isMemory || proposal.operation !== "supersede" || !proposal.target_id) {
+    if (!isMemory || proposal.operation === "create" || !proposal.target_id) {
       setMemoryTarget(undefined);
       return;
     }
