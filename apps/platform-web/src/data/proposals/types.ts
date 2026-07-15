@@ -16,12 +16,19 @@ import type { WorkItem } from "@/data/work-items";
  */
 export interface Proposal {
   readonly id: string;
-  /** Only work items are proposable today. */
-  readonly target_type: "work_item";
-  /** The item an `update` targets; `null` for a `create`. */
+  /**
+   * What the proposal writes to. `work_item` patches the workboard; `memory`
+   * (P1b) logs/changes an organizational memory (a decision/fact/rule) — both
+   * disposed of in the same Review Inbox.
+   */
+  readonly target_type: "work_item" | "memory";
+  /** The item/memory a non-create op targets; `null` for a `create`. */
   readonly target_id: string | null;
-  /** Whether accepting creates a new item or patches `target_id`. */
-  readonly operation: "create" | "update";
+  /**
+   * How `accept` applies the payload. `work_item`: `create` | `update`.
+   * `memory`: `create` | `supersede` | `retract` | `defer`.
+   */
+  readonly operation: "create" | "update" | "supersede" | "retract" | "defer";
   /**
    * The fields `accept` applies — a full item for `create`, the changed fields
    * for `update`. Deliberately `Record<string, unknown>`: the backend owns the

@@ -12,6 +12,15 @@ vi.mock("@/data/work-items", () => ({
   useWorkItems: () => ({ items: itemsMock.items }),
 }));
 
+// The memory surface fetches a supersede target through the memories hook; stub
+// `get` so the current → proposed diff is deterministic.
+const memoryMock = vi.hoisted(() => ({
+  get: vi.fn(async (_id: string) => ({ memory: undefined as unknown, chain: [] })),
+}));
+vi.mock("@/data/memories", () => ({
+  useMemories: () => ({ get: memoryMock.get }),
+}));
+
 // Render TanStack Link as a plain anchor so the detail can render without a router.
 vi.mock("@tanstack/react-router", () => ({
   Link: ({
@@ -240,6 +249,70 @@ describe("ProposalDetail", () => {
     expect(
       screen.queryByRole("button", { name: "Reject" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("(memory create) renders the log sentence, body as primary, and a kind row", () => {
+    itemsMock.items = [];
+    renderDetail(
+      proposal({
+        target_type: "memory",
+        target_id: null,
+        operation: "create",
+        payload: {
+          kind: "decision",
+          title: "Use Postgres",
+          body: "We picked Postgres over Mongo.",
+          topics: ["db"],
+        },
+        rationale: "Recorded from the call.",
+      }),
+    );
+    expect(screen.getByText("Log a decision: “Use Postgres”")).toBeInTheDocument();
+    // The memory body is the primary content being logged.
+    expect(screen.getByText("We picked Postgres over Mongo.")).toBeInTheDocument();
+    // Kind + topics render as attribute rows.
+    expect(screen.getByText("kind")).toBeInTheDocument();
+    const kindRow = screen.getByText("kind").closest("div");
+    expect(kindRow).toHaveTextContent("decision");
+    expect(screen.getByText("topics")).toBeInTheDocument();
+    // No work-item "View target item" link for a memory.
+    expect(screen.queryByText(/View target item/)).not.toBeInTheDocument();
+  });
+
+  it("(memory supersede) shows change_reason + current → proposed from the fetched target", async () => {
+    itemsMock.items = [];
+    memoryMock.get.mockResolvedValueOnce({
+      memory: {
+        id: "mem_1",
+        title: "Use Postgres",
+        body: "We picked Postgres.",
+        topics: ["db"],
+      } as unknown,
+      chain: [],
+    });
+    renderDetail(
+      proposal({
+        target_type: "memory",
+        target_id: "mem_1",
+        operation: "supersede",
+        payload: {
+          change_reason: "Mongo was chosen instead",
+          title: "Use MongoDB",
+          body: "We switched to Mongo.",
+        },
+      }),
+    );
+    // The target fetch resolves → the sentence names the target and the diff fills.
+    await waitFor(() =>
+      expect(screen.getByText(/Supersede Use Postgres:/)).toBeInTheDocument(),
+    );
+    expect(memoryMock.get).toHaveBeenCalledWith("mem_1");
+    expect(screen.getByText(/Mongo was chosen instead/)).toBeInTheDocument();
+    // current → proposed for the overridden title.
+    const titleRow = screen.getByText("title").closest("div");
+    expect(titleRow).toHaveTextContent("Use Postgres");
+    expect(titleRow).toHaveTextContent("Use MongoDB");
+    expect(screen.getAllByText("→").length).toBeGreaterThan(0);
   });
 
   it("renders provenance fine-print and a collapsible raw payload", () => {

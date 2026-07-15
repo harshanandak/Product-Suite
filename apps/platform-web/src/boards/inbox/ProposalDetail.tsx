@@ -1,11 +1,12 @@
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
 import { Link } from "@tanstack/react-router";
 
 import { Badge, Button, Textarea, cn } from "@product-suite/ui";
 
+import { useMemories, type MemoryRow } from "@/data/memories";
 import type { AcceptResult, Proposal } from "@/data/proposals";
-import { useWorkItems } from "@/data/work-items";
+import { useWorkItems, type WorkItem } from "@/data/work-items";
 
 import {
   buildFieldRows,
@@ -13,6 +14,14 @@ import {
   formatConfidence,
   formatCreatedAt,
 } from "./field-diff";
+import {
+  buildMemoryCreateRows,
+  buildMemoryDeferRows,
+  buildMemorySupersedeRows,
+  describeMemoryOperation,
+  memoryBody,
+  memoryChangeReason,
+} from "./memory-diff";
 
 /** Skippable, one-tap reject reasons (the reason itself stays optional). */
 const REJECT_CHIPS = ["wrong target", "bad data", "not needed"] as const;
@@ -213,6 +222,220 @@ function DispositionBlock({
   );
 }
 
+/** The muted confidence badge shared by both decision surfaces (hidden when null). */
+function ConfidenceBadge({ confidence }: Readonly<{ confidence: string | null }>) {
+  if (!confidence) return null;
+  return (
+    <Badge
+      variant="outline"
+      className="flex-none font-mono text-[11px] text-muted-foreground"
+      title="Model confidence"
+    >
+      {confidence}
+    </Badge>
+  );
+}
+
+/** The primary rationale paragraph (or a muted placeholder) shared by both surfaces. */
+function Rationale({ text }: Readonly<{ text: string | null }>) {
+  if (text) {
+    return <p className="text-sm leading-relaxed text-foreground">{text}</p>;
+  }
+  return <p className="text-sm italic text-muted-foreground">No rationale provided.</p>;
+}
+
+/**
+ * The WORK-ITEM decision surface (unchanged from PR3): operation sentence +
+ * confidence + target link, the rationale, and the field-diff table (`field | value`
+ * for a create, `field | current → proposed` for the changed fields of an update).
+ */
+function WorkItemSurface({
+  proposal,
+  target,
+  workspace,
+}: Readonly<{ proposal: Proposal; target: WorkItem | undefined; workspace: string }>) {
+  const rows = buildFieldRows(proposal, target);
+  const sentence = describeOperation(proposal, target, rows.length);
+  const confidence = formatConfidence(proposal.confidence);
+  const isUpdate = proposal.operation === "update";
+
+  return (
+    <>
+      <header className="flex flex-col gap-2">
+        <div className="flex items-start justify-between gap-3">
+          <h2 className="text-base font-semibold text-foreground">{sentence}</h2>
+          <ConfidenceBadge confidence={confidence} />
+        </div>
+        {proposal.target_id ? (
+          <Link
+            to="/w/$workspace/workboard/item/$itemId"
+            params={{ workspace, itemId: proposal.target_id }}
+            className="w-fit text-xs text-primary hover:underline"
+          >
+            View target item →
+          </Link>
+        ) : null}
+      </header>
+
+      <Rationale text={proposal.rationale} />
+
+      <div className="overflow-hidden rounded-md border border-border">
+        <div className="border-b border-border bg-muted/50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          {isUpdate ? "Changes" : "Fields"}
+        </div>
+        {rows.length === 0 ? (
+          <p className="px-3 py-3 text-sm text-muted-foreground">No field changes.</p>
+        ) : (
+          <dl className="divide-y divide-border">
+            {rows.map((row) => (
+              <div
+                key={row.field}
+                className="grid grid-cols-[minmax(6rem,8rem)_1fr] gap-3 px-3 py-2 text-sm"
+              >
+                <dt className="truncate font-mono text-xs text-muted-foreground">{row.field}</dt>
+                <dd className="min-w-0">
+                  {row.current === undefined ? (
+                    <span className="break-words text-foreground">{row.proposed}</span>
+                  ) : (
+                    <span className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-muted-foreground">{row.current}</span>
+                      <span aria-hidden className="text-muted-foreground">
+                        →
+                      </span>
+                      <span className="font-medium text-foreground">{row.proposed}</span>
+                    </span>
+                  )}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        )}
+      </div>
+    </>
+  );
+}
+
+/** A labelled attribute row (`label | value`) on the memory surface. */
+function MemoryAttrRows({
+  rows,
+}: Readonly<{ rows: { label: string; value: string }[] }>) {
+  if (rows.length === 0) return null;
+  return (
+    <dl className="divide-y divide-border">
+      {rows.map((row) => (
+        <div
+          key={row.label}
+          className="grid grid-cols-[minmax(6rem,8rem)_1fr] gap-3 px-3 py-2 text-sm"
+        >
+          <dt className="truncate font-mono text-xs text-muted-foreground">{row.label}</dt>
+          <dd className="min-w-0 break-words text-foreground">{row.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/** The supersede `current → proposed` diff table for the overridden memory fields. */
+function MemorySupersedeDiff({
+  proposal,
+  target,
+}: Readonly<{ proposal: Proposal; target: MemoryRow | undefined }>) {
+  const rows = buildMemorySupersedeRows(proposal, target);
+  if (rows.length === 0) {
+    return <p className="px-3 py-3 text-sm text-muted-foreground">No field changes.</p>;
+  }
+  return (
+    <dl className="divide-y divide-border">
+      {rows.map((row) => (
+        <div
+          key={row.field}
+          className="grid grid-cols-[minmax(6rem,8rem)_1fr] gap-3 px-3 py-2 text-sm"
+        >
+          <dt className="truncate font-mono text-xs text-muted-foreground">{row.field}</dt>
+          <dd className="min-w-0">
+            <span className="flex flex-wrap items-center gap-1.5">
+              <span className="text-muted-foreground">{row.current}</span>
+              <span aria-hidden className="text-muted-foreground">
+                →
+              </span>
+              <span className="font-medium text-foreground">{row.proposed}</span>
+            </span>
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/**
+ * The MEMORY decision surface (P1b): the operation sentence, the memory BODY as the
+ * visually primary block (the rationale being logged), then the operation-specific
+ * detail — a create's kind/topics/scope rows, a supersede's change_reason +
+ * current→proposed diff (target fetched via the memories adapter), or a defer's
+ * waiting-on/review-after context. Accept / Reject are the SHARED disposition below.
+ */
+function MemorySurface({
+  proposal,
+  target,
+}: Readonly<{ proposal: Proposal; target: MemoryRow | undefined }>) {
+  const isSupersede = proposal.operation === "supersede";
+  const changedCount = isSupersede
+    ? buildMemorySupersedeRows(proposal, target).length
+    : 0;
+  const sentence = describeMemoryOperation(proposal, target, changedCount);
+  const confidence = formatConfidence(proposal.confidence);
+  const body = memoryBody(proposal);
+  const changeReason = memoryChangeReason(proposal);
+
+  return (
+    <>
+      <header className="flex items-start justify-between gap-3">
+        <h2 className="text-base font-semibold text-foreground">{sentence}</h2>
+        <ConfidenceBadge confidence={confidence} />
+      </header>
+
+      {/* the memory body (the content being logged) — visually primary */}
+      {body ? (
+        <p className="text-sm leading-relaxed text-foreground">{body}</p>
+      ) : proposal.operation === "create" || isSupersede ? (
+        <p className="text-sm italic text-muted-foreground">No body provided.</p>
+      ) : null}
+
+      {/* the agent's rationale for proposing — secondary */}
+      {proposal.rationale ? (
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          <span className="font-medium">Why proposed: </span>
+          {proposal.rationale}
+        </p>
+      ) : null}
+
+      {isSupersede && changeReason ? (
+        <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-foreground">
+          <span className="font-medium">Change reason: </span>
+          {changeReason}
+        </p>
+      ) : null}
+
+      <div className="overflow-hidden rounded-md border border-border">
+        <div className="border-b border-border bg-muted/50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          {isSupersede ? "Changes" : "Details"}
+        </div>
+        {isSupersede ? (
+          <MemorySupersedeDiff proposal={proposal} target={target} />
+        ) : proposal.operation === "create" ? (
+          <MemoryAttrRows rows={buildMemoryCreateRows(proposal)} />
+        ) : proposal.operation === "defer" ? (
+          <MemoryAttrRows rows={buildMemoryDeferRows(proposal)} />
+        ) : (
+          <p className="px-3 py-3 text-sm text-muted-foreground">
+            Retract this memory (it will no longer be surfaced).
+          </p>
+        )}
+      </div>
+    </>
+  );
+}
+
 /**
  * The decision surface — *what will actually change* (Agent Slice PR3, Task 3).
  * Layered top-down: (a) the operation sentence + confidence, (b) the rationale
@@ -233,17 +456,38 @@ export function ProposalDetail({
   isMutating,
   workspace,
 }: Readonly<ProposalDetailProps>) {
-  // The target's current values feed the update diff + the operation sentence.
+  const isMemory = proposal.target_type === "memory";
+
+  // The work-item update diff reads the target's CURRENT values from the loaded list.
   const { items } = useWorkItems();
-  const target =
-    proposal.target_id === null
+  const workItemTarget =
+    isMemory || proposal.target_id === null
       ? undefined
       : items.find((item) => item.id === proposal.target_id);
 
-  const rows = buildFieldRows(proposal, target);
-  const sentence = describeOperation(proposal, target, rows.length);
-  const confidence = formatConfidence(proposal.confidence);
-  const isUpdate = proposal.operation === "update";
+  // A memory supersede shows current → proposed, so fetch the target memory by id
+  // (it may not be in any loaded list). Only fetched for a memory supersede.
+  const { get: getMemory } = useMemories();
+  const [memoryTarget, setMemoryTarget] = useState<MemoryRow | undefined>(undefined);
+  useEffect(() => {
+    if (!isMemory || proposal.operation !== "supersede" || !proposal.target_id) {
+      setMemoryTarget(undefined);
+      return;
+    }
+    let cancelled = false;
+    void getMemory(proposal.target_id)
+      .then((detail) => {
+        if (!cancelled) setMemoryTarget(detail.memory);
+      })
+      .catch(() => {
+        // A failed target fetch is non-fatal: the diff falls back to an em-dash
+        // current (buildMemorySupersedeRows), never a blank or a crashed pane.
+        if (!cancelled) setMemoryTarget(undefined);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isMemory, proposal.operation, proposal.target_id, getMemory]);
 
   const [status, setStatus] = useState<DisposeStatus>({ kind: "idle" });
   const [rejecting, setRejecting] = useState(false);
@@ -295,83 +539,12 @@ export function ProposalDetail({
 
   return (
     <section className="flex flex-col gap-5">
-      {/* (a) operation sentence + confidence + target link */}
-      <header className="flex flex-col gap-2">
-        <div className="flex items-start justify-between gap-3">
-          <h2 className="text-base font-semibold text-foreground">{sentence}</h2>
-          {confidence ? (
-            <Badge
-              variant="outline"
-              className="flex-none font-mono text-[11px] text-muted-foreground"
-              title="Model confidence"
-            >
-              {confidence}
-            </Badge>
-          ) : null}
-        </div>
-        {proposal.target_id ? (
-          <Link
-            to="/w/$workspace/workboard/item/$itemId"
-            params={{ workspace, itemId: proposal.target_id }}
-            className="w-fit text-xs text-primary hover:underline"
-          >
-            View target item →
-          </Link>
-        ) : null}
-      </header>
-
-      {/* (b) rationale — visually primary */}
-      {proposal.rationale ? (
-        <p className="text-sm leading-relaxed text-foreground">
-          {proposal.rationale}
-        </p>
+      {/* The decision surface — what `accept` applies — branches on target_type. */}
+      {isMemory ? (
+        <MemorySurface proposal={proposal} target={memoryTarget} />
       ) : (
-        <p className="text-sm italic text-muted-foreground">
-          No rationale provided.
-        </p>
+        <WorkItemSurface proposal={proposal} target={workItemTarget} workspace={workspace} />
       )}
-
-      {/* (c) field rows — never a JSON blob (PR3.5 edit extension point) */}
-      <div className="overflow-hidden rounded-md border border-border">
-        <div className="border-b border-border bg-muted/50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          {isUpdate ? "Changes" : "Fields"}
-        </div>
-        {rows.length === 0 ? (
-          <p className="px-3 py-3 text-sm text-muted-foreground">
-            No field changes.
-          </p>
-        ) : (
-          <dl className="divide-y divide-border">
-            {rows.map((row) => (
-              <div
-                key={row.field}
-                className="grid grid-cols-[minmax(6rem,8rem)_1fr] gap-3 px-3 py-2 text-sm"
-              >
-                <dt className="truncate font-mono text-xs text-muted-foreground">
-                  {row.field}
-                </dt>
-                <dd className="min-w-0">
-                  {row.current === undefined ? (
-                    <span className="break-words text-foreground">
-                      {row.proposed}
-                    </span>
-                  ) : (
-                    <span className="flex flex-wrap items-center gap-1.5">
-                      <span className="text-muted-foreground">{row.current}</span>
-                      <span aria-hidden className="text-muted-foreground">
-                        →
-                      </span>
-                      <span className="font-medium text-foreground">
-                        {row.proposed}
-                      </span>
-                    </span>
-                  )}
-                </dd>
-              </div>
-            ))}
-          </dl>
-        )}
-      </div>
 
       {/* Transport-error banner — a failed accept/reject is NEVER silent. */}
       {error ? (

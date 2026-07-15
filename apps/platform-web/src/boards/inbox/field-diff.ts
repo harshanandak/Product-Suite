@@ -1,6 +1,8 @@
 import type { Proposal } from "@/data/proposals";
 import type { WorkItem } from "@/data/work-items";
 
+import { memoryListTitle } from "./memory-diff";
+
 /**
  * One row of the proposal field table — the decision surface's core. For a
  * `create` only `proposed` is set; for an `update` both `current` and `proposed`
@@ -138,6 +140,7 @@ export function describeOperation(
 
 /** Short label for a proposal in the list (no target fetch available there). */
 export function proposalListTitle(proposal: Proposal): string {
+  if (proposal.target_type === "memory") return memoryListTitle(proposal);
   if (proposal.operation === "create") {
     const title = proposal.payload.title;
     return typeof title === "string" && title.length > 0
