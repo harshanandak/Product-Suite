@@ -287,8 +287,13 @@ export function buildTools(sql: Sql, ctx: ToolContext): ToolSet {
             return { proposed: false, error: 'change_reason is required to supersede a memory' }
           }
           const payload: Record<string, unknown> = { change_reason: changeReason }
-          if (args.title !== undefined) payload.title = args.title
-          if (args.body !== undefined) payload.body = args.body
+          // Trim and forward only NON-EMPTY overrides: an empty title/body must send
+          // `undefined` (omit the key) so the domain's coalesce keeps the old value —
+          // never `''`, which would silently blank the field and show a "0 changes" diff.
+          const title = (args.title ?? '').trim()
+          if (title) payload.title = title
+          const body = (args.body ?? '').trim()
+          if (body) payload.body = body
           if (args.topics !== undefined) payload.topics = args.topics
           return proposeMemory('supersede', payload, rationale, targetId)
         }

@@ -195,6 +195,21 @@ describe('buildTools (ToolRegistry)', () => {
     expect(input.payload).toMatchObject({ body: 'Reversed', change_reason: 'Mongo chosen' })
   })
 
+  it('propose_memory (supersede) drops an empty title/body so the domain keeps the old value', async () => {
+    createProposal.mockResolvedValue({ id: 'mprop_blank' })
+    const { sql } = fakeSql([{ id: 'mem_9', tenant_id: 't_1' }])
+    const tools = buildTools(sql, { tenantId: 't_1', userId: 'u_1', runId: 'run_1', modelId: 'm/1' })
+    const result = await tools.propose_memory?.execute?.(
+      { operation: 'supersede', target_id: 'mem_9', title: '   ', body: 'Reversed', change_reason: 'Mongo chosen' },
+      opts,
+    )
+    expect(result).toEqual({ proposed: true, proposal_id: 'mprop_blank' })
+    const input = createProposal.mock.calls[0]?.[1] as Record<string, unknown>
+    // Empty title is omitted entirely (never forwarded as ''); the real body survives.
+    expect(input.payload).not.toHaveProperty('title')
+    expect(input.payload).toMatchObject({ body: 'Reversed', change_reason: 'Mongo chosen' })
+  })
+
   it('propose_memory rejects a FOREIGN supersede target (tenant isolation — never proposed)', async () => {
     // The ownership check returns nothing → the target is not the caller-org's memory.
     const { sql } = fakeSql([])

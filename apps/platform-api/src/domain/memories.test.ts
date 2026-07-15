@@ -105,6 +105,18 @@ describe('supersedeMemory (append-only versioning)', () => {
     ).rejects.toMatchObject({ code: 'change_reason_required' })
   })
 
+  it('rejects a provided-but-blank title/body as invalid_input (never silently blanks the field)', async () => {
+    const { sql, query } = mockSql(() => [ROW])
+    await expect(
+      supersedeMemory(sql, { tenantIds: ['t_1'], actor: 'u_1' }, 'm_1', { changeReason: 'x', title: '   ' }),
+    ).rejects.toMatchObject({ code: 'invalid_input' })
+    await expect(
+      supersedeMemory(sql, { tenantIds: ['t_1'], actor: 'u_1' }, 'm_1', { changeReason: 'x', body: '' }),
+    ).rejects.toMatchObject({ code: 'invalid_input' })
+    // The blank never reached the CTE write.
+    expect(query.mock.calls.some(([t]) => /with "latched" as/i.test(String(t)))).toBe(false)
+  })
+
   it('is not_found for a foreign/unknown id (no cross-tenant leak)', async () => {
     const { sql } = mockSql((text) => (/select \* from "memories"/i.test(text) ? [] : []))
     await expect(

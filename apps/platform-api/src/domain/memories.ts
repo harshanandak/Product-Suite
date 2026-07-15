@@ -294,6 +294,15 @@ export async function supersedeMemory(
   if (!changeReason) {
     throw new DomainError('change_reason_required', 'change_reason is required to supersede a memory')
   }
+  // A provided-but-blank title/body would `coalesce('', <old>)` to the EMPTY string,
+  // silently blanking the field (and the Inbox diff would drop it → a misleading "0
+  // changes"). Reject it: to KEEP a field, omit it (undefined ⇒ inherits the old row).
+  if (input.title !== undefined && input.title.trim() === '') {
+    throw new DomainError('invalid_input', 'title cannot be blanked on supersede (omit it to keep the current title)')
+  }
+  if (input.body !== undefined && input.body.trim() === '') {
+    throw new DomainError('invalid_input', 'body cannot be blanked on supersede (omit it to keep the current body)')
+  }
   // Ownership first: a foreign/unknown id is not_found (never a cross-tenant leak).
   const existing = await getMemoryScoped(sql, id, ctx.tenantIds)
   if (!existing) throw new DomainError('not_found', 'Not found')
