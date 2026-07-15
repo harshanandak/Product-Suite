@@ -66,6 +66,7 @@ describe('POST /api/agent/chat', () => {
       .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId
     // The runtime writes through sql.query(text, params): run mint, proposal, close.
     const sqlQuery = vi.fn(async (text: string, _params?: unknown[]) => {
+      if (/insert into "chat_threads"/i.test(text)) return [{ id: 'thread_1' }]
       if (/insert into "agent_runs"/i.test(text)) return [{ id: 'run_1' }]
       if (/insert into "proposals"/i.test(text)) return [{ id: 'prop_1' }]
       return []
@@ -109,9 +110,11 @@ describe('POST /api/agent/chat', () => {
     sql
       .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
       .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId
-    const sqlQuery = vi.fn(async (text: string) =>
-      /insert into "agent_runs"/i.test(text) ? [{ id: 'run_1' }] : [],
-    )
+    const sqlQuery = vi.fn(async (text: string) => {
+      if (/insert into "chat_threads"/i.test(text)) return [{ id: 'thread_1' }]
+      if (/insert into "agent_runs"/i.test(text)) return [{ id: 'run_1' }]
+      return []
+    })
     ;(sql as unknown as { query: typeof sqlQuery }).query = sqlQuery
     createSql.mockReturnValue(sql)
 
@@ -129,6 +132,77 @@ describe('POST /api/agent/chat', () => {
     expect(captured?.system).toContain('workspace="befach-hq"')
     // The user-authored title is never forwarded into the system prompt.
     expect(captured?.system).not.toContain('Ship auth')
+  })
+
+  it('server-creates the thread on the first POST and returns its id (x-thread-id), stamping it on the run', async () => {
+    streamText.mockImplementation((opts: MockStreamOpts) => {
+      void opts.onFinish({ text: 'done', response: { messages: [] }, steps: [] })
+      return {
+        consumeStream: vi.fn(async () => undefined),
+        toUIMessageStreamResponse: () => new Response('stream', { status: 200 }),
+      }
+    })
+
+    const sql = vi.fn()
+    sql
+      .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
+      .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId
+    const sqlQuery = vi.fn(async (text: string, _params?: unknown[]) => {
+      if (/insert into "chat_threads"/i.test(text)) return [{ id: 'thread_1' }]
+      if (/insert into "agent_runs"/i.test(text)) return [{ id: 'run_1' }]
+      return []
+    })
+    ;(sql as unknown as { query: typeof sqlQuery }).query = sqlQuery
+    createSql.mockReturnValue(sql)
+
+    const res = await app.request('/api/agent/chat', {
+      method: 'POST',
+      ...auth,
+      body: JSON.stringify({
+        messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'first user message here' }] }],
+        context: { workspace: 'befach-hq', object: { type: 'work_item', id: 'wi_1', title: 'Ship auth' } },
+      }),
+    })
+    expect(res.status).toBe(200)
+    // The server minted a thread and handed its id back to the client.
+    expect(res.headers.get('x-thread-id')).toBe('thread_1')
+
+    // Thread created against the resolved org, titled from the first user message.
+    const threadInsert = sqlQuery.mock.calls.find(([t]) => /insert into "chat_threads"/i.test(String(t)))
+    const threadParams = (threadInsert?.[1] ?? []) as unknown[]
+    expect(threadParams[0]).toBe('t_1')
+    expect(threadParams[1]).toBe('first user message here')
+
+    // The minted run carries the new thread id (its 3rd param).
+    await vi.waitFor(() => {
+      expect(sqlQuery.mock.calls.some(([t]) => /insert into "agent_runs"/i.test(String(t)))).toBe(true)
+    })
+    const mint = sqlQuery.mock.calls.find(([t]) => /insert into "agent_runs"/i.test(String(t)))
+    expect((mint?.[1] ?? [])[2]).toBe('thread_1')
+  })
+
+  it('404s when a supplied thread_id is not the caller’s org (never a cross-tenant write)', async () => {
+    const sql = vi.fn()
+    sql
+      .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
+      .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId
+    const sqlQuery = vi.fn(async (text: string) =>
+      /select .* from "chat_threads"/is.test(text) ? [] : [], // foreign thread → not found
+    )
+    ;(sql as unknown as { query: typeof sqlQuery }).query = sqlQuery
+    createSql.mockReturnValue(sql)
+
+    const res = await app.request('/api/agent/chat', {
+      method: 'POST',
+      ...auth,
+      body: JSON.stringify({
+        thread_id: 'foreign_thread',
+        messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }],
+      }),
+    })
+    expect(res.status).toBe(404)
+    // No run is minted for a thread the caller doesn't own.
+    expect(sqlQuery.mock.calls.some(([t]) => /insert into "agent_runs"/i.test(String(t)))).toBe(false)
   })
 
   it('returns 401 without a bearer token (no DB, no model)', async () => {
@@ -206,6 +280,7 @@ describe('POST /api/agent/chat', () => {
       .mockResolvedValueOnce([{ tenant_id: 't_1' }, { tenant_id: 't_2' }]) // callerTenantIds
       .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId
     const sqlQuery = vi.fn(async (text: string, _params?: unknown[]) => {
+      if (/insert into "chat_threads"/i.test(text)) return [{ id: 'thread_1' }]
       if (/insert into "agent_runs"/i.test(text)) return [{ id: 'run_1' }]
       if (/insert into "proposals"/i.test(text)) return [{ id: 'prop_1' }]
       return []
