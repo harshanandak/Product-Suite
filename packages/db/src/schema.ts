@@ -136,6 +136,10 @@ export const agentRuns = pgTable(
     // The durable thread this chat run belongs to (nullable: legacy/autonomous runs
     // stay unlinked). SET NULL on thread delete so a run's work outlives its thread.
     threadId: uuid('thread_id').references(() => chatThreads.id, { onDelete: 'set null' }),
+    // Memory Brain P2 holdout flag: assigned at run start (always false in P1). When
+    // true, retrieval logs what WOULD have injected (suppressed attributions) without
+    // adding it to the prompt, so the edit/reject-rate delta measures the moat.
+    memoryHoldout: boolean('memory_holdout').notNull().default(false),
     ...timestamps,
   },
   (t) => ({
@@ -432,5 +436,123 @@ export const proposals = pgTable(
     byInbox: index('proposals_tenant_status_idx').on(t.tenantId, t.status),
     byRun: index('proposals_run_idx').on(t.runId),
     byTarget: index('proposals_target_idx').on(t.targetType, t.targetId),
+  }),
+)
+
+// --- Memory Brain P1 (see docs/design/2026-07-15-memory-brain-p1.md) ---
+// The SEMANTIC memory layer: decisions + facts a team logs once and the agent
+// then reads and is grounded by. ONE table, `kind = decision | fact | rule`
+// (rules are P2). Anchored to ONE org (`tenant_id`) — a SECURITY boundary, like
+// runs/proposals. Supersession is APPEND-ONLY: a supersede inserts a new version
+// and latches the old, never overwrites.
+export const memoryKindEnum = pgEnum('memory_kind', ['decision', 'fact', 'rule'])
+// `retracted` = a mis-record corrected (history kept); `deferred` = parked with a
+// `waiting_on`/`review_after`. Only `active` rows are retrieved/injected.
+export const memoryStatusEnum = pgEnum('memory_status', ['active', 'superseded', 'retracted', 'deferred'])
+// The scope cascade an agent run resolves through: org→project→work_item_type→work_item.
+export const memoryScopeTypeEnum = pgEnum('memory_scope_type', [
+  'org',
+  'project',
+  'work_item_type',
+  'work_item',
+])
+export const memorySourceKindEnum = pgEnum('memory_source_kind', [
+  'meeting',
+  'chat',
+  'proposal',
+  'manual',
+  'import',
+])
+// Rule-only (P2) — present now so P2 does not re-migrate.
+export const memoryEnforcementEnum = pgEnum('memory_enforcement', ['advisory', 'hard'])
+// HOW a memory reached the run's context — the attribution rail's causal label.
+export const injectedViaEnum = pgEnum('injected_via', ['pinned', 'retrieved', 'tool'])
+
+/**
+ * A memory — a decision/fact (rules in P2) a team logs once and the agent reads.
+ * Supersession is a chain: `root_id` is the chain head (a brand-new memory is its
+ * own root); `supersedes_id` is the immutable back-pointer to the version this one
+ * replaced; `superseded_by_id` is the ONLY mutable pointer, latched on the old row
+ * when a newer version supersedes it. `change_reason` is mandatory when superseding.
+ * The `fts` tsvector (title+body) is a DB-GENERATED column authored in the migration
+ * (not expressible as a Drizzle column type) — retrieval/search query it via raw SQL.
+ */
+export const memories = pgTable(
+  'memories',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    // The org (= workspace = tenant). References the Alembic-owned tenants(id).
+    tenantId: text('tenant_id').notNull(),
+    kind: memoryKindEnum('kind').notNull(),
+    // An injectable one-liner (the title) + the full statement (the body).
+    title: text('title').notNull().default(''),
+    body: text('body').notNull().default(''),
+    // Kind-specific escape hatch (never trusted as instructions on injection).
+    attrs: jsonb('attrs'),
+    // Supersession chain. Self-FKs added in the migration (references memories.id).
+    rootId: uuid('root_id').notNull(),
+    supersedesId: uuid('supersedes_id'),
+    supersededById: uuid('superseded_by_id'),
+    // MANDATORY when superseding (enforced in the domain, not the schema).
+    changeReason: text('change_reason'),
+    validFrom: timestamp('valid_from', { withTimezone: true }).notNull().defaultNow(),
+    status: memoryStatusEnum('status').notNull().default('active'),
+    // Deferred-only.
+    waitingOn: text('waiting_on'),
+    reviewAfter: timestamp('review_after', { withTimezone: true }),
+    // Scope cascade.
+    scopeType: memoryScopeTypeEnum('scope_type').notNull().default('org'),
+    scopeId: uuid('scope_id'),
+    // Topic axis (GIN-indexed).
+    topics: text('topics').array().notNull().default(sql`'{}'::text[]`),
+    // Provenance.
+    sourceKind: memorySourceKindEnum('source_kind').notNull().default('manual'),
+    sourceRunId: uuid('source_run_id').references(() => agentRuns.id, { onDelete: 'set null' }),
+    sourceProposalId: uuid('source_proposal_id').references(() => proposals.id, { onDelete: 'set null' }),
+    sourceQuote: text('source_quote'),
+    createdBy: text('created_by'),
+    decidedBy: text('decided_by'),
+    // Rule-only (unused in P1, present for P2).
+    pinned: boolean('pinned').notNull().default(false),
+    priority: integer('priority').notNull().default(0),
+    enforcement: memoryEnforcementEnum('enforcement').notNull().default('advisory'),
+    ...timestamps,
+  },
+  (t) => ({
+    // The scope-cascade retrieval filter: an org's active memories at a scope.
+    byScope: index('memories_tenant_scope_idx').on(t.tenantId, t.status, t.scopeType, t.scopeId),
+    // Resolve a whole supersession chain within an org.
+    byRoot: index('memories_tenant_root_idx').on(t.tenantId, t.rootId),
+  }),
+)
+
+/**
+ * The moat rail — one row PER memory injected into a run's context, written
+ * deterministically after retrieval (no model in the loop, so attribution is
+ * causal). `injected_via` distinguishes retrieved (scope-cascade) from tool
+ * (search_memory) from pinned (P2). `suppressed` lets the P2 holdout log what
+ * WOULD have injected. Anchored to ONE org like everything else.
+ */
+export const runMemoryAttributions = pgTable(
+  'run_memory_attributions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    runId: uuid('run_id')
+      .notNull()
+      .references(() => agentRuns.id, { onDelete: 'cascade' }),
+    memoryId: uuid('memory_id')
+      .notNull()
+      .references(() => memories.id, { onDelete: 'cascade' }),
+    tenantId: text('tenant_id').notNull(),
+    injectedVia: injectedViaEnum('injected_via').notNull(),
+    rank: integer('rank'),
+    tokens: integer('tokens'),
+    // P2 holdout: true = logged as counterfactual, not actually in the prompt.
+    suppressed: boolean('suppressed').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    byRun: index('run_memory_attributions_run_idx').on(t.runId),
+    byMemory: index('run_memory_attributions_memory_idx').on(t.memoryId),
   }),
 )

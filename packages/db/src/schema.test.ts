@@ -57,6 +57,62 @@ describe('workboard schema', () => {
     expect(Object.keys(schema.agentRuns)).toContain('transcript')
   })
 
+  it('agent_runs exposes the memory_holdout flag (P2 holdout, always false in P1)', () => {
+    expect(Object.keys(schema.agentRuns)).toContain('memoryHoldout')
+  })
+
+  it('memories exposes the supersession chain + scope + provenance columns', () => {
+    const cols = Object.keys(schema.memories)
+    for (const c of [
+      'id',
+      'tenantId',
+      'kind',
+      'title',
+      'body',
+      'attrs',
+      'rootId',
+      'supersedesId',
+      'supersededById',
+      'changeReason',
+      'validFrom',
+      'status',
+      'waitingOn',
+      'reviewAfter',
+      'scopeType',
+      'scopeId',
+      'topics',
+      'sourceKind',
+      'sourceRunId',
+      'sourceProposalId',
+      'sourceQuote',
+      'createdBy',
+      'decidedBy',
+      'pinned',
+      'priority',
+      'enforcement',
+    ]) {
+      expect(cols).toContain(c)
+    }
+    expect(schema.memoryKindEnum.enumValues).toEqual(['decision', 'fact', 'rule'])
+    expect(schema.memoryStatusEnum.enumValues).toEqual(['active', 'superseded', 'retracted', 'deferred'])
+    expect(schema.memoryScopeTypeEnum.enumValues).toEqual(['org', 'project', 'work_item_type', 'work_item'])
+    expect(schema.memorySourceKindEnum.enumValues).toEqual([
+      'meeting',
+      'chat',
+      'proposal',
+      'manual',
+      'import',
+    ])
+  })
+
+  it('run_memory_attributions is the moat rail (run/memory/tenant/injected_via)', () => {
+    const cols = Object.keys(schema.runMemoryAttributions)
+    for (const c of ['id', 'runId', 'memoryId', 'tenantId', 'injectedVia', 'rank', 'tokens', 'suppressed']) {
+      expect(cols).toContain(c)
+    }
+    expect(schema.injectedViaEnum.enumValues).toEqual(['pinned', 'retrieved', 'tool'])
+  })
+
   it('mirrors the @product-suite/contracts enum values exactly', () => {
     expect(schema.phaseEnum.enumValues).toEqual(['plan', 'execute', 'review', 'done'])
     expect(schema.checkStatusEnum.enumValues).toEqual(['todo', 'in_progress', 'completed'])

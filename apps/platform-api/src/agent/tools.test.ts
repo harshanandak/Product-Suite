@@ -96,6 +96,26 @@ describe('buildTools (ToolRegistry)', () => {
     expect(input.payload).toEqual({ priority: 'critical' })
   })
 
+  it('search_memory returns compact hits and logs one attribution per hit (injected_via=tool)', async () => {
+    const memHits = [
+      { id: 'mem_1', kind: 'decision', title: 'Use PG', status: 'active', topics: ['db'], root_id: 'mem_1' },
+    ]
+    const query = vi.fn(async (text: string, _params: unknown[]) =>
+      /from "memories"/i.test(text) ? memHits : [],
+    )
+    const sql = vi.fn() as unknown as Sql
+    ;(sql as unknown as { query: typeof query }).query = query
+    const tools = buildTools(sql, { tenantId: 't_1', userId: 'u_1', runId: 'run_1', modelId: 'm/1' })
+
+    const result = await tools.search_memory?.execute?.({ query: 'pg' }, opts)
+    expect(result).toEqual({ hits: memHits })
+    // The moat rail: one attribution per returned memory, stamped injected_via='tool'.
+    const attr = query.mock.calls.find(([t]) => /run_memory_attributions/i.test(String(t)))
+    expect(attr).toBeDefined()
+    const params = (attr?.[1] ?? []) as unknown[]
+    expect(params.slice(0, 4)).toEqual(['run_1', 'mem_1', 't_1', 'tool'])
+  })
+
   it('list_work_items scopes by ctx.tenantIds and returns compact fields only', async () => {
     const { sql, query } = fakeSql([
       {

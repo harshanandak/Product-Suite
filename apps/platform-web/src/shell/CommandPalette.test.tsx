@@ -39,6 +39,13 @@ describe("CommandPalette", () => {
     expect(screen.getByText("Settings")).toBeDefined();
   });
 
+  it("offers the Log a decision action", async () => {
+    renderWithRouter(
+      <CommandPalette open onOpenChange={() => {}} workspace="test-ws" />,
+    );
+    expect(await screen.findByText("Log a decision")).toBeDefined();
+  });
+
   it("renders nothing when closed", async () => {
     renderWithRouter(
       <CommandPalette
