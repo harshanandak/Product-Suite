@@ -128,6 +128,20 @@ export function CommandPalette({
               className="px-1 py-1 text-xs text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5"
             >
               <Command.Item
+                value="Log a decision"
+                onSelect={() => {
+                  onOpenChange(false);
+                  navigate({
+                    to: "/w/$workspace/memory",
+                    params: { workspace },
+                    search: { new: true },
+                  });
+                }}
+                className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-sm text-popover-foreground aria-selected:bg-accent aria-selected:text-accent-foreground"
+              >
+                Log a decision
+              </Command.Item>
+              <Command.Item
                 value="Toggle theme (dark / light)"
                 onSelect={() => {
                   onOpenChange(false);

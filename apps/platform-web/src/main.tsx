@@ -7,6 +7,7 @@ import { MotionConfig } from "motion/react";
 import { ThemeProvider, Toaster } from "@product-suite/ui";
 
 import "./styles.css";
+import { MemoriesProvider } from "./data/memories";
 import { ProposalRepositoryProvider } from "./data/proposals";
 import { RepositoryProvider } from "./data/work-items/RepositoryProvider";
 import { CLERK_PUBLISHABLE_KEY, hasClerkKey } from "./env";
@@ -53,7 +54,9 @@ function AppRoot() {
     return (
       <RepositoryProvider>
         <ProposalRepositoryProvider>
-          <RouterProvider router={router} />
+          <MemoriesProvider>
+            <RouterProvider router={router} />
+          </MemoriesProvider>
         </ProposalRepositoryProvider>
       </RepositoryProvider>
     );
@@ -70,7 +73,9 @@ function AppRoot() {
     >
       <RepositoryProvider>
         <ProposalRepositoryProvider>
-          <RouterProvider router={router} />
+          <MemoriesProvider>
+            <RouterProvider router={router} />
+          </MemoriesProvider>
         </ProposalRepositoryProvider>
       </RepositoryProvider>
     </ClerkProvider>

@@ -9,6 +9,7 @@ import {
 import { Button, EmptyState, ErrorState } from "@product-suite/ui";
 
 import { InboxScreen } from "./boards/inbox/InboxScreen";
+import { MemoryScreen } from "./boards/memory/MemoryScreen";
 import { WorkItemDetailScreen } from "./boards/workboard/detail/WorkItemDetailScreen";
 import { WorkboardGraphScreen } from "./boards/workboard/graph/WorkboardGraphScreen";
 import { WorkboardScreen } from "./boards/workboard/WorkboardScreen";
@@ -78,6 +79,17 @@ const homeInboxRoute = createRoute({
   // junk value degrades to the default (first-proposal) selection, never a crash.
   validateSearch: (search: Record<string, unknown>): { proposal?: string } =>
     typeof search.proposal === "string" ? { proposal: search.proposal } : {},
+});
+
+// The Memory brain (Decision Log). `?new` (the command-palette "Log a decision"
+// action) auto-opens the capture form; validated to a boolean or dropped, so a
+// junk value degrades to the form closed, never a crash.
+const memoryRoute = createRoute({
+  getParentRoute: () => workspaceRoute,
+  path: "memory",
+  component: MemoryScreen,
+  validateSearch: (search: Record<string, unknown>): { new?: boolean } =>
+    search.new ? { new: true } : {},
 });
 
 const workboardRoute = createRoute({
@@ -203,6 +215,7 @@ const routeTree = rootRoute.addChildren([
     homeIndexRoute,
     homeReviewRoute,
     homeInboxRoute,
+    memoryRoute,
     workboardRoute,
     workboardGraphRoute,
     workboardItemRoute,
