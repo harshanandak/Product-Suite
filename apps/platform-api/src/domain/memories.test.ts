@@ -228,6 +228,25 @@ describe('retractMemory / deferMemory (keep history)', () => {
       deferMemory(sql, { tenantIds: ['t_1'], actor: 'u_1' }, 'foreign', {}),
     ).rejects.toMatchObject({ code: 'not_found' })
   })
+
+  it('defer rejects a free-form review_after as invalid_input (never a timestamptz cast 500)', async () => {
+    // A bad value must fail BEFORE the DB write with invalid_input (→ apply maps it to
+    // a terminal `failed`), never bind to the timestamptz param and wedge the proposal.
+    const { sql, query } = mockSql(() => [ROW])
+    await expect(
+      deferMemory(sql, { tenantIds: ['t_1'], actor: 'u_1' }, 'm_1', { reviewAfter: 'next quarter' }),
+    ).rejects.toMatchObject({ code: 'invalid_input' })
+    // The write never ran — the bad value never reached Postgres.
+    expect(query).not.toHaveBeenCalled()
+  })
+
+  it('defer accepts a valid ISO review_after and binds it as the param', async () => {
+    const DEFERRED = { ...ROW, status: 'deferred' as const, review_after: '2026-08-01' }
+    const { sql, query } = mockSql((text) => (/update "memories"/i.test(text) ? [DEFERRED] : [ROW]))
+    await deferMemory(sql, { tenantIds: ['t_1'], actor: 'u_1' }, 'm_1', { reviewAfter: '2026-08-01' })
+    const upd = query.mock.calls.find(([t]) => /update "memories"/i.test(String(t)))!
+    expect(upd[1]).toEqual(['m_1', ['t_1'], null, '2026-08-01'])
+  })
 })
 
 describe('getMemoryBySourceProposalId (idempotent re-drive lookup)', () => {

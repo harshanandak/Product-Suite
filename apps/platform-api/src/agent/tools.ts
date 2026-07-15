@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import type { Sql } from '@product-suite/db'
 
-import { getMemoryScoped } from '../domain/memories'
+import { getMemoryScoped, isIsoDateString } from '../domain/memories'
 import { createProposal } from '../proposals/repository'
 import { insertAttributions, resolveChain, searchMemories } from './memory-retrieval'
 import { retrieve, type ItemHit } from './retrieve'
@@ -295,7 +295,15 @@ export function buildTools(sql: Sql, ctx: ToolContext): ToolSet {
         if (operation === 'defer') {
           const payload: Record<string, unknown> = {}
           if (args.waiting_on !== undefined) payload.waiting_on = args.waiting_on
-          if (args.review_after !== undefined) payload.review_after = args.review_after
+          // Validate `review_after` HERE so a free-form value ("next quarter") is a
+          // refusal, never a queued proposal that cast-errors (500 + wedge) on accept.
+          if (args.review_after !== undefined) {
+            const reviewAfter = args.review_after.trim()
+            if (reviewAfter && !isIsoDateString(reviewAfter)) {
+              return { proposed: false, error: 'review_after must be an ISO date (e.g. 2026-08-01)' }
+            }
+            if (reviewAfter) payload.review_after = reviewAfter
+          }
           return proposeMemory('defer', payload, rationale, targetId)
         }
         // retract

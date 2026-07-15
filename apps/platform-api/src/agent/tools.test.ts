@@ -221,6 +221,32 @@ describe('buildTools (ToolRegistry)', () => {
     expect(input.payload).toMatchObject({ waiting_on: 'legal' })
   })
 
+  it('propose_memory (defer) rejects a free-form review_after (proposed:false, no proposal written)', async () => {
+    // Guard the wedge at the tool: a non-ISO review_after must never become a queued
+    // proposal that cast-errors (500) on accept.
+    const { sql } = fakeSql([{ id: 'mem_9', tenant_id: 't_1' }])
+    const tools = buildTools(sql, { tenantId: 't_1', userId: 'u_1', runId: 'run_1', modelId: 'm/1' })
+    const result = await tools.propose_memory?.execute?.(
+      { operation: 'defer', target_id: 'mem_9', review_after: 'next quarter' },
+      opts,
+    )
+    expect(result).toMatchObject({ proposed: false })
+    expect(createProposal).not.toHaveBeenCalled()
+  })
+
+  it('propose_memory (defer) accepts a valid ISO review_after and forwards it', async () => {
+    createProposal.mockResolvedValue({ id: 'mprop_iso' })
+    const { sql } = fakeSql([{ id: 'mem_9', tenant_id: 't_1' }])
+    const tools = buildTools(sql, { tenantId: 't_1', userId: 'u_1', runId: 'run_1', modelId: 'm/1' })
+    const result = await tools.propose_memory?.execute?.(
+      { operation: 'defer', target_id: 'mem_9', review_after: '2026-08-01' },
+      opts,
+    )
+    expect(result).toEqual({ proposed: true, proposal_id: 'mprop_iso' })
+    const input = createProposal.mock.calls[0]?.[1] as Record<string, unknown>
+    expect(input.payload).toMatchObject({ review_after: '2026-08-01' })
+  })
+
   it('list_work_items scopes by ctx.tenantIds and returns compact fields only', async () => {
     const { sql, query } = fakeSql([
       {

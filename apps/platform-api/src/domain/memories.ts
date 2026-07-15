@@ -56,6 +56,22 @@ function runQuery<Row>(sql: Sql, text: string, params: unknown[]): Promise<Row[]
 /** Canonical UUID shape — guards `scope_id` so a bad value is a 400, not a Postgres cast 500. */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
+/**
+ * An ISO-8601 date (`2026-08-01`) or datetime (`2026-08-01T12:00:00Z`) — guards
+ * `review_after` so a free-form value ("next quarter") is caught HERE (400/invalid),
+ * never bound straight to a `timestamptz` where Postgres would cast-error into a 500
+ * and wedge the proposal `applied`-unwritten. The regex fixes the shape; `Date.parse`
+ * rejects impossible calendar values (`2026-13-45`) the shape alone would let through.
+ */
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/
+
+/** True iff `value` is an ISO-8601 date/datetime that names a real calendar instant. */
+export function isIsoDateString(value: string): boolean {
+  const trimmed = value.trim()
+  if (!ISO_DATE_RE.test(trimmed)) return false
+  return !Number.isNaN(Date.parse(trimmed))
+}
+
 /** The full projection returned on every write — the whole row. */
 const RETURNING = '*'
 
@@ -376,6 +392,18 @@ export async function deferMemory(
   id: string,
   input: DeferMemoryInput = {},
 ): Promise<MemoryRow> {
+  // Validate `review_after` BEFORE the write: a free-form string ("next quarter")
+  // must fail as invalid_input (→ apply maps it to a terminal `failed`), never bind
+  // to the `timestamptz` param where Postgres would cast-error into a 500 that leaves
+  // the proposal wedged `applied`-unwritten. A Date is trusted; null clears the field.
+  let reviewAfter = input.reviewAfter ?? null
+  if (typeof reviewAfter === 'string') {
+    const trimmed = reviewAfter.trim()
+    if (trimmed && !isIsoDateString(trimmed)) {
+      throw new DomainError('invalid_input', 'review_after must be an ISO date (e.g. 2026-08-01)')
+    }
+    reviewAfter = trimmed || null
+  }
   const existing = await getMemoryScoped(sql, id, ctx.tenantIds)
   if (!existing) throw new DomainError('not_found', 'Not found')
   const rows = await runQuery<MemoryRow>(
@@ -384,7 +412,7 @@ export async function deferMemory(
      set "status" = 'deferred', "waiting_on" = $3, "review_after" = $4, "updated_at" = now()
      where "id" = $1 and "tenant_id" = any($2) and "status" = 'active'
      returning *`,
-    [id, ctx.tenantIds, input.waitingOn ?? null, input.reviewAfter ?? null],
+    [id, ctx.tenantIds, input.waitingOn ?? null, reviewAfter],
   )
   const row = rows[0]
   if (!row) throw new DomainError('conflict', 'only an active memory can be deferred')
