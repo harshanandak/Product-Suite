@@ -1,7 +1,7 @@
 import { useChat } from "@ai-sdk/react";
 import { getToolName, isToolUIPart, type ToolUIPart, type UIMessage } from "ai";
-import { Loader2, Sparkles, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { History, Loader2, Plus, Sparkles, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   Conversation,
@@ -24,6 +24,10 @@ import {
   type PromptInputMessage,
 } from "@product-suite/ui-chat/components/ai-elements/prompt-input";
 
+import {
+  createAgentThreadsAdapter,
+  type ThreadSummary,
+} from "@/data/agent/threads";
 import {
   createAgentChatTransport,
   type AgentLinkedObject,
@@ -165,12 +169,49 @@ export function AgentChatPanel({
 
   const [draft, setDraft] = useState("");
 
+  // The active thread: `null` = a brand-new, not-yet-persisted thread; the SERVER
+  // mints it on the first turn and returns its id (captured via `onThreadId`). This
+  // state is component-local, so the shell's `key={orgId}` remount clears it on an
+  // org switch — the thread list + selection never survive a tenant change.
+  const [threadId, setThreadId] = useState<string | null>(null);
+  const threadIdRef = useRef(threadId);
+  threadIdRef.current = threadId;
+  const [threads, setThreads] = useState<ThreadSummary[]>([]);
+  const [showThreads, setShowThreads] = useState(false);
+
+  const threadsAdapter = useMemo(
+    () =>
+      createAgentThreadsAdapter({
+        apiBase,
+        getToken: () => getTokenRef.current(),
+        getOrgId: () => getOrgIdRef.current?.() ?? null,
+      }),
+    [apiBase],
+  );
+  const refreshThreads = useCallback(() => {
+    threadsAdapter
+      .list()
+      .then(setThreads)
+      .catch(() => setThreads([]));
+  }, [threadsAdapter]);
+  const refreshThreadsRef = useRef(refreshThreads);
+  refreshThreadsRef.current = refreshThreads;
+
   const transport = useMemo(
     () =>
       createAgentChatTransport({
         apiBase,
         getToken: () => getTokenRef.current(),
         getOrgId: () => getOrgIdRef.current?.() ?? null,
+        getThreadId: () => threadIdRef.current,
+        // The server-minted id for a new thread: adopt it, then refresh the list so
+        // the just-created thread appears without a manual reload.
+        onThreadId: (id) => {
+          if (id !== threadIdRef.current) {
+            setThreadId(id);
+            refreshThreadsRef.current();
+          }
+        },
         getContext: () => ({
           workspace,
           object: threadObjectRef.current ?? undefined,
@@ -214,9 +255,41 @@ export function AgentChatPanel({
     return sent;
   };
 
-  const startNewThreadHere = () => {
+  // Start a fresh, unsaved thread: the server mints a new id on the next turn.
+  const startNewThread = (linkTo: AgentLinkedObject | null) => {
+    setShowThreads(false);
+    setThreadId(null);
     setMessages([]);
-    setThreadObject(currentObject);
+    setThreadObject(linkTo ?? currentObject);
+  };
+
+  const startNewThreadHere = () => startNewThread(currentObject);
+
+  // Open the thread switcher and (re)load the org's threads.
+  const openThreads = () => {
+    setShowThreads((prev) => {
+      const next = !prev;
+      if (next) refreshThreads();
+      return next;
+    });
+  };
+
+  // Load a saved thread's reconstructed history into the chat.
+  const selectThread = (id: string) => {
+    setShowThreads(false);
+    threadsAdapter
+      .messages(id)
+      .then((loaded) => {
+        setThreadId(id);
+        // `loaded` is a UIMessage[] from the adapter; cast to the hook's own
+        // parameter type to bridge the monorepo's ai-version dedup (identical shape,
+        // different resolved `ai` copy).
+        setMessages(loaded as unknown as Parameters<typeof setMessages>[0]);
+      })
+      .catch(() => {
+        // A failed load leaves the current thread untouched (surfaced by the SDK's
+        // own error state on the next turn); never strand the panel empty.
+      });
   };
 
   return (
@@ -230,6 +303,23 @@ export function AgentChatPanel({
         <div className="flex-1" />
         <button
           type="button"
+          onClick={() => startNewThread(currentObject)}
+          aria-label="New thread"
+          className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+        >
+          <Plus className="size-4" />
+        </button>
+        <button
+          type="button"
+          onClick={openThreads}
+          aria-label="Show threads"
+          aria-expanded={showThreads}
+          className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+        >
+          <History className="size-4" />
+        </button>
+        <button
+          type="button"
           onClick={onClose}
           aria-label="Close agent chat"
           className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
@@ -237,6 +327,41 @@ export function AgentChatPanel({
           <X className="size-4" />
         </button>
       </header>
+
+      {showThreads ? (
+        <div
+          aria-label="Threads"
+          className="max-h-64 overflow-y-auto border-b border-border"
+        >
+          {threads.length === 0 ? (
+            <p className="px-4 py-3 text-xs text-muted-foreground">
+              No saved threads yet.
+            </p>
+          ) : (
+            <ul>
+              {threads.map((thread) => (
+                <li key={thread.id}>
+                  <button
+                    type="button"
+                    onClick={() => selectThread(thread.id)}
+                    aria-current={thread.id === threadId}
+                    className="flex w-full flex-col items-start gap-0.5 border-b border-border/60 px-4 py-2 text-left transition-colors hover:bg-accent hover:text-accent-foreground aria-[current=true]:bg-accent"
+                  >
+                    <span className="truncate text-xs font-medium text-foreground">
+                      {thread.title || "Untitled thread"}
+                    </span>
+                    {thread.linked_object ? (
+                      <span className="truncate text-[11px] text-muted-foreground">
+                        {thread.linked_object.title}
+                      </span>
+                    ) : null}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : null}
 
       {linked ? (
         <div className="flex items-center gap-2 border-b border-border px-4 py-2 text-xs">

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   agentChatAuthHeaders,
   agentChatTransportConfig,
+  captureThreadIdFetch,
   createAgentChatTransport,
   type AgentChatContext,
 } from "./transport";
@@ -100,6 +101,57 @@ describe("agentChatTransportConfig", () => {
     });
     expect(config.body()).toEqual({ context });
     expect("org_id" in config.body()).toBe(false);
+  });
+
+  it("body() sends thread_id for an existing thread and omits it for a new one", () => {
+    let current: string | null = "th_1";
+    const config = agentChatTransportConfig({
+      apiBase: BASE,
+      getToken: async () => "tok",
+      getContext: () => context,
+      getThreadId: () => current,
+    });
+    expect(config.body()).toEqual({ thread_id: "th_1", context });
+    // A brand-new thread: no thread_id ⇒ the server mints one.
+    current = null;
+    expect("thread_id" in config.body()).toBe(false);
+  });
+
+  it("wires a header-capturing fetch only when onThreadId is provided", () => {
+    const without = agentChatTransportConfig({
+      apiBase: BASE,
+      getToken: async () => "tok",
+      getContext: () => context,
+    });
+    expect(without.fetch).toBeUndefined();
+    const withCapture = agentChatTransportConfig({
+      apiBase: BASE,
+      getToken: async () => "tok",
+      getContext: () => context,
+      onThreadId: () => {},
+    });
+    expect(typeof withCapture.fetch).toBe("function");
+  });
+});
+
+describe("captureThreadIdFetch", () => {
+  it("calls onThreadId with the x-thread-id response header", async () => {
+    const onThreadId = vi.fn();
+    const baseFetch = vi.fn(async () =>
+      new Response("stream", { headers: { "x-thread-id": "th_new" } }),
+    ) as unknown as typeof fetch;
+    const wrapped = captureThreadIdFetch(onThreadId, baseFetch);
+    const res = await wrapped("https://api.test/api/agent/chat");
+    expect(await res.text()).toBe("stream");
+    expect(onThreadId).toHaveBeenCalledWith("th_new");
+  });
+
+  it("does nothing when the header is absent (non-fatal)", async () => {
+    const onThreadId = vi.fn();
+    const baseFetch = vi.fn(async () => new Response("stream")) as unknown as typeof fetch;
+    const wrapped = captureThreadIdFetch(onThreadId, baseFetch);
+    await wrapped("https://api.test/api/agent/chat");
+    expect(onThreadId).not.toHaveBeenCalled();
   });
 });
 

@@ -1,8 +1,18 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ComponentProps, ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentLinkedObject } from "@/data/agent/transport";
+
+// ---- threads adapter: controllable per test --------------------------------
+const threadsAdapter = {
+  list: vi.fn(async () => [] as unknown[]),
+  messages: vi.fn(async () => [] as unknown[]),
+  archive: vi.fn(async () => {}),
+};
+vi.mock("@/data/agent/threads", () => ({
+  createAgentThreadsAdapter: () => threadsAdapter,
+}));
 
 // ---- useChat: fully controllable per test ----------------------------------
 interface ChatStub {
@@ -159,6 +169,9 @@ beforeEach(() => {
     regenerate: vi.fn(async () => {}),
     setMessages: vi.fn(),
   };
+  threadsAdapter.list.mockReset().mockResolvedValue([]);
+  threadsAdapter.messages.mockReset().mockResolvedValue([]);
+  threadsAdapter.archive.mockReset().mockResolvedValue(undefined);
 });
 
 describe("isOrgRequiredError", () => {
@@ -324,6 +337,52 @@ describe("AgentChatPanel", () => {
     ).toBeInTheDocument();
     // Still linked to the ORIGINAL object (no silent rewrite).
     expect(screen.getByText("Ship auth")).toBeInTheDocument();
+  });
+
+  it("opens the thread switcher and loads the org's threads", async () => {
+    threadsAdapter.list.mockResolvedValueOnce([
+      { id: "th_1", title: "Ship auth thread", linked_object: null, updated_at: "x" },
+    ]);
+    renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: "Show threads" }));
+    expect(threadsAdapter.list).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText("Ship auth thread")).toBeInTheDocument();
+  });
+
+  it("loads a selected thread's reconstructed history into the chat", async () => {
+    threadsAdapter.list.mockResolvedValueOnce([
+      { id: "th_1", title: "T1", linked_object: null, updated_at: "x" },
+    ]);
+    threadsAdapter.messages.mockResolvedValueOnce([
+      { id: "u1", role: "user", parts: [{ type: "text", text: "hi" }] },
+    ]);
+    renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: "Show threads" }));
+    fireEvent.click(await screen.findByText("T1"));
+    await waitFor(() => expect(threadsAdapter.messages).toHaveBeenCalledWith("th_1"));
+    expect(chat.setMessages).toHaveBeenCalledWith([
+      { id: "u1", role: "user", parts: [{ type: "text", text: "hi" }] },
+    ]);
+  });
+
+  it("New thread resets the conversation to a fresh, unsaved thread", () => {
+    renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: "New thread" }));
+    expect(chat.setMessages).toHaveBeenCalledWith([]);
+  });
+
+  it("clears the thread list on remount (the shell's org-switch key), no cross-tenant carryover", async () => {
+    threadsAdapter.list.mockResolvedValue([
+      { id: "th_1", title: "T1", linked_object: null, updated_at: "x" },
+    ]);
+    const { unmount } = renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: "Show threads" }));
+    expect(await screen.findByText("T1")).toBeInTheDocument();
+    // Simulate the shell remounting the panel on an org switch (`key={orgId}`): a
+    // fresh instance starts with the switcher closed and no carried-over threads.
+    unmount();
+    renderPanel();
+    expect(screen.queryByText("T1")).not.toBeInTheDocument();
   });
 
   it("closes on the X button and on Escape", () => {
