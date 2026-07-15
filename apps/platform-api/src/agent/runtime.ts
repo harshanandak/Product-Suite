@@ -3,6 +3,7 @@ import { convertToModelMessages, stepCountIs, streamText, type LanguageModel, ty
 import type { Sql } from '@product-suite/db'
 
 import { buildTools } from './tools'
+import { touchThread } from './threads-repository'
 
 /**
  * The agent's operating instructions. It is a workboard copilot that READS via the
@@ -70,11 +71,71 @@ export interface AgentRunContext {
    */
   scope?: AgentScope
   /**
+   * The durable thread this chat run belongs to (see the thread-persistence design).
+   * Stamped on the `agent_runs` row so the thread's history can be reconstructed by
+   * concatenating its runs' UIMessage deltas. Absent for autonomous/legacy runs.
+   */
+  threadId?: string
+  /**
+   * Cap the model prompt to the last N user turns, independently of what the UI
+   * renders — concatenation cost hits the prompt before the DB. Defaults to
+   * {@link DEFAULT_MAX_CONTEXT_TURNS}.
+   */
+  maxContextTurns?: number
+  /**
    * Optional Workers `executionCtx.waitUntil`, threaded from the Hono context when
    * reachable. Keeps the worker alive until the stream is fully consumed and the
    * run is closed, even after the client aborts / the Response has returned.
    */
   waitUntil?: (promise: Promise<unknown>) => void
+}
+
+/** Default context cap: the last N user turns handed to the model (design §Context cap). */
+export const DEFAULT_MAX_CONTEXT_TURNS = 12
+
+/** The persisted transcript shape (contract v1): a single run's UIMessage DELTA. */
+export const TRANSCRIPT_VERSION = 1
+
+/**
+ * Cap the message list to the last `maxTurns` USER turns (a turn = a user message
+ * plus the assistant/tool messages that follow it), preserving order and coherence.
+ * Fewer turns than the cap ⇒ returned unchanged. `maxTurns <= 0` disables the cap.
+ * Applied to the MODEL prompt only; the UI/DB keep the full history.
+ */
+export function capToLastTurns(messages: UIMessage[], maxTurns: number): UIMessage[] {
+  if (maxTurns <= 0) return messages
+  const userIdx: number[] = []
+  for (let i = 0; i < messages.length; i++) {
+    if (messages[i]?.role === 'user') userIdx.push(i)
+  }
+  if (userIdx.length <= maxTurns) return messages
+  const start = userIdx[userIdx.length - maxTurns] ?? 0
+  return messages.slice(start)
+}
+
+/**
+ * The turn DELTA persisted for this run (contract v1): the triggering user turn
+ * (the last user message of the incoming list — one run == one user turn) plus the
+ * generated assistant message. Concatenating a thread's run deltas in `created_at`
+ * order reconstructs the full thread — never a full-conversation snapshot.
+ */
+export function buildTurnDelta(incoming: UIMessage[], responseMessage: UIMessage): UIMessage[] {
+  let userTurn: UIMessage | undefined
+  for (let i = incoming.length - 1; i >= 0; i--) {
+    if (incoming[i]?.role === 'user') {
+      userTurn = incoming[i]
+      break
+    }
+  }
+  return userTurn ? [userTurn, responseMessage] : [responseMessage]
+}
+
+/** The plain-text content of a UIMessage — its text parts joined. */
+export function uiMessageText(message: UIMessage): string {
+  return (message.parts ?? [])
+    .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+    .map((p) => p.text)
+    .join('')
 }
 
 /** Resolve the model id string for provenance (LanguageModel may be a bare id). */
@@ -94,12 +155,17 @@ function runQuery<Row>(sql: Sql, text: string, params: unknown[]): Promise<Row[]
 }
 
 /** Mint the run row (status='running') and return its id — the provenance anchor. */
-async function mintRun(sql: Sql, tenantId: string, userId: string): Promise<string> {
+async function mintRun(
+  sql: Sql,
+  tenantId: string,
+  userId: string,
+  threadId?: string,
+): Promise<string> {
   const rows = await runQuery<{ id: string }>(
     sql,
-    `insert into "agent_runs" ("tenant_id", "triggered_by", "kind", "status")
-     values ($1, $2, 'chat', 'running') returning id`,
-    [tenantId, userId],
+    `insert into "agent_runs" ("tenant_id", "triggered_by", "kind", "status", "thread_id")
+     values ($1, $2, 'chat', 'running', $3) returning id`,
+    [tenantId, userId, threadId ?? null],
   )
   const id = rows[0]?.id
   if (!id) throw new Error('mintRun: insert returned no id')
@@ -158,28 +224,29 @@ export async function runAgentChat(
   ctx: AgentRunContext,
   messages: UIMessage[],
 ): Promise<Response> {
-  const runId = await mintRun(sql, ctx.tenantId, ctx.userId)
+  const runId = await mintRun(sql, ctx.tenantId, ctx.userId, ctx.threadId)
   const modelId = resolveModelId(ctx.model)
   const tools = buildTools(sql, { tenantId: ctx.tenantId, userId: ctx.userId, runId, modelId })
+  // Step count is captured here (streamText.onFinish) and read when the UI stream
+  // settles, so the persisted delta records how many tool/reasoning steps it took.
+  let stepCount = 0
 
   let result: ReturnType<typeof streamText>
   try {
-    // v6 `convertToModelMessages` is async and THROWS on malformed `parts`. It must
-    // run inside this guard so a bogus message flips the (already-minted) run to
-    // `failed` instead of stranding it `running` forever.
-    const modelMessages = await convertToModelMessages(messages)
+    // Cap the MODEL prompt to the last N user turns (design §Context cap) — the UI
+    // and DB keep the full history. `convertToModelMessages` (v6, async) THROWS on
+    // malformed `parts`; it runs inside this guard so a bogus message flips the
+    // (already-minted) run to `failed` instead of stranding it `running` forever.
+    const capped = capToLastTurns(messages, ctx.maxContextTurns ?? DEFAULT_MAX_CONTEXT_TURNS)
+    const modelMessages = await convertToModelMessages(capped)
     result = streamText({
       model: ctx.model,
       system: buildSystemPrompt(ctx.scope),
       messages: modelMessages,
       tools,
       stopWhen: stepCountIs(8),
-      onFinish: async ({ text, response, steps }) => {
-        // The decision corpus: the response messages (assistant + tool calls/results)
-        // plus the step count, captured once the loop settles (design §13). Guarded
-        // by `status = 'running'`, so it never overwrites an `onError` failure.
-        const transcript = { messages: response.messages, steps: steps.length }
-        await safeCloseRun(sql, runId, 'completed', text, transcript)
+      onFinish: ({ steps }) => {
+        stepCount = steps.length
       },
       onError: async ({ error }) => {
         await safeCloseRun(sql, runId, 'failed', errMessage(error), null)
@@ -192,6 +259,29 @@ export async function runAgentChat(
     throw cause
   }
 
+  // Capture the UIMessage stream — the format `useChat` rehydrates from. Persist ONLY
+  // this run's DELTA (contract v1): the triggering user turn + the generated
+  // assistant message, versioned. Concatenating a thread's run deltas reconstructs
+  // it; a full snapshot per run would make that O(n²). `originalMessages` +
+  // `generateMessageId` keep ids stable so the delta never collides. Guarded by
+  // `status = 'running'`, so it never overwrites an `onError` failure.
+  const response = result.toUIMessageStreamResponse({
+    originalMessages: messages,
+    generateMessageId: () => crypto.randomUUID(),
+    onFinish: async ({ responseMessage }) => {
+      const delta = buildTurnDelta(messages, responseMessage)
+      const transcript = { version: TRANSCRIPT_VERSION, messages: delta, steps: stepCount }
+      await safeCloseRun(sql, runId, 'completed', uiMessageText(responseMessage), transcript)
+      // Bump the thread so the panel list (ordered by updated_at) surfaces it as
+      // recently-active; best-effort, never fail the detached finish over it.
+      if (ctx.threadId) {
+        await touchThread(sql, ctx.threadId, ctx.tenantId).catch((cause) => {
+          console.error('[agent-runtime] touchThread failed', { threadId: ctx.threadId, cause })
+        })
+      }
+    },
+  })
+
   // Abort-safety (AI SDK v6): `consumeStream()` drives the stream to completion
   // server-side so `onFinish`/`onError` always run — even if the client aborts and
   // never reads the body. `waitUntil` (when on Workers) keeps the isolate alive
@@ -199,5 +289,5 @@ export async function runAgentChat(
   const settled = Promise.resolve(result.consumeStream({ onError: () => {} })).catch(() => {})
   if (ctx.waitUntil) ctx.waitUntil(settled)
 
-  return result.toUIMessageStreamResponse()
+  return response
 }

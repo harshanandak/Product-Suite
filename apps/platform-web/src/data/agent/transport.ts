@@ -47,6 +47,36 @@ export interface CreateAgentChatTransportOptions {
    * API falls back to their sole org).
    */
   getOrgId?: () => string | null;
+  /**
+   * Resolve the CURRENT thread id, or `null` for a brand-new thread. Sent as
+   * `thread_id`; when null the SERVER mints the thread and returns its id via the
+   * `x-thread-id` response header (see {@link onThreadId}) — killing the
+   * first-message race (never client-create-then-save).
+   */
+  getThreadId?: () => string | null;
+  /**
+   * Called with the server-minted thread id read from the `x-thread-id` response
+   * header. The new-thread flow captures it here and sends it on later turns.
+   */
+  onThreadId?: (threadId: string) => void;
+}
+
+/**
+ * Wrap a `fetch` so it reads the `x-thread-id` response header and hands it to
+ * {@link onThreadId} — how the client learns the SERVER-minted thread id without a
+ * second round-trip. Pure (takes the base `fetch`) so it is unit-testable without a
+ * live transport. Non-fatal: a missing header simply yields no callback.
+ */
+export function captureThreadIdFetch(
+  onThreadId: (threadId: string) => void,
+  baseFetch: typeof fetch = fetch,
+): typeof fetch {
+  return async (input, init) => {
+    const response = await baseFetch(input, init);
+    const id = response.headers.get("x-thread-id");
+    if (id) onThreadId(id);
+    return response;
+  };
 }
 
 /**
@@ -72,7 +102,12 @@ export function agentChatTransportConfig(
 ): {
   api: string;
   headers: () => Promise<Record<string, string>>;
-  body: () => { org_id?: string; context: AgentChatContext | undefined };
+  body: () => {
+    org_id?: string;
+    thread_id?: string;
+    context: AgentChatContext | undefined;
+  };
+  fetch?: typeof fetch;
 } {
   const apiBase = options.apiBase ?? API_BASE_URL;
   return {
@@ -80,12 +115,19 @@ export function agentChatTransportConfig(
     headers: () => agentChatAuthHeaders(options.getToken),
     body: () => {
       const orgId = options.getOrgId?.() ?? undefined;
-      // Omit the key entirely when absent so single-org callers keep the API's
-      // sole-org fallback; send it (anchoring the run) whenever we know it.
-      return orgId
-        ? { org_id: orgId, context: options.getContext() }
-        : { context: options.getContext() };
+      const threadId = options.getThreadId?.() ?? undefined;
+      // Omit each key when absent: no org_id keeps the API's sole-org fallback; no
+      // thread_id tells the server to MINT the thread and return its id.
+      return {
+        ...(orgId ? { org_id: orgId } : {}),
+        ...(threadId ? { thread_id: threadId } : {}),
+        context: options.getContext(),
+      };
     },
+    // Capture the server-minted thread id from the response header.
+    ...(options.onThreadId
+      ? { fetch: captureThreadIdFetch(options.onThreadId) }
+      : {}),
   };
 }
 

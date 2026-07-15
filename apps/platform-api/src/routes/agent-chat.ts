@@ -4,6 +4,7 @@ import type { UIMessage } from 'ai'
 
 import { agentModel } from '../agent/models'
 import { runAgentChat, type AgentScope } from '../agent/runtime'
+import { createThread, getThreadScoped, titleFromFirstMessage } from '../agent/threads-repository'
 import { callerTenantIds, callerUserId } from '../auth/tenant-scope'
 import { sqlFrom } from '../db'
 import type { AuthedEnv } from '../middleware/clerk-auth'
@@ -54,6 +55,7 @@ agentChatRoutes.post('/', async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
       messages?: UIMessage[]
       org_id?: string
+      thread_id?: string
       context?: unknown
     }
 
@@ -98,7 +100,32 @@ agentChatRoutes.post('/', async (c) => {
 
     const model = agentModel(c.env ?? {})
     const scope = parseScope(body.context)
-    return await runAgentChat(sql, { tenantId, userId, model, waitUntil, scope }, messages)
+
+    // The SERVER owns thread creation — kills the first-message race STRUCTURALLY (no
+    // client-create-then-save). With a `thread_id`, verify it belongs to THIS org
+    // (a foreign/unknown id ⇒ 404, never a cross-tenant write). Without one, mint a
+    // thread anchored to this org, titled from the first user message (NOT an LLM
+    // call), linked to the scoping object; return its id so the client can send it
+    // on later turns.
+    let threadId: string
+    if (body.thread_id) {
+      const existing = await getThreadScoped(sql, body.thread_id, [tenantId])
+      if (!existing) return c.json({ error: 'Not found' }, 404)
+      threadId = existing.id
+    } else {
+      threadId = await createThread(sql, {
+        tenantId,
+        title: titleFromFirstMessage(messages),
+        linkedObject: scope?.object ?? null,
+      })
+    }
+
+    const res = await runAgentChat(sql, { tenantId, userId, model, waitUntil, scope, threadId }, messages)
+    // Hand the thread id back to the client (the new-thread flow reads it and sends
+    // it on subsequent turns). Exposed for cross-origin reads by the SPA.
+    res.headers.set('x-thread-id', threadId)
+    res.headers.set('Access-Control-Expose-Headers', 'x-thread-id')
+    return res
   } catch (cause) {
     console.error('[agent-chat] run failed', cause)
     return c.json({ error: 'Failed to start agent run' }, 500)
