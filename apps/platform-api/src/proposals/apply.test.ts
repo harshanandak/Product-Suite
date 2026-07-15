@@ -298,6 +298,8 @@ describe('applyProposal (Design C: claim-then-command)', () => {
       sourceKind: 'proposal',
       sourceRunId: 'run_1',
       sourceProposalId: 'p1',
+      // The new version records the approver, not the old row's decider.
+      decidedBy: 'u_approver',
     })
   })
 

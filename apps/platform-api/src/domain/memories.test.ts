@@ -149,6 +149,23 @@ describe('supersedeMemory (append-only versioning)', () => {
     expect(cte[1]).toContain('prop_9')
   })
 
+  it('stamps the APPROVER (decidedBy) on the new version rather than inheriting the old row', async () => {
+    const NEW = { ...ROW, id: 'm_2', supersedes_id: 'm_1', decided_by: 'u_approver' }
+    const { sql, query } = mockSql((text) => {
+      if (/with "latched" as/i.test(text)) return [NEW]
+      if (/select \* from "memories"/i.test(text)) return [ROW]
+      return []
+    })
+    await supersedeMemory(sql, { tenantIds: ['t_1'], actor: 'run_1' }, 'm_1', {
+      changeReason: 'Mongo chosen',
+      decidedBy: 'u_approver',
+    })
+    const cte = query.mock.calls.find(([t]) => /with "latched" as/i.test(String(t)))!
+    // The new version's decided_by comes from a bound param (coalesced), not the old row.
+    expect(String(cte[0])).toMatch(/coalesce\(\$12, "decided_by"\)/)
+    expect(cte[1]).toContain('u_approver')
+  })
+
   it('inserts a NEW version + latches the old in ONE atomic CTE, resolving to the new row', async () => {
     const NEW = { ...ROW, id: 'm_2', supersedes_id: 'm_1', change_reason: 'Mongo was chosen instead' }
     const { sql, query } = mockSql((text) => {

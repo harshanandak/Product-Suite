@@ -122,6 +122,8 @@ async function applyMemoryCommand(
         sourceKind: 'proposal',
         sourceRunId: runId,
         sourceProposalId: claimed.id,
+        // The new version records the APPROVER, not the old row's decider.
+        decidedBy: approverUserId,
       },
     )
   }

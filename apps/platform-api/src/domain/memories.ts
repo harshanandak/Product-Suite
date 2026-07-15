@@ -273,6 +273,12 @@ export interface SupersedeMemoryInput {
   sourceKind?: 'meeting' | 'chat' | 'proposal' | 'manual' | 'import'
   sourceRunId?: string | null
   sourceProposalId?: string | null
+  /**
+   * Who approved this version (P1b): the new row should record the APPROVER, not
+   * inherit the old row's `decided_by`. The apply path passes the approver; a
+   * human UI supersede that omits it inherits the old row's value (coalesce).
+   */
+  decidedBy?: string | null
 }
 
 /**
@@ -333,7 +339,7 @@ export async function supersedeMemory(
       $1, "tenant_id", "kind", coalesce($4, "title"), coalesce($5, "body"), "attrs", "root_id",
       "id", $6, now(), 'active',
       "scope_type", "scope_id", coalesce($7, "topics"),
-      $9, $10, $11, $8, "decided_by",
+      $9, $10, $11, $8, coalesce($12, "decided_by"),
       "pinned", "priority", "enforcement"
     from "latched"
     returning *
@@ -350,6 +356,7 @@ export async function supersedeMemory(
     input.sourceKind ?? 'manual',
     input.sourceRunId ?? null,
     input.sourceProposalId ?? null,
+    input.decidedBy ?? null,
   ])
   const inserted = rows[0]
   if (!inserted) {
