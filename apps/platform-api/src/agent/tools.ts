@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Sql } from '@product-suite/db'
 
+import { getMemoryScoped } from '../domain/memories'
 import { createProposal } from '../proposals/repository'
 import { insertAttributions, resolveChain, searchMemories } from './memory-retrieval'
 import { retrieve, type ItemHit } from './retrieve'
@@ -74,6 +75,50 @@ export function buildTools(sql: Sql, ctx: ToolContext): ToolSet {
       return { proposed: true, proposal_id: row.id }
     } catch {
       // Never stream raw DB error text back to the model — a generic refusal only.
+      return { proposed: false, error: 'could not create proposal' }
+    }
+  }
+
+  /**
+   * Queue a `target_type='memory'` proposal (P1b) — the agent's write path into the
+   * memory brain, disposed of in the SAME Review Inbox as work-item proposals. The
+   * payload is operation-shaped free JSON; apply.ts maps it onto the memory domain
+   * commands. For every operation that names a target (supersede/retract/defer) the
+   * target MUST be the caller-org's memory — validated HERE (a foreign/unknown id is
+   * never proposed), a tenant boundary mirrored again at apply time (defence in depth).
+   */
+  async function proposeMemory(
+    operation: 'create' | 'supersede' | 'retract' | 'defer',
+    payload: Record<string, unknown>,
+    rationale: string | undefined,
+    targetId: string | null,
+  ): Promise<ProposeResult> {
+    const tenantId = ctx.tenantId
+    if (!tenantId) return { proposed: false, error: 'No tenant in scope' }
+    // Tenant isolation: a non-create op must target THIS org's memory. A foreign or
+    // unknown id is indistinguishable (getMemoryScoped → null) and never proposed.
+    if (targetId) {
+      const target = await getMemoryScoped(sql, targetId, [tenantId]).catch(() => null)
+      if (!target) return { proposed: false, error: 'target memory not found in this workspace' }
+    }
+    try {
+      const row = await createProposal(sql, {
+        tenant_id: tenantId,
+        run_id: ctx.runId,
+        target_type: 'memory',
+        target_id: targetId,
+        operation,
+        payload,
+        rationale: rationale ?? null,
+        model_id: ctx.modelId,
+        prompt_version: PROMPT_VERSION,
+        actor_type: 'agent',
+        actor_id: ctx.runId,
+        on_behalf_of: ctx.userId,
+        context_ref: ctx.runId,
+      })
+      return { proposed: true, proposal_id: row.id }
+    } catch {
       return { proposed: false, error: 'could not create proposal' }
     }
   }
@@ -199,6 +244,63 @@ export function buildTools(sql: Sql, ctx: ToolContext): ToolSet {
       }),
       execute: async ({ id, patch, rationale }): Promise<ProposeResult> =>
         propose('update', patch, rationale, id),
+    }),
+
+    propose_memory: tool({
+      description:
+        "Propose logging or changing an organizational memory (a decision, fact, or rule in the memory brain). This does NOT save anything — it queues a proposal a human reviews and accepts. Use it when the user asks to remember/log a decision or fact. operation: 'create' logs a NEW memory (needs kind + title); 'supersede' replaces an existing memory with a new version (needs target_id + change_reason); 'retract' marks one no-longer-true (needs target_id); 'defer' parks one (needs target_id). Give a short rationale.",
+      inputSchema: z.object({
+        operation: z.enum(['create', 'supersede', 'retract', 'defer']),
+        // create
+        kind: z.enum(['decision', 'fact', 'rule']).optional(),
+        title: z.string().optional(),
+        body: z.string().optional(),
+        topics: z.array(z.string()).optional(),
+        scope_type: z.enum(['org', 'project', 'work_item_type', 'work_item']).optional(),
+        scope_id: z.string().optional(),
+        // supersede / retract / defer
+        target_id: z.string().optional(),
+        change_reason: z.string().optional(),
+        waiting_on: z.string().optional(),
+        review_after: z.string().optional(),
+        rationale: z.string().optional(),
+      }),
+      execute: async (args): Promise<ProposeResult> => {
+        const { operation, rationale } = args
+        if (operation === 'create') {
+          const title = (args.title ?? '').trim()
+          if (!args.kind) return { proposed: false, error: 'kind is required to log a memory' }
+          if (!title) return { proposed: false, error: 'title is required to log a memory' }
+          const payload: Record<string, unknown> = { kind: args.kind, title }
+          if (args.body !== undefined) payload.body = args.body
+          if (args.topics !== undefined) payload.topics = args.topics
+          if (args.scope_type !== undefined) payload.scope_type = args.scope_type
+          if (args.scope_id !== undefined) payload.scope_id = args.scope_id
+          return proposeMemory('create', payload, rationale, null)
+        }
+        // supersede / retract / defer all name a target memory.
+        const targetId = (args.target_id ?? '').trim()
+        if (!targetId) return { proposed: false, error: `target_id is required to ${operation} a memory` }
+        if (operation === 'supersede') {
+          const changeReason = (args.change_reason ?? '').trim()
+          if (!changeReason) {
+            return { proposed: false, error: 'change_reason is required to supersede a memory' }
+          }
+          const payload: Record<string, unknown> = { change_reason: changeReason }
+          if (args.title !== undefined) payload.title = args.title
+          if (args.body !== undefined) payload.body = args.body
+          if (args.topics !== undefined) payload.topics = args.topics
+          return proposeMemory('supersede', payload, rationale, targetId)
+        }
+        if (operation === 'defer') {
+          const payload: Record<string, unknown> = {}
+          if (args.waiting_on !== undefined) payload.waiting_on = args.waiting_on
+          if (args.review_after !== undefined) payload.review_after = args.review_after
+          return proposeMemory('defer', payload, rationale, targetId)
+        }
+        // retract
+        return proposeMemory('retract', {}, rationale, targetId)
+      },
     }),
   }
 }

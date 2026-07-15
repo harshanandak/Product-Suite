@@ -116,6 +116,111 @@ describe('buildTools (ToolRegistry)', () => {
     expect(params.slice(0, 4)).toEqual(['run_1', 'mem_1', 't_1', 'tool'])
   })
 
+  it('propose_memory (create) writes a target_type=memory proposal with agent provenance', async () => {
+    createProposal.mockResolvedValue({ id: 'mprop_1' })
+    // A create has no target, so no ownership lookup runs — query stays untouched.
+    const { sql, query } = fakeSql([])
+    const tools = buildTools(sql, { tenantId: 't_1', userId: 'u_1', runId: 'run_1', modelId: 'm/1' })
+
+    const result = await tools.propose_memory?.execute?.(
+      {
+        operation: 'create',
+        kind: 'decision',
+        title: 'Use Postgres',
+        body: 'We picked PG over Mongo.',
+        topics: ['db'],
+        rationale: 'Recorded on the call.',
+      },
+      opts,
+    )
+
+    expect(result).toEqual({ proposed: true, proposal_id: 'mprop_1' })
+    expect(query).not.toHaveBeenCalled() // never touches a real table
+    const input = createProposal.mock.calls[0]?.[1] as Record<string, unknown>
+    expect(input).toMatchObject({
+      tenant_id: 't_1',
+      run_id: 'run_1',
+      target_type: 'memory',
+      target_id: null,
+      operation: 'create',
+      actor_type: 'agent',
+      actor_id: 'run_1',
+      on_behalf_of: 'u_1',
+      context_ref: 'run_1',
+      model_id: 'm/1',
+      prompt_version: 'agent-v1',
+    })
+    expect(input.payload).toMatchObject({
+      kind: 'decision',
+      title: 'Use Postgres',
+      body: 'We picked PG over Mongo.',
+      topics: ['db'],
+    })
+  })
+
+  it('propose_memory (create) rejects a missing title (proposed:false, no proposal written)', async () => {
+    const { sql } = fakeSql([])
+    const tools = buildTools(sql, { tenantId: 't_1', userId: 'u_1', runId: 'run_1', modelId: 'm/1' })
+    const result = await tools.propose_memory?.execute?.({ operation: 'create', kind: 'fact' }, opts)
+    expect(result).toMatchObject({ proposed: false })
+    expect(createProposal).not.toHaveBeenCalled()
+  })
+
+  it('propose_memory (supersede) targets a caller-org memory and requires a change_reason', async () => {
+    createProposal.mockResolvedValue({ id: 'mprop_2' })
+    // The ownership check finds the target in the caller's org.
+    const { sql } = fakeSql([{ id: 'mem_9', tenant_id: 't_1' }])
+    const tools = buildTools(sql, { tenantId: 't_1', userId: 'u_1', runId: 'run_1', modelId: 'm/1' })
+
+    // Missing change_reason → refused, no proposal.
+    const bad = await tools.propose_memory?.execute?.(
+      { operation: 'supersede', target_id: 'mem_9', title: 'New' },
+      opts,
+    )
+    expect(bad).toMatchObject({ proposed: false })
+    expect(createProposal).not.toHaveBeenCalled()
+
+    const result = await tools.propose_memory?.execute?.(
+      { operation: 'supersede', target_id: 'mem_9', body: 'Reversed', change_reason: 'Mongo chosen' },
+      opts,
+    )
+    expect(result).toEqual({ proposed: true, proposal_id: 'mprop_2' })
+    const input = createProposal.mock.calls[0]?.[1] as Record<string, unknown>
+    expect(input).toMatchObject({
+      target_type: 'memory',
+      operation: 'supersede',
+      target_id: 'mem_9',
+      actor_type: 'agent',
+    })
+    expect(input.payload).toMatchObject({ body: 'Reversed', change_reason: 'Mongo chosen' })
+  })
+
+  it('propose_memory rejects a FOREIGN supersede target (tenant isolation — never proposed)', async () => {
+    // The ownership check returns nothing → the target is not the caller-org's memory.
+    const { sql } = fakeSql([])
+    const tools = buildTools(sql, { tenantId: 't_1', userId: 'u_1', runId: 'run_1', modelId: 'm/1' })
+    const result = await tools.propose_memory?.execute?.(
+      { operation: 'supersede', target_id: 'foreign_mem', change_reason: 'x' },
+      opts,
+    )
+    expect(result).toMatchObject({ proposed: false })
+    expect(createProposal).not.toHaveBeenCalled()
+  })
+
+  it('propose_memory (retract/defer) targets a caller-org memory', async () => {
+    createProposal.mockResolvedValue({ id: 'mprop_3' })
+    const { sql } = fakeSql([{ id: 'mem_9', tenant_id: 't_1' }])
+    const tools = buildTools(sql, { tenantId: 't_1', userId: 'u_1', runId: 'run_1', modelId: 'm/1' })
+    const result = await tools.propose_memory?.execute?.(
+      { operation: 'defer', target_id: 'mem_9', waiting_on: 'legal' },
+      opts,
+    )
+    expect(result).toEqual({ proposed: true, proposal_id: 'mprop_3' })
+    const input = createProposal.mock.calls[0]?.[1] as Record<string, unknown>
+    expect(input).toMatchObject({ target_type: 'memory', operation: 'defer', target_id: 'mem_9' })
+    expect(input.payload).toMatchObject({ waiting_on: 'legal' })
+  })
+
   it('list_work_items scopes by ctx.tenantIds and returns compact fields only', async () => {
     const { sql, query } = fakeSql([
       {
