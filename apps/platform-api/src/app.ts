@@ -5,6 +5,7 @@ import { agentChatRoutes } from './routes/agent-chat'
 import { agentThreadsRoutes } from './routes/agent-threads'
 import { checksRoutes } from './routes/checks'
 import { dependenciesRoutes } from './routes/dependencies'
+import { memoriesRoutes } from './routes/memories'
 import { ownersRoutes } from './routes/owners'
 import { projectsRoutes } from './routes/projects'
 import { proposalsRoutes } from './routes/proposals'
@@ -44,5 +45,8 @@ app.route('/api/agent/chat', agentChatRoutes)
 
 // Durable agent chat threads: org-scoped list + reconstructed history + archive.
 app.route('/api/agent/threads', agentThreadsRoutes)
+
+// Memory Brain: the org-scoped decision/knowledge store (Decision Log + Topic views).
+app.route('/api/memories', memoriesRoutes)
 
 export default app

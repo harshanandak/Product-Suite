@@ -21,6 +21,11 @@ export type DomainErrorCode =
   | 'cycle'
   | 'stale'
   | 'not_found'
+  // Memory Brain P1: superseding requires a change_reason (append-only history);
+  // `conflict` = the target was concurrently superseded/retracted (no longer active).
+  | 'change_reason_required'
+  | 'conflict'
+  | 'invalid_input'
 
 export class DomainError extends Error {
   constructor(
@@ -33,6 +38,9 @@ export class DomainError extends Error {
 }
 
 /** The HTTP status a route should return for a given domain-invariant violation. */
-export function domainErrorStatus(code: DomainErrorCode): 400 | 404 {
-  return code === 'not_found' ? 404 : 400
+export function domainErrorStatus(code: DomainErrorCode): 400 | 404 | 409 {
+  if (code === 'not_found') return 404
+  // A lost supersede/retract race (target no longer active) is a concurrency conflict.
+  if (code === 'conflict') return 409
+  return 400
 }
