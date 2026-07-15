@@ -13,8 +13,8 @@ describe("TopBar", () => {
     renderWithRouter(
       <TopBar
         workspace="test-ws"
-        pathname="/w/test-ws/workboard"
         onOpenPalette={vi.fn()}
+        onAskAgent={vi.fn()}
       />,
       { path: "/w/test-ws/workboard" },
     );
@@ -24,13 +24,28 @@ describe("TopBar", () => {
     ).toBeInTheDocument();
   });
 
+  it("calls onAskAgent when the Ask agent button is clicked", async () => {
+    const onAskAgent = vi.fn();
+    renderWithRouter(
+      <TopBar
+        workspace="test-ws"
+        onOpenPalette={vi.fn()}
+        onAskAgent={onAskAgent}
+      />,
+      { path: "/w/test-ws/workboard" },
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Ask agent" }));
+    expect(onAskAgent).toHaveBeenCalledTimes(1);
+  });
+
   it("calls onOpenPalette when the command palette button is clicked", async () => {
     const onOpenPalette = vi.fn();
     renderWithRouter(
       <TopBar
         workspace="test-ws"
-        pathname="/w/test-ws/workboard"
         onOpenPalette={onOpenPalette}
+        onAskAgent={vi.fn()}
       />,
       { path: "/w/test-ws/workboard" },
     );
@@ -45,8 +60,8 @@ describe("TopBar", () => {
     renderWithRouter(
       <TopBar
         workspace="test-ws"
-        pathname="/w/test-ws/workboard"
         onOpenPalette={vi.fn()}
+        onAskAgent={vi.fn()}
       />,
       { path: "/w/test-ws/workboard" },
     );

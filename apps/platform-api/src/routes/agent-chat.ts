@@ -3,12 +3,33 @@ import { Hono } from 'hono'
 import type { UIMessage } from 'ai'
 
 import { agentModel } from '../agent/models'
-import { runAgentChat } from '../agent/runtime'
+import { runAgentChat, type AgentScope } from '../agent/runtime'
 import { callerTenantIds, callerUserId } from '../auth/tenant-scope'
 import { sqlFrom } from '../db'
 import type { AuthedEnv } from '../middleware/clerk-auth'
 
 export const agentChatRoutes = new Hono<AuthedEnv>()
+
+/**
+ * Validate the client-supplied object-scoping `context`. Trust nothing: keep it
+ * only when `workspace` is a string, and the optional `object` only when all
+ * three of its string fields are present. Any other shape ⇒ undefined (ignored),
+ * never a throw — a malformed context must not fail an otherwise-valid run.
+ */
+function parseScope(raw: unknown): AgentScope | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const candidate = raw as { workspace?: unknown; object?: unknown }
+  if (typeof candidate.workspace !== 'string') return undefined
+  const scope: AgentScope = { workspace: candidate.workspace }
+  const object = candidate.object
+  if (object && typeof object === 'object') {
+    const o = object as { type?: unknown; id?: unknown; title?: unknown }
+    if (typeof o.type === 'string' && typeof o.id === 'string' && typeof o.title === 'string') {
+      scope.object = { type: o.type, id: o.id, title: o.title }
+    }
+  }
+  return scope
+}
 
 /**
  * The moat loop, provable end-to-end: a chat prompt runs the agent, which reads the
@@ -30,7 +51,11 @@ agentChatRoutes.post('/', async (c) => {
       return c.json({ error: 'No active organization' }, 403)
     }
 
-    const body = (await c.req.json().catch(() => ({}))) as { messages?: UIMessage[]; org_id?: string }
+    const body = (await c.req.json().catch(() => ({}))) as {
+      messages?: UIMessage[]
+      org_id?: string
+      context?: unknown
+    }
 
     // Anchor the ENTIRE run to ONE org: reads, retrieval, and proposals all scope to
     // this single tenant, so nothing crosses tenants. Use the requested `org_id` when
@@ -72,7 +97,8 @@ agentChatRoutes.post('/', async (c) => {
     }
 
     const model = agentModel(c.env ?? {})
-    return await runAgentChat(sql, { tenantId, userId, model, waitUntil }, messages)
+    const scope = parseScope(body.context)
+    return await runAgentChat(sql, { tenantId, userId, model, waitUntil, scope }, messages)
   } catch (cause) {
     console.error('[agent-chat] run failed', cause)
     return c.json({ error: 'Failed to start agent run' }, 500)

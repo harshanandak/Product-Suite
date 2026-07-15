@@ -1,12 +1,22 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ProposalRepository } from "@/data/proposals";
 import type { AcceptResult, Proposal } from "@/data/proposals";
 
+// Mutable search stub so a test can drive the `?proposal=<id>` deep-link.
+let searchMock: { proposal?: string } = {};
+
 vi.mock("@tanstack/react-router", () => ({
   useParams: () => ({ workspace: "acme" }),
+  useSearch: () => searchMock,
   // The detail pane renders TanStack Link; stub it as a plain anchor (drop the
   // router-only `to`/`params` props so they don't hit the DOM).
   Link: ({
@@ -53,6 +63,10 @@ function repoWith(proposals: Proposal[]): ProposalRepository {
 }
 
 describe("InboxScreen", () => {
+  beforeEach(() => {
+    searchMock = {};
+  });
+
   it("renders a list row per pending proposal", async () => {
     render(
       <InboxScreen
@@ -62,8 +76,12 @@ describe("InboxScreen", () => {
     await waitFor(() =>
       expect(screen.getAllByRole("listitem")).toHaveLength(2),
     );
-    expect(screen.getByText("Alpha")).toBeInTheDocument();
-    expect(screen.getByText("Beta")).toBeInTheDocument();
+    // Scope title lookups to the LIST: the default-selected proposal's detail
+    // pane also renders its title as a field value, so an unscoped getByText
+    // would race a second "Alpha" match once the pane's rows mount.
+    const list = screen.getByRole("list", { name: "Pending proposals" });
+    expect(within(list).getByText("Alpha")).toBeInTheDocument();
+    expect(within(list).getByText("Beta")).toBeInTheDocument();
     expect(screen.getByText("2 pending")).toBeInTheDocument();
   });
 
@@ -100,6 +118,55 @@ describe("InboxScreen", () => {
     // Clicking Beta's row swaps the detail pane to Beta.
     fireEvent.click(screen.getByRole("button", { name: /Beta/ }));
     expect(screen.getByText("Create work item “Beta”")).toBeInTheDocument();
+  });
+
+  it("preselects the deep-linked proposal from ?proposal=<id>", async () => {
+    searchMock = { proposal: "p2" };
+    render(
+      <InboxScreen
+        repository={repoWith([proposal("p1", "Alpha"), proposal("p2", "Beta")])}
+      />,
+    );
+    // The requested proposal (Beta), not the first row (Alpha), owns the pane.
+    await waitFor(() =>
+      expect(screen.getByText("Create work item “Beta”")).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByText("Create work item “Alpha”"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("falls back to the first proposal when the deep-linked id is not pending", async () => {
+    searchMock = { proposal: "gone" };
+    render(
+      <InboxScreen
+        repository={repoWith([proposal("p1", "Alpha"), proposal("p2", "Beta")])}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByText("Create work item “Alpha”")).toBeInTheDocument(),
+    );
+  });
+
+  it("retargets the pane when a new ?proposal deep-link arrives while already open", async () => {
+    // The inbox is already open on the default (first) row; then the chat panel's
+    // "Review in Inbox →" changes the search param to a DIFFERENT proposal.
+    const repository = repoWith([proposal("p1", "Alpha"), proposal("p2", "Beta")]);
+    const { rerender } = render(<InboxScreen repository={repository} />);
+    await waitFor(() =>
+      expect(screen.getByText("Create work item “Alpha”")).toBeInTheDocument(),
+    );
+
+    searchMock = { proposal: "p2" };
+    rerender(<InboxScreen repository={repository} />);
+
+    // The pane jumps to Beta even though Alpha was already selected.
+    await waitFor(() =>
+      expect(screen.getByText("Create work item “Beta”")).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByText("Create work item “Alpha”"),
+    ).not.toBeInTheDocument();
   });
 
   it("ignores a row swap while an accept is in flight (keeps the acted-on pane)", async () => {

@@ -3,30 +3,25 @@ import { Bell, Search, Sparkles } from "lucide-react";
 
 import { Button, ThemeToggle, cn } from "@product-suite/ui";
 
-import { href, resolveScreen } from "./boards";
-import { toast } from "./toast";
+import { href } from "./boards";
 import { UserMenu } from "./UserMenu";
 
 /**
  * Top bar (DESIGN §2): global search + Cmd+K affordance, review-queue bell,
- * "Ask agent" (opens an object-scoped agent thread tied to the current screen),
+ * "Ask agent" (opens the object-scoped agent chat panel — the shell owns the
+ * panel's open-state + linked object so the thread persists across navigation),
  * theme toggle, and the user menu. The breadcrumb was removed as redundant with
  * the workspace switcher + the active sidebar item (product feedback 2026-06-25).
  */
 export function TopBar({
   workspace,
-  pathname,
   onOpenPalette,
+  onAskAgent,
 }: Readonly<{
   workspace: string;
-  pathname: string;
   onOpenPalette: () => void;
+  onAskAgent: () => void;
 }>) {
-  // Breadcrumb removed (redundant with the workspace switcher + active sidebar
-  // item). `title` is still used to label the agent thread. DESIGN §2 lists a
-  // breadcrumb here; intentional deviation per product feedback (2026-06-25).
-  const { title } = resolveScreen(pathname, workspace);
-
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border bg-background px-4">
       <div className="flex-1" />
@@ -53,11 +48,7 @@ export function TopBar({
         <Bell className="size-4" />
       </Link>
 
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => toast(`Agent thread opened — linked to: ${title}`)}
-      >
+      <Button variant="outline" size="sm" onClick={onAskAgent}>
         <Sparkles />
         Ask agent
       </Button>

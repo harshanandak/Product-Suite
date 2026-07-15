@@ -73,6 +73,11 @@ const homeInboxRoute = createRoute({
   getParentRoute: () => workspaceRoute,
   path: "inbox",
   component: InboxScreen,
+  // `?proposal=<id>` deep-links a specific proposal's detail pane (the target of
+  // the chat panel's "Review in Inbox →"). Validated to a string or dropped, so a
+  // junk value degrades to the default (first-proposal) selection, never a crash.
+  validateSearch: (search: Record<string, unknown>): { proposal?: string } =>
+    typeof search.proposal === "string" ? { proposal: search.proposal } : {},
 });
 
 const workboardRoute = createRoute({

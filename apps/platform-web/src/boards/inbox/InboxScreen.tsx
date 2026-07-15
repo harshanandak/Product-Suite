@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import { useParams } from "@tanstack/react-router";
+import { useParams, useSearch } from "@tanstack/react-router";
 
 import { Button, EmptyState, ErrorState } from "@product-suite/ui";
 
@@ -36,18 +36,39 @@ function SkeletonRow() {
  */
 export function InboxScreen({ repository }: Readonly<InboxScreenProps> = {}) {
   const { workspace } = useParams({ from: "/w/$workspace/inbox" });
+  // `?proposal=<id>` deep-links a specific proposal (the chat panel's "Review in
+  // Inbox →" target). Preselect it when present + still pending, else fall back
+  // to the first row.
+  const { proposal: requestedId } = useSearch({ from: "/w/$workspace/inbox" });
   const { proposals, isLoading, error, accept, reject, isMutating, refetch } =
     useProposals({ repository });
 
-  // The selected proposal id (detail-pane target). Default to the first proposal
-  // once the list arrives, then NEVER auto-jump: a proposal disposed of via the
-  // detail pane leaves the pending list on refetch, but we keep its terminal
-  // confirmation ("Applied → view item" / stale) visible until the user picks
-  // another row instead of yanking the pane to a different proposal.
+  // The selected proposal id (detail-pane target). Default to the deep-linked
+  // proposal (when it exists), else the first proposal once the list arrives —
+  // then NEVER auto-jump: a proposal disposed of via the detail pane leaves the
+  // pending list on refetch, but we keep its terminal confirmation ("Applied →
+  // view item" / stale) visible until the user picks another row instead of
+  // yanking the pane to a different proposal.
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // The last `?proposal=<id>` we honored. A NEW deep-link (the chat panel's
+  // "Review in Inbox →") must retarget the pane even when the inbox is already
+  // open with a different proposal selected — so we react to the id CHANGING,
+  // not just to an empty selection.
+  const appliedRequestRef = useRef<string | undefined>(undefined);
   useEffect(() => {
+    if (
+      requestedId &&
+      requestedId !== appliedRequestRef.current &&
+      proposals.some((p) => p.id === requestedId)
+    ) {
+      appliedRequestRef.current = requestedId;
+      setSelectedId(requestedId);
+      return;
+    }
+    // Otherwise default a still-empty selection to the first row once loaded;
+    // never auto-jump an existing selection (keeps a terminal banner visible).
     setSelectedId((current) => current ?? proposals[0]?.id ?? null);
-  }, [proposals]);
+  }, [proposals, requestedId]);
 
   // Cache every proposal we've shown so the detail pane can keep rendering a
   // just-disposed proposal (dropped from the refetched list) with its terminal
