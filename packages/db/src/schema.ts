@@ -523,6 +523,12 @@ export const memories = pgTable(
     byScope: index('memories_tenant_scope_idx').on(t.tenantId, t.status, t.scopeType, t.scopeId),
     // Resolve a whole supersession chain within an org.
     byRoot: index('memories_tenant_root_idx').on(t.tenantId, t.rootId),
+    // At most ONE memory per source proposal — hardens the check-then-insert
+    // create-idempotency guard in apply.ts against a concurrent double re-drive.
+    // PARTIAL so the many NULL-source (human/meeting/import) memories are unconstrained.
+    bySourceProposal: uniqueIndex('memories_source_proposal_uniq')
+      .on(t.sourceProposalId)
+      .where(sql`${t.sourceProposalId} is not null`),
   }),
 )
 
