@@ -3,6 +3,7 @@ import { convertToModelMessages, stepCountIs, streamText, type LanguageModel, ty
 import type { Sql } from '@product-suite/db'
 
 import { buildTools } from './tools'
+import { touchThread } from './threads-repository'
 
 /**
  * The agent's operating instructions. It is a workboard copilot that READS via the
@@ -271,6 +272,13 @@ export async function runAgentChat(
       const delta = buildTurnDelta(messages, responseMessage)
       const transcript = { version: TRANSCRIPT_VERSION, messages: delta, steps: stepCount }
       await safeCloseRun(sql, runId, 'completed', uiMessageText(responseMessage), transcript)
+      // Bump the thread so the panel list (ordered by updated_at) surfaces it as
+      // recently-active; best-effort, never fail the detached finish over it.
+      if (ctx.threadId) {
+        await touchThread(sql, ctx.threadId, ctx.tenantId).catch((cause) => {
+          console.error('[agent-runtime] touchThread failed', { threadId: ctx.threadId, cause })
+        })
+      }
     },
   })
 

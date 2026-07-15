@@ -360,14 +360,19 @@ describe("AgentChatPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Show threads" }));
     fireEvent.click(await screen.findByText("T1"));
     await waitFor(() => expect(threadsAdapter.messages).toHaveBeenCalledWith("th_1"));
+    // The prior thread's stream is aborted before the selected history loads in.
+    expect(chat.stop).toHaveBeenCalled();
     expect(chat.setMessages).toHaveBeenCalledWith([
       { id: "u1", role: "user", parts: [{ type: "text", text: "hi" }] },
     ]);
   });
 
-  it("New thread resets the conversation to a fresh, unsaved thread", () => {
+  it("New thread aborts any in-flight stream and resets to a fresh, unsaved thread", () => {
+    chat.status = "streaming";
     renderPanel();
     fireEvent.click(screen.getByRole("button", { name: "New thread" }));
+    // stop() first so the previous turn can't stream its response into the new thread.
+    expect(chat.stop).toHaveBeenCalled();
     expect(chat.setMessages).toHaveBeenCalledWith([]);
   });
 

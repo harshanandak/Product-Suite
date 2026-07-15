@@ -157,6 +157,27 @@ describe('runAgentChat (request-free runtime + agent_runs lifecycle)', () => {
     expect(String(mint?.[0])).toMatch(/"thread_id"/i)
   })
 
+  it('bumps the thread updated_at when a threaded run completes (list stays activity-ordered)', async () => {
+    let streamResult: ReturnType<typeof fakeStreamResult> | undefined
+    streamText.mockImplementation(() => {
+      streamResult = fakeStreamResult()
+      return streamResult
+    })
+    const { sql, query } = fakeSql()
+    await runAgentChat(
+      sql,
+      { tenantId: 't_1', userId: 'u_1', model: fakeModel, threadId: 'th_1' },
+      [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }] as unknown as UIMessage[],
+    )
+    // Settle the UI stream so the completed path (which touches the thread) runs.
+    await streamResult?.rec.uiOnFinish?.({ responseMessage: assistantMsg })
+    await vi.waitFor(() => {
+      const touch = query.mock.calls.find(([t]) => /update "chat_threads"/i.test(String(t)))
+      expect(touch).toBeDefined()
+      expect(touch?.[1]).toEqual(['th_1', 't_1'])
+    })
+  })
+
   it('caps the MODEL prompt to the last N user turns (UI/DB keep the full history)', async () => {
     streamText.mockImplementation(() => fakeStreamResult())
     const { sql } = fakeSql()

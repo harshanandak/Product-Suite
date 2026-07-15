@@ -64,11 +64,24 @@ export function titleFromFirstMessage(messages: UIMessage[]): string {
  */
 export function concatDeltas(transcripts: unknown[]): UIMessage[] {
   const out: UIMessage[] = []
+  const seen = new Set<string>()
   for (const t of transcripts) {
     if (!t || typeof t !== 'object') continue
     const rec = t as { version?: unknown; messages?: unknown }
     if (rec.version !== 1) continue
-    if (Array.isArray(rec.messages)) out.push(...(rec.messages as UIMessage[]))
+    if (!Array.isArray(rec.messages)) continue
+    for (const m of rec.messages as UIMessage[]) {
+      // Dedup by message id: a mid-stream network drop can complete the run
+      // server-side while the client's Retry (`regenerate`) resends the SAME user
+      // message (same id) into a second run. Without this the reconstruction shows
+      // that turn twice — and React sees duplicate keys.
+      const id = (m as { id?: unknown }).id
+      if (typeof id === 'string') {
+        if (seen.has(id)) continue
+        seen.add(id)
+      }
+      out.push(m)
+    }
   }
   return out
 }
@@ -111,13 +124,31 @@ export async function getThreadScoped(
   return rows[0] ?? null
 }
 
+/** Max threads returned to the panel list — bounds the payload as threads accumulate. */
+export const THREAD_LIST_LIMIT = 50
+
 /** The org's non-archived threads, newest first — exactly what the panel list renders. */
 export async function listThreads(sql: Sql, tenantId: string): Promise<ThreadListRow[]> {
   return runQuery<ThreadListRow>(
     sql,
     `select id, title, linked_object, updated_at from "chat_threads"
-     where tenant_id = $1 and archived = false order by updated_at desc`,
+     where tenant_id = $1 and archived = false
+     order by updated_at desc limit ${THREAD_LIST_LIMIT}`,
     [tenantId],
+  )
+}
+
+/**
+ * Bump a thread's `updated_at` so the panel list (ordered by `updated_at desc`)
+ * surfaces recently-active threads first. Called when a run in the thread completes
+ * — otherwise the list is stuck in creation order. Tenant-scoped; a foreign id is a
+ * silent no-op (never touches another org's row).
+ */
+export async function touchThread(sql: Sql, threadId: string, tenantId: string): Promise<void> {
+  await runQuery(
+    sql,
+    `update "chat_threads" set updated_at = now() where id = $1 and tenant_id = $2`,
+    [threadId, tenantId],
   )
 }
 

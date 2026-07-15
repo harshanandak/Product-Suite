@@ -197,6 +197,13 @@ export function AgentChatPanel({
   const refreshThreadsRef = useRef(refreshThreads);
   refreshThreadsRef.current = refreshThreads;
 
+  // Thread epoch: bumped on every new-thread / select. A server-minted id returns
+  // only AFTER its createThread + mintRun roundtrips, so a fast "+" click can land
+  // between send and that response — the epoch lets `onThreadId` reject an id whose
+  // request belongs to a thread the user has since switched away from.
+  const threadEpochRef = useRef(0);
+  const sentEpochRef = useRef(0);
+
   const transport = useMemo(
     () =>
       createAgentChatTransport({
@@ -207,7 +214,13 @@ export function AgentChatPanel({
         // The server-minted id for a new thread: adopt it, then refresh the list so
         // the just-created thread appears without a manual reload.
         onThreadId: (id) => {
-          if (id !== threadIdRef.current) {
+          // Adopt the minted id ONLY if the user hasn't switched/new-threaded since
+          // the send that requested it — else the next turn would append to the
+          // wrong thread with mismatched history.
+          if (
+            id !== threadIdRef.current &&
+            threadEpochRef.current === sentEpochRef.current
+          ) {
             setThreadId(id);
             refreshThreadsRef.current();
           }
@@ -248,6 +261,9 @@ export function AgentChatPanel({
   const submit = (message: PromptInputMessage) => {
     const text = message.text.trim();
     if (text.length === 0) return;
+    // Tag this send with the current thread epoch so a late server-minted id can be
+    // matched (or rejected) if the user switches threads before it returns.
+    sentEpochRef.current = threadEpochRef.current;
     // Return the send promise so PromptInput can await it; the draft clears
     // immediately. Failures surface through useChat's `error` state (the banner).
     const sent = sendMessage({ text });
@@ -257,6 +273,10 @@ export function AgentChatPanel({
 
   // Start a fresh, unsaved thread: the server mints a new id on the next turn.
   const startNewThread = (linkTo: AgentLinkedObject | null) => {
+    // Abort any in-flight stream + advance the epoch so the old turn can't bleed
+    // its response (or its minted id) into this fresh thread.
+    stop();
+    threadEpochRef.current += 1;
     setShowThreads(false);
     setThreadId(null);
     setMessages([]);
@@ -276,6 +296,10 @@ export function AgentChatPanel({
 
   // Load a saved thread's reconstructed history into the chat.
   const selectThread = (id: string) => {
+    // Abort any in-flight stream + advance the epoch: the previous thread's response
+    // must not stream into this one, and its minted id must not retro-adopt.
+    stop();
+    threadEpochRef.current += 1;
     setShowThreads(false);
     threadsAdapter
       .messages(id)
