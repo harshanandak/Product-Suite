@@ -15,6 +15,36 @@ const { createWorkItem, updateWorkItem } = vi.hoisted(() => ({
 }))
 vi.mock('../domain/work-items', () => ({ createWorkItem, updateWorkItem }))
 
+// The memory domain is the SHARED validated write path for P1b, mocked the same way
+// so each test controls the command outcome and asserts the agent actor + provenance.
+const { createMemory, supersedeMemory, retractMemory, deferMemory, getMemoryBySourceProposalId } =
+  vi.hoisted(() => ({
+    createMemory: vi.fn(),
+    supersedeMemory: vi.fn(),
+    retractMemory: vi.fn(),
+    deferMemory: vi.fn(),
+    getMemoryBySourceProposalId: vi.fn(),
+  }))
+vi.mock('../domain/memories', () => ({
+  createMemory,
+  supersedeMemory,
+  retractMemory,
+  deferMemory,
+  getMemoryBySourceProposalId,
+}))
+
+const MEM_ROW = {
+  id: 'mem_new',
+  tenant_id: 't_1',
+  kind: 'decision',
+  title: 'Use Postgres',
+  body: 'x',
+  status: 'active',
+  source_kind: 'proposal',
+  source_proposal_id: 'p1',
+  source_run_id: 'run_1',
+}
+
 const WI_ROW = {
   id: 'wi_new',
   title: 'A',
@@ -87,6 +117,11 @@ describe('applyProposal (Design C: claim-then-command)', () => {
   beforeEach(() => {
     createWorkItem.mockReset().mockResolvedValue(WI_ROW)
     updateWorkItem.mockReset().mockResolvedValue(WI_ROW)
+    createMemory.mockReset().mockResolvedValue(MEM_ROW)
+    supersedeMemory.mockReset().mockResolvedValue(MEM_ROW)
+    retractMemory.mockReset().mockResolvedValue(MEM_ROW)
+    deferMemory.mockReset().mockResolvedValue(MEM_ROW)
+    getMemoryBySourceProposalId.mockReset().mockResolvedValue(null)
   })
 
   it('applies a pending create through the domain command as an agent on-behalf-of the approver', async () => {
@@ -196,5 +231,134 @@ describe('applyProposal (Design C: claim-then-command)', () => {
     // The proposal is now terminal: re-accepting it is a no-op, not a perpetual 422.
     const second = await applyProposal(sql, ctx, 'p1')
     expect(second).toEqual({ applied: false, reason: 'not_pending' })
+  })
+
+  const MEMORY_CREATE = {
+    target_type: 'memory',
+    target_id: null,
+    operation: 'create',
+    payload: { kind: 'decision', title: 'Use Postgres', body: 'x', topics: ['db'] },
+  }
+
+  it('applies a memory:create through the memory domain with the agent actor + proposal provenance', async () => {
+    const { sql, getStatus } = makeSql({ proposal: MEMORY_CREATE })
+    const res = await applyProposal(sql, ctx, 'p1')
+    expect(res).toEqual({ applied: true, result: MEM_ROW })
+    expect(getStatus()).toBe('applied')
+    expect(createWorkItem).not.toHaveBeenCalled()
+    expect(createMemory).toHaveBeenCalledTimes(1)
+    const [, cmdCtx, input] = createMemory.mock.calls[0] ?? []
+    // created_by = the RUN (the agent), decided by the approver, stamped with the
+    // proposal + run provenance so a proposal-applied memory is fully accountable.
+    expect(cmdCtx).toEqual({ tenantId: 't_1', actor: 'run_1' })
+    expect(input).toMatchObject({
+      kind: 'decision',
+      title: 'Use Postgres',
+      body: 'x',
+      topics: ['db'],
+      sourceKind: 'proposal',
+      sourceRunId: 'run_1',
+      sourceProposalId: 'p1',
+      decidedBy: 'u_approver',
+    })
+  })
+
+  it('memory:create is IDEMPOTENT — a re-drive with an existing source_proposal_id returns it, no double-create', async () => {
+    const existing = { ...MEM_ROW, id: 'mem_existing' }
+    getMemoryBySourceProposalId.mockResolvedValue(existing)
+    const { sql } = makeSql({ proposal: MEMORY_CREATE })
+    const res = await applyProposal(sql, ctx, 'p1')
+    expect(res).toEqual({ applied: true, result: existing })
+    // The guard fired: the domain create never ran (no second memory row).
+    expect(createMemory).not.toHaveBeenCalled()
+    // The lookup is tenant-scoped to the proposal's own org (the apply is the boundary).
+    expect(getMemoryBySourceProposalId).toHaveBeenCalledWith(sql, 'p1', ['t_1'])
+  })
+
+  it('dispatches memory:supersede to the domain with target + agent source provenance', async () => {
+    const { sql } = makeSql({
+      proposal: {
+        target_type: 'memory',
+        operation: 'supersede',
+        target_id: 'mem_1',
+        payload: { body: 'Reversed', change_reason: 'Mongo chosen' },
+      },
+    })
+    const res = await applyProposal(sql, ctx, 'p1')
+    expect(res).toEqual({ applied: true, result: MEM_ROW })
+    expect(supersedeMemory).toHaveBeenCalledTimes(1)
+    const [, cmdCtx, targetId, input] = supersedeMemory.mock.calls[0] ?? []
+    // Tenant isolation: the command is scoped to the proposal's OWN tenant, so a
+    // foreign target id can never be superseded here (the domain returns not_found).
+    expect(cmdCtx).toEqual({ tenantIds: ['t_1'], actor: 'run_1' })
+    expect(targetId).toBe('mem_1')
+    expect(input).toMatchObject({
+      body: 'Reversed',
+      changeReason: 'Mongo chosen',
+      sourceKind: 'proposal',
+      sourceRunId: 'run_1',
+      sourceProposalId: 'p1',
+    })
+  })
+
+  it('dispatches memory:retract and memory:defer to the domain (agent actor, proposal tenant)', async () => {
+    const retractSql = makeSql({
+      proposal: { target_type: 'memory', operation: 'retract', target_id: 'mem_1', payload: {} },
+    })
+    expect(await applyProposal(retractSql.sql, ctx, 'p1')).toEqual({ applied: true, result: MEM_ROW })
+    expect(retractMemory).toHaveBeenCalledWith(retractSql.sql, { tenantIds: ['t_1'], actor: 'run_1' }, 'mem_1')
+
+    const deferSql = makeSql({
+      proposal: {
+        target_type: 'memory',
+        operation: 'defer',
+        target_id: 'mem_1',
+        payload: { waiting_on: 'legal', review_after: '2026-08-01' },
+      },
+    })
+    expect(await applyProposal(deferSql.sql, ctx, 'p1')).toEqual({ applied: true, result: MEM_ROW })
+    const [, , deferTarget, deferInput] = deferMemory.mock.calls[0] ?? []
+    expect(deferTarget).toBe('mem_1')
+    expect(deferInput).toMatchObject({ waitingOn: 'legal', reviewAfter: '2026-08-01' })
+  })
+
+  it('memory supersede DomainError(conflict) → proposal reverts to pending (reviewable, not terminal)', async () => {
+    supersedeMemory.mockReset().mockRejectedValue(new DomainError('conflict', 'no longer active'))
+    const { sql, getStatus } = makeSql({
+      proposal: {
+        target_type: 'memory',
+        operation: 'supersede',
+        target_id: 'mem_1',
+        payload: { change_reason: 'x' },
+      },
+    })
+    const res = await applyProposal(sql, ctx, 'p1')
+    expect(res).toEqual({ applied: false, reason: 'stale' })
+    expect(getStatus()).toBe('pending') // still reviewable, like a stale work-item update
+  })
+
+  it('memory supersede DomainError(not_found) on a foreign/vanished target → terminal invalid (never applied)', async () => {
+    supersedeMemory.mockReset().mockRejectedValue(new DomainError('not_found', 'Not found'))
+    const { sql, getStatus } = makeSql({
+      proposal: {
+        target_type: 'memory',
+        operation: 'supersede',
+        target_id: 'foreign_mem',
+        payload: { change_reason: 'x' },
+      },
+    })
+    const res = await applyProposal(sql, ctx, 'p1')
+    expect(res).toEqual({ applied: false, reason: 'invalid' })
+    expect(getStatus()).toBe('failed')
+  })
+
+  it('terminally fails an unsupported memory operation (never claimed)', async () => {
+    const { sql, getStatus } = makeSql({
+      proposal: { target_type: 'memory', operation: 'frobnicate', target_id: 'mem_1', payload: {} },
+    })
+    const res = await applyProposal(sql, ctx, 'p1')
+    expect(res).toEqual({ applied: false, reason: 'invalid' })
+    expect(getStatus()).toBe('failed')
+    expect(supersedeMemory).not.toHaveBeenCalled()
   })
 })

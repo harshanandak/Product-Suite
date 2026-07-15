@@ -5,6 +5,7 @@ import type { Sql } from '@product-suite/db'
 import {
   createMemory,
   deferMemory,
+  getMemoryBySourceProposalId,
   reactivateMemory,
   retractMemory,
   supersedeMemory,
@@ -113,6 +114,29 @@ describe('supersedeMemory (append-only versioning)', () => {
     ).rejects.toMatchObject({ code: 'not_found' })
   })
 
+  it('stamps agent source provenance (source_kind/source_run_id/source_proposal_id) on the new version', async () => {
+    const NEW = { ...ROW, id: 'm_2', supersedes_id: 'm_1', source_kind: 'proposal' as const }
+    const { sql, query } = mockSql((text) => {
+      if (/with "latched" as/i.test(text)) return [NEW]
+      if (/select \* from "memories"/i.test(text)) return [ROW]
+      return []
+    })
+    await supersedeMemory(sql, { tenantIds: ['t_1'], actor: 'run_1' }, 'm_1', {
+      body: 'Reversed',
+      changeReason: 'Mongo chosen',
+      sourceKind: 'proposal',
+      sourceRunId: 'run_1',
+      sourceProposalId: 'prop_9',
+    })
+    const cte = query.mock.calls.find(([t]) => /with "latched" as/i.test(String(t)))!
+    // The new version row records where it came from — the proposal + run.
+    expect(String(cte[0])).toMatch(/"source_run_id"/)
+    expect(String(cte[0])).toMatch(/"source_proposal_id"/)
+    expect(cte[1]).toContain('proposal')
+    expect(cte[1]).toContain('run_1')
+    expect(cte[1]).toContain('prop_9')
+  })
+
   it('inserts a NEW version + latches the old in ONE atomic CTE, resolving to the new row', async () => {
     const NEW = { ...ROW, id: 'm_2', supersedes_id: 'm_1', change_reason: 'Mongo was chosen instead' }
     const { sql, query } = mockSql((text) => {
@@ -203,5 +227,23 @@ describe('retractMemory / deferMemory (keep history)', () => {
     await expect(
       deferMemory(sql, { tenantIds: ['t_1'], actor: 'u_1' }, 'foreign', {}),
     ).rejects.toMatchObject({ code: 'not_found' })
+  })
+})
+
+describe('getMemoryBySourceProposalId (idempotent re-drive lookup)', () => {
+  it('returns the memory already created from a proposal, scoped to the tenants', async () => {
+    const FROM_PROP = { ...ROW, source_kind: 'proposal' as const, source_proposal_id: 'prop_9' }
+    const { sql, query } = mockSql(() => [FROM_PROP])
+    const found = await getMemoryBySourceProposalId(sql, 'prop_9', ['t_1'])
+    expect(found?.id).toBe('m_1')
+    const [text, params] = query.mock.calls[0]!
+    expect(String(text)).toMatch(/"source_proposal_id" = \$1/)
+    expect(String(text)).toMatch(/tenant_id/)
+    expect(params).toEqual(['prop_9', ['t_1']])
+  })
+
+  it('returns null when no memory has been created from the proposal yet', async () => {
+    const { sql } = mockSql(() => [])
+    expect(await getMemoryBySourceProposalId(sql, 'prop_x', ['t_1'])).toBeNull()
   })
 })

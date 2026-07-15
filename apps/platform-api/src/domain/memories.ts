@@ -149,6 +149,26 @@ export async function getMemoryScoped(
 }
 
 /**
+ * Fetch the memory ALREADY created from a proposal (`source_proposal_id`), scoped to
+ * the caller's tenants — the idempotent-re-drive key for the apply path (P1b), the
+ * memory analogue of `work_items.applied_from_proposal_id`. A re-drive after a crash
+ * between the proposal claim and the create finds this row and returns it instead of
+ * double-creating. `null` when no memory has been created from the proposal yet.
+ */
+export async function getMemoryBySourceProposalId(
+  sql: Sql,
+  proposalId: string,
+  tenantIds: string[],
+): Promise<MemoryRow | null> {
+  const rows = await runQuery<MemoryRow>(
+    sql,
+    `select * from "memories" where "source_proposal_id" = $1 and tenant_id = any($2) limit 1`,
+    [proposalId, tenantIds],
+  )
+  return rows[0] ?? null
+}
+
+/**
  * The whole supersession chain for a memory's `root_id`, oldest first — the "why did
  * this flip?" trail. Scoped to the caller's tenants (empty when the root is foreign).
  */
@@ -228,6 +248,15 @@ export interface SupersedeMemoryInput {
   body?: string
   topics?: string[]
   changeReason: string
+  /**
+   * Provenance for an AGENT-authored supersede (P1b): where the new version came
+   * from. Defaults to a human `'manual'` supersede with no run/proposal linkage;
+   * the apply path passes `'proposal'` + the run/proposal ids so the new version
+   * carries the same accountable provenance a proposal-applied create does.
+   */
+  sourceKind?: 'meeting' | 'chat' | 'proposal' | 'manual' | 'import'
+  sourceRunId?: string | null
+  sourceProposalId?: string | null
 }
 
 /**
@@ -271,13 +300,15 @@ export async function supersedeMemory(
     insert into "memories" (
       "id", "tenant_id", "kind", "title", "body", "attrs", "root_id",
       "supersedes_id", "change_reason", "valid_from", "status",
-      "scope_type", "scope_id", "topics", "source_kind", "created_by", "decided_by",
+      "scope_type", "scope_id", "topics",
+      "source_kind", "source_run_id", "source_proposal_id", "created_by", "decided_by",
       "pinned", "priority", "enforcement"
     )
     select
       $1, "tenant_id", "kind", coalesce($4, "title"), coalesce($5, "body"), "attrs", "root_id",
       "id", $6, now(), 'active',
-      "scope_type", "scope_id", coalesce($7, "topics"), 'manual', $8, "decided_by",
+      "scope_type", "scope_id", coalesce($7, "topics"),
+      $9, $10, $11, $8, "decided_by",
       "pinned", "priority", "enforcement"
     from "latched"
     returning *
@@ -291,6 +322,9 @@ export async function supersedeMemory(
     changeReason,
     input.topics ?? null,
     ctx.actor,
+    input.sourceKind ?? 'manual',
+    input.sourceRunId ?? null,
+    input.sourceProposalId ?? null,
   ])
   const inserted = rows[0]
   if (!inserted) {

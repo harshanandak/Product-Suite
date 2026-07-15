@@ -2,6 +2,14 @@ import type { Sql } from '@product-suite/db'
 
 import { DomainError } from '../domain/errors'
 import {
+  createMemory,
+  deferMemory,
+  getMemoryBySourceProposalId,
+  retractMemory,
+  supersedeMemory,
+  type MemoryRow,
+} from '../domain/memories'
+import {
   createWorkItem,
   updateWorkItem,
   type CreateWorkItemInput,
@@ -19,11 +27,18 @@ import { getProposalScoped, type ProposalRow } from './repository'
  * = a permanent invariant failure that terminally FAILED the proposal (→ 422).
  */
 export type ApplyResult =
-  | { applied: true; result: WorkItemRow }
+  | { applied: true; result: WorkItemRow | MemoryRow }
   | { applied: false; reason: 'not_found' | 'not_pending' | 'stale' | 'invalid' }
 
 /** The (target_type, operation) pairs this slice can apply. */
-const SUPPORTED = new Set(['work_item:create', 'work_item:update'])
+const SUPPORTED = new Set([
+  'work_item:create',
+  'work_item:update',
+  'memory:create',
+  'memory:supersede',
+  'memory:retract',
+  'memory:defer',
+])
 
 /** Run a parameterized statement via neon's `sql.query(text, params)` (v1.x). */
 function sqlQuery<Row = Record<string, unknown>>(
@@ -48,6 +63,84 @@ async function failInvalid(sql: Sql, proposalId: string, reason: string): Promis
   )
   return { applied: false, reason: 'invalid' }
 }
+
+/**
+ * Dispatch an accepted `target_type='memory'` proposal to the memory DOMAIN commands
+ * (the single validated write path — never raw SQL), as the AGENT acting on behalf of
+ * the approver. `created_by`/actor is the RUN (the agent's identity), `decided_by` is
+ * the approver, and created/superseded memories carry `source_kind='proposal'` +
+ * `source_proposal_id`/`source_run_id` so an agent-authored memory is fully accountable.
+ *
+ * Idempotent re-drive (create only): before creating, look up a memory already made
+ * from THIS proposal (`source_proposal_id`) — the memory analogue of
+ * `work_items.applied_from_proposal_id` — and return it, so a crash between the claim
+ * and the write can never double-create. The lookup is scoped to the proposal's OWN
+ * tenant; every command is likewise `tenantIds=[claimed.tenant_id]`, so a foreign
+ * target id is indistinguishable from unknown (→ `not_found`) and never applied — the
+ * apply is the tenant boundary, not just the tool.
+ */
+async function applyMemoryCommand(
+  sql: Sql,
+  claimed: ProposalRow,
+  payload: Record<string, unknown>,
+  approverUserId: string,
+): Promise<MemoryRow> {
+  const tenantId = claimed.tenant_id
+  const runId = claimed.run_id as string // guaranteed by the run_id pre-check
+  const targetId = claimed.target_id as string // guaranteed by the target pre-check (non-create)
+
+  if (claimed.operation === 'create') {
+    const existing = await getMemoryBySourceProposalId(sql, claimed.id, [tenantId])
+    if (existing) return existing
+    return createMemory(
+      sql,
+      { tenantId, actor: runId },
+      {
+        kind: payload.kind as 'decision' | 'fact' | 'rule',
+        title: payload.title as string,
+        body: payload.body as string | undefined,
+        topics: payload.topics as string[] | undefined,
+        scopeType: payload.scope_type as CreateMemoryScope,
+        scopeId: (payload.scope_id as string | undefined) ?? null,
+        sourceKind: 'proposal',
+        sourceRunId: runId,
+        sourceProposalId: claimed.id,
+        decidedBy: approverUserId,
+      },
+    )
+  }
+  if (claimed.operation === 'supersede') {
+    return supersedeMemory(
+      sql,
+      { tenantIds: [tenantId], actor: runId },
+      targetId,
+      {
+        title: payload.title as string | undefined,
+        body: payload.body as string | undefined,
+        topics: payload.topics as string[] | undefined,
+        changeReason: (payload.change_reason as string | undefined) ?? '',
+        sourceKind: 'proposal',
+        sourceRunId: runId,
+        sourceProposalId: claimed.id,
+      },
+    )
+  }
+  if (claimed.operation === 'retract') {
+    return retractMemory(sql, { tenantIds: [tenantId], actor: runId }, targetId)
+  }
+  return deferMemory(
+    sql,
+    { tenantIds: [tenantId], actor: runId },
+    targetId,
+    {
+      waitingOn: (payload.waiting_on as string | undefined) ?? null,
+      reviewAfter: (payload.review_after as string | undefined) ?? null,
+    },
+  )
+}
+
+/** The scope kinds a create payload may carry (mirrors CreateMemoryInput.scopeType). */
+type CreateMemoryScope = 'org' | 'project' | 'work_item_type' | 'work_item' | undefined
 
 /**
  * Apply a pending proposal EXACTLY ONCE, through the SAME validated domain command
@@ -99,8 +192,10 @@ export async function applyProposal(
     return failInvalid(sql, proposalId, `unsupported ${proposal.target_type}:${proposal.operation}`)
   }
   if (!proposal.run_id) return failInvalid(sql, proposalId, 'missing run_id (no attributable actor)')
-  if (proposal.operation === 'update' && !proposal.target_id) {
-    return failInvalid(sql, proposalId, 'update proposal has no target_id')
+  // Every operation except a create names a target it acts on (work_item:update,
+  // memory:supersede|retract|defer). A missing target is a permanent structural failure.
+  if (proposal.operation !== 'create' && !proposal.target_id) {
+    return failInvalid(sql, proposalId, `${proposal.operation} proposal has no target_id`)
   }
 
   // (3) CLAIM — the exactly-once gate (a single statement). It flips ONLY the
@@ -131,8 +226,10 @@ export async function applyProposal(
 
   try {
     // (4) COMMAND — only the winner reaches here; dispatch (target_type, operation).
-    let result: WorkItemRow
-    if (proposal.operation === 'create') {
+    let result: WorkItemRow | MemoryRow
+    if (proposal.target_type === 'memory') {
+      result = await applyMemoryCommand(sql, claimed, appliedPayload, approverUserId)
+    } else if (proposal.operation === 'create') {
       result = await createWorkItem(
         sql,
         { tenantId: claimed.tenant_id, actor, appliedFromProposalId: claimed.id },
@@ -155,7 +252,11 @@ export async function applyProposal(
     return { applied: true, result }
   } catch (cause) {
     if (cause instanceof DomainError) {
-      if (cause.code === 'stale') {
+      // `stale` (work-item version moved) and `conflict` (a memory that is no longer
+      // active — a concurrent supersede/retract won) are the SAME kind of outcome: the
+      // target moved under us, so keep the proposal reviewable rather than terminally
+      // failing it. Every other DomainError is a permanent invariant failure.
+      if (cause.code === 'stale' || cause.code === 'conflict') {
         // (5) GUARDED revert — the target moved; keep the proposal reviewable.
         await sqlQuery(
           sql,
