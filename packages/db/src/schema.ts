@@ -84,6 +84,35 @@ const timestamps = {
 }
 
 /**
+ * A durable agent chat thread — the group that a sequence of chat runs belongs to
+ * (see docs/design/2026-07-15-thread-persistence.md). It owns NO transcript of its
+ * own: a thread's history is DERIVED by concatenating its runs' UIMessage deltas,
+ * so there is no second write path. Anchored to ONE org (`tenant_id`) exactly like
+ * runs/proposals, so a thread never crosses tenants. `archived` is a soft-delete
+ * from day one. Drizzle-owned (new concept).
+ */
+export const chatThreads = pgTable(
+  'chat_threads',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    // The org (= workspace = tenant). References the Alembic-owned tenants(id).
+    tenantId: text('tenant_id').notNull(),
+    // First ~60 chars of the first user message — NOT an LLM call.
+    title: text('title').notNull().default(''),
+    // The panel's "Linked to" object ({type,id,title}); null when unlinked.
+    linkedObject: jsonb('linked_object'),
+    // Soft-delete: an archived thread drops out of the panel list but its runs
+    // (the decision corpus) survive.
+    archived: boolean('archived').notNull().default(false),
+    ...timestamps,
+  },
+  (t) => ({
+    // The panel list: an org's newest non-archived threads first.
+    byList: index('chat_threads_tenant_list_idx').on(t.tenantId, t.archived, t.updatedAt),
+  }),
+)
+
+/**
  * A run is first-class — it has a lifecycle, an owner, a status, and everything
  * it did links back to it via each write row's `run_id`. Minted when a human
  * triggers an agent (chat or "run this"); `triggered_by` is that human and is
@@ -104,9 +133,16 @@ export const agentRuns = pgTable(
     // Nullable: it is null while the run is 'running' and populated on completion,
     // making a completed run a self-contained, replayable decision-corpus record.
     transcript: jsonb('transcript'),
+    // The durable thread this chat run belongs to (nullable: legacy/autonomous runs
+    // stay unlinked). SET NULL on thread delete so a run's work outlives its thread.
+    threadId: uuid('thread_id').references(() => chatThreads.id, { onDelete: 'set null' }),
     ...timestamps,
   },
-  (t) => ({ byTenant: index('agent_runs_tenant_idx').on(t.tenantId) }),
+  (t) => ({
+    byTenant: index('agent_runs_tenant_idx').on(t.tenantId),
+    // Reconstruction reads a thread's runs in creation order.
+    byThread: index('agent_runs_thread_created_idx').on(t.threadId, t.createdAt),
+  }),
 )
 
 /**
