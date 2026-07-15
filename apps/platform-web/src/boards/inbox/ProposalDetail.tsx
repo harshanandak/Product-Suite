@@ -157,6 +157,7 @@ function ActionButtons({
 function DispositionBlock({
   status,
   workspace,
+  isMemory,
   rejecting,
   reason,
   setReason,
@@ -168,6 +169,7 @@ function DispositionBlock({
 }: Readonly<{
   status: DisposeStatus;
   workspace: string;
+  isMemory: boolean;
   rejecting: boolean;
   reason: string;
   setReason: (reason: string) => void;
@@ -178,6 +180,22 @@ function DispositionBlock({
   onCancelReject: () => void;
 }>) {
   if (status.kind === "applied") {
+    // A memory has no workboard item — link to the decision log, never the
+    // work-item route (a memory uuid there is a dead link), and call it a memory.
+    if (isMemory) {
+      return (
+        <StatusBanner tone="primary">
+          Memory logged.{" "}
+          <Link
+            to="/w/$workspace/memory"
+            params={{ workspace }}
+            className="font-medium text-primary hover:underline"
+          >
+            View memory log →
+          </Link>
+        </StatusBanner>
+      );
+    }
     return (
       <StatusBanner tone="primary">
         Applied.{" "}
@@ -557,6 +575,7 @@ export function ProposalDetail({
       <DispositionBlock
         status={status}
         workspace={workspace}
+        isMemory={isMemory}
         rejecting={rejecting}
         reason={reason}
         setReason={setReason}

@@ -185,6 +185,34 @@ describe("ProposalDetail", () => {
     );
   });
 
+  it("(memory) Accept success shows 'Memory logged.' linking to the decision log, NOT the work-item route", async () => {
+    itemsMock.items = [];
+    const accept = vi.fn(
+      async (): Promise<AcceptResult> => ({
+        outcome: "applied",
+        // The applied row is a memory uuid — it must NOT be routed as a work item.
+        item: { id: "3f2a-mem-uuid" } as WorkItem,
+      }),
+    );
+    renderDetail(
+      proposal({
+        target_type: "memory",
+        target_id: null,
+        operation: "create",
+        payload: { kind: "decision", title: "Use Postgres" },
+      }),
+      { accept },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+    await waitFor(() =>
+      expect(screen.getByText(/Memory logged\./)).toBeInTheDocument(),
+    );
+    const link = screen.getByRole("link", { name: /memory log/i });
+    expect(link).toHaveAttribute("href", "/w/acme/memory");
+    // The dead work-item link is never rendered for a memory.
+    expect(screen.queryByRole("link", { name: /View item/ })).not.toBeInTheDocument();
+  });
+
   it("Reject with a chip reason calls reject with that reason", () => {
     const reject = vi.fn(async () => undefined);
     renderDetail(proposal(), { reject });
