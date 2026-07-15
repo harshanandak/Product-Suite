@@ -11,6 +11,7 @@ import {
   getMemoryChain,
   getMemoryScoped,
   listMemories,
+  reactivateMemory,
   retractMemory,
   supersedeMemory,
   type CreateMemoryInput,
@@ -61,6 +62,11 @@ memoriesRoutes.get('/', async (c) => {
   try {
     const tenantIds = await callerTenantIds(sql, claims)
     if (tenantIds.length === 0) return c.json([])
+    // Scope the list to ONE org when the client names it (or the caller has a sole
+    // org) — otherwise a multi-org user's Decision Log would mix orgs. Falls back to
+    // all the caller's orgs only when org_id is absent AND they have several.
+    const anchor = resolveAnchor(tenantIds, c.req.query('org_id') || undefined)
+    const scopeTenants = anchor.ok ? [anchor.tenantId] : tenantIds
     const filter: ListMemoriesFilter = {
       kind: pick(c.req.query('kind'), ['decision', 'fact', 'rule'] as const),
       status: pick(c.req.query('status'), ['active', 'superseded', 'retracted', 'deferred'] as const),
@@ -69,7 +75,7 @@ memoriesRoutes.get('/', async (c) => {
       topic: c.req.query('topic') || undefined,
       q: c.req.query('q') || undefined,
     }
-    const rows = await listMemories(sql, tenantIds, filter)
+    const rows = await listMemories(sql, scopeTenants, filter)
     return c.json(rows)
   } catch (cause) {
     console.error('[memories] list failed', cause)
@@ -259,6 +265,26 @@ memoriesRoutes.post('/:id/defer', async (c) => {
     }
     console.error('[memories] defer failed', cause)
     return c.json({ error: 'Failed to defer memory' }, 500)
+  }
+})
+
+/** Reactivate a parked memory — status deferred→active (so it isn't a dead end). */
+memoriesRoutes.post('/:id/reactivate', async (c) => {
+  const claims = c.get('claims')
+  const sql = sqlFrom(c.env ?? {})
+  const id = c.req.param('id')
+
+  try {
+    const ctx = await mutationContext(sql, claims)
+    if (!ctx.ok) return c.json({ error: ctx.status === 404 ? 'Not found' : 'Failed to reactivate' }, ctx.status)
+    const updated = await reactivateMemory(sql, { tenantIds: ctx.tenantIds, actor: ctx.actor }, id)
+    return c.json(updated)
+  } catch (cause) {
+    if (cause instanceof DomainError) {
+      return c.json({ error: cause.message }, domainErrorStatus(cause.code))
+    }
+    console.error('[memories] reactivate failed', cause)
+    return c.json({ error: 'Failed to reactivate memory' }, 500)
   }
 })
 

@@ -144,7 +144,7 @@ export function buildTools(sql: Sql, ctx: ToolContext): ToolSet {
 
     search_memory: tool({
       description:
-        "Search your organization's logged decisions and facts (the memory brain) by text — read this to ground proposals in the org's ACTUAL decisions, not guesses. Returns compact hits (id, kind, title, status, topics). Set include_chain to also get a memory's full supersession history (\"why did this flip?\").",
+        "Search your organization's logged decisions and facts (the memory brain) by text — read this to ground proposals in the org's ACTUAL decisions, not guesses. Returns compact hits (id, kind, title, body, status, topics) — the body carries the decision's rationale/context. Set include_chain to also get a memory's full supersession history (\"why did this flip?\").",
       inputSchema: z.object({
         query: z.string(),
         limit: z.number().int().min(1).max(25).optional(),

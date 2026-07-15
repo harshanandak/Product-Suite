@@ -153,11 +153,14 @@ describe('memories routes (tenant-scoped)', () => {
 
   it('POST /memories/:id/supersede inserts a new version + latches the old', async () => {
     const NEW = { ...MEMORY, id: 'm_2', supersedes_id: 'm_1', change_reason: 'switched' }
-    const { transaction } = mockSql({
+    mockSql({
       tenants: [{ tenant_id: 't_1' }],
       userId: 'u_1',
-      query: (text) => (/from "memories"/i.test(text) ? [MEMORY] : []),
-      tx: [[NEW], [{ id: 'm_1' }]],
+      query: (text) => {
+        if (/with "latched" as/i.test(text)) return [NEW] // the atomic supersede CTE
+        if (/from "memories"/i.test(text)) return [MEMORY] // ownership check
+        return []
+      },
     })
     const res = await app.request('/api/memories/m_1/supersede', {
       method: 'POST',
@@ -166,7 +169,6 @@ describe('memories routes (tenant-scoped)', () => {
     })
     expect(res.status).toBe(200)
     expect(((await res.json()) as { id: string }).id).toBe('m_2')
-    expect(transaction).toHaveBeenCalledTimes(1)
   })
 
   it('POST /memories/:id/supersede is 400 without a change_reason', async () => {

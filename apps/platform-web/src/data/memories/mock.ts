@@ -208,5 +208,19 @@ export function createMockMemoriesAdapter(
       store[index] = next;
       return Promise.resolve({ ...next });
     },
+
+    reactivate: async (id: string): Promise<MemoryRow> => {
+      const memory = find(id);
+      const index = store.findIndex((m) => m.id === id);
+      const next = {
+        ...memory,
+        status: "active" as const,
+        waiting_on: null,
+        review_after: null,
+        updated_at: nowIso(),
+      };
+      store[index] = next;
+      return Promise.resolve({ ...next });
+    },
   };
 }

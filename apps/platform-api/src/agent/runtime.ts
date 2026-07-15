@@ -240,13 +240,20 @@ export async function runAgentChat(
   let memoryFence = ''
   try {
     const memory = await retrieveForContext(sql, { tenantId: ctx.tenantId, scope: ctx.scope })
+    // Attribution FIRST — inject ONLY once the moat rail is recorded. If the
+    // attribution write fails we do NOT inject: memory silently influencing the run
+    // with no evidence would corrupt the holdout signal (the whole point of the rail).
+    // The run still proceeds, just without memory. Best-effort: never strands the run.
+    if (memory.injected.length > 0) {
+      await insertAttributions(
+        sql,
+        { runId, tenantId: ctx.tenantId, via: 'retrieved' },
+        memory.injected.map((m) => ({ memoryId: m.memoryId, rank: m.rank, tokens: m.tokens })),
+      )
+    }
     memoryFence = memory.fenced
-    await insertAttributions(
-      sql,
-      { runId, tenantId: ctx.tenantId, via: 'retrieved' },
-      memory.injected.map((m) => ({ memoryId: m.memoryId, rank: m.rank, tokens: m.tokens })),
-    )
   } catch (cause) {
+    memoryFence = ''
     console.error('[agent-runtime] memory injection failed', { runId, cause })
   }
   // Step count is captured here (streamText.onFinish) and read when the UI stream

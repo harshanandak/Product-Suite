@@ -106,6 +106,9 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN null; END $$;--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "run_memory_attributions_run_idx" ON "run_memory_attributions" ("run_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "run_memory_attributions_memory_idx" ON "run_memory_attributions" ("memory_id");--> statement-breakpoint
+-- Backs `insert … on conflict (run_id, memory_id, injected_via) do nothing`, so a
+-- retried run / repeated search never double-counts a (run, memory, via) attribution.
+CREATE UNIQUE INDEX IF NOT EXISTS "run_memory_attributions_uniq" ON "run_memory_attributions" ("run_id","memory_id","injected_via");--> statement-breakpoint
 
 -- The P2 holdout flag on the run (always false in P1; assigned at run start).
 ALTER TABLE "agent_runs" ADD COLUMN IF NOT EXISTS "memory_holdout" boolean DEFAULT false NOT NULL;

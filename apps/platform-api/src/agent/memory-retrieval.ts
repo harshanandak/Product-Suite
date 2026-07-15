@@ -149,7 +149,13 @@ export async function retrieveForContext(
   const lines: string[] = []
   let used = 0
   for (const r of rows) {
-    const line = `- [${r.kind}] ${sanitizeForFence(r.title)}`
+    // Inject the BODY too, not just the title — the body carries the decision's
+    // rationale/context, which is the whole point (a title-only line is a hollow
+    // memory the agent can't actually act on). Both fields are fence-sanitized +
+    // length-capped, and the whole line is token-budgeted.
+    const titleLine = `- [${r.kind}] ${sanitizeForFence(r.title)}`
+    const bodySnippet = r.body ? sanitizeForFence(r.body) : ''
+    const line = bodySnippet ? `${titleLine}: ${bodySnippet}` : titleLine
     const t = estimateTokens(line)
     if (used + t > budget) break
     used += t
@@ -178,10 +184,13 @@ export async function insertAttributions(
     params.push(ctx.runId, e.memoryId, ctx.tenantId, ctx.via, e.rank ?? null, e.tokens ?? null)
     tuples.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6})`)
   }
+  // ON CONFLICT DO NOTHING so a retried run / repeated search never double-counts a
+  // (run, memory, via) pair — the attribution stats stay a clean causal signal.
   const text = `
     insert into "run_memory_attributions"
       ("run_id", "memory_id", "tenant_id", "injected_via", "rank", "tokens")
     values ${tuples.join(', ')}
+    on conflict ("run_id", "memory_id", "injected_via") do nothing
   `
   await runQuery(sql, text, params)
 }
@@ -191,6 +200,7 @@ export interface MemorySearchHit {
   id: string
   kind: string
   title: string
+  body: string
   status: string
   topics: string[] | null
   root_id: string
@@ -207,7 +217,7 @@ export async function searchMemories(
   limit: number,
 ): Promise<MemorySearchHit[]> {
   const text = `
-    select id, kind, title, status, topics, root_id
+    select id, kind, title, body, status, topics, root_id
     from "memories"
     where tenant_id = $1 and status = 'active'
       and fts @@ plainto_tsquery('english', $2)

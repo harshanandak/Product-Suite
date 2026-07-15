@@ -49,6 +49,7 @@ function handlers() {
     ),
     retract: vi.fn(async () => mem({ id: "r", status: "retracted" })),
     defer: vi.fn(async () => mem({ id: "d", status: "deferred" })),
+    reactivate: vi.fn(async () => mem({ id: "a", status: "active" })),
     getDetail: vi.fn(async (): Promise<MemoryDetail> => ({
       memory: mem({ id: "mem_1", status: "superseded" }),
       chain: [
@@ -77,6 +78,20 @@ describe("MemoryListItem", () => {
     expect(screen.getByText("Use Kimi")).toBeInTheDocument();
     expect(screen.getByText("models")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Supersede" })).toBeInTheDocument();
+  });
+
+  it("shows Reactivate for a deferred memory (not a dead end) and calls it", () => {
+    const h = handlers();
+    render(
+      <MemoryListItem
+        memory={mem({ id: "mem_1", status: "deferred", waiting_on: "legal" })}
+        {...h}
+        isMutating={false}
+      />,
+    );
+    expect(screen.getByText(/Parked/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Reactivate" }));
+    expect(h.reactivate).toHaveBeenCalledWith("mem_1");
   });
 
   it("blocks supersede until a change reason is entered, then submits it", async () => {

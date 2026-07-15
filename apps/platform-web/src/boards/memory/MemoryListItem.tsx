@@ -16,6 +16,8 @@ export interface MemoryListItemProps {
   supersede: (id: string, input: SupersedeMemoryInput) => Promise<MemoryRow>;
   retract: (id: string) => Promise<MemoryRow>;
   defer: (id: string, input: { waiting_on?: string }) => Promise<MemoryRow>;
+  /** Reactivate a parked (deferred) memory — so it isn't a dead end. */
+  reactivate: (id: string) => Promise<MemoryRow>;
   /** Fetch the full supersession chain for the history view. */
   getDetail: (id: string) => Promise<MemoryDetail>;
   /** True while any mutation is in flight (disables actions). */
@@ -162,6 +164,7 @@ export function MemoryListItem({
   supersede,
   retract,
   defer,
+  reactivate,
   getDetail,
   isMutating,
 }: Readonly<MemoryListItemProps>) {
@@ -247,6 +250,22 @@ export function MemoryListItem({
           onClick={() => runAction(retract(memory.id))}
         >
           Retract
+        </Button>
+      </div>
+    );
+  } else if (memory.status === "deferred") {
+    actionRegion = (
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-muted-foreground">
+          Parked{memory.waiting_on ? ` — waiting on ${memory.waiting_on}` : ""}.
+        </span>
+        <Button
+          size="xs"
+          variant="outline"
+          disabled={isMutating}
+          onClick={() => runAction(reactivate(memory.id))}
+        >
+          Reactivate
         </Button>
       </div>
     );

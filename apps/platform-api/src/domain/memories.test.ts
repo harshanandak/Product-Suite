@@ -5,6 +5,7 @@ import type { Sql } from '@product-suite/db'
 import {
   createMemory,
   deferMemory,
+  reactivateMemory,
   retractMemory,
   supersedeMemory,
   type MemoryRow,
@@ -75,6 +76,24 @@ describe('createMemory', () => {
       createMemory(sql, { tenantId: 't_1', actor: 'u_1' }, { kind: 'fact', title: '   ' }),
     ).rejects.toMatchObject({ code: 'invalid_input' })
   })
+
+  it('requires a valid UUID scope_id for a non-org scope (never a black-hole memory)', async () => {
+    const { sql } = mockSql(() => [ROW])
+    // A non-org scope with no scope_id would never be retrievable (the cascade matches
+    // scope_id) — reject it rather than silently create a dead memory.
+    await expect(
+      createMemory(sql, { tenantId: 't_1', actor: 'u_1' }, { kind: 'decision', title: 'x', scopeType: 'project' }),
+    ).rejects.toMatchObject({ code: 'invalid_input' })
+    // A non-UUID scope_id is a 400, not a Postgres cast 500.
+    await expect(
+      createMemory(sql, { tenantId: 't_1', actor: 'u_1' }, {
+        kind: 'decision',
+        title: 'x',
+        scopeType: 'project',
+        scopeId: 'not-a-uuid',
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_input' })
+  })
 })
 
 describe('supersedeMemory (append-only versioning)', () => {
@@ -94,36 +113,35 @@ describe('supersedeMemory (append-only versioning)', () => {
     ).rejects.toMatchObject({ code: 'not_found' })
   })
 
-  it('inserts a NEW version + latches the old in ONE atomic batch, resolving to the new row', async () => {
+  it('inserts a NEW version + latches the old in ONE atomic CTE, resolving to the new row', async () => {
     const NEW = { ...ROW, id: 'm_2', supersedes_id: 'm_1', change_reason: 'Mongo was chosen instead' }
-    const { sql, query, transaction } = mockSql((text) =>
-      /select \* from "memories"/i.test(text) ? [ROW] : [],
-    )
-    transaction.mockResolvedValue([[NEW], [{ id: 'm_1' }]])
+    const { sql, query } = mockSql((text) => {
+      if (/with "latched" as/i.test(text)) return [NEW] // the CTE returns the new active version
+      if (/select \* from "memories"/i.test(text)) return [ROW] // ownership check
+      return []
+    })
     const updated = await supersedeMemory(sql, { tenantIds: ['t_1'], actor: 'u_1' }, 'm_1', {
       title: 'Use MongoDB',
       changeReason: 'Mongo was chosen instead',
     })
     expect(updated.id).toBe('m_2')
     expect(updated.supersedes_id).toBe('m_1')
-    // The batch had exactly two statements: the INSERT…SELECT (new version) + the
-    // latch UPDATE (old row). Both guard on the old row being 'active'.
-    expect(transaction).toHaveBeenCalledTimes(1)
-    const built = query.mock.calls.map(([t]) => String(t))
-    const insert = built.find((t) => /insert into "memories"[\s\S]*select/i.test(t))
-    const latch = built.find((t) => /update "memories"[\s\S]*superseded_by_id/i.test(t))
-    expect(insert).toMatch(/"status" = 'active'/)
-    expect(insert).toMatch(/"supersedes_id"|"id"/)
-    expect(latch).toMatch(/'superseded'/)
-    expect(latch).toMatch(/"status" = 'active'/)
+    // ONE atomic statement (CTE): latch the old row FIRST (guarded on 'active'), then
+    // INSERT the new version FROM the `latched` CTE — so a concurrent supersede can't
+    // fork the chain into two active heads (a separate insert+latch could).
+    const cte = query.mock.calls.map(([t]) => String(t)).find((t) => /with "latched" as/i.test(t))
+    expect(cte).toBeDefined()
+    expect(cte).toMatch(/'superseded'/) // latch flips the old row
+    expect(cte).toMatch(/"status" = 'active'/) // …guarded on the old row still being active
+    expect(cte).toMatch(/insert into "memories"[\s\S]*from "latched"/i) // insert ONLY from the latched row
   })
 
   it('is a conflict when the target is no longer active (lost race, no orphan version)', async () => {
-    const { sql, transaction } = mockSql((text) =>
+    // Ownership finds the row (exists) but it is not active; the CTE latches 0 rows ⇒
+    // inserts 0 ⇒ the supersede returns no new version (never a second active head).
+    const { sql } = mockSql((text) =>
       /select \* from "memories"/i.test(text) ? [{ ...ROW, status: 'superseded' }] : [],
     )
-    // Atomic batch: the INSERT…SELECT matched 0 rows (old not active) ⇒ empty insert.
-    transaction.mockResolvedValue([[], []])
     await expect(
       supersedeMemory(sql, { tenantIds: ['t_1'], actor: 'u_1' }, 'm_1', { changeReason: 'x' }),
     ).rejects.toMatchObject({ code: 'conflict' })
@@ -165,6 +183,19 @@ describe('retractMemory / deferMemory (keep history)', () => {
     expect(out.status).toBe('deferred')
     const upd = query.mock.calls.find(([t]) => /update "memories"/i.test(String(t)))!
     expect(upd[1]).toEqual(['m_1', ['t_1'], 'legal', '2026-08-01'])
+  })
+
+  it('reactivate moves a deferred memory back to active (not a dead end)', async () => {
+    const ACTIVE = { ...ROW, status: 'active' as const }
+    const { sql, query } = mockSql((text) => {
+      if (/update "memories"/i.test(text)) return [ACTIVE]
+      return [{ ...ROW, status: 'deferred' as const }] // getMemoryScoped
+    })
+    const out = await reactivateMemory(sql, { tenantIds: ['t_1'], actor: 'u_1' }, 'm_1')
+    expect(out.status).toBe('active')
+    const upd = query.mock.calls.find(([t]) => /update "memories"/i.test(String(t)))!
+    expect(String(upd[0])).toMatch(/"status" = 'deferred'/) // guarded: only a deferred memory reactivates
+    expect(String(upd[0])).toMatch(/"waiting_on" = null/) // the pause context is cleared
   })
 
   it('defer is not_found for a foreign id', async () => {

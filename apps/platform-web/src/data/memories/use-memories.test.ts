@@ -42,6 +42,7 @@ describe("useMemories", () => {
       supersede: vi.fn(),
       retract: vi.fn(),
       defer: vi.fn(),
+      reactivate: vi.fn(),
     };
     const { result } = renderHook(() => useMemories({ adapter: failing }));
     await waitFor(() => expect(result.current.error).not.toBeNull());

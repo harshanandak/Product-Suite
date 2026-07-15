@@ -52,7 +52,9 @@ export interface UseMemoriesResult {
   retract: (id: string) => Promise<MemoryRow>;
   /** Defer a memory; refetches on settle. */
   defer: (id: string, input: DeferMemoryInput) => Promise<MemoryRow>;
-  /** True while any create/supersede/retract/defer is in flight. */
+  /** Reactivate a parked (deferred) memory; refetches on settle. */
+  reactivate: (id: string) => Promise<MemoryRow>;
+  /** True while any create/supersede/retract/defer/reactivate is in flight. */
   isMutating: boolean;
 }
 
@@ -156,6 +158,10 @@ export function useMemories(
       runMutation(() => adapter.defer(id, input)),
     [adapter, runMutation],
   );
+  const reactivate = useCallback(
+    (id: string) => runMutation(() => adapter.reactivate(id)),
+    [adapter, runMutation],
+  );
 
   return {
     memories,
@@ -167,6 +173,7 @@ export function useMemories(
     supersede,
     retract,
     defer,
+    reactivate,
     isMutating: mutatingCount > 0,
   };
 }

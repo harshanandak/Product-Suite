@@ -62,7 +62,10 @@ export function LogDecisionForm({
   const [error, setError] = useState<string | null>(null);
 
   const trimmedTitle = title.trim();
-  const canSubmit = trimmedTitle.length > 0 && !submitting;
+  // A non-org scope MUST carry an id — the backend rejects it otherwise, and such a
+  // memory would never be retrievable (a black hole). Block submit until it's given.
+  const scopeNeedsId = scopeType !== "org" && scopeId.trim().length === 0;
+  const canSubmit = trimmedTitle.length > 0 && !scopeNeedsId && !submitting;
 
   const onSubmit = (event: FormEvent): void => {
     event.preventDefault();
@@ -183,7 +186,7 @@ export function LogDecisionForm({
           <Input
             value={scopeId}
             onChange={(event) => setScopeId(event.target.value)}
-            placeholder={`${scopeType} id (optional)`}
+            placeholder={`${scopeType} id (required)`}
             aria-label="Scope id"
             className="mt-1.5"
           />

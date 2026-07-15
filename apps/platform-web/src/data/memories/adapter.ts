@@ -44,6 +44,8 @@ export interface MemoriesAdapter {
   retract: (id: string) => Promise<MemoryRow>;
   /** Defer a memory (park it, optionally with what it's waiting on / a review date). */
   defer: (id: string, input: DeferMemoryInput) => Promise<MemoryRow>;
+  /** Reactivate a parked (deferred) memory — back to active (so it isn't a dead end). */
+  reactivate: (id: string) => Promise<MemoryRow>;
 }
 
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -142,6 +144,11 @@ export function createMemoriesAdapter(
         "POST",
         `/api/memories/${encodeURIComponent(id)}/defer`,
         input,
+      ),
+    reactivate: (id: string) =>
+      request<MemoryRow>(
+        "POST",
+        `/api/memories/${encodeURIComponent(id)}/reactivate`,
       ),
   };
 }

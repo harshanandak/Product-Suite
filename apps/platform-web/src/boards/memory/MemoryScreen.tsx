@@ -49,6 +49,7 @@ export function MemoryScreen({ adapter }: Readonly<MemoryScreenProps> = {}) {
     supersede,
     retract,
     defer,
+    reactivate,
     isMutating,
   } = useMemories({ adapter });
 
@@ -92,6 +93,7 @@ export function MemoryScreen({ adapter }: Readonly<MemoryScreenProps> = {}) {
         supersede={supersede}
         retract={retract}
         defer={defer}
+        reactivate={reactivate}
         getDetail={get}
         isMutating={isMutating}
       />

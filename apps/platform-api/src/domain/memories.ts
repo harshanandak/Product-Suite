@@ -53,18 +53,8 @@ function runQuery<Row>(sql: Sql, text: string, params: unknown[]): Promise<Row[]
   return (sql as unknown as { query: (q: string, p: unknown[]) => Promise<Row[]> }).query(text, params)
 }
 
-/** Run several statements as ONE atomic Neon batch (`sql.transaction`). */
-async function runTx<Row>(
-  sql: Sql,
-  build: { text: string; params: unknown[] }[],
-): Promise<Row[][]> {
-  const queries = build.map((q) =>
-    (sql as unknown as { query: (t: string, p: unknown[]) => unknown }).query(q.text, q.params),
-  )
-  return (await (sql as unknown as { transaction: (q: unknown[]) => Promise<Row[][]> }).transaction(
-    queries,
-  )) as Row[][]
-}
+/** Canonical UUID shape — guards `scope_id` so a bad value is a 400, not a Postgres cast 500. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /** The full projection returned on every write — the whole row. */
 const RETURNING = '*'
@@ -100,8 +90,16 @@ export async function createMemory(
   if (!title) throw new DomainError('invalid_input', 'title is required')
   const id = crypto.randomUUID()
   const scopeType = input.scopeType ?? 'org'
-  // A non-org scope needs a target id; org scope must not carry one.
-  const scopeId = scopeType === 'org' ? null : (input.scopeId ?? null)
+  // A non-org scope MUST carry a valid target id — otherwise the memory is a black
+  // hole: the retrieval cascade matches `scope_id = <id>`, so a NULL scope_id under a
+  // non-org scope can never be retrieved. Org scope must NOT carry one.
+  let scopeId: string | null = null
+  if (scopeType !== 'org') {
+    const raw = (input.scopeId ?? '').trim()
+    if (!raw) throw new DomainError('invalid_input', `scope_id is required for a ${scopeType} scope`)
+    if (!UUID_RE.test(raw)) throw new DomainError('invalid_input', 'scope_id must be a UUID')
+    scopeId = raw
+  }
   const text = `
     insert into "memories" (
       "id", "tenant_id", "kind", "title", "body", "attrs", "root_id",
@@ -256,51 +254,48 @@ export async function supersedeMemory(
   if (!existing) throw new DomainError('not_found', 'Not found')
 
   const newId = crypto.randomUUID()
-  // The new version copies the old row's fields via INSERT…SELECT (so it inherits
-  // kind/scope/attrs/etc), overriding title/body/topics/change_reason and stamping
-  // the chain pointers. Guarded on the old row still being `active`.
-  const insert = {
-    text: `
-      insert into "memories" (
-        "id", "tenant_id", "kind", "title", "body", "attrs", "root_id",
-        "supersedes_id", "change_reason", "valid_from", "status",
-        "scope_type", "scope_id", "topics", "source_kind", "created_by", "decided_by",
-        "pinned", "priority", "enforcement"
-      )
-      select
-        $1, "tenant_id", "kind", coalesce($2, "title"), coalesce($3, "body"), "attrs", "root_id",
-        "id", $4, now(), 'active',
-        "scope_type", "scope_id", coalesce($5, "topics"), 'manual', $6, "decided_by",
-        "pinned", "priority", "enforcement"
-      from "memories"
-      where "id" = $7 and "tenant_id" = any($8) and "status" = 'active'
-      returning *
-    `,
-    params: [
-      newId,
-      input.title ?? null,
-      input.body ?? null,
-      changeReason,
-      input.topics ?? null,
-      ctx.actor,
-      id,
-      ctx.tenantIds,
-    ],
-  }
-  const latch = {
-    text: `
+  // ONE atomic statement (CTE): latch the OLD row FIRST (guarded on `active`), and
+  // INSERT the new version ONLY from the `latched` CTE — so the insert happens iff
+  // the latch matched the active row. Under READ COMMITTED a concurrent supersede's
+  // UPDATE then finds `status='superseded'`, latches 0 rows, and inserts 0 — it can
+  // NOT fork the chain into two active heads (a separate insert+latch could: both
+  // inserts commit and only one latch wins). The new version copies the old row's
+  // fields (kind/scope/attrs/…) from `latched`, overriding title/body/topics.
+  const text = `
+    with "latched" as (
       update "memories"
       set "superseded_by_id" = $1, "status" = 'superseded', "updated_at" = now()
       where "id" = $2 and "tenant_id" = any($3) and "status" = 'active'
-      returning "id"
-    `,
-    params: [newId, id, ctx.tenantIds],
-  }
-  const [insertedRows] = await runTx<MemoryRow>(sql, [insert, latch])
-  const inserted = insertedRows?.[0]
+      returning *
+    )
+    insert into "memories" (
+      "id", "tenant_id", "kind", "title", "body", "attrs", "root_id",
+      "supersedes_id", "change_reason", "valid_from", "status",
+      "scope_type", "scope_id", "topics", "source_kind", "created_by", "decided_by",
+      "pinned", "priority", "enforcement"
+    )
+    select
+      $1, "tenant_id", "kind", coalesce($4, "title"), coalesce($5, "body"), "attrs", "root_id",
+      "id", $6, now(), 'active',
+      "scope_type", "scope_id", coalesce($7, "topics"), 'manual', $8, "decided_by",
+      "pinned", "priority", "enforcement"
+    from "latched"
+    returning *
+  `
+  const rows = await runQuery<MemoryRow>(sql, text, [
+    newId,
+    id,
+    ctx.tenantIds,
+    input.title ?? null,
+    input.body ?? null,
+    changeReason,
+    input.topics ?? null,
+    ctx.actor,
+  ])
+  const inserted = rows[0]
   if (!inserted) {
     // The row exists (fetched above) but was not `active` — a concurrent supersede/
-    // retract won the race. Atomic batch means the latch also no-op'd (no orphan).
+    // retract won the race; nothing was latched, so nothing was inserted (no orphan).
     throw new DomainError('conflict', 'memory is no longer active; reload and retry')
   }
   return inserted
@@ -359,5 +354,31 @@ export async function deferMemory(
   )
   const row = rows[0]
   if (!row) throw new DomainError('conflict', 'only an active memory can be deferred')
+  return row
+}
+
+/**
+ * Reactivate a parked memory — status `deferred`→`active` (clearing `waiting_on`/
+ * `review_after`), the ROW IS KEPT. Without this a deferred decision is a dead end
+ * (supersede requires `active`). Scoped to the caller's tenants; foreign/unknown id
+ * ⇒ `not_found`; only a `deferred` memory can be reactivated.
+ */
+export async function reactivateMemory(
+  sql: Sql,
+  ctx: { tenantIds: string[]; actor: string },
+  id: string,
+): Promise<MemoryRow> {
+  const existing = await getMemoryScoped(sql, id, ctx.tenantIds)
+  if (!existing) throw new DomainError('not_found', 'Not found')
+  const rows = await runQuery<MemoryRow>(
+    sql,
+    `update "memories"
+     set "status" = 'active', "waiting_on" = null, "review_after" = null, "updated_at" = now()
+     where "id" = $1 and "tenant_id" = any($2) and "status" = 'deferred'
+     returning *`,
+    [id, ctx.tenantIds],
+  )
+  const row = rows[0]
+  if (!row) throw new DomainError('conflict', 'only a deferred memory can be reactivated')
   return row
 }
