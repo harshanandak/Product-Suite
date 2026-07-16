@@ -269,6 +269,29 @@ describe('retractMemory / deferMemory (keep history)', () => {
     expect(query).not.toHaveBeenCalled()
   })
 
+  it('defer rejects an impossible calendar date (2026-02-30) that Date.parse would normalize', async () => {
+    // `Date.parse('2026-02-30')` silently rolls forward to Mar 2 (a valid timestamp), so
+    // the shape+parse check alone would let it through. It must be invalid_input, never a
+    // write that stores a date the reviewer never meant.
+    const { sql, query } = mockSql(() => [ROW])
+    await expect(
+      deferMemory(sql, { tenantIds: ['t_1'], actor: 'u_1' }, 'm_1', { reviewAfter: '2026-02-30' }),
+    ).rejects.toMatchObject({ code: 'invalid_input' })
+    expect(query).not.toHaveBeenCalled()
+  })
+
+  it('defer rejects an Invalid Date instance before binding it', async () => {
+    // A Date input (not a string) that is `Invalid Date` would stringify to "Invalid Date"
+    // and cast-error at the timestamptz bind — reject it here, same as a bad string.
+    const { sql, query } = mockSql(() => [ROW])
+    await expect(
+      deferMemory(sql, { tenantIds: ['t_1'], actor: 'u_1' }, 'm_1', {
+        reviewAfter: new Date('not a date'),
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_input' })
+    expect(query).not.toHaveBeenCalled()
+  })
+
   it('defer accepts a valid ISO review_after and binds it as the param', async () => {
     const DEFERRED = { ...ROW, status: 'deferred' as const, review_after: '2026-08-01' }
     const { sql, query } = mockSql((text) => (/update "memories"/i.test(text) ? [DEFERRED] : [ROW]))

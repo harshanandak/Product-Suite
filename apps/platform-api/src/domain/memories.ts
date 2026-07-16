@@ -57,18 +57,40 @@ function runQuery<Row>(sql: Sql, text: string, params: unknown[]): Promise<Row[]
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /**
- * An ISO-8601 date (`2026-08-01`) or datetime (`2026-08-01T12:00:00Z`) — guards
- * `review_after` so a free-form value ("next quarter") is caught HERE (400/invalid),
- * never bound straight to a `timestamptz` where Postgres would cast-error into a 500
- * and wedge the proposal `applied`-unwritten. The regex fixes the shape; `Date.parse`
- * rejects impossible calendar values (`2026-13-45`) the shape alone would let through.
+ * Shape guard for an ISO-8601 date (`2026-08-01`) or datetime (`2026-08-01T12:00:00Z`):
+ * `YYYY-MM-DD` with an OPTIONAL `T`/space-separated time tail. Kept deliberately loose
+ * (the tail is `.*`) so the pattern stays simple — calendar-correctness and instant
+ * validity are enforced in `isIsoDateString`, not the regex.
  */
-const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/
+const ISO_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})(?:[T ].*)?$/
 
-/** True iff `value` is an ISO-8601 date/datetime that names a real calendar instant. */
+/**
+ * True iff `value` is an ISO-8601 date/datetime that names a REAL calendar instant.
+ * Guards `review_after` so a free-form value ("next quarter") is caught HERE
+ * (invalid_input), never bound straight to a `timestamptz` where Postgres would
+ * cast-error into a 500 and wedge the proposal `applied`-unwritten.
+ *
+ * `Date.parse` alone is NOT enough: it SILENTLY NORMALIZES impossible calendar dates
+ * (`2026-02-30` → Mar 2, a valid timestamp), so it would let them through. We therefore
+ * round-trip the Y/M/D components through a UTC `Date` and reject any value whose parts
+ * don't survive — a normalized overflow won't match. `Date.parse` then rejects a bad
+ * TIME tail (`…T99:99`) or trailing garbage (`2026-08-01xyz`).
+ */
 export function isIsoDateString(value: string): boolean {
   const trimmed = value.trim()
-  if (!ISO_DATE_RE.test(trimmed)) return false
+  const match = ISO_DATE_RE.exec(trimmed)
+  if (!match) return false
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const dt = new Date(Date.UTC(year, month - 1, day))
+  if (
+    dt.getUTCFullYear() !== year ||
+    dt.getUTCMonth() !== month - 1 ||
+    dt.getUTCDate() !== day
+  ) {
+    return false
+  }
   return !Number.isNaN(Date.parse(trimmed))
 }
 
@@ -411,7 +433,7 @@ export async function deferMemory(
   // Validate `review_after` BEFORE the write: a free-form string ("next quarter")
   // must fail as invalid_input (→ apply maps it to a terminal `failed`), never bind
   // to the `timestamptz` param where Postgres would cast-error into a 500 that leaves
-  // the proposal wedged `applied`-unwritten. A Date is trusted; null clears the field.
+  // the proposal wedged `applied`-unwritten. null clears the field.
   let reviewAfter = input.reviewAfter ?? null
   if (typeof reviewAfter === 'string') {
     const trimmed = reviewAfter.trim()
@@ -419,6 +441,12 @@ export async function deferMemory(
       throw new DomainError('invalid_input', 'review_after must be an ISO date (e.g. 2026-08-01)')
     }
     reviewAfter = trimmed || null
+  } else if (reviewAfter instanceof Date) {
+    // An `Invalid Date` (e.g. `new Date('next quarter')`) stringifies to "Invalid Date"
+    // and would cast-error at the `timestamptz` bind — reject it here, same as a bad string.
+    if (Number.isNaN(reviewAfter.getTime())) {
+      throw new DomainError('invalid_input', 'review_after is not a valid date')
+    }
   }
   const existing = await getMemoryScoped(sql, id, ctx.tenantIds)
   if (!existing) throw new DomainError('not_found', 'Not found')

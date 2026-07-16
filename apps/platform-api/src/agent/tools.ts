@@ -31,6 +31,90 @@ export interface ToolContext {
 /** Outcome of a `propose_*` tool: a queued proposal id, or a refusal reason. */
 type ProposeResult = { proposed: true; proposal_id: string } | { proposed: false; error: string }
 
+/** The input schema for `propose_memory`, hoisted so the payload builders can share its type. */
+const proposeMemorySchema = z.object({
+  operation: z.enum(['create', 'supersede', 'retract', 'defer']),
+  // create
+  kind: z.enum(['decision', 'fact', 'rule']).optional(),
+  title: z.string().optional(),
+  body: z.string().optional(),
+  topics: z.array(z.string()).optional(),
+  scope_type: z.enum(['org', 'project', 'work_item_type', 'work_item']).optional(),
+  scope_id: z.string().optional(),
+  // supersede / retract / defer
+  target_id: z.string().optional(),
+  change_reason: z.string().optional(),
+  waiting_on: z.string().optional(),
+  review_after: z.string().optional(),
+  rationale: z.string().optional(),
+})
+type ProposeMemoryArgs = z.infer<typeof proposeMemorySchema>
+
+/** A validated proposal payload + its target, or a refusal — the output of a memory builder. */
+type MemoryBuild = { error: string } | { payload: Record<string, unknown>; targetId: string | null }
+
+/** create → NEW memory. Requires kind + a non-empty title; forwards only set optionals. */
+function buildCreateMemory(args: ProposeMemoryArgs): MemoryBuild {
+  const title = (args.title ?? '').trim()
+  if (!args.kind) return { error: 'kind is required to log a memory' }
+  if (!title) return { error: 'title is required to log a memory' }
+  const payload: Record<string, unknown> = { kind: args.kind, title }
+  if (args.body !== undefined) payload.body = args.body
+  if (args.topics !== undefined) payload.topics = args.topics
+  if (args.scope_type !== undefined) payload.scope_type = args.scope_type
+  if (args.scope_id !== undefined) payload.scope_id = args.scope_id
+  return { payload, targetId: null }
+}
+
+/**
+ * supersede → replace a memory with a new version. Needs a change_reason. Trims and
+ * forwards only NON-EMPTY title/body overrides: an empty one must omit the key (send
+ * `undefined`) so the domain's coalesce keeps the old value — never `''`, which would
+ * silently blank the field and show a "0 changes" diff.
+ */
+function buildSupersedeMemory(args: ProposeMemoryArgs, targetId: string): MemoryBuild {
+  const changeReason = (args.change_reason ?? '').trim()
+  if (!changeReason) return { error: 'change_reason is required to supersede a memory' }
+  const payload: Record<string, unknown> = { change_reason: changeReason }
+  const title = (args.title ?? '').trim()
+  if (title) payload.title = title
+  const body = (args.body ?? '').trim()
+  if (body) payload.body = body
+  if (args.topics !== undefined) payload.topics = args.topics
+  return { payload, targetId }
+}
+
+/**
+ * defer → park a memory. Validates `review_after` HERE so a free-form value
+ * ("next quarter") is a refusal, never a queued proposal that cast-errors (500 + wedge)
+ * on accept.
+ */
+function buildDeferMemory(args: ProposeMemoryArgs, targetId: string): MemoryBuild {
+  const payload: Record<string, unknown> = {}
+  if (args.waiting_on !== undefined) payload.waiting_on = args.waiting_on
+  if (args.review_after !== undefined) {
+    const reviewAfter = args.review_after.trim()
+    if (reviewAfter && !isIsoDateString(reviewAfter)) {
+      return { error: 'review_after must be an ISO date (e.g. 2026-08-01)' }
+    }
+    if (reviewAfter) payload.review_after = reviewAfter
+  }
+  return { payload, targetId }
+}
+
+/**
+ * Dispatch a `propose_memory` call to the right per-operation builder. Keeps the tool's
+ * `execute` a thin dispatch (create has no target; supersede/retract/defer each name one).
+ */
+function buildMemoryPayload(args: ProposeMemoryArgs): MemoryBuild {
+  if (args.operation === 'create') return buildCreateMemory(args)
+  const targetId = (args.target_id ?? '').trim()
+  if (!targetId) return { error: `target_id is required to ${args.operation} a memory` }
+  if (args.operation === 'supersede') return buildSupersedeMemory(args, targetId)
+  if (args.operation === 'defer') return buildDeferMemory(args, targetId)
+  return { payload: {}, targetId } // retract carries no payload beyond its target
+}
+
 function runQuery<Row>(sql: Sql, text: string, params: unknown[]): Promise<Row[]> {
   return (sql as unknown as { query: (q: string, p: unknown[]) => Promise<Row[]> }).query(text, params)
 }
@@ -249,70 +333,11 @@ export function buildTools(sql: Sql, ctx: ToolContext): ToolSet {
     propose_memory: tool({
       description:
         "Propose logging or changing an organizational memory (a decision, fact, or rule in the memory brain). This does NOT save anything — it queues a proposal a human reviews and accepts. Use it when the user asks to remember/log a decision or fact. operation: 'create' logs a NEW memory (needs kind + title); 'supersede' replaces an existing memory with a new version (needs target_id + change_reason); 'retract' marks one no-longer-true (needs target_id); 'defer' parks one (needs target_id). Give a short rationale.",
-      inputSchema: z.object({
-        operation: z.enum(['create', 'supersede', 'retract', 'defer']),
-        // create
-        kind: z.enum(['decision', 'fact', 'rule']).optional(),
-        title: z.string().optional(),
-        body: z.string().optional(),
-        topics: z.array(z.string()).optional(),
-        scope_type: z.enum(['org', 'project', 'work_item_type', 'work_item']).optional(),
-        scope_id: z.string().optional(),
-        // supersede / retract / defer
-        target_id: z.string().optional(),
-        change_reason: z.string().optional(),
-        waiting_on: z.string().optional(),
-        review_after: z.string().optional(),
-        rationale: z.string().optional(),
-      }),
+      inputSchema: proposeMemorySchema,
       execute: async (args): Promise<ProposeResult> => {
-        const { operation, rationale } = args
-        if (operation === 'create') {
-          const title = (args.title ?? '').trim()
-          if (!args.kind) return { proposed: false, error: 'kind is required to log a memory' }
-          if (!title) return { proposed: false, error: 'title is required to log a memory' }
-          const payload: Record<string, unknown> = { kind: args.kind, title }
-          if (args.body !== undefined) payload.body = args.body
-          if (args.topics !== undefined) payload.topics = args.topics
-          if (args.scope_type !== undefined) payload.scope_type = args.scope_type
-          if (args.scope_id !== undefined) payload.scope_id = args.scope_id
-          return proposeMemory('create', payload, rationale, null)
-        }
-        // supersede / retract / defer all name a target memory.
-        const targetId = (args.target_id ?? '').trim()
-        if (!targetId) return { proposed: false, error: `target_id is required to ${operation} a memory` }
-        if (operation === 'supersede') {
-          const changeReason = (args.change_reason ?? '').trim()
-          if (!changeReason) {
-            return { proposed: false, error: 'change_reason is required to supersede a memory' }
-          }
-          const payload: Record<string, unknown> = { change_reason: changeReason }
-          // Trim and forward only NON-EMPTY overrides: an empty title/body must send
-          // `undefined` (omit the key) so the domain's coalesce keeps the old value —
-          // never `''`, which would silently blank the field and show a "0 changes" diff.
-          const title = (args.title ?? '').trim()
-          if (title) payload.title = title
-          const body = (args.body ?? '').trim()
-          if (body) payload.body = body
-          if (args.topics !== undefined) payload.topics = args.topics
-          return proposeMemory('supersede', payload, rationale, targetId)
-        }
-        if (operation === 'defer') {
-          const payload: Record<string, unknown> = {}
-          if (args.waiting_on !== undefined) payload.waiting_on = args.waiting_on
-          // Validate `review_after` HERE so a free-form value ("next quarter") is a
-          // refusal, never a queued proposal that cast-errors (500 + wedge) on accept.
-          if (args.review_after !== undefined) {
-            const reviewAfter = args.review_after.trim()
-            if (reviewAfter && !isIsoDateString(reviewAfter)) {
-              return { proposed: false, error: 'review_after must be an ISO date (e.g. 2026-08-01)' }
-            }
-            if (reviewAfter) payload.review_after = reviewAfter
-          }
-          return proposeMemory('defer', payload, rationale, targetId)
-        }
-        // retract
-        return proposeMemory('retract', {}, rationale, targetId)
+        const build = buildMemoryPayload(args)
+        if ('error' in build) return { proposed: false, error: build.error }
+        return proposeMemory(args.operation, build.payload, args.rationale, build.targetId)
       },
     }),
   }

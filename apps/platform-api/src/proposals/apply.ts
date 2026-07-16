@@ -1,3 +1,5 @@
+import { z } from 'zod'
+
 import type { Sql } from '@product-suite/db'
 
 import { DomainError } from '../domain/errors'
@@ -29,6 +31,45 @@ import { getProposalScoped, type ProposalRow } from './repository'
 export type ApplyResult =
   | { applied: true; result: WorkItemRow | MemoryRow }
   | { applied: false; reason: 'not_found' | 'not_pending' | 'stale' | 'invalid' }
+
+/**
+ * Runtime shapes for the three memory payloads that carry data. `payload`/`edited_payload`
+ * are `unknown` JSON — a human could edit `topics` to a bare string or `review_after` to a
+ * number, which the domain casts would forward straight to a `timestamptz`/`text[]` bind and
+ * cast-error into a 500 that leaves the proposal `applied`-without-a-write. We parse each
+ * payload HERE and convert any mismatch to `invalid_input` (→ a terminal `failed` proposal),
+ * so a malformed edit is a clean rejection, never a wedge. Domain commands still do the deeper
+ * checks (non-empty title, UUID scope_id, ISO `review_after`); this layer only fixes TYPES.
+ */
+const memoryCreatePayload = z.object({
+  kind: z.enum(['decision', 'fact', 'rule']),
+  title: z.string(),
+  body: z.string().optional(),
+  topics: z.array(z.string()).optional(),
+  scope_type: z.enum(['org', 'project', 'work_item_type', 'work_item']).optional(),
+  scope_id: z.string().optional(),
+})
+const memorySupersedePayload = z.object({
+  title: z.string().optional(),
+  body: z.string().optional(),
+  topics: z.array(z.string()).optional(),
+  change_reason: z.string().optional(),
+})
+const memoryDeferPayload = z.object({
+  waiting_on: z.string().optional(),
+  review_after: z.string().optional(),
+})
+
+/** Parse a memory payload, mapping a shape mismatch to `invalid_input` (never a raw ZodError). */
+function parseMemoryPayload<T>(schema: z.ZodType<T>, payload: unknown): T {
+  const parsed = schema.safeParse(payload)
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0]
+    const where = issue?.path.length ? `${issue.path.join('.')}: ` : ''
+    throw new DomainError('invalid_input', `invalid memory payload — ${where}${issue?.message ?? 'validation failed'}`)
+  }
+  return parsed.data
+}
 
 /** The (target_type, operation) pairs this slice can apply. */
 const SUPPORTED = new Set([
@@ -92,16 +133,17 @@ async function applyMemoryCommand(
   if (claimed.operation === 'create') {
     const existing = await getMemoryBySourceProposalId(sql, claimed.id, [tenantId])
     if (existing) return existing
+    const p = parseMemoryPayload(memoryCreatePayload, payload)
     return createMemory(
       sql,
       { tenantId, actor: runId },
       {
-        kind: payload.kind as 'decision' | 'fact' | 'rule',
-        title: payload.title as string,
-        body: payload.body as string | undefined,
-        topics: payload.topics as string[] | undefined,
-        scopeType: payload.scope_type as CreateMemoryScope,
-        scopeId: (payload.scope_id as string | undefined) ?? null,
+        kind: p.kind,
+        title: p.title,
+        body: p.body,
+        topics: p.topics,
+        scopeType: p.scope_type,
+        scopeId: p.scope_id ?? null,
         sourceKind: 'proposal',
         sourceRunId: runId,
         sourceProposalId: claimed.id,
@@ -110,15 +152,16 @@ async function applyMemoryCommand(
     )
   }
   if (claimed.operation === 'supersede') {
+    const p = parseMemoryPayload(memorySupersedePayload, payload)
     return supersedeMemory(
       sql,
       { tenantIds: [tenantId], actor: runId },
       targetId,
       {
-        title: payload.title as string | undefined,
-        body: payload.body as string | undefined,
-        topics: payload.topics as string[] | undefined,
-        changeReason: (payload.change_reason as string | undefined) ?? '',
+        title: p.title,
+        body: p.body,
+        topics: p.topics,
+        changeReason: p.change_reason ?? '',
         sourceKind: 'proposal',
         sourceRunId: runId,
         sourceProposalId: claimed.id,
@@ -130,19 +173,17 @@ async function applyMemoryCommand(
   if (claimed.operation === 'retract') {
     return retractMemory(sql, { tenantIds: [tenantId], actor: runId }, targetId)
   }
+  const p = parseMemoryPayload(memoryDeferPayload, payload)
   return deferMemory(
     sql,
     { tenantIds: [tenantId], actor: runId },
     targetId,
     {
-      waitingOn: (payload.waiting_on as string | undefined) ?? null,
-      reviewAfter: (payload.review_after as string | undefined) ?? null,
+      waitingOn: p.waiting_on ?? null,
+      reviewAfter: p.review_after ?? null,
     },
   )
 }
-
-/** The scope kinds a create payload may carry (mirrors CreateMemoryInput.scopeType). */
-type CreateMemoryScope = 'org' | 'project' | 'work_item_type' | 'work_item' | undefined
 
 /**
  * Apply a pending proposal EXACTLY ONCE, through the SAME validated domain command
