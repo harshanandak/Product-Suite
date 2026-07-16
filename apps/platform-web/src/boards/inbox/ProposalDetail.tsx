@@ -126,25 +126,40 @@ function RejectForm({
 /** Default Accept / Reject affordance (before any disposition). */
 function ActionButtons({
   isMutating,
+  disableAccept,
+  acceptHint,
   onAccept,
   onStartReject,
-}: Readonly<{ isMutating: boolean; onAccept: () => void; onStartReject: () => void }>) {
+}: Readonly<{
+  isMutating: boolean;
+  disableAccept: boolean;
+  acceptHint: string | null;
+  onAccept: () => void;
+  onStartReject: () => void;
+}>) {
   return (
-    <div className="flex items-center gap-2">
-      <Button
-        size="sm"
-        className={cn(
-          "bg-success text-success-foreground hover:bg-success/90",
-          "focus-visible:ring-success/40",
-        )}
-        disabled={isMutating}
-        onClick={onAccept}
-      >
-        Accept
-      </Button>
-      <Button size="sm" variant="destructive" disabled={isMutating} onClick={onStartReject}>
-        Reject
-      </Button>
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-2">
+        <Button
+          size="sm"
+          className={cn(
+            "bg-success text-success-foreground hover:bg-success/90",
+            "focus-visible:ring-success/40",
+          )}
+          // Disable while a mutation is in flight OR while a named memory target is still
+          // resolving — never apply a supersede/retract/defer against a stale/unknown target.
+          disabled={isMutating || disableAccept}
+          onClick={onAccept}
+        >
+          Accept
+        </Button>
+        <Button size="sm" variant="destructive" disabled={isMutating} onClick={onStartReject}>
+          Reject
+        </Button>
+      </div>
+      {acceptHint ? (
+        <output className="text-xs text-muted-foreground">{acceptHint}</output>
+      ) : null}
     </div>
   );
 }
@@ -158,10 +173,13 @@ function DispositionBlock({
   status,
   workspace,
   isMemory,
+  operation,
   rejecting,
   reason,
   setReason,
   isMutating,
+  disableAccept,
+  acceptHint,
   onAccept,
   onReject,
   onStartReject,
@@ -170,10 +188,13 @@ function DispositionBlock({
   status: DisposeStatus;
   workspace: string;
   isMemory: boolean;
+  operation: Proposal["operation"];
   rejecting: boolean;
   reason: string;
   setReason: (reason: string) => void;
   isMutating: boolean;
+  disableAccept: boolean;
+  acceptHint: string | null;
   onAccept: () => void;
   onReject: () => void;
   onStartReject: () => void;
@@ -181,11 +202,12 @@ function DispositionBlock({
 }>) {
   if (status.kind === "applied") {
     // A memory has no workboard item — link to the decision log, never the
-    // work-item route (a memory uuid there is a dead link), and call it a memory.
+    // work-item route (a memory uuid there is a dead link), and report the ACTUAL
+    // operation applied (logged / updated / retracted / deferred).
     if (isMemory) {
       return (
         <StatusBanner tone="primary">
-          Memory logged.{" "}
+          {memoryAppliedMessage(operation)}{" "}
           <Link
             to="/w/$workspace/memory"
             params={{ workspace }}
@@ -236,7 +258,13 @@ function DispositionBlock({
     );
   }
   return (
-    <ActionButtons isMutating={isMutating} onAccept={onAccept} onStartReject={onStartReject} />
+    <ActionButtons
+      isMutating={isMutating}
+      disableAccept={disableAccept}
+      acceptHint={acceptHint}
+      onAccept={onAccept}
+      onStartReject={onStartReject}
+    />
   );
 }
 
@@ -467,6 +495,32 @@ function MemorySurface({
  * Rows are DIVs (not a JSON blob) precisely so PR3.5 can swap a value cell for an
  * edit input (edit-before-accept) without reshaping this surface.
  */
+/** The load state of a named memory target (supersede/retract/defer). `idle` = nothing to fetch. */
+type MemoryTargetState =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "ready"; memory: MemoryRow }
+  | { kind: "error" };
+
+/**
+ * Why Accept is blocked for a memory op whose target is still resolving — or null when
+ * it isn't blocked. Loading/error both gate Accept so a supersede/retract/defer can never
+ * be applied against a stale or unknown target.
+ */
+function acceptBlockedMessage(state: MemoryTargetState): string | null {
+  if (state.kind === "loading") return "Loading the target memory…";
+  if (state.kind === "error") return "Couldn't load the target memory — refresh to try again.";
+  return null;
+}
+
+/** The applied-banner wording for a memory op — each operation reports what it actually did. */
+function memoryAppliedMessage(operation: Proposal["operation"]): string {
+  if (operation === "supersede") return "Memory updated.";
+  if (operation === "retract") return "Memory retracted.";
+  if (operation === "defer") return "Memory deferred.";
+  return "Memory logged."; // create
+}
+
 export function ProposalDetail({
   proposal,
   accept,
@@ -488,26 +542,39 @@ export function ProposalDetail({
   // current → proposed diff, and retract/defer need its TITLE in the header so the
   // reviewer never approves a destructive op identified only by a raw uuid.
   const { get: getMemory } = useMemories();
-  const [memoryTarget, setMemoryTarget] = useState<MemoryRow | undefined>(undefined);
+  // A supersede/retract/defer NAMES a target memory the reviewer must see before acting.
+  // Track it as a small state machine so the pane can (a) NEVER show a previous target's
+  // title/diff while a new one loads — we clear to `loading` on every target change — and
+  // (b) disable Accept until the requested target actually loads. `idle` = no target to
+  // fetch (create / non-memory), so nothing is gated.
+  const [memoryTargetState, setMemoryTargetState] = useState<MemoryTargetState>({
+    kind: "idle",
+  });
   useEffect(() => {
     if (!isMemory || proposal.operation === "create" || !proposal.target_id) {
-      setMemoryTarget(undefined);
+      setMemoryTargetState({ kind: "idle" });
       return;
     }
+    // Clear the previous target IMMEDIATELY (→ loading): a stale title/diff must never
+    // render, and Accept must not stay enabled, while the new target is in flight.
+    setMemoryTargetState({ kind: "loading" });
     let cancelled = false;
     void getMemory(proposal.target_id)
       .then((detail) => {
-        if (!cancelled) setMemoryTarget(detail.memory);
+        if (!cancelled) setMemoryTargetState({ kind: "ready", memory: detail.memory });
       })
       .catch(() => {
-        // A failed target fetch is non-fatal: the diff falls back to an em-dash
-        // current (buildMemorySupersedeRows), never a blank or a crashed pane.
-        if (!cancelled) setMemoryTarget(undefined);
+        if (!cancelled) setMemoryTargetState({ kind: "error" });
       });
     return () => {
       cancelled = true;
     };
   }, [isMemory, proposal.operation, proposal.target_id, getMemory]);
+  const memoryTarget =
+    memoryTargetState.kind === "ready" ? memoryTargetState.memory : undefined;
+  // Block Accept while a named memory target is still loading or failed to load.
+  const acceptHint = acceptBlockedMessage(memoryTargetState);
+  const disableAccept = acceptHint !== null;
 
   const [status, setStatus] = useState<DisposeStatus>({ kind: "idle" });
   const [rejecting, setRejecting] = useState(false);
@@ -578,10 +645,13 @@ export function ProposalDetail({
         status={status}
         workspace={workspace}
         isMemory={isMemory}
+        operation={proposal.operation}
         rejecting={rejecting}
         reason={reason}
         setReason={setReason}
         isMutating={isMutating}
+        disableAccept={disableAccept}
+        acceptHint={acceptHint}
         onAccept={onAccept}
         onReject={onReject}
         onStartReject={() => setRejecting(true)}

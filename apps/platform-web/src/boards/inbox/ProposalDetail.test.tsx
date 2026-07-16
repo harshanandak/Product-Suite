@@ -364,6 +364,73 @@ describe("ProposalDetail", () => {
     expect(memoryMock.get).toHaveBeenCalledWith("3f2a-mem");
   });
 
+  it("(memory supersede) Accept success reports 'Memory updated.' (op-specific, not 'logged')", async () => {
+    itemsMock.items = [];
+    memoryMock.get.mockResolvedValueOnce({
+      memory: { id: "mem_1", title: "Use Postgres", body: "", topics: [] } as unknown,
+      chain: [],
+    });
+    const accept = vi.fn(
+      async (): Promise<AcceptResult> => ({
+        outcome: "applied",
+        item: { id: "mem-uuid" } as WorkItem,
+      }),
+    );
+    renderDetail(
+      proposal({
+        target_type: "memory",
+        target_id: "mem_1",
+        operation: "supersede",
+        payload: { change_reason: "switched", title: "Use MongoDB" },
+      }),
+      { accept },
+    );
+    // Accept is only live once the target has loaded (see the gating test below).
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Accept" })).toBeEnabled(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+    await waitFor(() =>
+      expect(screen.getByText(/Memory updated\./)).toBeInTheDocument(),
+    );
+    // NEVER the create wording, never the dead work-item link.
+    expect(screen.queryByText(/Memory logged\./)).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /View item/ })).not.toBeInTheDocument();
+  });
+
+  it("(memory supersede) Accept is DISABLED until the target memory loads", async () => {
+    itemsMock.items = [];
+    // Hold the target fetch open so the pane sits in its loading state.
+    let resolveGet: (value: { memory: unknown; chain: never[] }) => void = () => {};
+    memoryMock.get.mockImplementationOnce(
+      () =>
+        new Promise<{ memory: unknown; chain: never[] }>((resolve) => {
+          resolveGet = resolve;
+        }),
+    );
+    renderDetail(
+      proposal({
+        target_type: "memory",
+        target_id: "mem_1",
+        operation: "supersede",
+        payload: { change_reason: "switched", title: "Use MongoDB" },
+      }),
+    );
+    // While the target is in flight: Accept disabled + a loading hint — a supersede must
+    // never be applied against an unresolved (possibly stale) target.
+    expect(screen.getByRole("button", { name: "Accept" })).toBeDisabled();
+    expect(screen.getByText(/Loading the target memory/)).toBeInTheDocument();
+    // Once it resolves, Accept re-enables and the hint clears.
+    resolveGet({
+      memory: { id: "mem_1", title: "Use Postgres", body: "", topics: [] } as unknown,
+      chain: [],
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Accept" })).toBeEnabled(),
+    );
+    expect(screen.queryByText(/Loading the target memory/)).not.toBeInTheDocument();
+  });
+
   it("renders provenance fine-print and a collapsible raw payload", () => {
     itemsMock.items = [];
     renderDetail(proposal());
