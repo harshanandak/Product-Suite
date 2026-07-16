@@ -456,6 +456,45 @@ describe('runAgentChat (request-free runtime + agent_runs lifecycle)', () => {
     expect((mintOut?.[1] as unknown[])?.[4]).toBe(false)
   })
 
+  it("reuses the thread's FIRST-run holdout, immune to a later MEMORY_HOLDOUT_RATE change", async () => {
+    streamText.mockImplementation(() => fakeStreamResult())
+    // th_holdout_probe_out_0 hashes to holdout=FALSE under the default rate, so a fresh
+    // compute would assign false. But the thread already committed to holdout=TRUE on its
+    // first run — the mint must REUSE that persisted value, not recompute.
+    const query = vi.fn(async (text: string, _params: unknown[]) => {
+      if (/insert into "agent_runs"/i.test(text)) return [{ id: 'run_2' }]
+      if (/select memory_holdout from "agent_runs"/i.test(text)) return [{ memory_holdout: true }]
+      return []
+    })
+    const sql = vi.fn() as unknown as Sql
+    ;(sql as unknown as { query: typeof query }).query = query
+
+    await runAgentChat(
+      sql,
+      { tenantId: 't_1', userId: 'u_1', model: fakeModel, threadId: 'th_holdout_probe_out_0' },
+      [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }] as unknown as UIMessage[],
+    )
+    // The thread-first-run lookup was keyed on the thread id.
+    const lookup = query.mock.calls.find(([t]) => /select memory_holdout from "agent_runs"/i.test(String(t)))
+    expect((lookup?.[1] as unknown[])?.[0]).toBe('th_holdout_probe_out_0')
+    // Mint reused the committed TRUE, NOT the fresh-hash FALSE.
+    const mint = query.mock.calls.find(([t]) => /insert into "agent_runs"/i.test(String(t)))
+    expect((mint?.[1] as unknown[])?.[4]).toBe(true)
+  })
+
+  it("a brand-new thread (no prior run) computes holdout via the hash", async () => {
+    streamText.mockImplementation(() => fakeStreamResult())
+    // No prior run → the select returns [] → compute fresh. th_holdout_probe_100 hashes true.
+    const { sql, query } = fakeSql()
+    await runAgentChat(
+      sql,
+      { tenantId: 't_1', userId: 'u_1', model: fakeModel, threadId: 'th_holdout_probe_100' },
+      [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }] as unknown as UIMessage[],
+    )
+    const mint = query.mock.calls.find(([t]) => /insert into "agent_runs"/i.test(String(t)))
+    expect((mint?.[1] as unknown[])?.[4]).toBe(true)
+  })
+
   it('a HOLDOUT run injects no fence, exposes no search_memory tool, and attributes suppressed=true (counterfactual)', async () => {
     // hashUnitInterval('th_holdout_probe_100') ≈ 0.049 < 0.10 → holdout true (same probe thread as above).
     streamText.mockImplementation(() => fakeStreamResult())

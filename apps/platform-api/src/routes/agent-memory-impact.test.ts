@@ -45,8 +45,8 @@ describe('agent memory-impact route (tenant-scoped)', () => {
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
       window_days: 30,
-      holdout: { applied: 0, edited: 0, editRate: 0, rejected: 0, rejectRate: 0 },
-      treated: { applied: 0, edited: 0, editRate: 0, rejected: 0, rejectRate: 0 },
+      holdout: { applied: 0, edited: 0, editRate: 0, rejected: 0, rejectRate: 0, threads: 0 },
+      treated: { applied: 0, edited: 0, editRate: 0, rejected: 0, rejectRate: 0, threads: 0 },
       delta: 0,
       savedEdits: 0,
       ciLow: -1,

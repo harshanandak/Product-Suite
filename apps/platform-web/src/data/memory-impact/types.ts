@@ -26,6 +26,13 @@ export interface Cohort {
   readonly rejected: number;
   /** `rejected / applied` as a fraction in [0, 1]. */
   readonly rejectRate: number;
+  /**
+   * Distinct threads that contributed an applied proposal in this cohort. The
+   * server's clustering guard declines a help/hurt verdict when either cohort has
+   * too few (holdout assignment is per-thread, so a handful of chatty threads is
+   * weak independent evidence). The card mirrors the shape but does NOT display it.
+   */
+  readonly threads: number;
 }
 
 /**

@@ -17,7 +17,7 @@
 - **Holdout must be genuinely memory-free:** no injected fence (decisions/facts AND rules) AND no `search_memory` tool. But attribution is STILL written (`suppressed=true`) — the counterfactual record.
 - **Attribution-before-injection discipline** and the two independent best-effort injection legs (each its own try/catch, own fence) from P2a must be preserved.
 - **Deterministic per-thread assignment** — FNV-1a of `threadId ?? runId`; never `Math.random()`.
-- **Honest metric:** signed delta (never floor a harm to 0); headline only when the Newcombe 95% CI clears 0; downgrade to `insufficient` on a material reject-rate divergence; exclude non-`chat` runs (reflection).
+- **Honest metric:** signed delta (never floor a harm to 0); headline only when the Newcombe 95% CI clears 0; downgrade to `insufficient` on a material reject-rate divergence OR when either cohort has too few distinct applied threads (`MIN_THREADS` interim clustering guard); exclude non-`chat` runs (reflection).
 - **Defaults:** `MEMORY_HOLDOUT_RATE=0.10` (env `MEMORY_HOLDOUT_RATE`), `MIN_SAMPLE=20`, window 30 days, reject-divergence 0.10.
 - Commit per task, TDD. From `apps/platform-api` / `apps/platform-web` use `./node_modules/.bin/vitest run` + `./node_modules/.bin/tsc --noEmit` (never `npx`).
 
@@ -281,7 +281,9 @@ Assert: on a holdout run (force assignment), the composed `system` prompt contai
 **Interfaces produced:**
 - `newcombeDiffCI(x1,n1,x2,n2): { lower: number; upper: number }` — 95% CI for `p1−p2`.
 - `computeMemoryImpact(sql, tenantIds: string[], windowDays?: number): Promise<MemoryImpact>`.
-- `MemoryImpact` = `{ window_days, holdout: Cohort, treated: Cohort, delta, savedEdits, ciLow, ciHigh, verdict }`, `Cohort = { applied, edited, editRate, rejected, rejectRate }`, `verdict: 'helps'|'hurts'|'insufficient'`.
+- `MemoryImpact` = `{ window_days, holdout: Cohort, treated: Cohort, delta, savedEdits, ciLow, ciHigh, verdict }`, `Cohort = { applied, edited, editRate, rejected, rejectRate, threads }`, `verdict: 'helps'|'hurts'|'insufficient'`.
+
+> **CI is proposal-level (an approximation).** The Newcombe two-proportion CI treats proposals as INDEPENDENT, but holdout assignment and within-thread correlation are per-THREAD, so with many proposals in few threads the CI is anti-conservative. The interim conservatism is a `MIN_THREADS` (default 5) gate in `decideVerdict`: if either cohort has fewer than 5 distinct applied threads (the query adds `count(distinct thread_id) filter (where status='applied') as threads` per cohort), return `insufficient` regardless of proposal counts. A thread-clustered/bootstrap CI is the tracked refinement (§6 deferred) that will replace this gate; `MIN_THREADS` is an honest interim, never a loosening of the existing MIN_SAMPLE / reject-divergence / CI-vs-0 gates.
 
 - [ ] **Step 1: Failing test — the Newcombe CI + verdict logic (pure, no DB)**
 

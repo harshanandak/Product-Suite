@@ -42,6 +42,18 @@ describe("createMockProposalRepository", () => {
     expect(after.some((p) => p.id === first.id)).toBe(false);
   });
 
+  it("activeRules resolves an empty array (the mock carries no run→rule attributions)", async () => {
+    const rules = await createMockProposalRepository().activeRules("p1");
+    expect(rules).toEqual([]);
+  });
+
+  it("activeRules honors the configured latency before resolving", async () => {
+    const repo = createMockProposalRepository({ latencyMs: 20 });
+    const start = Date.now();
+    await repo.activeRules("p1");
+    expect(Date.now() - start).toBeGreaterThanOrEqual(15);
+  });
+
   it("each instance owns an isolated copy of the fixtures", async () => {
     const a = createMockProposalRepository();
     const [first] = await a.list();

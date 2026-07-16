@@ -28,9 +28,15 @@ describe("createMockMemoryImpactAdapter", () => {
     expect(impact.window_days).toBe(14);
   });
 
-  it("resolves a seeded impact verbatim", async () => {
-    const seed = createMemoryImpactFixture({ verdict: "helps", savedEdits: 9 });
+  it("resolves a seeded impact's fields but echoes the requested window", async () => {
+    const seed = createMemoryImpactFixture({ verdict: "helps", savedEdits: 9, window_days: 30 });
     const adapter = createMockMemoryImpactAdapter(seed);
-    await expect(adapter.get()).resolves.toBe(seed);
+    const impact = await adapter.get(7);
+    // The seed's measurement fields ride through unchanged...
+    expect(impact.verdict).toBe("helps");
+    expect(impact.savedEdits).toBe(9);
+    expect(impact.holdout).toEqual(seed.holdout);
+    // ...but the requested window is reflected, not the seed's — the param is honored.
+    expect(impact.window_days).toBe(7);
   });
 });

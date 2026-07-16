@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { MemoryImpactAdapter } from "./adapter";
 import { useMemoryImpactContext } from "./MemoryImpactProvider";
@@ -46,8 +46,14 @@ export function useMemoryImpact(
   options: UseMemoryImpactOptions = {},
 ): UseMemoryImpactResult {
   const contextAdapter = useMemoryImpactContext();
-  const [adapter] = useState<MemoryImpactAdapter>(
+  // Resolve the adapter REACTIVELY (injected → context → module default). Freezing it
+  // on first render (a one-time `useState` initializer) would strand the card on the
+  // old source after an auth/org switch swaps the context adapter; `useMemo` re-resolves
+  // when an input actually changes, and stays referentially stable when nothing does
+  // (the default singleton is stable), so the load loop below does not re-fire needlessly.
+  const adapter = useMemo<MemoryImpactAdapter>(
     () => options.adapter ?? contextAdapter ?? getDefaultMemoryImpactAdapter(),
+    [options.adapter, contextAdapter],
   );
   const windowDays = options.windowDays;
 

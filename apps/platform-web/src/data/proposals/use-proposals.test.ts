@@ -89,6 +89,29 @@ describe("useProposals", () => {
     await waitFor(() => expect(result.current.proposals).toEqual([]));
   });
 
+  it("activeRules delegates to the repository, returns the rules, and does NOT refetch the list", async () => {
+    const list = vi
+      .fn<() => Promise<Proposal[]>>()
+      .mockResolvedValue([pending("p1")]);
+    const activeRules = vi.fn(async () => [
+      { id: "m_1", title: "Prefer concise titles" },
+    ]);
+    const repository = makeRepo({ list, activeRules });
+    const { result } = renderHook(() => useProposals({ repository }));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(list).toHaveBeenCalledTimes(1);
+
+    let rules: { id: string; title: string }[] | undefined;
+    await act(async () => {
+      rules = await result.current.activeRules("p1");
+    });
+
+    expect(rules).toEqual([{ id: "m_1", title: "Prefer concise titles" }]);
+    expect(activeRules).toHaveBeenCalledWith("p1");
+    // A read, not a mutation — the pending list is never invalidated/re-fetched.
+    expect(list).toHaveBeenCalledTimes(1);
+  });
+
   it("surfaces a load error", async () => {
     const repository = makeRepo({
       list: vi.fn(async () => {

@@ -571,6 +571,57 @@ describe("ProposalDetail", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("(work-item) clears the prior proposal's rules immediately when switching proposals", async () => {
+    itemsMock.items = [];
+    // p1 resolves with a rule; p2's fetch stays PENDING (we hold its resolver) so we
+    // can assert the old rule is cleared BEFORE the new provenance lands.
+    let resolveSecond: (rules: { id: string; title: string }[]) => void = () => {};
+    proposalsMock.activeRules.mockReset();
+    proposalsMock.activeRules
+      .mockResolvedValueOnce([{ id: "m_1", title: "Old proposal rule" }])
+      .mockImplementationOnce(
+        () =>
+          new Promise<{ id: string; title: string }[]>((resolve) => {
+            resolveSecond = resolve;
+          }),
+      );
+    const accept = vi.fn(async (): Promise<AcceptResult> => ({ outcome: "stale" }));
+    const reject = vi.fn(async () => undefined);
+    const { rerender } = render(
+      <ProposalDetail
+        proposal={proposal({ id: "p1" })}
+        accept={accept}
+        reject={reject}
+        isMutating={false}
+        workspace="acme"
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByText(/Old proposal rule/)).toBeInTheDocument(),
+    );
+
+    // Switch to p2 — its fetch is still in flight, so the stale rule must vanish NOW.
+    rerender(
+      <ProposalDetail
+        proposal={proposal({ id: "p2" })}
+        accept={accept}
+        reject={reject}
+        isMutating={false}
+        workspace="acme"
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.queryByText(/Old proposal rule/)).not.toBeInTheDocument(),
+    );
+    expect(proposalsMock.activeRules).toHaveBeenLastCalledWith("p2");
+
+    // Once p2's provenance resolves, its rules render.
+    resolveSecond([{ id: "m_2", title: "New proposal rule" }]);
+    await waitFor(() =>
+      expect(screen.getByText(/New proposal rule/)).toBeInTheDocument(),
+    );
+  });
+
   it("(memory) never fetches active rules (only work-item proposals show the badge)", () => {
     itemsMock.items = [];
     proposalsMock.activeRules.mockClear();

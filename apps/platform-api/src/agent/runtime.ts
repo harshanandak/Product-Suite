@@ -158,6 +158,32 @@ function runQuery<Row>(sql: Sql, text: string, params: unknown[]): Promise<Row[]
 }
 
 /**
+ * Freeze a thread's holdout cohort to its FIRST run. A whole conversation must be
+ * consistently memory-on or memory-off; if `MEMORY_HOLDOUT_RATE` changes between two
+ * runs of the SAME thread, re-hashing would flip an in-flight conversation mid-stream
+ * and contaminate the measurement. So once a thread has any `chat` run, reuse THAT
+ * row's `memory_holdout` (immutable). Only a thread's first run (or a thread-less run)
+ * computes fresh via {@link assignHoldout}.
+ */
+async function resolveHoldout(
+  sql: Sql,
+  threadId: string | undefined,
+  runId: string,
+): Promise<boolean> {
+  if (threadId) {
+    const prior = await runQuery<{ memory_holdout: boolean }>(
+      sql,
+      `select memory_holdout from "agent_runs"
+       where thread_id = $1 and kind = 'chat'
+       order by created_at asc limit 1`,
+      [threadId],
+    )
+    if (prior[0]) return prior[0].memory_holdout
+  }
+  return assignHoldout(threadId ?? null, runId)
+}
+
+/**
  * Mint the run row (status='running') and return its id plus its memory-holdout
  * assignment — the provenance anchor. The id is generated client-side so
  * `assignHoldout` can key thread-less runs on it (deterministic per-run fallback).
@@ -169,7 +195,7 @@ async function mintRun(
   threadId?: string,
 ): Promise<{ runId: string; holdout: boolean }> {
   const id = crypto.randomUUID()
-  const holdout = assignHoldout(threadId ?? null, id)
+  const holdout = await resolveHoldout(sql, threadId, id)
   const rows = await runQuery<{ id: string }>(
     sql,
     `insert into "agent_runs" ("id", "tenant_id", "triggered_by", "kind", "status", "thread_id", "memory_holdout")

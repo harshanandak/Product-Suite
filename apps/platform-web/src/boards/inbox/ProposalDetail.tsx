@@ -629,6 +629,11 @@ export function ProposalDetail({
       setRuleTitles([]);
       return;
     }
+    // Clear the PREVIOUS proposal's rules IMMEDIATELY (before the new fetch resolves):
+    // a stale "Rules active when this was drafted…" from another proposal must never
+    // linger on-screen while this one's provenance is in flight — mirrors the
+    // memory-target effect's reset-on-change above.
+    setRuleTitles([]);
     let cancelled = false;
     void activeRules(proposal.id)
       .then((rules) => {

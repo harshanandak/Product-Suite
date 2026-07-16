@@ -16,7 +16,7 @@ describe('newcombeDiffCI', () => {
 })
 
 describe('decideVerdict', () => {
-  const base = { holdout: { applied: 40, rejected: 5, rejectRate: 0.11 }, treated: { applied: 200, rejected: 24, rejectRate: 0.11 } }
+  const base = { holdout: { applied: 40, rejected: 5, rejectRate: 0.11, threads: 8 }, treated: { applied: 200, rejected: 24, rejectRate: 0.11, threads: 30 } }
   it('helps when ciLow>0 and samples sufficient and reject rates close', () => {
     expect(decideVerdict({ ...base, ciLow: 0.05, ciHigh: 0.2 })).toBe('helps')
   })
@@ -27,16 +27,28 @@ describe('decideVerdict', () => {
     expect(decideVerdict({ ...base, ciLow: -0.05, ciHigh: 0.08 })).toBe('insufficient')
   })
   it('insufficient below MIN_SAMPLE', () => {
-    expect(decideVerdict({ holdout: { applied: 5, rejected: 0, rejectRate: 0 }, treated: { applied: 200, rejected: 10, rejectRate: 0.05 }, ciLow: 0.1, ciHigh: 0.3 })).toBe('insufficient')
+    expect(decideVerdict({ holdout: { applied: 5, rejected: 0, rejectRate: 0, threads: 5 }, treated: { applied: 200, rejected: 10, rejectRate: 0.05, threads: 30 }, ciLow: 0.1, ciHigh: 0.3 })).toBe('insufficient')
   })
   it('insufficient when reject rates diverge materially (collider guard)', () => {
-    expect(decideVerdict({ holdout: { applied: 40, rejected: 20, rejectRate: 0.33 }, treated: { applied: 200, rejected: 10, rejectRate: 0.05 }, ciLow: 0.1, ciHigh: 0.3 })).toBe('insufficient')
+    expect(decideVerdict({ holdout: { applied: 40, rejected: 20, rejectRate: 0.33, threads: 8 }, treated: { applied: 200, rejected: 10, rejectRate: 0.05, threads: 30 }, ciLow: 0.1, ciHigh: 0.3 })).toBe('insufficient')
+  })
+  it('insufficient when a cohort has too FEW distinct threads (clustering guard), even with a clear CI', () => {
+    // Many applied proposals but only 4 threads on the holdout side (< MIN_THREADS=5):
+    // the proposal-level CI clears 0, yet the headline stays locked.
+    expect(
+      decideVerdict({
+        holdout: { applied: 60, rejected: 5, rejectRate: 0.08, threads: 4 },
+        treated: { applied: 200, rejected: 16, rejectRate: 0.07, threads: 30 },
+        ciLow: 0.05,
+        ciHigh: 0.2,
+      }),
+    ).toBe('insufficient')
   })
 })
 
 describe('computeMemoryImpact', () => {
   // mockSql: single grouped-aggregate query returns per-cohort rows keyed on memory_holdout.
-  function harness(rows: Array<{ memory_holdout: boolean; applied: number; edited: number; rejected: number }>) {
+  function harness(rows: Array<{ memory_holdout: boolean; applied: number; edited: number; rejected: number; threads?: number }>) {
     const query = vi.fn(async (_text: string, _params: unknown[]) => rows)
     const sql = { query } as any
     return { sql, query }
@@ -57,7 +69,19 @@ describe('computeMemoryImpact', () => {
     expect(text).toMatch(/p\.decided_at >= now\(\) - \(\$2 \|\| ' days'\)::interval/)
     expect(text).toMatch(/p\.tenant_id = any\(\$1\)/)
     expect(text).toMatch(/group by r\."memory_holdout"/)
+    // The clustering guard's distinct-applied-thread count is part of the aggregate.
+    expect(text).toMatch(/count\(distinct r\.thread_id\) filter \(where p\.status = 'applied'\)::int as threads/)
     expect(params).toEqual([['t_1'], '30'])
+  })
+
+  it('threads the per-cohort distinct applied-thread count into each cohort', async () => {
+    const { sql } = harness([
+      { memory_holdout: true, applied: 40, edited: 20, rejected: 5, threads: 7 },
+      { memory_holdout: false, applied: 200, edited: 40, rejected: 24, threads: 33 },
+    ])
+    const result = await computeMemoryImpact(sql, ['t_1'], 30)
+    expect(result.holdout.threads).toBe(7)
+    expect(result.treated.threads).toBe(33)
   })
 
   it('assembles editRate/rejectRate, signed delta, savedEdits, and verdict from decideVerdict', async () => {
@@ -94,7 +118,7 @@ describe('computeMemoryImpact', () => {
   it('defaults missing cohort rows to zeros (no rows for one side)', async () => {
     const { sql } = harness([{ memory_holdout: false, applied: 200, edited: 40, rejected: 24 }])
     const result = await computeMemoryImpact(sql, ['t_1'])
-    expect(result.holdout).toEqual({ applied: 0, edited: 0, rejected: 0, editRate: 0, rejectRate: 0 })
+    expect(result.holdout).toEqual({ applied: 0, edited: 0, rejected: 0, editRate: 0, rejectRate: 0, threads: 0 })
     expect(result.window_days).toBe(30) // default windowDays
   })
 })

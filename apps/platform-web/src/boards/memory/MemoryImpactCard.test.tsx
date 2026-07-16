@@ -29,8 +29,8 @@ describe("MemoryImpactCard", () => {
   it("insufficient — renders 'measuring' + no-slash comparison, NO headline number", () => {
     setImpact({
       verdict: "insufficient",
-      holdout: { applied: 4, edited: 1, editRate: 0.25, rejected: 0, rejectRate: 0 },
-      treated: { applied: 3, edited: 1, editRate: 0.33, rejected: 0, rejectRate: 0 },
+      holdout: { applied: 4, edited: 1, editRate: 0.25, rejected: 0, rejectRate: 0, threads: 4 },
+      treated: { applied: 3, edited: 1, editRate: 0.33, rejected: 0, rejectRate: 0, threads: 3 },
       savedEdits: 0,
       window_days: 30,
     });
@@ -56,8 +56,8 @@ describe("MemoryImpactCard", () => {
       verdict: "helps",
       savedEdits: 12,
       window_days: 30,
-      holdout: { applied: 8, edited: 4, editRate: 0.5, rejected: 0, rejectRate: 0 },
-      treated: { applied: 12, edited: 2, editRate: 0.167, rejected: 0, rejectRate: 0 },
+      holdout: { applied: 8, edited: 4, editRate: 0.5, rejected: 0, rejectRate: 0, threads: 8 },
+      treated: { applied: 12, edited: 2, editRate: 0.167, rejected: 0, rejectRate: 0, threads: 12 },
     });
     render(<MemoryImpactCard />);
 
@@ -82,8 +82,8 @@ describe("MemoryImpactCard", () => {
       verdict: "helps",
       savedEdits: 1,
       window_days: 30,
-      holdout: { applied: 20, edited: 4, editRate: 0.2, rejected: 0, rejectRate: 0 },
-      treated: { applied: 20, edited: 3, editRate: 0.15, rejected: 0, rejectRate: 0 },
+      holdout: { applied: 20, edited: 4, editRate: 0.2, rejected: 0, rejectRate: 0, threads: 20 },
+      treated: { applied: 20, edited: 3, editRate: 0.15, rejected: 0, rejectRate: 0, threads: 20 },
     });
     render(<MemoryImpactCard />);
 
@@ -99,8 +99,8 @@ describe("MemoryImpactCard", () => {
       verdict: "hurts",
       savedEdits: 0,
       window_days: 30,
-      holdout: { applied: 10, edited: 2, editRate: 0.2, rejected: 0, rejectRate: 0 },
-      treated: { applied: 9, edited: 5, editRate: 0.556, rejected: 0, rejectRate: 0 },
+      holdout: { applied: 10, edited: 2, editRate: 0.2, rejected: 0, rejectRate: 0, threads: 10 },
+      treated: { applied: 9, edited: 5, editRate: 0.556, rejected: 0, rejectRate: 0, threads: 9 },
     });
     render(<MemoryImpactCard />);
 
