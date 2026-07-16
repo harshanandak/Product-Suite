@@ -113,8 +113,13 @@ describe('runAgentChat (request-free runtime + agent_runs lifecycle)', () => {
     })
 
     // (a) Run minted first, anchored to the resolved tenant + human trigger, no thread.
+    // Params are [id, tenant_id, triggered_by, thread_id, memory_holdout] — id is a
+    // client-generated UUID and holdout a computed boolean, so assert shape not value.
     const mint = query.mock.calls.find(([t]) => /insert into "agent_runs"/i.test(String(t)))
-    expect(mint?.[1]).toEqual(['t_1', 'u_1', null])
+    const mintParams = (mint?.[1] ?? []) as unknown[]
+    expect(mintParams).toHaveLength(5)
+    expect(mintParams[0]).toEqual(expect.any(String))
+    expect(mintParams.slice(1)).toEqual(['t_1', 'u_1', null, expect.any(Boolean)])
 
     // (b) The tool wrote ONLY a proposal, stamped with agent provenance + the run id.
     const propose = query.mock.calls.find(([t]) => /insert into "proposals"/i.test(String(t)))
@@ -153,7 +158,10 @@ describe('runAgentChat (request-free runtime + agent_runs lifecycle)', () => {
       [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }] as unknown as UIMessage[],
     )
     const mint = query.mock.calls.find(([t]) => /insert into "agent_runs"/i.test(String(t)))
-    expect(mint?.[1]).toEqual(['t_1', 'u_1', 'th_1'])
+    const mintParams = (mint?.[1] ?? []) as unknown[]
+    expect(mintParams).toHaveLength(5)
+    expect(mintParams[0]).toEqual(expect.any(String))
+    expect(mintParams.slice(1)).toEqual(['t_1', 'u_1', 'th_1', expect.any(Boolean)])
     expect(String(mint?.[0])).toMatch(/"thread_id"/i)
   })
 
@@ -400,7 +408,7 @@ describe('runAgentChat (request-free runtime + agent_runs lifecycle)', () => {
     expect(streamText).toHaveBeenCalledTimes(1)
   })
 
-  it('mints the run with memory_holdout=false (assigned at run start, always false in P1)', async () => {
+  it('mints the run with a computed memory_holdout bound as a param (deterministic per-thread assignment)', async () => {
     streamText.mockImplementation(() => fakeStreamResult())
     const { sql, query } = fakeSql()
     await runAgentChat(
@@ -410,9 +418,37 @@ describe('runAgentChat (request-free runtime + agent_runs lifecycle)', () => {
     )
     const mint = query.mock.calls.find(([t]) => /insert into "agent_runs"/i.test(String(t)))
     expect(String(mint?.[0])).toMatch(/"memory_holdout"/i)
-    expect(String(mint?.[0])).toMatch(/false/i)
-    // The bound params are unchanged (holdout is a literal, not a param).
-    expect(mint?.[1]).toEqual(['t_1', 'u_1', null])
+    // memory_holdout is now bound ($5), not a literal — the column list has 5 columns
+    // (id, tenant_id, triggered_by, thread_id, memory_holdout), all `$n` placeholders.
+    expect(String(mint?.[0])).toMatch(/\$5/)
+    expect(String(mint?.[0])).not.toMatch(/,\s*false\)/i)
+    const mintParams = (mint?.[1] ?? []) as unknown[]
+    expect(mintParams).toHaveLength(5)
+    expect(mintParams[0]).toEqual(expect.any(String)) // client-generated run id
+    expect(typeof mintParams[4]).toBe('boolean')
+  })
+
+  it('assigns holdout deterministically per-thread, keyed on threadId under the default 10% rate', async () => {
+    // hashUnitInterval('th_holdout_probe_100') ≈ 0.049 < 0.10 → holdout true.
+    // hashUnitInterval('th_holdout_probe_out_0') ≈ 0.941 >= 0.10 → holdout false.
+    streamText.mockImplementation(() => fakeStreamResult())
+    const { sql: sqlIn, query: queryIn } = fakeSql()
+    await runAgentChat(
+      sqlIn,
+      { tenantId: 't_1', userId: 'u_1', model: fakeModel, threadId: 'th_holdout_probe_100' },
+      [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }] as unknown as UIMessage[],
+    )
+    const mintIn = queryIn.mock.calls.find(([t]) => /insert into "agent_runs"/i.test(String(t)))
+    expect((mintIn?.[1] as unknown[])?.[4]).toBe(true)
+
+    const { sql: sqlOut, query: queryOut } = fakeSql()
+    await runAgentChat(
+      sqlOut,
+      { tenantId: 't_1', userId: 'u_1', model: fakeModel, threadId: 'th_holdout_probe_out_0' },
+      [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }] as unknown as UIMessage[],
+    )
+    const mintOut = queryOut.mock.calls.find(([t]) => /insert into "agent_runs"/i.test(String(t)))
+    expect((mintOut?.[1] as unknown[])?.[4]).toBe(false)
   })
 })
 

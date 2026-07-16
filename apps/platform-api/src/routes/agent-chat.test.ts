@@ -173,12 +173,13 @@ describe('POST /api/agent/chat', () => {
     expect(threadParams[0]).toBe('t_1')
     expect(threadParams[1]).toBe('first user message here')
 
-    // The minted run carries the new thread id (its 3rd param).
+    // The minted run carries the new thread id.
+    // Params are [id, tenant_id, triggered_by, thread_id, memory_holdout].
     await vi.waitFor(() => {
       expect(sqlQuery.mock.calls.some(([t]) => /insert into "agent_runs"/i.test(String(t)))).toBe(true)
     })
     const mint = sqlQuery.mock.calls.find(([t]) => /insert into "agent_runs"/i.test(String(t)))
-    expect((mint?.[1] ?? [])[2]).toBe('thread_1')
+    expect((mint?.[1] ?? [])[3]).toBe('thread_1')
   })
 
   it('404s when a supplied thread_id is not the caller’s org (never a cross-tenant write)', async () => {
@@ -301,8 +302,9 @@ describe('POST /api/agent/chat', () => {
 
     // Run minted against the CHOSEN anchor (t_2), and the proposal carries the same
     // tenant — reads, run, and proposal are one consistent org.
+    // Params are [id, tenant_id, triggered_by, thread_id, memory_holdout].
     const mint = sqlQuery.mock.calls.find(([t]) => /insert into "agent_runs"/i.test(String(t)))
-    expect(mint?.[1]?.[0]).toBe('t_2')
+    expect(mint?.[1]?.[1]).toBe('t_2')
     const propose = sqlQuery.mock.calls.find(([t]) => /insert into "proposals"/i.test(String(t)))
     expect((propose?.[1] ?? []) as unknown[]).toContain('t_2')
   })

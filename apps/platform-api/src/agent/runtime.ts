@@ -2,6 +2,7 @@ import { convertToModelMessages, stepCountIs, streamText, type LanguageModel, ty
 
 import type { Sql } from '@product-suite/db'
 
+import { assignHoldout } from './holdout'
 import { insertAttributions, retrieveForContext, retrieveRulesForContext } from './memory-retrieval'
 import { buildTools } from './tools'
 import { touchThread } from './threads-repository'
@@ -156,25 +157,27 @@ function runQuery<Row>(sql: Sql, text: string, params: unknown[]): Promise<Row[]
   return (sql as unknown as { query: (q: string, p: unknown[]) => Promise<Row[]> }).query(text, params)
 }
 
-/** Mint the run row (status='running') and return its id — the provenance anchor. */
+/**
+ * Mint the run row (status='running') and return its id plus its memory-holdout
+ * assignment — the provenance anchor. The id is generated client-side so
+ * `assignHoldout` can key thread-less runs on it (deterministic per-run fallback).
+ */
 async function mintRun(
   sql: Sql,
   tenantId: string,
   userId: string,
   threadId?: string,
-): Promise<string> {
+): Promise<{ runId: string; holdout: boolean }> {
+  const id = crypto.randomUUID()
+  const holdout = assignHoldout(threadId ?? null, id)
   const rows = await runQuery<{ id: string }>(
     sql,
-    // memory_holdout is assigned at run start — always false in P1 (the P2 holdout
-    // assigns true for ~10% of runs to measure the moat). A literal, not a param, so
-    // the mint's bound params stay [tenant_id, triggered_by, thread_id].
-    `insert into "agent_runs" ("tenant_id", "triggered_by", "kind", "status", "thread_id", "memory_holdout")
-     values ($1, $2, 'chat', 'running', $3, false) returning id`,
-    [tenantId, userId, threadId ?? null],
+    `insert into "agent_runs" ("id", "tenant_id", "triggered_by", "kind", "status", "thread_id", "memory_holdout")
+     values ($1, $2, $3, 'chat', 'running', $4, $5) returning id`,
+    [id, tenantId, userId, threadId ?? null, holdout],
   )
-  const id = rows[0]?.id
-  if (!id) throw new Error('mintRun: insert returned no id')
-  return id
+  if (!rows[0]?.id) throw new Error('mintRun: insert returned no id')
+  return { runId: rows[0].id, holdout }
 }
 
 /**
@@ -229,7 +232,9 @@ export async function runAgentChat(
   ctx: AgentRunContext,
   messages: UIMessage[],
 ): Promise<Response> {
-  const runId = await mintRun(sql, ctx.tenantId, ctx.userId, ctx.threadId)
+  // `holdout` is not yet consumed here — Task 2 wires it into memory injection.
+  const { runId, holdout } = await mintRun(sql, ctx.tenantId, ctx.userId, ctx.threadId)
+  void holdout
   const modelId = resolveModelId(ctx.model)
   const tools = buildTools(sql, { tenantId: ctx.tenantId, userId: ctx.userId, runId, modelId })
 
