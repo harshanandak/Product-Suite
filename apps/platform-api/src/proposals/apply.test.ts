@@ -81,11 +81,16 @@ function makeSql(opts: { proposal?: Record<string, unknown> } = {}) {
   const proposal = { ...CREATE_PROPOSAL, ...(opts.proposal ?? {}) }
   let status = proposal.status as string
 
-  const query = vi.fn(async (text: string, _params: unknown[]) => {
+  const query = vi.fn(async (text: string, params: unknown[]) => {
     if (text.includes("set status = 'applied'")) {
       if (status === 'pending') {
         status = 'applied'
-        return [{ ...proposal, status: 'applied' }]
+        // Mirror the atomic claim's `edited_payload = coalesce($3::jsonb, edited_payload)`:
+        // `returning *` reflects the human-edited payload when the accept bound one.
+        const editedJson = params[2]
+        const edited_payload =
+          editedJson != null ? JSON.parse(editedJson as string) : proposal.edited_payload
+        return [{ ...proposal, status: 'applied', edited_payload }]
       }
       return []
     }
@@ -293,6 +298,59 @@ describe('applyProposal (Design C: claim-then-command)', () => {
       enforcement: 'hard',
       pinned: true,
     })
+  })
+
+  it('persists the human-edited payload at the claim and applies IT (per-rule strength: advisory → hard + pinned)', async () => {
+    // The reviewer downgraded/upgraded a rule proposal in the Inbox: the original
+    // agent payload is advisory + unpinned; the human edit forces enforcement 'hard'
+    // and pins it. The atomic claim must persist `edited_payload` ($3, coalesced) so
+    // apply's `edited_payload ?? payload` applies the MERGED payload, not the original.
+    const { sql, getStatus, query } = makeSql({
+      proposal: {
+        target_type: 'memory',
+        target_id: null,
+        operation: 'create',
+        payload: {
+          kind: 'rule',
+          title: 'Prefer concise titles',
+          attrs: { applies_when: 'project Foo', evidence_proposal_ids: ['p_1', 'p_2'] },
+          enforcement: 'advisory',
+          pinned: false,
+        },
+      },
+    })
+    const editedPayload = {
+      kind: 'rule',
+      title: 'Prefer concise titles',
+      attrs: { applies_when: 'project Foo', evidence_proposal_ids: ['p_1', 'p_2'] },
+      enforcement: 'hard',
+      pinned: true,
+    }
+    const res = await applyProposal(sql, ctx, 'p1', editedPayload)
+    expect(res).toEqual({ applied: true, result: MEM_ROW })
+    expect(getStatus()).toBe('applied')
+    // The MERGED payload reached the domain command — strength stuck.
+    expect(createMemory).toHaveBeenCalledTimes(1)
+    const [, , input] = createMemory.mock.calls[0] ?? []
+    expect(input).toMatchObject({ enforcement: 'hard', pinned: true })
+    // The claim statement itself persists the edit atomically: it coalesces onto
+    // `edited_payload` and binds the serialized edit as $3 (not a separate pre-write).
+    const claim = (query.mock.calls as [string, unknown[]][]).find(([t]) =>
+      t.includes("set status = 'applied'"),
+    )
+    expect(claim?.[0]).toContain('edited_payload = coalesce($3::jsonb, edited_payload)')
+    expect(claim?.[1]?.[2]).toBe(JSON.stringify(editedPayload))
+  })
+
+  it('accept with NO editedPayload leaves edited_payload untouched (backward compatible; binds null $3)', async () => {
+    const { sql, query } = makeSql({})
+    const res = await applyProposal(sql, ctx, 'p1')
+    expect(res.applied).toBe(true)
+    const claim = (query.mock.calls as [string, unknown[]][]).find(([t]) =>
+      t.includes("set status = 'applied'"),
+    )
+    // Coalesce keeps the existing value when the 3rd bind is null.
+    expect(claim?.[1]?.[2]).toBeNull()
   })
 
   it('memory:create is IDEMPOTENT — a re-drive with an existing source_proposal_id returns it, no double-create', async () => {

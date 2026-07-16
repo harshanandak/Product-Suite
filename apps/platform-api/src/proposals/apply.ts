@@ -224,6 +224,7 @@ export async function applyProposal(
   sql: Sql,
   ctx: { tenantIds: string[]; approverUserId: string },
   proposalId: string,
+  editedPayload?: Record<string, unknown> | null,
 ): Promise<ApplyResult> {
   const { tenantIds, approverUserId } = ctx
 
@@ -248,16 +249,19 @@ export async function applyProposal(
     return failInvalid(sql, proposalId, `${proposal.operation} proposal has no target_id`)
   }
 
-  // (3) CLAIM — the exactly-once gate (a single statement). It flips ONLY the
-  // lifecycle columns; `edited_payload` is the human's gold-label correction and
-  // MUST stay null unless a human actually edited (schema.ts) — the claim never
-  // stamps it. The applied payload is READ from the claimed row below.
+  // (3) CLAIM — the exactly-once gate (a single statement). It flips the lifecycle
+  // columns AND, atomically in the SAME statement, persists the human's gold-label
+  // correction when the approver edited the proposal (per-rule strength / pin lives
+  // here). `edited_payload = coalesce($3::jsonb, edited_payload)` keeps the existing
+  // value (normally null) when no edit was sent, so a no-body accept is unchanged and
+  // the write can never race the claim. The applied payload is READ from the claimed
+  // row below (`edited_payload ?? payload`).
   const claimedRows = await sqlQuery<ProposalRow>(
     sql,
     `update proposals set status = 'applied', decided_by = $1, decided_at = now(),
-       updated_at = now()
+       updated_at = now(), edited_payload = coalesce($3::jsonb, edited_payload)
      where id = $2 and status = 'pending' returning *`,
-    [approverUserId, proposalId],
+    [approverUserId, proposalId, editedPayload == null ? null : JSON.stringify(editedPayload)],
   )
   const claimed = claimedRows[0]
   if (!claimed) return { applied: false, reason: 'not_pending' }

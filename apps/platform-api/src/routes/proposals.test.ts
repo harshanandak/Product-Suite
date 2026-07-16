@@ -134,6 +134,42 @@ describe('/api/agent/proposals', () => {
     expect(getStatus()).toBe('applied')
   })
 
+  it('POST /:id/accept forwards edited_payload to the claim (persists the human gold-label edit)', async () => {
+    const { sql } = makeSql({})
+    createSql.mockReturnValue(sql)
+
+    const editedPayload = { title: 'A', team_id: 'team_1', status_id: 'status_1', department: 'Ops' }
+    const res = await app.request('/api/agent/proposals/p1/accept', {
+      method: 'POST',
+      ...auth,
+      body: JSON.stringify({ edited_payload: editedPayload }),
+    })
+    expect(res.status).toBe(200)
+    // The edit is bound as $3 on the atomic claim UPDATE (not dropped by the route).
+    const claim = (
+      (sql as unknown as { query: { mock: { calls: [string, unknown[]][] } } }).query.mock.calls
+    ).find(([t]) => t.includes("set status = 'applied'"))
+    expect(claim?.[0]).toContain('edited_payload = coalesce($3::jsonb, edited_payload)')
+    expect(claim?.[1]?.[2]).toBe(JSON.stringify(editedPayload))
+  })
+
+  it('POST /:id/accept with NO body still applies and returns 200 (backward compatible)', async () => {
+    const { sql, getStatus } = makeSql({})
+    createSql.mockReturnValue(sql)
+
+    // No Content-Type / no body — the route must not choke on an empty JSON parse.
+    const res = await app.request('/api/agent/proposals/p1/accept', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer token' },
+    })
+    expect(res.status).toBe(200)
+    expect(getStatus()).toBe('applied')
+    const claim = (
+      (sql as unknown as { query: { mock: { calls: [string, unknown[]][] } } }).query.mock.calls
+    ).find(([t]) => t.includes("set status = 'applied'"))
+    expect(claim?.[1]?.[2]).toBeNull()
+  })
+
   it('POST /:id/accept a second time returns 409 (no longer pending)', async () => {
     const { sql } = makeSql({})
     createSql.mockReturnValue(sql)
