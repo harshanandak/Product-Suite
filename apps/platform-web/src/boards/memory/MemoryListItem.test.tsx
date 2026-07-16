@@ -119,6 +119,20 @@ describe("MemoryListItem", () => {
     await waitFor(() => expect(h.retract).toHaveBeenCalledWith("mem_1"));
   });
 
+  it("(rule) exposes a one-tap Revoke that calls retract with the rule id", async () => {
+    const h = handlers();
+    render(
+      <MemoryListItem
+        memory={mem({ id: "rule_1", kind: "rule", title: "Prefer concise titles" })}
+        {...h}
+        isMutating={false}
+      />,
+    );
+    // A rule is REVOKED, not "retracted" — the destructive action reads "Revoke".
+    fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
+    await waitFor(() => expect(h.retract).toHaveBeenCalledWith("rule_1"));
+  });
+
   it("hides actions and shows history for a superseded memory", async () => {
     const h = handlers();
     render(

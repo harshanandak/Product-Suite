@@ -67,6 +67,20 @@ describe("createNetworkProposalRepository", () => {
     expect(headers.Authorization).toBe("Bearer tok_123");
   });
 
+  it("accept sends the FULL merged edited_payload in the body when the reviewer edited", async () => {
+    const item = { id: "rule_1", title: "Prefer concise titles" };
+    fetchMock.mockResolvedValueOnce(jsonOk(item));
+    const edited = { kind: "rule", title: "Prefer concise titles", enforcement: "hard" };
+    const result = await makeRepo().accept("p1", edited);
+    expect(result).toEqual({ outcome: "applied", item });
+    const { init } = callArgs();
+    // The human's gold-label correction rides as `edited_payload` (a wholesale
+    // replace on the server) — never a partial that would drop kind/title.
+    expect(init?.body).toBe(JSON.stringify({ edited_payload: edited }));
+    const headers = init?.headers as Record<string, string>;
+    expect(headers["Content-Type"]).toBe("application/json");
+  });
+
   it("accept maps 409 to a stale outcome (not an opaque throw)", async () => {
     fetchMock.mockResolvedValueOnce(jsonError(409, "not pending"));
     await expect(makeRepo().accept("p1")).resolves.toEqual({ outcome: "stale" });

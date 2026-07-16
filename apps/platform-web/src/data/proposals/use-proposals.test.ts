@@ -63,7 +63,7 @@ describe("useProposals", () => {
     });
 
     expect(outcome).toEqual({ outcome: "applied", item: { id: "wi_1" } });
-    expect(accept).toHaveBeenCalledWith("p1");
+    expect(accept).toHaveBeenCalledWith("p1", undefined);
     // Refetched: p1 is gone from the pending set.
     await waitFor(() =>
       expect(result.current.proposals.map((p) => p.id)).toEqual(["p2"]),

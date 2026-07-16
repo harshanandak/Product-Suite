@@ -83,11 +83,18 @@ export function createNetworkProposalRepository(
   return {
     list: () => request<Proposal[]>("GET", "/api/agent/proposals"),
 
-    async accept(id: string): Promise<AcceptResult> {
-      // No body: the id in the path IS the whole request (PR2 contract).
+    async accept(
+      id: string,
+      editedPayload?: Record<string, unknown>,
+    ): Promise<AcceptResult> {
+      // Ordinarily the id in the path IS the whole request. When the reviewer
+      // edited the proposal (P1b — e.g. a rule's strength), send the FULL merged
+      // payload as `edited_payload`; the backend applies `edited_payload ?? payload`
+      // as a WHOLESALE replace, so a partial would drop kind/title and 422.
       const response = await rawFetch(
         "POST",
         `/api/agent/proposals/${id}/accept`,
+        editedPayload === undefined ? undefined : { edited_payload: editedPayload },
       );
       if (response.ok) {
         const item = (await response.json()) as WorkItem;
