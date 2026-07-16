@@ -2,7 +2,7 @@ import { convertToModelMessages, stepCountIs, streamText, type LanguageModel, ty
 
 import type { Sql } from '@product-suite/db'
 
-import { insertAttributions, retrieveForContext } from './memory-retrieval'
+import { insertAttributions, retrieveForContext, retrieveRulesForContext } from './memory-retrieval'
 import { buildTools } from './tools'
 import { touchThread } from './threads-repository'
 
@@ -252,7 +252,29 @@ export async function runAgentChat(
         memory.injected.map((m) => ({ memoryId: m.memoryId, rank: m.rank, tokens: m.tokens })),
       )
     }
-    memoryFence = memory.fenced
+    // Team rules (P2a) — the full active in-scope set, own sub-budget, own fence.
+    // Attribution FIRST (same discipline), split by how each rule entered: pinned
+    // rules are attributed 'pinned', the rest 'retrieved'.
+    const rules = await retrieveRulesForContext(sql, { tenantId: ctx.tenantId, scope: ctx.scope })
+    if (rules.injected.length > 0) {
+      const pinned = rules.injected.filter((r) => r.via === 'pinned')
+      const retrieved = rules.injected.filter((r) => r.via === 'retrieved')
+      if (pinned.length > 0) {
+        await insertAttributions(
+          sql,
+          { runId, tenantId: ctx.tenantId, via: 'pinned' },
+          pinned.map((m) => ({ memoryId: m.memoryId, rank: m.rank, tokens: m.tokens })),
+        )
+      }
+      if (retrieved.length > 0) {
+        await insertAttributions(
+          sql,
+          { runId, tenantId: ctx.tenantId, via: 'retrieved' },
+          retrieved.map((m) => ({ memoryId: m.memoryId, rank: m.rank, tokens: m.tokens })),
+        )
+      }
+    }
+    memoryFence = memory.fenced + rules.fenced
   } catch (cause) {
     memoryFence = ''
     console.error('[agent-runtime] memory injection failed', { runId, cause })

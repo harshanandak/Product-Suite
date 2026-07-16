@@ -327,6 +327,41 @@ describe('runAgentChat (request-free runtime + agent_runs lifecycle)', () => {
     expect(params).toContain('mem_2')
   })
 
+  it('appends the Team-rules fence and attributes rules by pinned/retrieved', async () => {
+    streamText.mockImplementation(() => fakeStreamResult())
+    const ruleRows = [
+      { id: 'rule_pin', title: 'Never pause design tasks', body: '', attrs: { applies_when: 'all task types' }, pinned: true, scope_type: 'org' },
+    ]
+    const query = vi.fn(async (text: string, _params: unknown[]) => {
+      if (/insert into "agent_runs"/i.test(text)) return [{ id: 'run_1' }]
+      if (/kind = 'rule'/.test(text)) return ruleRows
+      return []
+    })
+    const sql = vi.fn() as unknown as Sql
+    ;(sql as unknown as { query: typeof query }).query = query
+
+    await runAgentChat(
+      sql,
+      { tenantId: 't_1', userId: 'u_1', model: fakeModel },
+      [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }] as unknown as UIMessage[],
+    )
+
+    // The Team-rules fence is appended to the system prompt handed to the model.
+    const opts = streamText.mock.calls[0]?.[0] as { system: string }
+    expect(opts.system).toContain('<team_rules')
+    expect(opts.system).toContain('Never pause design tasks')
+
+    // A pinned rule is attributed with injected_via='pinned' (the moat rail).
+    const attr = query.mock.calls.find(
+      ([t, p]) =>
+        /insert into "run_memory_attributions"/i.test(String(t)) &&
+        (p as unknown[]).includes('pinned'),
+    )
+    expect(attr).toBeDefined()
+    const params = (attr?.[1] ?? []) as unknown[]
+    expect(params.slice(0, 4)).toEqual(['run_1', 'rule_pin', 't_1', 'pinned'])
+  })
+
   it('mints the run with memory_holdout=false (assigned at run start, always false in P1)', async () => {
     streamText.mockImplementation(() => fakeStreamResult())
     const { sql, query } = fakeSql()

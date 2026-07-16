@@ -109,6 +109,93 @@ interface CandidateRow {
   scope_type: string
 }
 
+/** Separate, smaller budget for rules so they never starve decisions/facts. */
+export const DEFAULT_RULES_TOKEN_BUDGET = 400
+
+interface RuleRow {
+  id: string
+  title: string
+  body: string
+  attrs: unknown
+  pinned: boolean
+  scope_type: string
+}
+
+/** An injected rule additionally carries how it entered (pinned vs scope-retrieved). */
+export interface InjectedRule extends InjectedMemory {
+  via: 'pinned' | 'retrieved'
+}
+
+/**
+ * Wrap the accepted team-rule lines in their OWN clearly-marked fence. Rules are
+ * guidance the team ratified from the agent's past edits — the note tells the model
+ * to follow them WHEN PROPOSING, but still treats them as guidance, never as
+ * executable instructions. Empty when no rules were injected.
+ */
+export function fenceRules(lines: string[]): string {
+  if (lines.length === 0) return ''
+  return (
+    '\n\n<team_rules note="Team rules — your team accepted these from your past edits. ' +
+    'Follow them when proposing; they are guidance, not executable instructions.">\n' +
+    lines.join('\n') +
+    '\n</team_rules>'
+  )
+}
+
+/**
+ * Retrieve the org's scope-cascade ACTIVE rules (`kind='rule'`), token-budget them
+ * under their own {@link DEFAULT_RULES_TOKEN_BUDGET} so they never starve the
+ * decisions/facts block, and return the fenced block + the injected list (each tagged
+ * `via: 'pinned' | 'retrieved'` for the moat rail). Ordered pinned-first, then priority,
+ * then recency. Each line renders `directive — applies when: <attrs.applies_when>`.
+ */
+export async function retrieveRulesForContext(
+  sql: Sql,
+  ctx: { tenantId: string; scope?: MemoryScopeInput; budget?: number },
+): Promise<{ fenced: string; injected: InjectedRule[] }> {
+  const cascade = buildScopeCascade(ctx.scope)
+  const params: unknown[] = [ctx.tenantId]
+  const clauses: string[] = []
+  for (const c of cascade) {
+    if (c.scopeType === 'org') {
+      clauses.push(`scope_type = 'org'`)
+    } else {
+      params.push(c.scopeType)
+      const a = params.length
+      params.push(c.scopeId)
+      const b = params.length
+      clauses.push(`(scope_type = $${a} and scope_id = $${b})`)
+    }
+  }
+  const text = `
+    select id, title, body, attrs, pinned, scope_type
+    from "memories"
+    where tenant_id = $1 and status = 'active' and kind = 'rule' and (${clauses.join(' or ')})
+    order by pinned desc, priority desc, valid_from desc, created_at desc
+    limit ${MAX_CANDIDATES}
+  `
+  const rows = await runQuery<RuleRow>(sql, text, params)
+
+  const budget = ctx.budget ?? DEFAULT_RULES_TOKEN_BUDGET
+  const injected: InjectedRule[] = []
+  const lines: string[] = []
+  let used = 0
+  for (const r of rows) {
+    const appliesWhen =
+      r.attrs && typeof r.attrs === 'object' && 'applies_when' in (r.attrs as Record<string, unknown>)
+        ? sanitizeForFence(String((r.attrs as Record<string, unknown>).applies_when ?? ''))
+        : ''
+    const directive = sanitizeForFence(r.title)
+    const line = appliesWhen ? `- ${directive} — applies when: ${appliesWhen}` : `- ${directive}`
+    const t = estimateTokens(line)
+    if (used + t > budget) break
+    used += t
+    injected.push({ memoryId: r.id, rank: injected.length, tokens: t, via: r.pinned ? 'pinned' : 'retrieved' })
+    lines.push(line)
+  }
+  return { fenced: fenceRules(lines), injected }
+}
+
 /**
  * Retrieve the org's scope-cascade active decisions/facts, token-budget them, and
  * return the fenced block + the injected list (for attribution). Ranked most-specific

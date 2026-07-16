@@ -9,6 +9,7 @@ import {
   insertAttributions,
   resolveChain,
   retrieveForContext,
+  retrieveRulesForContext,
   searchMemories,
 } from './memory-retrieval'
 
@@ -100,6 +101,23 @@ describe('retrieveForContext (scope cascade + token budget + fence)', () => {
     const body = out.fenced.slice(0, out.fenced.lastIndexOf('</org_memory>'))
     expect(body).not.toContain('</org_memory>')
     expect(out.injected).toHaveLength(1)
+  })
+})
+
+describe('retrieveRulesForContext (active rules, pinned-first, own fence)', () => {
+  it('injects active rules, pinned first, rendering applies_when, tagging via', async () => {
+    const rules = [
+      { id: 'r_pin', kind: 'rule', title: 'Never pause design tasks', body: '', attrs: { applies_when: 'all task types' }, pinned: true, priority: 10, scope_type: 'org' },
+      { id: 'r_norm', kind: 'rule', title: 'Prefer concise titles', body: '', attrs: { applies_when: 'work items' }, pinned: false, priority: 0, scope_type: 'org' },
+    ]
+    const query = vi.fn(async (text: string) => (/kind = 'rule'/.test(text) ? rules : []))
+    const sql = { query } as unknown as Sql
+    const res = await retrieveRulesForContext(sql, { tenantId: 't_1' })
+    expect(res.fenced).toMatch(/Team rules/)
+    expect(res.fenced).toMatch(/applies when: all task types/i)
+    expect(res.injected[0]!.memoryId).toBe('r_pin')
+    expect(res.injected[0]!.via).toBe('pinned')
+    expect(res.injected[1]!.via).toBe('retrieved')
   })
 })
 
