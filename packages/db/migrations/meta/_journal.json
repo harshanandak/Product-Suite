@@ -85,6 +85,13 @@
       "when": 1784476800000,
       "tag": "0011_memory_source_proposal_uniq",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1784563200000,
+      "tag": "0012_proposals_reflected_at",
+      "breakpoints": true
     }
   ]
 }

@@ -418,6 +418,10 @@ export const proposals = pgTable(
     decidedAt: timestamp('decided_at', { withTimezone: true }),
     // The payload ACTUALLY applied — its diff vs `payload` is the gold-label correction.
     editedPayload: jsonb('edited_payload'),
+    // Memory Brain P2a: stamped when this correction (an accepted proposal with an
+    // edited_payload) is folded into an emitted rule proposal by the reflection engine,
+    // so it is never mined twice. NULL = not yet reflected (or not a correction).
+    reflectedAt: timestamp('reflected_at', { withTimezone: true }),
     rejectionReason: text('rejection_reason'),
     appliedWrite: jsonb('applied_write'),
     // Optimistic concurrency: the target's version at propose time (see design §14).
