@@ -327,10 +327,11 @@ describe('runAgentChat (request-free runtime + agent_runs lifecycle)', () => {
     expect(params).toContain('mem_2')
   })
 
-  it('appends the Team-rules fence and attributes rules by pinned/retrieved', async () => {
+  it('appends the Team-rules fence and attributes pinned + retrieved rules in ONE atomic insert', async () => {
     streamText.mockImplementation(() => fakeStreamResult())
     const ruleRows = [
-      { id: 'rule_pin', title: 'Never pause design tasks', body: '', attrs: { applies_when: 'all task types' }, pinned: true, scope_type: 'org' },
+      { id: 'rule_pin', title: 'Never pause design tasks', body: '', attrs: { applies_when: 'all task types' }, pinned: true, priority: 10, scope_type: 'org' },
+      { id: 'rule_ret', title: 'Prefer concise titles', body: '', attrs: { applies_when: 'work items' }, pinned: false, priority: 0, scope_type: 'org' },
     ]
     const query = vi.fn(async (text: string, _params: unknown[]) => {
       if (/insert into "agent_runs"/i.test(text)) return [{ id: 'run_1' }]
@@ -351,15 +352,13 @@ describe('runAgentChat (request-free runtime + agent_runs lifecycle)', () => {
     expect(opts.system).toContain('<team_rules')
     expect(opts.system).toContain('Never pause design tasks')
 
-    // A pinned rule is attributed with injected_via='pinned' (the moat rail).
-    const attr = query.mock.calls.find(
-      ([t, p]) =>
-        /insert into "run_memory_attributions"/i.test(String(t)) &&
-        (p as unknown[]).includes('pinned'),
-    )
-    expect(attr).toBeDefined()
-    const params = (attr?.[1] ?? []) as unknown[]
+    // ONE atomic insert covers both the pinned and retrieved rule — no partial-commit
+    // window that could leave a rule attributed-but-not-injected.
+    const attrCalls = query.mock.calls.filter(([t]) => /insert into "run_memory_attributions"/i.test(String(t)))
+    expect(attrCalls).toHaveLength(1)
+    const params = (attrCalls[0]?.[1] ?? []) as unknown[]
     expect(params.slice(0, 4)).toEqual(['run_1', 'rule_pin', 't_1', 'pinned'])
+    expect(params.slice(6, 10)).toEqual(['run_1', 'rule_ret', 't_1', 'retrieved'])
   })
 
   it('keeps the decisions/facts fence + attribution when the RULES leg throws (isolated legs)', async () => {

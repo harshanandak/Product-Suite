@@ -261,14 +261,20 @@ export async function retrieveForContext(
 export async function insertAttributions(
   sql: Sql,
   ctx: { runId: string; tenantId: string; via: 'pinned' | 'retrieved' | 'tool' },
-  entries: { memoryId: string; rank: number | null; tokens: number | null }[],
+  entries: {
+    memoryId: string
+    rank: number | null
+    tokens: number | null
+    /** Per-row override; falls back to `ctx.via` when absent (existing callers unchanged). */
+    via?: 'pinned' | 'retrieved' | 'tool'
+  }[],
 ): Promise<void> {
   if (entries.length === 0) return
   const params: unknown[] = []
   const tuples: string[] = []
   for (const e of entries) {
     const base = params.length
-    params.push(ctx.runId, e.memoryId, ctx.tenantId, ctx.via, e.rank ?? null, e.tokens ?? null)
+    params.push(ctx.runId, e.memoryId, ctx.tenantId, e.via ?? ctx.via, e.rank ?? null, e.tokens ?? null)
     tuples.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6})`)
   }
   // ON CONFLICT DO NOTHING so a retried run / repeated search never double-counts a

@@ -269,22 +269,14 @@ export async function runAgentChat(
   try {
     const rules = await retrieveRulesForContext(sql, { tenantId: ctx.tenantId, scope: ctx.scope })
     if (rules.injected.length > 0) {
-      const pinned = rules.injected.filter((r) => r.via === 'pinned')
-      const retrieved = rules.injected.filter((r) => r.via === 'retrieved')
-      if (pinned.length > 0) {
-        await insertAttributions(
-          sql,
-          { runId, tenantId: ctx.tenantId, via: 'pinned' },
-          pinned.map((m) => ({ memoryId: m.memoryId, rank: m.rank, tokens: m.tokens })),
-        )
-      }
-      if (retrieved.length > 0) {
-        await insertAttributions(
-          sql,
-          { runId, tenantId: ctx.tenantId, via: 'retrieved' },
-          retrieved.map((m) => ({ memoryId: m.memoryId, rank: m.rank, tokens: m.tokens })),
-        )
-      }
+      // ONE atomic insert — a per-row `via` means pinned + retrieved rules are recorded
+      // together, so there is no partial-commit window that could leave a rule
+      // attributed-but-not-injected. `ctx.via` here is just the fallback default.
+      await insertAttributions(
+        sql,
+        { runId, tenantId: ctx.tenantId, via: 'retrieved' },
+        rules.injected.map((m) => ({ memoryId: m.memoryId, rank: m.rank, tokens: m.tokens, via: m.via })),
+      )
     }
     memoryFence += rules.fenced
   } catch (cause) {

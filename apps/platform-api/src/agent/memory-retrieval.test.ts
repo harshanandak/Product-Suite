@@ -141,6 +141,24 @@ describe('insertAttributions (the moat rail)', () => {
     await insertAttributions(sql, { runId: 'run_1', tenantId: 't_1', via: 'tool' }, [])
     expect(query).not.toHaveBeenCalled()
   })
+
+  it('uses a per-row via when an entry carries one, falling back to ctx.via otherwise — ONE insert', async () => {
+    const { sql, query } = mockSql(() => [])
+    await insertAttributions(sql, { runId: 'run_1', tenantId: 't_1', via: 'retrieved' }, [
+      { memoryId: 'm_pin', rank: 0, tokens: 5, via: 'pinned' },
+      { memoryId: 'm_ret', rank: 1, tokens: 7, via: 'retrieved' },
+      { memoryId: 'm_default', rank: 2, tokens: 3 },
+    ])
+    // Exactly ONE insert for all rows — no partial-commit window between them.
+    expect(query).toHaveBeenCalledTimes(1)
+    const [text, params] = query.mock.calls[0]!
+    expect(String(text)).toMatch(/insert into "run_memory_attributions"/i)
+    expect(params).toHaveLength(18)
+    expect(params.slice(0, 6)).toEqual(['run_1', 'm_pin', 't_1', 'pinned', 0, 5])
+    expect(params.slice(6, 12)).toEqual(['run_1', 'm_ret', 't_1', 'retrieved', 1, 7])
+    // No per-row via ⇒ falls back to ctx.via ('retrieved').
+    expect(params.slice(12, 18)).toEqual(['run_1', 'm_default', 't_1', 'retrieved', 2, 3])
+  })
 })
 
 describe('searchMemories / resolveChain (tenant-scoped)', () => {
