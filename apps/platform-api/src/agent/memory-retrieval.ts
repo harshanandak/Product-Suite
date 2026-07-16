@@ -260,7 +260,13 @@ export async function retrieveForContext(
  */
 export async function insertAttributions(
   sql: Sql,
-  ctx: { runId: string; tenantId: string; via: 'pinned' | 'retrieved' | 'tool' },
+  ctx: {
+    runId: string
+    tenantId: string
+    via: 'pinned' | 'retrieved' | 'tool'
+    /** True on a holdout run: memory was retrieved but SUPPRESSED (never injected/exposed) — the counterfactual signal. Defaults to false. */
+    suppressed?: boolean
+  },
   entries: {
     memoryId: string
     rank: number | null
@@ -274,14 +280,22 @@ export async function insertAttributions(
   const tuples: string[] = []
   for (const e of entries) {
     const base = params.length
-    params.push(ctx.runId, e.memoryId, ctx.tenantId, e.via ?? ctx.via, e.rank ?? null, e.tokens ?? null)
-    tuples.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6})`)
+    params.push(
+      ctx.runId,
+      e.memoryId,
+      ctx.tenantId,
+      e.via ?? ctx.via,
+      e.rank ?? null,
+      e.tokens ?? null,
+      ctx.suppressed ?? false,
+    )
+    tuples.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7})`)
   }
   // ON CONFLICT DO NOTHING so a retried run / repeated search never double-counts a
   // (run, memory, via) pair — the attribution stats stay a clean causal signal.
   const text = `
     insert into "run_memory_attributions"
-      ("run_id", "memory_id", "tenant_id", "injected_via", "rank", "tokens")
+      ("run_id", "memory_id", "tenant_id", "injected_via", "rank", "tokens", "suppressed")
     values ${tuples.join(', ')}
     on conflict ("run_id", "memory_id", "injected_via") do nothing
   `

@@ -232,11 +232,12 @@ export async function runAgentChat(
   ctx: AgentRunContext,
   messages: UIMessage[],
 ): Promise<Response> {
-  // `holdout` is not yet consumed here — Task 2 wires it into memory injection.
+  // `holdout`: a memory-free measurement run. NO fence is injected and NO
+  // search_memory tool is exposed, but every leg below still logs what memory WOULD
+  // have contributed (suppressed=true) — the counterfactual signal for the moat rail.
   const { runId, holdout } = await mintRun(sql, ctx.tenantId, ctx.userId, ctx.threadId)
-  void holdout
   const modelId = resolveModelId(ctx.model)
-  const tools = buildTools(sql, { tenantId: ctx.tenantId, userId: ctx.userId, runId, modelId })
+  const tools = buildTools(sql, { tenantId: ctx.tenantId, userId: ctx.userId, runId, modelId, holdout })
 
   // Deterministic memory injection (design: AFTER mintRun, no model in the loop, so
   // attribution is causal). Retrieve the org's scope-cascade active decisions/facts,
@@ -258,11 +259,13 @@ export async function runAgentChat(
     if (memory.injected.length > 0) {
       await insertAttributions(
         sql,
-        { runId, tenantId: ctx.tenantId, via: 'retrieved' },
+        { runId, tenantId: ctx.tenantId, via: 'retrieved', suppressed: holdout },
         memory.injected.map((m) => ({ memoryId: m.memoryId, rank: m.rank, tokens: m.tokens })),
       )
     }
-    memoryFence = memory.fenced
+    // Holdout: attribute (the counterfactual is logged) but never fence — the model
+    // sees nothing.
+    memoryFence = holdout ? '' : memory.fenced
   } catch (cause) {
     memoryFence = ''
     console.error('[agent-runtime] memory injection failed', { runId, cause })
@@ -279,11 +282,12 @@ export async function runAgentChat(
       // attributed-but-not-injected. `ctx.via` here is just the fallback default.
       await insertAttributions(
         sql,
-        { runId, tenantId: ctx.tenantId, via: 'retrieved' },
+        { runId, tenantId: ctx.tenantId, via: 'retrieved', suppressed: holdout },
         rules.injected.map((m) => ({ memoryId: m.memoryId, rank: m.rank, tokens: m.tokens, via: m.via })),
       )
     }
-    memoryFence += rules.fenced
+    // Holdout: same discipline — attribute the counterfactual, append no fence.
+    if (!holdout) memoryFence += rules.fenced
   } catch (cause) {
     console.error('[agent-runtime] rule injection failed', { runId, cause })
   }

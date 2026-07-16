@@ -315,9 +315,12 @@ describe('runAgentChat (request-free runtime + agent_runs lifecycle)', () => {
     const sql = vi.fn() as unknown as Sql
     ;(sql as unknown as { query: typeof query }).query = query
 
+    // Pin to a deterministically-treated thread (holdout=false) — this test asserts
+    // the fence IS injected, so it must not ride on the random no-threadId fallback,
+    // which would flip holdout ~10% of the time now that holdout actually suppresses it.
     await runAgentChat(
       sql,
-      { tenantId: 't_1', userId: 'u_1', model: fakeModel },
+      { tenantId: 't_1', userId: 'u_1', model: fakeModel, threadId: 'th_holdout_probe_out_0' },
       [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }] as unknown as UIMessage[],
     )
 
@@ -349,9 +352,10 @@ describe('runAgentChat (request-free runtime + agent_runs lifecycle)', () => {
     const sql = vi.fn() as unknown as Sql
     ;(sql as unknown as { query: typeof query }).query = query
 
+    // Pin to a deterministically-treated thread — see comment above.
     await runAgentChat(
       sql,
-      { tenantId: 't_1', userId: 'u_1', model: fakeModel },
+      { tenantId: 't_1', userId: 'u_1', model: fakeModel, threadId: 'th_holdout_probe_out_0' },
       [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }] as unknown as UIMessage[],
     )
 
@@ -366,7 +370,7 @@ describe('runAgentChat (request-free runtime + agent_runs lifecycle)', () => {
     expect(attrCalls).toHaveLength(1)
     const params = (attrCalls[0]?.[1] ?? []) as unknown[]
     expect(params.slice(0, 4)).toEqual(['run_1', 'rule_pin', 't_1', 'pinned'])
-    expect(params.slice(6, 10)).toEqual(['run_1', 'rule_ret', 't_1', 'retrieved'])
+    expect(params.slice(7, 11)).toEqual(['run_1', 'rule_ret', 't_1', 'retrieved'])
   })
 
   it('keeps the decisions/facts fence + attribution when the RULES leg throws (isolated legs)', async () => {
@@ -384,10 +388,11 @@ describe('runAgentChat (request-free runtime + agent_runs lifecycle)', () => {
     const sql = vi.fn() as unknown as Sql
     ;(sql as unknown as { query: typeof query }).query = query
 
-    // The run must still proceed (not stranded) — resolves without throwing.
+    // The run must still proceed (not stranded) — resolves without throwing. Pin to a
+    // deterministically-treated thread — see comment on the fence-injection test above.
     const res = await runAgentChat(
       sql,
-      { tenantId: 't_1', userId: 'u_1', model: fakeModel },
+      { tenantId: 't_1', userId: 'u_1', model: fakeModel, threadId: 'th_holdout_probe_out_0' },
       [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }] as unknown as UIMessage[],
     )
     expect(res.status).toBe(200)
@@ -449,6 +454,73 @@ describe('runAgentChat (request-free runtime + agent_runs lifecycle)', () => {
     )
     const mintOut = queryOut.mock.calls.find(([t]) => /insert into "agent_runs"/i.test(String(t)))
     expect((mintOut?.[1] as unknown[])?.[4]).toBe(false)
+  })
+
+  it('a HOLDOUT run injects no fence, exposes no search_memory tool, and attributes suppressed=true (counterfactual)', async () => {
+    // hashUnitInterval('th_holdout_probe_100') ≈ 0.049 < 0.10 → holdout true (same probe thread as above).
+    streamText.mockImplementation(() => fakeStreamResult())
+    const memRows = [{ id: 'mem_1', kind: 'decision', title: 'Use Postgres', body: '', scope_type: 'org' }]
+    const ruleRows = [
+      { id: 'rule_1', title: 'Never pause design tasks', body: '', attrs: { applies_when: 'all task types' }, pinned: true, priority: 10, scope_type: 'org' },
+    ]
+    const query = vi.fn(async (text: string, _params: unknown[]) => {
+      if (/insert into "agent_runs"/i.test(text)) return [{ id: 'run_1' }]
+      if (/kind = 'rule'/.test(text)) return ruleRows
+      if (/from "memories"/i.test(text)) return memRows
+      return []
+    })
+    const sql = vi.fn() as unknown as Sql
+    ;(sql as unknown as { query: typeof query }).query = query
+
+    await runAgentChat(
+      sql,
+      { tenantId: 't_1', userId: 'u_1', model: fakeModel, threadId: 'th_holdout_probe_100' },
+      [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }] as unknown as UIMessage[],
+    )
+
+    // No fence at all — neither leg's block reaches the model.
+    const opts = streamText.mock.calls[0]?.[0] as { system: string; tools: Record<string, unknown> }
+    expect(opts.system).not.toContain('<org_memory')
+    expect(opts.system).not.toContain('<team_rules')
+
+    // No path into memory via the tool either.
+    expect(opts.tools.search_memory).toBeUndefined()
+
+    // Both legs still attribute the counterfactual — suppressed=true (column index 6).
+    const attrCalls = query.mock.calls.filter(([t]) => /insert into "run_memory_attributions"/i.test(String(t)))
+    expect(attrCalls).toHaveLength(2)
+    for (const call of attrCalls) {
+      const params = (call[1] ?? []) as unknown[]
+      expect(params[6]).toBe(true)
+    }
+  })
+
+  it('a TREATED run is unchanged: fences present, suppressed=false, search_memory present', async () => {
+    streamText.mockImplementation(() => fakeStreamResult())
+    const memRows = [{ id: 'mem_1', kind: 'decision', title: 'Use Postgres', body: '', scope_type: 'org' }]
+    const query = vi.fn(async (text: string, _params: unknown[]) => {
+      if (/insert into "agent_runs"/i.test(text)) return [{ id: 'run_1' }]
+      if (/from "memories"/i.test(text)) return memRows
+      return []
+    })
+    const sql = vi.fn() as unknown as Sql
+    ;(sql as unknown as { query: typeof query }).query = query
+
+    // hashUnitInterval('th_holdout_probe_out_0') ≈ 0.941 >= 0.10 → holdout false.
+    await runAgentChat(
+      sql,
+      { tenantId: 't_1', userId: 'u_1', model: fakeModel, threadId: 'th_holdout_probe_out_0' },
+      [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }] as unknown as UIMessage[],
+    )
+
+    const opts = streamText.mock.calls[0]?.[0] as { system: string; tools: Record<string, unknown> }
+    expect(opts.system).toContain('<org_memory')
+    expect(opts.tools.search_memory).toBeDefined()
+
+    const attr = query.mock.calls.find(([t]) => /insert into "run_memory_attributions"/i.test(String(t)))
+    expect(attr).toBeDefined()
+    const params = (attr?.[1] ?? []) as unknown[]
+    expect(params[6]).toBe(false)
   })
 })
 

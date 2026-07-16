@@ -26,6 +26,8 @@ export interface ToolContext {
   runId: string
   /** The resolved model id string, stamped on proposals for the decision corpus. */
   modelId: string | null
+  /** True on a holdout run: `search_memory` must NOT be exposed — a holdout run gets NO memory, via fence or tool. */
+  holdout?: boolean
 }
 
 /** Outcome of a `propose_*` tool: a queued proposal id, or a refusal reason. */
@@ -207,7 +209,7 @@ export function buildTools(sql: Sql, ctx: ToolContext): ToolSet {
     }
   }
 
-  return {
+  const toolset = {
     list_work_items: tool({
       description:
         'List work items in the current workspace, most recent first. Returns a compact projection (id, title, status, priority, team). Optionally filter by team or status.',
@@ -340,5 +342,14 @@ export function buildTools(sql: Sql, ctx: ToolContext): ToolSet {
         return proposeMemory(args.operation, build.payload, args.rationale, build.targetId)
       },
     }),
+  } satisfies ToolSet
+
+  // A holdout run must expose NO path into memory — no injected fence AND no
+  // search_memory tool — so a suppression bug can't leak the counterfactual through
+  // the tool the model could still call. Omit the key entirely (not just disable it).
+  if (ctx.holdout) {
+    const { search_memory: _omit, ...rest } = toolset
+    return rest
   }
+  return toolset
 }
