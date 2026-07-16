@@ -619,7 +619,7 @@ export function ProposalDetail({
   const disableAccept = acceptHint !== null;
 
   // The rules active during the run that authored THIS proposal — provenance for the
-  // "Rules active during this run" badge (only a work-item proposal shows it). Fetched
+  // "Rules active when this was drafted" badge (only a work-item proposal shows it). Fetched
   // via a small cancellable effect, mirroring the memory-target fetch above; a failed
   // provenance read is non-blocking (the badge simply stays empty).
   const { activeRules } = useProposals();

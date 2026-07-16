@@ -26,7 +26,7 @@ export interface ProposalRepository {
   reject(id: string, reason?: string): Promise<void>;
   /**
    * The `kind='rule'` memories that were active during the run that authored this
-   * proposal — provenance for the "Rules active during this run" badge (never
+   * proposal — provenance for the "Rules active when this was drafted" badge (never
    * causation). Empty when the proposal has no authoring run or no rule attributions
    * (a holdout run suppressed them). Only meaningful for work-item proposals.
    */

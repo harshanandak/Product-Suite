@@ -15,7 +15,7 @@ describe("RuleAttributionBadge", () => {
         ruleTitles={["Prefer concise titles", "Always link the source"]}
       />,
     );
-    expect(screen.getByText(/Rules active during this run:/)).toBeInTheDocument();
+    expect(screen.getByText(/Rules active when this was drafted:/)).toBeInTheDocument();
     expect(
       screen.getByText(/Prefer concise titles, Always link the source/),
     ).toBeInTheDocument();

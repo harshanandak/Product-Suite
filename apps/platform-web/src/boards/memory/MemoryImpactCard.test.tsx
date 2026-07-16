@@ -4,20 +4,6 @@ import { describe, expect, it, vi } from "vitest";
 import type { MemoryImpact } from "@/data/memory-impact";
 import { createMemoryImpactFixture } from "@/data/memory-impact";
 
-// The card links the "hurts" caution to the rule list via a router <Link>; stub
-// the router so the card can render standalone (mirrors the MemoryScreen test).
-vi.mock("@tanstack/react-router", () => ({
-  useParams: () => ({ workspace: "demo" }),
-  Link: ({
-    to,
-    children,
-  }: {
-    to: string;
-    children: React.ReactNode;
-    [key: string]: unknown;
-  }) => <a href={to}>{children}</a>,
-}));
-
 // The card reads everything through `useMemoryImpact`; stub it with a fixture so
 // each test drives one verdict state (per the task brief).
 let impactMock: MemoryImpact | null = null;
@@ -40,7 +26,7 @@ function setImpact(overrides: Partial<MemoryImpact>): void {
 }
 
 describe("MemoryImpactCard", () => {
-  it("insufficient — renders 'measuring' + counts, NO headline number", () => {
+  it("insufficient — renders 'measuring' + no-slash comparison, NO headline number", () => {
     setImpact({
       verdict: "insufficient",
       holdout: { applied: 4, edited: 1, editRate: 0.25, rejected: 0, rejectRate: 0 },
@@ -50,17 +36,22 @@ describe("MemoryImpactCard", () => {
     });
     render(<MemoryImpactCard />);
 
-    expect(screen.getByText(/not enough data yet/i)).toBeInTheDocument();
-    expect(screen.getByText(/Measuring/i)).toBeInTheDocument();
-    // Small cohort counts are shown.
-    expect(screen.getByText(/4/)).toBeInTheDocument();
-    expect(screen.getByText(/3/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Measuring how much memory helps/i),
+    ).toBeInTheDocument();
+    // Cohort counts read as a comparison, not a fraction (no slash).
+    expect(
+      screen.getByText(
+        /Comparing 3 proposals with memory and 4 without, so far\./i,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("/")).toBeNull();
     // No headline saved-edits number.
     expect(screen.queryByText(/saved you/i)).toBeNull();
     expect(screen.queryByText(/~\s*\d+\s*edits/i)).toBeNull();
   });
 
-  it("helps — headline saved-edits + comparison with both rates and applied counts", () => {
+  it("helps — headline saved-edits + comparison with both rates and edited/applied counts", () => {
     setImpact({
       verdict: "helps",
       savedEdits: 12,
@@ -70,18 +61,40 @@ describe("MemoryImpactCard", () => {
     });
     render(<MemoryImpactCard />);
 
-    // Headline — the ~ stays, the number renders, window echoed.
+    // Headline — the ~ stays, the number renders, window echoed, plural "edits".
     expect(
       screen.getByText(/Memory saved you ~12 edits in the last 30 days/i),
     ).toBeInTheDocument();
-    // Comparison — BOTH editRates as whole % AND BOTH applied counts.
-    const comparison = screen.getByText(
-      /You edited 50% of the agent's proposals without memory \(from 8\), vs 17% with it \(from 12\)\./i,
-    );
-    expect(comparison).toBeInTheDocument();
+    // Comparison — BOTH editRates as whole % AND BOTH edited/applied counts.
+    expect(
+      screen.getByText(
+        /Without memory you edited 50% of proposals \(4 of 8\); with it, 17% \(2 of 12\)\./i,
+      ),
+    ).toBeInTheDocument();
+    // Honest holdout disclosure footer.
+    expect(
+      screen.getByText(/a small share of runs skip memory/i),
+    ).toBeInTheDocument();
   });
 
-  it("hurts — caution copy (editing MORE) + review link, NO positive saved number", () => {
+  it("helps — pluralizes '~1 edit' (singular)", () => {
+    setImpact({
+      verdict: "helps",
+      savedEdits: 1,
+      window_days: 30,
+      holdout: { applied: 20, edited: 4, editRate: 0.2, rejected: 0, rejectRate: 0 },
+      treated: { applied: 20, edited: 3, editRate: 0.15, rejected: 0, rejectRate: 0 },
+    });
+    render(<MemoryImpactCard />);
+
+    expect(
+      screen.getByText(/Memory saved you ~1 edit in the last 30 days/i),
+    ).toBeInTheDocument();
+    // Not the plural form.
+    expect(screen.queryByText(/~1 edits/i)).toBeNull();
+  });
+
+  it("hurts — caution copy (editing MORE) points to the rule list below, NO link, role=status", () => {
     setImpact({
       verdict: "hurts",
       savedEdits: 0,
@@ -96,9 +109,17 @@ describe("MemoryImpactCard", () => {
         /You're editing more of the agent's proposals with memory on \(56% vs 20% without it\)/i,
       ),
     ).toBeInTheDocument();
-    expect(screen.getByText(/Your rules may be too broad/i)).toBeInTheDocument();
-    // A link to the rule list to review.
-    expect(screen.getByRole("link", { name: /review/i })).toBeInTheDocument();
+    expect(
+      screen.getByText(/Your rules are listed below — retract any that look too broad/i),
+    ).toBeInTheDocument();
+    // The dead-end self-link is gone.
+    expect(screen.queryByRole("link")).toBeNull();
+    // role=status (not alert) — does not interrupt screen readers on mount.
+    expect(screen.getByRole("status")).toBeInTheDocument();
+    // Honest holdout disclosure footer.
+    expect(
+      screen.getByText(/a small share of runs skip memory/i),
+    ).toBeInTheDocument();
     // Never a positive "saved" headline on hurts.
     expect(screen.queryByText(/saved you/i)).toBeNull();
   });
@@ -113,18 +134,20 @@ describe("MemoryImpactCard", () => {
     }
   });
 
-  it("renders nothing while loading or on error (honest silence, no flash)", () => {
+  it("renders a skeleton while loading (reserves space, no board shift)", () => {
     impactMock = null;
     loadingMock = true;
     errorMock = null;
-    const { container, unmount } = render(<MemoryImpactCard />);
-    expect(container).toBeEmptyDOMElement();
-    unmount();
+    render(<MemoryImpactCard />);
+    // The skeleton is present and labelled (mirrors MemoryScreen's pattern).
+    expect(screen.getByLabelText(/measuring memory impact/i)).toBeInTheDocument();
+  });
 
+  it("renders nothing on error (honest silence, no flash)", () => {
     impactMock = null;
     loadingMock = false;
     errorMock = new Error("boom");
-    const { container: c2 } = render(<MemoryImpactCard />);
-    expect(c2).toBeEmptyDOMElement();
+    const { container } = render(<MemoryImpactCard />);
+    expect(container).toBeEmptyDOMElement();
   });
 });

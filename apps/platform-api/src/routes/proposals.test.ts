@@ -252,6 +252,23 @@ describe('/api/agent/proposals', () => {
     expect(joinCall).toBeUndefined()
   })
 
+  it('GET /:id/active-rules query keeps the moat-integrity filter (suppressed=false AND kind=rule)', async () => {
+    // The mock echoes rows regardless of the WHERE, so the holdout→empty test can't
+    // catch a silently-dropped predicate. Assert the query TEXT instead: the
+    // suppressed-attribution and rule-kind filters must survive any refactor.
+    const { sql } = makeSql({ rules: [{ id: 'm_1', title: 'Prefer concise titles' }] })
+    createSql.mockReturnValue(sql)
+
+    await app.request('/api/agent/proposals/p1/active-rules', { headers: auth.headers })
+
+    const joinCall = (sql as unknown as { mock: { calls: unknown[][] } }).mock.calls.find(
+      (call) => Array.isArray(call[0]) && (call[0] as string[]).join('?').includes('run_memory_attributions'),
+    )
+    const text = (joinCall?.[0] as string[]).join('?')
+    expect(text).toContain('a.suppressed = false')
+    expect(text).toContain("m.kind = 'rule'")
+  })
+
   it('GET /:id/active-rules returns 404 when the proposal is not the caller’s', async () => {
     const { sql } = makeSql({ proposalMissing: true })
     createSql.mockReturnValue(sql)

@@ -61,7 +61,9 @@ export interface MemoryImpact {
   treated: Cohort
   delta: number
   savedEdits: number
+  /** Lower bound of the 95% CI on the EDIT-RATE DELTA (holdout − treated), not on savedEdits. */
   ciLow: number
+  /** Upper bound of the 95% CI on the EDIT-RATE DELTA (holdout − treated), not on savedEdits. */
   ciHigh: number
   verdict: 'helps' | 'hurts' | 'insufficient'
 }

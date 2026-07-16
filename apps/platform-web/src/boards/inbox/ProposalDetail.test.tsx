@@ -545,7 +545,7 @@ describe("ProposalDetail", () => {
     });
   });
 
-  it("(work-item) renders 'Rules active during this run' with the fetched rule titles", async () => {
+  it("(work-item) renders 'Rules active when this was drafted' with the fetched rule titles", async () => {
     itemsMock.items = [];
     proposalsMock.activeRules.mockResolvedValueOnce([
       { id: "m_1", title: "Prefer concise titles" },
@@ -553,7 +553,7 @@ describe("ProposalDetail", () => {
     renderDetail(proposal());
     await waitFor(() =>
       expect(
-        screen.getByText(/Rules active during this run:/),
+        screen.getByText(/Rules active when this was drafted:/),
       ).toBeInTheDocument(),
     );
     expect(screen.getByText(/Prefer concise titles/)).toBeInTheDocument();
@@ -567,7 +567,7 @@ describe("ProposalDetail", () => {
     // Let the (empty) fetch settle, then assert the badge is absent.
     await waitFor(() => expect(proposalsMock.activeRules).toHaveBeenCalledWith("p1"));
     expect(
-      screen.queryByText(/Rules active during this run:/),
+      screen.queryByText(/Rules active when this was drafted:/),
     ).not.toBeInTheDocument();
   });
 

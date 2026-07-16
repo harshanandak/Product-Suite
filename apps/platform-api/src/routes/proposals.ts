@@ -108,6 +108,7 @@ proposalsRoutes.get('/:id/active-rules', async (c) => {
       join memories m on m.id = a.memory_id
       where a.run_id = ${proposal.run_id}
         and a.tenant_id = ${proposal.tenant_id}
+        and m.tenant_id = ${proposal.tenant_id}
         and a.suppressed = false
         and m.kind = 'rule'
       order by a.rank asc
