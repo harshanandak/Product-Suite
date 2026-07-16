@@ -8,6 +8,7 @@ import { ThemeProvider, Toaster } from "@product-suite/ui";
 
 import "./styles.css";
 import { MemoriesProvider } from "./data/memories";
+import { MemoryImpactProvider } from "./data/memory-impact";
 import { ProposalRepositoryProvider } from "./data/proposals";
 import { RepositoryProvider } from "./data/work-items/RepositoryProvider";
 import { CLERK_PUBLISHABLE_KEY, hasClerkKey } from "./env";
@@ -55,7 +56,9 @@ function AppRoot() {
       <RepositoryProvider>
         <ProposalRepositoryProvider>
           <MemoriesProvider>
-            <RouterProvider router={router} />
+            <MemoryImpactProvider>
+              <RouterProvider router={router} />
+            </MemoryImpactProvider>
           </MemoriesProvider>
         </ProposalRepositoryProvider>
       </RepositoryProvider>
@@ -74,7 +77,9 @@ function AppRoot() {
       <RepositoryProvider>
         <ProposalRepositoryProvider>
           <MemoriesProvider>
-            <RouterProvider router={router} />
+            <MemoryImpactProvider>
+              <RouterProvider router={router} />
+            </MemoryImpactProvider>
           </MemoriesProvider>
         </ProposalRepositoryProvider>
       </RepositoryProvider>

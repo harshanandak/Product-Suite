@@ -1,11 +1,16 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// MemoryScreen only reads `useSearch` from the router; stub it (mirrors the
+// MemoryScreen reads `useSearch` from the router; the mounted MemoryImpactCard
+// also reads `useParams` and links via `Link`. Stub all three (mirrors the
 // InboxScreen test). `?new` drives the auto-open, defaulted to closed here.
 let searchMock: { new?: boolean } = {};
 vi.mock("@tanstack/react-router", () => ({
   useSearch: () => searchMock,
+  useParams: () => ({ workspace: "demo" }),
+  Link: ({ to, children }: { to: string; children: React.ReactNode }) => (
+    <a href={to}>{children}</a>
+  ),
 }));
 
 import { createMockMemoriesAdapter } from "@/data/memories";
