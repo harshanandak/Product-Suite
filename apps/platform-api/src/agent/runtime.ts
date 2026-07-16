@@ -238,6 +238,11 @@ export async function runAgentChat(
   // fence them as untrusted data (appended AFTER the base prompt), and write ONE
   // `run_memory_attributions` row per injected memory (injected_via='retrieved') — the
   // moat rail. Best-effort: a retrieval/attribution failure must never strand the run.
+  // Two INDEPENDENT best-effort legs, each with its own try/catch and its own fence.
+  // A failure in one leg must never discard the other's already-committed attribution:
+  // decisions/facts durably attributed but NOT injected (or vice-versa) would corrupt
+  // the moat rail (attributed-but-not-injected). So each leg's fence is only appended
+  // once THAT leg fully succeeds; a throw zeroes only its own fence.
   let memoryFence = ''
   try {
     const memory = await retrieveForContext(sql, { tenantId: ctx.tenantId, scope: ctx.scope })
@@ -252,9 +257,16 @@ export async function runAgentChat(
         memory.injected.map((m) => ({ memoryId: m.memoryId, rank: m.rank, tokens: m.tokens })),
       )
     }
-    // Team rules (P2a) — the full active in-scope set, own sub-budget, own fence.
-    // Attribution FIRST (same discipline), split by how each rule entered: pinned
-    // rules are attributed 'pinned', the rest 'retrieved'.
+    memoryFence = memory.fenced
+  } catch (cause) {
+    memoryFence = ''
+    console.error('[agent-runtime] memory injection failed', { runId, cause })
+  }
+  // Team rules (P2a) — a SEPARATE leg: the full active in-scope set, own sub-budget,
+  // own fence, appended only if it fully succeeds. Attribution FIRST (same discipline),
+  // split by how each rule entered: pinned rules are attributed 'pinned', the rest
+  // 'retrieved'. A failure here leaves the decisions/facts fence above untouched.
+  try {
     const rules = await retrieveRulesForContext(sql, { tenantId: ctx.tenantId, scope: ctx.scope })
     if (rules.injected.length > 0) {
       const pinned = rules.injected.filter((r) => r.via === 'pinned')
@@ -274,10 +286,9 @@ export async function runAgentChat(
         )
       }
     }
-    memoryFence = memory.fenced + rules.fenced
+    memoryFence += rules.fenced
   } catch (cause) {
-    memoryFence = ''
-    console.error('[agent-runtime] memory injection failed', { runId, cause })
+    console.error('[agent-runtime] rule injection failed', { runId, cause })
   }
   // Step count is captured here (streamText.onFinish) and read when the UI stream
   // settles, so the persisted delta records how many tool/reasoning steps it took.
