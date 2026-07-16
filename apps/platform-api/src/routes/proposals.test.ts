@@ -53,7 +53,15 @@ const auth = {
  * closure-held status), the domain command's ownership reads + write batch, and the
  * decision mutations. `getStatus()` exposes the proposal's final lifecycle state.
  */
-function makeSql(opts: { proposal?: Record<string, unknown> } = {}) {
+function makeSql(
+  opts: {
+    proposal?: Record<string, unknown>
+    /** Rows the run_memory_attributions→memories join returns (active rules). */
+    rules?: { id: string; title: string }[]
+    /** When true, the proposal load returns no row (not in the caller's tenants). */
+    proposalMissing?: boolean
+  } = {},
+) {
   const proposal = { ...PROPOSAL, ...(opts.proposal ?? {}) }
   let status = proposal.status as string
 
@@ -76,11 +84,12 @@ function makeSql(opts: { proposal?: Record<string, unknown> } = {}) {
     if (text.includes('user_auth_identities')) return [{ user_id: 'u_approver' }]
     if (text.includes('from teams')) return [{ n: 1 }]
     if (text.includes('from statuses')) return [{ n: 1 }]
+    if (text.includes('run_memory_attributions')) return opts.rules ?? []
     if (text.includes("set status = 'rejected'")) {
       status = 'rejected'
       return [{ ...proposal, status: 'rejected' }]
     }
-    if (text.includes('from proposals')) return [{ ...proposal, status }]
+    if (text.includes('from proposals')) return opts.proposalMissing ? [] : [{ ...proposal, status }]
     return []
   }) as unknown as ReturnType<typeof vi.fn>
   ;(sql as unknown as { query: typeof query }).query = query
@@ -191,5 +200,63 @@ describe('/api/agent/proposals', () => {
     })
     expect(res.status).toBe(200)
     expect(getStatus()).toBe('rejected')
+  })
+
+  it('GET /:id/active-rules returns the non-suppressed rule titles for the proposal’s run', async () => {
+    const { sql } = makeSql({
+      rules: [
+        { id: 'm_1', title: 'Prefer concise titles' },
+        { id: 'm_2', title: 'Tag pricing work' },
+      ],
+    })
+    createSql.mockReturnValue(sql)
+
+    const res = await app.request('/api/agent/proposals/p1/active-rules', { headers: auth.headers })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { rules: { id: string; title: string }[] }
+    expect(body.rules).toEqual([
+      { id: 'm_1', title: 'Prefer concise titles' },
+      { id: 'm_2', title: 'Tag pricing work' },
+    ])
+    // The join is keyed on the proposal's run_id (proves the scope).
+    const joinCall = (sql as unknown as { mock: { calls: unknown[][] } }).mock.calls.find(
+      (call) => Array.isArray(call[0]) && (call[0] as string[]).join('?').includes('run_memory_attributions'),
+    )
+    expect(joinCall?.slice(1)).toContain('run_1')
+  })
+
+  it('GET /:id/active-rules returns an empty array when the run has none (e.g. a holdout run)', async () => {
+    // A holdout run logged its attributions suppressed=true, so the suppressed=false
+    // join returns nothing — the proposal correctly shows NO active rules.
+    const { sql } = makeSql({ rules: [] })
+    createSql.mockReturnValue(sql)
+
+    const res = await app.request('/api/agent/proposals/p1/active-rules', { headers: auth.headers })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { rules: unknown[] }
+    expect(body.rules).toEqual([])
+  })
+
+  it('GET /:id/active-rules returns an empty array when the proposal has no run_id (never 404)', async () => {
+    const { sql } = makeSql({ proposal: { run_id: null } })
+    createSql.mockReturnValue(sql)
+
+    const res = await app.request('/api/agent/proposals/p1/active-rules', { headers: auth.headers })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { rules: unknown[] }
+    expect(body.rules).toEqual([])
+    // Short-circuits before the join — no attribution query is issued.
+    const joinCall = (sql as unknown as { mock: { calls: unknown[][] } }).mock.calls.find(
+      (call) => Array.isArray(call[0]) && (call[0] as string[]).join('?').includes('run_memory_attributions'),
+    )
+    expect(joinCall).toBeUndefined()
+  })
+
+  it('GET /:id/active-rules returns 404 when the proposal is not the caller’s', async () => {
+    const { sql } = makeSql({ proposalMissing: true })
+    createSql.mockReturnValue(sql)
+
+    const res = await app.request('/api/agent/proposals/p1/active-rules', { headers: auth.headers })
+    expect(res.status).toBe(404)
   })
 })

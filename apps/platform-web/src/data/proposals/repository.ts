@@ -24,6 +24,13 @@ export interface ProposalRepository {
   accept(id: string, editedPayload?: Record<string, unknown>): Promise<AcceptResult>;
   /** Reject a proposal, with an optional human reason. */
   reject(id: string, reason?: string): Promise<void>;
+  /**
+   * The `kind='rule'` memories that were active during the run that authored this
+   * proposal — provenance for the "Rules active during this run" badge (never
+   * causation). Empty when the proposal has no authoring run or no rule attributions
+   * (a holdout run suppressed them). Only meaningful for work-item proposals.
+   */
+  activeRules(id: string): Promise<{ id: string; title: string }[]>;
 }
 
 /**
@@ -83,6 +90,12 @@ export function createMockProposalRepository(
       const index = proposals.findIndex((proposal) => proposal.id === id);
       if (index !== -1) proposals.splice(index, 1);
       return settle(undefined);
+    },
+
+    // The mock dataset carries no run→rule attributions — provenance is a
+    // network-only concern, so the fixtures surface renders no badge.
+    activeRules() {
+      return settle<{ id: string; title: string }[]>([]);
     },
   };
 }

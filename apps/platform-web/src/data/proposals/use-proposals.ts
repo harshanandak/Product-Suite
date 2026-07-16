@@ -45,6 +45,11 @@ export interface UseProposalsResult {
   ) => Promise<AcceptResult>;
   /** Reject a proposal (optional reason); refetches the list on settle. */
   reject: (id: string, reason?: string) => Promise<void>;
+  /**
+   * The rules active during a proposal's authoring run (provenance for the badge).
+   * A read, not a mutation — never touches the list. Empty when there are none.
+   */
+  activeRules: (id: string) => Promise<{ id: string; title: string }[]>;
   /** True while any accept/reject mutation is in flight. */
   isMutating: boolean;
   /** Force a fresh read from the repository. */
@@ -140,12 +145,18 @@ export function useProposals(
     [repository, refetch],
   );
 
+  const activeRules = useCallback(
+    (id: string) => repository.activeRules(id),
+    [repository],
+  );
+
   return {
     proposals,
     isLoading,
     error,
     accept,
     reject,
+    activeRules,
     isMutating: mutatingCount > 0,
     refetch,
   };

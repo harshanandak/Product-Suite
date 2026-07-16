@@ -21,6 +21,15 @@ vi.mock("@/data/memories", () => ({
   useMemories: () => ({ get: memoryMock.get }),
 }));
 
+// The detail fetches the run's active rules through the proposals hook; stub
+// `activeRules` so the provenance badge is deterministic (default: none).
+const proposalsMock = vi.hoisted(() => ({
+  activeRules: vi.fn(async (_id: string) => [] as { id: string; title: string }[]),
+}));
+vi.mock("@/data/proposals", () => ({
+  useProposals: () => ({ activeRules: proposalsMock.activeRules }),
+}));
+
 // Render TanStack Link as a plain anchor so the detail can render without a router.
 vi.mock("@tanstack/react-router", () => ({
   Link: ({
@@ -534,6 +543,46 @@ describe("ProposalDetail", () => {
       title: "Prefer concise titles",
       enforcement: "hard",
     });
+  });
+
+  it("(work-item) renders 'Rules active during this run' with the fetched rule titles", async () => {
+    itemsMock.items = [];
+    proposalsMock.activeRules.mockResolvedValueOnce([
+      { id: "m_1", title: "Prefer concise titles" },
+    ]);
+    renderDetail(proposal());
+    await waitFor(() =>
+      expect(
+        screen.getByText(/Rules active during this run:/),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.getByText(/Prefer concise titles/)).toBeInTheDocument();
+    expect(proposalsMock.activeRules).toHaveBeenCalledWith("p1");
+  });
+
+  it("(work-item) renders no rule badge when the run had no active rules", async () => {
+    itemsMock.items = [];
+    proposalsMock.activeRules.mockResolvedValueOnce([]);
+    renderDetail(proposal());
+    // Let the (empty) fetch settle, then assert the badge is absent.
+    await waitFor(() => expect(proposalsMock.activeRules).toHaveBeenCalledWith("p1"));
+    expect(
+      screen.queryByText(/Rules active during this run:/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("(memory) never fetches active rules (only work-item proposals show the badge)", () => {
+    itemsMock.items = [];
+    proposalsMock.activeRules.mockClear();
+    renderDetail(
+      proposal({
+        target_type: "memory",
+        target_id: null,
+        operation: "create",
+        payload: { kind: "decision", title: "Use Postgres" },
+      }),
+    );
+    expect(proposalsMock.activeRules).not.toHaveBeenCalled();
   });
 
   it("renders provenance fine-print and a collapsible raw payload", () => {

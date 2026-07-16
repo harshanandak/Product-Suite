@@ -59,6 +59,7 @@ function repoWith(proposals: Proposal[]): ProposalRepository {
     list: vi.fn(async () => proposals),
     accept: vi.fn(async (): Promise<AcceptResult> => ({ outcome: "stale" })),
     reject: vi.fn(async () => undefined),
+    activeRules: vi.fn(async () => []),
   };
 }
 

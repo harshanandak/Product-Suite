@@ -80,6 +80,46 @@ proposalsRoutes.post('/:id/accept', async (c) => {
 })
 
 /**
+ * The `kind='rule'` memories that were active during the run that authored this
+ * proposal — provenance for the "Rules active during this run" badge. Scoped exactly
+ * like reject: load the proposal in the caller's tenants first (404 when not theirs),
+ * then join its `run_id` to the non-suppressed rule attributions. A holdout run logged
+ * its attributions `suppressed=true` (memory was NOT applied), so a holdout-run proposal
+ * correctly returns NO rules. Empty array (never 404) when the proposal has no `run_id`
+ * or no rule attributions.
+ */
+proposalsRoutes.get('/:id/active-rules', async (c) => {
+  const claims = c.get('claims')
+  const sql = sqlFrom(c.env ?? {})
+  const id = c.req.param('id')
+
+  try {
+    const tenantIds = await callerTenantIds(sql, claims)
+    if (tenantIds.length === 0) return c.json({ error: 'Not found' }, 404)
+
+    const proposal = await getProposalScoped(sql, id, tenantIds)
+    if (!proposal) return c.json({ error: 'Not found' }, 404)
+    // No authoring run → nothing could have been injected. Not an error.
+    if (!proposal.run_id) return c.json({ rules: [] })
+
+    const rules = (await sql`
+      select m.id, m.title
+      from run_memory_attributions a
+      join memories m on m.id = a.memory_id
+      where a.run_id = ${proposal.run_id}
+        and a.tenant_id = ${proposal.tenant_id}
+        and a.suppressed = false
+        and m.kind = 'rule'
+      order by a.rank asc
+    `) as { id: string; title: string }[]
+    return c.json({ rules })
+  } catch (cause) {
+    console.error('[proposals] active-rules query failed', cause)
+    return c.json({ error: 'Failed to load active rules' }, 500)
+  }
+})
+
+/**
  * Reject a proposal: a human decision that terminally declines it (distinct from the
  * agent-side `failed`). Scoped + guarded — only a `pending` proposal the caller owns
  * can be rejected (404 when not theirs, 409 when already decided).

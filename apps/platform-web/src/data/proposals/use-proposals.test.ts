@@ -27,6 +27,7 @@ function makeRepo(overrides: Partial<ProposalRepository> = {}): ProposalReposito
     list: vi.fn(async () => [pending("p1"), pending("p2")]),
     accept: vi.fn(async (): Promise<AcceptResult> => ({ outcome: "stale" })),
     reject: vi.fn(async () => undefined),
+    activeRules: vi.fn(async () => []),
     ...overrides,
   };
 }
