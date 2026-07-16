@@ -1,11 +1,12 @@
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
 import { Link } from "@tanstack/react-router";
 
 import { Badge, Button, Textarea, cn } from "@product-suite/ui";
 
+import { useMemories, type MemoryRow } from "@/data/memories";
 import type { AcceptResult, Proposal } from "@/data/proposals";
-import { useWorkItems } from "@/data/work-items";
+import { useWorkItems, type WorkItem } from "@/data/work-items";
 
 import {
   buildFieldRows,
@@ -13,6 +14,14 @@ import {
   formatConfidence,
   formatCreatedAt,
 } from "./field-diff";
+import {
+  buildMemoryCreateRows,
+  buildMemoryDeferRows,
+  buildMemorySupersedeRows,
+  describeMemoryOperation,
+  memoryBody,
+  memoryChangeReason,
+} from "./memory-diff";
 
 /** Skippable, one-tap reject reasons (the reason itself stays optional). */
 const REJECT_CHIPS = ["wrong target", "bad data", "not needed"] as const;
@@ -117,25 +126,40 @@ function RejectForm({
 /** Default Accept / Reject affordance (before any disposition). */
 function ActionButtons({
   isMutating,
+  disableAccept,
+  acceptHint,
   onAccept,
   onStartReject,
-}: Readonly<{ isMutating: boolean; onAccept: () => void; onStartReject: () => void }>) {
+}: Readonly<{
+  isMutating: boolean;
+  disableAccept: boolean;
+  acceptHint: string | null;
+  onAccept: () => void;
+  onStartReject: () => void;
+}>) {
   return (
-    <div className="flex items-center gap-2">
-      <Button
-        size="sm"
-        className={cn(
-          "bg-success text-success-foreground hover:bg-success/90",
-          "focus-visible:ring-success/40",
-        )}
-        disabled={isMutating}
-        onClick={onAccept}
-      >
-        Accept
-      </Button>
-      <Button size="sm" variant="destructive" disabled={isMutating} onClick={onStartReject}>
-        Reject
-      </Button>
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-2">
+        <Button
+          size="sm"
+          className={cn(
+            "bg-success text-success-foreground hover:bg-success/90",
+            "focus-visible:ring-success/40",
+          )}
+          // Disable while a mutation is in flight OR while a named memory target is still
+          // resolving — never apply a supersede/retract/defer against a stale/unknown target.
+          disabled={isMutating || disableAccept}
+          onClick={onAccept}
+        >
+          Accept
+        </Button>
+        <Button size="sm" variant="destructive" disabled={isMutating} onClick={onStartReject}>
+          Reject
+        </Button>
+      </div>
+      {acceptHint ? (
+        <output className="text-xs text-muted-foreground">{acceptHint}</output>
+      ) : null}
     </div>
   );
 }
@@ -148,10 +172,14 @@ function ActionButtons({
 function DispositionBlock({
   status,
   workspace,
+  isMemory,
+  operation,
   rejecting,
   reason,
   setReason,
   isMutating,
+  disableAccept,
+  acceptHint,
   onAccept,
   onReject,
   onStartReject,
@@ -159,16 +187,37 @@ function DispositionBlock({
 }: Readonly<{
   status: DisposeStatus;
   workspace: string;
+  isMemory: boolean;
+  operation: Proposal["operation"];
   rejecting: boolean;
   reason: string;
   setReason: (reason: string) => void;
   isMutating: boolean;
+  disableAccept: boolean;
+  acceptHint: string | null;
   onAccept: () => void;
   onReject: () => void;
   onStartReject: () => void;
   onCancelReject: () => void;
 }>) {
   if (status.kind === "applied") {
+    // A memory has no workboard item — link to the decision log, never the
+    // work-item route (a memory uuid there is a dead link), and report the ACTUAL
+    // operation applied (logged / updated / retracted / deferred).
+    if (isMemory) {
+      return (
+        <StatusBanner tone="primary">
+          {memoryAppliedMessage(operation)}{" "}
+          <Link
+            to="/w/$workspace/memory"
+            params={{ workspace }}
+            className="font-medium text-primary hover:underline"
+          >
+            View memory log →
+          </Link>
+        </StatusBanner>
+      );
+    }
     return (
       <StatusBanner tone="primary">
         Applied.{" "}
@@ -209,7 +258,227 @@ function DispositionBlock({
     );
   }
   return (
-    <ActionButtons isMutating={isMutating} onAccept={onAccept} onStartReject={onStartReject} />
+    <ActionButtons
+      isMutating={isMutating}
+      disableAccept={disableAccept}
+      acceptHint={acceptHint}
+      onAccept={onAccept}
+      onStartReject={onStartReject}
+    />
+  );
+}
+
+/** The muted confidence badge shared by both decision surfaces (hidden when null). */
+function ConfidenceBadge({ confidence }: Readonly<{ confidence: string | null }>) {
+  if (!confidence) return null;
+  return (
+    <Badge
+      variant="outline"
+      className="flex-none font-mono text-[11px] text-muted-foreground"
+      title="Model confidence"
+    >
+      {confidence}
+    </Badge>
+  );
+}
+
+/** The primary rationale paragraph (or a muted placeholder) shared by both surfaces. */
+function Rationale({ text }: Readonly<{ text: string | null }>) {
+  if (text) {
+    return <p className="text-sm leading-relaxed text-foreground">{text}</p>;
+  }
+  return <p className="text-sm italic text-muted-foreground">No rationale provided.</p>;
+}
+
+/**
+ * The WORK-ITEM decision surface (unchanged from PR3): operation sentence +
+ * confidence + target link, the rationale, and the field-diff table (`field | value`
+ * for a create, `field | current → proposed` for the changed fields of an update).
+ */
+function WorkItemSurface({
+  proposal,
+  target,
+  workspace,
+}: Readonly<{ proposal: Proposal; target: WorkItem | undefined; workspace: string }>) {
+  const rows = buildFieldRows(proposal, target);
+  const sentence = describeOperation(proposal, target, rows.length);
+  const confidence = formatConfidence(proposal.confidence);
+  const isUpdate = proposal.operation === "update";
+
+  return (
+    <>
+      <header className="flex flex-col gap-2">
+        <div className="flex items-start justify-between gap-3">
+          <h2 className="text-base font-semibold text-foreground">{sentence}</h2>
+          <ConfidenceBadge confidence={confidence} />
+        </div>
+        {proposal.target_id ? (
+          <Link
+            to="/w/$workspace/workboard/item/$itemId"
+            params={{ workspace, itemId: proposal.target_id }}
+            className="w-fit text-xs text-primary hover:underline"
+          >
+            View target item →
+          </Link>
+        ) : null}
+      </header>
+
+      <Rationale text={proposal.rationale} />
+
+      <div className="overflow-hidden rounded-md border border-border">
+        <div className="border-b border-border bg-muted/50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          {isUpdate ? "Changes" : "Fields"}
+        </div>
+        {rows.length === 0 ? (
+          <p className="px-3 py-3 text-sm text-muted-foreground">No field changes.</p>
+        ) : (
+          <dl className="divide-y divide-border">
+            {rows.map((row) => (
+              <div
+                key={row.field}
+                className="grid grid-cols-[minmax(6rem,8rem)_1fr] gap-3 px-3 py-2 text-sm"
+              >
+                <dt className="truncate font-mono text-xs text-muted-foreground">{row.field}</dt>
+                <dd className="min-w-0">
+                  {row.current === undefined ? (
+                    <span className="break-words text-foreground">{row.proposed}</span>
+                  ) : (
+                    <span className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-muted-foreground">{row.current}</span>
+                      <span aria-hidden className="text-muted-foreground">
+                        →
+                      </span>
+                      <span className="font-medium text-foreground">{row.proposed}</span>
+                    </span>
+                  )}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        )}
+      </div>
+    </>
+  );
+}
+
+/** A labelled attribute row (`label | value`) on the memory surface. */
+function MemoryAttrRows({
+  rows,
+}: Readonly<{ rows: { label: string; value: string }[] }>) {
+  if (rows.length === 0) return null;
+  return (
+    <dl className="divide-y divide-border">
+      {rows.map((row) => (
+        <div
+          key={row.label}
+          className="grid grid-cols-[minmax(6rem,8rem)_1fr] gap-3 px-3 py-2 text-sm"
+        >
+          <dt className="truncate font-mono text-xs text-muted-foreground">{row.label}</dt>
+          <dd className="min-w-0 break-words text-foreground">{row.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/** The supersede `current → proposed` diff table for the overridden memory fields. */
+function MemorySupersedeDiff({
+  proposal,
+  target,
+}: Readonly<{ proposal: Proposal; target: MemoryRow | undefined }>) {
+  const rows = buildMemorySupersedeRows(proposal, target);
+  if (rows.length === 0) {
+    return <p className="px-3 py-3 text-sm text-muted-foreground">No field changes.</p>;
+  }
+  return (
+    <dl className="divide-y divide-border">
+      {rows.map((row) => (
+        <div
+          key={row.field}
+          className="grid grid-cols-[minmax(6rem,8rem)_1fr] gap-3 px-3 py-2 text-sm"
+        >
+          <dt className="truncate font-mono text-xs text-muted-foreground">{row.field}</dt>
+          <dd className="min-w-0">
+            <span className="flex flex-wrap items-center gap-1.5">
+              <span className="text-muted-foreground">{row.current}</span>
+              <span aria-hidden className="text-muted-foreground">
+                →
+              </span>
+              <span className="font-medium text-foreground">{row.proposed}</span>
+            </span>
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/**
+ * The MEMORY decision surface (P1b): the operation sentence, the memory BODY as the
+ * visually primary block (the rationale being logged), then the operation-specific
+ * detail — a create's kind/topics/scope rows, a supersede's change_reason +
+ * current→proposed diff (target fetched via the memories adapter), or a defer's
+ * waiting-on/review-after context. Accept / Reject are the SHARED disposition below.
+ */
+function MemorySurface({
+  proposal,
+  target,
+}: Readonly<{ proposal: Proposal; target: MemoryRow | undefined }>) {
+  const isSupersede = proposal.operation === "supersede";
+  const changedCount = isSupersede
+    ? buildMemorySupersedeRows(proposal, target).length
+    : 0;
+  const sentence = describeMemoryOperation(proposal, target, changedCount);
+  const confidence = formatConfidence(proposal.confidence);
+  const body = memoryBody(proposal);
+  const changeReason = memoryChangeReason(proposal);
+
+  return (
+    <>
+      <header className="flex items-start justify-between gap-3">
+        <h2 className="text-base font-semibold text-foreground">{sentence}</h2>
+        <ConfidenceBadge confidence={confidence} />
+      </header>
+
+      {/* the memory body (the content being logged) — visually primary */}
+      {body ? (
+        <p className="text-sm leading-relaxed text-foreground">{body}</p>
+      ) : proposal.operation === "create" || isSupersede ? (
+        <p className="text-sm italic text-muted-foreground">No body provided.</p>
+      ) : null}
+
+      {/* the agent's rationale for proposing — secondary */}
+      {proposal.rationale ? (
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          <span className="font-medium">Why proposed: </span>
+          {proposal.rationale}
+        </p>
+      ) : null}
+
+      {isSupersede && changeReason ? (
+        <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-foreground">
+          <span className="font-medium">Change reason: </span>
+          {changeReason}
+        </p>
+      ) : null}
+
+      <div className="overflow-hidden rounded-md border border-border">
+        <div className="border-b border-border bg-muted/50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          {isSupersede ? "Changes" : "Details"}
+        </div>
+        {isSupersede ? (
+          <MemorySupersedeDiff proposal={proposal} target={target} />
+        ) : proposal.operation === "create" ? (
+          <MemoryAttrRows rows={buildMemoryCreateRows(proposal)} />
+        ) : proposal.operation === "defer" ? (
+          <MemoryAttrRows rows={buildMemoryDeferRows(proposal)} />
+        ) : (
+          <p className="px-3 py-3 text-sm text-muted-foreground">
+            Retract this memory (it will no longer be surfaced).
+          </p>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -226,6 +495,32 @@ function DispositionBlock({
  * Rows are DIVs (not a JSON blob) precisely so PR3.5 can swap a value cell for an
  * edit input (edit-before-accept) without reshaping this surface.
  */
+/** The load state of a named memory target (supersede/retract/defer). `idle` = nothing to fetch. */
+type MemoryTargetState =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "ready"; memory: MemoryRow }
+  | { kind: "error" };
+
+/**
+ * Why Accept is blocked for a memory op whose target is still resolving — or null when
+ * it isn't blocked. Loading/error both gate Accept so a supersede/retract/defer can never
+ * be applied against a stale or unknown target.
+ */
+function acceptBlockedMessage(state: MemoryTargetState): string | null {
+  if (state.kind === "loading") return "Loading the target memory…";
+  if (state.kind === "error") return "Couldn't load the target memory — refresh to try again.";
+  return null;
+}
+
+/** The applied-banner wording for a memory op — each operation reports what it actually did. */
+function memoryAppliedMessage(operation: Proposal["operation"]): string {
+  if (operation === "supersede") return "Memory updated.";
+  if (operation === "retract") return "Memory retracted.";
+  if (operation === "defer") return "Memory deferred.";
+  return "Memory logged."; // create
+}
+
 export function ProposalDetail({
   proposal,
   accept,
@@ -233,17 +528,53 @@ export function ProposalDetail({
   isMutating,
   workspace,
 }: Readonly<ProposalDetailProps>) {
-  // The target's current values feed the update diff + the operation sentence.
+  const isMemory = proposal.target_type === "memory";
+
+  // The work-item update diff reads the target's CURRENT values from the loaded list.
   const { items } = useWorkItems();
-  const target =
-    proposal.target_id === null
+  const workItemTarget =
+    isMemory || proposal.target_id === null
       ? undefined
       : items.find((item) => item.id === proposal.target_id);
 
-  const rows = buildFieldRows(proposal, target);
-  const sentence = describeOperation(proposal, target, rows.length);
-  const confidence = formatConfidence(proposal.confidence);
-  const isUpdate = proposal.operation === "update";
+  // Every non-create memory op (supersede/retract/defer) NAMES a target, so fetch it
+  // by id (it may not be in any loaded list) — a supersede needs it for the
+  // current → proposed diff, and retract/defer need its TITLE in the header so the
+  // reviewer never approves a destructive op identified only by a raw uuid.
+  const { get: getMemory } = useMemories();
+  // A supersede/retract/defer NAMES a target memory the reviewer must see before acting.
+  // Track it as a small state machine so the pane can (a) NEVER show a previous target's
+  // title/diff while a new one loads — we clear to `loading` on every target change — and
+  // (b) disable Accept until the requested target actually loads. `idle` = no target to
+  // fetch (create / non-memory), so nothing is gated.
+  const [memoryTargetState, setMemoryTargetState] = useState<MemoryTargetState>({
+    kind: "idle",
+  });
+  useEffect(() => {
+    if (!isMemory || proposal.operation === "create" || !proposal.target_id) {
+      setMemoryTargetState({ kind: "idle" });
+      return;
+    }
+    // Clear the previous target IMMEDIATELY (→ loading): a stale title/diff must never
+    // render, and Accept must not stay enabled, while the new target is in flight.
+    setMemoryTargetState({ kind: "loading" });
+    let cancelled = false;
+    void getMemory(proposal.target_id)
+      .then((detail) => {
+        if (!cancelled) setMemoryTargetState({ kind: "ready", memory: detail.memory });
+      })
+      .catch(() => {
+        if (!cancelled) setMemoryTargetState({ kind: "error" });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isMemory, proposal.operation, proposal.target_id, getMemory]);
+  const memoryTarget =
+    memoryTargetState.kind === "ready" ? memoryTargetState.memory : undefined;
+  // Block Accept while a named memory target is still loading or failed to load.
+  const acceptHint = acceptBlockedMessage(memoryTargetState);
+  const disableAccept = acceptHint !== null;
 
   const [status, setStatus] = useState<DisposeStatus>({ kind: "idle" });
   const [rejecting, setRejecting] = useState(false);
@@ -295,83 +626,12 @@ export function ProposalDetail({
 
   return (
     <section className="flex flex-col gap-5">
-      {/* (a) operation sentence + confidence + target link */}
-      <header className="flex flex-col gap-2">
-        <div className="flex items-start justify-between gap-3">
-          <h2 className="text-base font-semibold text-foreground">{sentence}</h2>
-          {confidence ? (
-            <Badge
-              variant="outline"
-              className="flex-none font-mono text-[11px] text-muted-foreground"
-              title="Model confidence"
-            >
-              {confidence}
-            </Badge>
-          ) : null}
-        </div>
-        {proposal.target_id ? (
-          <Link
-            to="/w/$workspace/workboard/item/$itemId"
-            params={{ workspace, itemId: proposal.target_id }}
-            className="w-fit text-xs text-primary hover:underline"
-          >
-            View target item →
-          </Link>
-        ) : null}
-      </header>
-
-      {/* (b) rationale — visually primary */}
-      {proposal.rationale ? (
-        <p className="text-sm leading-relaxed text-foreground">
-          {proposal.rationale}
-        </p>
+      {/* The decision surface — what `accept` applies — branches on target_type. */}
+      {isMemory ? (
+        <MemorySurface proposal={proposal} target={memoryTarget} />
       ) : (
-        <p className="text-sm italic text-muted-foreground">
-          No rationale provided.
-        </p>
+        <WorkItemSurface proposal={proposal} target={workItemTarget} workspace={workspace} />
       )}
-
-      {/* (c) field rows — never a JSON blob (PR3.5 edit extension point) */}
-      <div className="overflow-hidden rounded-md border border-border">
-        <div className="border-b border-border bg-muted/50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          {isUpdate ? "Changes" : "Fields"}
-        </div>
-        {rows.length === 0 ? (
-          <p className="px-3 py-3 text-sm text-muted-foreground">
-            No field changes.
-          </p>
-        ) : (
-          <dl className="divide-y divide-border">
-            {rows.map((row) => (
-              <div
-                key={row.field}
-                className="grid grid-cols-[minmax(6rem,8rem)_1fr] gap-3 px-3 py-2 text-sm"
-              >
-                <dt className="truncate font-mono text-xs text-muted-foreground">
-                  {row.field}
-                </dt>
-                <dd className="min-w-0">
-                  {row.current === undefined ? (
-                    <span className="break-words text-foreground">
-                      {row.proposed}
-                    </span>
-                  ) : (
-                    <span className="flex flex-wrap items-center gap-1.5">
-                      <span className="text-muted-foreground">{row.current}</span>
-                      <span aria-hidden className="text-muted-foreground">
-                        →
-                      </span>
-                      <span className="font-medium text-foreground">
-                        {row.proposed}
-                      </span>
-                    </span>
-                  )}
-                </dd>
-              </div>
-            ))}
-          </dl>
-        )}
-      </div>
 
       {/* Transport-error banner — a failed accept/reject is NEVER silent. */}
       {error ? (
@@ -384,10 +644,14 @@ export function ProposalDetail({
       <DispositionBlock
         status={status}
         workspace={workspace}
+        isMemory={isMemory}
+        operation={proposal.operation}
         rejecting={rejecting}
         reason={reason}
         setReason={setReason}
         isMutating={isMutating}
+        disableAccept={disableAccept}
+        acceptHint={acceptHint}
         onAccept={onAccept}
         onReject={onReject}
         onStartReject={() => setRejecting(true)}

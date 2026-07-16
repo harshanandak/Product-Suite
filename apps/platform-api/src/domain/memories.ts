@@ -56,6 +56,44 @@ function runQuery<Row>(sql: Sql, text: string, params: unknown[]): Promise<Row[]
 /** Canonical UUID shape — guards `scope_id` so a bad value is a 400, not a Postgres cast 500. */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
+/**
+ * Shape guard for an ISO-8601 date (`2026-08-01`) or datetime (`2026-08-01T12:00:00Z`):
+ * `YYYY-MM-DD` with an OPTIONAL `T`/space-separated time tail. Kept deliberately loose
+ * (the tail is `.*`) so the pattern stays simple — calendar-correctness and instant
+ * validity are enforced in `isIsoDateString`, not the regex.
+ */
+const ISO_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})(?:[T ].*)?$/
+
+/**
+ * True iff `value` is an ISO-8601 date/datetime that names a REAL calendar instant.
+ * Guards `review_after` so a free-form value ("next quarter") is caught HERE
+ * (invalid_input), never bound straight to a `timestamptz` where Postgres would
+ * cast-error into a 500 and wedge the proposal `applied`-unwritten.
+ *
+ * `Date.parse` alone is NOT enough: it SILENTLY NORMALIZES impossible calendar dates
+ * (`2026-02-30` → Mar 2, a valid timestamp), so it would let them through. We therefore
+ * round-trip the Y/M/D components through a UTC `Date` and reject any value whose parts
+ * don't survive — a normalized overflow won't match. `Date.parse` then rejects a bad
+ * TIME tail (`…T99:99`) or trailing garbage (`2026-08-01xyz`).
+ */
+export function isIsoDateString(value: string): boolean {
+  const trimmed = value.trim()
+  const match = ISO_DATE_RE.exec(trimmed)
+  if (!match) return false
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const dt = new Date(Date.UTC(year, month - 1, day))
+  if (
+    dt.getUTCFullYear() !== year ||
+    dt.getUTCMonth() !== month - 1 ||
+    dt.getUTCDate() !== day
+  ) {
+    return false
+  }
+  return !Number.isNaN(Date.parse(trimmed))
+}
+
 /** The full projection returned on every write — the whole row. */
 const RETURNING = '*'
 
@@ -149,6 +187,26 @@ export async function getMemoryScoped(
 }
 
 /**
+ * Fetch the memory ALREADY created from a proposal (`source_proposal_id`), scoped to
+ * the caller's tenants — the idempotent-re-drive key for the apply path (P1b), the
+ * memory analogue of `work_items.applied_from_proposal_id`. A re-drive after a crash
+ * between the proposal claim and the create finds this row and returns it instead of
+ * double-creating. `null` when no memory has been created from the proposal yet.
+ */
+export async function getMemoryBySourceProposalId(
+  sql: Sql,
+  proposalId: string,
+  tenantIds: string[],
+): Promise<MemoryRow | null> {
+  const rows = await runQuery<MemoryRow>(
+    sql,
+    `select * from "memories" where "source_proposal_id" = $1 and tenant_id = any($2) limit 1`,
+    [proposalId, tenantIds],
+  )
+  return rows[0] ?? null
+}
+
+/**
  * The whole supersession chain for a memory's `root_id`, oldest first — the "why did
  * this flip?" trail. Scoped to the caller's tenants (empty when the root is foreign).
  */
@@ -228,6 +286,21 @@ export interface SupersedeMemoryInput {
   body?: string
   topics?: string[]
   changeReason: string
+  /**
+   * Provenance for an AGENT-authored supersede (P1b): where the new version came
+   * from. Defaults to a human `'manual'` supersede with no run/proposal linkage;
+   * the apply path passes `'proposal'` + the run/proposal ids so the new version
+   * carries the same accountable provenance a proposal-applied create does.
+   */
+  sourceKind?: 'meeting' | 'chat' | 'proposal' | 'manual' | 'import'
+  sourceRunId?: string | null
+  sourceProposalId?: string | null
+  /**
+   * Who approved this version (P1b): the new row should record the APPROVER, not
+   * inherit the old row's `decided_by`. The apply path passes the approver; a
+   * human UI supersede that omits it inherits the old row's value (coalesce).
+   */
+  decidedBy?: string | null
 }
 
 /**
@@ -248,6 +321,15 @@ export async function supersedeMemory(
   const changeReason = (input.changeReason ?? '').trim()
   if (!changeReason) {
     throw new DomainError('change_reason_required', 'change_reason is required to supersede a memory')
+  }
+  // A provided-but-blank title/body would `coalesce('', <old>)` to the EMPTY string,
+  // silently blanking the field (and the Inbox diff would drop it → a misleading "0
+  // changes"). Reject it: to KEEP a field, omit it (undefined ⇒ inherits the old row).
+  if (input.title !== undefined && input.title.trim() === '') {
+    throw new DomainError('invalid_input', 'title cannot be blanked on supersede (omit it to keep the current title)')
+  }
+  if (input.body !== undefined && input.body.trim() === '') {
+    throw new DomainError('invalid_input', 'body cannot be blanked on supersede (omit it to keep the current body)')
   }
   // Ownership first: a foreign/unknown id is not_found (never a cross-tenant leak).
   const existing = await getMemoryScoped(sql, id, ctx.tenantIds)
@@ -271,13 +353,15 @@ export async function supersedeMemory(
     insert into "memories" (
       "id", "tenant_id", "kind", "title", "body", "attrs", "root_id",
       "supersedes_id", "change_reason", "valid_from", "status",
-      "scope_type", "scope_id", "topics", "source_kind", "created_by", "decided_by",
+      "scope_type", "scope_id", "topics",
+      "source_kind", "source_run_id", "source_proposal_id", "created_by", "decided_by",
       "pinned", "priority", "enforcement"
     )
     select
       $1, "tenant_id", "kind", coalesce($4, "title"), coalesce($5, "body"), "attrs", "root_id",
       "id", $6, now(), 'active',
-      "scope_type", "scope_id", coalesce($7, "topics"), 'manual', $8, "decided_by",
+      "scope_type", "scope_id", coalesce($7, "topics"),
+      $9, $10, $11, $8, coalesce($12, "decided_by"),
       "pinned", "priority", "enforcement"
     from "latched"
     returning *
@@ -291,6 +375,10 @@ export async function supersedeMemory(
     changeReason,
     input.topics ?? null,
     ctx.actor,
+    input.sourceKind ?? 'manual',
+    input.sourceRunId ?? null,
+    input.sourceProposalId ?? null,
+    input.decidedBy ?? null,
   ])
   const inserted = rows[0]
   if (!inserted) {
@@ -342,6 +430,24 @@ export async function deferMemory(
   id: string,
   input: DeferMemoryInput = {},
 ): Promise<MemoryRow> {
+  // Validate `review_after` BEFORE the write: a free-form string ("next quarter")
+  // must fail as invalid_input (→ apply maps it to a terminal `failed`), never bind
+  // to the `timestamptz` param where Postgres would cast-error into a 500 that leaves
+  // the proposal wedged `applied`-unwritten. null clears the field.
+  let reviewAfter = input.reviewAfter ?? null
+  if (typeof reviewAfter === 'string') {
+    const trimmed = reviewAfter.trim()
+    if (trimmed && !isIsoDateString(trimmed)) {
+      throw new DomainError('invalid_input', 'review_after must be an ISO date (e.g. 2026-08-01)')
+    }
+    reviewAfter = trimmed || null
+  } else if (reviewAfter instanceof Date) {
+    // An `Invalid Date` (e.g. `new Date('next quarter')`) stringifies to "Invalid Date"
+    // and would cast-error at the `timestamptz` bind — reject it here, same as a bad string.
+    if (Number.isNaN(reviewAfter.getTime())) {
+      throw new DomainError('invalid_input', 'review_after is not a valid date')
+    }
+  }
   const existing = await getMemoryScoped(sql, id, ctx.tenantIds)
   if (!existing) throw new DomainError('not_found', 'Not found')
   const rows = await runQuery<MemoryRow>(
@@ -350,7 +456,7 @@ export async function deferMemory(
      set "status" = 'deferred', "waiting_on" = $3, "review_after" = $4, "updated_at" = now()
      where "id" = $1 and "tenant_id" = any($2) and "status" = 'active'
      returning *`,
-    [id, ctx.tenantIds, input.waitingOn ?? null, input.reviewAfter ?? null],
+    [id, ctx.tenantIds, input.waitingOn ?? null, reviewAfter],
   )
   const row = rows[0]
   if (!row) throw new DomainError('conflict', 'only an active memory can be deferred')

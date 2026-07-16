@@ -12,6 +12,15 @@ vi.mock("@/data/work-items", () => ({
   useWorkItems: () => ({ items: itemsMock.items }),
 }));
 
+// The memory surface fetches a supersede target through the memories hook; stub
+// `get` so the current → proposed diff is deterministic.
+const memoryMock = vi.hoisted(() => ({
+  get: vi.fn(async (_id: string) => ({ memory: undefined as unknown, chain: [] })),
+}));
+vi.mock("@/data/memories", () => ({
+  useMemories: () => ({ get: memoryMock.get }),
+}));
+
 // Render TanStack Link as a plain anchor so the detail can render without a router.
 vi.mock("@tanstack/react-router", () => ({
   Link: ({
@@ -176,6 +185,34 @@ describe("ProposalDetail", () => {
     );
   });
 
+  it("(memory) Accept success shows 'Memory logged.' linking to the decision log, NOT the work-item route", async () => {
+    itemsMock.items = [];
+    const accept = vi.fn(
+      async (): Promise<AcceptResult> => ({
+        outcome: "applied",
+        // The applied row is a memory uuid — it must NOT be routed as a work item.
+        item: { id: "3f2a-mem-uuid" } as WorkItem,
+      }),
+    );
+    renderDetail(
+      proposal({
+        target_type: "memory",
+        target_id: null,
+        operation: "create",
+        payload: { kind: "decision", title: "Use Postgres" },
+      }),
+      { accept },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+    await waitFor(() =>
+      expect(screen.getByText(/Memory logged\./)).toBeInTheDocument(),
+    );
+    const link = screen.getByRole("link", { name: /memory log/i });
+    expect(link).toHaveAttribute("href", "/w/acme/memory");
+    // The dead work-item link is never rendered for a memory.
+    expect(screen.queryByRole("link", { name: /View item/ })).not.toBeInTheDocument();
+  });
+
   it("Reject with a chip reason calls reject with that reason", () => {
     const reject = vi.fn(async () => undefined);
     renderDetail(proposal(), { reject });
@@ -240,6 +277,158 @@ describe("ProposalDetail", () => {
     expect(
       screen.queryByRole("button", { name: "Reject" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("(memory create) renders the log sentence, body as primary, and a kind row", () => {
+    itemsMock.items = [];
+    renderDetail(
+      proposal({
+        target_type: "memory",
+        target_id: null,
+        operation: "create",
+        payload: {
+          kind: "decision",
+          title: "Use Postgres",
+          body: "We picked Postgres over Mongo.",
+          topics: ["db"],
+        },
+        rationale: "Recorded from the call.",
+      }),
+    );
+    expect(screen.getByText("Log a decision: “Use Postgres”")).toBeInTheDocument();
+    // The memory body is the primary content being logged.
+    expect(screen.getByText("We picked Postgres over Mongo.")).toBeInTheDocument();
+    // Kind + topics render as attribute rows.
+    expect(screen.getByText("kind")).toBeInTheDocument();
+    const kindRow = screen.getByText("kind").closest("div");
+    expect(kindRow).toHaveTextContent("decision");
+    expect(screen.getByText("topics")).toBeInTheDocument();
+    // No work-item "View target item" link for a memory.
+    expect(screen.queryByText(/View target item/)).not.toBeInTheDocument();
+  });
+
+  it("(memory supersede) shows change_reason + current → proposed from the fetched target", async () => {
+    itemsMock.items = [];
+    memoryMock.get.mockResolvedValueOnce({
+      memory: {
+        id: "mem_1",
+        title: "Use Postgres",
+        body: "We picked Postgres.",
+        topics: ["db"],
+      } as unknown,
+      chain: [],
+    });
+    renderDetail(
+      proposal({
+        target_type: "memory",
+        target_id: "mem_1",
+        operation: "supersede",
+        payload: {
+          change_reason: "Mongo was chosen instead",
+          title: "Use MongoDB",
+          body: "We switched to Mongo.",
+        },
+      }),
+    );
+    // The target fetch resolves → the sentence names the target and the diff fills.
+    await waitFor(() =>
+      expect(screen.getByText(/Supersede Use Postgres:/)).toBeInTheDocument(),
+    );
+    expect(memoryMock.get).toHaveBeenCalledWith("mem_1");
+    expect(screen.getByText(/Mongo was chosen instead/)).toBeInTheDocument();
+    // current → proposed for the overridden title.
+    const titleRow = screen.getByText("title").closest("div");
+    expect(titleRow).toHaveTextContent("Use Postgres");
+    expect(titleRow).toHaveTextContent("Use MongoDB");
+    expect(screen.getAllByText("→").length).toBeGreaterThan(0);
+  });
+
+  it("(memory retract) fetches the target and shows its TITLE in the header, not the raw uuid", async () => {
+    itemsMock.items = [];
+    memoryMock.get.mockResolvedValueOnce({
+      memory: { id: "3f2a-mem", title: "Use Postgres", body: "", topics: [] } as unknown,
+      chain: [],
+    });
+    renderDetail(
+      proposal({
+        target_type: "memory",
+        target_id: "3f2a-mem",
+        operation: "retract",
+        payload: {},
+      }),
+    );
+    // The destructive op is identified by the memory's title, not the opaque uuid.
+    await waitFor(() =>
+      expect(screen.getByText(/Retract “Use Postgres”/)).toBeInTheDocument(),
+    );
+    expect(memoryMock.get).toHaveBeenCalledWith("3f2a-mem");
+  });
+
+  it("(memory supersede) Accept success reports 'Memory updated.' (op-specific, not 'logged')", async () => {
+    itemsMock.items = [];
+    memoryMock.get.mockResolvedValueOnce({
+      memory: { id: "mem_1", title: "Use Postgres", body: "", topics: [] } as unknown,
+      chain: [],
+    });
+    const accept = vi.fn(
+      async (): Promise<AcceptResult> => ({
+        outcome: "applied",
+        item: { id: "mem-uuid" } as WorkItem,
+      }),
+    );
+    renderDetail(
+      proposal({
+        target_type: "memory",
+        target_id: "mem_1",
+        operation: "supersede",
+        payload: { change_reason: "switched", title: "Use MongoDB" },
+      }),
+      { accept },
+    );
+    // Accept is only live once the target has loaded (see the gating test below).
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Accept" })).toBeEnabled(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+    await waitFor(() =>
+      expect(screen.getByText(/Memory updated\./)).toBeInTheDocument(),
+    );
+    // NEVER the create wording, never the dead work-item link.
+    expect(screen.queryByText(/Memory logged\./)).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /View item/ })).not.toBeInTheDocument();
+  });
+
+  it("(memory supersede) Accept is DISABLED until the target memory loads", async () => {
+    itemsMock.items = [];
+    // Hold the target fetch open so the pane sits in its loading state.
+    let resolveGet: (value: { memory: unknown; chain: never[] }) => void = () => {};
+    memoryMock.get.mockImplementationOnce(
+      () =>
+        new Promise<{ memory: unknown; chain: never[] }>((resolve) => {
+          resolveGet = resolve;
+        }),
+    );
+    renderDetail(
+      proposal({
+        target_type: "memory",
+        target_id: "mem_1",
+        operation: "supersede",
+        payload: { change_reason: "switched", title: "Use MongoDB" },
+      }),
+    );
+    // While the target is in flight: Accept disabled + a loading hint — a supersede must
+    // never be applied against an unresolved (possibly stale) target.
+    expect(screen.getByRole("button", { name: "Accept" })).toBeDisabled();
+    expect(screen.getByText(/Loading the target memory/)).toBeInTheDocument();
+    // Once it resolves, Accept re-enables and the hint clears.
+    resolveGet({
+      memory: { id: "mem_1", title: "Use Postgres", body: "", topics: [] } as unknown,
+      chain: [],
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Accept" })).toBeEnabled(),
+    );
+    expect(screen.queryByText(/Loading the target memory/)).not.toBeInTheDocument();
   });
 
   it("renders provenance fine-print and a collapsible raw payload", () => {

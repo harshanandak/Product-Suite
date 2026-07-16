@@ -413,4 +413,9 @@ describe('buildSystemPrompt (object-scoping seam)', () => {
     expect(AGENT_SYSTEM_PROMPT).toContain('proposed:true')
     expect(AGENT_SYSTEM_PROMPT).toContain('could NOT queue')
   })
+
+  it('routes "remember this" to propose_memory with the propose (not saved) tense', () => {
+    expect(AGENT_SYSTEM_PROMPT).toContain('propose_memory')
+    expect(AGENT_SYSTEM_PROMPT).toContain("I've proposed logging that, pending your review")
+  })
 })

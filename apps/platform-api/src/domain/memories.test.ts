@@ -5,6 +5,7 @@ import type { Sql } from '@product-suite/db'
 import {
   createMemory,
   deferMemory,
+  getMemoryBySourceProposalId,
   reactivateMemory,
   retractMemory,
   supersedeMemory,
@@ -104,6 +105,18 @@ describe('supersedeMemory (append-only versioning)', () => {
     ).rejects.toMatchObject({ code: 'change_reason_required' })
   })
 
+  it('rejects a provided-but-blank title/body as invalid_input (never silently blanks the field)', async () => {
+    const { sql, query } = mockSql(() => [ROW])
+    await expect(
+      supersedeMemory(sql, { tenantIds: ['t_1'], actor: 'u_1' }, 'm_1', { changeReason: 'x', title: '   ' }),
+    ).rejects.toMatchObject({ code: 'invalid_input' })
+    await expect(
+      supersedeMemory(sql, { tenantIds: ['t_1'], actor: 'u_1' }, 'm_1', { changeReason: 'x', body: '' }),
+    ).rejects.toMatchObject({ code: 'invalid_input' })
+    // The blank never reached the CTE write.
+    expect(query.mock.calls.some(([t]) => /with "latched" as/i.test(String(t)))).toBe(false)
+  })
+
   it('is not_found for a foreign/unknown id (no cross-tenant leak)', async () => {
     const { sql } = mockSql((text) => (/select \* from "memories"/i.test(text) ? [] : []))
     await expect(
@@ -111,6 +124,46 @@ describe('supersedeMemory (append-only versioning)', () => {
         changeReason: 'wrong',
       }),
     ).rejects.toMatchObject({ code: 'not_found' })
+  })
+
+  it('stamps agent source provenance (source_kind/source_run_id/source_proposal_id) on the new version', async () => {
+    const NEW = { ...ROW, id: 'm_2', supersedes_id: 'm_1', source_kind: 'proposal' as const }
+    const { sql, query } = mockSql((text) => {
+      if (/with "latched" as/i.test(text)) return [NEW]
+      if (/select \* from "memories"/i.test(text)) return [ROW]
+      return []
+    })
+    await supersedeMemory(sql, { tenantIds: ['t_1'], actor: 'run_1' }, 'm_1', {
+      body: 'Reversed',
+      changeReason: 'Mongo chosen',
+      sourceKind: 'proposal',
+      sourceRunId: 'run_1',
+      sourceProposalId: 'prop_9',
+    })
+    const cte = query.mock.calls.find(([t]) => /with "latched" as/i.test(String(t)))!
+    // The new version row records where it came from — the proposal + run.
+    expect(String(cte[0])).toMatch(/"source_run_id"/)
+    expect(String(cte[0])).toMatch(/"source_proposal_id"/)
+    expect(cte[1]).toContain('proposal')
+    expect(cte[1]).toContain('run_1')
+    expect(cte[1]).toContain('prop_9')
+  })
+
+  it('stamps the APPROVER (decidedBy) on the new version rather than inheriting the old row', async () => {
+    const NEW = { ...ROW, id: 'm_2', supersedes_id: 'm_1', decided_by: 'u_approver' }
+    const { sql, query } = mockSql((text) => {
+      if (/with "latched" as/i.test(text)) return [NEW]
+      if (/select \* from "memories"/i.test(text)) return [ROW]
+      return []
+    })
+    await supersedeMemory(sql, { tenantIds: ['t_1'], actor: 'run_1' }, 'm_1', {
+      changeReason: 'Mongo chosen',
+      decidedBy: 'u_approver',
+    })
+    const cte = query.mock.calls.find(([t]) => /with "latched" as/i.test(String(t)))!
+    // The new version's decided_by comes from a bound param (coalesced), not the old row.
+    expect(String(cte[0])).toMatch(/coalesce\(\$12, "decided_by"\)/)
+    expect(cte[1]).toContain('u_approver')
   })
 
   it('inserts a NEW version + latches the old in ONE atomic CTE, resolving to the new row', async () => {
@@ -203,5 +256,65 @@ describe('retractMemory / deferMemory (keep history)', () => {
     await expect(
       deferMemory(sql, { tenantIds: ['t_1'], actor: 'u_1' }, 'foreign', {}),
     ).rejects.toMatchObject({ code: 'not_found' })
+  })
+
+  it('defer rejects a free-form review_after as invalid_input (never a timestamptz cast 500)', async () => {
+    // A bad value must fail BEFORE the DB write with invalid_input (→ apply maps it to
+    // a terminal `failed`), never bind to the timestamptz param and wedge the proposal.
+    const { sql, query } = mockSql(() => [ROW])
+    await expect(
+      deferMemory(sql, { tenantIds: ['t_1'], actor: 'u_1' }, 'm_1', { reviewAfter: 'next quarter' }),
+    ).rejects.toMatchObject({ code: 'invalid_input' })
+    // The write never ran — the bad value never reached Postgres.
+    expect(query).not.toHaveBeenCalled()
+  })
+
+  it('defer rejects an impossible calendar date (2026-02-30) that Date.parse would normalize', async () => {
+    // `Date.parse('2026-02-30')` silently rolls forward to Mar 2 (a valid timestamp), so
+    // the shape+parse check alone would let it through. It must be invalid_input, never a
+    // write that stores a date the reviewer never meant.
+    const { sql, query } = mockSql(() => [ROW])
+    await expect(
+      deferMemory(sql, { tenantIds: ['t_1'], actor: 'u_1' }, 'm_1', { reviewAfter: '2026-02-30' }),
+    ).rejects.toMatchObject({ code: 'invalid_input' })
+    expect(query).not.toHaveBeenCalled()
+  })
+
+  it('defer rejects an Invalid Date instance before binding it', async () => {
+    // A Date input (not a string) that is `Invalid Date` would stringify to "Invalid Date"
+    // and cast-error at the timestamptz bind — reject it here, same as a bad string.
+    const { sql, query } = mockSql(() => [ROW])
+    await expect(
+      deferMemory(sql, { tenantIds: ['t_1'], actor: 'u_1' }, 'm_1', {
+        reviewAfter: new Date('not a date'),
+      }),
+    ).rejects.toMatchObject({ code: 'invalid_input' })
+    expect(query).not.toHaveBeenCalled()
+  })
+
+  it('defer accepts a valid ISO review_after and binds it as the param', async () => {
+    const DEFERRED = { ...ROW, status: 'deferred' as const, review_after: '2026-08-01' }
+    const { sql, query } = mockSql((text) => (/update "memories"/i.test(text) ? [DEFERRED] : [ROW]))
+    await deferMemory(sql, { tenantIds: ['t_1'], actor: 'u_1' }, 'm_1', { reviewAfter: '2026-08-01' })
+    const upd = query.mock.calls.find(([t]) => /update "memories"/i.test(String(t)))!
+    expect(upd[1]).toEqual(['m_1', ['t_1'], null, '2026-08-01'])
+  })
+})
+
+describe('getMemoryBySourceProposalId (idempotent re-drive lookup)', () => {
+  it('returns the memory already created from a proposal, scoped to the tenants', async () => {
+    const FROM_PROP = { ...ROW, source_kind: 'proposal' as const, source_proposal_id: 'prop_9' }
+    const { sql, query } = mockSql(() => [FROM_PROP])
+    const found = await getMemoryBySourceProposalId(sql, 'prop_9', ['t_1'])
+    expect(found?.id).toBe('m_1')
+    const [text, params] = query.mock.calls[0]!
+    expect(String(text)).toMatch(/"source_proposal_id" = \$1/)
+    expect(String(text)).toMatch(/tenant_id/)
+    expect(params).toEqual(['prop_9', ['t_1']])
+  })
+
+  it('returns null when no memory has been created from the proposal yet', async () => {
+    const { sql } = mockSql(() => [])
+    expect(await getMemoryBySourceProposalId(sql, 'prop_x', ['t_1'])).toBeNull()
   })
 })
