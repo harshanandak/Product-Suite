@@ -249,7 +249,9 @@ export function MemoryListItem({
           disabled={isMutating}
           onClick={() => runAction(retract(memory.id))}
         >
-          Retract
+          {/* A learned RULE is "revoked" (a one-tap withdrawal); every other
+              kind of memory is "retracted". Both take the same retract path. */}
+          {memory.kind === "rule" ? "Revoke" : "Retract"}
         </Button>
       </div>
     );

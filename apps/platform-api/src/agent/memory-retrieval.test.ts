@@ -9,6 +9,7 @@ import {
   insertAttributions,
   resolveChain,
   retrieveForContext,
+  retrieveRulesForContext,
   searchMemories,
 } from './memory-retrieval'
 
@@ -103,6 +104,23 @@ describe('retrieveForContext (scope cascade + token budget + fence)', () => {
   })
 })
 
+describe('retrieveRulesForContext (active rules, pinned-first, own fence)', () => {
+  it('injects active rules, pinned first, rendering applies_when, tagging via', async () => {
+    const rules = [
+      { id: 'r_pin', kind: 'rule', title: 'Never pause design tasks', body: '', attrs: { applies_when: 'all task types' }, pinned: true, priority: 10, scope_type: 'org' },
+      { id: 'r_norm', kind: 'rule', title: 'Prefer concise titles', body: '', attrs: { applies_when: 'work items' }, pinned: false, priority: 0, scope_type: 'org' },
+    ]
+    const query = vi.fn(async (text: string) => (/kind = 'rule'/.test(text) ? rules : []))
+    const sql = { query } as unknown as Sql
+    const res = await retrieveRulesForContext(sql, { tenantId: 't_1' })
+    expect(res.fenced).toMatch(/Team rules/)
+    expect(res.fenced).toMatch(/applies when: all task types/i)
+    expect(res.injected[0]!.memoryId).toBe('r_pin')
+    expect(res.injected[0]!.via).toBe('pinned')
+    expect(res.injected[1]!.via).toBe('retrieved')
+  })
+})
+
 describe('insertAttributions (the moat rail)', () => {
   it('writes ONE row per injected memory in a single bound-param insert', async () => {
     const { sql, query } = mockSql(() => [])
@@ -122,6 +140,24 @@ describe('insertAttributions (the moat rail)', () => {
     const { sql, query } = mockSql(() => [])
     await insertAttributions(sql, { runId: 'run_1', tenantId: 't_1', via: 'tool' }, [])
     expect(query).not.toHaveBeenCalled()
+  })
+
+  it('uses a per-row via when an entry carries one, falling back to ctx.via otherwise — ONE insert', async () => {
+    const { sql, query } = mockSql(() => [])
+    await insertAttributions(sql, { runId: 'run_1', tenantId: 't_1', via: 'retrieved' }, [
+      { memoryId: 'm_pin', rank: 0, tokens: 5, via: 'pinned' },
+      { memoryId: 'm_ret', rank: 1, tokens: 7, via: 'retrieved' },
+      { memoryId: 'm_default', rank: 2, tokens: 3 },
+    ])
+    // Exactly ONE insert for all rows — no partial-commit window between them.
+    expect(query).toHaveBeenCalledTimes(1)
+    const [text, params] = query.mock.calls[0]!
+    expect(String(text)).toMatch(/insert into "run_memory_attributions"/i)
+    expect(params).toHaveLength(18)
+    expect(params.slice(0, 6)).toEqual(['run_1', 'm_pin', 't_1', 'pinned', 0, 5])
+    expect(params.slice(6, 12)).toEqual(['run_1', 'm_ret', 't_1', 'retrieved', 1, 7])
+    // No per-row via ⇒ falls back to ctx.via ('retrieved').
+    expect(params.slice(12, 18)).toEqual(['run_1', 'm_default', 't_1', 'retrieved', 2, 3])
   })
 })
 

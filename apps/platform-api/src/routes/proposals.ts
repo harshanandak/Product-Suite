@@ -42,6 +42,14 @@ proposalsRoutes.post('/:id/accept', async (c) => {
   const claims = c.get('claims')
   const sql = sqlFrom(c.env ?? {})
   const id = c.req.param('id')
+  // Optional human gold-label correction (per-rule strength / pin, or any merged
+  // edit) the Inbox sends on accept. Absent/non-object body → no edit (backward
+  // compatible). Deeper validation happens in applyProposal's payload parse.
+  const body = (await c.req.json().catch(() => ({}))) as { edited_payload?: unknown }
+  const editedPayload =
+    body.edited_payload && typeof body.edited_payload === 'object'
+      ? (body.edited_payload as Record<string, unknown>)
+      : undefined
 
   try {
     const tenantIds = await callerTenantIds(sql, claims)
@@ -53,7 +61,7 @@ proposalsRoutes.post('/:id/accept', async (c) => {
       return c.json({ error: 'Failed to accept proposal' }, 500)
     }
 
-    const res = await applyProposal(sql, { tenantIds, approverUserId }, id)
+    const res = await applyProposal(sql, { tenantIds, approverUserId }, id, editedPayload)
     if (res.applied) return c.json(res.result, 200)
     switch (res.reason) {
       case 'not_found':

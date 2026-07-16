@@ -95,6 +95,30 @@ describe('createMemory', () => {
       }),
     ).rejects.toMatchObject({ code: 'invalid_input' })
   })
+
+  it('writes enforcement + pinned + attrs when creating a rule', async () => {
+    const RULE = { ...ROW, kind: 'rule' as const, enforcement: 'hard' as const, pinned: true }
+    const { sql, query } = mockSql(() => [RULE])
+    await createMemory(
+      sql,
+      { tenantId: 't_1', actor: 'u_1' },
+      {
+        kind: 'rule',
+        title: 'Prefer concise titles',
+        attrs: { applies_when: 'work items in project Foo', evidence_proposal_ids: ['p_1', 'p_2'] },
+        enforcement: 'hard',
+        pinned: true,
+      },
+    )
+    const [text, params] = query.mock.calls[0]!
+    expect(String(text)).toMatch(/"enforcement"/)
+    expect(String(text)).toMatch(/"pinned"/)
+    // attrs jsonb carries applies_when + evidence
+    const attrsParam = params.find((p: unknown) => typeof p === 'string' && String(p).includes('applies_when'))
+    expect(attrsParam).toBeTruthy()
+    expect(params).toContain('hard')
+    expect(params).toContain(true)
+  })
 })
 
 describe('supersedeMemory (append-only versioning)', () => {

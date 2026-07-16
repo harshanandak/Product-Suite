@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 
 import { clerkAuth, type AuthedEnv } from './middleware/clerk-auth'
 import { agentChatRoutes } from './routes/agent-chat'
+import { agentReflectionRoutes } from './routes/agent-reflection'
 import { agentThreadsRoutes } from './routes/agent-threads'
 import { checksRoutes } from './routes/checks'
 import { dependenciesRoutes } from './routes/dependencies'
@@ -45,6 +46,9 @@ app.route('/api/agent/chat', agentChatRoutes)
 
 // Durable agent chat threads: org-scoped list + reconstructed history + archive.
 app.route('/api/agent/threads', agentThreadsRoutes)
+
+// Reflection: mine recurring human corrections into rule proposals (same review queue).
+app.route('/api/agent/reflection', agentReflectionRoutes)
 
 // Memory Brain: the org-scoped decision/knowledge store (Decision Log + Topic views).
 app.route('/api/memories', memoriesRoutes)

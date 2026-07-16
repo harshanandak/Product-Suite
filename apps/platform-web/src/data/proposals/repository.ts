@@ -16,8 +16,12 @@ export interface ProposalRepository {
    * item). The result is a discriminated {@link AcceptResult}: `applied` carries
    * the resulting item, while `stale`/`invalid` surface the 409/404 and 422
    * cases WITHOUT throwing, so the caller can message them precisely.
+   *
+   * `editedPayload` is a human's gold-label correction (P1b): the backend applies
+   * `edited_payload ?? payload` as a WHOLESALE replace, so callers must send the
+   * FULL merged payload (never a partial), or omit it to accept the agent's original.
    */
-  accept(id: string): Promise<AcceptResult>;
+  accept(id: string, editedPayload?: Record<string, unknown>): Promise<AcceptResult>;
   /** Reject a proposal, with an optional human reason. */
   reject(id: string, reason?: string): Promise<void>;
 }

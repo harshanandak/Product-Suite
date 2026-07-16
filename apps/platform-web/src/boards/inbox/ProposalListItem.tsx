@@ -31,6 +31,11 @@ export function ProposalListItem({
 }: Readonly<ProposalListItemProps>) {
   const confidence = formatConfidence(proposal.confidence);
   const isCreate = proposal.operation === "create";
+  // A reflection-authored rule proposal — tag it so the list distinguishes a
+  // learned-rule proposal from an ordinary work-item/memory one at a glance.
+  const isRule =
+    proposal.target_type === "memory" &&
+    (proposal.payload as Record<string, unknown>).kind === "rule";
 
   return (
     <button
@@ -62,6 +67,14 @@ export function ProposalListItem({
         >
           {proposal.operation}
         </Badge>
+        {isRule ? (
+          <Badge
+            variant="outline"
+            className="border-primary/40 px-1.5 py-0 text-[9.5px] font-semibold uppercase tracking-wide text-primary"
+          >
+            Rule
+          </Badge>
+        ) : null}
         {confidence ? (
           <Badge
             variant="outline"

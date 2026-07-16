@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
 import { Link } from "@tanstack/react-router";
 
@@ -22,15 +22,25 @@ import {
   memoryBody,
   memoryChangeReason,
 } from "./memory-diff";
+import { RuleAttributionBadge } from "./RuleAttributionBadge";
+import { RuleProposalSurface, type RuleStrength } from "./RuleProposalSurface";
 
-/** Skippable, one-tap reject reasons (the reason itself stays optional). */
+/** Skippable, one-tap reject reasons for a work-item/memory proposal. */
 const REJECT_CHIPS = ["wrong target", "bad data", "not needed"] as const;
+
+/** Rule-shaped reject reasons — a learned rule fails in different ways than a work item. */
+const RULE_REJECT_CHIPS = ["too broad", "not what I meant", "don't make this a rule"] as const;
 
 /** Props for {@link ProposalDetail}. */
 export interface ProposalDetailProps {
   proposal: Proposal;
-  /** Accept mutation from `useProposals` (returns the surfaced outcome). */
-  accept: (id: string) => Promise<AcceptResult>;
+  /**
+   * Accept mutation from `useProposals` (returns the surfaced outcome). An optional
+   * `editedPayload` carries a human's gold-label correction (P1b): the API applies
+   * `edited_payload ?? payload` as a WHOLESALE replace, so it must be the FULL merged
+   * payload (never a partial) — e.g. a rule's reviewer-chosen `{ ...payload, enforcement, pinned }`.
+   */
+  accept: (id: string, editedPayload?: Record<string, unknown>) => Promise<AcceptResult>;
   /** Reject mutation from `useProposals`. */
   reject: (id: string, reason?: string) => Promise<void>;
   /** True while an accept/reject is in flight (disables the actions). */
@@ -76,12 +86,14 @@ function StatusBanner({
 
 /** The reject sub-form: skippable reason chips + note + confirm/cancel. */
 function RejectForm({
+  chips,
   reason,
   setReason,
   isMutating,
   onReject,
   onCancel,
 }: Readonly<{
+  chips: readonly string[];
   reason: string;
   setReason: (reason: string) => void;
   isMutating: boolean;
@@ -92,7 +104,7 @@ function RejectForm({
     <div className="flex flex-col gap-2.5 rounded-md border border-border p-3">
       <p className="text-xs font-medium text-muted-foreground">Reason (optional)</p>
       <div className="flex flex-wrap gap-1.5">
-        {REJECT_CHIPS.map((chip) => (
+        {chips.map((chip) => (
           <Button
             key={chip}
             type="button"
@@ -127,12 +139,14 @@ function RejectForm({
 function ActionButtons({
   isMutating,
   disableAccept,
+  acceptLabel,
   acceptHint,
   onAccept,
   onStartReject,
 }: Readonly<{
   isMutating: boolean;
   disableAccept: boolean;
+  acceptLabel: string;
   acceptHint: string | null;
   onAccept: () => void;
   onStartReject: () => void;
@@ -151,7 +165,7 @@ function ActionButtons({
           disabled={isMutating || disableAccept}
           onClick={onAccept}
         >
-          Accept
+          {acceptLabel}
         </Button>
         <Button size="sm" variant="destructive" disabled={isMutating} onClick={onStartReject}>
           Reject
@@ -173,6 +187,7 @@ function DispositionBlock({
   status,
   workspace,
   isMemory,
+  isRule,
   operation,
   rejecting,
   reason,
@@ -188,6 +203,7 @@ function DispositionBlock({
   status: DisposeStatus;
   workspace: string;
   isMemory: boolean;
+  isRule: boolean;
   operation: Proposal["operation"];
   rejecting: boolean;
   reason: string;
@@ -207,7 +223,7 @@ function DispositionBlock({
     if (isMemory) {
       return (
         <StatusBanner tone="primary">
-          {memoryAppliedMessage(operation)}{" "}
+          {memoryAppliedMessage(operation, isRule)}{" "}
           <Link
             to="/w/$workspace/memory"
             params={{ workspace }}
@@ -249,6 +265,7 @@ function DispositionBlock({
   if (rejecting) {
     return (
       <RejectForm
+        chips={isRule ? RULE_REJECT_CHIPS : REJECT_CHIPS}
         reason={reason}
         setReason={setReason}
         isMutating={isMutating}
@@ -261,6 +278,7 @@ function DispositionBlock({
     <ActionButtons
       isMutating={isMutating}
       disableAccept={disableAccept}
+      acceptLabel={isRule ? "Accept rule" : "Accept"}
       acceptHint={acceptHint}
       onAccept={onAccept}
       onStartReject={onStartReject}
@@ -514,11 +532,14 @@ function acceptBlockedMessage(state: MemoryTargetState): string | null {
 }
 
 /** The applied-banner wording for a memory op — each operation reports what it actually did. */
-function memoryAppliedMessage(operation: Proposal["operation"]): string {
+function memoryAppliedMessage(operation: Proposal["operation"], isRule: boolean): string {
   if (operation === "supersede") return "Memory updated.";
   if (operation === "retract") return "Memory retracted.";
   if (operation === "defer") return "Memory deferred.";
-  return "Memory logged."; // create
+  // create — a learned rule reads as a saved rule; every other memory "Memory logged.".
+  return isRule
+    ? "Rule saved — the agent follows it from now on."
+    : "Memory logged.";
 }
 
 export function ProposalDetail({
@@ -529,6 +550,27 @@ export function ProposalDetail({
   workspace,
 }: Readonly<ProposalDetailProps>) {
   const isMemory = proposal.target_type === "memory";
+  // A reflection-authored rule proposal — it gets the applicability/evidence/strength
+  // surface, and its accept folds the reviewer's strength into a full merged edited_payload.
+  const isRuleProposal =
+    isMemory && (proposal.payload as Record<string, unknown>).kind === "rule";
+
+  // The reviewer's chosen strength for a rule (default from the payload). `touched`
+  // gates whether accept sends an edited_payload at all: an untouched rule accepts
+  // as-is (edited_payload stays null — the agent's original is the gold label), while
+  // any toggle folds the FULL merged payload so kind+title are never dropped.
+  const [ruleStrength, setRuleStrength] = useState<RuleStrength>(() => {
+    const payload = proposal.payload as Record<string, unknown>;
+    return {
+      enforcement: payload.enforcement === "hard" ? "hard" : "advisory",
+      pinned: payload.pinned === true,
+    };
+  });
+  const ruleStrengthTouched = useRef(false);
+  const onStrengthChange = useCallback((next: RuleStrength) => {
+    ruleStrengthTouched.current = true;
+    setRuleStrength(next);
+  }, []);
 
   // The work-item update diff reads the target's CURRENT values from the loaded list.
   const { items } = useWorkItems();
@@ -591,7 +633,19 @@ export function ProposalDetail({
     // a stale/invalid disposition is never a silent failure. A THROWN error
     // (transport 5xx/401/network) surfaces as a visible banner, never silence.
     setError(null);
-    void accept(proposal.id)
+    // When the reviewer changed a rule's strength, fold it into the FULL merged
+    // payload — the API applies `edited_payload ?? payload` as a wholesale replace and
+    // re-validates (kind+title required), so a partial `{enforcement,pinned}` would drop
+    // those and terminally fail the proposal. An untouched proposal accepts as-is.
+    const editedPayload =
+      isRuleProposal && ruleStrengthTouched.current
+        ? {
+            ...(proposal.payload as Record<string, unknown>),
+            enforcement: ruleStrength.enforcement,
+            pinned: ruleStrength.pinned,
+          }
+        : undefined;
+    void accept(proposal.id, editedPayload)
       .then((result) => {
         setStatus(outcomeToStatus(result));
       })
@@ -626,11 +680,19 @@ export function ProposalDetail({
 
   return (
     <section className="flex flex-col gap-5">
-      {/* The decision surface — what `accept` applies — branches on target_type. */}
-      {isMemory ? (
+      {/* The decision surface — what `accept` applies — branches on target_type.
+          A rule gets its own applicability/evidence/strength surface. */}
+      {isRuleProposal ? (
+        <RuleProposalSurface proposal={proposal} onStrengthChange={onStrengthChange} />
+      ) : isMemory ? (
         <MemorySurface proposal={proposal} target={memoryTarget} />
       ) : (
-        <WorkItemSurface proposal={proposal} target={workItemTarget} workspace={workspace} />
+        <>
+          <WorkItemSurface proposal={proposal} target={workItemTarget} workspace={workspace} />
+          {/* Rules active during the authoring run — provenance, not causation.
+              Empty until the run→rule-attribution join is available client-side. */}
+          <RuleAttributionBadge ruleTitles={[]} />
+        </>
       )}
 
       {/* Transport-error banner — a failed accept/reject is NEVER silent. */}
@@ -645,6 +707,7 @@ export function ProposalDetail({
         status={status}
         workspace={workspace}
         isMemory={isMemory}
+        isRule={isRuleProposal}
         operation={proposal.operation}
         rejecting={rejecting}
         reason={reason}

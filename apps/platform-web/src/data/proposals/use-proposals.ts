@@ -39,7 +39,10 @@ export interface UseProposalsResult {
    * (invalidate-on-settle — an accepted or newly-stale proposal leaves the list).
    * No optimistic UI: the list only reflects a change once the server confirms it.
    */
-  accept: (id: string) => Promise<AcceptResult>;
+  accept: (
+    id: string,
+    editedPayload?: Record<string, unknown>,
+  ) => Promise<AcceptResult>;
   /** Reject a proposal (optional reason); refetches the list on settle. */
   reject: (id: string, reason?: string) => Promise<void>;
   /** True while any accept/reject mutation is in flight. */
@@ -108,10 +111,13 @@ export function useProposals(
   }, []);
 
   const accept = useCallback(
-    async (id: string): Promise<AcceptResult> => {
+    async (
+      id: string,
+      editedPayload?: Record<string, unknown>,
+    ): Promise<AcceptResult> => {
       setMutatingCount((count) => count + 1);
       try {
-        return await repository.accept(id);
+        return await repository.accept(id, editedPayload);
       } finally {
         if (mountedRef.current) setMutatingCount((count) => count - 1);
         // Invalidate on settle — applied/stale both change the pending set.
