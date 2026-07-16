@@ -111,6 +111,9 @@ export interface CreateMemoryInput {
   sourceProposalId?: string | null
   sourceQuote?: string | null
   decidedBy?: string | null
+  /** Rule-only (P2a): enforcement strength + pin. Default advisory / unpinned. */
+  enforcement?: 'advisory' | 'hard'
+  pinned?: boolean
 }
 
 /**
@@ -142,11 +145,13 @@ export async function createMemory(
     insert into "memories" (
       "id", "tenant_id", "kind", "title", "body", "attrs", "root_id",
       "status", "scope_type", "scope_id", "topics", "source_kind",
-      "source_run_id", "source_proposal_id", "source_quote", "created_by", "decided_by"
+      "source_run_id", "source_proposal_id", "source_quote", "created_by", "decided_by",
+      "enforcement", "pinned"
     ) values (
       $1, $2, $3, $4, $5, $6::jsonb, $1,
       'active', $7, $8, $9, $10,
-      $11, $12, $13, $14, $15
+      $11, $12, $13, $14, $15,
+      $16, $17
     ) returning ${RETURNING}
   `
   const params = [
@@ -165,6 +170,8 @@ export async function createMemory(
     input.sourceQuote ?? null,
     ctx.actor,
     input.decidedBy ?? null,
+    input.enforcement ?? 'advisory',
+    input.pinned ?? false,
   ]
   const rows = await runQuery<MemoryRow>(sql, text, params)
   const row = rows[0]

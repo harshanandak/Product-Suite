@@ -48,12 +48,16 @@ const memoryCreatePayload = z.object({
   topics: z.array(z.string()).optional(),
   scope_type: z.enum(['org', 'project', 'work_item_type', 'work_item']).optional(),
   scope_id: z.string().optional(),
+  attrs: z.record(z.string(), z.unknown()).optional(),
+  enforcement: z.enum(['advisory', 'hard']).optional(),
+  pinned: z.boolean().optional(),
 })
 const memorySupersedePayload = z.object({
   title: z.string().optional(),
   body: z.string().optional(),
   topics: z.array(z.string()).optional(),
   change_reason: z.string().optional(),
+  attrs: z.record(z.string(), z.unknown()).optional(),
 })
 const memoryDeferPayload = z.object({
   waiting_on: z.string().optional(),
@@ -144,6 +148,9 @@ async function applyMemoryCommand(
         topics: p.topics,
         scopeType: p.scope_type,
         scopeId: p.scope_id ?? null,
+        attrs: p.attrs,
+        enforcement: p.enforcement,
+        pinned: p.pinned,
         sourceKind: 'proposal',
         sourceRunId: runId,
         sourceProposalId: claimed.id,

@@ -263,6 +263,38 @@ describe('applyProposal (Design C: claim-then-command)', () => {
     })
   })
 
+  it('applies a rule create proposal with attrs + enforcement + pinned, forwarding them to createMemory', async () => {
+    // createMemory is mocked in this file (the domain command is exercised directly
+    // in memories.test.ts) — so the assertion that matters here is what apply.ts
+    // FORWARDS to it: the zod payload schema must not strip attrs/enforcement/pinned.
+    const { sql, getStatus } = makeSql({
+      proposal: {
+        target_type: 'memory',
+        target_id: null,
+        operation: 'create',
+        payload: {
+          kind: 'rule',
+          title: 'Prefer concise titles',
+          attrs: { applies_when: 'project Foo', evidence_proposal_ids: ['p_1', 'p_2'] },
+          enforcement: 'hard',
+          pinned: true,
+        },
+      },
+    })
+    const res = await applyProposal(sql, ctx, 'p1')
+    expect(res).toEqual({ applied: true, result: MEM_ROW })
+    expect(getStatus()).toBe('applied')
+    expect(createMemory).toHaveBeenCalledTimes(1)
+    const [, , input] = createMemory.mock.calls[0] ?? []
+    expect(input).toMatchObject({
+      kind: 'rule',
+      title: 'Prefer concise titles',
+      attrs: { applies_when: 'project Foo', evidence_proposal_ids: ['p_1', 'p_2'] },
+      enforcement: 'hard',
+      pinned: true,
+    })
+  })
+
   it('memory:create is IDEMPOTENT — a re-drive with an existing source_proposal_id returns it, no double-create', async () => {
     const existing = { ...MEM_ROW, id: 'mem_existing' }
     getMemoryBySourceProposalId.mockResolvedValue(existing)
