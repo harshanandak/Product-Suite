@@ -25,8 +25,11 @@ import {
 import { RuleAttributionBadge } from "./RuleAttributionBadge";
 import { RuleProposalSurface, type RuleStrength } from "./RuleProposalSurface";
 
-/** Skippable, one-tap reject reasons (the reason itself stays optional). */
+/** Skippable, one-tap reject reasons for a work-item/memory proposal. */
 const REJECT_CHIPS = ["wrong target", "bad data", "not needed"] as const;
+
+/** Rule-shaped reject reasons — a learned rule fails in different ways than a work item. */
+const RULE_REJECT_CHIPS = ["too broad", "not what I meant", "don't make this a rule"] as const;
 
 /** Props for {@link ProposalDetail}. */
 export interface ProposalDetailProps {
@@ -83,12 +86,14 @@ function StatusBanner({
 
 /** The reject sub-form: skippable reason chips + note + confirm/cancel. */
 function RejectForm({
+  chips,
   reason,
   setReason,
   isMutating,
   onReject,
   onCancel,
 }: Readonly<{
+  chips: readonly string[];
   reason: string;
   setReason: (reason: string) => void;
   isMutating: boolean;
@@ -99,7 +104,7 @@ function RejectForm({
     <div className="flex flex-col gap-2.5 rounded-md border border-border p-3">
       <p className="text-xs font-medium text-muted-foreground">Reason (optional)</p>
       <div className="flex flex-wrap gap-1.5">
-        {REJECT_CHIPS.map((chip) => (
+        {chips.map((chip) => (
           <Button
             key={chip}
             type="button"
@@ -134,12 +139,14 @@ function RejectForm({
 function ActionButtons({
   isMutating,
   disableAccept,
+  acceptLabel,
   acceptHint,
   onAccept,
   onStartReject,
 }: Readonly<{
   isMutating: boolean;
   disableAccept: boolean;
+  acceptLabel: string;
   acceptHint: string | null;
   onAccept: () => void;
   onStartReject: () => void;
@@ -158,7 +165,7 @@ function ActionButtons({
           disabled={isMutating || disableAccept}
           onClick={onAccept}
         >
-          Accept
+          {acceptLabel}
         </Button>
         <Button size="sm" variant="destructive" disabled={isMutating} onClick={onStartReject}>
           Reject
@@ -258,6 +265,7 @@ function DispositionBlock({
   if (rejecting) {
     return (
       <RejectForm
+        chips={isRule ? RULE_REJECT_CHIPS : REJECT_CHIPS}
         reason={reason}
         setReason={setReason}
         isMutating={isMutating}
@@ -270,6 +278,7 @@ function DispositionBlock({
     <ActionButtons
       isMutating={isMutating}
       disableAccept={disableAccept}
+      acceptLabel={isRule ? "Accept rule" : "Accept"}
       acceptHint={acceptHint}
       onAccept={onAccept}
       onStartReject={onStartReject}
@@ -527,8 +536,10 @@ function memoryAppliedMessage(operation: Proposal["operation"], isRule: boolean)
   if (operation === "supersede") return "Memory updated.";
   if (operation === "retract") return "Memory retracted.";
   if (operation === "defer") return "Memory deferred.";
-  // create — a learned rule reads "Rule logged.", every other memory "Memory logged.".
-  return isRule ? "Rule logged." : "Memory logged.";
+  // create — a learned rule reads as a saved rule; every other memory "Memory logged.".
+  return isRule
+    ? "Rule saved — the agent follows it from now on."
+    : "Memory logged.";
 }
 
 export function ProposalDetail({

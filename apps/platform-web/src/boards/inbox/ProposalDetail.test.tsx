@@ -434,7 +434,7 @@ describe("ProposalDetail", () => {
     expect(screen.queryByText(/Loading the target memory/)).not.toBeInTheDocument();
   });
 
-  it("(memory rule) shows 'applies when' + evidence count + strength controls; banner says 'Rule logged.'", async () => {
+  it("(memory rule) shows 'applies when' + evidence + strength controls; banner says the rule is saved", async () => {
     itemsMock.items = [];
     const accept = vi.fn(
       async (): Promise<AcceptResult> => ({
@@ -459,13 +459,47 @@ describe("ProposalDetail", () => {
       }),
       { accept },
     );
-    expect(screen.getByText(/work items in project Foo/)).toBeInTheDocument();
-    expect(screen.getByText(/changed 3×/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Accept" })).toBeEnabled();
-    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+    expect(
+      screen.getAllByText(/work items in project Foo/).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getByText(/You made this same edit 3 times/i)).toBeInTheDocument();
+    const acceptBtn = screen.getByRole("button", { name: "Accept rule" });
+    expect(acceptBtn).toBeEnabled();
+    fireEvent.click(acceptBtn);
     await waitFor(() =>
-      expect(screen.getByText(/Rule logged\./)).toBeInTheDocument(),
+      expect(
+        screen.getByText(/Rule saved — the agent follows it from now on\./),
+      ).toBeInTheDocument(),
     );
+  });
+
+  it("(memory rule) offers rule-shaped reject reason chips", () => {
+    itemsMock.items = [];
+    renderDetail(
+      proposal({
+        target_type: "memory",
+        target_id: null,
+        operation: "create",
+        payload: {
+          kind: "rule",
+          title: "Prefer concise titles",
+          attrs: { applies_when: "x", evidence_proposal_ids: ["p1"] },
+          enforcement: "advisory",
+        },
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Reject" }));
+    expect(screen.getByRole("button", { name: "too broad" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "not what I meant" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "don't make this a rule" }),
+    ).toBeInTheDocument();
+    // The work-item chips are NOT offered for a rule.
+    expect(
+      screen.queryByRole("button", { name: "wrong target" }),
+    ).not.toBeInTheDocument();
   });
 
   it("(memory rule) toggling hard writes the FULL merged edited_payload on accept", async () => {
@@ -489,8 +523,8 @@ describe("ProposalDetail", () => {
       proposal({ target_type: "memory", operation: "create", payload: original }),
       { accept },
     );
-    fireEvent.click(screen.getByRole("button", { name: /mark as hard/i }));
-    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+    fireEvent.click(screen.getByRole("button", { name: /always follow/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Accept rule" }));
     // accept is called with the proposal id AND a full merged edited_payload
     // (kind + title preserved — never a partial that would drop them).
     await waitFor(() => expect(accept).toHaveBeenCalled());

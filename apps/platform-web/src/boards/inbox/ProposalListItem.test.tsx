@@ -44,6 +44,27 @@ describe("ProposalListItem", () => {
     expect(screen.queryByTitle("Model confidence")).not.toBeInTheDocument();
   });
 
+  it("tags a rule proposal with a 'Rule' pill", () => {
+    render(
+      <ProposalListItem
+        proposal={proposal({
+          target_type: "memory",
+          payload: { kind: "rule", title: "Prefer concise titles" },
+        })}
+        selected={false}
+        onSelect={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Rule")).toBeInTheDocument();
+  });
+
+  it("does NOT tag an ordinary work-item proposal with a 'Rule' pill", () => {
+    render(
+      <ProposalListItem proposal={proposal()} selected={false} onSelect={vi.fn()} />,
+    );
+    expect(screen.queryByText("Rule")).not.toBeInTheDocument();
+  });
+
   it("fires onSelect with the id and reflects selection via aria-pressed", () => {
     const onSelect = vi.fn();
     const { rerender } = render(
