@@ -52,9 +52,9 @@ export interface MemoryImpact {
   readonly delta: number;
   /** Estimated human edits avoided over the window (headline when `helps`). */
   readonly savedEdits: number;
-  /** Low bound of the confidence interval on `savedEdits`. */
+  /** Low bound of the 95% CI on the edit-rate delta (holdout − treated), not on `savedEdits`. */
   readonly ciLow: number;
-  /** High bound of the confidence interval on `savedEdits`. */
+  /** High bound of the 95% CI on the edit-rate delta (holdout − treated), not on `savedEdits`. */
   readonly ciHigh: number;
   /** The honest call the card branches on. */
   readonly verdict: MemoryImpactVerdict;
