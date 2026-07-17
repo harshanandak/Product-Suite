@@ -104,8 +104,25 @@ export async function embed(texts: string[], env: EmbeddingEnv): Promise<EmbedRe
     throw new EmbeddingError('Embedding response was malformed (missing data[].embedding)')
   }
 
+  const vectors = body.data.map((d) => d.embedding)
+
+  // Reject partial/invalid batches: a short response (fewer vectors than inputs) or
+  // a wrong-width vector would silently corrupt the aligned ingest/query contract.
+  if (vectors.length !== texts.length) {
+    throw new EmbeddingError(
+      `Embedding response returned ${vectors.length} vectors for ${texts.length} inputs`,
+    )
+  }
+  for (const vec of vectors) {
+    if (vec.length !== EMBED_DIMS) {
+      throw new EmbeddingError(
+        `Embedding vector had ${vec.length} dims, expected ${EMBED_DIMS}`,
+      )
+    }
+  }
+
   return {
-    vectors: body.data.map((d) => d.embedding),
+    vectors,
     model,
     dims: EMBED_DIMS,
   }

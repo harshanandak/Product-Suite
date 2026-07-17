@@ -167,8 +167,8 @@ describe('searchKnowledge', () => {
     expect(chunk.annotation).toContain('Use Postgres for the ledger')
   })
 
-  it('binds the tenant + scope cascade (foreign scope never in params)', async () => {
-    const { sql, query } = mockSql({ ftsChunks: [chunkRow()] })
+  it('binds the tenant + emits the scope cascade (org literal + the scoped pair) in every lane', async () => {
+    const { sql, query } = mockSql({ knnChunks: [chunkRow()], knnMem: [memRow()], ftsChunks: [chunkRow()], ftsMem: [memRow()] })
     await searchKnowledge(sql, {
       tenantId: 't1',
       scope: { workspace: 'w', object: { type: 'work_item', id: 'wi_9', title: 'x' } },
@@ -176,10 +176,30 @@ describe('searchKnowledge', () => {
       k: 5,
       embed: okEmbed,
     })
-    // Every executed query is tenant-bound at $1.
+    // The scope cascade for a work_item object = [org, (work_item, wi_9)]. Every lane must
+    // emit the org literal AND bind the cascaded (scope_type, scope_id) pair as params.
+    expect(query.mock.calls.length).toBe(4)
     for (const call of query.mock.calls) {
-      expect(call[1]).toContain('t1')
-      expect((call[0] as string).includes('tenant_id = $1')).toBe(true)
+      const text = call[0] as string
+      const params = call[1] as unknown[]
+      expect(params).toContain('t1')
+      expect(text.includes('tenant_id = $1')).toBe(true)
+      expect(text).toMatch(/scope_type = 'org'/)
+      expect(text).toMatch(/scope_type = \$\d+ and scope_id = \$\d+/)
+      // The cascaded pair is actually bound (a foreign scope is never present).
+      expect(params).toContain('work_item')
+      expect(params).toContain('wi_9')
+    }
+  })
+
+  it('appends an id tie-break to EVERY lane ORDER BY so equal distance/rank is deterministic', async () => {
+    const { sql, texts } = mockSql({ knnChunks: [chunkRow()], knnMem: [memRow()], ftsChunks: [chunkRow()], ftsMem: [memRow()] })
+    await searchKnowledge(sql, { tenantId: 't1', query: 'x', k: 10, embed: okEmbed })
+    const orderBys = texts.filter((t) => /order by/i.test(t))
+    expect(orderBys.length).toBe(4)
+    for (const t of orderBys) {
+      // Each ORDER BY ends with the `id asc` tie-break (after distance or ts_rank/recency).
+      expect(t).toMatch(/order by[\s\S]*,\s*id asc/i)
     }
   })
 })

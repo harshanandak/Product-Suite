@@ -271,7 +271,7 @@ export async function runAgentChat(
   // have contributed (suppressed=true) — the counterfactual signal for the moat rail.
   const { runId, holdout } = await mintRun(sql, ctx.tenantId, ctx.userId, ctx.threadId)
   const modelId = resolveModelId(ctx.model)
-  const tools = buildTools(sql, { tenantId: ctx.tenantId, userId: ctx.userId, runId, modelId, holdout, embed: ctx.embed })
+  const tools = buildTools(sql, { tenantId: ctx.tenantId, userId: ctx.userId, runId, modelId, holdout, scope: ctx.scope, embed: ctx.embed })
 
   // Deterministic memory injection (design: AFTER mintRun, no model in the loop, so
   // attribution is causal). Retrieve the org's scope-cascade active decisions/facts,

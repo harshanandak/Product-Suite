@@ -51,7 +51,10 @@ CREATE INDEX IF NOT EXISTS "memories_hnsw" ON "memories" USING hnsw ("embedding"
 -- The KB attribution rail. A chunk can't satisfy run_memory_attributions'
 -- memory_id FK (NOT NULL, references memories), and reusing that table would
 -- either need a nullable FK (weakening the existing rail) or conflate the two
--- tools — so a dedicated table. EXACTLY ONE of memory_id/chunk_id is set.
+-- tools — so a dedicated table. The rka_exactly_one CHECK binds `kind` to the
+-- populated FK: kind='memory' ⇒ memory_id set (chunk_id null), kind='chunk' ⇒
+-- chunk_id set (memory_id null). A pure XOR would let kind='memory' pair with only
+-- chunk_id, corrupting kind-filtered attribution/holdout analysis.
 CREATE TABLE IF NOT EXISTS "run_knowledge_attributions" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"run_id" uuid NOT NULL,
@@ -63,7 +66,10 @@ CREATE TABLE IF NOT EXISTS "run_knowledge_attributions" (
 	"score" real,
 	"suppressed" boolean DEFAULT false NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "rka_exactly_one" CHECK (("memory_id" IS NULL) <> ("chunk_id" IS NULL))
+	CONSTRAINT "rka_exactly_one" CHECK (
+		("kind" = 'memory' AND "memory_id" IS NOT NULL AND "chunk_id" IS NULL) OR
+		("kind" = 'chunk'  AND "chunk_id"  IS NOT NULL AND "memory_id" IS NULL)
+	)
 );--> statement-breakpoint
 
 DO $$ BEGIN

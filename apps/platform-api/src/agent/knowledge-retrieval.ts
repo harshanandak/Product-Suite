@@ -141,6 +141,59 @@ function scopeClause(cascade: { scopeType: string; scopeId: string | null }[], p
   return clauses.join(' or ')
 }
 
+/** SELECT column lists per table — shared by that table's kNN and FTS lanes. */
+const CHUNK_COLS = 'id, source_type, content, tier, scope_type, event_time, embedding::text as embedding'
+const MEMORY_COLS =
+  'id, kind, title, body, scope_type, pinned, enforcement, priority, valid_from, embedding::text as embedding'
+
+interface LaneSpec {
+  table: 'knowledge_chunks' | 'memories'
+  columns: string
+  mode: 'knn' | 'fts'
+  tenantId: string
+  cascade: { scopeType: string; scopeId: string | null }[]
+  query: string
+  vecLiteral: string | null
+  perLane: number
+  /** Extra AND-clause (e.g. memory kNN requires ` and embedding is not null`). */
+  extraWhere?: string
+}
+
+/**
+ * Build ONE lane query (text + bound params). All four lanes share this so the
+ * `, id asc` tie-break — appended to EVERY ORDER BY so equal distance/rank never
+ * returns in arbitrary DB order — is a single source of truth. kNN orders by cosine
+ * distance; FTS by `ts_rank` then recency; both then break ties on `id asc`.
+ */
+function buildLaneQuery(spec: LaneSpec): { text: string; params: unknown[] } {
+  const { table, columns, mode, tenantId, cascade, query, vecLiteral, perLane, extraWhere = '' } = spec
+  if (mode === 'knn') {
+    const params: unknown[] = [tenantId]
+    const sc = scopeClause(cascade, params)
+    params.push(vecLiteral)
+    const q = params.length
+    const text = `
+      select ${columns}
+      from "${table}"
+      where tenant_id = $1 and status = 'active'${extraWhere} and (${sc})
+      order by embedding <=> $${q}::halfvec, id asc
+      limit ${perLane}
+    `
+    return { text, params }
+  }
+  const params: unknown[] = [tenantId, query]
+  const sc = scopeClause(cascade, params)
+  const text = `
+    select ${columns}
+    from "${table}"
+    where tenant_id = $1 and status = 'active'${extraWhere} and (${sc})
+      and fts @@ plainto_tsquery('english', $2)
+    order by ts_rank(fts, plainto_tsquery('english', $2)) desc, created_at desc, id asc
+    limit ${perLane}
+  `
+  return { text, params }
+}
+
 interface ChunkRow {
   id: string
   source_type: string
@@ -237,65 +290,35 @@ export async function searchKnowledge(sql: Sql, ctx: SearchKnowledgeCtx): Promis
     lists.push(rows.map((m, rank) => ({ id: m.id, rank })))
   }
 
+  const laneBase = { tenantId, cascade, query, vecLiteral, perLane }
+
   // 2a. kNN chunks (only when the query embedded).
   if (vecLiteral) {
-    const params: unknown[] = [tenantId]
-    const sc = scopeClause(cascade, params)
-    params.push(vecLiteral)
-    const q = params.length
-    const text = `
-      select id, source_type, content, tier, scope_type, event_time, embedding::text as embedding
-      from "knowledge_chunks"
-      where tenant_id = $1 and status = 'active' and (${sc})
-      order by embedding <=> $${q}::halfvec
-      limit ${perLane}
-    `
+    const { text, params } = buildLaneQuery({ ...laneBase, table: 'knowledge_chunks', columns: CHUNK_COLS, mode: 'knn' })
     collect((await runQuery<ChunkRow>(sql, text, params)).map(chunkMeta))
   }
 
   // 2b. kNN memories (skipped on holdout).
   if (vecLiteral && !holdout) {
-    const params: unknown[] = [tenantId]
-    const sc = scopeClause(cascade, params)
-    params.push(vecLiteral)
-    const q = params.length
-    const text = `
-      select id, kind, title, body, scope_type, pinned, enforcement, priority, valid_from, embedding::text as embedding
-      from "memories"
-      where tenant_id = $1 and status = 'active' and embedding is not null and (${sc})
-      order by embedding <=> $${q}::halfvec
-      limit ${perLane}
-    `
+    const { text, params } = buildLaneQuery({
+      ...laneBase,
+      table: 'memories',
+      columns: MEMORY_COLS,
+      mode: 'knn',
+      extraWhere: ' and embedding is not null',
+    })
     collect((await runQuery<MemoryRow>(sql, text, params)).map(memoryMeta))
   }
 
   // 3a. FTS chunks.
   {
-    const params: unknown[] = [tenantId, query]
-    const sc = scopeClause(cascade, params)
-    const text = `
-      select id, source_type, content, tier, scope_type, event_time, embedding::text as embedding
-      from "knowledge_chunks"
-      where tenant_id = $1 and status = 'active' and (${sc})
-        and fts @@ plainto_tsquery('english', $2)
-      order by ts_rank(fts, plainto_tsquery('english', $2)) desc, created_at desc
-      limit ${perLane}
-    `
+    const { text, params } = buildLaneQuery({ ...laneBase, table: 'knowledge_chunks', columns: CHUNK_COLS, mode: 'fts' })
     collect((await runQuery<ChunkRow>(sql, text, params)).map(chunkMeta))
   }
 
   // 3b. FTS memories (skipped on holdout).
   if (!holdout) {
-    const params: unknown[] = [tenantId, query]
-    const sc = scopeClause(cascade, params)
-    const text = `
-      select id, kind, title, body, scope_type, pinned, enforcement, priority, valid_from, embedding::text as embedding
-      from "memories"
-      where tenant_id = $1 and status = 'active' and (${sc})
-        and fts @@ plainto_tsquery('english', $2)
-      order by ts_rank(fts, plainto_tsquery('english', $2)) desc, created_at desc
-      limit ${perLane}
-    `
+    const { text, params } = buildLaneQuery({ ...laneBase, table: 'memories', columns: MEMORY_COLS, mode: 'fts' })
     collect((await runQuery<MemoryRow>(sql, text, params)).map(memoryMeta))
   }
 

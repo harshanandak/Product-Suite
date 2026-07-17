@@ -625,9 +625,10 @@ export const knowledgeChunks = pgTable(
  * discipline as `run_memory_attributions`). A DEDICATED table (not
  * `run_memory_attributions`) because a chunk can't satisfy that table's
  * NOT-NULL memory_id FK, and a nullable FK there would weaken the existing
- * P1/P2 rail. `kind` + the `rka_exactly_one` CHECK (migration-only — not
- * expressible as a Drizzle constraint here) enforce exactly one of
- * memory_id/chunk_id. `suppressed` is the P3a holdout counterfactual, mirroring
+ * P1/P2 rail. The `rka_exactly_one` CHECK (migration-only — not expressible as a
+ * Drizzle constraint here) is kind-aware: kind='memory' ⇒ only memory_id set,
+ * kind='chunk' ⇒ only chunk_id set, so `kind` can never disagree with the populated
+ * FK. `suppressed` is the P3a holdout counterfactual, mirroring
  * `run_memory_attributions.suppressed`.
  */
 export const runKnowledgeAttributions = pgTable(

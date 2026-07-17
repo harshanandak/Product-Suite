@@ -187,6 +187,18 @@ describe('buildTools (ToolRegistry)', () => {
     }
   })
 
+  it('search_knowledge forwards the chat scope so project-scoped chunks are reachable', async () => {
+    searchKnowledge.mockResolvedValue([])
+    const { sql } = fakeSql([])
+    const embed = vi.fn()
+    const scope = { workspace: 'w', object: { type: 'project', id: 'p_1', title: 'Launch' } }
+    const tools = buildTools(sql, { tenantId: 't_1', userId: 'u_1', runId: 'run_1', modelId: 'm/1', embed, scope })
+
+    await tools.search_knowledge?.execute?.({ query: 'x' }, opts)
+
+    expect(searchKnowledge).toHaveBeenCalledWith(sql, expect.objectContaining({ scope }))
+  })
+
   it('search_knowledge is a no-op (no attribution write) when no embed client is bound', async () => {
     searchKnowledge.mockResolvedValue([{ id: 'mem_1', kind: 'memory', title: 'x', tier: 1, score: 1, scope: 'org' }])
     const { sql, query } = fakeSql([])

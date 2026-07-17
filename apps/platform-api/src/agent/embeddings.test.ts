@@ -9,6 +9,14 @@ function jsonResponse(status: number, body: unknown): Response {
   })
 }
 
+/** The fixed KB output width — every returned vector must be exactly this long. */
+const DIMS = 1024
+
+/** A well-formed 1024-dim vector whose first element is `first` (rest zero-padded). */
+function vec(first: number): number[] {
+  return [first, ...Array(DIMS - 1).fill(0)]
+}
+
 describe('embed', () => {
   let fetchMock: ReturnType<typeof vi.fn>
 
@@ -23,7 +31,7 @@ describe('embed', () => {
 
   it('POSTs one batched request to the OpenRouter embeddings endpoint with the bearer key + OpenAI-format body', async () => {
     fetchMock.mockResolvedValue(
-      jsonResponse(200, { data: [{ embedding: [0.1, 0.2] }, { embedding: [0.3, 0.4] }] }),
+      jsonResponse(200, { data: [{ embedding: vec(0.1) }, { embedding: vec(0.3) }] }),
     )
 
     const result = await embed(['first', 'second'], { OPENROUTER_API_KEY: 'sk-test' })
@@ -44,17 +52,14 @@ describe('embed', () => {
     expect(body.input_type).toBeUndefined()
 
     expect(result).toEqual({
-      vectors: [
-        [0.1, 0.2],
-        [0.3, 0.4],
-      ],
+      vectors: [vec(0.1), vec(0.3)],
       model: DEFAULT_EMBED_MODEL,
       dims: 1024,
     })
   })
 
   it('overrides the model id via env.KB_EMBED_MODEL', async () => {
-    fetchMock.mockResolvedValue(jsonResponse(200, { data: [{ embedding: [1, 2, 3] }] }))
+    fetchMock.mockResolvedValue(jsonResponse(200, { data: [{ embedding: vec(1) }] }))
 
     const result = await embed(['x'], { OPENROUTER_API_KEY: 'sk-test', KB_EMBED_MODEL: 'custom/embed-model' })
 
@@ -62,6 +67,21 @@ describe('embed', () => {
     const body = JSON.parse(init.body as string)
     expect(body.model).toBe('custom/embed-model')
     expect(result.model).toBe('custom/embed-model')
+  })
+
+  it('throws EmbeddingError when the response returns fewer vectors than inputs (partial batch)', async () => {
+    // Two inputs, one vector back — a short/partial response must not pass silently.
+    fetchMock.mockResolvedValue(jsonResponse(200, { data: [{ embedding: vec(0.1) }] }))
+
+    await expect(embed(['first', 'second'], { OPENROUTER_API_KEY: 'sk-test' })).rejects.toBeInstanceOf(
+      EmbeddingError,
+    )
+  })
+
+  it('throws EmbeddingError when a returned vector is not the requested width (1024)', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { data: [{ embedding: [0.1, 0.2, 0.3] }] }))
+
+    await expect(embed(['x'], { OPENROUTER_API_KEY: 'sk-test' })).rejects.toBeInstanceOf(EmbeddingError)
   })
 
   it('throws EmbeddingError on a non-2xx response', async () => {

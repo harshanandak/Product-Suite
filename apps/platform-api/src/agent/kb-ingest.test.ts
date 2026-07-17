@@ -12,12 +12,20 @@ function mockSql(handler: Handler) {
   return { sql, query }
 }
 
-/** An injected embed that echoes one deterministic vector per input text. */
+/** The fixed KB vector width every embedding must have. */
+const DIMS = 1024
+
+/** A well-formed 1024-dim vector whose first element is `first` (rest zero-padded). */
+function vec(first: number): number[] {
+  return [first, ...Array(DIMS - 1).fill(0)]
+}
+
+/** An injected embed that echoes one deterministic (1024-dim) vector per input text. */
 function fakeEmbed() {
   return vi.fn(async (texts: string[]) => ({
-    vectors: texts.map((_, i) => [i + 0.5, 0, 0]),
+    vectors: texts.map((_, i) => vec(i + 0.5)),
     model: 'openai/text-embedding-3-large',
-    dims: 1024,
+    dims: DIMS,
   }))
 }
 
@@ -25,6 +33,8 @@ const isMemSelect = (t: string) => /select .* from memories/is.test(t)
 const isMemUpdate = (t: string) => /update memories/i.test(t)
 const isItemSelect = (t: string) => /from work_items/i.test(t)
 const isChunkInsert = (t: string) => /insert into knowledge_chunks/i.test(t)
+const isChunkExistsSelect = (t: string) => /select id from knowledge_chunks/i.test(t)
+const isChunkDeactivate = (t: string) => /update knowledge_chunks set status = 'superseded'/i.test(t)
 
 describe('ingestKnowledge — memory backfill', () => {
   it('embeds only null-embedding active memories and stamps embed_model', async () => {
@@ -47,7 +57,7 @@ describe('ingestKnowledge — memory backfill', () => {
     expect(String(upd[0])).toMatch(/embedding = \$1::halfvec/)
     expect(String(upd[0])).toMatch(/embed_model = \$2/)
     const params = upd[1] as unknown[]
-    expect(params[0]).toBe('[0.5,0,0]') // vector literal
+    expect(params[0]).toBe(`[${vec(0.5).join(',')}]`) // 1024-dim vector literal
     expect(params[1]).toBe('openai/text-embedding-3-large') // embed_model
     expect(params[2]).toBe('m1')
   })
@@ -156,5 +166,66 @@ describe('ingestKnowledge — work-item chunks', () => {
 
     const res = await ingestKnowledge(sql, { tenantId: 't1', embed: fakeEmbed() })
     expect(res.chunksIngested).toBe(0)
+  })
+
+  const oneItem = {
+    id: 'w1',
+    title: 'Fix login',
+    description: 'Cookie bug',
+    project_id: 'p1',
+    updated_at: '2026-02-02T00:00:00.000Z',
+    event_time: '2026-05-01T00:00:00.000Z',
+  }
+
+  it('F6: skips embedding entirely when the current content already has an active chunk', async () => {
+    const embed = fakeEmbed()
+    const { sql } = mockSql((text) => {
+      if (isItemSelect(text)) return [oneItem]
+      // An active chunk with the SAME content_hash already exists → nothing to do.
+      if (isChunkExistsSelect(text)) return [{ id: 'existing' }]
+      return []
+    })
+
+    const res = await ingestKnowledge(sql, { tenantId: 't1', embed })
+    expect(res.chunksIngested).toBe(0)
+    // The paid embed call is never made for an unchanged item.
+    expect(embed).not.toHaveBeenCalled()
+  })
+
+  it('F5: on changed content, deactivates the prior active chunk before inserting the new one', async () => {
+    const { sql, query } = mockSql((text) => {
+      if (isItemSelect(text)) return [oneItem]
+      if (isChunkExistsSelect(text)) return [] // no active chunk with the NEW hash yet
+      if (isChunkInsert(text)) return [{ id: 'c-new' }]
+      return []
+    })
+
+    const res = await ingestKnowledge(sql, { tenantId: 't1', embed: fakeEmbed() })
+    expect(res.chunksIngested).toBe(1)
+
+    // A deactivation UPDATE fired for this item, keyed on a DIFFERING content_hash.
+    const deact = query.mock.calls.find(([t]) => isChunkDeactivate(String(t)))
+    expect(deact).toBeDefined()
+    const text = String(deact![0])
+    expect(text).toMatch(/status = 'active'/)
+    expect(text).toMatch(/content_hash <> \$3/)
+    expect((deact![1] as unknown[])[1]).toBe('w1') // source_ref bound
+  })
+
+  it('F4: throws and writes NO chunk when an embedding is not 1024-dim', async () => {
+    const badEmbed = vi.fn(async (texts: string[]) => ({
+      vectors: texts.map(() => [0.1, 0.2, 0.3]), // wrong width
+      model: 'openai/text-embedding-3-large',
+      dims: DIMS,
+    }))
+    const { sql, query } = mockSql((text) => {
+      if (isItemSelect(text)) return [oneItem]
+      if (isChunkExistsSelect(text)) return []
+      return []
+    })
+
+    await expect(ingestKnowledge(sql, { tenantId: 't1', embed: badEmbed })).rejects.toThrow(/1024/)
+    // No insert was attempted — the guard fires before any write.
+    expect(query.mock.calls.find(([t]) => isChunkInsert(String(t)))).toBeUndefined()
   })
 })

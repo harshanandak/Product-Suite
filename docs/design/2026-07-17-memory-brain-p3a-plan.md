@@ -24,6 +24,7 @@
 ---
 
 ## File Structure
+
 | File | Responsibility | Task |
 |---|---|---|
 | `packages/db/migrations/0013_knowledge_base.sql` (create) + `_journal.json` + `schema.ts` | pgvector, `knowledge_chunks`, `memories.embedding`, `run_knowledge_attributions` | 1 |

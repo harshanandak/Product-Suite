@@ -6,7 +6,7 @@ import type { Sql } from '@product-suite/db'
 import { getMemoryScoped, isIsoDateString } from '../domain/memories'
 import { createProposal } from '../proposals/repository'
 import { insertKnowledgeAttributions, searchKnowledge, type EmbedFn } from './knowledge-retrieval'
-import { insertAttributions, resolveChain, searchMemories } from './memory-retrieval'
+import { insertAttributions, resolveChain, searchMemories, type MemoryScopeInput } from './memory-retrieval'
 import { retrieve, type ItemHit } from './retrieve'
 
 /** The prompt template version stamped on every proposal for the decision corpus. */
@@ -29,6 +29,12 @@ export interface ToolContext {
   modelId: string | null
   /** True on a holdout run: `search_memory` AND `search_knowledge` must NOT be exposed — a holdout run gets NO memory, via fence or tool. */
   holdout?: boolean
+  /**
+   * The chat's object-scope (the screen/work item the user was viewing). Threaded into
+   * `search_knowledge` so its scope cascade can reach PROJECT-scoped work-item chunks —
+   * without it the KB only ever sees org-scoped rows and prior project work is unreachable.
+   */
+  scope?: MemoryScopeInput
   /**
    * The bound embed function (Task 3's `embed` with `env` applied) the unified
    * `search_knowledge` recall lane needs. Absent it, the tool degrades to a no-op
@@ -322,6 +328,7 @@ export function buildTools(sql: Sql, ctx: ToolContext): ToolSet {
         if (!ctx.tenantId || !ctx.embed) return { items: [] }
         const items = await searchKnowledge(sql, {
           tenantId: ctx.tenantId,
+          scope: ctx.scope,
           query,
           k: limit ?? 8,
           holdout: ctx.holdout,

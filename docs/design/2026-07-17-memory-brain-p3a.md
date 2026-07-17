@@ -38,7 +38,9 @@ create table "knowledge_chunks" (
   "content" text not null,
   "content_hash" text not null,         -- dedup (exact-hash tier)
   "embedding" halfvec(1024),            -- openai/text-embedding-3-large @ 1024 dims (via OpenRouter), 2-byte
-  -- FTS generated column (added in migration, not Drizzle-expressible), like memories.fts
+  -- FTS generated column (added in migration, not Drizzle-expressible), like memories.fts.
+  -- Declared HERE (before the GIN index below) so the column the index references exists first:
+  "fts" tsvector generated always as (to_tsvector('english', "content")) stored,
   -- Unified vocabulary with memories:
   "tier" integer not null,              -- resolved authority tier (T0..T4)
   "scope_type" text not null default 'org',

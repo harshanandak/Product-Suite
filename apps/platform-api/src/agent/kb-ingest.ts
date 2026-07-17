@@ -15,9 +15,12 @@ import { resolveTier } from './authority'
  *      `statuses.category='completed'`), scoped to its PROJECT (org when it has no
  *      project — NEVER `work_item` scope, or cross-item recall could never fire),
  *      with `event_time` = the item's latest activity, falling back to `updated_at`.
- *      Inserted with `on conflict (tenant_id, source_type, source_ref, content_hash)
- *      do nothing` so a re-ingest of unchanged items is a no-op; a content change
- *      yields a new hash → a new chunk.
+ *      One-chunk-per-item + no wasted embeddings: content_hash is computed BEFORE
+ *      embedding; an item whose CURRENT content already has an active chunk is skipped
+ *      entirely (no re-embed). A CHANGED item retires its prior active chunk
+ *      (`status='superseded'`) before inserting the new one, so a stale + current chunk
+ *      are never both searchable. The insert keeps `on conflict … do nothing` as a
+ *      final idempotency guard.
  */
 
 /** The injected embed function — Task 3's `embed` with its `env` already bound. */
@@ -44,6 +47,20 @@ function runQuery<Row>(sql: Sql, text: string, params: unknown[]): Promise<Row[]
 /** Format a JS `number[]` as a pgvector/`halfvec` literal `'[v1,v2,...]'` for a `$n::halfvec` bind. */
 function toVectorLiteral(vec: number[]): string {
   return `[${vec.join(',')}]`
+}
+
+/**
+ * Belt-and-suspenders guard (even with embeddings.ts' own check): every vector bound
+ * into a `halfvec(1024)` column MUST be exactly {@link EMBED_DIMS} wide, or the write
+ * would insert a mis-shaped vector (or error mid-batch, leaving a partial run). Throws
+ * BEFORE any row is written.
+ */
+function assertVectorDims(vectors: number[][]): void {
+  for (const vec of vectors) {
+    if (vec.length !== EMBED_DIMS) {
+      throw new Error(`KB ingest: embedding vector had ${vec.length} dims, expected ${EMBED_DIMS}`)
+    }
+  }
 }
 
 /** Stable content hash (sha256 hex) for the dedup unique index. Web Crypto → works on Workers + Node. */
@@ -95,6 +112,7 @@ async function backfillMemoryEmbeddings(sql: Sql, tenantId: string, embed: Embed
 
   const texts = rows.map((r) => `${r.title}\n${r.body}`)
   const { vectors, model } = await embed(texts)
+  assertVectorDims(vectors)
 
   for (let i = 0; i < rows.length; i++) {
     await runQuery(
@@ -104,6 +122,13 @@ async function backfillMemoryEmbeddings(sql: Sql, tenantId: string, embed: Embed
     )
   }
   return rows.length
+}
+
+/** A completed item with its content + hash computed up front (before any embed). */
+interface PreparedItem {
+  item: CompletedItemRow
+  content: string
+  contentHash: string
 }
 
 /** Ingest each completed, non-archived work item as one project-scoped chunk. */
@@ -119,18 +144,52 @@ async function ingestCompletedWorkItems(sql: Sql, tenantId: string, embed: Embed
   )
   if (rows.length === 0) return 0
 
-  const contents = rows.map((r) => `${r.title}\n${r.description}`)
-  const { vectors, model } = await embed(contents)
+  // Compute content + content_hash BEFORE embedding so we can skip items whose current
+  // content already has an active chunk (avoids repeated paid embeddings every run).
+  const prepared: PreparedItem[] = await Promise.all(
+    rows.map(async (item) => {
+      const content = `${item.title}\n${item.description}`
+      return { item, content, contentHash: await sha256Hex(content) }
+    }),
+  )
+
+  // Pre-filter: an item whose CURRENT content already exists as an active chunk needs no
+  // re-embedding. Only genuinely new/changed items reach the embed call below.
+  const pending: PreparedItem[] = []
+  for (const p of prepared) {
+    const existing = await runQuery<{ id: string }>(
+      sql,
+      `select id from knowledge_chunks
+       where tenant_id = $1 and source_type = 'work_item' and source_ref = $2
+         and content_hash = $3 and status = 'active'
+       limit 1`,
+      [tenantId, p.item.id, p.contentHash],
+    )
+    if (existing.length === 0) pending.push(p)
+  }
+  if (pending.length === 0) return 0
+
+  const { vectors, model } = await embed(pending.map((p) => p.content))
+  assertVectorDims(vectors)
   const tier = resolveTier({ kind: 'chunk', sourceType: 'work_item' })
 
   let inserted = 0
-  for (let i = 0; i < rows.length; i++) {
-    const item = rows[i]!
-    const content = contents[i]!
-    const contentHash = await sha256Hex(content)
+  for (let i = 0; i < pending.length; i++) {
+    const { item, content, contentHash } = pending[i]!
     const scopeType = item.project_id != null ? 'project' : 'org'
     const scopeId = item.project_id ?? null
     const eventTime = item.event_time ?? item.updated_at
+
+    // One-chunk-per-item: retire any prior ACTIVE chunk for this item whose content
+    // changed (different hash), so a stale + current chunk are never both searchable.
+    // The unchanged case never reaches here (skipped above); this only fires on a change.
+    await runQuery(
+      sql,
+      `update knowledge_chunks set status = 'superseded', updated_at = now()
+       where tenant_id = $1 and source_type = 'work_item' and source_ref = $2
+         and status = 'active' and content_hash <> $3`,
+      [tenantId, item.id, contentHash],
+    )
 
     const out = await runQuery<{ id: string }>(
       sql,

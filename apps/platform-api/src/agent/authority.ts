@@ -33,7 +33,9 @@ export type AuthorityTier = 0 | 1 | 2 | 3 | 4
  */
 export function resolveTier(item: TierInput): AuthorityTier {
   if (item.kind === 'memory') {
-    if (item.pinned === true && item.enforcement === 'hard') return 0
+    // Tier 0 is reserved for a pinned, hard-enforcement RULE (file header line 11).
+    // A pinned hard *decision* or *fact* is not a rule, so it falls through to tier 1.
+    if (item.pinned === true && item.enforcement === 'hard' && item.memKind === 'rule') return 0
     return 1
   }
   if (item.kind === 'chunk') {
@@ -119,6 +121,14 @@ export function cosineSimilarity(a: number[], b: number[]): number {
 /** Similarity threshold above which a lower-authority item is annotated as conflicting/duplicating a higher-authority one. */
 export const ANNOTATE_SIM_THRESHOLD = 0.82
 
+/**
+ * The highest tier that may serve as an annotation REFERENT. The annotation reads
+ * "see decision: <title>", so the referent must be a MEMORY (T0 pinned rule or T1
+ * active decision/rule/fact) — never a doc (T2), work-item chunk (T3), or meeting
+ * (T4), which are not "decisions" and would be misleading to point at.
+ */
+const ANNOTATE_MAX_REFERENT_TIER = 1
+
 /** Item shape `annotateByAuthority` operates on. */
 export interface AnnotatableItem extends AuthorityRankable {
   id: string
@@ -128,35 +138,45 @@ export interface AnnotatableItem extends AuthorityRankable {
 }
 
 /**
- * For each item, look for the most authoritative (lowest-tier) other item in
- * the set whose embedding is cosine-similar ≥ `ANNOTATE_SIM_THRESHOLD`. If
- * found, stamp `annotation = "see decision: <that item's title>"`. Then
- * stable-sort the whole (shallow-cloned) list by `compareByAuthority`. Does
- * not mutate the input array or its items.
+ * Find the best MEMORY referent for `item`: the most authoritative (lowest-tier)
+ * memory in the set (tier ≤ {@link ANNOTATE_MAX_REFERENT_TIER}) that is more
+ * authoritative than `item` and cosine-similar ≥ `ANNOTATE_SIM_THRESHOLD`. Ties
+ * on tier break toward the higher similarity. Returns its title, or null.
+ */
+function findBestMemoryReferent<T extends AnnotatableItem>(item: T, items: T[]): string | null {
+  if (!item.embedding) return null
+  let best: { title: string; tier: AuthorityTier; sim: number } | null = null
+
+  for (const other of items) {
+    if (other === item) continue
+    if (other.tier > ANNOTATE_MAX_REFERENT_TIER) continue // referent must be a memory
+    if (other.tier >= item.tier) continue // only more-authoritative items can annotate
+    if (!other.embedding) continue
+
+    const sim = cosineSimilarity(item.embedding, other.embedding)
+    if (sim < ANNOTATE_SIM_THRESHOLD) continue
+
+    if (!best || other.tier < best.tier || (other.tier === best.tier && sim > best.sim)) {
+      best = { title: other.title, tier: other.tier, sim }
+    }
+  }
+
+  return best ? best.title : null
+}
+
+/**
+ * For each item, look for the most authoritative MEMORY (tier ≤
+ * {@link ANNOTATE_MAX_REFERENT_TIER}) in the set whose embedding is cosine-similar
+ * ≥ `ANNOTATE_SIM_THRESHOLD`. If found, stamp `annotation = "see decision: <that
+ * memory's title>"`. Then stable-sort the whole (shallow-cloned) list by
+ * `compareByAuthority`. Does not mutate the input array or its items.
  */
 export function annotateByAuthority<T extends AnnotatableItem>(items: T[]): T[] {
   const out = items.map((item) => ({ ...item }))
 
   for (const item of out) {
-    let best: { title: string; tier: AuthorityTier; sim: number } | null = null
-    if (!item.embedding) continue
-
-    for (const other of out) {
-      if (other === item) continue
-      if (other.tier >= item.tier) continue // only more-authoritative items can annotate
-      if (!other.embedding) continue
-
-      const sim = cosineSimilarity(item.embedding, other.embedding)
-      if (sim < ANNOTATE_SIM_THRESHOLD) continue
-
-      if (!best || other.tier < best.tier || (other.tier === best.tier && sim > best.sim)) {
-        best = { title: other.title, tier: other.tier, sim }
-      }
-    }
-
-    if (best) {
-      item.annotation = `see decision: ${best.title}`
-    }
+    const referent = findBestMemoryReferent(item, out)
+    if (referent) item.annotation = `see decision: ${referent}`
   }
 
   out.sort(compareByAuthority)
