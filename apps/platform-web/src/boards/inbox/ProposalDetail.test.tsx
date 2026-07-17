@@ -21,6 +21,15 @@ vi.mock("@/data/memories", () => ({
   useMemories: () => ({ get: memoryMock.get }),
 }));
 
+// The detail fetches the run's active rules through the proposals hook; stub
+// `activeRules` so the provenance badge is deterministic (default: none).
+const proposalsMock = vi.hoisted(() => ({
+  activeRules: vi.fn(async (_id: string) => [] as { id: string; title: string }[]),
+}));
+vi.mock("@/data/proposals", () => ({
+  useProposals: () => ({ activeRules: proposalsMock.activeRules }),
+}));
+
 // Render TanStack Link as a plain anchor so the detail can render without a router.
 vi.mock("@tanstack/react-router", () => ({
   Link: ({
@@ -534,6 +543,97 @@ describe("ProposalDetail", () => {
       title: "Prefer concise titles",
       enforcement: "hard",
     });
+  });
+
+  it("(work-item) renders 'Rules active when this was drafted' with the fetched rule titles", async () => {
+    itemsMock.items = [];
+    proposalsMock.activeRules.mockResolvedValueOnce([
+      { id: "m_1", title: "Prefer concise titles" },
+    ]);
+    renderDetail(proposal());
+    await waitFor(() =>
+      expect(
+        screen.getByText(/Rules active when this was drafted:/),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.getByText(/Prefer concise titles/)).toBeInTheDocument();
+    expect(proposalsMock.activeRules).toHaveBeenCalledWith("p1");
+  });
+
+  it("(work-item) renders no rule badge when the run had no active rules", async () => {
+    itemsMock.items = [];
+    proposalsMock.activeRules.mockResolvedValueOnce([]);
+    renderDetail(proposal());
+    // Let the (empty) fetch settle, then assert the badge is absent.
+    await waitFor(() => expect(proposalsMock.activeRules).toHaveBeenCalledWith("p1"));
+    expect(
+      screen.queryByText(/Rules active when this was drafted:/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("(work-item) clears the prior proposal's rules immediately when switching proposals", async () => {
+    itemsMock.items = [];
+    // p1 resolves with a rule; p2's fetch stays PENDING (we hold its resolver) so we
+    // can assert the old rule is cleared BEFORE the new provenance lands.
+    let resolveSecond: (rules: { id: string; title: string }[]) => void = () => {};
+    proposalsMock.activeRules.mockReset();
+    proposalsMock.activeRules
+      .mockResolvedValueOnce([{ id: "m_1", title: "Old proposal rule" }])
+      .mockImplementationOnce(
+        () =>
+          new Promise<{ id: string; title: string }[]>((resolve) => {
+            resolveSecond = resolve;
+          }),
+      );
+    const accept = vi.fn(async (): Promise<AcceptResult> => ({ outcome: "stale" }));
+    const reject = vi.fn(async () => undefined);
+    const { rerender } = render(
+      <ProposalDetail
+        proposal={proposal({ id: "p1" })}
+        accept={accept}
+        reject={reject}
+        isMutating={false}
+        workspace="acme"
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByText(/Old proposal rule/)).toBeInTheDocument(),
+    );
+
+    // Switch to p2 — its fetch is still in flight, so the stale rule must vanish NOW.
+    rerender(
+      <ProposalDetail
+        proposal={proposal({ id: "p2" })}
+        accept={accept}
+        reject={reject}
+        isMutating={false}
+        workspace="acme"
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.queryByText(/Old proposal rule/)).not.toBeInTheDocument(),
+    );
+    expect(proposalsMock.activeRules).toHaveBeenLastCalledWith("p2");
+
+    // Once p2's provenance resolves, its rules render.
+    resolveSecond([{ id: "m_2", title: "New proposal rule" }]);
+    await waitFor(() =>
+      expect(screen.getByText(/New proposal rule/)).toBeInTheDocument(),
+    );
+  });
+
+  it("(memory) never fetches active rules (only work-item proposals show the badge)", () => {
+    itemsMock.items = [];
+    proposalsMock.activeRules.mockClear();
+    renderDetail(
+      proposal({
+        target_type: "memory",
+        target_id: null,
+        operation: "create",
+        payload: { kind: "decision", title: "Use Postgres" },
+      }),
+    );
+    expect(proposalsMock.activeRules).not.toHaveBeenCalled();
   });
 
   it("renders provenance fine-print and a collapsible raw payload", () => {

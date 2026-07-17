@@ -1,5 +1,5 @@
 /**
- * "Rules active during this run: […]" — a provenance badge on a WORK-ITEM proposal
+ * "Rules active when this was drafted: […]" — a provenance badge on a WORK-ITEM proposal
  * whose authoring run had rule attributions (the rules injected into the agent's
  * context when it drafted the proposal). Worded as active-DURING, deliberately not
  * "caused by": an injected rule is context the agent had, not a proven cause.
@@ -18,7 +18,7 @@ export function RuleAttributionBadge({
   if (ruleTitles.length === 0) return null;
   return (
     <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-      <span className="font-medium text-foreground">Rules active during this run: </span>
+      <span className="font-medium text-foreground">Rules active when this was drafted: </span>
       {ruleTitles.join(", ")}
     </p>
   );

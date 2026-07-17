@@ -113,8 +113,13 @@ describe('runAgentChat (request-free runtime + agent_runs lifecycle)', () => {
     })
 
     // (a) Run minted first, anchored to the resolved tenant + human trigger, no thread.
+    // Params are [id, tenant_id, triggered_by, thread_id, memory_holdout] — id is a
+    // client-generated UUID and holdout a computed boolean, so assert shape not value.
     const mint = query.mock.calls.find(([t]) => /insert into "agent_runs"/i.test(String(t)))
-    expect(mint?.[1]).toEqual(['t_1', 'u_1', null])
+    const mintParams = (mint?.[1] ?? []) as unknown[]
+    expect(mintParams).toHaveLength(5)
+    expect(mintParams[0]).toEqual(expect.any(String))
+    expect(mintParams.slice(1)).toEqual(['t_1', 'u_1', null, expect.any(Boolean)])
 
     // (b) The tool wrote ONLY a proposal, stamped with agent provenance + the run id.
     const propose = query.mock.calls.find(([t]) => /insert into "proposals"/i.test(String(t)))
@@ -153,7 +158,10 @@ describe('runAgentChat (request-free runtime + agent_runs lifecycle)', () => {
       [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }] as unknown as UIMessage[],
     )
     const mint = query.mock.calls.find(([t]) => /insert into "agent_runs"/i.test(String(t)))
-    expect(mint?.[1]).toEqual(['t_1', 'u_1', 'th_1'])
+    const mintParams = (mint?.[1] ?? []) as unknown[]
+    expect(mintParams).toHaveLength(5)
+    expect(mintParams[0]).toEqual(expect.any(String))
+    expect(mintParams.slice(1)).toEqual(['t_1', 'u_1', 'th_1', expect.any(Boolean)])
     expect(String(mint?.[0])).toMatch(/"thread_id"/i)
   })
 
@@ -307,9 +315,12 @@ describe('runAgentChat (request-free runtime + agent_runs lifecycle)', () => {
     const sql = vi.fn() as unknown as Sql
     ;(sql as unknown as { query: typeof query }).query = query
 
+    // Pin to a deterministically-treated thread (holdout=false) — this test asserts
+    // the fence IS injected, so it must not ride on the random no-threadId fallback,
+    // which would flip holdout ~10% of the time now that holdout actually suppresses it.
     await runAgentChat(
       sql,
-      { tenantId: 't_1', userId: 'u_1', model: fakeModel },
+      { tenantId: 't_1', userId: 'u_1', model: fakeModel, threadId: 'th_holdout_probe_out_0' },
       [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }] as unknown as UIMessage[],
     )
 
@@ -341,9 +352,10 @@ describe('runAgentChat (request-free runtime + agent_runs lifecycle)', () => {
     const sql = vi.fn() as unknown as Sql
     ;(sql as unknown as { query: typeof query }).query = query
 
+    // Pin to a deterministically-treated thread — see comment above.
     await runAgentChat(
       sql,
-      { tenantId: 't_1', userId: 'u_1', model: fakeModel },
+      { tenantId: 't_1', userId: 'u_1', model: fakeModel, threadId: 'th_holdout_probe_out_0' },
       [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }] as unknown as UIMessage[],
     )
 
@@ -358,7 +370,7 @@ describe('runAgentChat (request-free runtime + agent_runs lifecycle)', () => {
     expect(attrCalls).toHaveLength(1)
     const params = (attrCalls[0]?.[1] ?? []) as unknown[]
     expect(params.slice(0, 4)).toEqual(['run_1', 'rule_pin', 't_1', 'pinned'])
-    expect(params.slice(6, 10)).toEqual(['run_1', 'rule_ret', 't_1', 'retrieved'])
+    expect(params.slice(7, 11)).toEqual(['run_1', 'rule_ret', 't_1', 'retrieved'])
   })
 
   it('keeps the decisions/facts fence + attribution when the RULES leg throws (isolated legs)', async () => {
@@ -376,10 +388,11 @@ describe('runAgentChat (request-free runtime + agent_runs lifecycle)', () => {
     const sql = vi.fn() as unknown as Sql
     ;(sql as unknown as { query: typeof query }).query = query
 
-    // The run must still proceed (not stranded) — resolves without throwing.
+    // The run must still proceed (not stranded) — resolves without throwing. Pin to a
+    // deterministically-treated thread — see comment on the fence-injection test above.
     const res = await runAgentChat(
       sql,
-      { tenantId: 't_1', userId: 'u_1', model: fakeModel },
+      { tenantId: 't_1', userId: 'u_1', model: fakeModel, threadId: 'th_holdout_probe_out_0' },
       [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }] as unknown as UIMessage[],
     )
     expect(res.status).toBe(200)
@@ -400,7 +413,7 @@ describe('runAgentChat (request-free runtime + agent_runs lifecycle)', () => {
     expect(streamText).toHaveBeenCalledTimes(1)
   })
 
-  it('mints the run with memory_holdout=false (assigned at run start, always false in P1)', async () => {
+  it('mints the run with a computed memory_holdout bound as a param (deterministic per-thread assignment)', async () => {
     streamText.mockImplementation(() => fakeStreamResult())
     const { sql, query } = fakeSql()
     await runAgentChat(
@@ -410,9 +423,143 @@ describe('runAgentChat (request-free runtime + agent_runs lifecycle)', () => {
     )
     const mint = query.mock.calls.find(([t]) => /insert into "agent_runs"/i.test(String(t)))
     expect(String(mint?.[0])).toMatch(/"memory_holdout"/i)
-    expect(String(mint?.[0])).toMatch(/false/i)
-    // The bound params are unchanged (holdout is a literal, not a param).
-    expect(mint?.[1]).toEqual(['t_1', 'u_1', null])
+    // memory_holdout is now bound ($5), not a literal — the column list has 5 columns
+    // (id, tenant_id, triggered_by, thread_id, memory_holdout), all `$n` placeholders.
+    expect(String(mint?.[0])).toMatch(/\$5/)
+    expect(String(mint?.[0])).not.toMatch(/,\s*false\)/i)
+    const mintParams = (mint?.[1] ?? []) as unknown[]
+    expect(mintParams).toHaveLength(5)
+    expect(mintParams[0]).toEqual(expect.any(String)) // client-generated run id
+    expect(typeof mintParams[4]).toBe('boolean')
+  })
+
+  it('assigns holdout deterministically per-thread, keyed on threadId under the default 10% rate', async () => {
+    // hashUnitInterval('th_holdout_probe_100') ≈ 0.049 < 0.10 → holdout true.
+    // hashUnitInterval('th_holdout_probe_out_0') ≈ 0.941 >= 0.10 → holdout false.
+    streamText.mockImplementation(() => fakeStreamResult())
+    const { sql: sqlIn, query: queryIn } = fakeSql()
+    await runAgentChat(
+      sqlIn,
+      { tenantId: 't_1', userId: 'u_1', model: fakeModel, threadId: 'th_holdout_probe_100' },
+      [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }] as unknown as UIMessage[],
+    )
+    const mintIn = queryIn.mock.calls.find(([t]) => /insert into "agent_runs"/i.test(String(t)))
+    expect((mintIn?.[1] as unknown[])?.[4]).toBe(true)
+
+    const { sql: sqlOut, query: queryOut } = fakeSql()
+    await runAgentChat(
+      sqlOut,
+      { tenantId: 't_1', userId: 'u_1', model: fakeModel, threadId: 'th_holdout_probe_out_0' },
+      [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }] as unknown as UIMessage[],
+    )
+    const mintOut = queryOut.mock.calls.find(([t]) => /insert into "agent_runs"/i.test(String(t)))
+    expect((mintOut?.[1] as unknown[])?.[4]).toBe(false)
+  })
+
+  it("reuses the thread's FIRST-run holdout, immune to a later MEMORY_HOLDOUT_RATE change", async () => {
+    streamText.mockImplementation(() => fakeStreamResult())
+    // th_holdout_probe_out_0 hashes to holdout=FALSE under the default rate, so a fresh
+    // compute would assign false. But the thread already committed to holdout=TRUE on its
+    // first run — the mint must REUSE that persisted value, not recompute.
+    const query = vi.fn(async (text: string, _params: unknown[]) => {
+      if (/insert into "agent_runs"/i.test(text)) return [{ id: 'run_2' }]
+      if (/select memory_holdout from "agent_runs"/i.test(text)) return [{ memory_holdout: true }]
+      return []
+    })
+    const sql = vi.fn() as unknown as Sql
+    ;(sql as unknown as { query: typeof query }).query = query
+
+    await runAgentChat(
+      sql,
+      { tenantId: 't_1', userId: 'u_1', model: fakeModel, threadId: 'th_holdout_probe_out_0' },
+      [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }] as unknown as UIMessage[],
+    )
+    // The thread-first-run lookup was keyed on the thread id.
+    const lookup = query.mock.calls.find(([t]) => /select memory_holdout from "agent_runs"/i.test(String(t)))
+    expect((lookup?.[1] as unknown[])?.[0]).toBe('th_holdout_probe_out_0')
+    // Mint reused the committed TRUE, NOT the fresh-hash FALSE.
+    const mint = query.mock.calls.find(([t]) => /insert into "agent_runs"/i.test(String(t)))
+    expect((mint?.[1] as unknown[])?.[4]).toBe(true)
+  })
+
+  it("a brand-new thread (no prior run) computes holdout via the hash", async () => {
+    streamText.mockImplementation(() => fakeStreamResult())
+    // No prior run → the select returns [] → compute fresh. th_holdout_probe_100 hashes true.
+    const { sql, query } = fakeSql()
+    await runAgentChat(
+      sql,
+      { tenantId: 't_1', userId: 'u_1', model: fakeModel, threadId: 'th_holdout_probe_100' },
+      [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }] as unknown as UIMessage[],
+    )
+    const mint = query.mock.calls.find(([t]) => /insert into "agent_runs"/i.test(String(t)))
+    expect((mint?.[1] as unknown[])?.[4]).toBe(true)
+  })
+
+  it('a HOLDOUT run injects no fence, exposes no search_memory tool, and attributes suppressed=true (counterfactual)', async () => {
+    // hashUnitInterval('th_holdout_probe_100') ≈ 0.049 < 0.10 → holdout true (same probe thread as above).
+    streamText.mockImplementation(() => fakeStreamResult())
+    const memRows = [{ id: 'mem_1', kind: 'decision', title: 'Use Postgres', body: '', scope_type: 'org' }]
+    const ruleRows = [
+      { id: 'rule_1', title: 'Never pause design tasks', body: '', attrs: { applies_when: 'all task types' }, pinned: true, priority: 10, scope_type: 'org' },
+    ]
+    const query = vi.fn(async (text: string, _params: unknown[]) => {
+      if (/insert into "agent_runs"/i.test(text)) return [{ id: 'run_1' }]
+      if (/kind = 'rule'/.test(text)) return ruleRows
+      if (/from "memories"/i.test(text)) return memRows
+      return []
+    })
+    const sql = vi.fn() as unknown as Sql
+    ;(sql as unknown as { query: typeof query }).query = query
+
+    await runAgentChat(
+      sql,
+      { tenantId: 't_1', userId: 'u_1', model: fakeModel, threadId: 'th_holdout_probe_100' },
+      [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }] as unknown as UIMessage[],
+    )
+
+    // No fence at all — neither leg's block reaches the model.
+    const opts = streamText.mock.calls[0]?.[0] as { system: string; tools: Record<string, unknown> }
+    expect(opts.system).not.toContain('<org_memory')
+    expect(opts.system).not.toContain('<team_rules')
+
+    // No path into memory via the tool either.
+    expect(opts.tools.search_memory).toBeUndefined()
+
+    // Both legs still attribute the counterfactual — suppressed=true (column index 6).
+    const attrCalls = query.mock.calls.filter(([t]) => /insert into "run_memory_attributions"/i.test(String(t)))
+    expect(attrCalls).toHaveLength(2)
+    for (const call of attrCalls) {
+      const params = (call[1] ?? []) as unknown[]
+      expect(params[6]).toBe(true)
+    }
+  })
+
+  it('a TREATED run is unchanged: fences present, suppressed=false, search_memory present', async () => {
+    streamText.mockImplementation(() => fakeStreamResult())
+    const memRows = [{ id: 'mem_1', kind: 'decision', title: 'Use Postgres', body: '', scope_type: 'org' }]
+    const query = vi.fn(async (text: string, _params: unknown[]) => {
+      if (/insert into "agent_runs"/i.test(text)) return [{ id: 'run_1' }]
+      if (/from "memories"/i.test(text)) return memRows
+      return []
+    })
+    const sql = vi.fn() as unknown as Sql
+    ;(sql as unknown as { query: typeof query }).query = query
+
+    // hashUnitInterval('th_holdout_probe_out_0') ≈ 0.941 >= 0.10 → holdout false.
+    await runAgentChat(
+      sql,
+      { tenantId: 't_1', userId: 'u_1', model: fakeModel, threadId: 'th_holdout_probe_out_0' },
+      [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }] as unknown as UIMessage[],
+    )
+
+    const opts = streamText.mock.calls[0]?.[0] as { system: string; tools: Record<string, unknown> }
+    expect(opts.system).toContain('<org_memory')
+    expect(opts.tools.search_memory).toBeDefined()
+
+    const attr = query.mock.calls.find(([t]) => /insert into "run_memory_attributions"/i.test(String(t)))
+    expect(attr).toBeDefined()
+    const params = (attr?.[1] ?? []) as unknown[]
+    expect(params[6]).toBe(false)
   })
 })
 

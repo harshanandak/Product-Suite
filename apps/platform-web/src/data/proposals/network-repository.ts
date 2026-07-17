@@ -114,5 +114,13 @@ export function createNetworkProposalRepository(
 
     reject: (id: string, reason?: string) =>
       request<void>("POST", `/api/agent/proposals/${id}/reject`, { reason }),
+
+    async activeRules(id: string): Promise<{ id: string; title: string }[]> {
+      const body = await request<{ rules: { id: string; title: string }[] }>(
+        "GET",
+        `/api/agent/proposals/${id}/active-rules`,
+      );
+      return body.rules;
+    },
   };
 }

@@ -122,6 +122,29 @@ describe("createNetworkProposalRepository", () => {
     expect(callArgs().init?.body).toBe(JSON.stringify({}));
   });
 
+  it("activeRules GETs /:id/active-rules and unwraps the { rules } envelope to the array", async () => {
+    const rules = [
+      { id: "m_1", title: "Prefer concise titles" },
+      { id: "m_2", title: "Never pause design tasks" },
+    ];
+    fetchMock.mockResolvedValueOnce(jsonOk({ rules }));
+    const result = await makeRepo().activeRules("p1");
+    // The array is unwrapped from `{ rules }`, not returned as the envelope.
+    expect(result).toEqual(rules);
+    const { url, init } = callArgs();
+    expect(url).toBe(`${BASE}/api/agent/proposals/p1/active-rules`);
+    expect(init?.method).toBe("GET");
+    expect((init?.headers as Record<string, string>).Authorization).toBe(
+      "Bearer tok_123",
+    );
+    expect(init?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("activeRules propagates a transport error (non-OK throws the API message)", async () => {
+    fetchMock.mockResolvedValueOnce(jsonError(500, "boom"));
+    await expect(makeRepo().activeRules("p1")).rejects.toThrow("boom");
+  });
+
   it("omits the Authorization header when signed out", async () => {
     fetchMock.mockResolvedValueOnce(jsonOk([]));
     await makeRepo(async () => null).list();

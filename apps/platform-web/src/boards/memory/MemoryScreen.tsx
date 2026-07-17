@@ -7,6 +7,7 @@ import { Button, EmptyState, ErrorState } from "@product-suite/ui";
 import { useMemories, type MemoriesAdapter } from "@/data/memories";
 
 import { LogDecisionForm } from "./LogDecisionForm";
+import { MemoryImpactCard } from "./MemoryImpactCard";
 import { MemoryListItem } from "./MemoryListItem";
 import { groupBySource, resolveToCurrentByTopic } from "./memory-format";
 
@@ -102,6 +103,8 @@ export function MemoryScreen({ adapter }: Readonly<MemoryScreenProps> = {}) {
 
   return (
     <section className="flex flex-col gap-4">
+      {/* The honest, CI-gated measure of memory's value leads the board. */}
+      <MemoryImpactCard />
       <header className="flex flex-wrap items-center gap-3">
         <h1 className="text-lg font-semibold text-foreground">Decision Log</h1>
         <span className="text-sm text-muted-foreground">

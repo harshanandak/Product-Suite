@@ -130,10 +130,10 @@ describe('insertAttributions (the moat rail)', () => {
     ])
     const [text, params] = query.mock.calls[0]!
     expect(String(text)).toMatch(/insert into "run_memory_attributions"/i)
-    // 2 rows × 6 columns = 12 bound params; via + run + tenant stamped per row.
-    expect(params).toHaveLength(12)
-    expect(params.slice(0, 6)).toEqual(['run_1', 'm1', 't_1', 'retrieved', 0, 5])
-    expect(params.slice(6)).toEqual(['run_1', 'm2', 't_1', 'retrieved', 1, 7])
+    // 2 rows × 7 columns = 14 bound params; via + run + tenant + suppressed stamped per row.
+    expect(params).toHaveLength(14)
+    expect(params.slice(0, 7)).toEqual(['run_1', 'm1', 't_1', 'retrieved', 0, 5, false])
+    expect(params.slice(7)).toEqual(['run_1', 'm2', 't_1', 'retrieved', 1, 7, false])
   })
 
   it('is a no-op when nothing was injected (no query)', async () => {
@@ -153,11 +153,28 @@ describe('insertAttributions (the moat rail)', () => {
     expect(query).toHaveBeenCalledTimes(1)
     const [text, params] = query.mock.calls[0]!
     expect(String(text)).toMatch(/insert into "run_memory_attributions"/i)
-    expect(params).toHaveLength(18)
-    expect(params.slice(0, 6)).toEqual(['run_1', 'm_pin', 't_1', 'pinned', 0, 5])
-    expect(params.slice(6, 12)).toEqual(['run_1', 'm_ret', 't_1', 'retrieved', 1, 7])
+    expect(params).toHaveLength(21)
+    expect(params.slice(0, 7)).toEqual(['run_1', 'm_pin', 't_1', 'pinned', 0, 5, false])
+    expect(params.slice(7, 14)).toEqual(['run_1', 'm_ret', 't_1', 'retrieved', 1, 7, false])
     // No per-row via ⇒ falls back to ctx.via ('retrieved').
-    expect(params.slice(12, 18)).toEqual(['run_1', 'm_default', 't_1', 'retrieved', 2, 3])
+    expect(params.slice(14, 21)).toEqual(['run_1', 'm_default', 't_1', 'retrieved', 2, 3, false])
+  })
+
+  it('binds suppressed=true when ctx.suppressed is set (holdout counterfactual), false when omitted', async () => {
+    const { sql, query } = mockSql(() => [])
+    await insertAttributions(sql, { runId: 'run_1', tenantId: 't_1', via: 'retrieved', suppressed: true }, [
+      { memoryId: 'm1', rank: 0, tokens: 5 },
+    ])
+    const [text, params] = query.mock.calls[0]!
+    expect(String(text)).toMatch(/"suppressed"/)
+    expect(params).toEqual(['run_1', 'm1', 't_1', 'retrieved', 0, 5, true])
+
+    query.mockClear()
+    await insertAttributions(sql, { runId: 'run_1', tenantId: 't_1', via: 'retrieved' }, [
+      { memoryId: 'm2', rank: 0, tokens: 5 },
+    ])
+    const [, params2] = query.mock.calls[0]!
+    expect(params2).toEqual(['run_1', 'm2', 't_1', 'retrieved', 0, 5, false])
   })
 })
 

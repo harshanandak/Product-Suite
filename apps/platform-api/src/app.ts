@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 
 import { clerkAuth, type AuthedEnv } from './middleware/clerk-auth'
 import { agentChatRoutes } from './routes/agent-chat'
+import { agentMemoryImpactRoutes } from './routes/agent-memory-impact'
 import { agentReflectionRoutes } from './routes/agent-reflection'
 import { agentThreadsRoutes } from './routes/agent-threads'
 import { checksRoutes } from './routes/checks'
@@ -49,6 +50,9 @@ app.route('/api/agent/threads', agentThreadsRoutes)
 
 // Reflection: mine recurring human corrections into rule proposals (same review queue).
 app.route('/api/agent/reflection', agentReflectionRoutes)
+
+// Memory-impact metric: does memory measurably reduce the human editing burden?
+app.route('/api/agent/memory-impact', agentMemoryImpactRoutes)
 
 // Memory Brain: the org-scoped decision/knowledge store (Decision Log + Topic views).
 app.route('/api/memories', memoriesRoutes)

@@ -5,7 +5,7 @@ import { Link } from "@tanstack/react-router";
 import { Badge, Button, Textarea, cn } from "@product-suite/ui";
 
 import { useMemories, type MemoryRow } from "@/data/memories";
-import type { AcceptResult, Proposal } from "@/data/proposals";
+import { useProposals, type AcceptResult, type Proposal } from "@/data/proposals";
 import { useWorkItems, type WorkItem } from "@/data/work-items";
 
 import {
@@ -618,6 +618,35 @@ export function ProposalDetail({
   const acceptHint = acceptBlockedMessage(memoryTargetState);
   const disableAccept = acceptHint !== null;
 
+  // The rules active during the run that authored THIS proposal — provenance for the
+  // "Rules active when this was drafted" badge (only a work-item proposal shows it). Fetched
+  // via a small cancellable effect, mirroring the memory-target fetch above; a failed
+  // provenance read is non-blocking (the badge simply stays empty).
+  const { activeRules } = useProposals();
+  const [ruleTitles, setRuleTitles] = useState<readonly string[]>([]);
+  useEffect(() => {
+    if (isMemory) {
+      setRuleTitles([]);
+      return;
+    }
+    // Clear the PREVIOUS proposal's rules IMMEDIATELY (before the new fetch resolves):
+    // a stale "Rules active when this was drafted…" from another proposal must never
+    // linger on-screen while this one's provenance is in flight — mirrors the
+    // memory-target effect's reset-on-change above.
+    setRuleTitles([]);
+    let cancelled = false;
+    void activeRules(proposal.id)
+      .then((rules) => {
+        if (!cancelled) setRuleTitles(rules.map((rule) => rule.title));
+      })
+      .catch(() => {
+        if (!cancelled) setRuleTitles([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isMemory, proposal.id, activeRules]);
+
   const [status, setStatus] = useState<DisposeStatus>({ kind: "idle" });
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("");
@@ -690,8 +719,8 @@ export function ProposalDetail({
         <>
           <WorkItemSurface proposal={proposal} target={workItemTarget} workspace={workspace} />
           {/* Rules active during the authoring run — provenance, not causation.
-              Empty until the run→rule-attribution join is available client-side. */}
-          <RuleAttributionBadge ruleTitles={[]} />
+              Fed by the run→rule-attribution join (empty renders nothing). */}
+          <RuleAttributionBadge ruleTitles={ruleTitles} />
         </>
       )}
 

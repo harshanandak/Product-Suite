@@ -116,6 +116,34 @@ describe('buildTools (ToolRegistry)', () => {
     expect(params.slice(0, 4)).toEqual(['run_1', 'mem_1', 't_1', 'tool'])
   })
 
+  it('omits search_memory entirely when ctx.holdout=true (no tool path into memory); keeps it when false/omitted', async () => {
+    const { sql } = fakeSql([])
+    const holdoutTools = buildTools(sql, {
+      tenantId: 't_1',
+      userId: 'u_1',
+      runId: 'run_1',
+      modelId: 'm/1',
+      holdout: true,
+    })
+    expect(holdoutTools.search_memory).toBeUndefined()
+    expect('search_memory' in holdoutTools).toBe(false)
+    // Every other tool is unaffected by holdout.
+    expect(holdoutTools.list_work_items).toBeDefined()
+    expect(holdoutTools.propose_memory).toBeDefined()
+
+    const treatedTools = buildTools(sql, {
+      tenantId: 't_1',
+      userId: 'u_1',
+      runId: 'run_1',
+      modelId: 'm/1',
+      holdout: false,
+    })
+    expect(treatedTools.search_memory).toBeDefined()
+
+    const defaultTools = buildTools(sql, { tenantId: 't_1', userId: 'u_1', runId: 'run_1', modelId: 'm/1' })
+    expect(defaultTools.search_memory).toBeDefined()
+  })
+
   it('propose_memory (create) writes a target_type=memory proposal with agent provenance', async () => {
     createProposal.mockResolvedValue({ id: 'mprop_1' })
     // A create has no target, so no ownership lookup runs — query stays untouched.
