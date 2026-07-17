@@ -520,6 +520,9 @@ export const memories = pgTable(
     pinned: boolean('pinned').notNull().default(false),
     priority: integer('priority').notNull().default(0),
     enforcement: memoryEnforcementEnum('enforcement').notNull().default('advisory'),
+    // Memory Brain P3a — embedding provenance (raw-SQL only; the `embedding`
+    // halfvec column itself is authored in migration 0013, not a Drizzle type).
+    embedModel: text('embed_model'),
     ...timestamps,
   },
   (t) => ({
@@ -564,5 +567,87 @@ export const runMemoryAttributions = pgTable(
   (t) => ({
     byRun: index('run_memory_attributions_run_idx').on(t.runId),
     byMemory: index('run_memory_attributions_memory_idx').on(t.memoryId),
+  }),
+)
+
+// --- Memory Brain P3a (see docs/design/2026-07-17-memory-brain-p3a.md) ---
+// The RECALL layer: many, raw, unreviewed chunks derived from sources
+// (work-items now; docs/meetings in P3b/P3c), lower-authority than `memories`
+// and with a different lifecycle (re-chunk/cascade-delete vs review/
+// supersession) — kept as a separate table rather than merged into `memories`.
+// `embedding` (halfvec) and `fts` (generated tsvector) are authored in
+// migration 0013 and are NOT Drizzle column types here — retrieval/ingest
+// address them via raw SQL (see memory-retrieval.ts's `sql.query` pattern).
+
+/**
+ * A knowledge chunk — one retrievable slice of a source (a work item's
+ * title+description today). `tier` is the resolved authority tier (T0..T4,
+ * see design doc §2), stamped at ingest time. `scope_type`/`scope_id` share
+ * the same cascade vocabulary as `memories` (P3a ingests at `project` scope,
+ * never `work_item`, so cross-item recall works). Embedding provenance
+ * (`embed_provider`/`embed_model`/`embed_dims`) is stamped per row so a hosted
+ * model version bump is safe to detect. `content_hash` + the dedup unique
+ * index make re-ingestion idempotent.
+ */
+export const knowledgeChunks = pgTable(
+  'knowledge_chunks',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: text('tenant_id').notNull(),
+    // 'work_item' (P3a) | 'document' | 'meeting' (P3b/P3c).
+    sourceType: text('source_type').notNull(),
+    sourceRef: text('source_ref').notNull(),
+    chunkIndex: integer('chunk_index').notNull().default(0),
+    content: text('content').notNull(),
+    contentHash: text('content_hash').notNull(),
+    // Resolved authority tier (T0..T4) — see resolveTier() in the design doc.
+    tier: integer('tier').notNull(),
+    scopeType: text('scope_type').notNull().default('org'),
+    scopeId: uuid('scope_id'),
+    topics: text('topics').array().notNull().default(sql`'{}'::text[]`),
+    // Bi-temporal: when the knowledge was TRUE, not when it was captured.
+    eventTime: timestamp('event_time', { withTimezone: true }),
+    embedProvider: text('embed_provider').notNull(),
+    embedModel: text('embed_model').notNull(),
+    embedDims: integer('embed_dims').notNull(),
+    status: text('status').notNull().default('active'),
+    ...timestamps,
+  },
+  (t) => ({
+    byTenantScope: index('knowledge_chunks_tenant_scope').on(t.tenantId, t.status, t.scopeType, t.scopeId),
+    dedup: uniqueIndex('knowledge_chunks_dedup').on(t.tenantId, t.sourceType, t.sourceRef, t.contentHash),
+  }),
+)
+
+/**
+ * The KB attribution rail — one row per memory OR chunk surfaced by
+ * `search_knowledge`, written deterministically after retrieval (same
+ * discipline as `run_memory_attributions`). A DEDICATED table (not
+ * `run_memory_attributions`) because a chunk can't satisfy that table's
+ * NOT-NULL memory_id FK, and a nullable FK there would weaken the existing
+ * P1/P2 rail. `kind` + the `rka_exactly_one` CHECK (migration-only — not
+ * expressible as a Drizzle constraint here) enforce exactly one of
+ * memory_id/chunk_id. `suppressed` is the P3a holdout counterfactual, mirroring
+ * `run_memory_attributions.suppressed`.
+ */
+export const runKnowledgeAttributions = pgTable(
+  'run_knowledge_attributions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    runId: uuid('run_id')
+      .notNull()
+      .references(() => agentRuns.id, { onDelete: 'cascade' }),
+    tenantId: text('tenant_id').notNull(),
+    memoryId: uuid('memory_id').references(() => memories.id, { onDelete: 'cascade' }),
+    chunkId: uuid('chunk_id').references(() => knowledgeChunks.id, { onDelete: 'cascade' }),
+    // 'memory' | 'chunk' — which FK above is set.
+    kind: text('kind').notNull(),
+    rank: integer('rank'),
+    score: real('score'),
+    suppressed: boolean('suppressed').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    byRun: index('run_knowledge_attributions_run_idx').on(t.runId),
   }),
 )
