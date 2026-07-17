@@ -358,3 +358,58 @@ export async function searchKnowledge(sql: Sql, ctx: SearchKnowledgeCtx): Promis
   }
   return out
 }
+
+/** One KB attribution row: the item's `kind` selects which XOR FK is set. */
+export interface KnowledgeAttributionEntry {
+  kind: 'memory' | 'chunk'
+  /** The item id — bound to `memory_id` (kind='memory') XOR `chunk_id` (kind='chunk'). */
+  id: string
+  rank: number | null
+  score: number | null
+}
+
+/**
+ * Write ONE `run_knowledge_attributions` row per returned knowledge item — the P3a
+ * KB moat rail (the analogue of `run_memory_attributions`'s {@link insertAttributions}).
+ * A single multi-row insert (bound params only), anchored to the run's org. `kind`
+ * selects the exactly-one FK: a 'memory' item sets `memory_id` (chunk_id null), a
+ * 'chunk' sets `chunk_id` (memory_id null) — always honouring the `rka_exactly_one`
+ * CHECK (never both, never neither). `suppressed` is the holdout counterfactual.
+ * No ON CONFLICT: the table carries no unique key, and the caller logs the ACTUAL
+ * returned set exactly once per retrieval, so there is nothing to dedup. A no-op when
+ * nothing was returned.
+ */
+export async function insertKnowledgeAttributions(
+  sql: Sql,
+  ctx: { runId: string; tenantId: string; suppressed?: boolean },
+  entries: KnowledgeAttributionEntry[],
+): Promise<void> {
+  if (entries.length === 0) return
+  const params: unknown[] = []
+  const tuples: string[] = []
+  for (const e of entries) {
+    const base = params.length
+    // XOR: exactly one FK is non-null, chosen by kind — the CHECK's whole point.
+    const memoryId = e.kind === 'memory' ? e.id : null
+    const chunkId = e.kind === 'chunk' ? e.id : null
+    params.push(
+      ctx.runId,
+      ctx.tenantId,
+      memoryId,
+      chunkId,
+      e.kind,
+      e.rank ?? null,
+      e.score ?? null,
+      ctx.suppressed ?? false,
+    )
+    tuples.push(
+      `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8})`,
+    )
+  }
+  const text = `
+    insert into "run_knowledge_attributions"
+      ("run_id", "tenant_id", "memory_id", "chunk_id", "kind", "rank", "score", "suppressed")
+    values ${tuples.join(', ')}
+  `
+  await runQuery(sql, text, params)
+}

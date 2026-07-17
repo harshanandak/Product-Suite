@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 
 import type { UIMessage } from 'ai'
 
+import { embed as embedClient } from '../agent/embeddings'
 import { agentModel } from '../agent/models'
 import { runAgentChat, type AgentScope } from '../agent/runtime'
 import { createThread, getThreadScoped, titleFromFirstMessage } from '../agent/threads-repository'
@@ -99,6 +100,12 @@ agentChatRoutes.post('/', async (c) => {
     }
 
     const model = agentModel(c.env ?? {})
+    // The real OpenRouter embed client for the `search_knowledge` recall lane, built
+    // from the request env (mirrors the KB-ingest route). The SAME key the agent model
+    // uses — no new provisioning. On a holdout run the KB tool is omitted, so this is
+    // simply never invoked.
+    const env = c.env ?? {}
+    const embed = (texts: string[]) => embedClient(texts, env)
     const scope = parseScope(body.context)
 
     // The SERVER owns thread creation — kills the first-message race STRUCTURALLY (no
@@ -120,7 +127,7 @@ agentChatRoutes.post('/', async (c) => {
       })
     }
 
-    const res = await runAgentChat(sql, { tenantId, userId, model, waitUntil, scope, threadId }, messages)
+    const res = await runAgentChat(sql, { tenantId, userId, model, embed, waitUntil, scope, threadId }, messages)
     // Hand the thread id back to the client (the new-thread flow reads it and sends
     // it on subsequent turns). Exposed for cross-origin reads by the SPA.
     res.headers.set('x-thread-id', threadId)
