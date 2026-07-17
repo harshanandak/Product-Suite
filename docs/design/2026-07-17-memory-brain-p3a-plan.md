@@ -4,7 +4,7 @@
 
 **Goal:** Prove the unified knowledge state + deterministic authority: a `knowledge_chunks` (pgvector) store + embedded memories, unified behind a `search_knowledge` tool (RRF hybrid + authority tiers + a conflict-annotation demo), ingesting project-scoped past work-items only.
 
-**Architecture:** Two physically-separate stores (`memories`, `knowledge_chunks`) sharing scope/topic/provenance vocabulary, unified by ONE retrieval service. Embeddings = Voyage `voyage-3.5-lite@1024` (`halfvec`). Recall lane = pgvector kNN ∪ FTS → RRF → deterministic tier weight → annotate. Conflict resolution is deterministic code (never LLM-judged). No canon-lane changes.
+**Architecture:** Two physically-separate stores (`memories`, `knowledge_chunks`) sharing scope/topic/provenance vocabulary, unified by ONE retrieval service. Embeddings = OpenAI `text-embedding-3-large@1024` via OpenRouter (`halfvec`; reuses `OPENROUTER_API_KEY`). Recall lane = pgvector kNN ∪ FTS → RRF → deterministic tier weight → annotate. Conflict resolution is deterministic code (never LLM-judged). No canon-lane changes.
 
 **Tech Stack:** Hono + Cloudflare Workers (platform-api), Neon Postgres + pgvector (≥0.7 for `halfvec`), Drizzle (hand-authored migrations), Vitest.
 
@@ -16,7 +16,7 @@
 - **Determinism** is "given index state" — HNSW is approximate; the attribution rail logs ACTUAL injected items so the causal/holdout signal stays honest. No `Math.random`.
 - **Holdout safety:** `search_knowledge` is omitted from the toolset on a holdout run; if invoked, chunk-lane only, memory would-be-hits logged `suppressed=true`.
 - **Attribution honesty:** all `search_knowledge` hits → `run_knowledge_attributions` (never `run_memory_attributions`); memory-value analysis must UNION both tables (kind='memory').
-- **Env:** `VOYAGE_API_KEY` required at runtime (tests mock the client). Confirm `CREATE EXTENSION vector` ≥0.7 on the branch DB (Task 1). Confirm `statusCategoryEnum` includes `'completed'` and exact `activity_events` columns.
+- **Env:** embeddings use **`OPENROUTER_API_KEY`** (already wired in `agent/models.ts` — no new provisioning); optional `KB_EMBED_MODEL` override (default `openai/text-embedding-3-large`). Tests mock the client. Confirm `CREATE EXTENSION vector` ≥0.7 on the branch DB (Task 1). Confirm `statusCategoryEnum` includes `'completed'` and exact `activity_events` columns.
 - Commit per task, TDD; run api suite + `tsc --noEmit` from `apps/platform-api` (local binaries, never `npx`).
 
 **Task order:** 1 (migration) → 2 (authority pure fns) → 3 (embedding client) → 4 (ingestion) → 5 (retrieval recall lane) → 6 (tool + attribution + holdout).
@@ -28,7 +28,7 @@
 |---|---|---|
 | `packages/db/migrations/0013_knowledge_base.sql` (create) + `_journal.json` + `schema.ts` | pgvector, `knowledge_chunks`, `memories.embedding`, `run_knowledge_attributions` | 1 |
 | `apps/platform-api/src/agent/authority.ts` (create) + `.test.ts` | `resolveTier`, `compareByAuthority`, `annotateByAuthority`, `ANNOTATE_SIM_THRESHOLD` | 2 |
-| `apps/platform-api/src/agent/embeddings.ts` (create) + `.test.ts` | Voyage client + provenance + degraded contract | 3 |
+| `apps/platform-api/src/agent/embeddings.ts` (create) + `.test.ts` | OpenRouter embedding client + provenance + degraded contract | 3 |
 | `apps/platform-api/src/agent/kb-ingest.ts` (create) + `.test.ts` + route `routes/agent-kb.ts` | backfill memory embeddings + ingest work-items | 4 |
 | `apps/platform-api/src/agent/knowledge-retrieval.ts` (create) + `.test.ts` | `searchKnowledge` (kNN∪FTS→RRF→tier→annotate), `rrfFuse` | 5 |
 | `apps/platform-api/src/agent/tools.ts` (modify) + `runtime.ts` (holdout omit) + attribution | `search_knowledge` tool + `run_knowledge_attributions` logging | 6 |
@@ -100,13 +100,13 @@ describe('annotateByAuthority', () => {
 
 ---
 
-## Task 3: Embedding client (Voyage)
+## Task 3: Embedding client (OpenRouter)
 
 **Files:** create `apps/platform-api/src/agent/embeddings.ts` + `.test.ts`.
 
-**Interfaces:** `embed(texts: string[], inputType: 'document'|'query', env): Promise<EmbedResult>` where `EmbedResult = { vectors: number[][]; model: string; dims: number }`; throws `EmbeddingError` on failure.
+**Interfaces:** `embed(texts: string[], env): Promise<EmbedResult>` where `EmbedResult = { vectors: number[][]; model: string; dims: number }`; throws `EmbeddingError` on failure. (No `input_type` — OpenAI-format embeddings don't use one; same call for ingest + query.)
 
-- [ ] **Step 1: Failing test** — mock `fetch`; assert one batched POST to the Voyage endpoint with `{ input: texts, model: 'voyage-3.5-lite', input_type, output_dimension: 1024 }` + bearer `VOYAGE_API_KEY`; returns `{ vectors, model:'voyage-3.5-lite', dims:1024 }`; on non-200/network → throws `EmbeddingError` (caller decides degrade). **Step 2:** fail. **Step 3: implement** — a single `fetch` to `https://api.voyageai.com/v1/embeddings`, parse `data[].embedding`, return provenance; defensive parse; typed error. Read the key from `env.VOYAGE_API_KEY` (Workers env). **Step 4:** pass. **Step 5: commit** — `feat(agent): voyage embedding client (1024d, provenance)`.
+- [ ] **Step 1: Failing test** — mock `fetch`; assert one batched POST to `https://openrouter.ai/api/v1/embeddings` with body `{ model: 'openai/text-embedding-3-large', input: texts, dimensions: 1024 }` + `Authorization: Bearer <env.OPENROUTER_API_KEY>`; returns `{ vectors, model:'openai/text-embedding-3-large', dims:1024 }`; model overridable via `env.KB_EMBED_MODEL`; on non-200/network → throws `EmbeddingError` (caller decides degrade). **Step 2:** fail. **Step 3: implement** — a single `fetch` to the OpenRouter embeddings endpoint (OpenAI-compatible), parse `data[].embedding`, return provenance (`provider='openrouter'`, model, dims); defensive parse; typed error; key from `env.OPENROUTER_API_KEY`. **Step 4:** pass. **Step 5: commit** — `feat(agent): OpenRouter embedding client (text-embedding-3-large @1024, provenance)`.
 
 ---
 
@@ -116,7 +116,7 @@ describe('annotateByAuthority', () => {
 
 **Interfaces:** `ingestKnowledge(sql, { tenantId, embed }): Promise<{ memoriesEmbedded: number; chunksIngested: number }>` (`embed` injected for tests).
 
-- [ ] **Step 1: Failing test** (mocked sql + embed): asserts (a) memory backfill embeds only `embedding is null` active rows and stamps `embed_model`; (b) work-item selection query joins `statuses` on `status_id` where `category='completed'` and `archived=false`; (c) each item → one chunk with `content = title+"\n"+description`, `scope_type='project'` (`org` when `project_id` null), `event_time` from the item's latest `activity_events.created_at` (fallback `updated_at`), `tier=3`, provenance stamped; (d) a re-ingest is a no-op (dedup unique index). **Step 2:** fail. **Step 3: implement** — the two queries + the chunk insert (`on conflict … do nothing` on the dedup index); use the injected `embed(input_type='document')`. **Step 4:** pass. **Step 5: route** — `POST /api/agent/kb/ingest` builds the real `embed` from the Voyage client + calls `ingestKnowledge`. **Step 6:** api suite + tsc. **Step 7: commit** — `feat(agent): KB ingestion — memory backfill + work-item chunks`.
+- [ ] **Step 1: Failing test** (mocked sql + embed): asserts (a) memory backfill embeds only `embedding is null` active rows and stamps `embed_model`; (b) work-item selection query joins `statuses` on `status_id` where `category='completed'` and `archived=false`; (c) each item → one chunk with `content = title+"\n"+description`, `scope_type='project'` (`org` when `project_id` null), `event_time` from the item's latest `activity_events.created_at` (fallback `updated_at`), `tier=3`, provenance stamped; (d) a re-ingest is a no-op (dedup unique index). **Step 2:** fail. **Step 3: implement** — the two queries + the chunk insert (`on conflict … do nothing` on the dedup index); use the injected `embed`. **Step 4:** pass. **Step 5: route** — `POST /api/agent/kb/ingest` builds the real `embed` from the OpenRouter client + calls `ingestKnowledge`. **Step 6:** api suite + tsc. **Step 7: commit** — `feat(agent): KB ingestion — memory backfill + work-item chunks`.
 
 ---
 
@@ -143,4 +143,4 @@ describe('annotateByAuthority', () => {
 **Spec coverage:** §3 schema→T1 · §2 authority→T2 · §4A embeddings→T3 · §4B ingestion→T4 · §4C recall lane→T5 · §4D tool+attribution+holdout→T6. ✓
 **Deferred (correctly absent):** knowledge_sources, document/meeting ingestion, async contradiction job, promotion, reranker wiring (seam only), self-hosted BGE.
 **Type consistency:** `KnowledgeItem`/`Ranked`/`FusedItem` consistent T5→T6; `embed` signature consistent T3→T4→T5; `resolveTier` tiers match the spec.
-**Build-time verifications owed:** pgvector ≥0.7 on the branch DB (T1 Step 1); `statusCategoryEnum` includes `'completed'`; `VOYAGE_API_KEY` provisioned (runtime + CI); the memory-value/holdout analysis unions both attribution tables (a P2b follow-up, noted).
+**Build-time verifications owed:** pgvector ≥0.7 on the branch DB (T1 Step 1); `statusCategoryEnum` includes `'completed'`; `OPENROUTER_API_KEY` already provisioned (reused — confirm it's in the Workers env/CI, it is for the agent); the memory-value/holdout analysis unions both attribution tables (a P2b follow-up, noted).

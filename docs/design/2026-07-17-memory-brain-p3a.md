@@ -37,7 +37,7 @@ create table "knowledge_chunks" (
   "chunk_index" integer not null default 0,
   "content" text not null,
   "content_hash" text not null,         -- dedup (exact-hash tier)
-  "embedding" halfvec(1024),            -- voyage-3.5-lite @ 1024 dims, 2-byte
+  "embedding" halfvec(1024),            -- openai/text-embedding-3-large @ 1024 dims (via OpenRouter), 2-byte
   -- FTS generated column (added in migration, not Drizzle-expressible), like memories.fts
   -- Unified vocabulary with memories:
   "tier" integer not null,              -- resolved authority tier (T0..T4)
@@ -46,8 +46,8 @@ create table "knowledge_chunks" (
   "topics" text[] not null default '{}',
   "event_time" timestamptz,             -- bi-temporal: when the knowledge was TRUE
   -- Embedding provenance — hosted models silently version-bump; keep the rail honest:
-  "embed_provider" text not null,       -- 'voyage'
-  "embed_model" text not null,          -- 'voyage-3.5-lite'
+  "embed_provider" text not null,       -- 'openrouter'
+  "embed_model" text not null,          -- 'openai/text-embedding-3-large'
   "embed_dims" integer not null,        -- 1024
   "status" text not null default 'active',  -- active | stale | superseded
   "created_at" timestamptz not null default now(),
@@ -89,9 +89,9 @@ create index "run_knowledge_attributions_run_idx" on "run_knowledge_attributions
 ## 4. Components
 
 ### A. Embedding client — `apps/platform-api/src/agent/embeddings.ts` (new)
-- `embed(texts: string[]): Promise<{ vector: number[]; model: string; dims: number }[]>` — one batched **Voyage** REST call (`voyage-3.5-lite`, `output_dimension=1024`, `input_type` = `document` on ingest / `query` on search). Env `VOYAGE_API_KEY`.
-- Returns the vector + the provenance (`model`, `dims`) stamped on every stored row. Defensive: throws typed error on failure (ingest/search handle it — a failed embed must not corrupt data or strand a run).
-- Truncation/normalization: request native 1024 dims from Voyage (quantization-aware); no client MRL needed at 1024. Store as `halfvec`.
+- `embed(texts: string[], env): Promise<{ vector: number[]; model: string; dims: number }[]>` — one batched call to **OpenRouter's OpenAI-compatible embeddings endpoint** (`POST https://openrouter.ai/api/v1/embeddings`, bearer `env.OPENROUTER_API_KEY` — the SAME key the agent already uses via `agent/models.ts`, so **no new provisioning**). Body `{ model, input: texts, dimensions: 1024 }` where `model = env.KB_EMBED_MODEL ?? 'openai/text-embedding-3-large'`. OpenAI embeddings have **no `input_type`** (unlike Voyage/Cohere) — the same call serves ingest + query.
+- Returns the vector + provenance (`provider='openrouter'`, `model`, `dims`) stamped on every stored row. Defensive: throws a typed `EmbeddingError` on failure (ingest/search handle it — a failed embed must not corrupt data or strand a run).
+- `dimensions=1024` (OpenAI native Matryoshka) → store as `halfvec(1024)`. **Model-configurable** via `KB_EMBED_MODEL`, so we can A/B higher-MTEB OpenRouter models (Cohere `embed-v4`, `gemini-embedding`, `Qwen3-Embedding`) or swap to **Voyage** later — the per-vector `{provider,model,dims}` provenance makes a model bump safe. (Voyage `voyage-3.5-lite` was marginally better + cheaper but is not available yet — tracked as a follow-up.)
 
 ### B. Ingestion — `apps/platform-api/src/agent/kb-ingest.ts` (new) + route `POST /api/agent/kb/ingest`
 1. **Backfill memories:** embed active `memories` rows lacking an `embedding` (batch), stamp `embed_model`. Cheap (few rows).
@@ -100,7 +100,7 @@ create index "run_knowledge_attributions_run_idx" on "run_knowledge_attributions
    - **content** = `title + "\n" + description` (short → one chunk per item, no splitting); optionally append the item's `activity_events.summary` rows for resolution context.
    - **event_time** = the latest `activity_events.created_at` for the item, fallback `updated_at` (there is no completion timestamp column).
    - **scope** = the item's **project**: `scope_type='project'`, `scope_id = project_id` (`org`/null when the item has no project). **NOT `work_item` scope** — a work-item-scoped chunk would only surface when the run is already on that same item, so cross-item "have we solved this before?" recall would never fire.
-   - Compute `content_hash`; skip on the dedup unique-index conflict. Embed (`input_type=document`), store `source_type='work_item'`, `source_ref = <work_item id>`, `tier = T3` (via `resolveTier`).
+   - Compute `content_hash`; skip on the dedup unique-index conflict. Embed, store `source_type='work_item'`, `source_ref = <work_item id>`, `tier = T3` (via `resolveTier`).
 - Idempotent (dedup unique index + "not yet chunked" check). On-demand route now (like reflection); scheduling deferred. (Confirm exact `statuses`/`activity_events` column names against `schema.ts` when implementing.)
 
 ### C. Retrieval service — extend `apps/platform-api/src/agent/memory-retrieval.ts`
@@ -108,12 +108,12 @@ Two lanes, both deterministic (RRF is rank-only; no sampling):
 - **Canon lane (unchanged):** the P1 scope-cascade active-memory injection into the prompt.
 - **Recall lane (new):** `searchKnowledge(sql, { tenantId, scope?, query, k, holdout })`:
   0. **Holdout guard:** on a `holdout` run, the memories lane is excluded from the results (a holdout run must reach NO memory — same discipline that omits `search_memory` in P2b, §D) and any memory that *would* have surfaced is logged `suppressed=true`; chunks may still return (they're not the thing the memory-holdout measures). Simplest coherent rule: **on holdout, `search_knowledge` runs the chunk lane only.**
-  1. Embed the query (`input_type=query`). **On embed failure, degrade to FTS-only** (deterministic; the tool still answers) rather than failing the tool — a Voyage outage must never strand the agent.
+  1. Embed the query. **On embed failure, degrade to FTS-only** (deterministic; the tool still answers) rather than failing the tool — an embedding-provider outage must never strand the agent.
   2. **pgvector kNN** over `knowledge_chunks.embedding` ∪ `memories.embedding` (status='active', tenant + scope-cascade filter), top-N each.
   3. **FTS** (tsvector) over both, top-N each.
   4. **RRF fuse** the ranked lists (fixed `k=60`, id tie-break). Deterministic *given the index state* — HNSW is approximate, so recall can vary if the index changes, but for fixed inputs+index the output order is stable, and the attribution rail logs the ACTUAL injected items, so the causal/holdout signal stays honest (same as P1).
   5. **Authority weight + annotate:** multiply the fused score by a tier factor, break ties by the §2 comparator, and run `annotateByAuthority` (§2 minimal conflict demo — pairwise cosine, annotate a lower-tier item highly similar to a higher-tier memory).
-  6. **(Feature-flagged) reranker stage** — default **OFF** (`KB_RERANK=1`): top-20 → `voyage-rerank-2.5` (hosted cross-encoder) → top-5. Off by default so the holdout can measure its lift; the model version is pinned + logged. (Self-hosted BGE-reranker is the later infra option.)
+  6. **(Feature-flagged) reranker stage** — default **OFF** (`KB_RERANK=1`): top-20 → a hosted cross-encoder → top-5 (provider TBD — Cohere `rerank-v3.5` or `voyage-rerank-2.5` when wired; self-hosted BGE later). Off by default so the holdout can measure its lift; version pinned + logged.
   7. Token-budget + return `KnowledgeItem[]` (`{ id, kind: 'memory'|'chunk', source_type, title/snippet, tier, score, scope, annotation? }`).
 
 ### D. Agent tool + attribution — `tools.ts` + the new rail
@@ -136,7 +136,7 @@ The agent can `search_knowledge` and get **one ranked result set** spanning its 
 - **Ingestion:** selects only `statuses.category='completed'`, non-archived items; content = title+description; `event_time` from latest activity / `updated_at` fallback; **scope = project (org when null), never work_item**; 1 chunk/item; dedup unique-index skips a re-ingest; memories backfill embeds only null-`embedding` rows; provenance (`provider/model/dims`) stamped.
 - **Retrieval:** kNN∪FTS→RRF→tier weight returns memories AND chunks in one set; a T1 memory outranks a same-relevance T3 chunk; scope cascade respected; reranker flag OFF by default; **embed failure → FTS-only degraded (tool still answers)**; attribution rows written to `run_knowledge_attributions` (kind+exactly-one FK).
 - **Holdout:** on a holdout run, `search_knowledge` is omitted from the toolset; if invoked directly it returns chunk-lane only, no memories, and would-be memory hits log `suppressed=true`.
-- Embedding client: batched, `input_type` document vs query, provenance returned, defensive on API failure (mock Voyage).
+- Embedding client: batched single call, `dimensions:1024`, provenance returned, defensive on API failure → typed error (mock OpenRouter `fetch`).
 
 ## 8. Defaults / decisions (locked via research + verification)
-Embedding **`voyage-3.5-lite` @ 1024 dims** (halfvec) · index **HNSW cosine** · fusion **RRF (k=60)** · reranker **feature-flagged OFF** (`voyage-rerank-2.5`) · per-vector provenance `{provider,model,dims}` · work-items-only ingestion, **project-scoped** · tiers T0/T1 (memories) + T3 (work-items). Neon caveat: scale-to-zero cold start (~hundreds ms) is a latency (not correctness) concern for eval runs — pre-warm. Determinism is "given index state" — HNSW is approximate; the attribution rail logs actual injected items so the holdout stays causal.
+Embedding **OpenAI `text-embedding-3-large` @ 1024 dims via OpenRouter** (reuses `OPENROUTER_API_KEY`; `halfvec`; `KB_EMBED_MODEL`-configurable) · index **HNSW cosine** · fusion **RRF (k=60)** · reranker **feature-flagged OFF** (provider TBD — Cohere/voyage rerank when wired) · per-vector provenance `{provider,model,dims}` · work-items-only ingestion, **project-scoped** · tiers T0/T1 (memories) + T3 (work-items). Neon caveat: scale-to-zero cold start (~hundreds ms) is a latency (not correctness) concern for eval runs — pre-warm. Determinism is "given index state" — HNSW is approximate; the attribution rail logs actual injected items so the holdout stays causal.
