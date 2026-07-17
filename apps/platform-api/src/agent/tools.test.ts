@@ -194,7 +194,11 @@ describe('buildTools (ToolRegistry)', () => {
     const scope = { workspace: 'w', object: { type: 'project', id: 'p_1', title: 'Launch' } }
     const tools = buildTools(sql, { tenantId: 't_1', userId: 'u_1', runId: 'run_1', modelId: 'm/1', embed, scope })
 
-    await tools.search_knowledge?.execute?.({ query: 'x' }, opts)
+    // Assert the tool is registered before invoking — optional chaining would let
+    // this test pass vacuously if search_knowledge (or its execute) went missing.
+    const tool = tools.search_knowledge
+    expect(tool?.execute).toBeDefined()
+    await tool!.execute!({ query: 'x' }, opts)
 
     expect(searchKnowledge).toHaveBeenCalledWith(sql, expect.objectContaining({ scope }))
   })

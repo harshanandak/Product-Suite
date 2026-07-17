@@ -225,7 +225,9 @@ describe('ingestKnowledge — work-item chunks', () => {
     })
 
     await expect(ingestKnowledge(sql, { tenantId: 't1', embed: badEmbed })).rejects.toThrow(/1024/)
-    // No insert was attempted — the guard fires before any write.
+    // The guard fires before ANY write — neither the supersession UPDATE nor the
+    // insert was attempted (proving "before any write", not merely "no insert").
+    expect(query.mock.calls.find(([t]) => isChunkDeactivate(String(t)))).toBeUndefined()
     expect(query.mock.calls.find(([t]) => isChunkInsert(String(t)))).toBeUndefined()
   })
 })
