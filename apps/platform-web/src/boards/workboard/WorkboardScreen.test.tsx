@@ -165,6 +165,73 @@ describe("WorkboardScreen", () => {
     ).toBeInTheDocument();
   });
 
+  it("scopes rows to the given teamId and hides the Team facet", async () => {
+    render(
+      <WorkboardScreen
+        repository={createMockWorkItemRepository()}
+        teamId="team_engineering"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+
+    // An Engineering item is present…
+    expect(
+      screen.getByRole("button", { name: "Workspace auth hardening" }),
+    ).toBeInTheDocument();
+    // …and a Marketing item (Diwali creative set) is scoped out of the surface.
+    expect(
+      screen.queryByRole("button", { name: "Diwali creative set" }),
+    ).not.toBeInTheDocument();
+
+    // The Team (Department) facet is hidden — the scope is fixed by the route.
+    expect(
+      screen.queryByRole("button", { name: "Filter by department" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("still applies search within the team scope", async () => {
+    render(
+      <WorkboardScreen
+        repository={createMockWorkItemRepository()}
+        teamId="team_engineering"
+      />,
+    );
+
+    // Engineering seeds four items, so more than one row shows before searching.
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(1);
+    });
+
+    fireEvent.change(
+      screen.getByRole("searchbox", { name: "Search work items" }),
+      { target: { value: "Workspace auth hardening" } },
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row")).toHaveLength(1);
+    });
+    expect(
+      screen.getByRole("button", { name: "Workspace auth hardening" }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows the team empty state when the team has no items", async () => {
+    render(
+      <WorkboardScreen
+        repository={createMockWorkItemRepository()}
+        teamId="team_does_not_exist"
+      />,
+    );
+
+    expect(
+      await screen.findByText("No items in this team yet"),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("work-item-row")).not.toBeInTheDocument();
+  });
+
   it("navigates to the item's detail page when a row is activated", async () => {
     render(<WorkboardScreen repository={createMockWorkItemRepository()} />);
 

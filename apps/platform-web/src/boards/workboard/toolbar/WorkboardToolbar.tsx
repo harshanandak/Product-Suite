@@ -118,6 +118,11 @@ export interface WorkboardToolbarProps {
    * loaded rows. The filter renders no options (and stays inert) when empty.
    */
   departments: ReadonlyArray<string>;
+  /**
+   * Hide the Team (department) facet — set on a team-scoped surface where the
+   * scope is already fixed by the route, so filtering by team is meaningless.
+   */
+  hideTeamFacet?: boolean;
   /** Count of currently-selected rows; drives the bulk-action cluster. */
   selectedCount: number;
   /** Fired when the "New work item" button is pressed. */
@@ -238,6 +243,7 @@ export function WorkboardToolbar({
   onViewChange,
   owners,
   departments,
+  hideTeamFacet = false,
   selectedCount,
   onNewItem,
   onBulkApply,
@@ -487,17 +493,20 @@ export function WorkboardToolbar({
       {/* Department facet — always a toolbar filter (Department has no table
           column, so unlike Type / Phase / Priority / Owner it cannot move into a
           column header). All facets still flow into the active-filter count +
-          chips below (both derive from the shared filter state). */}
-      <FacetFilterMenu
-        label="Department"
-        options={departmentOptions}
-        selected={filters.department}
-        onToggle={toggleDepartment}
-        onSetSelected={(next) =>
-          onChange({ ...value, filters: { ...filters, department: next } })
-        }
-        searchable
-      />
+          chips below (both derive from the shared filter state). Hidden on a
+          team-scoped surface, where the team is already fixed by the route. */}
+      {hideTeamFacet ? null : (
+        <FacetFilterMenu
+          label="Department"
+          options={departmentOptions}
+          selected={filters.department}
+          onToggle={toggleDepartment}
+          onSetSelected={(next) =>
+            onChange({ ...value, filters: { ...filters, department: next } })
+          }
+          searchable
+        />
+      )}
 
       {activeFilterCount > 0 ? (
         <Button

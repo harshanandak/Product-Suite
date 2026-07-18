@@ -56,6 +56,7 @@ function renderToolbar(overrides?: {
   view?: "table" | "kanban";
   columnFilters?: Partial<Record<ColumnId, ColumnFilter>>;
   savedViews?: ReadonlyArray<SavedView>;
+  hideTeamFacet?: boolean;
 }) {
   const onChange = vi.fn<(next: WorkboardFilterState) => void>();
   const onNewItem = vi.fn();
@@ -77,6 +78,7 @@ function renderToolbar(overrides?: {
       onViewChange={onViewChange}
       owners={OWNERS}
       departments={DEPARTMENTS}
+      hideTeamFacet={overrides?.hideTeamFacet}
       selectedCount={overrides?.selectedCount ?? 0}
       onNewItem={onNewItem}
       onBulkApply={onBulkApply}
@@ -170,6 +172,13 @@ describe("WorkboardToolbar", () => {
       await screen.findByRole("menuitemcheckbox", { name: "Engineering" }),
     );
     expect([...lastChange().filters.department]).toEqual(["Engineering"]);
+  });
+
+  it("hides the Department facet when hideTeamFacet is set (team-scoped surface)", () => {
+    renderToolbar({ hideTeamFacet: true });
+    expect(
+      screen.queryByRole("button", { name: /filter by department/i }),
+    ).not.toBeInTheDocument();
   });
 
   /**

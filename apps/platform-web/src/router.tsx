@@ -12,7 +12,10 @@ import { Button, EmptyState, ErrorState } from "@product-suite/ui";
 import { InboxScreen } from "./boards/inbox/InboxScreen";
 import { MemoryScreen } from "./boards/memory/MemoryScreen";
 import { WorkItemDetailScreen } from "./boards/workboard/detail/WorkItemDetailScreen";
-import { WorkboardScreen } from "./boards/workboard/WorkboardScreen";
+import {
+  TeamItemsScreen,
+  WorkboardScreen,
+} from "./boards/workboard/WorkboardScreen";
 import { BoardScreen } from "./shell/BoardScreen";
 import { ShellLayout } from "./shell/ShellLayout";
 import { SignInPage } from "./shell/SignInPage";
@@ -116,6 +119,13 @@ const workboardItemRoute = createRoute({
   path: "workboard/item/$itemId",
   component: WorkItemDetailScreen,
 });
+// Team-scoped items surface — the SAME work-items screen, pre-filtered to one
+// team by TeamItemsScreen (which reads $teamId from the URL).
+const workboardTeamRoute = createRoute({
+  getParentRoute: () => workspaceRoute,
+  path: "workboard/team/$teamId",
+  component: TeamItemsScreen,
+});
 
 const meetingsRoute = createRoute({
   getParentRoute: () => workspaceRoute,
@@ -197,6 +207,7 @@ const routeTree = rootRoute.addChildren([
     workboardRoute,
     workboardGraphRoute,
     workboardItemRoute,
+    workboardTeamRoute,
     meetingsRoute,
     meetingsWeekRoute,
     meetingsActionsRoute,
