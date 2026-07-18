@@ -1,3 +1,4 @@
+<!-- This file is a copy of AGENTS.md. Keep in sync manually or use: bunx forge setup --symlink -->
 # Project Workflow Instructions
 
 ## Default TDD-First Workflow Template
