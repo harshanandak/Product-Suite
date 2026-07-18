@@ -4,6 +4,7 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
+  redirect,
 } from "@tanstack/react-router";
 
 import { Button, EmptyState, ErrorState } from "@product-suite/ui";
@@ -11,7 +12,6 @@ import { Button, EmptyState, ErrorState } from "@product-suite/ui";
 import { InboxScreen } from "./boards/inbox/InboxScreen";
 import { MemoryScreen } from "./boards/memory/MemoryScreen";
 import { WorkItemDetailScreen } from "./boards/workboard/detail/WorkItemDetailScreen";
-import { WorkboardGraphScreen } from "./boards/workboard/graph/WorkboardGraphScreen";
 import { WorkboardScreen } from "./boards/workboard/WorkboardScreen";
 import { BoardScreen } from "./shell/BoardScreen";
 import { ShellLayout } from "./shell/ShellLayout";
@@ -99,12 +99,15 @@ const workboardRoute = createRoute({
   // routes (incl. the workboard sub-routes) remain on the BoardScreen placeholder.
   component: WorkboardScreen,
 });
-// The Graph is a real sub-board (the full-page dependency/phase canvas), not the
-// BoardScreen placeholder — it is an unbounded canvas, so it owns its own route.
+// The Graph is returning as a Layout in Phase 2, so its old standalone path is
+// kept only to redirect legacy links onto the single work-items surface (the
+// graph components + their unit tests stay; just the route stops rendering them).
 const workboardGraphRoute = createRoute({
   getParentRoute: () => workspaceRoute,
   path: "workboard/graph",
-  component: WorkboardGraphScreen,
+  beforeLoad: ({ params }) => {
+    throw redirect({ to: "/w/$workspace/workboard", params });
+  },
 });
 // The work-item DETAIL page — a real route (not the editor Sheet) so an item has
 // a durable, linkable home with room for its tabs (Overview/Tasks/…).
@@ -112,31 +115,6 @@ const workboardItemRoute = createRoute({
   getParentRoute: () => workspaceRoute,
   path: "workboard/item/$itemId",
   component: WorkItemDetailScreen,
-});
-const workboardStrategyRoute = createRoute({
-  getParentRoute: () => workspaceRoute,
-  path: "workboard/strategy",
-  component: BoardScreen,
-});
-const workboardInsightsRoute = createRoute({
-  getParentRoute: () => workspaceRoute,
-  path: "workboard/insights",
-  component: BoardScreen,
-});
-const workboardTasksRoute = createRoute({
-  getParentRoute: () => workspaceRoute,
-  path: "workboard/tasks",
-  component: BoardScreen,
-});
-const workboardTriageRoute = createRoute({
-  getParentRoute: () => workspaceRoute,
-  path: "workboard/triage",
-  component: BoardScreen,
-});
-const workboardFeedbackRoute = createRoute({
-  getParentRoute: () => workspaceRoute,
-  path: "workboard/feedback",
-  component: BoardScreen,
 });
 
 const meetingsRoute = createRoute({
@@ -219,11 +197,6 @@ const routeTree = rootRoute.addChildren([
     workboardRoute,
     workboardGraphRoute,
     workboardItemRoute,
-    workboardStrategyRoute,
-    workboardInsightsRoute,
-    workboardTasksRoute,
-    workboardTriageRoute,
-    workboardFeedbackRoute,
     meetingsRoute,
     meetingsWeekRoute,
     meetingsActionsRoute,
