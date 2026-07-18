@@ -33,8 +33,11 @@ export const TEST_MARKERS = [
 
 const TEST_SUFFIXES = [".test", ".spec", ".integration", ".e2e", ".cy"];
 const TEST_EXTENSIONS = [...SOURCE_EXTENSIONS];
-const IGNORED_PREFIXES = [".github/", "docs/", "infra/"];
+const IGNORED_PREFIXES = [".github/", "docs/", "infra/", ".forge/"];
 const IGNORED_SEGMENTS = ["/dist/", "/build/", "/coverage/", "/.next/", "/node_modules/"];
+// Forge-vendored workflow tooling (installed by `forge setup`) — third-party assets,
+// not app source; they carry no in-repo tests by design.
+const IGNORED_FILES = new Set(["scripts/dep-guard-analyze.js"]);
 
 export function normalizePath(file) {
   return file.trim().replace(/\\/g, "/").replace(/\/+/g, "/").replace(/^\.\//, "");
@@ -57,6 +60,7 @@ export function getStagedFiles() {
 export function isIgnored(file) {
   const normalized = normalizePath(file);
   return (
+    IGNORED_FILES.has(normalized) ||
     IGNORED_PREFIXES.some((prefix) => normalized.startsWith(prefix)) ||
     IGNORED_SEGMENTS.some((segment) => normalized.includes(segment))
   );
