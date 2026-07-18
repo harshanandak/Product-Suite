@@ -69,6 +69,24 @@ describe("prepush-gate classification", () => {
     expect(out).toContain("verify:platform-api");
   });
 
+  test("a mixed tooling + workspace change keeps both and never broadens to full", () => {
+    // scripts/ (repo tooling, skipped as an owner) riding along with a platform-api
+    // file: the tooling file must NOT force FULL, and the workspace owner must still
+    // be picked up. Asserts the exact expected suite set and rejects every unrelated
+    // app suite, so a routing regression cannot silently widen the run.
+    const out = classify(["scripts/prepush-gate.mjs", "apps/platform-api/src/agent/tools.ts"]);
+    expect(out).toContain("scoped");
+    expect(out).not.toContain("full-suite");
+    // present: the always-on tooling check + the platform-api owner
+    expect(out).toContain("test:repo-tooling");
+    expect(out).toContain("verify:platform-api");
+    // absent: every unrelated app/package suite
+    expect(out).not.toContain("verify:platform-web");
+    expect(out).not.toContain("verify:meeting-web");
+    expect(out).not.toContain("verify:roadmap-web");
+    expect(out).not.toContain("verify:db");
+  });
+
   test("an empty change set is never classified docs-only", () => {
     expect(classify([])).toContain("full-suite");
   });
