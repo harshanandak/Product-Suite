@@ -43,6 +43,8 @@ adapters:
 protectedPaths:
   - .forge/config.yaml
   - AGENTS.md
+  - CLAUDE.md
+  - .claude/**
   - .forge/patch.md
   - .forge/protected-paths.yaml
 layer1Rails:
