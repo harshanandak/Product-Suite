@@ -134,7 +134,7 @@ import { AgentChatPanel, isOrgRequiredError } from "./AgentChatPanel";
 const screenObject: AgentLinkedObject = {
   type: "screen",
   id: "/w/befach-hq/workboard",
-  title: "Work items",
+  title: "My items",
 };
 const itemObject: AgentLinkedObject = {
   type: "work_item",

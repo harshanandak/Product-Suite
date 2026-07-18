@@ -36,7 +36,7 @@ describe("resolveLinkedObject", () => {
     expect(object).toEqual({
       type: "screen",
       id: "/w/befach-hq/workboard",
-      title: "Work items",
+      title: "My items",
     });
   });
 });
