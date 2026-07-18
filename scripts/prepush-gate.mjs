@@ -45,8 +45,6 @@ const GLOBAL_FULL = [
   /^lefthook\.ya?ml$/,
   /^eslint\.config\.[cm]?[jt]s$/,
   /^\.github\//,
-  /^scripts\//, // build/validation tooling
-  /^test\//, // repo-level tests
   /^infra\//, // DB migrations / infra
   /(^|\/)vercel\.json$/, // deploy config (not exercised by the ci suites)
   /(^|\/)wrangler\.(toml|jsonc?)$/,
@@ -66,10 +64,12 @@ const SUITES = {
   // pure duplication and the slowest step. meeting-api has no build (Python), so
   // its ci:* is already build-free.
   "apps/platform-web": ["verify:platform-web"],
+  "apps/platform-api": ["verify:platform-api"],
   "apps/meeting-web": ["verify:meeting-web"],
   "apps/roadmap-web": ["verify:roadmap-web", "test:roadmap-canvas-boundary"],
   "apps/meeting-api": ["ci:meeting-api"],
   "packages/contracts": ["test:contracts"],
+  "packages/db": ["verify:db"],
   "packages/sdk": ["test:sdk"],
   "packages/ui": ["test:ui"],
   "packages/ui-chat": ["test:ui-chat"],
@@ -83,6 +83,12 @@ const SUITES = {
 
 // Cheap cross-cutting checks run for ANY code push (cannot be narrowed away).
 const ALWAYS = ["check:source-test", "test:repo-tooling"];
+
+// Non-workspace path prefixes that are repo tooling, already exercised by the
+// always-on `test:repo-tooling` check — a change here needs the tooling tests,
+// NOT every app's suite. (Verified: no workspace build/test script imports from
+// `scripts/`, so narrowing these away cannot under-test an app.)
+const TOOLING_PREFIXES = ["scripts/", "test/"];
 
 const WORKSPACE_DIRS = Object.keys(SUITES);
 
@@ -191,6 +197,9 @@ function collectOwners(files) {
   const owners = new Set();
   for (const f of files) {
     if (DOCS_ONLY.some((re) => re.test(f))) continue; // docs riding along
+    // Repo tooling (scripts/, test/) is covered by the always-on test:repo-tooling
+    // check — skip it as an owner rather than treating it as an unscoped file.
+    if (TOOLING_PREFIXES.some((prefix) => f.startsWith(prefix))) continue;
     const dir = ownerDir(f);
     if (!dir) return null;
     owners.add(dir);

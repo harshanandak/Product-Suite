@@ -45,6 +45,8 @@
     "ci:meeting-api": "bun run validate:meeting-api",
     "ci:platform-web": "bun run --cwd apps/platform-web lint && bun run --cwd apps/platform-web typecheck && bun run --cwd apps/platform-web test && bun run --cwd apps/platform-web build",
     "verify:platform-web": "bun run --cwd apps/platform-web lint && bun run --cwd apps/platform-web typecheck && bun run --cwd apps/platform-web test",
+    "verify:platform-api": "bun run --cwd apps/platform-api typecheck && bun run --cwd apps/platform-api test",
+    "verify:db": "bun run --cwd packages/db typecheck && bun run --cwd packages/db test",
     "verify:meeting-web": "bun run --cwd apps/meeting-web lint && bun run --cwd apps/meeting-web test",
     "verify:roadmap-web": "bun run --cwd apps/roadmap-web lint && bun run --cwd apps/roadmap-web typecheck && bun run --cwd apps/roadmap-web test",
     "test:ui": "bun run --cwd packages/ui test",
