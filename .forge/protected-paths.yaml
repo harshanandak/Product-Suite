@@ -1,0 +1,19 @@
+kind: forge.protectedPaths
+version: 1
+classification: standard
+harness:
+  targets:
+    - claude
+paths:
+  - path: .forge/config.yaml
+    reason: Forge runtime configuration
+  - path: .forge/patch.md
+    reason: Local patch intent scaffold
+  - path: .forge/protected-paths.yaml
+    reason: Protected path manifest scaffold
+  - path: AGENTS.md
+    reason: Agent workflow instructions
+  - path: CLAUDE.md
+    reason: Claude harness instructions
+  - path: .claude/**
+    reason: Claude harness directory
