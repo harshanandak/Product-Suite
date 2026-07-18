@@ -48,7 +48,34 @@ describe("ShellLayout", () => {
       name: "Workboard navigation",
     });
     expect(within(sidebar).getByText("Workboard")).toBeInTheDocument();
-    expect(within(sidebar).getByText("Work items")).toBeInTheDocument();
+    expect(within(sidebar).getByText("My items")).toBeInTheDocument();
+  });
+
+  it("renders the TEAMS section with one row per team and no dead rows", async () => {
+    renderWithRouter(<ShellLayout />, { path: "/w/test-ws/workboard" });
+
+    const sidebar = await screen.findByRole("navigation", {
+      name: "Workboard navigation",
+    });
+
+    // The dynamic TEAMS section (from useTeams over the fixture repository) shows
+    // its header plus one row per fixture team.
+    expect(await within(sidebar).findByText("Teams")).toBeInTheDocument();
+    expect(within(sidebar).getByText("Engineering")).toBeInTheDocument();
+    expect(within(sidebar).getByText("Marketing")).toBeInTheDocument();
+    expect(within(sidebar).getByText("Sourcing")).toBeInTheDocument();
+
+    // The dead workboard rows are fully gone from the rail.
+    for (const dead of [
+      "Strategy",
+      "Insights",
+      "Tasks",
+      "Triage",
+      "Feedback",
+      "Graph",
+    ]) {
+      expect(within(sidebar).queryByText(dead)).not.toBeInTheDocument();
+    }
   });
 
   it("minimizes the rail when the sidebar toggle is clicked", async () => {
@@ -58,15 +85,15 @@ describe("ShellLayout", () => {
       name: "Workboard navigation",
     });
     // Expanded: the item label text is visible.
-    expect(within(sidebar).getByText("Work items")).toBeInTheDocument();
+    expect(within(sidebar).getByText("My items")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
 
     // Collapsed: labels collapse to icons, so the label text is gone but the
     // item stays reachable via its accessible name.
-    expect(within(sidebar).queryByText("Work items")).not.toBeInTheDocument();
+    expect(within(sidebar).queryByText("My items")).not.toBeInTheDocument();
     expect(
-      within(sidebar).getByRole("link", { name: "Work items" }),
+      within(sidebar).getByRole("link", { name: "My items" }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Expand sidebar" }),
@@ -82,9 +109,9 @@ describe("ShellLayout", () => {
     });
     // Mounted collapsed straight from storage: labels hidden, expand shown, but
     // items still reachable by their accessible name.
-    expect(within(sidebar).queryByText("Work items")).not.toBeInTheDocument();
+    expect(within(sidebar).queryByText("My items")).not.toBeInTheDocument();
     expect(
-      within(sidebar).getByRole("link", { name: "Work items" }),
+      within(sidebar).getByRole("link", { name: "My items" }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Expand sidebar" }),
@@ -103,7 +130,7 @@ describe("ShellLayout", () => {
     const sidebar = await screen.findByRole("navigation", {
       name: "Workboard navigation",
     });
-    expect(within(sidebar).getByText("Work items")).toBeInTheDocument();
+    expect(within(sidebar).getByText("My items")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Collapse sidebar" }),
     ).toBeInTheDocument();
@@ -120,15 +147,15 @@ describe("ShellLayout", () => {
     if (!rail) throw new Error("rail <aside> not found");
 
     // Resting collapsed: item labels are hidden.
-    expect(within(rail).queryByText("Work items")).not.toBeInTheDocument();
+    expect(within(rail).queryByText("My items")).not.toBeInTheDocument();
 
     // Hover the rail → it flies out, revealing the labels.
     fireEvent.mouseEnter(rail);
-    expect(within(rail).getByText("Work items")).toBeInTheDocument();
+    expect(within(rail).getByText("My items")).toBeInTheDocument();
 
     // Leave → it collapses back to icons.
     fireEvent.mouseLeave(rail);
-    expect(within(rail).queryByText("Work items")).not.toBeInTheDocument();
+    expect(within(rail).queryByText("My items")).not.toBeInTheDocument();
   });
 
   it("flies the collapsed rail out when keyboard focus enters it", async () => {
@@ -141,12 +168,12 @@ describe("ShellLayout", () => {
     const rail = nav.closest("aside");
     if (!rail) throw new Error("rail <aside> not found");
 
-    expect(within(rail).queryByText("Work items")).not.toBeInTheDocument();
+    expect(within(rail).queryByText("My items")).not.toBeInTheDocument();
 
     // Tabbing into the rail (here: focusing the expand toggle) reveals it too.
     // focusIn bubbles, which is what React's onFocus listens for.
     fireEvent.focusIn(screen.getByRole("button", { name: "Expand sidebar" }));
-    expect(within(rail).getByText("Work items")).toBeInTheDocument();
+    expect(within(rail).getByText("My items")).toBeInTheDocument();
   });
 
   it("keeps the toggle offering to pin (Expand) while the rail is only hover-revealed", async () => {
@@ -183,12 +210,12 @@ describe("ShellLayout", () => {
 
     // Keyboard focus reveals the rail...
     fireEvent.focusIn(screen.getByRole("button", { name: "Expand sidebar" }));
-    expect(within(rail).getByText("Work items")).toBeInTheDocument();
+    expect(within(rail).getByText("My items")).toBeInTheDocument();
 
     // ...and a stray mouse-leave must NOT yank it shut (it would drop focus to
     // <body>). Mouse and focus reveal are tracked independently.
     fireEvent.mouseLeave(rail);
-    expect(within(rail).getByText("Work items")).toBeInTheDocument();
+    expect(within(rail).getByText("My items")).toBeInTheDocument();
   });
 
   it("collapses immediately when the toggle is clicked with the pointer over the rail", async () => {
@@ -204,7 +231,7 @@ describe("ShellLayout", () => {
     // not float open as an overlay until the mouse happens to leave.
     fireEvent.mouseEnter(rail);
     fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
-    expect(within(rail).queryByText("Work items")).not.toBeInTheDocument();
+    expect(within(rail).queryByText("My items")).not.toBeInTheDocument();
   });
 
   it("sizes the rail panel and only overlays while hover-revealed", async () => {
