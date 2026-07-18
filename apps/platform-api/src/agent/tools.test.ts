@@ -5,6 +5,15 @@ import type { Sql } from '@product-suite/db'
 const { createProposal } = vi.hoisted(() => ({ createProposal: vi.fn() }))
 vi.mock('../proposals/repository', () => ({ createProposal }))
 
+// Mock ONLY searchKnowledge (the full RRF/embed pipeline is Task 5's own tested unit);
+// keep the real insertKnowledgeAttributions so its raw insert actually hits fakeSql and
+// we can assert the XOR-FK params the tool logs.
+const { searchKnowledge } = vi.hoisted(() => ({ searchKnowledge: vi.fn() }))
+vi.mock('./knowledge-retrieval', async (importActual) => {
+  const actual = await importActual<typeof import('./knowledge-retrieval')>()
+  return { ...actual, searchKnowledge }
+})
+
 import { buildTools } from './tools'
 
 /** Minimal valid ToolCallOptions the AI SDK passes to every execute(). */
@@ -20,6 +29,7 @@ function fakeSql(rows: unknown[]) {
 describe('buildTools (ToolRegistry)', () => {
   beforeEach(() => {
     createProposal.mockReset()
+    searchKnowledge.mockReset()
   })
 
   it('propose_create writes ONLY a proposal, stamped with agent provenance', async () => {
@@ -142,6 +152,100 @@ describe('buildTools (ToolRegistry)', () => {
 
     const defaultTools = buildTools(sql, { tenantId: 't_1', userId: 'u_1', runId: 'run_1', modelId: 'm/1' })
     expect(defaultTools.search_memory).toBeDefined()
+  })
+
+  it('search_knowledge returns items and logs one run_knowledge_attributions row per item, XOR id per kind', async () => {
+    // Mixed result set: a memory hit + a chunk hit — the attribution FK must switch by kind.
+    const items = [
+      { id: 'mem_1', kind: 'memory', title: 'Use PG', tier: 1, score: 0.9, scope: 'org' },
+      { id: 'chunk_1', kind: 'chunk', sourceType: 'work_item', title: 'Fixed the timeout', tier: 3, score: 0.5, scope: 'project' },
+    ]
+    searchKnowledge.mockResolvedValue(items)
+    const { sql, query } = fakeSql([])
+    const embed = vi.fn()
+    const tools = buildTools(sql, { tenantId: 't_1', userId: 'u_1', runId: 'run_1', modelId: 'm/1', embed })
+
+    const result = await tools.search_knowledge?.execute?.({ query: 'timeout' }, opts)
+    expect(result).toEqual({ items })
+    expect(searchKnowledge).toHaveBeenCalledTimes(1)
+
+    // ONE insert into the KB rail, one 8-col tuple per returned item.
+    const attr = query.mock.calls.find(([t]) => /run_knowledge_attributions/i.test(String(t)))
+    expect(attr).toBeDefined()
+    const params = (attr?.[1] ?? []) as unknown[]
+    // Columns: run_id, tenant_id, memory_id, chunk_id, kind, rank, score, suppressed.
+    // Row 0 (memory) → memory_id set, chunk_id null.
+    expect(params.slice(0, 8)).toEqual(['run_1', 't_1', 'mem_1', null, 'memory', 0, 0.9, false])
+    // Row 1 (chunk) → chunk_id set, memory_id null.
+    expect(params.slice(8, 16)).toEqual(['run_1', 't_1', null, 'chunk_1', 'chunk', 1, 0.5, false])
+    // The rka_exactly_one CHECK: every row sets EXACTLY ONE of memory_id/chunk_id.
+    for (const [memoryId, chunkId] of [
+      [params[2], params[3]],
+      [params[10], params[11]],
+    ]) {
+      expect((memoryId === null) !== (chunkId === null)).toBe(true)
+    }
+  })
+
+  it('search_knowledge forwards the chat scope so project-scoped chunks are reachable', async () => {
+    searchKnowledge.mockResolvedValue([])
+    const { sql } = fakeSql([])
+    const embed = vi.fn()
+    const scope = { workspace: 'w', object: { type: 'project', id: 'p_1', title: 'Launch' } }
+    const tools = buildTools(sql, { tenantId: 't_1', userId: 'u_1', runId: 'run_1', modelId: 'm/1', embed, scope })
+
+    // Assert the tool is registered before invoking — optional chaining would let
+    // this test pass vacuously if search_knowledge (or its execute) went missing.
+    const tool = tools.search_knowledge
+    expect(tool?.execute).toBeDefined()
+    await tool!.execute!({ query: 'x' }, opts)
+
+    expect(searchKnowledge).toHaveBeenCalledWith(sql, expect.objectContaining({ scope }))
+  })
+
+  it('search_knowledge is a no-op (no attribution write) when no embed client is bound', async () => {
+    searchKnowledge.mockResolvedValue([{ id: 'mem_1', kind: 'memory', title: 'x', tier: 1, score: 1, scope: 'org' }])
+    const { sql, query } = fakeSql([])
+    const tools = buildTools(sql, { tenantId: 't_1', userId: 'u_1', runId: 'run_1', modelId: 'm/1' })
+    const result = await tools.search_knowledge?.execute?.({ query: 'x' }, opts)
+    expect(result).toEqual({ items: [] })
+    expect(searchKnowledge).not.toHaveBeenCalled()
+    expect(query.mock.calls.find(([t]) => /run_knowledge_attributions/i.test(String(t)))).toBeUndefined()
+  })
+
+  it('omits search_knowledge entirely on holdout: not registered, never called, zero KB attributions', async () => {
+    searchKnowledge.mockResolvedValue([{ id: 'mem_1', kind: 'memory', title: 'x', tier: 1, score: 1, scope: 'org' }])
+    const { sql, query } = fakeSql([])
+    const embed = vi.fn()
+    const holdoutTools = buildTools(sql, {
+      tenantId: 't_1',
+      userId: 'u_1',
+      runId: 'run_1',
+      modelId: 'm/1',
+      embed,
+      holdout: true,
+    })
+    // The CRITICAL guard: the tool is absent from the toolset (not merely early-returning),
+    // so the holdout agent behaves as if the KB tool never existed.
+    expect(holdoutTools.search_knowledge).toBeUndefined()
+    expect('search_knowledge' in holdoutTools).toBe(false)
+    // search_memory is likewise omitted; other tools are unaffected.
+    expect(holdoutTools.search_memory).toBeUndefined()
+    expect(holdoutTools.list_work_items).toBeDefined()
+    // No path to invoke it ⇒ no recall + no KB attribution logging (holdout stays honest).
+    expect(searchKnowledge).not.toHaveBeenCalled()
+    expect(query.mock.calls.find(([t]) => /run_knowledge_attributions/i.test(String(t)))).toBeUndefined()
+
+    // Present on a treated (non-holdout) run.
+    const treated = buildTools(sql, {
+      tenantId: 't_1',
+      userId: 'u_1',
+      runId: 'run_1',
+      modelId: 'm/1',
+      embed,
+      holdout: false,
+    })
+    expect(treated.search_knowledge).toBeDefined()
   })
 
   it('propose_memory (create) writes a target_type=memory proposal with agent provenance', async () => {

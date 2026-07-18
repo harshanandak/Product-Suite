@@ -3,6 +3,7 @@ import { convertToModelMessages, stepCountIs, streamText, type LanguageModel, ty
 import type { Sql } from '@product-suite/db'
 
 import { assignHoldout } from './holdout'
+import type { EmbedFn } from './knowledge-retrieval'
 import { insertAttributions, retrieveForContext, retrieveRulesForContext } from './memory-retrieval'
 import { buildTools } from './tools'
 import { touchThread } from './threads-repository'
@@ -67,6 +68,13 @@ export interface AgentRunContext {
   userId: string
   /** The resolved language model (from `agentModel(env)`). */
   model: LanguageModel
+  /**
+   * The bound embed client (Task 3's `embed` with the request `env` applied) the
+   * `search_knowledge` recall lane uses. Optional: absent it, the KB tool degrades to
+   * a no-op — a run with no embed client simply can't reach the knowledge base. On a
+   * holdout run the tool is omitted regardless, so this is never consulted there.
+   */
+  embed?: EmbedFn
   /**
    * Optional object-scoping for the run: the screen/work item the user was
    * viewing when they opened the chat. Folded into the system prompt so the
@@ -263,7 +271,7 @@ export async function runAgentChat(
   // have contributed (suppressed=true) — the counterfactual signal for the moat rail.
   const { runId, holdout } = await mintRun(sql, ctx.tenantId, ctx.userId, ctx.threadId)
   const modelId = resolveModelId(ctx.model)
-  const tools = buildTools(sql, { tenantId: ctx.tenantId, userId: ctx.userId, runId, modelId, holdout })
+  const tools = buildTools(sql, { tenantId: ctx.tenantId, userId: ctx.userId, runId, modelId, holdout, scope: ctx.scope, embed: ctx.embed })
 
   // Deterministic memory injection (design: AFTER mintRun, no model in the loop, so
   // attribution is causal). Retrieve the org's scope-cascade active decisions/facts,

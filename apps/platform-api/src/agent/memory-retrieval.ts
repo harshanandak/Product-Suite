@@ -78,7 +78,7 @@ export function buildScopeCascade(scope?: MemoryScopeInput): { scopeType: Memory
  * so a human-authored title/body can NEVER break out of the fence (e.g. a literal
  * `</org_memory>` in a title). Bounded length keeps one memory from eating the budget.
  */
-function sanitizeForFence(text: string): string {
+export function sanitizeForFence(text: string): string {
   return text
     .replace(/[<>]/g, '')
     .replace(/\s+/g, ' ')

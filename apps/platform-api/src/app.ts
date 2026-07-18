@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 
 import { clerkAuth, type AuthedEnv } from './middleware/clerk-auth'
 import { agentChatRoutes } from './routes/agent-chat'
+import { agentKbRoutes } from './routes/agent-kb'
 import { agentMemoryImpactRoutes } from './routes/agent-memory-impact'
 import { agentReflectionRoutes } from './routes/agent-reflection'
 import { agentThreadsRoutes } from './routes/agent-threads'
@@ -50,6 +51,9 @@ app.route('/api/agent/threads', agentThreadsRoutes)
 
 // Reflection: mine recurring human corrections into rule proposals (same review queue).
 app.route('/api/agent/reflection', agentReflectionRoutes)
+
+// KB ingestion: backfill memory embeddings + ingest completed work-items as chunks.
+app.route('/api/agent/kb', agentKbRoutes)
 
 // Memory-impact metric: does memory measurably reduce the human editing burden?
 app.route('/api/agent/memory-impact', agentMemoryImpactRoutes)
