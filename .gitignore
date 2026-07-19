@@ -2,6 +2,11 @@
 .env
 .env.*
 !.env.example
+# Cloudflare Workers local secrets + state (wrangler dev) — at any depth
+.dev.vars
+**/.dev.vars
+.wrangler/
+**/.wrangler/
 .venv/
 __pycache__/
 *.pyc

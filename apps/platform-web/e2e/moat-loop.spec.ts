@@ -41,9 +41,9 @@ test("agent proposes a create → accept in inbox → item appears on the workbo
 }) => {
   // ── a. Workboard loads ────────────────────────────────────────────────────
   await page.goto(`/w/${WORKSPACE}/workboard`);
-  // The board is "loaded" when either the data table renders (role="table" is
-  // re-added explicitly in WorkboardTable) OR the teaching empty state shows.
-  const boardTable = page.getByRole("table");
+  // The board is "loaded" when either the data grid renders (WorkboardTable
+  // exposes role="grid" aria-label="Work items") OR the teaching empty state shows.
+  const boardTable = page.getByRole("grid", { name: "Work items" });
   const boardEmpty = page.getByRole("heading", { name: "No work items yet" });
   await expect(boardTable.or(boardEmpty).first()).toBeVisible();
 
@@ -52,10 +52,15 @@ test("agent proposes a create → accept in inbox → item appears on the workbo
   const agentPanel = page.getByRole("complementary", { name: "Agent chat" });
   await expect(agentPanel).toBeVisible();
 
-  // The ui-chat composer renders a textarea (role=textbox) + a Submit button.
-  const composer = agentPanel.getByRole("textbox"); // VERIFY against live app: single textbox in the panel
+  // The ui-chat composer renders a textarea; target it by its placeholder so the
+  // threads drawer's controls can never shadow it.
+  const composer = agentPanel.getByPlaceholder(
+    "Ask the agent to read the board or propose a change…",
+  );
   await composer.fill(AGENT_PROMPT);
-  await agentPanel.getByRole("button", { name: "Submit" }).click();
+  // The composer's submit control (PromptInputSubmit) is an icon-only button with
+  // no accessible "Submit" name — submit by pressing Enter in the textarea.
+  await composer.press("Enter");
 
   // ── c. Wait for the agent to PROPOSE ──────────────────────────────────────
   // On success the panel renders a ProposalCard with a "Review in Inbox" link.
