@@ -221,6 +221,19 @@ export function WorkboardScreen({
     [items, teamId],
   );
 
+  // The scoped team's display NAME, carried on the deprecated `department` field
+  // (the only client-side name source today — see filter-state's seam notes).
+  // Every scoped item shares this one team, so any sibling's `department` IS the
+  // team name; derived from data already loaded rather than a separate teams
+  // read (useTeams resolves the same name from the same `department` carrier, so
+  // the sibling is equivalent and avoids a second hook). Used so a new item
+  // created on the scoped page groups/labels under the correct Team — team_id
+  // alone does not drive the client-side department-based grouping. `undefined`
+  // on the unscoped route AND on an empty team (no sibling to read); the atomic
+  // team_id → name mapping is deferred to issue 8a3c0d6b.
+  const scopedTeamName =
+    teamId === undefined ? undefined : scopedItems[0]?.department;
+
   // Team facet options + the already-filtered rows, both derived from the
   // (team-)scoped items. The Table renders exactly `rows`; it never filters.
   const teams = useMemo(
@@ -448,11 +461,20 @@ export function WorkboardScreen({
     // .catch keeps this void-returning click handler from floating a promise.
     // On a team-scoped route, thread the route's teamId so the new item lands
     // on THIS team — without it the repo backfills team_id from a default and
-    // the fresh item can vanish from the scoped list.
-    create(teamId === undefined ? {} : { team_id: teamId })
+    // the fresh item can vanish from the scoped list. Also carry the team's
+    // `department` NAME (when a sibling supplies it) so the item GROUPS/LABELS
+    // under the correct Team column — the repo backfills `department` from a
+    // default too, which would otherwise show the item in the wrong team.
+    create(
+      teamId === undefined
+        ? {}
+        : scopedTeamName === undefined
+          ? { team_id: teamId }
+          : { team_id: teamId, department: scopedTeamName },
+    )
       .then((created) => setSelected(created))
       .catch(() => undefined);
-  }, [create, teamId]);
+  }, [create, teamId, scopedTeamName]);
 
   // Editor's onSave returns void; the hook's update returns the saved WorkItem.
   // Await + discard, and let rejections propagate so the editor keeps the Sheet

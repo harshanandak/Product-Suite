@@ -448,11 +448,18 @@ describe("WorkboardScreen", () => {
     ).toBeInTheDocument();
   });
 
-  it("threads the scoped teamId into a newly created item", async () => {
+  it("threads the scoped teamId AND its department into a newly created item", async () => {
     // On a team-scoped route, New must create INTO that team. Otherwise the
     // repository backfills team_id from a default and the fresh item lands on
     // another team, vanishing from the scoped list (CodeRabbit
     // WorkboardScreen.tsx:663).
+    //
+    // team_id alone is scope-correct, but the screen's Team grouping/search/
+    // labels still read `row.department`, which the repo ALSO backfills from a
+    // default when omitted — so the new item would DISPLAY under the wrong Team
+    // column on the scoped page (CodeRabbit WorkboardScreen.tsx:452). The scoped
+    // team's name (department carrier) must ride along too. All scoped items
+    // share the team, so team_sourcing's items carry department "Sourcing".
     const base = createMockWorkItemRepository();
     const create = vi.fn(base.create);
     const repository = { ...base, create };
@@ -467,7 +474,10 @@ describe("WorkboardScreen", () => {
 
     await waitFor(() => {
       expect(create).toHaveBeenCalledWith(
-        expect.objectContaining({ team_id: "team_sourcing" }),
+        expect.objectContaining({
+          team_id: "team_sourcing",
+          department: "Sourcing",
+        }),
       );
     });
   });
