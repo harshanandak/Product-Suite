@@ -16,6 +16,7 @@ import {
   createMockWorkItemRepository,
   RepositoryProvider,
   type Check,
+  type CreateWorkItemInput,
   type WorkItemPatch,
 } from "@/data/work-items";
 
@@ -528,6 +529,64 @@ describe("WorkboardScreen", () => {
     fireEvent.click(newButtons[0]);
     await Promise.resolve();
     expect(create).not.toHaveBeenCalled();
+  });
+
+  it("derives team_id + status_id + department from the first item as a pair for the unscoped New", async () => {
+    const base = createMockWorkItemRepository();
+    const createSpy = vi.fn((input: CreateWorkItemInput) => base.create(input));
+    const repository = { ...base, create: createSpy };
+
+    render(<WorkboardScreen repository={repository} />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+
+    // The screen derives the create defaults from the FIRST loaded item; capture
+    // it so the assertion tracks the fixture rather than hard-coding its ids.
+    const [first] = await base.list();
+
+    fireEvent.click(screen.getByRole("button", { name: /new work item/i }));
+
+    // The unscoped New passes the first item's team_id, status_id, AND department
+    // as one ATOMIC pair (a status belongs to a team) — mirroring the mock's
+    // workItems[0] backfill and the scoped #104 fix, so the real API's required
+    // status_id is satisfied instead of POSTing a bare {} the backend rejects.
+    await waitFor(() => {
+      expect(createSpy).toHaveBeenCalledWith({
+        team_id: first.team_id,
+        status_id: first.status_id,
+        department: first.department,
+      });
+    });
+  });
+
+  it("still calls create({}) on an empty board — nothing to derive, button stays usable", async () => {
+    const base = createMockWorkItemRepository();
+    const createSpy = vi.fn((input: CreateWorkItemInput) => base.create(input));
+    // Drain the fixture store so the loaded list is empty: there is no first item
+    // to derive defaults from, so the fallback must POST a bare {} (the server
+    // resolves the team default) instead of throwing or disabling the button.
+    const repository = {
+      ...base,
+      list: () => Promise.resolve([]),
+      create: createSpy,
+    };
+
+    render(<WorkboardScreen repository={repository} />);
+
+    // The teaching empty state renders (no rows); its CTA can still create.
+    expect(await screen.findByText("No work items yet")).toBeInTheDocument();
+    // Both the toolbar control and the empty-state CTA read "New work item";
+    // clicking either routes through the same handler without throwing.
+    const newButtons = screen.getAllByRole("button", {
+      name: /new work item/i,
+    });
+    expect(() => fireEvent.click(newButtons[0])).not.toThrow();
+
+    await waitFor(() => {
+      expect(createSpy).toHaveBeenCalledWith({});
+    });
   });
 
   it("surfaces a failed create with a toast instead of silently swallowing it", async () => {

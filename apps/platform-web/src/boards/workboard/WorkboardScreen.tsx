@@ -16,6 +16,7 @@ import {
   useItemChecks,
   useRepositoryContext,
   useWorkItems,
+  type CreateWorkItemInput,
   type WorkItem,
   type WorkItemPatch,
   type WorkItemRepository,
@@ -478,18 +479,36 @@ export function WorkboardScreen({
     // action is disabled in the UI on an empty scoped team, but guard here too
     // so no invalid/cross-team-status create can ever fire.
     if (newItemDisabled) return;
-    // Fire-and-forget create + open the editor on the fresh item. create()
-    // rejects only under a real backend (the mock never does); the trailing
-    // .catch keeps this void-returning click handler from floating a promise.
-    // On a team-scoped route, thread the route's teamId so the new item lands
-    // on THIS team — without it the repo backfills team_id from a default and
-    // the fresh item can vanish from the scoped list. Also carry the team's
+    // Derive the create defaults CLIENT-SIDE. The server is (becoming)
+    // authoritative for resolving a team's default status, but until that lands
+    // the network repository POSTs the raw input and the real API rejects a
+    // create with no `status_id` — so this derivation is DEFENSE-IN-DEPTH, not
+    // dead code: do NOT "clean it up" when the server default lands.
+    //
+    // Scoped route (teamId set): thread the route's teamId so the new item
+    // lands on THIS team — without it the repo backfills team_id from a default
+    // and the fresh item can vanish from the scoped list. Carry the team's
     // `department` NAME (when a sibling supplies it) so the item GROUPS/LABELS
-    // under the correct Team column, and a prod-valid `status_id` (the network
-    // API rejects a create without one) — see `scopedStatusId`.
-    create(
+    // under the correct Team column, plus a prod-valid `status_id` sourced from
+    // a SAME-TEAM sibling — see `scopedTeamName` / `scopedStatusId`.
+    //
+    // Unscoped route: derive team_id, status_id, AND department from the SAME
+    // first loaded item as one atomic pair (a status belongs to a team, so
+    // pulling them from different items could pair a status with a team it
+    // doesn't belong to), mirroring the mock repository's own `workItems[0]`
+    // backfill. On an EMPTY board there is nothing to derive — fall back to
+    // create({}) and let the server resolve the team default (the New button
+    // stays enabled so a fresh workspace can still create its first item).
+    const first = items[0];
+    const input: CreateWorkItemInput =
       teamId === undefined
-        ? {}
+        ? first
+          ? {
+              team_id: first.team_id,
+              status_id: first.status_id,
+              department: first.department,
+            }
+          : {}
         : {
             team_id: teamId,
             ...(scopedTeamName === undefined
@@ -498,15 +517,17 @@ export function WorkboardScreen({
             ...(scopedStatusId === undefined
               ? {}
               : { status_id: scopedStatusId }),
-          },
-    )
+          };
+    // Fire-and-forget create + open the editor on the fresh item; the trailing
+    // .catch keeps this void-returning click handler from floating a promise.
+    create(input)
       .then((created) => setSelected(created))
       .catch(() => {
         // Surface the failure — never swallow it. A rejected create (e.g. a
         // payload the API refuses) must be visible, not an invisible no-op.
         toast.error("Couldn't create the work item — please try again.");
       });
-  }, [create, teamId, scopedTeamName, scopedStatusId, newItemDisabled]);
+  }, [create, teamId, items, scopedTeamName, scopedStatusId, newItemDisabled]);
 
   // Editor's onSave returns void; the hook's update returns the saved WorkItem.
   // Await + discard, and let rejections propagate so the editor keeps the Sheet
