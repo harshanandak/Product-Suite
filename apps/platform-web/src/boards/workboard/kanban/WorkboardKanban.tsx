@@ -42,7 +42,7 @@ import type {
   WorkItemRow,
 } from "@/data/work-items";
 
-import { type GroupByField, workboardDepartments } from "../filter-state";
+import { type GroupByField, workboardTeams } from "../filter-state";
 
 /**
  * Workboard KANBAN view (DESIGN §5 board grammar).
@@ -51,7 +51,7 @@ import { type GroupByField, workboardDepartments } from "../filter-state";
  * roll-up counts from the data seam — as a configurable group-by board. The
  * board re-pivots on the toolbar's "Group by" control ({@link GroupByField}):
  * `phase` (the universal loop `plan → execute → review → done`), `priority`,
- * `type`, or `department`; `none` falls back to phase (a board needs columns).
+ * `type`, or `team`; `none` falls back to phase (a board needs columns).
  * Dragging a card to another column patches the GROUPED field — phase on a phase
  * board, priority on a priority board, and so on — never always phase. Health
  * rides each card as a {@link HealthBadge}, never as a column — health is
@@ -82,7 +82,7 @@ export interface WorkboardKanbanProps {
   /**
    * The dimension the columns pivot on (the toolbar's shared "Group by" value).
    * `phase` | `priority` | `type` render a fixed, fully-ordered column set;
-   * `department` renders the departments PRESENT plus an "Unassigned" bucket;
+   * `team` renders the teams PRESENT plus an "Unassigned" bucket;
    * `none` falls back to a phase board. Defaults to `phase` so a standalone or
    * read-only board still has columns. The dragged-to column patches THIS field.
    */
@@ -112,7 +112,7 @@ export interface WorkboardKanbanProps {
  * {@link boardFieldOf}, which folds `none` into `phase`. Every member is a key of
  * {@link WorkItemPatch}, so a dropped column can always patch its own field.
  */
-export type BoardField = "phase" | "priority" | "type" | "department";
+export type BoardField = "phase" | "priority" | "type" | "team";
 
 /**
  * The phase columns, in the canonical phase-loop order (§1). Single source for
@@ -184,13 +184,14 @@ const BOARD_FIELD_LABELS: Record<BoardField, string> = {
   phase: "phase",
   priority: "priority",
   type: "type",
-  department: "department",
+  team: "team",
 };
 
 /**
- * The grouped value of a row with no department — its column is labelled
- * "Unassigned" and trails the named departments. `department` is a non-null
- * `string` in the model, so "no department" is the empty string.
+ * The grouped value of a row with no team — its column is labelled
+ * "Unassigned" and trails the named teams. The underlying `department`
+ * (deprecated team-name carrier) is a non-null `string` in the model, so
+ * "no team" is the empty string.
  */
 const UNASSIGNED_DEPARTMENT = "";
 const UNASSIGNED_LABEL = "Unassigned";
@@ -213,7 +214,8 @@ function rowValue(row: WorkItemRow, field: BoardField): string {
       return row.priority;
     case "type":
       return row.type;
-    case "department":
+    case "team":
+      // Reads `row.department` — the deprecated-but-retained team-name carrier.
       return row.department;
   }
 }
@@ -231,7 +233,7 @@ export function encodeColumnId(field: BoardField, value: string): string {
 /**
  * Decode an {@link encodeColumnId} id back to `{ field, value }`, or `null` when
  * the id is malformed / names no known field. Splits on the FIRST `:` only, so a
- * value containing a colon (e.g. a department name) round-trips intact.
+ * value containing a colon (e.g. a team name) round-trips intact.
  */
 function decodeColumnId(
   id: string,
@@ -243,7 +245,7 @@ function decodeColumnId(
     field !== "phase" &&
     field !== "priority" &&
     field !== "type" &&
-    field !== "department"
+    field !== "team"
   ) {
     return null;
   }
@@ -264,7 +266,9 @@ function patchFor(field: BoardField, value: string): WorkItemPatch {
       return { priority: value as Priority };
     case "type":
       return { type: value as WorkItemType };
-    case "department":
+    case "team":
+      // The `team` axis writes the `department` data field (contracts accept it
+      // for back-compat; the `team_id` write path is a Phase-4 dependency).
       return { department: value };
   }
 }
@@ -291,6 +295,12 @@ export function resolveDrop(
   overId: string | null,
 ): WorkItemPatch | null {
   if (overId === null) return null;
+  // Team-axis drops are DISABLED until the canonical `team_id` write path exists
+  // (deferred to 8a3c0d6b). The team column writes only the legacy `department`
+  // carrier, but the team route scopes by `team_id`; committing a `department`-
+  // only patch would move the card visually while leaving `team_id` unchanged,
+  // desyncing it from its team route. Until then, a team drop is always a no-op.
+  if (field === "team") return null;
   const target = decodeColumnId(overId);
   if (target === null || target.field !== field) return null;
   if (target.value === fromValue) return null;
@@ -308,9 +318,9 @@ interface BoardColumn {
 /**
  * Build the ordered columns for `field`, bucketing `rows` (incoming order
  * preserved within a column). Enum axes (`phase` / `priority` / `type`) render
- * EVERY column in canonical order even when empty; `department` renders only the
- * departments present (sorted via {@link workboardDepartments}) plus a trailing
- * "Unassigned" bucket when any row has no department.
+ * EVERY column in canonical order even when empty; `team` renders only the
+ * teams present (sorted via {@link workboardTeams}) plus a trailing
+ * "Unassigned" bucket when any row has no team.
  */
 function buildColumns(rows: WorkItemRow[], field: BoardField): BoardColumn[] {
   const buckets = new Map<string, WorkItemRow[]>();
@@ -342,10 +352,10 @@ function buildColumns(rows: WorkItemRow[], field: BoardField): BoardColumn[] {
       return WORK_ITEM_TYPE_ORDER.map((type) =>
         column(type, WORK_ITEM_TYPE_LABELS[type]),
       );
-    case "department": {
-      const named = workboardDepartments(rows)
-        .filter((department) => department !== UNASSIGNED_DEPARTMENT)
-        .map((department) => column(department, department));
+    case "team": {
+      const named = workboardTeams(rows)
+        .filter((team) => team !== UNASSIGNED_DEPARTMENT)
+        .map((team) => column(team, team));
       // A trailing Unassigned bucket only when something actually lands in it.
       if (buckets.has(UNASSIGNED_DEPARTMENT)) {
         named.push(column(UNASSIGNED_DEPARTMENT, UNASSIGNED_LABEL));
@@ -592,8 +602,14 @@ export function WorkboardKanban({
   onUpdateItem,
   groupBy = "phase",
 }: Readonly<WorkboardKanbanProps>) {
-  const draggable = onUpdateItem !== undefined;
   const field = boardFieldOf(groupBy);
+  // Drag needs a mutator AND a patchable axis. The `team` axis is excluded: its
+  // only writable carrier is the legacy `department`, but the team route scopes
+  // by the canonical `team_id`, so a drop would desync the card from its route
+  // (the atomic `team_id` write is deferred to 8a3c0d6b). Disabling `draggable`
+  // makes the cards non-draggable AND the columns non-droppable on a team board,
+  // while every other axis (phase / priority / type) stays fully draggable.
+  const draggable = onUpdateItem !== undefined && field !== "team";
 
   const sensors = useSensors(
     useSensor(PointerSensor, {

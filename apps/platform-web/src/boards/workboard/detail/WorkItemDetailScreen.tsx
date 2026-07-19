@@ -321,7 +321,7 @@ function PropertiesRail({
         <PropertyRow label="Type">
           <WorkItemTypeBadge type={row.type} />
         </PropertyRow>
-        <PropertyRow label="Phase">
+        <PropertyRow label="Status">
           <PhasePill phase={row.phase} />
         </PropertyRow>
         <PropertyRow label="Priority">
@@ -345,7 +345,7 @@ function PropertiesRail({
         <PropertyRow label="Due">
           <span className="tabular-nums">{formatDate(row.due_date)}</span>
         </PropertyRow>
-        <PropertyRow label="Department">{row.department}</PropertyRow>
+        <PropertyRow label="Team">{row.department}</PropertyRow>
         <PropertyRow label="Project">{projectName ?? "—"}</PropertyRow>
         <PropertyRow label="Source">
           <ProvenanceChip source={row.source} />

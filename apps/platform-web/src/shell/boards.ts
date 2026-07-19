@@ -8,11 +8,8 @@ import {
   Home,
   Inbox,
   LayoutGrid,
-  Lightbulb,
   ListChecks,
-  ListTodo,
   MessageSquare,
-  Network,
   Newspaper,
   Plug,
   Plus,
@@ -76,6 +73,55 @@ export interface BoardDef {
   items: SidebarItem[];
 }
 
+/** A minimal reference to a Team, used to build the rail's TEAMS section. */
+export interface TeamRef {
+  id: string;
+  name: string;
+}
+
+/**
+ * The always-present workboard rows (IA redesign). `Views` and `Projects` are
+ * wired but not implemented in Phase 1, so they surface as prototype toasts;
+ * they go live in Phases 2 and 4 respectively. `My items` lands on the shared
+ * cross-team work-items surface until the Clerk→Owner mapping enables a real
+ * assignee-me filter (see plan Risk 3).
+ */
+const WORKBOARD_STATIC_ITEMS: SidebarItem[] = [
+  {
+    key: "my-items",
+    label: "My items",
+    to: "/w/$workspace/workboard",
+    icon: ListChecks,
+  },
+  { key: "views", label: "Views", icon: Star, prototypeOnly: true },
+  { key: "projects", label: "Projects", icon: Target, prototypeOnly: true },
+];
+
+/**
+ * Build the workboard rail items: the three static rows, then — when there is at
+ * least one team — a `TEAMS` section header followed by one row per team. Each
+ * team row embeds its concrete id in the route at build time (`$workspace` stays
+ * a template so the existing {@link href} bridge resolves it), so navigating to a
+ * team scopes the items surface without mutating the rail.
+ */
+export function buildWorkboardItems(
+  teams: ReadonlyArray<TeamRef>,
+): SidebarItem[] {
+  const items: SidebarItem[] = [...WORKBOARD_STATIC_ITEMS];
+  if (teams.length > 0) {
+    items.push({ key: "teams", label: "Teams", section: true });
+    for (const team of teams) {
+      items.push({
+        key: `team-${team.id}`,
+        label: team.name,
+        to: `/w/$workspace/workboard/team/${team.id}` as To,
+        icon: Users,
+      });
+    }
+  }
+  return items;
+}
+
 export const BOARDS: BoardDef[] = [
   {
     id: "home",
@@ -107,57 +153,7 @@ export const BOARDS: BoardDef[] = [
     label: "Workboard",
     icon: LayoutGrid,
     entry: "/w/$workspace/workboard",
-    items: [
-      {
-        key: "work-items",
-        label: "Work items",
-        to: "/w/$workspace/workboard",
-        icon: ListChecks,
-      },
-      {
-        key: "graph",
-        label: "Graph",
-        to: "/w/$workspace/workboard/graph",
-        icon: Network,
-        // The dependency graph is a lens ON the work items, so it nests under
-        // "Work items" in the rail rather than reading as a sibling board screen.
-        nested: true,
-      },
-      {
-        key: "strategy",
-        label: "Strategy",
-        to: "/w/$workspace/workboard/strategy",
-        icon: Target,
-      },
-      {
-        key: "insights",
-        label: "Insights",
-        to: "/w/$workspace/workboard/insights",
-        icon: Lightbulb,
-        count: 2,
-      },
-      {
-        key: "tasks",
-        label: "Tasks",
-        to: "/w/$workspace/workboard/tasks",
-        icon: ListTodo,
-      },
-      {
-        key: "triage",
-        label: "Triage",
-        to: "/w/$workspace/workboard/triage",
-        icon: Inbox,
-        count: 2,
-      },
-      { key: "intake", label: "Intake", section: true },
-      {
-        key: "feedback",
-        label: "Feedback",
-        to: "/w/$workspace/workboard/feedback",
-        icon: MessageSquare,
-        count: 3,
-      },
-    ],
+    items: [...WORKBOARD_STATIC_ITEMS],
   },
   {
     id: "meetings",
@@ -359,10 +355,18 @@ export interface ResolvedScreen {
   title: string;
 }
 
-/** Resolve the current screen for titles and active highlighting. */
+/**
+ * Resolve the current screen for titles and active highlighting.
+ *
+ * `extraItems` are merged into the item match so dynamically-built rows (e.g. the
+ * per-team workboard rows from {@link buildWorkboardItems}, which are not in the
+ * static {@link BoardDef.items}) still title their screen — ShellLayout passes the
+ * merged rail items here.
+ */
 export function resolveScreen(
   pathname: string,
   workspace: string,
+  extraItems: ReadonlyArray<SidebarItem> = [],
 ): ResolvedScreen {
   const path = normalize(pathname);
   if (path === `/w/${workspace}/settings`) {
@@ -374,7 +378,7 @@ export function resolveScreen(
     return { board: null, item: null, title: "Home" };
   }
   const item =
-    board.items.find(
+    [...board.items, ...extraItems].find(
       (entry) => entry.to && interpolate(entry.to, workspace) === path,
     ) ?? null;
   return { board, item, title: item?.label ?? board.title };

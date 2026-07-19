@@ -85,7 +85,6 @@ interface EditorForm {
   assignee_id: string | null;
   /** `YYYY-MM-DD` (the `<input type="date">` value), or `""` for no due date. */
   dueDate: string;
-  department: string;
   tags: string[];
 }
 
@@ -116,7 +115,6 @@ function toForm(item: WorkItem): EditorForm {
     priority: item.priority,
     assignee_id: item.assignee_id,
     dueDate: toDateInputValue(item.due_date),
-    department: item.department,
     tags: [...item.tags],
   };
 }
@@ -154,8 +152,11 @@ function diffPatch(item: WorkItem, form: EditorForm): WorkItemPatch {
   const dueDate = fromDateInputValue(form.dueDate);
   if (dueDate !== item.due_date) patch.due_date = dueDate;
 
-  const department = form.department.trim();
-  if (department !== item.department) patch.department = department;
+  // Team (department) is DELIBERATELY never patched from the editor. The route
+  // scopes by the canonical `team_id`, but the editor can only reach the legacy
+  // `department` carrier; writing it alone would desync the display name from
+  // `team_id` (same recurring class as the disabled kanban team-drag). The atomic
+  // team_id write path is deferred to issue 8a3c0d6b, so Team stays read-only.
 
   if (!sameTags(form.tags, item.tags)) patch.tags = form.tags;
 
@@ -188,7 +189,6 @@ export function WorkItemEditor({
   const priorityId = useId();
   const ownerId = useId();
   const dueDateId = useId();
-  const departmentId = useId();
   const tagsId = useId();
 
   const [form, setForm] = useState<EditorForm | null>(
@@ -243,8 +243,8 @@ export function WorkItemEditor({
         <SheetHeader>
           <SheetTitle>{item ? "Edit work item" : "Work item"}</SheetTitle>
           <SheetDescription>
-            Update the work item&apos;s details — type, phase, priority, owner,
-            due date, department, and tags.
+            Update the work item&apos;s details — type, status, priority, owner,
+            due date, team, and tags.
           </SheetDescription>
         </SheetHeader>
 
@@ -301,9 +301,9 @@ export function WorkItemEditor({
               />
             </div>
 
-            {/* Phase */}
+            {/* Status (still the `phase` field until the Phase-4 field flip) */}
             <div className="flex flex-col gap-2">
-              <Label htmlFor={phaseId}>Phase</Label>
+              <Label htmlFor={phaseId}>Status</Label>
               <PhaseSelect
                 id={phaseId}
                 value={form.phase}
@@ -357,19 +357,22 @@ export function WorkItemEditor({
               />
             </div>
 
-            {/* Department */}
+            {/* Team (read-only) — the editor can set only the legacy `department`
+                carrier, not the canonical `team_id` the route scopes by, so a
+                Team edit here would desync the two. Kept read-only until the
+                atomic team_id write path lands (issue 8a3c0d6b); mirrors the
+                disabled kanban team-drag. */}
             <div className="flex flex-col gap-2">
-              <Label htmlFor={departmentId}>Department</Label>
-              <Input
-                id={departmentId}
-                value={form.department}
-                disabled={saving}
-                onChange={(event) =>
-                  setForm((prev) =>
-                    prev ? { ...prev, department: event.target.value } : prev,
-                  )
-                }
-              />
+              <span className="text-sm font-medium leading-none">Team</span>
+              <div>
+                <span className="text-sm">
+                  {item.department === "" ? "Unassigned" : item.department}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Team assignment isn&apos;t editable here yet — it moves with a
+                work item&apos;s team, coming soon.
+              </p>
             </div>
 
             {/* Tags */}

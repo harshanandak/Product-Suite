@@ -44,7 +44,7 @@ const OWNERS: ReadonlyArray<Owner> = [
   { id: "u_alan", name: "Alan Turing" },
 ];
 
-const DEPARTMENTS: ReadonlyArray<string> = ["Engineering", "Design"];
+const TEAMS: ReadonlyArray<string> = ["Engineering", "Design"];
 
 /**
  * Render the toolbar wired to a `vi.fn` `onChange` and a fresh default state.
@@ -56,6 +56,7 @@ function renderToolbar(overrides?: {
   view?: "table" | "kanban";
   columnFilters?: Partial<Record<ColumnId, ColumnFilter>>;
   savedViews?: ReadonlyArray<SavedView>;
+  hideTeamFacet?: boolean;
 }) {
   const onChange = vi.fn<(next: WorkboardFilterState) => void>();
   const onNewItem = vi.fn();
@@ -76,7 +77,8 @@ function renderToolbar(overrides?: {
       view={overrides?.view ?? "table"}
       onViewChange={onViewChange}
       owners={OWNERS}
-      departments={DEPARTMENTS}
+      teams={TEAMS}
+      hideTeamFacet={overrides?.hideTeamFacet}
       selectedCount={overrides?.selectedCount ?? 0}
       onNewItem={onNewItem}
       onBulkApply={onBulkApply}
@@ -163,13 +165,20 @@ describe("WorkboardToolbar", () => {
     expect(lastChange().search).toBe("auth");
   });
 
-  it("populates the Department facet from the departments prop", async () => {
+  it("populates the Team facet from the teams prop", async () => {
     const { lastChange } = renderToolbar();
-    openMenu(/filter by department/i);
+    openMenu(/filter by team/i);
     fireEvent.click(
       await screen.findByRole("menuitemcheckbox", { name: "Engineering" }),
     );
-    expect([...lastChange().filters.department]).toEqual(["Engineering"]);
+    expect([...lastChange().filters.team]).toEqual(["Engineering"]);
+  });
+
+  it("hides the Team facet when hideTeamFacet is set (team-scoped surface)", () => {
+    renderToolbar({ hideTeamFacet: true });
+    expect(
+      screen.queryByRole("button", { name: /filter by team/i }),
+    ).not.toBeInTheDocument();
   });
 
   /**
@@ -204,7 +213,7 @@ describe("WorkboardToolbar", () => {
 
   it("renders the Type/Phase/Priority/Owner facets in the toolbar for the Kanban view", () => {
     renderToolbar({ view: "kanban", columnFilters: COLUMN_FILTERS });
-    for (const facet of ["type", "phase", "priority", "owner"]) {
+    for (const facet of ["type", "status", "priority", "owner"]) {
       expect(
         screen.getByRole("button", { name: `Filter by ${facet}` }),
       ).toBeInTheDocument();
@@ -213,14 +222,14 @@ describe("WorkboardToolbar", () => {
 
   it("keeps those facets OUT of the toolbar for the Table view (they live in the column headers)", () => {
     renderToolbar({ view: "table", columnFilters: COLUMN_FILTERS });
-    for (const facet of ["type", "phase", "priority", "owner"]) {
+    for (const facet of ["type", "status", "priority", "owner"]) {
       expect(
         screen.queryByRole("button", { name: `Filter by ${facet}` }),
       ).not.toBeInTheDocument();
     }
-    // Department is unconditional (it has no column), so it stays in both views.
+    // Team is unconditional (it has no column), so it stays in both views.
     expect(
-      screen.getByRole("button", { name: /filter by department/i }),
+      screen.getByRole("button", { name: /filter by team/i }),
     ).toBeInTheDocument();
   });
 
@@ -241,7 +250,7 @@ describe("WorkboardToolbar", () => {
     ).toBeInTheDocument();
     // Still-visible columns keep their facet in the header, not the toolbar.
     expect(
-      screen.queryByRole("button", { name: "Filter by phase" }),
+      screen.queryByRole("button", { name: "Filter by status" }),
     ).not.toBeInTheDocument();
   });
 
@@ -250,7 +259,7 @@ describe("WorkboardToolbar", () => {
       filters: {
         type: new Set(["bug"]),
         owner: new Set(["u_ada"]),
-        department: new Set(),
+        team: new Set(),
         phase: new Set(),
         priority: new Set(),
       },
@@ -290,7 +299,7 @@ describe("WorkboardToolbar", () => {
         filters: {
           type: new Set(["bug"]),
           owner: new Set(),
-          department: new Set(),
+          team: new Set(),
           phase: new Set(),
           priority: new Set(),
         },
@@ -310,7 +319,7 @@ describe("WorkboardToolbar", () => {
       filters: {
         type: new Set(["feature", "bug"]),
         owner: new Set(["u_ada"]),
-        department: new Set(),
+        team: new Set(),
         phase: new Set(),
         priority: new Set(),
       },
@@ -355,7 +364,7 @@ describe("WorkboardToolbar", () => {
   it("changes the group-by field via the radio menu", async () => {
     const { lastChange } = renderToolbar();
     openMenu("Group by");
-    fireEvent.click(await screen.findByRole("menuitemradio", { name: "Phase" }));
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "Status" }));
     expect(lastChange().groupBy).toBe("phase");
   });
 

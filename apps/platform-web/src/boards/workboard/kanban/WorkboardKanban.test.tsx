@@ -98,6 +98,8 @@ describe("resolvePhaseChange", () => {
 describe("resolveDrop", () => {
   it("returns the field-scoped patch when the column changed (per dimension)", () => {
     // Each dimension patches ITS OWN key with the dropped column's value.
+    // (The `team` axis is intentionally excluded — its drop is disabled; see
+    // the dedicated "disables Team-axis drops" test below.)
     expect(resolveDrop("phase", "plan", encodeColumnId("phase", "done"))).toEqual(
       { phase: "done" },
     );
@@ -107,13 +109,6 @@ describe("resolveDrop", () => {
     expect(resolveDrop("type", "feature", encodeColumnId("type", "bug"))).toEqual(
       { type: "bug" },
     );
-    expect(
-      resolveDrop(
-        "department",
-        "Engineering",
-        encodeColumnId("department", "Marketing"),
-      ),
-    ).toEqual({ department: "Marketing" });
   });
 
   it("returns null for a same-column drop (no redundant patch)", () => {
@@ -134,10 +129,20 @@ describe("resolveDrop", () => {
     ).toBeNull();
   });
 
-  it("patches an empty department when dropped on the Unassigned column", () => {
+  it("disables Team-axis drops so a team drop never mutates the item", () => {
+    // The canonical team key is `team_id`, but it cannot be set atomically on a
+    // drop yet (deferred to 8a3c0d6b). Writing only the legacy `department`
+    // would move the card visually while leaving `team_id` — the route's scope
+    // key — unchanged, so the card falls out of sync with its team route. Until
+    // the `team_id` write path exists, EVERY team drop is a no-op (never a
+    // `{ department }` patch), regardless of the target column.
     expect(
-      resolveDrop("department", "Engineering", encodeColumnId("department", "")),
-    ).toEqual({ department: "" });
+      resolveDrop("team", "Engineering", encodeColumnId("team", "Marketing")),
+    ).toBeNull();
+    // Including a drop on the trailing "Unassigned" (empty) column.
+    expect(
+      resolveDrop("team", "Engineering", encodeColumnId("team", "")),
+    ).toBeNull();
   });
 });
 
@@ -355,12 +360,45 @@ describe("WorkboardKanban", () => {
     ).toHaveTextContent("1");
   });
 
-  it("pivots to a Department board with one column per present department", async () => {
+  it("disables card drag on a Team board even when a mutator is wired", async () => {
     const rows = await loadRows();
-    renderKanban({ rows, groupBy: "department" });
+    const onUpdateItem = vi
+      .fn<(id: string, patch: WorkItemPatch) => Promise<WorkItem>>()
+      .mockResolvedValue(rows[0]);
+
+    // A Team board with a mutator is still READ-ONLY for drag: the team axis
+    // writes only the legacy `department`, not the canonical `team_id`, so a
+    // drop would desync the card from its team route. dnd-kit reflects the
+    // disabled draggable as aria-disabled="true".
+    const { rerender } = renderKanban({ rows, onUpdateItem, groupBy: "team" });
+    const teamCard = await screen.findByLabelText("Open Workspace auth hardening");
+    expect(teamCard).toHaveAttribute("aria-disabled", "true");
+
+    // A Phase board with the SAME mutator keeps drag enabled (other axes intact).
+    rerender(
+      <WorkboardKanban
+        rows={rows}
+        owners={createOwnerFixtures()}
+        loading={false}
+        error={null}
+        onSelectItem={vi.fn()}
+        onUpdateItem={onUpdateItem}
+        groupBy="phase"
+      />,
+    );
+    await waitFor(() => {
+      expect(
+        screen.getByLabelText("Open Workspace auth hardening"),
+      ).toHaveAttribute("aria-disabled", "false");
+    });
+  });
+
+  it("pivots to a Team board with one column per present team", async () => {
+    const rows = await loadRows();
+    renderKanban({ rows, groupBy: "team" });
 
     const columns = await screen.findAllByTestId("kanban-column");
-    // Present departments only (dynamic), sorted alphabetically.
+    // Present teams only (dynamic), sorted alphabetically.
     expect(columns.map((node) => node.dataset.columnValue)).toEqual([
       "Engineering",
       "Marketing",
@@ -378,16 +416,16 @@ describe("WorkboardKanban", () => {
     }
   });
 
-  it("buckets rows with no department into a trailing Unassigned column", async () => {
-    // Empty the department on one row → it falls into the Unassigned bucket.
+  it("buckets rows with no team into a trailing Unassigned column", async () => {
+    // Empty the team on one row → it falls into the Unassigned bucket.
     const rows = (await loadRows()).map((row) =>
       row.id === "wi_auth" ? { ...row, department: "" } : row,
     );
-    renderKanban({ rows, groupBy: "department" });
+    renderKanban({ rows, groupBy: "team" });
 
     const columns = await screen.findAllByTestId("kanban-column");
     const values = columns.map((node) => node.dataset.columnValue);
-    // Unassigned ("") is appended AFTER the named, present departments.
+    // Unassigned ("") is appended AFTER the named, present teams.
     expect(values[values.length - 1]).toBe("");
     const unassigned = columns[columns.length - 1];
     expect(

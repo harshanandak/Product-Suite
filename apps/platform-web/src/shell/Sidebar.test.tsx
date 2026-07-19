@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { renderWithRouter } from "../test/harness";
 import { Sidebar } from "./Sidebar";
-import { getBoard } from "./boards";
+import { buildWorkboardItems, getBoard } from "./boards";
 
 describe("Sidebar", () => {
   it("renders the board title and items, marking the active item", async () => {
@@ -18,12 +18,12 @@ describe("Sidebar", () => {
     );
 
     expect(await screen.findByText("Workboard")).toBeDefined();
-    expect(screen.getByText("Work items")).toBeDefined();
-    expect(screen.getByText("Strategy")).toBeDefined();
-    expect(screen.getByText("Feedback")).toBeDefined();
+    expect(screen.getByText("My items")).toBeDefined();
+    expect(screen.getByText("Views")).toBeDefined();
+    expect(screen.getByText("Projects")).toBeDefined();
 
-    // "Work items" maps to /w/$workspace/workboard, so it is the active item.
-    const activeLink = screen.getByText("Work items").closest("a");
+    // "My items" maps to /w/$workspace/workboard, so it is the active item.
+    const activeLink = screen.getByText("My items").closest("a");
     expect(activeLink?.dataset.active).toBe("true");
   });
 
@@ -35,15 +35,15 @@ describe("Sidebar", () => {
       <Sidebar
         board={board}
         workspace="test-ws"
-        pathname="/w/test-ws/workboard/strategy"
+        pathname="/w/test-ws/workboard/item/wi_auth"
       />,
-      { path: "/w/test-ws/workboard/strategy" },
+      { path: "/w/test-ws/workboard/item/wi_auth" },
     );
 
     expect(await screen.findByText("Workboard")).toBeDefined();
-    expect(screen.getByText("Work items")).toBeDefined();
-    expect(screen.getByText("Strategy")).toBeDefined();
-    expect(screen.getByText("Feedback")).toBeDefined();
+    expect(screen.getByText("My items")).toBeDefined();
+    expect(screen.getByText("Views")).toBeDefined();
+    expect(screen.getByText("Projects")).toBeDefined();
 
     first.unmount();
 
@@ -53,15 +53,15 @@ describe("Sidebar", () => {
       <Sidebar
         board={board}
         workspace="test-ws"
-        pathname="/w/test-ws/workboard/feedback"
+        pathname="/w/test-ws/workboard"
       />,
-      { path: "/w/test-ws/workboard/feedback" },
+      { path: "/w/test-ws/workboard" },
     );
 
     expect(await screen.findByText("Workboard")).toBeDefined();
-    expect(screen.getByText("Work items")).toBeDefined();
-    expect(screen.getByText("Strategy")).toBeDefined();
-    expect(screen.getByText("Feedback")).toBeDefined();
+    expect(screen.getByText("My items")).toBeDefined();
+    expect(screen.getByText("Views")).toBeDefined();
+    expect(screen.getByText("Projects")).toBeDefined();
   });
 
   it("renders an icon-only rail when collapsed, keeping accessible names", async () => {
@@ -81,11 +81,11 @@ describe("Sidebar", () => {
     expect(
       await screen.findByRole("button", { name: "Expand sidebar" }),
     ).toBeInTheDocument();
-    expect(screen.queryByText("Work items")).not.toBeInTheDocument();
+    expect(screen.queryByText("My items")).not.toBeInTheDocument();
 
     // ...but items remain reachable through their accessible name (title/aria).
     expect(
-      screen.getByRole("link", { name: "Work items" }),
+      screen.getByRole("link", { name: "My items" }),
     ).toBeInTheDocument();
   });
 
@@ -108,65 +108,34 @@ describe("Sidebar", () => {
     expect(onToggleCollapse).toHaveBeenCalledTimes(1);
   });
 
-  it("marks exactly one link as the current page on a nested screen", async () => {
-    const board = getBoard("workboard");
+  it("marks exactly one link as the current page on a team screen", async () => {
+    // A workboard rail with a TEAMS section: the team row's path
+    // (/workboard/team/engineering) has the "My items" row (/workboard) as a
+    // prefix, so this exercises the exact-match guard.
+    const board = {
+      ...getBoard("workboard"),
+      items: buildWorkboardItems([{ id: "engineering", name: "Engineering" }]),
+    };
     renderWithRouter(
       <Sidebar
         board={board}
         workspace="test-ws"
-        pathname="/w/test-ws/workboard/strategy"
+        pathname="/w/test-ws/workboard/team/engineering"
       />,
-      { path: "/w/test-ws/workboard/strategy" },
+      { path: "/w/test-ws/workboard/team/engineering" },
     );
 
-    // The exact screen ("Strategy") is the current page...
-    const strategy = await screen.findByRole("link", { name: "Strategy" });
-    expect(strategy).toHaveAttribute("aria-current", "page");
+    // The exact screen ("Engineering") is the current page...
+    const team = await screen.findByRole("link", { name: "Engineering" });
+    expect(team).toHaveAttribute("aria-current", "page");
 
     // ...and it is the ONLY one. Without activeOptions={{ exact: true }} the
-    // ancestor "Work items" (/workboard) would also match by prefix and claim
+    // ancestor "My items" (/workboard) would also match by prefix and claim
     // aria-current="page", giving assistive tech two "current" locations.
     const currentLinks = screen
       .getAllByRole("link")
       .filter((link) => link.getAttribute("aria-current") === "page");
     expect(currentLinks).toHaveLength(1);
-  });
-
-  it("indents a nested item (Graph) under its parent when expanded, not when collapsed", async () => {
-    const board = getBoard("workboard");
-
-    // Expanded: the nested Graph item is indented (pl-7) while a top-level
-    // sibling (Work items) is not — Graph reads as a child of Work items.
-    const expanded = renderWithRouter(
-      <Sidebar
-        board={board}
-        workspace="test-ws"
-        pathname="/w/test-ws/workboard"
-      />,
-      { path: "/w/test-ws/workboard" },
-    );
-    const graph = (await screen.findByText("Graph")).closest("a");
-    expect(graph?.className.split(" ")).toContain("pl-7");
-    expect(
-      screen.getByText("Work items").closest("a")?.className.split(" "),
-    ).not.toContain("pl-7");
-    expanded.unmount();
-
-    // Collapsed icon-only rail: the indent is dropped (the collapsed px-0 wins),
-    // so a nested item never indents in the rail.
-    renderWithRouter(
-      <Sidebar
-        board={board}
-        workspace="test-ws"
-        pathname="/w/test-ws/workboard"
-        collapsed
-        onToggleCollapse={vi.fn()}
-      />,
-      { path: "/w/test-ws/workboard" },
-    );
-    // Collapsed sets an explicit aria-label, so the link resolves by name here.
-    const graphCollapsed = await screen.findByRole("link", { name: "Graph" });
-    expect(graphCollapsed.className.split(" ")).not.toContain("pl-7");
   });
 
   it("omits the collapse toggle when no onToggleCollapse handler is given", async () => {
@@ -180,7 +149,7 @@ describe("Sidebar", () => {
       { path: "/w/test-ws/workboard" },
     );
 
-    expect(await screen.findByText("Work items")).toBeInTheDocument();
+    expect(await screen.findByText("My items")).toBeInTheDocument();
     // No toggle handler → no collapse/expand affordance is rendered.
     expect(
       screen.queryByRole("button", { name: /sidebar/i }),

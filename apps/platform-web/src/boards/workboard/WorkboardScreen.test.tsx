@@ -165,6 +165,107 @@ describe("WorkboardScreen", () => {
     ).toBeInTheDocument();
   });
 
+  it("scopes rows to the given teamId and hides the Team facet", async () => {
+    render(
+      <WorkboardScreen
+        repository={createMockWorkItemRepository()}
+        teamId="team_engineering"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+
+    // An Engineering item is present…
+    expect(
+      screen.getByRole("button", { name: "Workspace auth hardening" }),
+    ).toBeInTheDocument();
+    // …and a Marketing item (Diwali creative set) is scoped out of the surface.
+    expect(
+      screen.queryByRole("button", { name: "Diwali creative set" }),
+    ).not.toBeInTheDocument();
+
+    // The Team facet is hidden — the scope is fixed by the route.
+    expect(
+      screen.queryByRole("button", { name: "Filter by team" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("still applies search within the team scope", async () => {
+    render(
+      <WorkboardScreen
+        repository={createMockWorkItemRepository()}
+        teamId="team_engineering"
+      />,
+    );
+
+    // Engineering seeds four items, so more than one row shows before searching.
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(1);
+    });
+
+    fireEvent.change(
+      screen.getByRole("searchbox", { name: "Search work items" }),
+      { target: { value: "Workspace auth hardening" } },
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row")).toHaveLength(1);
+    });
+    expect(
+      screen.getByRole("button", { name: "Workspace auth hardening" }),
+    ).toBeInTheDocument();
+  });
+
+  it("ignores a persisted Team filter on a team-scoped route", async () => {
+    // A stale Team facet selected on the unscoped board (here "Marketing")
+    // conflicts with the Engineering scope. The scoped route hides the Team
+    // facet, so if the persisted selection still filtered the rows the user
+    // would be stranded on an EMPTY, unclearable board. The scoped view must
+    // ignore the persisted team facet entirely.
+    const base = defaultWorkboardFilterState();
+    window.localStorage.setItem(
+      FILTER_STORAGE_KEY,
+      serializePersistedView({
+        filterState: {
+          ...base,
+          filters: { ...base.filters, team: new Set(["Marketing"]) },
+        },
+        view: "table",
+      }),
+    );
+
+    render(
+      <WorkboardScreen
+        repository={createMockWorkItemRepository()}
+        teamId="team_engineering"
+      />,
+    );
+
+    // The team's items still render despite the conflicting persisted facet.
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+    expect(
+      screen.getByRole("button", { name: "Workspace auth hardening" }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows the team empty state when the team has no items", async () => {
+    render(
+      <WorkboardScreen
+        repository={createMockWorkItemRepository()}
+        teamId="team_does_not_exist"
+      />,
+    );
+
+    expect(
+      await screen.findByText("No items in this team yet"),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("work-item-row")).not.toBeInTheDocument();
+  });
+
   it("navigates to the item's detail page when a row is activated", async () => {
     render(<WorkboardScreen repository={createMockWorkItemRepository()} />);
 
@@ -347,6 +448,111 @@ describe("WorkboardScreen", () => {
     ).toBeInTheDocument();
   });
 
+  it("threads the scoped teamId, department, AND a valid status_id into a new item", async () => {
+    // On a team-scoped route, New must create INTO that team. Otherwise the
+    // repository backfills team_id from a default and the fresh item lands on
+    // another team, vanishing from the scoped list (CodeRabbit
+    // WorkboardScreen.tsx:663).
+    //
+    // team_id alone is scope-correct, but the screen's Team grouping/search/
+    // labels still read `row.department`, which the repo ALSO backfills from a
+    // default when omitted — so the new item would DISPLAY under the wrong Team
+    // column on the scoped page (CodeRabbit WorkboardScreen.tsx:452). The scoped
+    // team's name (department carrier) must ride along too. All scoped items
+    // share the team, so team_sourcing's items carry department "Sourcing".
+    //
+    // status_id is MANDATORY on the production API — the mock backfills it, but
+    // the network repo posts the raw input and a create without status_id is
+    // rejected (CodeRabbit WorkboardScreen.tsx:474). Borrow a sibling scoped
+    // item's status so the payload is prod-valid.
+    const base = createMockWorkItemRepository();
+    const create = vi.fn(base.create);
+    const repository = { ...base, create };
+
+    // The sibling status_id the screen should borrow: the first team_sourcing
+    // item's status (derived from data, not hard-coded, to stay robust).
+    const items = await base.list();
+    const sibling = items.find((item) => item.team_id === "team_sourcing");
+    expect(sibling?.status_id).toBeTruthy();
+
+    render(<WorkboardScreen repository={repository} teamId="team_sourcing" />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+
+    // A non-empty scoped team can source a valid same-team status, so New is
+    // enabled.
+    const newButton = screen.getByRole("button", { name: /new work item/i });
+    expect(newButton).not.toBeDisabled();
+    fireEvent.click(newButton);
+
+    await waitFor(() => {
+      expect(create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          team_id: "team_sourcing",
+          department: "Sourcing",
+          status_id: sibling?.status_id,
+        }),
+      );
+    });
+  });
+
+  it("disables New on an EMPTY team-scoped route so no invalid-status create is posted", async () => {
+    // With no same-team sibling there is no valid team status to source, and the
+    // prod create verifies status_id against the submitted team_id — so a create
+    // would send a cross-team/missing status and 400 (CodeRabbit
+    // WorkboardScreen.tsx:248). "Can't do it correctly yet → don't offer it":
+    // the New action is disabled until team status setup exists (issue 8a3c0d6b).
+    const base = createMockWorkItemRepository();
+    const create = vi.fn(base.create);
+    const repository = { ...base, create };
+
+    render(
+      <WorkboardScreen repository={repository} teamId="team_does_not_exist" />,
+    );
+
+    // The empty-team state renders…
+    expect(
+      await screen.findByText("No items in this team yet"),
+    ).toBeInTheDocument();
+
+    // …and EVERY New action (toolbar + empty-state) is disabled.
+    const newButtons = screen.getAllByRole("button", { name: /new work item/i });
+    expect(newButtons.length).toBeGreaterThan(0);
+    for (const button of newButtons) {
+      expect(button).toBeDisabled();
+    }
+
+    // Clicking never fires a create — no cross-team/missing-status POST.
+    fireEvent.click(newButtons[0]);
+    await Promise.resolve();
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a failed create with a toast instead of silently swallowing it", async () => {
+    // The trailing .catch on handleNewItem previously swallowed every create
+    // rejection — so a prod create failure (e.g. a rejected payload) was
+    // invisible (CodeRabbit WorkboardScreen.tsx:474). It must now be announced.
+    const base = createMockWorkItemRepository();
+    const failing = {
+      ...base,
+      create: () => Promise.reject(new Error("backend down")),
+    };
+    renderScreenWithToaster(failing);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /new work item/i }));
+
+    // The failure is announced (no more silent .catch swallow) and no editor
+    // opens on a non-existent item.
+    expect(await screen.findByText(/couldn't create/i)).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
   it("renders the empty state when the repository has no work items", async () => {
     const repository = createMockWorkItemRepository();
     // Drain the fixture store so the loaded list is empty.
@@ -426,7 +632,7 @@ describe("WorkboardScreen", () => {
     // Change the inline Phase select — this routes through commitPatch, whose
     // rejection must surface a toast (not the row-actions Archive path above).
     const combobox = screen.getByRole("combobox", {
-      name: "Phase for Workspace auth hardening",
+      name: "Status for Workspace auth hardening",
     });
     fireEvent.keyDown(combobox, { key: "Enter" });
     fireEvent.click(await screen.findByRole("option", { name: "Done" }));
@@ -487,7 +693,7 @@ describe("WorkboardScreen", () => {
     // backing store would mutate, so a store check here is a tautology.)
     expect(
       screen.getByRole("combobox", {
-        name: "Phase for Workspace auth hardening",
+        name: "Status for Workspace auth hardening",
       }),
     ).toHaveTextContent(/execute/i);
     // The succeeded rows did persist to the store.
@@ -497,7 +703,7 @@ describe("WorkboardScreen", () => {
 
   it("restores persisted search, groupBy, and visibleColumns from localStorage", async () => {
     const base = defaultWorkboardFilterState();
-    // Hide the Tags column and group by Type instead of the default Department.
+    // Hide the Tags column and group by Type instead of the default Team.
     const visibleColumns = new Set(
       COLUMN_IDS.filter((id) => id !== "tags"),
     );
@@ -526,7 +732,7 @@ describe("WorkboardScreen", () => {
     expect(
       screen.getByRole("searchbox", { name: "Search work items" }),
     ).toHaveValue("auth");
-    // groupBy restored → swimlanes are by Type ("Feature"), not Department.
+    // groupBy restored → swimlanes are by Type ("Feature"), not Team.
     expect(container.querySelector('[data-group="Feature"]')).not.toBeNull();
     expect(container.querySelector('[data-group="Engineering"]')).toBeNull();
     // visibleColumns restored → the Tags column (its inline edit button) is gone.
@@ -558,7 +764,7 @@ describe("WorkboardScreen", () => {
     // ("Filter Phase (1)"); opening it shows "Execute" already checked — proving
     // the restored facet Set flows into the live filter state.
     fireEvent.keyDown(
-      screen.getByRole("button", { name: "Filter Phase (1)" }),
+      screen.getByRole("button", { name: "Filter Status (1)" }),
       { key: "ArrowDown" },
     );
     expect(
@@ -700,7 +906,7 @@ describe("WorkboardScreen", () => {
 
     // Filter to Phase = Execute (wi_auth seeds "execute", so it stays visible).
     // Phase now filters from its COLUMN HEADER (the toolbar facet moved there).
-    fireEvent.keyDown(screen.getByRole("button", { name: "Filter Phase" }), {
+    fireEvent.keyDown(screen.getByRole("button", { name: "Filter Status" }), {
       key: "ArrowDown",
     });
     fireEvent.click(

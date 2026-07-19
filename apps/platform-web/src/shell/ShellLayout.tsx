@@ -15,9 +15,16 @@ import {
 } from "@/agent-chat/AgentChatPanel";
 import { resolveLinkedObject } from "@/agent-chat/linked-object";
 import { USE_FIXTURES } from "@/fixtures-mode";
+import { useTeams } from "@/data/work-items";
 
 import { DEFAULT_WORKSPACE } from "../env";
-import { BOARDS, deriveActiveBoard, getBoard, href } from "./boards";
+import {
+  BOARDS,
+  buildWorkboardItems,
+  deriveActiveBoard,
+  getBoard,
+  href,
+} from "./boards";
 import { BoardDock } from "./BoardDock";
 import { CommandPalette } from "./CommandPalette";
 import { Sidebar } from "./Sidebar";
@@ -102,6 +109,16 @@ function ShellChrome() {
   const activeBoard = deriveActiveBoard(pathname, slug);
   const board = getBoard(activeBoard ?? "home");
 
+  // The Workboard rail is dynamic: its static rows plus a TEAMS section with one
+  // row per team the work items belong to. Other boards render their static
+  // config unchanged. (buildWorkboardItems returns just the static rows until the
+  // teams load, so the rail never flashes an empty section.)
+  const { teams } = useTeams();
+  const railBoard =
+    activeBoard === "workboard"
+      ? { ...board, items: buildWorkboardItems(teams) }
+      : board;
+
   // Visually expanded when pinned open (not collapsed) OR while the collapsed
   // rail is hover/focus-revealed. `overlay` = revealed-but-not-pinned, so it
   // floats over the content instead of pushing it (the grid column stays 64px).
@@ -168,7 +185,7 @@ function ShellChrome() {
         >
           <WorkspaceSwitcher collapsed={!expanded} />
           <Sidebar
-            board={board}
+            board={railBoard}
             workspace={slug}
             pathname={pathname}
             collapsed={!expanded}

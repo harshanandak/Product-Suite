@@ -21,6 +21,7 @@ import {
   type WorkItemRepository,
   type WorkItemRow,
 } from "@/data/work-items";
+import { DEFAULT_WORKSPACE } from "@/env";
 
 import { WorkItemEditor } from "./editor/WorkItemEditor";
 import {
@@ -35,7 +36,7 @@ import {
   serializePersistedView,
   serializeSavedViews,
   toggledSet,
-  workboardDepartments,
+  workboardTeams,
   type ColumnId,
   type PersistedView,
   type SavedView,
@@ -57,6 +58,13 @@ import { WorkboardToolbar } from "./toolbar/WorkboardToolbar";
 export interface WorkboardScreenProps {
   /** Repository to read/write through; defaults to the shared module singleton. */
   repository?: WorkItemRepository;
+  /**
+   * When set, the surface is scoped to a single team: rows are pre-filtered to
+   * `team_id === teamId` BEFORE the user's search/facets apply, and the Team
+   * toolbar facet is hidden (the scope is already fixed). Drives the
+   * `/workboard/team/$teamId` route via {@link TeamItemsScreen}.
+   */
+  teamId?: string;
 }
 
 /**
@@ -105,7 +113,7 @@ function hydrateFilterState(config: PersistedView): WorkboardFilterState {
       ? {
           type: new Set(config.filters.type),
           owner: new Set(config.filters.owner),
-          department: new Set(config.filters.department),
+          team: new Set(config.filters.team),
           phase: new Set(config.filters.phase),
           priority: new Set(config.filters.priority),
         }
@@ -160,6 +168,7 @@ function generateViewId(existing: ReadonlyArray<SavedView>): string {
  */
 export function WorkboardScreen({
   repository,
+  teamId,
 }: Readonly<WorkboardScreenProps> = {}) {
   // Stabilize the repository for the lifetime of the screen so the hook and our
   // own check read share ONE store (the hook captures its repo once, on mount —
@@ -172,9 +181,12 @@ export function WorkboardScreen({
   );
 
   // Row activation navigates to the item's detail PAGE — needs the router's
-  // navigate + the current workspace param to build the typed target.
+  // navigate + the current workspace param to build the typed target. Read the
+  // param non-strictly (with a fallback) so this one screen serves BOTH the
+  // /workboard and /workboard/team/$teamId routes (the BoardScreen precedent).
   const navigate = useNavigate();
-  const { workspace } = useParams({ from: "/w/$workspace/workboard" });
+  const { workspace } = useParams({ strict: false });
+  const workspaceSlug = workspace ?? DEFAULT_WORKSPACE;
 
   const { items, owners, loading, error, update, pendingIds, create, refetch } =
     useWorkItems({ repository: repo });
@@ -198,18 +210,77 @@ export function WorkboardScreen({
     parseSavedViews(readSavedViews()),
   );
 
-  // Department facet options + the already-filtered rows, both derived from the
-  // live items. The Table renders exactly `rows`; it never filters.
-  const departments = useMemo(() => workboardDepartments(items), [items]);
-  const rows = useMemo(
-    () => applyWorkboardFilters(items, filterState, owners),
-    [items, filterState, owners],
+  // Team scope (route-level): when a teamId is set, pre-filter to that team
+  // BEFORE the user's search/facets apply, so the whole surface (rows, empty
+  // states, facet options) sees only the team's items. Unscoped → all items.
+  const scopedItems = useMemo(
+    () =>
+      teamId === undefined
+        ? items
+        : items.filter((item) => item.team_id === teamId),
+    [items, teamId],
   );
 
-  // The five facet option lists, derived once from the live owners/departments.
+  // The scoped team's display NAME, carried on the deprecated `department` field
+  // (the only client-side name source today — see filter-state's seam notes).
+  // Every scoped item shares this one team, so any sibling's `department` IS the
+  // team name; derived from data already loaded rather than a separate teams
+  // read (useTeams resolves the same name from the same `department` carrier, so
+  // the sibling is equivalent and avoids a second hook). Used so a new item
+  // created on the scoped page groups/labels under the correct Team — team_id
+  // alone does not drive the client-side department-based grouping. `undefined`
+  // on the unscoped route AND on an empty team (no sibling to read); the atomic
+  // team_id → name mapping is deferred to issue 8a3c0d6b.
+  const scopedTeamName =
+    teamId === undefined ? undefined : scopedItems[0]?.department;
+
+  // A prod-valid `status_id` for a scoped-route create. The production API
+  // REJECTS a create without status_id AND verifies it belongs to the submitted
+  // team_id (apps/platform-api domain/work-items). The mock hides this by
+  // backfilling, but the network repo posts the raw input. Source the status
+  // ONLY from a SAME-TEAM sibling — every scoped item shares this team, so its
+  // status is a valid team status. NO cross-team fallback: borrowing another
+  // team's status (e.g. items[0]) would fail the team↔status check and 400.
+  // `undefined` when the scoped team has no sibling (empty team) → New is
+  // disabled below rather than posting an invalid status (issue 8a3c0d6b).
+  const scopedStatusId =
+    teamId === undefined ? undefined : scopedItems[0]?.status_id;
+
+  // Disable "New" on a team-scoped route with no same-team sibling: there is no
+  // valid team status to source, and the API would reject a cross-team/missing
+  // status. "Can't do it correctly yet → don't offer it" (mirrors the read-only
+  // Team field + disabled kanban team-drag). Never blocks the unscoped board.
+  const newItemDisabled = teamId !== undefined && scopedStatusId === undefined;
+
+  // Team facet options + the already-filtered rows, both derived from the
+  // (team-)scoped items. The Table renders exactly `rows`; it never filters.
+  const teams = useMemo(
+    () => workboardTeams(scopedItems),
+    [scopedItems],
+  );
+  // On a team-scoped route the Team facet is hidden (the route fixes the scope),
+  // so a persisted `filters.team` from the unscoped board is stale AND
+  // unclearable. Left applied it can filter the scoped rows to EMPTY (a prior,
+  // different-team selection matches nothing here). Normalize it to an empty set
+  // before filtering so the scoped view ignores the persisted team facet.
+  const effectiveFilterState = useMemo(() => {
+    if (teamId === undefined || filterState.filters.team.size === 0) {
+      return filterState;
+    }
+    return {
+      ...filterState,
+      filters: { ...filterState.filters, team: new Set<string>() },
+    };
+  }, [filterState, teamId]);
+  const rows = useMemo(
+    () => applyWorkboardFilters(scopedItems, effectiveFilterState, owners),
+    [scopedItems, effectiveFilterState, owners],
+  );
+
+  // The five facet option lists, derived once from the live owners/teams.
   const facetOptions = useMemo(
-    () => buildFacetOptions(owners, departments),
-    [owners, departments],
+    () => buildFacetOptions(owners, teams),
+    [owners, teams],
   );
 
   // Per-column header filters (Type / Phase / Priority / Owner) for the Table.
@@ -337,10 +408,10 @@ export function WorkboardScreen({
       // click handler from floating a promise (the file's convention — no `void`).
       navigate({
         to: "/w/$workspace/workboard/item/$itemId",
-        params: { workspace, itemId: row.id },
+        params: { workspace: workspaceSlug, itemId: row.id },
       }).catch(() => undefined);
     },
-    [navigate, workspace],
+    [navigate, workspaceSlug],
   );
 
   const handleOpenChange = useCallback((open: boolean) => {
@@ -403,13 +474,39 @@ export function WorkboardScreen({
   // record to `items`, so `liveSelected` resolves it; `selected` is the
   // one-render fallback until that reflow lands.
   const handleNewItem = useCallback((): void => {
+    // Guard: never POST a scoped create without a valid same-team status. The
+    // action is disabled in the UI on an empty scoped team, but guard here too
+    // so no invalid/cross-team-status create can ever fire.
+    if (newItemDisabled) return;
     // Fire-and-forget create + open the editor on the fresh item. create()
     // rejects only under a real backend (the mock never does); the trailing
     // .catch keeps this void-returning click handler from floating a promise.
-    create({})
+    // On a team-scoped route, thread the route's teamId so the new item lands
+    // on THIS team — without it the repo backfills team_id from a default and
+    // the fresh item can vanish from the scoped list. Also carry the team's
+    // `department` NAME (when a sibling supplies it) so the item GROUPS/LABELS
+    // under the correct Team column, and a prod-valid `status_id` (the network
+    // API rejects a create without one) — see `scopedStatusId`.
+    create(
+      teamId === undefined
+        ? {}
+        : {
+            team_id: teamId,
+            ...(scopedTeamName === undefined
+              ? {}
+              : { department: scopedTeamName }),
+            ...(scopedStatusId === undefined
+              ? {}
+              : { status_id: scopedStatusId }),
+          },
+    )
       .then((created) => setSelected(created))
-      .catch(() => undefined);
-  }, [create]);
+      .catch(() => {
+        // Surface the failure — never swallow it. A rejected create (e.g. a
+        // payload the API refuses) must be visible, not an invisible no-op.
+        toast.error("Couldn't create the work item — please try again.");
+      });
+  }, [create, teamId, scopedTeamName, scopedStatusId, newItemDisabled]);
 
   // Editor's onSave returns void; the hook's update returns the saved WorkItem.
   // Await + discard, and let rejections propagate so the editor keeps the Sheet
@@ -441,7 +538,7 @@ export function WorkboardScreen({
       filters: {
         type: new Set(),
         owner: new Set(),
-        department: new Set(),
+        team: new Set(),
         phase: new Set(),
         priority: new Set(),
       },
@@ -527,8 +624,8 @@ export function WorkboardScreen({
   //  - no items at all   → the teaching empty state.
   //  - items but no rows → filters hide everything → clearable no-match state.
   const showTable = loading || error !== null;
-  const noItems = !showTable && items.length === 0;
-  const noMatches = !showTable && items.length > 0 && rows.length === 0;
+  const noItems = !showTable && scopedItems.length === 0;
+  const noMatches = !showTable && scopedItems.length > 0 && rows.length === 0;
 
   // The active view (table or kanban) over the same filtered rows + handlers.
   // Resolved here so the body JSX below stays a single (non-nested) ternary.
@@ -571,9 +668,11 @@ export function WorkboardScreen({
         view={view}
         onViewChange={setView}
         owners={owners}
-        departments={departments}
+        teams={teams}
+        hideTeamFacet={teamId !== undefined}
         selectedCount={filterState.selection.size}
         onNewItem={handleNewItem}
+        newItemDisabled={newItemDisabled}
         onBulkApply={handleBulkApply}
         onResetColumnWidths={
           view === "table" ? handleResetColumnWidths : undefined
@@ -587,10 +686,25 @@ export function WorkboardScreen({
 
       {noItems ? (
         <EmptyState
-          title="No work items yet"
-          description="Work items are the coalition hub — create one to plan, execute, and review work across departments."
+          title={teamId === undefined ? "No work items yet" : "No items in this team yet"}
+          description={
+            teamId === undefined
+              ? "Work items are the coalition hub — create one to plan, execute, and review work across teams."
+              : newItemDisabled
+                ? "Creating in an empty team needs team status setup — coming soon."
+                : "This team has no work items yet — create one to start tracking its work."
+          }
           action={
-            <Button size="sm" onClick={handleNewItem}>
+            <Button
+              size="sm"
+              onClick={handleNewItem}
+              disabled={newItemDisabled}
+              title={
+                newItemDisabled
+                  ? "Creating in an empty team needs team status setup (coming soon)"
+                  : undefined
+              }
+            >
               New work item
             </Button>
           }
@@ -621,4 +735,13 @@ export function WorkboardScreen({
       />
     </section>
   );
+}
+
+/**
+ * Thin route wrapper for `/workboard/team/$teamId`: reads the team id from the
+ * URL and renders the shared {@link WorkboardScreen} scoped to that team.
+ */
+export function TeamItemsScreen() {
+  const { teamId } = useParams({ strict: false });
+  return <WorkboardScreen teamId={teamId} />;
 }

@@ -54,12 +54,12 @@ export const COLUMN_IDS: readonly ColumnId[] = [
 
 /**
  * The fields the rows may be grouped into swimlanes by. `"none"` is a flat list.
- * `"department"` matches the Table's current default grouping.
+ * `"team"` matches the Table's current default grouping.
  */
-export type GroupByField = "none" | "department" | "phase" | "priority" | "type";
+export type GroupByField = "none" | "team" | "phase" | "priority" | "type";
 
 /**
- * Owner-filter sentinel for "no owner" (items routed to a department queue —
+ * Owner-filter sentinel for "no owner" (items routed to a team queue —
  * `assignee_id: null`). Used INSTEAD of `null` inside the `owner` filter set so
  * the set stays a homogeneous `Set<string>`; the Table maps it back to a
  * `assignee_id === null` predicate.
@@ -69,16 +69,20 @@ export const FILTER_OWNER_UNASSIGNED = "__unassigned__";
 /**
  * The structured filter facets. Each facet is a `Set` of selected values; an
  * EMPTY set means "no filter on this facet" (show all). The `owner` set holds
- * owner ids plus the {@link FILTER_OWNER_UNASSIGNED} sentinel; `department`
- * holds department names.
+ * owner ids plus the {@link FILTER_OWNER_UNASSIGNED} sentinel; `team`
+ * holds team names.
  */
 export interface WorkboardFilters {
   /** Selected work-item types; empty = all types. */
   type: Set<WorkItemType>;
   /** Selected owner ids (or {@link FILTER_OWNER_UNASSIGNED}); empty = all owners. */
   owner: Set<string>;
-  /** Selected department names; empty = all departments. */
-  department: Set<string>;
+  /**
+   * Selected team names; empty = all teams. VALUES are team NAME strings — they
+   * match `item.department`, the deprecated-but-retained team-name carrier that
+   * {@link applyWorkboardFilters} keeps reading (see the seam note there).
+   */
+  team: Set<string>;
   /** Selected phases; empty = all phases. */
   phase: Set<Phase>;
   /** Selected priorities; empty = all priorities. */
@@ -90,11 +94,11 @@ export interface WorkboardFilters {
  * `setState` from the toolbar re-renders the Table consistently.
  */
 export interface WorkboardFilterState {
-  /** Free-text search across title, tags, department, type label, and owner name. */
+  /** Free-text search across title, tags, team, type label, and owner name. */
   search: string;
   /** Structured facet filters (see {@link WorkboardFilters}). */
   filters: WorkboardFilters;
-  /** Current swimlane grouping (`"department"` by default). */
+  /** Current swimlane grouping (`"team"` by default). */
   groupBy: GroupByField;
   /** Which columns are shown, in {@link COLUMN_IDS} order. */
   visibleColumns: Set<ColumnId>;
@@ -104,7 +108,7 @@ export interface WorkboardFilterState {
 
 /**
  * Fresh, fully-defaulted {@link WorkboardFilterState}: no search, no facet
- * filters, grouped by department (matching the Table's existing behaviour), all
+ * filters, grouped by team (matching the Table's existing behaviour), all
  * columns visible, nothing selected.
  *
  * Returns a NEW value (fresh `Set` instances) on every call so consumers never
@@ -116,11 +120,11 @@ export function defaultWorkboardFilterState(): WorkboardFilterState {
     filters: {
       type: new Set(),
       owner: new Set(),
-      department: new Set(),
+      team: new Set(),
       phase: new Set(),
       priority: new Set(),
     },
-    groupBy: "department",
+    groupBy: "team",
     visibleColumns: new Set(COLUMN_IDS),
     selection: new Set(),
   };
@@ -151,7 +155,7 @@ function ownerMatches(
 
 /**
  * Case-insensitive free-text match over a row's user-visible text — its title,
- * tags, department, type label, AND owner display name. The row stores only
+ * tags, team, type label, AND owner display name. The row stores only
  * `assignee_id`, so the owner name is resolved through the `ownerNameById`
  * lookup; the type is matched by its human {@link WORK_ITEM_TYPE_LABELS} label
  * (what the user actually sees), not its raw enum code. An empty (or
@@ -168,6 +172,7 @@ function searchMatches(
     row.assignee_id === null ? undefined : ownerNameById.get(row.assignee_id);
   const haystacks = [
     row.title,
+    // `row.department` is the deprecated-but-retained team-name carrier.
     row.department,
     WORK_ITEM_TYPE_LABELS[row.type],
     ...row.tags,
@@ -186,9 +191,9 @@ function searchMatches(
  * already-filtered `rows`, so the two surfaces can never desync (DESIGN §4).
  *
  * Filter semantics — an EMPTY facet set is "no filter" (show all):
- *  - search: case-insensitive substring over title, tags, department, type
+ *  - search: case-insensitive substring over title, tags, team, type
  *    label, AND owner display name (resolved from `owners`).
- *  - type / phase / priority / department: membership in the matching facet set.
+ *  - type / phase / priority / team: membership in the matching facet set.
  *  - owner: the {@link FILTER_OWNER_UNASSIGNED} sentinel matches
  *    `assignee_id === null`; an owner id matches that `assignee_id`.
  *
@@ -209,24 +214,32 @@ export function applyWorkboardFilters(
       searchMatches(search, row, ownerNameById) &&
       facetMatches(filters.type, row.type) &&
       ownerMatches(filters.owner, row.assignee_id) &&
-      facetMatches(filters.department, row.department) &&
+      // Team facet reads `row.department` — the deprecated-but-retained
+      // team-name carrier (the only client-side team-name source today).
+      facetMatches(filters.team, row.department) &&
       facetMatches(filters.phase, row.phase) &&
       facetMatches(filters.priority, row.priority),
   );
 }
 
 /**
- * Distinct department names present across `rows`, sorted alphabetically. Feeds
- * the toolbar's Department facet so its options always reflect the loaded data
- * (the toolbar never sees the rows directly — see its `departments` prop note).
+ * Distinct team names present across `rows`, sorted alphabetically. Feeds
+ * the toolbar's Team facet so its options always reflect the loaded data
+ * (the toolbar never sees the rows directly — see its `teams` prop note).
+ * Reads `row.department`, the deprecated-but-retained team-name carrier.
  *
- * @param rows - the rows to scan for department names.
+ * @param rows - the rows to scan for team names.
  */
-export function workboardDepartments(rows: WorkItemRow[]): string[] {
+export function workboardTeams(rows: WorkItemRow[]): string[] {
   return [...new Set(rows.map((row) => row.department))].sort((a, b) =>
     a.localeCompare(b),
   );
 }
+
+// Back-compat alias for the Phase-2-exempt graph screen, which still imports the
+// pre-rename name. Prefer `workboardTeams`; dropped when the graph is rewired
+// (plan Task 2.3).
+export const workboardDepartments = workboardTeams;
 
 /** Clone a `Set`, toggling `value`'s membership; returns the new `Set`. Shared by
  * every facet control so a toggle always hands a fresh `Set` upward (controlled). */
@@ -246,11 +259,11 @@ export interface FacetOption<T extends string = string> {
   readonly label: string;
 }
 
-/** The option lists for all five facets, derived from the live owners/departments. */
+/** The option lists for all five facets, derived from the live owners/teams. */
 export interface WorkboardFacetOptions {
   type: ReadonlyArray<FacetOption<WorkItemType>>;
   owner: ReadonlyArray<FacetOption>;
-  department: ReadonlyArray<FacetOption>;
+  team: ReadonlyArray<FacetOption>;
   phase: ReadonlyArray<FacetOption<Phase>>;
   priority: ReadonlyArray<FacetOption<Priority>>;
 }
@@ -259,14 +272,14 @@ export interface WorkboardFacetOptions {
 const PHASE_FACET_ORDER: readonly Phase[] = ["plan", "execute", "review", "done"];
 
 /**
- * Build the five facet option lists from the live `owners` + `departments`, so the
+ * Build the five facet option lists from the live `owners` + `teams`, so the
  * toolbar and the graph's filter cluster render identical, in-sync facets without
  * duplicating the label/order wiring. The owner facet leads with the
  * {@link FILTER_OWNER_UNASSIGNED} "Unassigned" option.
  */
 export function buildFacetOptions(
   owners: ReadonlyArray<Owner>,
-  departments: ReadonlyArray<string>,
+  teams: ReadonlyArray<string>,
 ): WorkboardFacetOptions {
   return {
     type: WORK_ITEM_TYPE_ORDER.map((type) => ({
@@ -277,9 +290,9 @@ export function buildFacetOptions(
       { value: FILTER_OWNER_UNASSIGNED, label: "Unassigned" },
       ...owners.map((owner) => ({ value: owner.id, label: owner.name })),
     ],
-    department: departments.map((department) => ({
-      value: department,
-      label: department,
+    team: teams.map((team) => ({
+      value: team,
+      label: team,
     })),
     phase: PHASE_FACET_ORDER.map((phase) => ({
       value: phase,
@@ -300,10 +313,12 @@ export type WorkboardView = "table" | "kanban";
 
 /**
  * Single versioned localStorage key for the whole persisted view blob. Mirrors
- * the per-column-width precedent (`workboard.table.colw.v1.<id>`): a `v1` suffix
- * lets a future schema change bump to `v2` and ignore old payloads cleanly.
+ * the per-column-width precedent (`workboard.table.colw.v1.<id>`): a `v2` suffix
+ * lets a future schema change bump to `v3` and ignore old payloads cleanly. The
+ * `v1→v2` bump orphans pre-rename blobs (they carried a `department` facet key)
+ * instead of mis-parsing them.
  */
-export const FILTER_STORAGE_KEY = "workboard.filters.v1";
+export const FILTER_STORAGE_KEY = "workboard.filters.v2";
 
 /**
  * The subset of {@link WorkboardFilterState} (plus the active {@link WorkboardView})
@@ -328,7 +343,7 @@ const PRIORITY_VALUES = new Set<Priority>(PRIORITY_ORDER);
 const COLUMN_VALUES = new Set<ColumnId>(COLUMN_IDS);
 const GROUP_BY_VALUES = new Set<GroupByField>([
   "none",
-  "department",
+  "team",
   "phase",
   "priority",
   "type",
@@ -354,7 +369,7 @@ export function currentViewConfig(input: {
     filters: {
       type: new Set(filterState.filters.type),
       owner: new Set(filterState.filters.owner),
-      department: new Set(filterState.filters.department),
+      team: new Set(filterState.filters.team),
       phase: new Set(filterState.filters.phase),
       priority: new Set(filterState.filters.priority),
     },
@@ -377,7 +392,7 @@ function persistedViewToStorable(config: PersistedView): Record<string, unknown>
     out.filters = {
       type: [...config.filters.type],
       owner: [...config.filters.owner],
-      department: [...config.filters.department],
+      team: [...config.filters.team],
       phase: [...config.filters.phase],
       priority: [...config.filters.priority],
     };
@@ -428,7 +443,7 @@ function enumSetOf<T extends string>(
  * Coerce/validate an UNKNOWN record into a {@link PersistedView}, keeping ONLY the
  * fields that validate — unknown enum members are dropped, garbage/missing fields
  * are omitted. A non-object input yields an empty `{}` (everything falls back).
- * The `owner`/`department` facets are free-form ids/names, so they are kept as-is
+ * The `owner`/`team` facets are free-form ids/names, so they are kept as-is
  * (string members only); `selection` is never read.
  *
  * Shared by {@link parsePersistedView} (the FILTER_STORAGE_KEY blob) and
@@ -468,7 +483,7 @@ export function coercePersistedView(record: unknown): PersistedView {
     result.filters = {
       type: enumSetOf(filters.type, TYPE_VALUES),
       owner: new Set(stringArrayOf(filters.owner)),
-      department: new Set(stringArrayOf(filters.department)),
+      team: new Set(stringArrayOf(filters.team)),
       phase: enumSetOf(filters.phase, PHASE_VALUES),
       priority: enumSetOf(filters.priority, PRIORITY_VALUES),
     };
@@ -499,10 +514,10 @@ export function parsePersistedView(raw: string | null): PersistedView | null {
 /**
  * Single versioned localStorage key for the named/saved view LIST — a separate key
  * from {@link FILTER_STORAGE_KEY} (which holds the single last-applied config), so
- * the two persistence concerns never collide. `v1` lets a future schema bump
- * ignore old payloads cleanly.
+ * the two persistence concerns never collide. `v2` lets a future schema bump
+ * ignore old payloads cleanly; the `v1→v2` bump orphans pre-rename saved views.
  */
-export const SAVED_VIEWS_KEY = "workboard.savedViews.v1";
+export const SAVED_VIEWS_KEY = "workboard.savedViews.v2";
 
 /**
  * One named, user-saved Workboard view: a stable {@link id}, a display {@link name},

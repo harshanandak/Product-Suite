@@ -2,7 +2,9 @@ import { describe, it, expect } from "vitest";
 import {
   BOARDS,
   type BoardId,
+  buildWorkboardItems,
   deriveActiveBoard,
+  getBoard,
   href,
   interpolate,
   resolveScreen,
@@ -65,17 +67,76 @@ describe("workspaceDisplayName", () => {
 
 describe("resolveScreen", () => {
   it("titles a matched board item by its label", () => {
-    expect(resolveScreen("/w/x/workboard", "x").title).toBe("Work items");
-  });
-
-  it("resolves the Graph sub-board item under the Workboard", () => {
-    const resolved = resolveScreen("/w/x/workboard/graph", "x");
-    expect(resolved.board?.id).toBe("workboard");
-    expect(resolved.item?.key).toBe("graph");
-    expect(resolved.title).toBe("Graph");
+    expect(resolveScreen("/w/x/workboard", "x").title).toBe("My items");
   });
 
   it("titles the settings surface explicitly", () => {
     expect(resolveScreen("/w/x/settings", "x").title).toBe("Settings");
+  });
+});
+
+describe("workboard nav (IA redesign)", () => {
+  const workboardItems = () => getBoard("workboard").items;
+
+  it("declares exactly My items, Views, Projects as the static workboard rows", () => {
+    expect(workboardItems().map((item) => item.key)).toEqual([
+      "my-items",
+      "views",
+      "projects",
+    ]);
+  });
+
+  it("has no strategy/insights/tasks/triage/feedback/intake/graph entries", () => {
+    const keys = new Set(workboardItems().map((item) => item.key));
+    for (const dead of [
+      "strategy",
+      "insights",
+      "tasks",
+      "triage",
+      "feedback",
+      "intake",
+      "graph",
+    ]) {
+      expect(keys.has(dead)).toBe(false);
+    }
+  });
+
+  it("buildWorkboardItems appends a TEAMS section with one row per team", () => {
+    const items = buildWorkboardItems([
+      { id: "engineering", name: "Engineering" },
+      { id: "growth", name: "Growth" },
+    ]);
+    const section = items.find((item) => item.section);
+    expect(section?.label).toBe("Teams");
+
+    const eng = items.find((item) => item.key === "team-engineering");
+    expect(eng?.label).toBe("Engineering");
+    expect(eng?.to).toBe("/w/$workspace/workboard/team/engineering");
+
+    const growth = items.find((item) => item.key === "team-growth");
+    expect(growth?.to).toBe("/w/$workspace/workboard/team/growth");
+  });
+
+  it("buildWorkboardItems with no teams omits the section header", () => {
+    const items = buildWorkboardItems([]);
+    expect(items.map((item) => item.key)).toEqual([
+      "my-items",
+      "views",
+      "projects",
+    ]);
+    expect(items.some((item) => item.section)).toBe(false);
+  });
+
+  it("resolveScreen titles a team screen from extraItems", () => {
+    const extra = buildWorkboardItems([
+      { id: "engineering", name: "Engineering" },
+    ]);
+    const resolved = resolveScreen(
+      "/w/x/workboard/team/engineering",
+      "x",
+      extra,
+    );
+    expect(resolved.board?.id).toBe("workboard");
+    expect(resolved.title).toBe("Engineering");
   });
 });

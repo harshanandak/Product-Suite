@@ -162,8 +162,8 @@ export interface WorkItemTableProps {
    * each VISIBLE column carrying an entry, a compact filter trigger renders in
    * that column's header — beside the label, to the LEFT of the resize handle —
    * opening the reused {@link FacetFilterMenu} scoped to that column. Columns
-   * without an entry (and the Department facet, which has no column) are
-   * unaffected; the toolbar keeps Department as its single facet.
+   * without an entry (and the Team facet, which has no column) are
+   * unaffected; the toolbar keeps Team as its single facet.
    */
   columnFilters?: Partial<Record<ColumnId, ColumnFilter>>;
 }
@@ -535,7 +535,7 @@ const COLUMN_SPECS: readonly ColumnSpec[] = [
   },
   {
     id: "phase",
-    header: "Phase",
+    header: "Status",
     width: "7.5rem",
     render: ({ row, onUpdateItem, ...rest }) =>
       onUpdateItem ? (
@@ -544,7 +544,7 @@ const COLUMN_SPECS: readonly ColumnSpec[] = [
           variant="ghost"
           className={INLINE_SELECT_CLASS}
           value={row.phase}
-          aria-label={`Phase for ${row.title}`}
+          aria-label={`Status for ${row.title}`}
           onValueChange={(next) =>
             commitPatch({ row, onUpdateItem, ...rest }, { phase: next })
           }
@@ -693,8 +693,9 @@ function groupLabelFor(row: WorkItemRow, groupBy: GroupByField): string {
     case "type":
       return WORK_ITEM_TYPE_LABELS[row.type];
     // `groupBy === "none"` never reaches here — flattenRows short-circuits on it
-    // before any label is computed — so "department" is the only remaining case.
-    case "department":
+    // before any label is computed — so "team" is the only remaining case.
+    // Reads `row.department`, the deprecated-but-retained team-name carrier.
+    case "team":
     default:
       return row.department;
   }

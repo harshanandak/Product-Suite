@@ -46,11 +46,36 @@ describe("router", () => {
       "/w/$workspace/workboard",
       "/w/$workspace/workboard/graph",
       "/w/$workspace/workboard/item/$itemId",
+      "/w/$workspace/workboard/team/$teamId",
       "/w/$workspace/meetings",
       "/w/$workspace/agents",
       "/w/$workspace/settings",
     ]) {
       expect(fullPaths).toContain(expected);
     }
+  });
+
+  it("no longer registers the dead workboard routes", () => {
+    const fullPaths = collectFullPaths();
+
+    for (const dead of [
+      "/w/$workspace/workboard/strategy",
+      "/w/$workspace/workboard/insights",
+      "/w/$workspace/workboard/tasks",
+      "/w/$workspace/workboard/triage",
+      "/w/$workspace/workboard/feedback",
+    ]) {
+      expect(fullPaths).not.toContain(dead);
+    }
+  });
+
+  it("redirects /w/:ws/workboard/graph to the workboard items surface", async () => {
+    await router.navigate({
+      to: "/w/$workspace/workboard/graph",
+      params: { workspace: "test-ws" },
+    });
+    await router.load();
+
+    expect(router.state.location.pathname).toBe("/w/test-ws/workboard");
   });
 });

@@ -58,6 +58,9 @@ export type {
   UseWorkItemsResult,
 } from "./use-work-items";
 
+export { useTeams } from "./use-teams";
+export type { Team, UseTeamsOptions, UseTeamsResult } from "./use-teams";
+
 export { useItemChecks } from "./use-item-checks";
 export type {
   CreateItemCheckInput,

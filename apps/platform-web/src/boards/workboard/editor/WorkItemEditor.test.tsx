@@ -86,8 +86,15 @@ describe("WorkItemEditor", () => {
 
     // Text fields seeded from the item.
     expect(screen.getByLabelText("Title")).toHaveValue(item.title);
-    expect(screen.getByLabelText("Department")).toHaveValue(item.department);
     expect(screen.getByLabelText("Due date")).toHaveValue("2026-07-10");
+
+    // Team is shown READ-ONLY (its value displayed, but no editable control) —
+    // the editor can't set the canonical team_id yet, so it must not write the
+    // legacy department (issue 8a3c0d6b). See the dedicated read-only test below.
+    expect(screen.getByText(item.department)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("textbox", { name: "Team" }),
+    ).not.toBeInTheDocument();
 
     // Enum / picker triggers display the seeded value.
     expect(screen.getByRole("combobox", { name: "Type" })).toHaveTextContent(
@@ -175,7 +182,7 @@ describe("WorkItemEditor", () => {
     );
 
     // Select the "Done" phase (different from the fixture's "execute").
-    await selectOption("Phase", "Done");
+    await selectOption("Status", "Done");
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
@@ -228,15 +235,52 @@ describe("WorkItemEditor", () => {
 
     // Clear the title, then make an unrelated edit so a patch is produced.
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "  " } });
-    fireEvent.change(screen.getByLabelText("Department"), {
-      target: { value: "Platform" },
+    fireEvent.change(screen.getByLabelText("Description"), {
+      target: { value: "An unrelated edit to force a patch." },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     const patch = onSave.mock.calls[0][1];
     expect(patch).not.toHaveProperty("title");
-    expect(patch).toMatchObject({ department: "Platform" });
+    expect(patch).toMatchObject({
+      description: "An unrelated edit to force a patch.",
+    });
+  });
+
+  it("shows the Team read-only and never emits a department patch", async () => {
+    // Same recurring class as the disabled kanban team-drag (Fix C): the editor
+    // can't set the canonical team_id atomically yet (deferred to 8a3c0d6b), so
+    // the relabeled "Team" field must NOT write the legacy department — that
+    // would desync the display name from the team_id the route scopes by.
+    const item = getFixtureItem();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <WorkItemEditor
+        item={item}
+        open
+        onOpenChange={vi.fn()}
+        onSave={onSave}
+        owners={getOwners()}
+      />,
+    );
+
+    // No editable Team control exists — the current team is display-only.
+    expect(
+      screen.queryByRole("textbox", { name: "Team" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(item.department)).toBeInTheDocument();
+
+    // A real, unrelated edit still saves a patch…
+    await selectOption("Status", "Done");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    // …but that patch carries NO department write from the editor, ever.
+    const patch = onSave.mock.calls[0][1];
+    expect(patch).not.toHaveProperty("department");
+    expect(patch).toMatchObject({ phase: "done" });
   });
 
   it("closes via Cancel without saving", () => {
@@ -274,7 +318,7 @@ describe("WorkItemEditor", () => {
       />,
     );
 
-    await selectOption("Phase", "Done");
+    await selectOption("Status", "Done");
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     // Error surfaced; Sheet NOT asked to close.

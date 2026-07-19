@@ -6,11 +6,13 @@ import { BoardScreen } from "./BoardScreen";
 
 describe("BoardScreen", () => {
   it("renders the screen heading and the empty-state coming-soon copy", async () => {
-    renderWithRouter(<BoardScreen />, { path: "/w/test-ws/workboard" });
+    // BoardScreen is the placeholder for boards that still lack real content
+    // (meetings/canvas/agents); /workboard now renders the live WorkboardScreen.
+    renderWithRouter(<BoardScreen />, { path: "/w/test-ws/meetings" });
 
     const heading = await screen.findByRole("heading", {
       level: 1,
-      name: "Work items",
+      name: "All meetings",
     });
     expect(heading).toBeDefined();
     expect(screen.getByText(/coming soon/i)).toBeDefined();
