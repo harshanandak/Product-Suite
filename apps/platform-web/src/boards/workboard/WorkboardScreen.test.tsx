@@ -531,7 +531,7 @@ describe("WorkboardScreen", () => {
     expect(create).not.toHaveBeenCalled();
   });
 
-  it("derives team_id + status_id + department from the first item as a pair for the unscoped New", async () => {
+  it("derives team_id + status_id + department + phase from the first item as an atomic quadruple for the unscoped New", async () => {
     const base = createMockWorkItemRepository();
     const createSpy = vi.fn((input: CreateWorkItemInput) => base.create(input));
     const repository = { ...base, create: createSpy };
@@ -545,18 +545,24 @@ describe("WorkboardScreen", () => {
     // The screen derives the create defaults from the FIRST loaded item; capture
     // it so the assertion tracks the fixture rather than hard-coding its ids.
     const [first] = await base.list();
+    // The fixture's first item is a NON-plan phase (fixtures seed wi_auth as
+    // "execute"), so passing phase through actually matters — without it the
+    // server would default phase to "plan" and disagree with the borrowed status.
+    expect(first.phase).not.toBe("plan");
 
     fireEvent.click(screen.getByRole("button", { name: /new work item/i }));
 
-    // The unscoped New passes the first item's team_id, status_id, AND department
-    // as one ATOMIC pair (a status belongs to a team) — mirroring the mock's
-    // workItems[0] backfill and the scoped #104 fix, so the real API's required
-    // status_id is satisfied instead of POSTing a bare {} the backend rejects.
+    // The unscoped New passes team_id, status_id, department, AND phase from the
+    // SAME first item as one ATOMIC quadruple (a status belongs to a team) —
+    // mirroring the mock's workItems[0] backfill and the scoped #104 fix, so the
+    // real API's required status_id is satisfied instead of POSTing a bare {} the
+    // backend rejects, and the borrowed status_id stays aligned with its phase.
     await waitFor(() => {
       expect(createSpy).toHaveBeenCalledWith({
         team_id: first.team_id,
         status_id: first.status_id,
         department: first.department,
+        phase: first.phase,
       });
     });
   });
@@ -644,6 +650,28 @@ describe("WorkboardScreen", () => {
       expect(
         screen.getByRole("button", { name: /new work item/i }),
       ).toBeEnabled();
+    });
+  });
+
+  it("keeps the New button disabled when the initial load fails", async () => {
+    const base = createMockWorkItemRepository();
+    // The list load rejects: the hook clears `loading` and sets `error`, but
+    // `items` stays empty — the board is NOT known-empty, so New must stay
+    // disabled rather than re-enable and post a bare create({}) against a real
+    // backend (CodeRabbit review, PR #105).
+    const repository = {
+      ...base,
+      list: () => Promise.reject(new Error("backend down")),
+    };
+
+    render(<WorkboardScreen repository={repository} />);
+
+    // Once the load settles into the error state, the toolbar New button is
+    // disabled and stays that way (no successful load ever establishes the board).
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /new work item/i }),
+      ).toBeDisabled();
     });
   });
 

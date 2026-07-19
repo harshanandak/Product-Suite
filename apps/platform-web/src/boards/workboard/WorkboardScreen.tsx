@@ -247,21 +247,28 @@ export function WorkboardScreen({
   const scopedStatusId =
     teamId === undefined ? undefined : scopedItems[0]?.status_id;
 
-  // Disable "New" while the initial list load is pending, OR on a team-scoped
-  // route with no same-team sibling:
+  // Disable "New" while the initial list load is pending OR errored, OR on a
+  // team-scoped route with no same-team sibling:
   //   - loading: until the first list resolves, `items` is empty, so a create
   //     would derive NO defaults (team_id/status_id) even on a NON-empty board
   //     and POST a bare payload the prod API rejects. Block the click until the
   //     data the derivation reads has actually loaded (Codex review, PR #105).
+  //   - error: when the list load REJECTS, the hook clears `loading` and sets
+  //     `error`, but `items` is still empty — the board is NOT known-empty, so a
+  //     create({}) here would again post a bare payload against a real backend.
+  //     Stay disabled until a SUCCESSFUL load establishes what the board holds
+  //     (CodeRabbit review, PR #105).
   //   - scoped empty team: there is no valid team status to source, and the API
   //     would reject a cross-team/missing status. "Can't do it correctly yet →
   //     don't offer it" (mirrors the read-only Team field + disabled kanban
   //     team-drag).
-  // A truly-empty board AFTER load stays enabled (loading is false, teamId
-  // undefined), so a fresh workspace can still create its first item via
-  // create({}) — the server resolves the team default.
+  // A truly-empty board AFTER a SUCCESSFUL load stays enabled (loading false,
+  // error null, teamId undefined), so a fresh workspace can still create its
+  // first item via create({}) — the server resolves the team default.
   const newItemDisabled =
-    loading || (teamId !== undefined && scopedStatusId === undefined);
+    loading ||
+    error !== null ||
+    (teamId !== undefined && scopedStatusId === undefined);
 
   // Team facet options + the already-filtered rows, both derived from the
   // (team-)scoped items. The Table renders exactly `rows`; it never filters.
@@ -502,11 +509,16 @@ export function WorkboardScreen({
     // under the correct Team column, plus a prod-valid `status_id` sourced from
     // a SAME-TEAM sibling — see `scopedTeamName` / `scopedStatusId`.
     //
-    // Unscoped route: derive team_id, status_id, AND department from the SAME
-    // first loaded item as one atomic pair (a status belongs to a team, so
-    // pulling them from different items could pair a status with a team it
-    // doesn't belong to), mirroring the mock repository's own `workItems[0]`
-    // backfill. On an EMPTY board there is nothing to derive — fall back to
+    // Unscoped route: derive team_id, status_id, department, AND phase from the
+    // SAME first loaded item as one atomic quadruple (a status belongs to a
+    // team, so pulling them from different items could pair a status with a team
+    // it doesn't belong to), mirroring the mock repository's own `workItems[0]`
+    // backfill. `phase` is derived alongside because the server defaults phase to
+    // 'plan' (createWorkItem: `input.phase ?? 'plan'`); borrowing a NON-plan
+    // sibling's status_id without its phase would create a row whose phase and
+    // status_id disagree, and the UI still reads phase (Codex review, PR #105).
+    // Keep phase here until the phase→status_id field flip retires the legacy
+    // field. On an EMPTY board there is nothing to derive — fall back to
     // create({}) and let the server resolve the team default (the New button
     // stays enabled so a fresh workspace can still create its first item).
     const first = items[0];
@@ -517,6 +529,7 @@ export function WorkboardScreen({
               team_id: first.team_id,
               status_id: first.status_id,
               department: first.department,
+              phase: first.phase,
             }
           : {}
         : {
