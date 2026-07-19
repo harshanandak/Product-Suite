@@ -1,0 +1,28 @@
+# ── E2E moat-loop run vars (copy to .dev.vars / .env and fill in) ─────────────
+# The real values are NOT in the repo. Supply them to run the loop for real.
+# .dev.vars / .env are gitignored — never commit filled-in secrets.
+
+# ── Clerk (auth) ──────────────────────────────────────────────────────────────
+# Backend key: @clerk/testing uses this to mint a Testing Token for sign-in.
+CLERK_SECRET_KEY=sk_test_xxx
+# Publishable key the WEB app boots with (env.ts → CLERK_PUBLISHABLE_KEY).
+# Must belong to the SAME Clerk instance as CLERK_SECRET_KEY above.
+VITE_CLERK_PUBLISHABLE_KEY=pk_test_xxx
+# A password-strategy test user in that Clerk instance (the E2E signs in as this).
+E2E_CLERK_USER=e2e-tester@example.com
+E2E_CLERK_PASSWORD=change-me
+
+# ── Target selection ──────────────────────────────────────────────────────────
+# LOCAL mode: leave E2E_BASE_URL UNSET — Playwright starts `bun run dev` on :5173.
+# DEPLOYED mode: set to the live URL to run the same specs against a deploy
+# (webServer is then skipped). Example:
+# E2E_BASE_URL=https://platform-web.example.workers.dev
+# Workspace slug in the URL (/w/<workspace>/…); defaults to befach-hq.
+E2E_WORKSPACE=befach-hq
+VITE_DEFAULT_WORKSPACE=befach-hq
+
+# ── Backend secrets — required by the platform-API side for the loop to run ───
+# In LOCAL mode these go to `wrangler dev` (the API worker on :8787 that the Vite
+# proxy forwards /api/* to). In DEPLOYED mode they're already set on the deploy.
+DATABASE_URL=postgres://user:pass@host/db   # Neon
+OPENROUTER_API_KEY=sk-or-xxx                 # agent LLM calls
