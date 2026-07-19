@@ -213,7 +213,7 @@ describe("WorkboardToolbar", () => {
 
   it("renders the Type/Phase/Priority/Owner facets in the toolbar for the Kanban view", () => {
     renderToolbar({ view: "kanban", columnFilters: COLUMN_FILTERS });
-    for (const facet of ["type", "phase", "priority", "owner"]) {
+    for (const facet of ["type", "status", "priority", "owner"]) {
       expect(
         screen.getByRole("button", { name: `Filter by ${facet}` }),
       ).toBeInTheDocument();
@@ -222,7 +222,7 @@ describe("WorkboardToolbar", () => {
 
   it("keeps those facets OUT of the toolbar for the Table view (they live in the column headers)", () => {
     renderToolbar({ view: "table", columnFilters: COLUMN_FILTERS });
-    for (const facet of ["type", "phase", "priority", "owner"]) {
+    for (const facet of ["type", "status", "priority", "owner"]) {
       expect(
         screen.queryByRole("button", { name: `Filter by ${facet}` }),
       ).not.toBeInTheDocument();
@@ -250,7 +250,7 @@ describe("WorkboardToolbar", () => {
     ).toBeInTheDocument();
     // Still-visible columns keep their facet in the header, not the toolbar.
     expect(
-      screen.queryByRole("button", { name: "Filter by phase" }),
+      screen.queryByRole("button", { name: "Filter by status" }),
     ).not.toBeInTheDocument();
   });
 
@@ -364,7 +364,7 @@ describe("WorkboardToolbar", () => {
   it("changes the group-by field via the radio menu", async () => {
     const { lastChange } = renderToolbar();
     openMenu("Group by");
-    fireEvent.click(await screen.findByRole("menuitemradio", { name: "Phase" }));
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "Status" }));
     expect(lastChange().groupBy).toBe("phase");
   });
 

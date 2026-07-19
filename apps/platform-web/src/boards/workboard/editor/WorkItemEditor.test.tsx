@@ -175,7 +175,7 @@ describe("WorkItemEditor", () => {
     );
 
     // Select the "Done" phase (different from the fixture's "execute").
-    await selectOption("Phase", "Done");
+    await selectOption("Status", "Done");
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
@@ -274,7 +274,7 @@ describe("WorkItemEditor", () => {
       />,
     );
 
-    await selectOption("Phase", "Done");
+    await selectOption("Status", "Done");
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     // Error surfaced; Sheet NOT asked to close.

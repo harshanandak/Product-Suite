@@ -535,7 +535,7 @@ const COLUMN_SPECS: readonly ColumnSpec[] = [
   },
   {
     id: "phase",
-    header: "Phase",
+    header: "Status",
     width: "7.5rem",
     render: ({ row, onUpdateItem, ...rest }) =>
       onUpdateItem ? (
@@ -544,7 +544,7 @@ const COLUMN_SPECS: readonly ColumnSpec[] = [
           variant="ghost"
           className={INLINE_SELECT_CLASS}
           value={row.phase}
-          aria-label={`Phase for ${row.title}`}
+          aria-label={`Status for ${row.title}`}
           onValueChange={(next) =>
             commitPatch({ row, onUpdateItem, ...rest }, { phase: next })
           }

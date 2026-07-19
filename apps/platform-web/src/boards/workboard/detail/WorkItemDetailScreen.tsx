@@ -321,7 +321,7 @@ function PropertiesRail({
         <PropertyRow label="Type">
           <WorkItemTypeBadge type={row.type} />
         </PropertyRow>
-        <PropertyRow label="Phase">
+        <PropertyRow label="Status">
           <PhasePill phase={row.phase} />
         </PropertyRow>
         <PropertyRow label="Priority">

@@ -253,7 +253,7 @@ describe("WorkboardTable", () => {
     // and fades in on ROW hover / focus-within so the cell is discoverable as
     // editable. Assert each editable trigger carries the hover-reveal classes
     // and no longer blanket-hides the chevron.
-    for (const column of ["Type", "Phase", "Priority"]) {
+    for (const column of ["Type", "Status", "Priority"]) {
       const trigger = screen.getByRole("combobox", {
         name: `${column} for Workspace auth hardening`,
       });
@@ -276,7 +276,7 @@ describe("WorkboardTable", () => {
     // On no-hover / coarse-pointer devices the `group-hover` reveal never fires,
     // so the chevron must also be unveiled via the coarse-pointer media variant —
     // ALONGSIDE (not replacing) the fine-pointer hover reveal asserted above.
-    for (const column of ["Type", "Phase", "Priority", "Owner"]) {
+    for (const column of ["Type", "Status", "Priority", "Owner"]) {
       const trigger = screen.getByRole("combobox", {
         name: `${column} for Workspace auth hardening`,
       });
@@ -350,7 +350,7 @@ describe("WorkboardTable", () => {
       "", // leading selection checkbox column has no text header
       "Name",
       "Type",
-      "Phase",
+      "Status",
       "Priority",
       "Owner",
       "Due",
@@ -518,7 +518,7 @@ describe("WorkboardTable", () => {
     renderTable({ rows, onUpdateItem });
 
     const combobox = await screen.findByRole("combobox", {
-      name: "Phase for Workspace auth hardening",
+      name: "Status for Workspace auth hardening",
     });
     selectOption(combobox, "Done");
 
@@ -581,7 +581,7 @@ describe("WorkboardTable", () => {
     const REVEAL_HOVER = "group-hover:[&>svg]:opacity-50";
     const REVEAL_COARSE = "any-pointer-coarse:[&>svg]:opacity-50";
 
-    for (const field of ["Type", "Phase", "Priority", "Owner"]) {
+    for (const field of ["Type", "Status", "Priority", "Owner"]) {
       const combobox = await screen.findByRole("combobox", {
         name: `${field} for Workspace auth hardening`,
       });
@@ -662,7 +662,7 @@ describe("WorkboardTable", () => {
     });
 
     const combobox = await screen.findByRole("combobox", {
-      name: "Phase for Workspace auth hardening",
+      name: "Status for Workspace auth hardening",
     });
     selectOption(combobox, "Review");
 
@@ -1002,7 +1002,7 @@ describe("WorkboardTable", () => {
 
     // Inline edit still fires on the archived row.
     const combobox = screen.getByRole("combobox", {
-      name: "Phase for Workspace auth hardening",
+      name: "Status for Workspace auth hardening",
     });
     selectOption(combobox, "Done");
     expect(onUpdateItem).toHaveBeenCalledWith("wi_auth", { phase: "done" });
@@ -1121,7 +1121,7 @@ describe("WorkboardTable", () => {
 
     // Ghost chrome is forwarded onto the inline select triggers…
     const phase = screen.getByRole("combobox", {
-      name: "Phase for Workspace auth hardening",
+      name: "Status for Workspace auth hardening",
     });
     expect(phase).toHaveAttribute("data-variant", "ghost");
     // …and the phase value reads as the canonical PhasePill (a data-phase badge)

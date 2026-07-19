@@ -493,7 +493,7 @@ describe("WorkboardScreen", () => {
     // Change the inline Phase select — this routes through commitPatch, whose
     // rejection must surface a toast (not the row-actions Archive path above).
     const combobox = screen.getByRole("combobox", {
-      name: "Phase for Workspace auth hardening",
+      name: "Status for Workspace auth hardening",
     });
     fireEvent.keyDown(combobox, { key: "Enter" });
     fireEvent.click(await screen.findByRole("option", { name: "Done" }));
@@ -554,7 +554,7 @@ describe("WorkboardScreen", () => {
     // backing store would mutate, so a store check here is a tautology.)
     expect(
       screen.getByRole("combobox", {
-        name: "Phase for Workspace auth hardening",
+        name: "Status for Workspace auth hardening",
       }),
     ).toHaveTextContent(/execute/i);
     // The succeeded rows did persist to the store.
@@ -625,7 +625,7 @@ describe("WorkboardScreen", () => {
     // ("Filter Phase (1)"); opening it shows "Execute" already checked — proving
     // the restored facet Set flows into the live filter state.
     fireEvent.keyDown(
-      screen.getByRole("button", { name: "Filter Phase (1)" }),
+      screen.getByRole("button", { name: "Filter Status (1)" }),
       { key: "ArrowDown" },
     );
     expect(
@@ -767,7 +767,7 @@ describe("WorkboardScreen", () => {
 
     // Filter to Phase = Execute (wi_auth seeds "execute", so it stays visible).
     // Phase now filters from its COLUMN HEADER (the toolbar facet moved there).
-    fireEvent.keyDown(screen.getByRole("button", { name: "Filter Phase" }), {
+    fireEvent.keyDown(screen.getByRole("button", { name: "Filter Status" }), {
       key: "ArrowDown",
     });
     fireEvent.click(

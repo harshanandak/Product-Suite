@@ -63,7 +63,7 @@ import { FacetFilterMenu } from "./FacetFilterMenu";
  */
 const HEADER_FACETS: ReadonlyArray<{ id: ColumnId; label: string }> = [
   { id: "type", label: "Type" },
-  { id: "phase", label: "Phase" },
+  { id: "phase", label: "Status" },
   { id: "priority", label: "Priority" },
   { id: "owner", label: "Owner" },
 ];
@@ -150,7 +150,7 @@ export interface WorkboardToolbarProps {
 const GROUP_BY_LABELS: Record<GroupByField, string> = {
   none: "No grouping",
   team: "Team",
-  phase: "Phase",
+  phase: "Status",
   priority: "Priority",
   type: "Type",
 };
@@ -168,7 +168,7 @@ const GROUP_BY_ORDER: readonly GroupByField[] = [
 const COLUMN_LABELS: Record<ColumnId, string> = {
   name: "Name",
   type: "Type",
-  phase: "Phase",
+  phase: "Status",
   priority: "Priority",
   owner: "Owner",
   due: "Due",
@@ -365,7 +365,7 @@ export function WorkboardToolbar({
     ...facetChips("Type", typeOptions, filters.type, toggleType),
     ...facetChips("Owner", ownerOptions, filters.owner, toggleOwner),
     ...facetChips("Team", teamOptions, filters.team, toggleTeam),
-    ...facetChips("Phase", phaseOptions, filters.phase, togglePhase),
+    ...facetChips("Status", phaseOptions, filters.phase, togglePhase),
     ...facetChips("Priority", priorityOptions, filters.priority, togglePriority),
   ];
 

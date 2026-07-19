@@ -243,7 +243,7 @@ export function WorkItemEditor({
         <SheetHeader>
           <SheetTitle>{item ? "Edit work item" : "Work item"}</SheetTitle>
           <SheetDescription>
-            Update the work item&apos;s details — type, phase, priority, owner,
+            Update the work item&apos;s details — type, status, priority, owner,
             due date, team, and tags.
           </SheetDescription>
         </SheetHeader>
@@ -301,9 +301,9 @@ export function WorkItemEditor({
               />
             </div>
 
-            {/* Phase */}
+            {/* Status (still the `phase` field until the Phase-4 field flip) */}
             <div className="flex flex-col gap-2">
-              <Label htmlFor={phaseId}>Phase</Label>
+              <Label htmlFor={phaseId}>Status</Label>
               <PhaseSelect
                 id={phaseId}
                 value={form.phase}
