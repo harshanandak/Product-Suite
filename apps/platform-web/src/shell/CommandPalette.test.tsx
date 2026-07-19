@@ -1,6 +1,6 @@
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeAll, describe, it, expect } from "vitest";
+import { beforeAll, describe, it, expect, vi } from "vitest";
 import {
   Outlet,
   RouterProvider,
@@ -11,6 +11,8 @@ import {
 } from "@tanstack/react-router";
 
 import { ThemeProvider } from "@product-suite/ui";
+
+import { AskAgentProvider, type AskAgent } from "@/agent-chat/ask-agent";
 
 import { CommandPalette } from "./CommandPalette";
 import { BOARDS } from "./boards";
@@ -37,10 +39,30 @@ beforeAll(() => {
   }
 });
 
+// The palette reaches the agent-invocation seam via context, so every render
+// wraps it in a provider (defaulting to a spy so wiring can be asserted).
+function renderPalette(
+  props: Partial<ComponentProps<typeof CommandPalette>> = {},
+  askAgent: AskAgent = vi.fn(),
+) {
+  return renderWithRouter(
+    <AskAgentProvider value={askAgent}>
+      <CommandPalette
+        open
+        onOpenChange={() => {}}
+        workspace="test-ws"
+        {...props}
+      />
+    </AskAgentProvider>,
+  );
+}
+
 /**
  * Render the palette inside a router that actually registers the work-item
  * detail route, so selecting an item can be asserted against the resulting
  * location. Returns the router for `router.state.location.pathname` assertions.
+ * The palette requires the agent-invocation seam, so the surface is wrapped in
+ * an AskAgentProvider (a spy — these tests don't exercise the agent).
  */
 function renderPaletteWithItemRoute(ui: ReactNode) {
   const rootRoute = createRootRoute();
@@ -56,7 +78,7 @@ function renderPaletteWithItemRoute(ui: ReactNode) {
   const indexRoute = createRoute({
     getParentRoute: () => workspaceRoute,
     path: "/",
-    component: () => <>{ui}</>,
+    component: () => <AskAgentProvider value={vi.fn()}>{ui}</AskAgentProvider>,
   });
   const itemRoute = createRoute({
     getParentRoute: () => workspaceRoute,
@@ -76,9 +98,7 @@ function renderPaletteWithItemRoute(ui: ReactNode) {
 
 describe("CommandPalette", () => {
   it("renders every board label plus Settings when open", async () => {
-    renderWithRouter(
-      <CommandPalette open onOpenChange={() => {}} workspace="test-ws" />,
-    );
+    renderPalette();
 
     // findBy* waits for the async RouterProvider to commit the route content.
     expect(await screen.findByText(BOARDS[0].label)).toBeDefined();
@@ -89,20 +109,12 @@ describe("CommandPalette", () => {
   });
 
   it("offers the Log a decision action", async () => {
-    renderWithRouter(
-      <CommandPalette open onOpenChange={() => {}} workspace="test-ws" />,
-    );
+    renderPalette();
     expect(await screen.findByText("Log a decision")).toBeDefined();
   });
 
   it("renders nothing when closed", async () => {
-    renderWithRouter(
-      <CommandPalette
-        open={false}
-        onOpenChange={() => {}}
-        workspace="test-ws"
-      />,
-    );
+    renderPalette({ open: false });
 
     // Let the router commit, then confirm the palette content never appears.
     await waitFor(() => {
@@ -113,14 +125,7 @@ describe("CommandPalette", () => {
 
   it("lists work items from the repository and filters by title", async () => {
     const repository = createMockWorkItemRepository();
-    renderWithRouter(
-      <CommandPalette
-        open
-        onOpenChange={() => {}}
-        workspace="test-ws"
-        repository={repository}
-      />,
-    );
+    renderPalette({ repository });
 
     // The Work items group is populated from repository.list() on open.
     expect(await screen.findByText("Realtime transport seam")).toBeDefined();
@@ -138,14 +143,7 @@ describe("CommandPalette", () => {
 
   it("matches a work item by its id (open-by-id)", async () => {
     const repository = createMockWorkItemRepository();
-    renderWithRouter(
-      <CommandPalette
-        open
-        onOpenChange={() => {}}
-        workspace="test-ws"
-        repository={repository}
-      />,
-    );
+    renderPalette({ repository });
 
     await screen.findByText("Realtime transport seam");
 
@@ -177,5 +175,18 @@ describe("CommandPalette", () => {
         "/w/test-ws/workboard/item/wi_realtime",
       ),
     );
+  });
+
+  it("wires 'Ask agent' to the invocation seam and closes the palette", async () => {
+    const askAgent = vi.fn();
+    const onOpenChange = vi.fn();
+    renderPalette({ onOpenChange }, askAgent);
+
+    fireEvent.click(await screen.findByText("Ask agent"));
+
+    // The dead-stub fix: selecting the item opens the agent chat via the seam...
+    expect(askAgent).toHaveBeenCalledTimes(1);
+    // ...and closes the palette first so the two overlays never stack.
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });

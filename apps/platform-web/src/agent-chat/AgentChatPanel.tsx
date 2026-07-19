@@ -33,6 +33,7 @@ import {
   type AgentLinkedObject,
 } from "@/data/agent/transport";
 
+import type { AgentFocusRequest } from "./ask-agent";
 import { ProposalCard, proposalCardFromToolPart } from "./ProposalCard";
 import { isProposeTool, toolLabel } from "./tool-labels";
 
@@ -62,6 +63,13 @@ export interface AgentChatPanelProps {
   getOrgId?: () => string | null;
   /** Optional API origin override (defaults to `API_BASE_URL`). */
   apiBase?: string;
+  /**
+   * A focus/seed request from the shell's single agent-invocation seam
+   * ({@link useAskAgent}). Its `nonce` changes on every invocation so the panel
+   * re-focuses its input even when already open; `prompt` optionally seeds the
+   * input. Omitted where the panel is never invoked programmatically.
+   */
+  focusRequest?: AgentFocusRequest;
 }
 
 /**
@@ -152,6 +160,7 @@ export function AgentChatPanel({
   getToken,
   getOrgId,
   apiBase,
+  focusRequest,
 }: Readonly<AgentChatPanelProps>) {
   // The thread's linked object: `undefined` = not yet captured; `null` =
   // explicitly unlinked. Captured from the current screen the first time the
@@ -168,6 +177,10 @@ export function AgentChatPanel({
   getOrgIdRef.current = getOrgId;
 
   const [draft, setDraft] = useState("");
+
+  // The panel root — used to reach the input for programmatic focus without
+  // threading a ref through the vendored PromptInput components.
+  const panelRef = useRef<HTMLElement>(null);
 
   // The active thread: `null` = a brand-new, not-yet-persisted thread; the SERVER
   // mints it on the first turn and returns its id (captured via `onThreadId`). This
@@ -240,6 +253,20 @@ export function AgentChatPanel({
   useEffect(() => {
     if (open && threadObject === undefined) setThreadObject(currentObject);
   }, [open, threadObject, currentObject]);
+
+  // Honor a focus/seed request from the shell's "Ask agent" seam. Depending on
+  // the request's `nonce` (which bumps on every invocation) re-runs this even
+  // when the panel was already open, so ⌘K → "Ask agent" always lands the cursor
+  // in the input rather than silently no-oping. Guarded on `open` so a request
+  // issued while closed doesn't steal focus.
+  const focusNonce = focusRequest?.nonce;
+  const focusPrompt = focusRequest?.prompt;
+  useEffect(() => {
+    if (!open || focusNonce === undefined) return;
+    if (focusPrompt !== undefined) setDraft(focusPrompt);
+    // The panel commits before effects run, so the input is already in the DOM.
+    panelRef.current?.querySelector("textarea")?.focus();
+  }, [open, focusNonce, focusPrompt]);
 
   // Escape closes the panel (non-modal: the board stays interactive otherwise).
   useEffect(() => {
@@ -318,6 +345,7 @@ export function AgentChatPanel({
 
   return (
     <aside
+      ref={panelRef}
       aria-label="Agent chat"
       className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[400px] flex-col border-l border-border bg-background shadow-xl"
     >
