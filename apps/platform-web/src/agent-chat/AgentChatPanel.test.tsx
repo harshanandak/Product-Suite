@@ -215,6 +215,35 @@ describe("AgentChatPanel", () => {
     );
   });
 
+  it("focuses (and optionally seeds) the input on a focus request", () => {
+    renderPanel({ focusRequest: { nonce: 1, prompt: "Draft a summary" } });
+    const input = screen.getByLabelText("Message");
+    expect(input).toHaveValue("Draft a summary");
+    expect(input).toHaveFocus();
+  });
+
+  it("re-focuses the input on a new request while already open (no close)", () => {
+    const { rerender } = renderPanel({ focusRequest: { nonce: 1 } });
+    const input = screen.getByLabelText("Message");
+    expect(input).toHaveFocus();
+    input.blur();
+    expect(input).not.toHaveFocus();
+
+    // A second "Ask agent" invocation bumps the nonce; the panel must re-focus
+    // the input, NOT toggle itself closed (it stays mounted the whole time).
+    rerender(
+      <AgentChatPanel
+        open
+        onClose={vi.fn()}
+        workspace="befach-hq"
+        currentObject={screenObject}
+        getToken={async () => "tok"}
+        focusRequest={{ nonce: 2 }}
+      />,
+    );
+    expect(screen.getByLabelText("Message")).toHaveFocus();
+  });
+
   it("shows a human tool-verb while a read tool is in flight", () => {
     chat.messages = [
       {

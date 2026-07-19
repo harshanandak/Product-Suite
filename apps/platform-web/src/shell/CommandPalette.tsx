@@ -4,8 +4,9 @@ import { useNavigate } from "@tanstack/react-router";
 
 import { useTheme } from "@product-suite/ui";
 
+import { useAskAgent } from "@/agent-chat/ask-agent";
+
 import { BOARDS, type To, href } from "./boards";
-import { toast } from "./toast";
 import {
   getDefaultRepository,
   useRepositoryContext,
@@ -32,6 +33,7 @@ export function CommandPalette({
 }>) {
   const navigate = useNavigate();
   const { toggle } = useTheme();
+  const askAgent = useAskAgent();
 
   // Resolve the repository once (injected prop wins, else the provider's repo,
   // else the module singleton) — the useWorkItems/useTeams convention.
@@ -215,8 +217,12 @@ export function CommandPalette({
               <Command.Item
                 value="Ask agent"
                 onSelect={() => {
+                  // Close the palette FIRST so the two overlays never stack,
+                  // then open + focus the agent chat via the single invocation
+                  // seam (see useAskAgent). Invoking while it's already open just
+                  // re-focuses the input — no toggle-closed surprise.
                   onOpenChange(false);
-                  toast("Agent thread opened");
+                  askAgent();
                 }}
                 className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-sm text-popover-foreground aria-selected:bg-accent aria-selected:text-accent-foreground"
               >

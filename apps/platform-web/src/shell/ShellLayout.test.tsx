@@ -15,6 +15,24 @@ vi.mock("@clerk/clerk-react", () => ({
 
 vi.mock("./UserMenu", () => ({ UserMenu: () => null }));
 
+// Stand in for the real panel (which pulls in useChat + the vendored AI Elements
+// and their ResizeObserver needs). The stub renders only when open and surfaces
+// the focus nonce so we can assert a re-invocation re-focuses without closing.
+vi.mock("@/agent-chat/AgentChatPanel", () => ({
+  AgentChatPanel: ({
+    open,
+    focusRequest,
+  }: {
+    open: boolean;
+    focusRequest?: { nonce: number };
+  }) =>
+    open ? (
+      <aside aria-label="Agent chat" data-focus-nonce={focusRequest?.nonce}>
+        panel
+      </aside>
+    ) : null,
+}));
+
 describe("ShellLayout", () => {
   // The collapse preference is persisted to localStorage; clear it (and restore
   // any storage spies) after each test so the rail starts expanded and tests
@@ -76,6 +94,28 @@ describe("ShellLayout", () => {
     ]) {
       expect(within(sidebar).queryByText(dead)).not.toBeInTheDocument();
     }
+  });
+
+  it("opens the agent panel from 'Ask agent' and re-invoking keeps it open", async () => {
+    renderWithRouter(<ShellLayout />, { path: "/w/test-ws/workboard" });
+    await screen.findByRole("navigation", { name: "Boards" });
+
+    // Closed to start: the always-mounted panel renders nothing.
+    expect(screen.queryByLabelText("Agent chat")).toBeNull();
+
+    const askAgent = screen.getByRole("button", { name: "Ask agent" });
+    fireEvent.click(askAgent);
+
+    const panel = screen.getByLabelText("Agent chat");
+    expect(panel).toBeInTheDocument();
+    const firstNonce = panel.getAttribute("data-focus-nonce");
+
+    // Re-invoking while already open must keep it open and bump the focus nonce
+    // (a re-focus request through the single seam), never toggle it closed.
+    fireEvent.click(askAgent);
+    const panelAgain = screen.getByLabelText("Agent chat");
+    expect(panelAgain).toBeInTheDocument();
+    expect(panelAgain.getAttribute("data-focus-nonce")).not.toBe(firstNonce);
   });
 
   it("minimizes the rail when the sidebar toggle is clicked", async () => {

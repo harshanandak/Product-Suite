@@ -13,6 +13,11 @@ import {
   AgentChatPanel,
   type AgentChatPanelProps,
 } from "@/agent-chat/AgentChatPanel";
+import {
+  type AgentFocusRequest,
+  type AskAgent,
+  AskAgentProvider,
+} from "@/agent-chat/ask-agent";
 import { resolveLinkedObject } from "@/agent-chat/linked-object";
 import { USE_FIXTURES } from "@/fixtures-mode";
 import { useTeams } from "@/data/work-items";
@@ -81,6 +86,22 @@ function ShellChrome() {
   // Agent chat panel open-state lifted to the shell so the panel stays mounted
   // (its ephemeral thread survives close/reopen + in-workspace navigation).
   const [agentOpen, setAgentOpen] = React.useState(false);
+  // A monotonically-increasing focus request driving the panel's input focus.
+  // The `nonce` bumps on every `askAgent()` call so invoking "Ask agent" while
+  // the panel is ALREADY open re-focuses the input instead of no-oping (or, if
+  // this only flipped a boolean, silently doing nothing on the second press).
+  const [agentFocus, setAgentFocus] = React.useState<AgentFocusRequest>({
+    nonce: 0,
+  });
+  // The ONE seam every "Ask agent" affordance funnels through (TopBar button,
+  // ⌘K palette, and — soon — row context-menus / selection popovers). It only
+  // ever OPENS (never toggles closed), then requests input focus, so a second
+  // invocation is a no-surprise re-focus, never an accidental close. See
+  // `useAskAgent` in agent-chat/ask-agent.tsx.
+  const askAgent = React.useCallback<AskAgent>((options) => {
+    setAgentOpen(true);
+    setAgentFocus((prev) => ({ nonce: prev.nonce + 1, prompt: options?.prompt }));
+  }, []);
   const [collapsed, setCollapsed] = React.useState(readSidebarCollapsed);
   // Transient reveal of a collapsed rail. Pointer and keyboard focus are tracked
   // independently and OR'd, so a stray mouse-leave can't yank a rail that still
@@ -155,6 +176,7 @@ function ShellChrome() {
   }, [navigate, slug, paletteOpen]);
 
   return (
+    <AskAgentProvider value={askAgent}>
     <div
       className={cn(
         "grid h-screen overflow-hidden bg-background text-foreground transition-[grid-template-columns] duration-200 motion-reduce:transition-none",
@@ -203,7 +225,7 @@ function ShellChrome() {
         <TopBar
           workspace={slug}
           onOpenPalette={() => setPaletteOpen(true)}
-          onAskAgent={() => setAgentOpen(true)}
+          onAskAgent={() => askAgent()}
         />
         <main className="flex-1 overflow-y-auto p-6">
           <Outlet />
@@ -226,8 +248,10 @@ function ShellChrome() {
         onClose={() => setAgentOpen(false)}
         workspace={slug}
         currentObject={resolveLinkedObject(pathname, slug)}
+        focusRequest={agentFocus}
       />
     </div>
+    </AskAgentProvider>
   );
 }
 
