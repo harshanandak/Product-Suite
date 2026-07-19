@@ -448,6 +448,30 @@ describe("WorkboardScreen", () => {
     ).toBeInTheDocument();
   });
 
+  it("threads the scoped teamId into a newly created item", async () => {
+    // On a team-scoped route, New must create INTO that team. Otherwise the
+    // repository backfills team_id from a default and the fresh item lands on
+    // another team, vanishing from the scoped list (CodeRabbit
+    // WorkboardScreen.tsx:663).
+    const base = createMockWorkItemRepository();
+    const create = vi.fn(base.create);
+    const repository = { ...base, create };
+
+    render(<WorkboardScreen repository={repository} teamId="team_sourcing" />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /new work item/i }));
+
+    await waitFor(() => {
+      expect(create).toHaveBeenCalledWith(
+        expect.objectContaining({ team_id: "team_sourcing" }),
+      );
+    });
+  });
+
   it("renders the empty state when the repository has no work items", async () => {
     const repository = createMockWorkItemRepository();
     // Drain the fixture store so the loaded list is empty.

@@ -446,10 +446,13 @@ export function WorkboardScreen({
     // Fire-and-forget create + open the editor on the fresh item. create()
     // rejects only under a real backend (the mock never does); the trailing
     // .catch keeps this void-returning click handler from floating a promise.
-    create({})
+    // On a team-scoped route, thread the route's teamId so the new item lands
+    // on THIS team — without it the repo backfills team_id from a default and
+    // the fresh item can vanish from the scoped list.
+    create(teamId === undefined ? {} : { team_id: teamId })
       .then((created) => setSelected(created))
       .catch(() => undefined);
-  }, [create]);
+  }, [create, teamId]);
 
   // Editor's onSave returns void; the hook's update returns the saved WorkItem.
   // Await + discard, and let rejections propagate so the editor keeps the Sheet
