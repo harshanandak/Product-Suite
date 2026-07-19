@@ -218,6 +218,40 @@ describe("WorkboardScreen", () => {
     ).toBeInTheDocument();
   });
 
+  it("ignores a persisted Team filter on a team-scoped route", async () => {
+    // A stale Team facet selected on the unscoped board (here "Marketing")
+    // conflicts with the Engineering scope. The scoped route hides the Team
+    // facet, so if the persisted selection still filtered the rows the user
+    // would be stranded on an EMPTY, unclearable board. The scoped view must
+    // ignore the persisted team facet entirely.
+    const base = defaultWorkboardFilterState();
+    window.localStorage.setItem(
+      FILTER_STORAGE_KEY,
+      serializePersistedView({
+        filterState: {
+          ...base,
+          filters: { ...base.filters, team: new Set(["Marketing"]) },
+        },
+        view: "table",
+      }),
+    );
+
+    render(
+      <WorkboardScreen
+        repository={createMockWorkItemRepository()}
+        teamId="team_engineering"
+      />,
+    );
+
+    // The team's items still render despite the conflicting persisted facet.
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+    expect(
+      screen.getByRole("button", { name: "Workspace auth hardening" }),
+    ).toBeInTheDocument();
+  });
+
   it("shows the team empty state when the team has no items", async () => {
     render(
       <WorkboardScreen

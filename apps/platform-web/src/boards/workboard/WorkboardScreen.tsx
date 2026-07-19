@@ -227,9 +227,23 @@ export function WorkboardScreen({
     () => workboardTeams(scopedItems),
     [scopedItems],
   );
+  // On a team-scoped route the Team facet is hidden (the route fixes the scope),
+  // so a persisted `filters.team` from the unscoped board is stale AND
+  // unclearable. Left applied it can filter the scoped rows to EMPTY (a prior,
+  // different-team selection matches nothing here). Normalize it to an empty set
+  // before filtering so the scoped view ignores the persisted team facet.
+  const effectiveFilterState = useMemo(() => {
+    if (teamId === undefined || filterState.filters.team.size === 0) {
+      return filterState;
+    }
+    return {
+      ...filterState,
+      filters: { ...filterState.filters, team: new Set<string>() },
+    };
+  }, [filterState, teamId]);
   const rows = useMemo(
-    () => applyWorkboardFilters(scopedItems, filterState, owners),
-    [scopedItems, filterState, owners],
+    () => applyWorkboardFilters(scopedItems, effectiveFilterState, owners),
+    [scopedItems, effectiveFilterState, owners],
   );
 
   // The five facet option lists, derived once from the live owners/teams.
