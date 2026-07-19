@@ -1,8 +1,52 @@
 import { defineConfig, devices } from "@playwright/test";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Load `.env.e2e` (gitignored) into `process.env` without a dotenv dependency.
+ * A real shell env var always wins (we never override an already-set key), so
+ * `CLERK_SECRET_KEY=… bun run e2e` still overrides the file. Missing file ⇒ no-op
+ * (deployed-mode / CI can supply the vars directly).
+ */
+function loadEnvE2E(): void {
+  const file = path.join(here, ".env.e2e");
+  if (!fs.existsSync(file)) return;
+  for (const raw of fs.readFileSync(file, "utf8").split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const eq = line.indexOf("=");
+    if (eq === -1) continue;
+    const key = line.slice(0, eq).trim();
+    let val = line.slice(eq + 1).trim();
+    if (
+      (val.startsWith('"') && val.endsWith('"')) ||
+      (val.startsWith("'") && val.endsWith("'"))
+    ) {
+      val = val.slice(1, -1);
+    }
+    if (key && process.env[key] === undefined) process.env[key] = val;
+  }
+}
+loadEnvE2E();
+
+/**
+ * A defined-only string view of `process.env` (Playwright's `webServer.env`
+ * requires `Record<string, string>`, but `process.env` values are
+ * `string | undefined`). The `VITE_`-prefixed keys must be present so the Vite
+ * dev child boots the app against the right Clerk instance / default workspace.
+ */
+function childEnv(): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (v !== undefined) out[k] = v;
+  }
+  out.VITE_CLERK_PUBLISHABLE_KEY = process.env.VITE_CLERK_PUBLISHABLE_KEY ?? "";
+  out.VITE_DEFAULT_WORKSPACE = process.env.VITE_DEFAULT_WORKSPACE ?? "";
+  return out;
+}
 
 /**
  * E2E "moat-loop" harness config.
@@ -65,5 +109,9 @@ export default defineConfig({
         url: BASE_URL,
         reuseExistingServer: !process.env.CI,
         timeout: 120_000,
+        // Forward the client (VITE_-prefixed) vars from `.env.e2e` to the Vite
+        // child so `import.meta.env` boots the app against the right Clerk
+        // instance and default workspace.
+        env: childEnv(),
       },
 });

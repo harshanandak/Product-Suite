@@ -1,4 +1,4 @@
-import { clerk, clerkSetup, setupClerkTestingToken } from "@clerk/testing/playwright";
+import { clerk, clerkSetup } from "@clerk/testing/playwright";
 import { expect, test as setup } from "@playwright/test";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,11 +12,15 @@ const authFile = path.join(here, ".auth", "user.json");
  * the `chromium` project starts already signed in.
  *
  * Required env (see .dev.vars.example):
- *  - CLERK_SECRET_KEY          — backend key; `clerkSetup` mints a Testing Token.
+ *  - CLERK_SECRET_KEY          — backend key; `clerkSetup` mints a Testing Token,
+ *                                 and `clerk.signIn({ emailAddress })` mints a
+ *                                 short-lived sign-in token for the ticket flow.
  *  - VITE_CLERK_PUBLISHABLE_KEY — the same publishable key the app boots with
  *                                 (main.tsx reads it via env.ts / CLERK_PUBLISHABLE_KEY).
- *  - E2E_CLERK_USER / E2E_CLERK_PASSWORD — a password-strategy test user in that
- *                                 Clerk instance.
+ *  - E2E_CLERK_USER            — a Clerk test-mode fixture user in that instance.
+ *                                 It has NO password; we sign in via a Backend-API
+ *                                 sign-in token (strategy "ticket"), so no password
+ *                                 or email code is needed.
  *
  * The publishable key must belong to the SAME Clerk instance the web app is
  * built against, or the injected testing token won't match window.Clerk.
@@ -31,22 +35,19 @@ setup("authenticate via Clerk", async ({ page }) => {
   await clerkSetup({ publishableKey });
 
   const identifier = process.env.E2E_CLERK_USER;
-  const password = process.env.E2E_CLERK_PASSWORD;
-  if (!identifier || !password) {
-    throw new Error(
-      "E2E_CLERK_USER and E2E_CLERK_PASSWORD must be set to sign in (see e2e/README.md).",
-    );
+  if (!identifier) {
+    throw new Error("E2E_CLERK_USER must be set to sign in (see e2e/README.md).");
   }
 
-  // Load a page where the Clerk SDK is present, inject the testing token, then
-  // sign in programmatically (no UI dependency on Clerk's hosted forms).
+  // Load a page where the Clerk SDK is present, then sign in programmatically
+  // (no UI dependency on Clerk's hosted forms). The `emailAddress` form of
+  // @clerk/testing's signIn mints a short-lived sign-in token via the Backend
+  // API (uses CLERK_SECRET_KEY) and signs in with strategy "ticket" — so a
+  // password-less test-mode fixture user works without a password or email code.
+  // It injects the testing token internally, so no explicit setup call here.
   await page.goto("/");
-  await setupClerkTestingToken({ page });
   await clerk.loaded({ page });
-  await clerk.signIn({
-    page,
-    signInParams: { strategy: "password", identifier, password },
-  });
+  await clerk.signIn({ page, emailAddress: identifier });
 
   // Prove the session took by loading an authenticated route before saving.
   const workspace = process.env.E2E_WORKSPACE ?? "befach-hq";
