@@ -448,7 +448,7 @@ describe("WorkboardScreen", () => {
     ).toBeInTheDocument();
   });
 
-  it("threads the scoped teamId AND its department into a newly created item", async () => {
+  it("threads the scoped teamId, department, AND a valid status_id into a new item", async () => {
     // On a team-scoped route, New must create INTO that team. Otherwise the
     // repository backfills team_id from a default and the fresh item lands on
     // another team, vanishing from the scoped list (CodeRabbit
@@ -460,9 +460,20 @@ describe("WorkboardScreen", () => {
     // column on the scoped page (CodeRabbit WorkboardScreen.tsx:452). The scoped
     // team's name (department carrier) must ride along too. All scoped items
     // share the team, so team_sourcing's items carry department "Sourcing".
+    //
+    // status_id is MANDATORY on the production API — the mock backfills it, but
+    // the network repo posts the raw input and a create without status_id is
+    // rejected (CodeRabbit WorkboardScreen.tsx:474). Borrow a sibling scoped
+    // item's status so the payload is prod-valid.
     const base = createMockWorkItemRepository();
     const create = vi.fn(base.create);
     const repository = { ...base, create };
+
+    // The sibling status_id the screen should borrow: the first team_sourcing
+    // item's status (derived from data, not hard-coded, to stay robust).
+    const items = await base.list();
+    const sibling = items.find((item) => item.team_id === "team_sourcing");
+    expect(sibling?.status_id).toBeTruthy();
 
     render(<WorkboardScreen repository={repository} teamId="team_sourcing" />);
 
@@ -477,9 +488,33 @@ describe("WorkboardScreen", () => {
         expect.objectContaining({
           team_id: "team_sourcing",
           department: "Sourcing",
+          status_id: sibling?.status_id,
         }),
       );
     });
+  });
+
+  it("surfaces a failed create with a toast instead of silently swallowing it", async () => {
+    // The trailing .catch on handleNewItem previously swallowed every create
+    // rejection — so a prod create failure (e.g. a rejected payload) was
+    // invisible (CodeRabbit WorkboardScreen.tsx:474). It must now be announced.
+    const base = createMockWorkItemRepository();
+    const failing = {
+      ...base,
+      create: () => Promise.reject(new Error("backend down")),
+    };
+    renderScreenWithToaster(failing);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /new work item/i }));
+
+    // The failure is announced (no more silent .catch swallow) and no editor
+    // opens on a non-existent item.
+    expect(await screen.findByText(/couldn't create/i)).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("renders the empty state when the repository has no work items", async () => {

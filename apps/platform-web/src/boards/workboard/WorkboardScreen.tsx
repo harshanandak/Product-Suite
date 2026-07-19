@@ -234,6 +234,19 @@ export function WorkboardScreen({
   const scopedTeamName =
     teamId === undefined ? undefined : scopedItems[0]?.department;
 
+  // A prod-valid `status_id` for a scoped-route create. The production API
+  // REJECTS a create without status_id; the mock hides this by backfilling it
+  // from `workItems[0]?.status_id`, but the network repo posts the raw input.
+  // Borrow a sibling scoped item's status (all scoped items share the team, so
+  // its statuses are the team's), falling back to the SAME default the unscoped
+  // create relies on — the first item's status, mirroring the mock's backfill —
+  // so both New paths resolve to a consistent, valid status. `undefined` only
+  // when there are no items at all to borrow from.
+  const scopedStatusId =
+    teamId === undefined
+      ? undefined
+      : (scopedItems[0]?.status_id ?? items[0]?.status_id);
+
   // Team facet options + the already-filtered rows, both derived from the
   // (team-)scoped items. The Table renders exactly `rows`; it never filters.
   const teams = useMemo(
@@ -463,18 +476,28 @@ export function WorkboardScreen({
     // on THIS team — without it the repo backfills team_id from a default and
     // the fresh item can vanish from the scoped list. Also carry the team's
     // `department` NAME (when a sibling supplies it) so the item GROUPS/LABELS
-    // under the correct Team column — the repo backfills `department` from a
-    // default too, which would otherwise show the item in the wrong team.
+    // under the correct Team column, and a prod-valid `status_id` (the network
+    // API rejects a create without one) — see `scopedStatusId`.
     create(
       teamId === undefined
         ? {}
-        : scopedTeamName === undefined
-          ? { team_id: teamId }
-          : { team_id: teamId, department: scopedTeamName },
+        : {
+            team_id: teamId,
+            ...(scopedTeamName === undefined
+              ? {}
+              : { department: scopedTeamName }),
+            ...(scopedStatusId === undefined
+              ? {}
+              : { status_id: scopedStatusId }),
+          },
     )
       .then((created) => setSelected(created))
-      .catch(() => undefined);
-  }, [create, teamId, scopedTeamName]);
+      .catch(() => {
+        // Surface the failure — never swallow it. A rejected create (e.g. a
+        // payload the API refuses) must be visible, not an invisible no-op.
+        toast.error("Couldn't create the work item — please try again.");
+      });
+  }, [create, teamId, scopedTeamName, scopedStatusId]);
 
   // Editor's onSave returns void; the hook's update returns the saved WorkItem.
   // Await + discard, and let rejections propagate so the editor keeps the Sheet
