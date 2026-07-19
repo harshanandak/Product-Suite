@@ -235,17 +235,22 @@ export function WorkboardScreen({
     teamId === undefined ? undefined : scopedItems[0]?.department;
 
   // A prod-valid `status_id` for a scoped-route create. The production API
-  // REJECTS a create without status_id; the mock hides this by backfilling it
-  // from `workItems[0]?.status_id`, but the network repo posts the raw input.
-  // Borrow a sibling scoped item's status (all scoped items share the team, so
-  // its statuses are the team's), falling back to the SAME default the unscoped
-  // create relies on — the first item's status, mirroring the mock's backfill —
-  // so both New paths resolve to a consistent, valid status. `undefined` only
-  // when there are no items at all to borrow from.
+  // REJECTS a create without status_id AND verifies it belongs to the submitted
+  // team_id (apps/platform-api domain/work-items). The mock hides this by
+  // backfilling, but the network repo posts the raw input. Source the status
+  // ONLY from a SAME-TEAM sibling — every scoped item shares this team, so its
+  // status is a valid team status. NO cross-team fallback: borrowing another
+  // team's status (e.g. items[0]) would fail the team↔status check and 400.
+  // `undefined` when the scoped team has no sibling (empty team) → New is
+  // disabled below rather than posting an invalid status (issue 8a3c0d6b).
   const scopedStatusId =
-    teamId === undefined
-      ? undefined
-      : (scopedItems[0]?.status_id ?? items[0]?.status_id);
+    teamId === undefined ? undefined : scopedItems[0]?.status_id;
+
+  // Disable "New" on a team-scoped route with no same-team sibling: there is no
+  // valid team status to source, and the API would reject a cross-team/missing
+  // status. "Can't do it correctly yet → don't offer it" (mirrors the read-only
+  // Team field + disabled kanban team-drag). Never blocks the unscoped board.
+  const newItemDisabled = teamId !== undefined && scopedStatusId === undefined;
 
   // Team facet options + the already-filtered rows, both derived from the
   // (team-)scoped items. The Table renders exactly `rows`; it never filters.
@@ -469,6 +474,10 @@ export function WorkboardScreen({
   // record to `items`, so `liveSelected` resolves it; `selected` is the
   // one-render fallback until that reflow lands.
   const handleNewItem = useCallback((): void => {
+    // Guard: never POST a scoped create without a valid same-team status. The
+    // action is disabled in the UI on an empty scoped team, but guard here too
+    // so no invalid/cross-team-status create can ever fire.
+    if (newItemDisabled) return;
     // Fire-and-forget create + open the editor on the fresh item. create()
     // rejects only under a real backend (the mock never does); the trailing
     // .catch keeps this void-returning click handler from floating a promise.
@@ -497,7 +506,7 @@ export function WorkboardScreen({
         // payload the API refuses) must be visible, not an invisible no-op.
         toast.error("Couldn't create the work item — please try again.");
       });
-  }, [create, teamId, scopedTeamName, scopedStatusId]);
+  }, [create, teamId, scopedTeamName, scopedStatusId, newItemDisabled]);
 
   // Editor's onSave returns void; the hook's update returns the saved WorkItem.
   // Await + discard, and let rejections propagate so the editor keeps the Sheet
@@ -663,6 +672,7 @@ export function WorkboardScreen({
         hideTeamFacet={teamId !== undefined}
         selectedCount={filterState.selection.size}
         onNewItem={handleNewItem}
+        newItemDisabled={newItemDisabled}
         onBulkApply={handleBulkApply}
         onResetColumnWidths={
           view === "table" ? handleResetColumnWidths : undefined
@@ -680,10 +690,21 @@ export function WorkboardScreen({
           description={
             teamId === undefined
               ? "Work items are the coalition hub — create one to plan, execute, and review work across teams."
-              : "This team has no work items yet — create one to start tracking its work."
+              : newItemDisabled
+                ? "Creating in an empty team needs team status setup — coming soon."
+                : "This team has no work items yet — create one to start tracking its work."
           }
           action={
-            <Button size="sm" onClick={handleNewItem}>
+            <Button
+              size="sm"
+              onClick={handleNewItem}
+              disabled={newItemDisabled}
+              title={
+                newItemDisabled
+                  ? "Creating in an empty team needs team status setup (coming soon)"
+                  : undefined
+              }
+            >
               New work item
             </Button>
           }

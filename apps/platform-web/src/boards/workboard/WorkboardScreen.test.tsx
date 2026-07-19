@@ -481,7 +481,11 @@ describe("WorkboardScreen", () => {
       expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /new work item/i }));
+    // A non-empty scoped team can source a valid same-team status, so New is
+    // enabled.
+    const newButton = screen.getByRole("button", { name: /new work item/i });
+    expect(newButton).not.toBeDisabled();
+    fireEvent.click(newButton);
 
     await waitFor(() => {
       expect(create).toHaveBeenCalledWith(
@@ -492,6 +496,38 @@ describe("WorkboardScreen", () => {
         }),
       );
     });
+  });
+
+  it("disables New on an EMPTY team-scoped route so no invalid-status create is posted", async () => {
+    // With no same-team sibling there is no valid team status to source, and the
+    // prod create verifies status_id against the submitted team_id — so a create
+    // would send a cross-team/missing status and 400 (CodeRabbit
+    // WorkboardScreen.tsx:248). "Can't do it correctly yet → don't offer it":
+    // the New action is disabled until team status setup exists (issue 8a3c0d6b).
+    const base = createMockWorkItemRepository();
+    const create = vi.fn(base.create);
+    const repository = { ...base, create };
+
+    render(
+      <WorkboardScreen repository={repository} teamId="team_does_not_exist" />,
+    );
+
+    // The empty-team state renders…
+    expect(
+      await screen.findByText("No items in this team yet"),
+    ).toBeInTheDocument();
+
+    // …and EVERY New action (toolbar + empty-state) is disabled.
+    const newButtons = screen.getAllByRole("button", { name: /new work item/i });
+    expect(newButtons.length).toBeGreaterThan(0);
+    for (const button of newButtons) {
+      expect(button).toBeDisabled();
+    }
+
+    // Clicking never fires a create — no cross-team/missing-status POST.
+    fireEvent.click(newButtons[0]);
+    await Promise.resolve();
+    expect(create).not.toHaveBeenCalled();
   });
 
   it("surfaces a failed create with a toast instead of silently swallowing it", async () => {

@@ -128,6 +128,12 @@ export interface WorkboardToolbarProps {
   selectedCount: number;
   /** Fired when the "New work item" button is pressed. */
   onNewItem: () => void;
+  /**
+   * Disable the "New work item" button. Set on a team-scoped route with no
+   * same-team sibling to source a valid team status from — creating there would
+   * post an invalid/cross-team status the API rejects (deferred to 8a3c0d6b).
+   */
+  newItemDisabled?: boolean;
   /** Apply a patch to the parent's current selection (e.g. bulk phase/priority). */
   onBulkApply: (patch: WorkItemPatch) => void;
   /**
@@ -247,6 +253,7 @@ export function WorkboardToolbar({
   hideTeamFacet = false,
   selectedCount,
   onNewItem,
+  newItemDisabled = false,
   onBulkApply,
   onResetColumnWidths,
   columnFilters,
@@ -815,7 +822,17 @@ export function WorkboardToolbar({
 
       {/* New work item — always the last (rightmost) control. ml-auto pins it to
           the right edge regardless of whether the bulk cluster is present. */}
-      <Button size="sm" className="ml-auto" onClick={onNewItem}>
+      <Button
+        size="sm"
+        className="ml-auto"
+        onClick={onNewItem}
+        disabled={newItemDisabled}
+        title={
+          newItemDisabled
+            ? "Creating in an empty team needs team status setup (coming soon)"
+            : undefined
+        }
+      >
         <PlusIcon className="size-4" />
         New work item
       </Button>
