@@ -24,7 +24,10 @@ import { expect, test } from "@playwright/test";
  */
 
 const WORKSPACE = process.env.E2E_WORKSPACE ?? "befach-hq";
-const ITEM_TITLE = "E2E smoke test item";
+// Unique per run: the agent reads the board first and (correctly) refuses to
+// create a DUPLICATE title, so a fixed title only works on the very first run
+// against a given tenant. A unique suffix keeps every run a genuine create.
+const ITEM_TITLE = `E2E smoke test item ${Date.now()}`;
 const AGENT_PROMPT = `Create a work item titled '${ITEM_TITLE}' in this team`;
 
 // A real agent + LLM round-trip is slow; give the propose/apply steps headroom.
