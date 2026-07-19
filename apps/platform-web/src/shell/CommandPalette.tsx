@@ -6,6 +6,12 @@ import { useTheme } from "@product-suite/ui";
 
 import { BOARDS, type To, href } from "./boards";
 import { toast } from "./toast";
+import {
+  getDefaultRepository,
+  useRepositoryContext,
+  type WorkItem,
+  type WorkItemRepository,
+} from "../data/work-items";
 
 /**
  * Command palette (DESIGN §2: Cmd+K ships in every build). F1 stub: navigation
@@ -16,13 +22,42 @@ export function CommandPalette({
   open,
   onOpenChange,
   workspace,
+  repository,
 }: Readonly<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
   workspace: string;
+  /** Injectable seam for tests; defaults to the provider/module repository. */
+  repository?: WorkItemRepository;
 }>) {
   const navigate = useNavigate();
   const { toggle } = useTheme();
+
+  // Resolve the repository once (injected prop wins, else the provider's repo,
+  // else the module singleton) — the useWorkItems/useTeams convention.
+  const contextRepository = useRepositoryContext();
+  const [repo] = React.useState<WorkItemRepository>(
+    () => repository ?? contextRepository ?? getDefaultRepository(),
+  );
+
+  // Work items feeding the palette's "Work items" group. Loaded once per open
+  // transition so ⌘K search always reflects the current set.
+  const [workItems, setWorkItems] = React.useState<WorkItem[]>([]);
+  React.useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    repo
+      .list()
+      .then((items) => {
+        if (!cancelled) setWorkItems(items);
+      })
+      .catch(() => {
+        if (!cancelled) setWorkItems([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, repo]);
 
   const go = React.useCallback(
     (to: To) => {
@@ -98,6 +133,32 @@ export function CommandPalette({
             <Command.Empty className="px-3 py-6 text-center text-sm text-muted-foreground">
               No results found.
             </Command.Empty>
+
+            {workItems.length > 0 && (
+              <Command.Group
+                heading="Work items"
+                className="px-1 py-1 text-xs text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5"
+              >
+                {workItems.map((item) => (
+                  <Command.Item
+                    key={item.id}
+                    // Fold the id into the value so cmdk matches BOTH the title
+                    // text and a typed/pasted id (open-by-id, no special-casing).
+                    value={`${item.id} ${item.title}`}
+                    onSelect={() => {
+                      onOpenChange(false);
+                      navigate({
+                        to: "/w/$workspace/workboard/item/$itemId",
+                        params: { workspace, itemId: item.id },
+                      });
+                    }}
+                    className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-sm text-popover-foreground aria-selected:bg-accent aria-selected:text-accent-foreground"
+                  >
+                    {item.title}
+                  </Command.Item>
+                ))}
+              </Command.Group>
+            )}
 
             <Command.Group
               heading="Boards"

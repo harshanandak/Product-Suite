@@ -1,9 +1,21 @@
-import { screen, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeAll, describe, it, expect } from "vitest";
+import {
+  Outlet,
+  RouterProvider,
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+} from "@tanstack/react-router";
+
+import { ThemeProvider } from "@product-suite/ui";
 
 import { CommandPalette } from "./CommandPalette";
 import { BOARDS } from "./boards";
 import { renderWithRouter } from "../test/harness";
+import { createMockWorkItemRepository } from "../data/work-items";
 
 // cmdk relies on ResizeObserver, Element.scrollIntoView, and window.scrollTo,
 // none of which jsdom implements.
@@ -24,6 +36,43 @@ beforeAll(() => {
     window.scrollTo = () => {};
   }
 });
+
+/**
+ * Render the palette inside a router that actually registers the work-item
+ * detail route, so selecting an item can be asserted against the resulting
+ * location. Returns the router for `router.state.location.pathname` assertions.
+ */
+function renderPaletteWithItemRoute(ui: ReactNode) {
+  const rootRoute = createRootRoute();
+  const workspaceRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/w/$workspace",
+    component: () => (
+      <ThemeProvider defaultTheme="light">
+        <Outlet />
+      </ThemeProvider>
+    ),
+  });
+  const indexRoute = createRoute({
+    getParentRoute: () => workspaceRoute,
+    path: "/",
+    component: () => <>{ui}</>,
+  });
+  const itemRoute = createRoute({
+    getParentRoute: () => workspaceRoute,
+    path: "workboard/item/$itemId",
+    component: () => <div>item detail</div>,
+  });
+  const routeTree = rootRoute.addChildren([
+    workspaceRoute.addChildren([indexRoute, itemRoute]),
+  ]);
+  const router = createRouter({
+    routeTree,
+    history: createMemoryHistory({ initialEntries: ["/w/test-ws"] }),
+  });
+  render(<RouterProvider router={router} />);
+  return router;
+}
 
 describe("CommandPalette", () => {
   it("renders every board label plus Settings when open", async () => {
@@ -60,5 +109,73 @@ describe("CommandPalette", () => {
       expect(screen.queryByText("Settings")).toBeNull();
     });
     expect(screen.queryByText(BOARDS[0].label)).toBeNull();
+  });
+
+  it("lists work items from the repository and filters by title", async () => {
+    const repository = createMockWorkItemRepository();
+    renderWithRouter(
+      <CommandPalette
+        open
+        onOpenChange={() => {}}
+        workspace="test-ws"
+        repository={repository}
+      />,
+    );
+
+    // The Work items group is populated from repository.list() on open.
+    expect(await screen.findByText("Realtime transport seam")).toBeDefined();
+    expect(screen.getByText("Workspace auth hardening")).toBeDefined();
+
+    // Typing a title narrows the list via cmdk's built-in filtering.
+    fireEvent.change(screen.getByRole("combobox"), {
+      target: { value: "Realtime transport" },
+    });
+    await waitFor(() =>
+      expect(screen.queryByText("Workspace auth hardening")).toBeNull(),
+    );
+    expect(screen.getByText("Realtime transport seam")).toBeDefined();
+  });
+
+  it("matches a work item by its id (open-by-id)", async () => {
+    const repository = createMockWorkItemRepository();
+    renderWithRouter(
+      <CommandPalette
+        open
+        onOpenChange={() => {}}
+        workspace="test-ws"
+        repository={repository}
+      />,
+    );
+
+    await screen.findByText("Realtime transport seam");
+
+    // The item's id is folded into the cmdk value, so typing the raw id matches.
+    fireEvent.change(screen.getByRole("combobox"), {
+      target: { value: "wi_realtime" },
+    });
+    await waitFor(() =>
+      expect(screen.queryByText("Workspace auth hardening")).toBeNull(),
+    );
+    expect(screen.getByText("Realtime transport seam")).toBeDefined();
+  });
+
+  it("navigates to the item detail page on select", async () => {
+    const repository = createMockWorkItemRepository();
+    const router = renderPaletteWithItemRoute(
+      <CommandPalette
+        open
+        onOpenChange={() => {}}
+        workspace="test-ws"
+        repository={repository}
+      />,
+    );
+
+    fireEvent.click(await screen.findByText("Realtime transport seam"));
+
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe(
+        "/w/test-ws/workboard/item/wi_realtime",
+      ),
+    );
   });
 });
