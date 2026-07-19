@@ -186,7 +186,7 @@ function renderTable(overrides: Partial<WorkItemTableProps> = {}) {
     owners: createOwnerFixtures(),
     loading: false,
     error: null,
-    groupBy: "department",
+    groupBy: "team",
     visibleColumns: new Set<ColumnId>(COLUMN_IDS),
     selection: new Set<string>(),
     onSelectionChange: vi.fn(),
@@ -359,7 +359,7 @@ describe("WorkboardTable", () => {
     ]);
   });
 
-  it("renders rows with phase pills and department swimlanes", async () => {
+  it("renders rows with phase pills and team swimlanes", async () => {
     const rows = await loadRows();
     renderTable({ rows });
 
@@ -367,7 +367,7 @@ describe("WorkboardTable", () => {
       expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
     });
 
-    // Swimlane group headers render (group-by-department by default).
+    // Swimlane group headers render (group-by-team by default).
     expect(screen.getAllByTestId("swimlane-group").length).toBeGreaterThan(0);
 
     // A known fixture title is shown.
@@ -1229,11 +1229,11 @@ describe("WorkboardTable", () => {
 
   it("exposes a 'Select all in <label>' checkbox in each group header", async () => {
     const rows = await loadRows();
-    renderTable({ rows, groupBy: "department" });
+    renderTable({ rows, groupBy: "team" });
 
     await screen.findAllByTestId("work-item-row");
 
-    // One per swimlane (department grouping → Engineering / Marketing / Sourcing).
+    // One per swimlane (team grouping → Engineering / Marketing / Sourcing).
     expect(
       screen.getByRole("checkbox", { name: "Select all in Engineering" }),
     ).toBeInTheDocument();
@@ -1272,7 +1272,7 @@ describe("WorkboardTable", () => {
     const rows = await loadRows();
     renderTable({
       rows,
-      groupBy: "department",
+      groupBy: "team",
       // Every Engineering id selected → its header checkbox reads fully checked.
       selection: new Set([
         "wi_auth",
@@ -1298,7 +1298,7 @@ describe("WorkboardTable", () => {
     // One of Engineering's four ids selected → mixed (partial) state.
     renderTable({
       rows,
-      groupBy: "department",
+      groupBy: "team",
       selection: new Set(["wi_auth"]),
     });
 
@@ -1315,7 +1315,7 @@ describe("WorkboardTable", () => {
     // Prior selection holds a Marketing id OUTSIDE the Engineering group.
     renderTable({
       rows,
-      groupBy: "department",
+      groupBy: "team",
       selection: new Set(["wi_creatives"]),
       onSelectionChange,
     });
@@ -1346,7 +1346,7 @@ describe("WorkboardTable", () => {
     // All 4 Engineering ids selected (box reads checked) plus an outside id.
     renderTable({
       rows,
-      groupBy: "department",
+      groupBy: "team",
       selection: new Set([
         "wi_auth",
         "wi_realtime",
@@ -1373,7 +1373,7 @@ describe("WorkboardTable", () => {
     const rows = await loadRows();
     const onSelectionChange = vi.fn();
     const selection = new Set(["wi_creatives"]);
-    renderTable({ rows, groupBy: "department", selection, onSelectionChange });
+    renderTable({ rows, groupBy: "team", selection, onSelectionChange });
 
     await screen.findAllByTestId("work-item-row");
 
@@ -1582,7 +1582,7 @@ describe("WorkboardTable", () => {
 
   it("collapses the column to the group header's checkbox when moving onto a group row", async () => {
     const rows = await loadRows();
-    renderTable({ rows, groupBy: "department" });
+    renderTable({ rows, groupBy: "team" });
     await screen.findAllByTestId("work-item-row");
 
     // First cell is the first swimlane header's col-1 (its select-all checkbox).
@@ -1687,7 +1687,7 @@ describe("WorkboardTable", () => {
 
   it("shows a collapse toggle with aria-expanded on each group header", async () => {
     const rows = await loadRows();
-    renderTable({ rows, groupBy: "department" });
+    renderTable({ rows, groupBy: "team" });
 
     await screen.findAllByTestId("work-item-row");
 
@@ -1699,7 +1699,7 @@ describe("WorkboardTable", () => {
 
   it("collapses a group to hide its item rows and restores them on expand", async () => {
     const rows = await loadRows();
-    renderTable({ rows, groupBy: "department" });
+    renderTable({ rows, groupBy: "team" });
 
     await screen.findAllByTestId("work-item-row");
 
@@ -1737,7 +1737,7 @@ describe("WorkboardTable", () => {
   it("still selects the full group via its header checkbox when collapsed", async () => {
     const rows = await loadRows();
     const onSelectionChange = vi.fn();
-    renderTable({ rows, groupBy: "department", onSelectionChange });
+    renderTable({ rows, groupBy: "team", onSelectionChange });
 
     await screen.findAllByTestId("work-item-row");
 
@@ -1768,7 +1768,7 @@ describe("WorkboardTable", () => {
 
   it("keeps exactly one tabbable gridcell after collapsing a group", async () => {
     const rows = await loadRows();
-    renderTable({ rows, groupBy: "department" });
+    renderTable({ rows, groupBy: "team" });
 
     await screen.findAllByTestId("work-item-row");
 
@@ -1786,7 +1786,7 @@ describe("WorkboardTable", () => {
 
   it("collapses the group when Enter activates a focused group header cell", async () => {
     const rows = await loadRows();
-    renderTable({ rows, groupBy: "department" });
+    renderTable({ rows, groupBy: "team" });
 
     await screen.findAllByTestId("work-item-row");
 
@@ -1815,7 +1815,7 @@ describe("WorkboardTable", () => {
   it("toggles the correct row in a later group after an earlier group is collapsed", async () => {
     const rows = await loadRows();
     const onSelectionChange = vi.fn();
-    renderTable({ rows, groupBy: "department", onSelectionChange });
+    renderTable({ rows, groupBy: "team", onSelectionChange });
 
     await screen.findAllByTestId("work-item-row");
 
@@ -1843,7 +1843,7 @@ describe("WorkboardTable", () => {
 
   it("pins the active group header with sticky positioning below the column header", async () => {
     const rows = await loadRows();
-    renderTable({ rows, groupBy: "department" });
+    renderTable({ rows, groupBy: "team" });
 
     await screen.findAllByTestId("work-item-row");
 

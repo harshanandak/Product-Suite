@@ -44,7 +44,7 @@ const OWNERS: ReadonlyArray<Owner> = [
   { id: "u_alan", name: "Alan Turing" },
 ];
 
-const DEPARTMENTS: ReadonlyArray<string> = ["Engineering", "Design"];
+const TEAMS: ReadonlyArray<string> = ["Engineering", "Design"];
 
 /**
  * Render the toolbar wired to a `vi.fn` `onChange` and a fresh default state.
@@ -77,7 +77,7 @@ function renderToolbar(overrides?: {
       view={overrides?.view ?? "table"}
       onViewChange={onViewChange}
       owners={OWNERS}
-      departments={DEPARTMENTS}
+      teams={TEAMS}
       hideTeamFacet={overrides?.hideTeamFacet}
       selectedCount={overrides?.selectedCount ?? 0}
       onNewItem={onNewItem}
@@ -165,19 +165,19 @@ describe("WorkboardToolbar", () => {
     expect(lastChange().search).toBe("auth");
   });
 
-  it("populates the Department facet from the departments prop", async () => {
+  it("populates the Team facet from the teams prop", async () => {
     const { lastChange } = renderToolbar();
-    openMenu(/filter by department/i);
+    openMenu(/filter by team/i);
     fireEvent.click(
       await screen.findByRole("menuitemcheckbox", { name: "Engineering" }),
     );
-    expect([...lastChange().filters.department]).toEqual(["Engineering"]);
+    expect([...lastChange().filters.team]).toEqual(["Engineering"]);
   });
 
-  it("hides the Department facet when hideTeamFacet is set (team-scoped surface)", () => {
+  it("hides the Team facet when hideTeamFacet is set (team-scoped surface)", () => {
     renderToolbar({ hideTeamFacet: true });
     expect(
-      screen.queryByRole("button", { name: /filter by department/i }),
+      screen.queryByRole("button", { name: /filter by team/i }),
     ).not.toBeInTheDocument();
   });
 
@@ -227,9 +227,9 @@ describe("WorkboardToolbar", () => {
         screen.queryByRole("button", { name: `Filter by ${facet}` }),
       ).not.toBeInTheDocument();
     }
-    // Department is unconditional (it has no column), so it stays in both views.
+    // Team is unconditional (it has no column), so it stays in both views.
     expect(
-      screen.getByRole("button", { name: /filter by department/i }),
+      screen.getByRole("button", { name: /filter by team/i }),
     ).toBeInTheDocument();
   });
 
@@ -259,7 +259,7 @@ describe("WorkboardToolbar", () => {
       filters: {
         type: new Set(["bug"]),
         owner: new Set(["u_ada"]),
-        department: new Set(),
+        team: new Set(),
         phase: new Set(),
         priority: new Set(),
       },
@@ -299,7 +299,7 @@ describe("WorkboardToolbar", () => {
         filters: {
           type: new Set(["bug"]),
           owner: new Set(),
-          department: new Set(),
+          team: new Set(),
           phase: new Set(),
           priority: new Set(),
         },
@@ -319,7 +319,7 @@ describe("WorkboardToolbar", () => {
       filters: {
         type: new Set(["feature", "bug"]),
         owner: new Set(["u_ada"]),
-        department: new Set(),
+        team: new Set(),
         phase: new Set(),
         priority: new Set(),
       },

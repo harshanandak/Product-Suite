@@ -14,7 +14,7 @@ import {
   parseSavedViews,
   serializePersistedView,
   serializeSavedViews,
-  workboardDepartments,
+  workboardTeams,
   type SavedView,
 } from "./filter-state";
 
@@ -59,13 +59,13 @@ describe("workboard filter state", () => {
     ]);
   });
 
-  it("defaults to no search, no facet filters, grouped by department", () => {
+  it("defaults to no search, no facet filters, grouped by team", () => {
     const state = defaultWorkboardFilterState();
     expect(state.search).toBe("");
-    expect(state.groupBy).toBe("department");
+    expect(state.groupBy).toBe("team");
     expect(state.filters.type.size).toBe(0);
     expect(state.filters.owner.size).toBe(0);
-    expect(state.filters.department.size).toBe(0);
+    expect(state.filters.team.size).toBe(0);
     expect(state.filters.phase.size).toBe(0);
     expect(state.filters.priority.size).toBe(0);
   });
@@ -189,12 +189,12 @@ describe("applyWorkboardFilters", () => {
     expect(applyWorkboardFilters(rows, state).map((r) => r.id)).toEqual(["c"]);
   });
 
-  it("filters by department, phase, and priority facets", () => {
+  it("filters by team, phase, and priority facets", () => {
     const base = defaultWorkboardFilterState();
     expect(
       applyWorkboardFilters(rows, {
         ...base,
-        filters: { ...base.filters, department: new Set(["Marketing"]) },
+        filters: { ...base.filters, team: new Set(["Marketing"]) },
       }).map((r) => r.id),
     ).toEqual(["b"]);
     expect(
@@ -251,7 +251,7 @@ describe("applyWorkboardFilters", () => {
 
 describe("persisted view state (serialize ⇄ parse)", () => {
   it("exposes a single versioned storage key", () => {
-    expect(FILTER_STORAGE_KEY).toBe("workboard.filters.v1");
+    expect(FILTER_STORAGE_KEY).toBe("workboard.filters.v2");
   });
 
   it("round-trips a populated filter state + view", () => {
@@ -263,7 +263,7 @@ describe("persisted view state (serialize ⇄ parse)", () => {
       filters: {
         type: new Set(["feature", "bug"] as const),
         owner: new Set(["user_kenji", FILTER_OWNER_UNASSIGNED]),
-        department: new Set(["Engineering"]),
+        team: new Set(["Engineering"]),
         phase: new Set(["execute"] as const),
         priority: new Set(["high"] as const),
       },
@@ -283,7 +283,7 @@ describe("persisted view state (serialize ⇄ parse)", () => {
     expect(parsed?.filters?.owner).toEqual(
       new Set(["user_kenji", FILTER_OWNER_UNASSIGNED]),
     );
-    expect(parsed?.filters?.department).toEqual(new Set(["Engineering"]));
+    expect(parsed?.filters?.team).toEqual(new Set(["Engineering"]));
     expect(parsed?.filters?.phase).toEqual(new Set(["execute"]));
     expect(parsed?.filters?.priority).toEqual(new Set(["high"]));
   });
@@ -330,7 +330,7 @@ describe("persisted view state (serialize ⇄ parse)", () => {
         phase: ["execute", "archived"],
         priority: ["high", "urgent"],
         owner: ["user_kenji"],
-        department: ["Engineering"],
+        team: ["Engineering"],
       },
     });
     const parsed = parsePersistedView(raw);
@@ -383,15 +383,15 @@ describe("persisted view state (serialize ⇄ parse)", () => {
   });
 });
 
-describe("workboardDepartments", () => {
-  it("returns distinct departments sorted alphabetically", () => {
+describe("workboardTeams", () => {
+  it("returns distinct teams sorted alphabetically", () => {
     const rows: WorkItemRow[] = [
       rowOf({ id: "a", department: "Sourcing" }),
       rowOf({ id: "b", department: "Engineering" }),
       rowOf({ id: "c", department: "Marketing" }),
       rowOf({ id: "d", department: "Engineering" }),
     ];
-    expect(workboardDepartments(rows)).toEqual([
+    expect(workboardTeams(rows)).toEqual([
       "Engineering",
       "Marketing",
       "Sourcing",
@@ -399,7 +399,7 @@ describe("workboardDepartments", () => {
   });
 
   it("returns an empty array for no rows", () => {
-    expect(workboardDepartments([])).toEqual([]);
+    expect(workboardTeams([])).toEqual([]);
   });
 });
 
@@ -413,7 +413,7 @@ describe("currentViewConfig", () => {
       filters: {
         type: new Set(["feature"] as const),
         owner: new Set(["user_kenji"]),
-        department: new Set(["Engineering"]),
+        team: new Set(["Engineering"]),
         phase: new Set(["execute"] as const),
         priority: new Set(["high"] as const),
       },
@@ -453,7 +453,7 @@ describe("currentViewConfig", () => {
 
 describe("saved views (serialize ⇄ parse)", () => {
   it("exposes a versioned storage key distinct from the filter key", () => {
-    expect(SAVED_VIEWS_KEY).toBe("workboard.savedViews.v1");
+    expect(SAVED_VIEWS_KEY).toBe("workboard.savedViews.v2");
     expect(SAVED_VIEWS_KEY).not.toBe(FILTER_STORAGE_KEY);
   });
 
@@ -470,7 +470,7 @@ describe("saved views (serialize ⇄ parse)", () => {
             filters: {
               type: new Set(["feature", "bug"] as const),
               owner: new Set([FILTER_OWNER_UNASSIGNED]),
-              department: new Set(["Engineering"]),
+              team: new Set(["Engineering"]),
               phase: new Set(["execute"] as const),
               priority: new Set(["high"] as const),
             },
@@ -549,7 +549,7 @@ describe("saved views (serialize ⇄ parse)", () => {
             phase: ["execute", "archived"],
             priority: ["nope"],
             owner: ["user_kenji"],
-            department: ["Engineering"],
+            team: ["Engineering"],
           },
         },
       },

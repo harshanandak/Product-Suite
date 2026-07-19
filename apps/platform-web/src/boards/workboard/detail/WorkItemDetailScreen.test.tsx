@@ -59,6 +59,10 @@ describe("WorkItemDetailScreen", () => {
       screen.getByRole("heading", { name: "Properties" }),
     ).toBeInTheDocument();
 
+    // The team property row is labelled "Team" (renamed from "Department").
+    expect(screen.getByText("Team")).toBeInTheDocument();
+    expect(screen.queryByText("Department")).not.toBeInTheDocument();
+
     // The Edit affordance is present (opens the quick-edit Sheet).
     expect(screen.getByRole("button", { name: /edit/i })).toBeInTheDocument();
 

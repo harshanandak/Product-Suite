@@ -86,7 +86,7 @@ describe("WorkItemEditor", () => {
 
     // Text fields seeded from the item.
     expect(screen.getByLabelText("Title")).toHaveValue(item.title);
-    expect(screen.getByLabelText("Department")).toHaveValue(item.department);
+    expect(screen.getByLabelText("Team")).toHaveValue(item.department);
     expect(screen.getByLabelText("Due date")).toHaveValue("2026-07-10");
 
     // Enum / picker triggers display the seeded value.
@@ -228,7 +228,7 @@ describe("WorkItemEditor", () => {
 
     // Clear the title, then make an unrelated edit so a patch is produced.
     fireEvent.change(screen.getByLabelText("Title"), { target: { value: "  " } });
-    fireEvent.change(screen.getByLabelText("Department"), {
+    fireEvent.change(screen.getByLabelText("Team"), {
       target: { value: "Platform" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));

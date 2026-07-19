@@ -186,9 +186,9 @@ describe("WorkboardScreen", () => {
       screen.queryByRole("button", { name: "Diwali creative set" }),
     ).not.toBeInTheDocument();
 
-    // The Team (Department) facet is hidden — the scope is fixed by the route.
+    // The Team facet is hidden — the scope is fixed by the route.
     expect(
-      screen.queryByRole("button", { name: "Filter by department" }),
+      screen.queryByRole("button", { name: "Filter by team" }),
     ).not.toBeInTheDocument();
   });
 
@@ -564,7 +564,7 @@ describe("WorkboardScreen", () => {
 
   it("restores persisted search, groupBy, and visibleColumns from localStorage", async () => {
     const base = defaultWorkboardFilterState();
-    // Hide the Tags column and group by Type instead of the default Department.
+    // Hide the Tags column and group by Type instead of the default Team.
     const visibleColumns = new Set(
       COLUMN_IDS.filter((id) => id !== "tags"),
     );
@@ -593,7 +593,7 @@ describe("WorkboardScreen", () => {
     expect(
       screen.getByRole("searchbox", { name: "Search work items" }),
     ).toHaveValue("auth");
-    // groupBy restored → swimlanes are by Type ("Feature"), not Department.
+    // groupBy restored → swimlanes are by Type ("Feature"), not Team.
     expect(container.querySelector('[data-group="Feature"]')).not.toBeNull();
     expect(container.querySelector('[data-group="Engineering"]')).toBeNull();
     // visibleColumns restored → the Tags column (its inline edit button) is gone.

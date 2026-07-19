@@ -110,16 +110,17 @@ export interface WorkboardToolbarProps {
   /** The pickable owners; feeds the Owner facet filter (plus "Unassigned"). */
   owners: ReadonlyArray<Owner>;
   /**
-   * DEVIATION (documented): the verbatim brief props list no department source,
-   * yet the Department facet filter needs the workspace-defined department names
+   * DEVIATION (documented): the verbatim brief props list no team source,
+   * yet the Team facet filter needs the workspace-defined team names
    * to populate its menu. The toolbar never sees `items`, so — mirroring the
    * precedent of {@link WorkboardTable}'s added `onUpdateItem` — the distinct
-   * department names are surfaced as a prop. The parent derives them from the
-   * loaded rows. The filter renders no options (and stays inert) when empty.
+   * team names are surfaced as a prop. The parent derives them from the
+   * loaded rows (via `item.department`, the deprecated team-name carrier). The
+   * filter renders no options (and stays inert) when empty.
    */
-  departments: ReadonlyArray<string>;
+  teams: ReadonlyArray<string>;
   /**
-   * Hide the Team (department) facet — set on a team-scoped surface where the
+   * Hide the Team facet — set on a team-scoped surface where the
    * scope is already fixed by the route, so filtering by team is meaningless.
    */
   hideTeamFacet?: boolean;
@@ -148,7 +149,7 @@ export interface WorkboardToolbarProps {
 /** Group-by options in canonical order — labels for the 5 {@link GroupByField}s. */
 const GROUP_BY_LABELS: Record<GroupByField, string> = {
   none: "No grouping",
-  department: "Department",
+  team: "Team",
   phase: "Phase",
   priority: "Priority",
   type: "Type",
@@ -157,7 +158,7 @@ const GROUP_BY_LABELS: Record<GroupByField, string> = {
 /** Render order for the group-by menu (matches {@link GroupByField}). */
 const GROUP_BY_ORDER: readonly GroupByField[] = [
   "none",
-  "department",
+  "team",
   "phase",
   "priority",
   "type",
@@ -242,7 +243,7 @@ export function WorkboardToolbar({
   view,
   onViewChange,
   owners,
-  departments,
+  teams,
   hideTeamFacet = false,
   selectedCount,
   onNewItem,
@@ -277,7 +278,7 @@ export function WorkboardToolbar({
   const activeFilterCount =
     filters.type.size +
     filters.owner.size +
-    filters.department.size +
+    filters.team.size +
     filters.phase.size +
     filters.priority.size +
     (hasSearch ? 1 : 0);
@@ -312,12 +313,12 @@ export function WorkboardToolbar({
     });
   };
 
-  const toggleDepartment = (department: string): void => {
+  const toggleTeam = (team: string): void => {
     onChange({
       ...value,
       filters: {
         ...filters,
-        department: toggledSet(filters.department, department),
+        team: toggledSet(filters.team, team),
       },
     });
   };
@@ -330,7 +331,7 @@ export function WorkboardToolbar({
       filters: {
         type: new Set(),
         owner: new Set(),
-        department: new Set(),
+        team: new Set(),
         phase: new Set(),
         priority: new Set(),
       },
@@ -352,9 +353,9 @@ export function WorkboardToolbar({
     { value: FILTER_OWNER_UNASSIGNED, label: "Unassigned" },
     ...owners.map((owner) => ({ value: owner.id, label: owner.name })),
   ];
-  const departmentOptions = departments.map((department) => ({
-    value: department,
-    label: department,
+  const teamOptions = teams.map((team) => ({
+    value: team,
+    label: team,
   }));
 
   // Active-filter chips (#13) — one removable chip per selected facet value, in
@@ -363,12 +364,7 @@ export function WorkboardToolbar({
   const activeChips: ActiveFilterChip[] = [
     ...facetChips("Type", typeOptions, filters.type, toggleType),
     ...facetChips("Owner", ownerOptions, filters.owner, toggleOwner),
-    ...facetChips(
-      "Department",
-      departmentOptions,
-      filters.department,
-      toggleDepartment,
-    ),
+    ...facetChips("Team", teamOptions, filters.team, toggleTeam),
     ...facetChips("Phase", phaseOptions, filters.phase, togglePhase),
     ...facetChips("Priority", priorityOptions, filters.priority, togglePriority),
   ];
@@ -490,19 +486,19 @@ export function WorkboardToolbar({
         ) : null;
       })}
 
-      {/* Department facet — always a toolbar filter (Department has no table
+      {/* Team facet — always a toolbar filter (Team has no table
           column, so unlike Type / Phase / Priority / Owner it cannot move into a
           column header). All facets still flow into the active-filter count +
           chips below (both derive from the shared filter state). Hidden on a
           team-scoped surface, where the team is already fixed by the route. */}
       {hideTeamFacet ? null : (
         <FacetFilterMenu
-          label="Department"
-          options={departmentOptions}
-          selected={filters.department}
-          onToggle={toggleDepartment}
+          label="Team"
+          options={teamOptions}
+          selected={filters.team}
+          onToggle={toggleTeam}
           onSetSelected={(next) =>
-            onChange({ ...value, filters: { ...filters, department: next } })
+            onChange({ ...value, filters: { ...filters, team: next } })
           }
           searchable
         />

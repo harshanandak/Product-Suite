@@ -52,7 +52,7 @@ export function GraphFilters({
   const activeFilterCount =
     filters.type.size +
     filters.owner.size +
-    filters.department.size +
+    filters.team.size +
     filters.phase.size +
     filters.priority.size;
 
@@ -68,7 +68,9 @@ export function GraphFilters({
   const toggleDepartment = (department: string): void => {
     onChange({
       ...value,
-      filters: { ...filters, department: toggledSet(filters.department, department) },
+      // Graph keeps its "Department" label (Phase-2 re-skin), but the shared
+      // filter field is now `team`.
+      filters: { ...filters, team: toggledSet(filters.team, department) },
     });
   };
   const togglePhase = (phase: Phase): void => {
@@ -89,7 +91,7 @@ export function GraphFilters({
       filters: {
         type: new Set(),
         owner: new Set(),
-        department: new Set(),
+        team: new Set(),
         phase: new Set(),
         priority: new Set(),
       },
@@ -137,8 +139,8 @@ export function GraphFilters({
         <FacetFilterMenu
           label="Department"
           variant="ghost"
-          options={options.department}
-          selected={filters.department}
+          options={options.team}
+          selected={filters.team}
           onToggle={toggleDepartment}
         />
         <FacetFilterMenu

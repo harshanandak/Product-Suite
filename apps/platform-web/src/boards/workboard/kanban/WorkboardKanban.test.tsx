@@ -109,9 +109,9 @@ describe("resolveDrop", () => {
     );
     expect(
       resolveDrop(
-        "department",
+        "team",
         "Engineering",
-        encodeColumnId("department", "Marketing"),
+        encodeColumnId("team", "Marketing"),
       ),
     ).toEqual({ department: "Marketing" });
   });
@@ -134,9 +134,9 @@ describe("resolveDrop", () => {
     ).toBeNull();
   });
 
-  it("patches an empty department when dropped on the Unassigned column", () => {
+  it("patches an empty team when dropped on the Unassigned column", () => {
     expect(
-      resolveDrop("department", "Engineering", encodeColumnId("department", "")),
+      resolveDrop("team", "Engineering", encodeColumnId("team", "")),
     ).toEqual({ department: "" });
   });
 });
@@ -355,12 +355,12 @@ describe("WorkboardKanban", () => {
     ).toHaveTextContent("1");
   });
 
-  it("pivots to a Department board with one column per present department", async () => {
+  it("pivots to a Team board with one column per present team", async () => {
     const rows = await loadRows();
-    renderKanban({ rows, groupBy: "department" });
+    renderKanban({ rows, groupBy: "team" });
 
     const columns = await screen.findAllByTestId("kanban-column");
-    // Present departments only (dynamic), sorted alphabetically.
+    // Present teams only (dynamic), sorted alphabetically.
     expect(columns.map((node) => node.dataset.columnValue)).toEqual([
       "Engineering",
       "Marketing",
@@ -378,16 +378,16 @@ describe("WorkboardKanban", () => {
     }
   });
 
-  it("buckets rows with no department into a trailing Unassigned column", async () => {
-    // Empty the department on one row → it falls into the Unassigned bucket.
+  it("buckets rows with no team into a trailing Unassigned column", async () => {
+    // Empty the team on one row → it falls into the Unassigned bucket.
     const rows = (await loadRows()).map((row) =>
       row.id === "wi_auth" ? { ...row, department: "" } : row,
     );
-    renderKanban({ rows, groupBy: "department" });
+    renderKanban({ rows, groupBy: "team" });
 
     const columns = await screen.findAllByTestId("kanban-column");
     const values = columns.map((node) => node.dataset.columnValue);
-    // Unassigned ("") is appended AFTER the named, present departments.
+    // Unassigned ("") is appended AFTER the named, present teams.
     expect(values[values.length - 1]).toBe("");
     const unassigned = columns[columns.length - 1];
     expect(

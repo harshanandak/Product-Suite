@@ -36,7 +36,7 @@ import {
   serializePersistedView,
   serializeSavedViews,
   toggledSet,
-  workboardDepartments,
+  workboardTeams,
   type ColumnId,
   type PersistedView,
   type SavedView,
@@ -113,7 +113,7 @@ function hydrateFilterState(config: PersistedView): WorkboardFilterState {
       ? {
           type: new Set(config.filters.type),
           owner: new Set(config.filters.owner),
-          department: new Set(config.filters.department),
+          team: new Set(config.filters.team),
           phase: new Set(config.filters.phase),
           priority: new Set(config.filters.priority),
         }
@@ -221,10 +221,10 @@ export function WorkboardScreen({
     [items, teamId],
   );
 
-  // Department facet options + the already-filtered rows, both derived from the
+  // Team facet options + the already-filtered rows, both derived from the
   // (team-)scoped items. The Table renders exactly `rows`; it never filters.
-  const departments = useMemo(
-    () => workboardDepartments(scopedItems),
+  const teams = useMemo(
+    () => workboardTeams(scopedItems),
     [scopedItems],
   );
   const rows = useMemo(
@@ -232,10 +232,10 @@ export function WorkboardScreen({
     [scopedItems, filterState, owners],
   );
 
-  // The five facet option lists, derived once from the live owners/departments.
+  // The five facet option lists, derived once from the live owners/teams.
   const facetOptions = useMemo(
-    () => buildFacetOptions(owners, departments),
-    [owners, departments],
+    () => buildFacetOptions(owners, teams),
+    [owners, teams],
   );
 
   // Per-column header filters (Type / Phase / Priority / Owner) for the Table.
@@ -467,7 +467,7 @@ export function WorkboardScreen({
       filters: {
         type: new Set(),
         owner: new Set(),
-        department: new Set(),
+        team: new Set(),
         phase: new Set(),
         priority: new Set(),
       },
@@ -597,7 +597,7 @@ export function WorkboardScreen({
         view={view}
         onViewChange={setView}
         owners={owners}
-        departments={departments}
+        teams={teams}
         hideTeamFacet={teamId !== undefined}
         selectedCount={filterState.selection.size}
         onNewItem={handleNewItem}
@@ -617,7 +617,7 @@ export function WorkboardScreen({
           title={teamId === undefined ? "No work items yet" : "No items in this team yet"}
           description={
             teamId === undefined
-              ? "Work items are the coalition hub — create one to plan, execute, and review work across departments."
+              ? "Work items are the coalition hub — create one to plan, execute, and review work across teams."
               : "This team has no work items yet — create one to start tracking its work."
           }
           action={

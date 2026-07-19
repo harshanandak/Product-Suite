@@ -244,7 +244,7 @@ export function WorkItemEditor({
           <SheetTitle>{item ? "Edit work item" : "Work item"}</SheetTitle>
           <SheetDescription>
             Update the work item&apos;s details — type, phase, priority, owner,
-            due date, department, and tags.
+            due date, team, and tags.
           </SheetDescription>
         </SheetHeader>
 
@@ -357,9 +357,9 @@ export function WorkItemEditor({
               />
             </div>
 
-            {/* Department */}
+            {/* Team */}
             <div className="flex flex-col gap-2">
-              <Label htmlFor={departmentId}>Department</Label>
+              <Label htmlFor={departmentId}>Team</Label>
               <Input
                 id={departmentId}
                 value={form.department}
