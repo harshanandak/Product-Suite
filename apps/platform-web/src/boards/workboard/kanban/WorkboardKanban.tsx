@@ -295,6 +295,12 @@ export function resolveDrop(
   overId: string | null,
 ): WorkItemPatch | null {
   if (overId === null) return null;
+  // Team-axis drops are DISABLED until the canonical `team_id` write path exists
+  // (deferred to 8a3c0d6b). The team column writes only the legacy `department`
+  // carrier, but the team route scopes by `team_id`; committing a `department`-
+  // only patch would move the card visually while leaving `team_id` unchanged,
+  // desyncing it from its team route. Until then, a team drop is always a no-op.
+  if (field === "team") return null;
   const target = decodeColumnId(overId);
   if (target === null || target.field !== field) return null;
   if (target.value === fromValue) return null;
@@ -596,8 +602,14 @@ export function WorkboardKanban({
   onUpdateItem,
   groupBy = "phase",
 }: Readonly<WorkboardKanbanProps>) {
-  const draggable = onUpdateItem !== undefined;
   const field = boardFieldOf(groupBy);
+  // Drag needs a mutator AND a patchable axis. The `team` axis is excluded: its
+  // only writable carrier is the legacy `department`, but the team route scopes
+  // by the canonical `team_id`, so a drop would desync the card from its route
+  // (the atomic `team_id` write is deferred to 8a3c0d6b). Disabling `draggable`
+  // makes the cards non-draggable AND the columns non-droppable on a team board,
+  // while every other axis (phase / priority / type) stays fully draggable.
+  const draggable = onUpdateItem !== undefined && field !== "team";
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
