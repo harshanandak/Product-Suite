@@ -116,7 +116,13 @@ export function InboxScreen({ repository }: Readonly<InboxScreenProps> = {}) {
     );
   }
 
-  if (proposals.length === 0) {
+  // Only the TRUE empty inbox shows the teaching empty state. When the pending
+  // list is empty but we still have a cached selection (`selected` resolved from
+  // seenRef above — a proposal just disposed via the detail pane), fall through
+  // and render the detail pane so its terminal "Applied → View item" / stale
+  // banner stays visible instead of blanking. Without the `selected === null`
+  // guard, accepting the LAST pending proposal silently loses that confirmation.
+  if (proposals.length === 0 && selected === null) {
     return (
       <EmptyState
         title="No proposals to review"

@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ProposalRepository } from "@/data/proposals";
 import type { AcceptResult, Proposal } from "@/data/proposals";
+import type { WorkItem } from "@/data/work-items";
 
 // Mutable search stub so a test can drive the `?proposal=<id>` deep-link.
 let searchMock: { proposal?: string } = {};
@@ -203,5 +204,44 @@ describe("InboxScreen", () => {
         screen.getByText(/no longer pending/),
       ).toBeInTheDocument(),
     );
+  });
+
+  it("keeps the terminal Applied → View item banner after accepting the LAST pending proposal", async () => {
+    // The single-proposal case: on accept the proposal drops from the refetched
+    // list, so the pending list empties. The detail pane must still render its
+    // terminal confirmation (cached via seenRef) rather than blanking to the
+    // "No proposals to review" empty state — this is the moat's launch-gate
+    // confirmation for the common one-proposal flow (found by the e2e harness).
+    const only = proposal("p1", "Alpha");
+    const repository = repoWith([only]);
+    let listCalls = 0;
+    // First load returns the proposal; the invalidate-on-settle refetch after
+    // accept returns an empty pending list.
+    repository.list = vi.fn(async () => (listCalls++ === 0 ? [only] : []));
+    repository.accept = vi.fn(
+      async (): Promise<AcceptResult> => ({
+        outcome: "applied",
+        item: { id: "wi_1" } as WorkItem,
+      }),
+    );
+
+    render(<InboxScreen repository={repository} />);
+    await waitFor(() =>
+      expect(screen.getByText("Create work item “Alpha”")).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+
+    // The applied confirmation persists (its "Applied → View item" banner); the
+    // inbox does NOT blank to the empty state even though the pending list is now
+    // empty. (This file's Link mock renders an href-less anchor, so assert on the
+    // banner text rather than an implicit link role.)
+    await waitFor(() =>
+      expect(screen.getAllByText(/View item/i).length).toBeGreaterThan(0),
+    );
+    expect(screen.getByText(/Applied\./)).toBeInTheDocument();
+    expect(
+      screen.queryByText("No proposals to review"),
+    ).not.toBeInTheDocument();
   });
 });
