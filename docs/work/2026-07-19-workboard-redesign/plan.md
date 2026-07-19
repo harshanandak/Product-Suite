@@ -1,9 +1,8 @@
 # Workboard IA + Agent Surface Redesign — Implementation Plan
 
-Date: 2026-07-18. Executes the approved proposal at
-`.superpowers/sdd/workboard-ia-redesign-proposal.md`. Every path/symbol below was
-verified against the live code in this worktree
-(`C:/Users/harsha_befach/Downloads/Product-Suite/.worktrees/work-ontology`).
+Date: 2026-07-18. Executes the approved proposal (`design.md` in this folder). Every
+path/symbol below was verified against the live code at the repo root under
+`apps/platform-web/`.
 
 **How to run tests:** from `apps/platform-web/`: `npm run test` (= `vitest run`; `bun run test`
 also works). This is the slow suite — during a task, run the touched files only
@@ -342,8 +341,8 @@ it("navigates to the item detail page on select", ...)  // assert via router/his
 **Files:** whatever the greps surface; no new features.
 
 1. Grep-gates (all must be clean):
-   - `grep -rn 'workboard/(strategy|insights|tasks|triage|feedback)' apps/platform-web/src` → 0 hits.
-   - `grep -rn '"Department"\|"Phase"' apps/platform-web/src/boards/workboard --include='*.tsx'`
+   - `grep -rnE 'workboard/(strategy|insights|tasks|triage|feedback)' apps/platform-web/src` → 0 hits.
+   - `grep -rnE '"Department"|"Phase"' apps/platform-web/src/boards/workboard --include='*.tsx'`
      → hits only under `graph/`.
    - `grep -rn 'prototypeOnly' apps/platform-web/src/shell/boards.ts` → only `views`/`projects`
      (+ agent-board rows, which Phase 5 deletes).
@@ -361,7 +360,7 @@ it("navigates to the item detail page on select", ...)  // assert via router/his
 
 | # | Task | Nature | Notes / deps |
 |---|---|---|---|
-| 2.1 | `filter-state.ts`: add `layout: "list" | "board" | "graph"` (replaces `WorkboardView`), `sortBy: "manual" | "priority" | "updated" | "created" | "due"` (default `updated`), extend `GroupByField` with `"status" | "project" | "cycle" | "assignee"` (cycle gated until Phase 4 data) + persistence v3 | rewire | Pure-function TDD like today’s filter-state tests |
+| 2.1 | `filter-state.ts`: add `layout: "list" \| "board" \| "graph"` (replaces `WorkboardView`), `sortBy: "manual" \| "priority" \| "updated" \| "created" \| "due"` (default `updated`), extend `GroupByField` with `"status" \| "project" \| "cycle" \| "assignee"` (cycle gated until Phase 4 data) + persistence v3 | rewire | Pure-function TDD like today’s filter-state tests |
 | 2.2 | Display-options toolbar: one `Layout ▾ / Group ▾ / Filter + / Sort ▾` popover row replacing the tabs-as-views arrangement in `WorkboardToolbar` | net-new UI | shadcn DropdownMenu; proposal §B table is the spec |
 | 2.3 | Wire `WorkboardGraph` as the third Layout renderer inside `WorkboardScreen`’s `activeView` switch (it currently renders table|kanban, line 535); delete `WorkboardGraphScreen` + its route redirect’s permanence note; rename graph’s “Phase/Department” internals to Status/Team now that it is reachable | rewire + delete | Graph components already exist under `boards/workboard/graph/` |
 | 2.4 | Saved Views live in the rail: `views` row drops `prototypeOnly`, gets `/workboard/views` route listing `SavedView`s (they already exist in filter-state.ts:513 + localStorage); apply = navigate to `/workboard` with the config applied | rewire | Views are bookmarks — reuse `handleApplyView` |

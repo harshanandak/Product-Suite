@@ -1,7 +1,7 @@
 # Workboard IA + Agent Surface Redesign — Decisive Proposal
 
-Date: 2026-07-18. Authored against `.superpowers/sdd/workboard-redesign-research.md` (Linear/Huly
-patterns) and the current-workboard audit. Verified against the live code in
+Date: 2026-07-18. Authored against the workboard redesign research (`research.md` in this
+folder — Linear/Huly patterns) and the current-workboard audit. Verified against the live code in
 `apps/platform-web/src/` (shell/boards.ts nav definitions, agent-chat/AgentChatPanel.tsx,
 boards/inbox/InboxScreen.tsx, boards/workboard/{table,kanban,graph,detail,toolbar}).
 
