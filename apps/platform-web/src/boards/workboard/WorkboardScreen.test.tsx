@@ -612,6 +612,41 @@ describe("WorkboardScreen", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
+  it("disables the New button while the initial load is pending, then enables it once items land", async () => {
+    const base = createMockWorkItemRepository();
+    // Hold the initial list load open so the screen stays in its loading state:
+    // while loading, `items` is empty, so a New click would derive NO defaults
+    // even on a non-empty board and POST a bare payload the prod API rejects
+    // (Codex review, PR #105). The button must be disabled until the load lands.
+    let resolveList:
+      | ((items: Awaited<ReturnType<typeof base.list>>) => void)
+      | undefined;
+    const pending = new Promise<Awaited<ReturnType<typeof base.list>>>(
+      (resolve) => {
+        resolveList = resolve;
+      },
+    );
+    const repository = { ...base, list: () => pending };
+
+    render(<WorkboardScreen repository={repository} />);
+
+    // While the list load is pending, the toolbar New button is disabled.
+    const newButton = await screen.findByRole("button", {
+      name: /new work item/i,
+    });
+    expect(newButton).toBeDisabled();
+
+    // Resolve the load with the real fixtures; the button enables once the data
+    // the derivation reads has actually loaded.
+    resolveList?.(await base.list());
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /new work item/i }),
+      ).toBeEnabled();
+    });
+  });
+
   it("renders the empty state when the repository has no work items", async () => {
     const repository = createMockWorkItemRepository();
     // Drain the fixture store so the loaded list is empty.

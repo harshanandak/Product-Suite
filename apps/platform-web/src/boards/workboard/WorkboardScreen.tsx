@@ -247,11 +247,21 @@ export function WorkboardScreen({
   const scopedStatusId =
     teamId === undefined ? undefined : scopedItems[0]?.status_id;
 
-  // Disable "New" on a team-scoped route with no same-team sibling: there is no
-  // valid team status to source, and the API would reject a cross-team/missing
-  // status. "Can't do it correctly yet → don't offer it" (mirrors the read-only
-  // Team field + disabled kanban team-drag). Never blocks the unscoped board.
-  const newItemDisabled = teamId !== undefined && scopedStatusId === undefined;
+  // Disable "New" while the initial list load is pending, OR on a team-scoped
+  // route with no same-team sibling:
+  //   - loading: until the first list resolves, `items` is empty, so a create
+  //     would derive NO defaults (team_id/status_id) even on a NON-empty board
+  //     and POST a bare payload the prod API rejects. Block the click until the
+  //     data the derivation reads has actually loaded (Codex review, PR #105).
+  //   - scoped empty team: there is no valid team status to source, and the API
+  //     would reject a cross-team/missing status. "Can't do it correctly yet →
+  //     don't offer it" (mirrors the read-only Team field + disabled kanban
+  //     team-drag).
+  // A truly-empty board AFTER load stays enabled (loading is false, teamId
+  // undefined), so a fresh workspace can still create its first item via
+  // create({}) — the server resolves the team default.
+  const newItemDisabled =
+    loading || (teamId !== undefined && scopedStatusId === undefined);
 
   // Team facet options + the already-filtered rows, both derived from the
   // (team-)scoped items. The Table renders exactly `rows`; it never filters.
