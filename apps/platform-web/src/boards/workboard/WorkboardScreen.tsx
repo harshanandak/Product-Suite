@@ -16,6 +16,7 @@ import {
   useItemChecks,
   useRepositoryContext,
   useWorkItems,
+  type CreateWorkItemInput,
   type WorkItem,
   type WorkItemPatch,
   type WorkItemRepository,
@@ -146,6 +147,46 @@ function generateViewId(existing: ReadonlyArray<SavedView>): string {
 }
 
 /**
+ * Resolve the create-defaults for an UNSCOPED "New" item — team_id + department
+ * only. The server assigns the initial status (kernel issue 648b180d); the
+ * client never sends status_id/phase (the newest row can be a completed status).
+ * Target team is chosen by a clear precedence so this stops being whack-a-mole:
+ *
+ *   1. the first row VISIBLE under the active filter — the team the user is
+ *      looking at (correct even when the board is filtered to a team other than
+ *      the newest row's);
+ *   2. else, when a search/other facet hides EVERY row but the Team facet still
+ *      pins one or more teams (it matches on the `department` name), the target
+ *      is still knowable — use any loaded row in a pinned team. Dropping it to
+ *      create({}) would 400 in a MULTI-team tenant, where the server refuses an
+ *      omitted team_id (resolveDefaultTeamId → team_required_multiple);
+ *   3. else nothing is derivable (empty board / no team pinned) — create({}) and
+ *      let the server resolve the single-team default.
+ */
+function resolveUnscopedCreateDefaults(
+  visibleRows: readonly Pick<WorkItem, "team_id" | "department">[],
+  loadedItems: readonly Pick<WorkItem, "team_id" | "department">[],
+  pinnedTeamNames: ReadonlySet<string>,
+): CreateWorkItemInput {
+  const firstVisible = visibleRows[0];
+  if (firstVisible) {
+    return {
+      team_id: firstVisible.team_id,
+      department: firstVisible.department,
+    };
+  }
+  if (pinnedTeamNames.size > 0) {
+    const pinned = loadedItems.find((item) =>
+      pinnedTeamNames.has(item.department),
+    );
+    if (pinned) {
+      return { team_id: pinned.team_id, department: pinned.department };
+    }
+  }
+  return {};
+}
+
+/**
  * Workboard SCREEN — the live composition of the Toolbar + Table + Editor over
  * the data seam (DESIGN §2 / §4).
  *
@@ -246,11 +287,28 @@ export function WorkboardScreen({
   const scopedStatusId =
     teamId === undefined ? undefined : scopedItems[0]?.status_id;
 
-  // Disable "New" on a team-scoped route with no same-team sibling: there is no
-  // valid team status to source, and the API would reject a cross-team/missing
-  // status. "Can't do it correctly yet → don't offer it" (mirrors the read-only
-  // Team field + disabled kanban team-drag). Never blocks the unscoped board.
-  const newItemDisabled = teamId !== undefined && scopedStatusId === undefined;
+  // Disable "New" while the initial list load is pending OR errored, OR on a
+  // team-scoped route with no same-team sibling:
+  //   - loading: until the first list resolves, `items` is empty, so a create
+  //     would derive NO defaults (team_id/status_id) even on a NON-empty board
+  //     and POST a bare payload the prod API rejects. Block the click until the
+  //     data the derivation reads has actually loaded (Codex review, PR #105).
+  //   - error: when the list load REJECTS, the hook clears `loading` and sets
+  //     `error`, but `items` is still empty — the board is NOT known-empty, so a
+  //     create({}) here would again post a bare payload against a real backend.
+  //     Stay disabled until a SUCCESSFUL load establishes what the board holds
+  //     (CodeRabbit review, PR #105).
+  //   - scoped empty team: there is no valid team status to source, and the API
+  //     would reject a cross-team/missing status. "Can't do it correctly yet →
+  //     don't offer it" (mirrors the read-only Team field + disabled kanban
+  //     team-drag).
+  // A truly-empty board AFTER a SUCCESSFUL load stays enabled (loading false,
+  // error null, teamId undefined), so a fresh workspace can still create its
+  // first item via create({}) — the server resolves the team default.
+  const newItemDisabled =
+    loading ||
+    error !== null ||
+    (teamId !== undefined && scopedStatusId === undefined);
 
   // Team facet options + the already-filtered rows, both derived from the
   // (team-)scoped items. The Table renders exactly `rows`; it never filters.
@@ -478,18 +536,33 @@ export function WorkboardScreen({
     // action is disabled in the UI on an empty scoped team, but guard here too
     // so no invalid/cross-team-status create can ever fire.
     if (newItemDisabled) return;
-    // Fire-and-forget create + open the editor on the fresh item. create()
-    // rejects only under a real backend (the mock never does); the trailing
-    // .catch keeps this void-returning click handler from floating a promise.
-    // On a team-scoped route, thread the route's teamId so the new item lands
-    // on THIS team — without it the repo backfills team_id from a default and
-    // the fresh item can vanish from the scoped list. Also carry the team's
+    // Derive the create defaults CLIENT-SIDE. The SERVER is authoritative for a
+    // team's INITIAL status: #108 landed server-side resolution of the team's
+    // default status (lowest-position non-triage status) whenever `status_id` is
+    // omitted from the create (kernel issue 648b180d).
+    //
+    // Scoped route (teamId set): thread the route's teamId so the new item
+    // lands on THIS team — without it the repo backfills team_id from a default
+    // and the fresh item can vanish from the scoped list. Carry the team's
     // `department` NAME (when a sibling supplies it) so the item GROUPS/LABELS
-    // under the correct Team column, and a prod-valid `status_id` (the network
-    // API rejects a create without one) — see `scopedStatusId`.
-    create(
+    // under the correct Team column, plus a same-team `status_id` sourced from a
+    // SAME-TEAM sibling — see `scopedTeamName` / `scopedStatusId`.
+    //
+    // Unscoped route: supply ONLY team_id + department (for MULTI-TEAM
+    // disambiguation — a mixed board needs a target team, and the Team
+    // grouping/facets read `department`) and let the SERVER assign the initial
+    // status (kernel issue 648b180d). We NEVER borrow the row's `status_id`/
+    // `phase`: the newest row (`items` is ordered `updated_at desc`) can be a
+    // COMPLETED status, so sending it would BIRTH a brand-new item in a done
+    // column. `resolveUnscopedCreateDefaults` picks the target team by a clear
+    // precedence — visible row → pinned Team filter → create({}) — see its doc.
+    const input: CreateWorkItemInput =
       teamId === undefined
-        ? {}
+        ? resolveUnscopedCreateDefaults(
+            rows,
+            items,
+            effectiveFilterState.filters.team,
+          )
         : {
             team_id: teamId,
             ...(scopedTeamName === undefined
@@ -498,15 +571,26 @@ export function WorkboardScreen({
             ...(scopedStatusId === undefined
               ? {}
               : { status_id: scopedStatusId }),
-          },
-    )
+          };
+    // Fire-and-forget create + open the editor on the fresh item; the trailing
+    // .catch keeps this void-returning click handler from floating a promise.
+    create(input)
       .then((created) => setSelected(created))
       .catch(() => {
         // Surface the failure — never swallow it. A rejected create (e.g. a
         // payload the API refuses) must be visible, not an invisible no-op.
         toast.error("Couldn't create the work item — please try again.");
       });
-  }, [create, teamId, scopedTeamName, scopedStatusId, newItemDisabled]);
+  }, [
+    create,
+    teamId,
+    rows,
+    items,
+    effectiveFilterState,
+    scopedTeamName,
+    scopedStatusId,
+    newItemDisabled,
+  ]);
 
   // Editor's onSave returns void; the hook's update returns the saved WorkItem.
   // Await + discard, and let rejections propagate so the editor keeps the Sheet
