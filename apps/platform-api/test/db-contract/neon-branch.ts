@@ -14,13 +14,15 @@
  * the exact driver/UUID-cast behavior the wave is hardening.
  */
 
+import { randomBytes } from 'node:crypto'
+
 const API_BASE = process.env.NEON_API_BASE ?? 'https://console.neon.tech/api/v2'
 
 /** One create-branch operation the control plane runs asynchronously. */
 interface NeonOperation {
   id: string
   action: string
-  status: 'scheduling' | 'running' | 'finished' | 'failed' | 'cancelling' | 'cancelled' | string
+  status: 'scheduling' | 'running' | 'finished' | 'failed' | 'cancelling' | 'cancelled'
 }
 
 /** The subset of the create-branch response body the harness reads. */
@@ -115,7 +117,7 @@ async function waitForOperations(
  */
 export async function createEphemeralBranch(namePrefix = 'db-contract'): Promise<EphemeralBranch> {
   const { apiKey, projectId, parentBranchId } = neonConfig()
-  const name = `${namePrefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  const name = `${namePrefix}-${Date.now()}-${randomBytes(4).toString('hex')}`
   const body = (await neonFetch(apiKey, `/projects/${projectId}/branches`, {
     method: 'POST',
     body: {
