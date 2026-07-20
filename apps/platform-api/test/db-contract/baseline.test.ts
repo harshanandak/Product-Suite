@@ -16,8 +16,20 @@ import { hasNeonCreds, query, withDbBranch } from './harness'
  *
  * Skipped without NEON_API_KEY/NEON_PROJECT_ID so the default `vitest run` stays
  * green; the `db-contract` CI job supplies the secrets and runs it for real.
+ *
+ * Each test spins up its own ephemeral Neon branch (create → wait-for-ops →
+ * migrate → seed → teardown), which runs ~15-20s — far past vitest's 5s default.
+ * The suite-level timeout below covers every test in the block (and any added
+ * later) so we never rely on a CLI `--testTimeout` flag; it sits above the
+ * harness's own 120s Neon-operation wait so a genuinely stuck branch still
+ * surfaces as a real error, not a vitest timeout.
  */
-describe.skipIf(!hasNeonCreds())('db-contract: baseline accept path (real Neon branch)', () => {
+const DB_CONTRACT_TIMEOUT_MS = 180_000
+
+describe.skipIf(!hasNeonCreds())(
+  'db-contract: baseline accept path (real Neon branch)',
+  { timeout: DB_CONTRACT_TIMEOUT_MS },
+  () => {
   it('1: create-with-defaults persists the resolved team + default status ids', async () => {
     await withDbBranch(async ({ sql, seed }) => {
       // A create proposal that omits team_id and status_id — the accept path must
