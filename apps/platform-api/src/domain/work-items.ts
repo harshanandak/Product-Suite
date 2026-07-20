@@ -108,16 +108,17 @@ export async function resolveDefaultTeamId(sql: Sql, tenantId: string): Promise<
   const rows = (await sql`
     select id from teams where tenant_id = ${tenantId} order by id limit 2
   `) as { id: string }[]
-  if (rows.length === 0) {
+  if (rows.length > 1) {
+    throw new DomainError('team_required_multiple', 'multiple teams — specify team_id')
+  }
+  const team = rows[0]
+  if (!team) {
     throw new DomainError(
       'no_team',
       'no team to create into; create a team before creating items',
     )
   }
-  if (rows.length > 1) {
-    throw new DomainError('team_required_multiple', 'multiple teams — specify team_id')
-  }
-  return rows[0].id
+  return team.id
 }
 
 /**
