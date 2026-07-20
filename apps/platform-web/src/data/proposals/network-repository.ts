@@ -121,6 +121,10 @@ export function createNetworkProposalRepository(
       const status = typeof body?.status === "string" ? body.status : null;
       const proposalId = typeof body?.proposal_id === "string" ? body.proposal_id : id;
       const itemId = typeof body?.item_id === "string" ? body.item_id : "";
+      // The applied item's id, tolerating BOTH response shapes: the LOCKED envelope
+      // carries `item_id`; the CURRENT live API (routes/proposals.ts) still returns
+      // the applied ROW on 2xx, whose id is `id`. Prefer the envelope field.
+      const rowId = typeof body?.id === "string" ? body.id : "";
 
       switch (status) {
         case "applied":
@@ -158,12 +162,23 @@ export function createNetworkProposalRepository(
           break;
       }
 
-      // No typed envelope. Fall back to the HTTP code for an older backend, else
-      // throw a genuine transport error (401/network/unexpected 5xx).
-      if (response.ok && itemId) {
-        return { status: "applied", proposal_id: proposalId, item_id: itemId };
+      // No typed envelope in the body. Reconcile the CURRENT live API shape by the
+      // HTTP code, else throw a genuine transport error (401/network/unexpected 5xx).
+      // TODO(contracts-swap): this whole block is the C-before-A shim. Because Lane C
+      // merges BEFORE Lane A's envelope ships, the live API still returns the applied
+      // ROW on 2xx (item_id from the row `id`) and `{error}` bodies on 4xx. Once Lane
+      // A's typed envelope is the only response, the `status` switch above handles
+      // everything and this HTTP-code reconciliation can be deleted.
+      if (response.ok) {
+        // A 2xx with no `status` is the live API's applied row → applied.
+        return { status: "applied", proposal_id: proposalId, item_id: itemId || rowId };
       }
       if (response.status === 409) {
+        // The live API returns 409 for BOTH not_pending and stale; disambiguate by
+        // the message so a superseded proposal isn't mislabelled as a conflict.
+        if (/pending/i.test(readBodyMessage(body) ?? "")) {
+          return { status: "not_pending", proposal_id: proposalId };
+        }
         return {
           status: "stale",
           proposal_id: proposalId,

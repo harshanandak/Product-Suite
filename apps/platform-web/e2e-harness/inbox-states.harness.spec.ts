@@ -7,14 +7,14 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const shotDir = path.join(here, "screenshots");
 
 /**
- * Visual verification of the inline proposal card (PRIMARY surface) and the
- * Review Inbox, each rendered against a MOCKED accept envelope (inbox-states.e2e.tsx).
+ * Visual verification of the REAL inline `ProposalCard` (primary surface) and the
+ * `ProposalDetail` inbox, each driven by a mocked repository (inbox-states.e2e.tsx).
  * Clicks each panel's Accept and screenshots the resulting state.
  */
 test("captures inline card + inbox accept states", async ({ page }) => {
   await page.goto("/");
 
-  // --- Inline chat card (the primary surface) ---
+  // --- Inline chat card (the REAL ProposalCard) ---
 
   // Pending: the card BEFORE any action — inline Accept / Edit / Discard.
   const cardPending = page.locator('[data-state="card-pending"]');
@@ -40,15 +40,27 @@ test("captures inline card + inbox accept states", async ({ page }) => {
   await expect(cardNeeds.getByRole("button", { name: "Discard" })).toBeVisible();
   await cardNeeds.screenshot({ path: path.join(shotDir, "card-03-needs-attention.png") });
 
-  // This item changed (stale): Refresh / Discard / Apply anyway, in place.
+  // This item changed (stale): Refresh / Discard / Apply anyway, in place. The real
+  // card shows "This item changed" in BOTH the status pill and the banner, so assert
+  // the UNIQUE banner message + the reconcile action rather than the duplicated heading.
   const cardChanged = page.locator('[data-state="card-changed"]');
   await cardChanged.getByRole("button", { name: "Accept" }).click();
-  await expect(cardChanged.getByText("This item changed", { exact: true })).toBeVisible();
   await expect(
     cardChanged.getByText("Someone moved this item to Done since the agent proposed it."),
   ).toBeVisible();
   await expect(cardChanged.getByRole("button", { name: "Apply anyway" })).toBeVisible();
   await cardChanged.screenshot({ path: path.join(shotDir, "card-04-item-changed.png") });
+
+  // Transport error: a THROWN accept surfaces as a retryable failed state (never
+  // a silent failure) — the plain-language reason + Retry / Edit / Discard.
+  const cardFailed = page.locator('[data-state="card-failed"]');
+  await cardFailed.getByRole("button", { name: "Accept" }).click();
+  await expect(cardFailed.getByText("Couldn’t apply this proposal")).toBeVisible();
+  await expect(
+    cardFailed.getByText("The write service is unavailable. Please try again."),
+  ).toBeVisible();
+  await expect(cardFailed.getByRole("button", { name: "Retry" })).toBeVisible();
+  await cardFailed.screenshot({ path: path.join(shotDir, "card-05-failed.png") });
 
   // --- Review Inbox (batch view) ---
 

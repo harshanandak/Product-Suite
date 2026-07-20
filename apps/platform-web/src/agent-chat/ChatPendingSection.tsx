@@ -26,7 +26,14 @@ function rowIdentity(proposal: Proposal): { verb: string; title: string } {
   return { verb, title };
 }
 
-/** Scroll the message stream back to the inline card that owns this proposal. */
+/**
+ * Scroll the message stream to the inline card that owns this proposal. This works
+ * when that card is in the CURRENTLY rendered thread. For a proposal surfaced from
+ * a background agent or a DIFFERENT thread (its inline card isn't mounted), the
+ * anchor is absent and this is a graceful no-op — the row still disposes in place.
+ * KNOWN LIMITATION: jumping across threads would require switching the active
+ * thread first; that cross-thread deep-link is a tracked follow-up, not wired here.
+ */
 function focusInlineCard(proposalId: string): void {
   document
     .getElementById(`proposal-card-${proposalId}`)
@@ -64,8 +71,16 @@ function PendingRow({
     },
   );
   const { verb, title } = rowIdentity(proposal);
+  const isMemory = proposal.target_type === "memory";
 
+  // A memory proposal has NO workboard item — route its "View" to the memory log,
+  // never the work-item route (a memory uuid there is a dead link). Mirrors how
+  // ProposalDetail links an applied memory.
   const viewItem = (itemId: string): void => {
+    if (isMemory) {
+      void navigate({ to: "/w/$workspace/memory", params: { workspace } });
+      return;
+    }
     void navigate({
       to: "/w/$workspace/workboard/item/$itemId",
       params: { workspace, itemId },
@@ -112,6 +127,8 @@ function PendingRow({
             onRefresh={reset}
             onApplyAnyway={() => accept()}
             onViewItem={viewItem}
+            appliedMessage={isMemory ? "Memory logged." : "Applied."}
+            viewItemLabel={isMemory ? "View memory log →" : "View item →"}
           />
         </div>
       )}

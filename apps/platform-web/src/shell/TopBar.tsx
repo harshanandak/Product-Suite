@@ -68,7 +68,7 @@ export function TopBar({
         </Button>
         {pendingCount > 0 && (
           <span
-            aria-label={`${pendingCount} pending proposals`}
+            aria-label={`${pendingCount} pending proposal${pendingCount === 1 ? "" : "s"}`}
             className={cn(
               "pointer-events-none absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[0.625rem] font-semibold leading-none text-primary-foreground",
             )}

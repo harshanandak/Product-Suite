@@ -30,3 +30,10 @@ export function Link({
 
 export const useParams = () => ({ workspace: "acme" });
 export const useSearch = () => ({}) as Record<string, string | undefined>;
+
+/**
+ * A no-op navigate for the harness — the real `ProposalCard` calls `useNavigate()`
+ * for its "View item" / Edit affordances. The harness only screenshots state, so
+ * navigation is inert here (there is no router).
+ */
+export const useNavigate = () => (_options?: unknown): void => {};

@@ -170,10 +170,22 @@ describe("createNetworkProposalRepository", () => {
     });
   });
 
-  // --- Legacy fallback: a backend that does NOT yet return a typed envelope. ---
+  // --- C-before-A shim: the CURRENT live API returns the applied ROW (not the
+  // envelope) on 2xx and `{error}` bodies on 4xx. The adapter must handle BOTH. ---
 
-  it("(legacy) accept falls back to applied from an OK response carrying item_id", async () => {
-    fetchMock.mockResolvedValueOnce(jsonOk({ item_id: "wi_9" }));
+  it("(row shape) treats a 2xx applied ROW body as applied, item_id from the row id", async () => {
+    // The live API (routes/proposals.ts) returns the applied work-item row on
+    // success — its id is `id`, NOT `item_id`. Must still surface as applied.
+    fetchMock.mockResolvedValueOnce(jsonOk({ id: "wi_42", title: "Ship pricing brief" }));
+    await expect(makeRepo().accept("p1")).resolves.toEqual({
+      status: "applied",
+      proposal_id: "p1",
+      item_id: "wi_42",
+    });
+  });
+
+  it("(envelope shape) still prefers item_id when the 2xx body carries the envelope", async () => {
+    fetchMock.mockResolvedValueOnce(jsonOk({ item_id: "wi_9", id: "ignore_me" }));
     await expect(makeRepo().accept("p1")).resolves.toEqual({
       status: "applied",
       proposal_id: "p1",
@@ -181,13 +193,21 @@ describe("createNetworkProposalRepository", () => {
     });
   });
 
-  it("(legacy) accept maps a bare 409 to a stale outcome with a default message", async () => {
-    fetchMock.mockResolvedValueOnce(jsonError(409, "not pending"));
+  it("(shim) a bare 409 'stale' message maps to a stale outcome", async () => {
+    fetchMock.mockResolvedValueOnce(jsonError(409, "Target changed; proposal is stale"));
     await expect(makeRepo().accept("p1")).resolves.toEqual({
       status: "stale",
       proposal_id: "p1",
       item_id: "",
-      message: "not pending",
+      message: "Target changed; proposal is stale",
+    });
+  });
+
+  it("(shim) a bare 409 'no longer pending' message maps to not_pending (not stale)", async () => {
+    fetchMock.mockResolvedValueOnce(jsonError(409, "Proposal is no longer pending"));
+    await expect(makeRepo().accept("p1")).resolves.toEqual({
+      status: "not_pending",
+      proposal_id: "p1",
     });
   });
 

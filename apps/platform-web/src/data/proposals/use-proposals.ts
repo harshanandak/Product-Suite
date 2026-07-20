@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import {
+  notifyProposalMutation,
+  subscribeProposalMutations,
+} from "./proposal-events";
 import { useProposalRepositoryContext } from "./ProposalRepositoryProvider";
 import {
   createMockProposalRepository,
@@ -143,6 +147,18 @@ export function useProposals(
     if (mountedRef.current) setReloadKey((key) => key + 1);
   }, []);
 
+  // Stay in sync with disposals in OTHER instances (the launcher badge, the chat
+  // Pending section, the inline card): any accept/reject anywhere re-lists this
+  // instance too, so a pending count can never lag reality. Subscribing here means
+  // EVERY useProposals — including the badge's — self-heals on a disposal elsewhere.
+  useEffect(
+    () =>
+      subscribeProposalMutations(() => {
+        if (mountedRef.current) refetch();
+      }),
+    [refetch],
+  );
+
   const accept = useCallback(
     async (
       id: string,
@@ -153,11 +169,12 @@ export function useProposals(
         return await repository.accept(id, editedPayload);
       } finally {
         if (mountedRef.current) setMutatingCount((count) => count - 1);
-        // Invalidate on settle — applied/stale both change the pending set.
-        refetch();
+        // Invalidate on settle — this instance AND every other useProposals (the
+        // launcher badge, the Pending section) re-list via the shared signal.
+        notifyProposalMutation();
       }
     },
-    [repository, refetch],
+    [repository],
   );
 
   const reject = useCallback(
@@ -167,10 +184,10 @@ export function useProposals(
         await repository.reject(id, reason);
       } finally {
         if (mountedRef.current) setMutatingCount((count) => count - 1);
-        refetch();
+        notifyProposalMutation();
       }
     },
-    [repository, refetch],
+    [repository],
   );
 
   const activeRules = useCallback(

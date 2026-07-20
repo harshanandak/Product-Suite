@@ -1,34 +1,35 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
-import { Button, ThemeProvider, cn } from "@product-suite/ui";
+import { ThemeProvider } from "@product-suite/ui";
 
-import { AcceptStateView } from "@/agent-chat/AcceptStateView";
+import { ProposalCard } from "@/agent-chat/ProposalCard";
 import type { ProposalCardData } from "@/agent-chat/proposal-card-data";
 import { ProposalDetail } from "@/boards/inbox/ProposalDetail";
-import {
-  useProposalActions,
-  type AcceptResult,
-  type Proposal,
-  type ProposalRepository,
+import { ProposalRepositoryContext } from "@/data/proposals/proposal-repository-context";
+import type {
+  AcceptResult,
+  Proposal,
+  ProposalRepository,
 } from "@/data/proposals";
 
 import "../src/styles.css";
 
 /**
- * Screenshot harness for the inline-proposal-ux wave (Lane C). It mounts:
- *  - the REAL {@link ProposalDetail} (the inbox batch view), once per accept
- *    outcome, and
- *  - the inline chat proposal card (the PRIMARY surface), once per state.
- * Each is driven by a MOCKED `accept` resolving the corresponding Lane-A LOCKED
- * envelope; a Playwright spec clicks Accept and screenshots the resulting UX.
+ * Screenshot harness for the inline-proposal-ux wave (Lane C). It mounts the REAL
+ * shipped components, each driven by a MOCKED repository:
+ *  - the inline `ProposalCard` (the PRIMARY surface) — one per state — wrapped in a
+ *    per-card `ProposalRepositoryContext.Provider` so its own `useProposalActions`
+ *    resolves the injected outcome. This is the shipped card, not a stand-in, so a
+ *    regression in it fails the screenshots.
+ *  - the `ProposalDetail` inbox batch view — one per accept outcome.
+ * A Playwright spec clicks each Accept and screenshots the resulting state.
  *
- * No router, no Clerk, no backend: `@tanstack/react-router` is aliased to a Link
- * shim (vite.harness.config.ts); the inline card is driven by an injected mock
- * repository so its REAL `useProposalActions` + REAL `AcceptStateView` run.
+ * No router, no Clerk, no backend: `@tanstack/react-router` is aliased to a Link+
+ * useNavigate shim (vite.harness.config.ts).
  */
 
-/** A pending create-work-item proposal, the shared fixture for every panel. */
+/** A pending create-work-item proposal, the shared fixture for the inbox panels. */
 function makeProposal(id: string): Proposal {
   return {
     id,
@@ -48,7 +49,7 @@ function makeProposal(id: string): Proposal {
 
 const noopReject = async (): Promise<void> => undefined;
 
-/** A mock repository whose `accept` always resolves the given LOCKED envelope. */
+/** A mock repository whose `accept` resolves the given LOCKED envelope. */
 function repoResolving(result: AcceptResult): ProposalRepository {
   return {
     list: async () => [],
@@ -58,9 +59,55 @@ function repoResolving(result: AcceptResult): ProposalRepository {
   };
 }
 
+/** A mock repository whose `accept` THROWS — models a transport/5xx failure. */
+function repoThrowing(message: string): ProposalRepository {
+  return {
+    list: async () => [],
+    accept: async () => {
+      throw new Error(message);
+    },
+    reject: async () => undefined,
+    activeRules: async () => [],
+  };
+}
+
+// --- Inline chat card panels (the PRIMARY surface, REAL ProposalCard) -------
+
+function cardData(proposalId: string): ProposalCardData {
+  return {
+    operation: "update",
+    proposalId,
+    title: "Ship Q3 pricing brief",
+    summary: "Two customer calls surfaced pricing objections — capture the brief.",
+  };
+}
+
+/** One labelled panel mounting the REAL ProposalCard against an injected repo. */
+function CardPanel({
+  state,
+  title,
+  proposalId,
+  repository,
+}: {
+  state: string;
+  title: string;
+  proposalId: string;
+  repository: ProposalRepository;
+}) {
+  return (
+    <section data-state={state} className="flex flex-col gap-2">
+      <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        {title}
+      </h2>
+      <ProposalRepositoryContext.Provider value={repository}>
+        <ProposalCard data={cardData(proposalId)} workspace="acme" />
+      </ProposalRepositoryContext.Provider>
+    </section>
+  );
+}
+
 // --- Inbox (ProposalDetail) panels -----------------------------------------
 
-/** One labelled card wrapping a ProposalDetail wired to a single mocked outcome. */
 function InboxPanel({
   state,
   title,
@@ -109,136 +156,40 @@ const acceptStale = async (): Promise<AcceptResult> => ({
   message: "Someone moved this item to Done since the agent proposed it.",
 });
 
-// --- Inline chat card panels (the PRIMARY surface) --------------------------
-
-/**
- * A faithful stand-in for the inline `ProposalCard`: it reproduces ONLY the card
- * chrome and drives the REAL {@link useProposalActions} (with an injected mock
- * repo) + the REAL {@link AcceptStateView}, so the state region is exactly what
- * ships. Navigation is a no-op here (the harness has no router).
- */
-function HarnessCard({
-  data,
-  repository,
-}: {
-  data: ProposalCardData;
-  repository: ProposalRepository;
-}) {
-  const isCreate = data.operation === "create";
-  const { phase, result, busy, accept, reject, reset } = useProposalActions(
-    data.proposalId,
-    { repository },
-  );
-  return (
-    <div className="rounded-lg border border-border bg-card p-4 text-sm shadow-sm">
-      <div className="flex flex-wrap items-center gap-2">
-        <span
-          className={cn(
-            "rounded-md px-1.5 py-0.5 text-xs font-medium",
-            isCreate
-              ? "bg-primary/10 text-primary"
-              : "bg-amber-500/10 text-amber-600 dark:text-amber-400",
-          )}
-        >
-          {isCreate ? "Create" : "Update"}
-        </span>
-        <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-          Pending review
-        </span>
-      </div>
-      <p className="mt-2 font-medium text-foreground">{data.title}</p>
-      {data.summary ? (
-        <p className="mt-1 line-clamp-3 text-muted-foreground">{data.summary}</p>
-      ) : null}
-      {phase === "idle" ? (
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <Button size="sm" disabled={busy} onClick={() => accept()}>
-            Accept
-          </Button>
-          <Button size="sm" variant="outline" disabled={busy}>
-            Edit
-          </Button>
-          <Button size="sm" variant="ghost" disabled={busy} onClick={() => reject()}>
-            Discard
-          </Button>
-        </div>
-      ) : (
-        <div className="mt-3">
-          <AcceptStateView
-            phase={phase}
-            result={result}
-            busy={busy}
-            onRetry={() => accept()}
-            onEdit={reset}
-            onDiscard={() => reject()}
-            onRefresh={reset}
-            onApplyAnyway={() => accept()}
-            onViewItem={() => {}}
-          />
-        </div>
-      )}
-    </div>
-  );
-}
-
-const cardData: ProposalCardData = {
-  operation: "update",
-  proposalId: "card_1",
-  title: "Ship Q3 pricing brief",
-  summary: "Two customer calls surfaced pricing objections — capture the brief.",
-};
-
-/** One labelled inline-card panel. */
-function CardPanel({
-  state,
-  title,
-  repository,
-}: {
-  state: string;
-  title: string;
-  repository: ProposalRepository;
-}) {
-  return (
-    <section data-state={state} className="flex flex-col gap-2">
-      <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        {title}
-      </h2>
-      <HarnessCard data={cardData} repository={repository} />
-    </section>
-  );
-}
-
 function Harness() {
   return (
     <ThemeProvider>
       <main className="mx-auto flex max-w-2xl flex-col gap-8 bg-background p-8">
         <h1 className="text-lg font-semibold text-foreground">
-          Inline proposal card — accept outcome states
+          Inline proposal card (real ProposalCard) — accept outcome states
         </h1>
         <CardPanel
           state="card-pending"
           title="Inline card · Pending (accept in place)"
+          proposalId="card_pending"
           repository={repoResolving({
             status: "applied",
-            proposal_id: "card_1",
+            proposal_id: "card_pending",
             item_id: "wi_42",
           })}
         />
         <CardPanel
           state="card-applied"
           title="Inline card · Applied ✓"
+          proposalId="card_applied"
           repository={repoResolving({
             status: "applied",
-            proposal_id: "card_1",
+            proposal_id: "card_applied",
             item_id: "wi_42",
           })}
         />
         <CardPanel
           state="card-needs-attention"
           title="Inline card · Needs attention (terminal — Discard only)"
+          proposalId="card_needs"
           repository={repoResolving({
             status: "invalid",
-            proposal_id: "card_1",
+            proposal_id: "card_needs",
             message: "The team this refers to no longer exists.",
             retryable: false,
           })}
@@ -246,12 +197,19 @@ function Harness() {
         <CardPanel
           state="card-changed"
           title="Inline card · This item changed (stale)"
+          proposalId="card_changed"
           repository={repoResolving({
             status: "stale",
-            proposal_id: "card_1",
+            proposal_id: "card_changed",
             item_id: "wi_42",
             message: "Someone moved this item to Done since the agent proposed it.",
           })}
+        />
+        <CardPanel
+          state="card-failed"
+          title="Inline card · Transport error (thrown accept → retryable failed)"
+          proposalId="card_failed"
+          repository={repoThrowing("The write service is unavailable. Please try again.")}
         />
 
         <h1 className="mt-4 text-lg font-semibold text-foreground">

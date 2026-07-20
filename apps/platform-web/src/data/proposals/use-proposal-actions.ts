@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
+import { notifyProposalMutation } from "./proposal-events";
 import { useProposalRepositoryContext } from "./ProposalRepositoryProvider";
 import type { ProposalRepository } from "./repository";
 import type { AcceptResult } from "./types";
@@ -89,6 +90,10 @@ export function useProposalActions(
         setResult(settled);
         setPhase("settled");
         onSettled?.(settled);
+        // An applied proposal LEFT the pending set — re-sync every useProposals
+        // (the launcher badge, the Pending section). Stale/invalid/failed stay
+        // pending, so they intentionally do not signal.
+        if (settled.status === "applied") notifyProposalMutation();
       })
       .catch((err: unknown) => {
         if (!mountedRef.current) return;
@@ -123,6 +128,8 @@ export function useProposalActions(
         setResult(null);
         setPhase("rejected");
         onSettled?.("rejected");
+        // A rejected proposal left the pending set — re-sync every useProposals.
+        notifyProposalMutation();
       })
       .catch((err: unknown) => {
         if (!mountedRef.current) return;
