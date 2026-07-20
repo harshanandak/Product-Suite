@@ -508,25 +508,30 @@ export function WorkboardScreen({
     // under the correct Team column, plus a same-team `status_id` sourced from a
     // SAME-TEAM sibling — see `scopedTeamName` / `scopedStatusId`.
     //
-    // Unscoped route: derive ONLY team_id + department from the SAME first loaded
-    // item — the client supplies these for MULTI-TEAM disambiguation (a mixed
-    // board needs a target team, and the Team grouping/facets read `department`),
-    // and lets the SERVER assign the initial status (kernel issue 648b180d).
-    // Crucially, we NO LONGER borrow the first item's `status_id`/`phase`: the
-    // live list is ordered `updated_at desc`, so items[0] can be a COMPLETED
-    // status (Execute/Review/Done) — sending it would BIRTH a brand-new item in
-    // a done column. Omitting them makes the server seed the correct initial
-    // status instead (single-team tenants would default team_id server-side too).
-    // On an EMPTY board there is nothing to derive — fall back to create({}) and
-    // let the server resolve the team default (the New button stays enabled so a
-    // fresh workspace can still create its first item).
-    const first = items[0];
+    // Unscoped route: derive ONLY team_id + department from the FIRST VISIBLE row
+    // under the active filter (`rows`, not the raw `items[0]`) — the client
+    // supplies these for MULTI-TEAM disambiguation (a mixed board needs a target
+    // team, and the Team grouping/facets read `department`), and lets the SERVER
+    // assign the initial status (kernel issue 648b180d). Deriving from `rows`
+    // matters: when the board is FILTERED to a Team other than the newest row's
+    // team, `items[0]` (ordered `updated_at desc`) belongs to the WRONG team, so
+    // the new item would land off-filter — `rows[0]` is a row the active filter
+    // actually shows, so the create targets the team the user is looking at.
+    // Crucially, we NO LONGER borrow the row's `status_id`/`phase`: `items[0]`
+    // can be a COMPLETED status (Execute/Review/Done), and sending it would BIRTH
+    // a brand-new item in a done column. Omitting them makes the server seed the
+    // correct initial status instead (single-team tenants default team_id
+    // server-side too). On an EMPTY filtered set there is nothing to derive —
+    // fall back to create({}) and let the server resolve the team default (the
+    // New button stays enabled so a fresh workspace can still create its first
+    // item).
+    const firstVisible = rows[0];
     const input: CreateWorkItemInput =
       teamId === undefined
-        ? first
+        ? firstVisible
           ? {
-              team_id: first.team_id,
-              department: first.department,
+              team_id: firstVisible.team_id,
+              department: firstVisible.department,
             }
           : {}
         : {
@@ -547,7 +552,7 @@ export function WorkboardScreen({
         // payload the API refuses) must be visible, not an invisible no-op.
         toast.error("Couldn't create the work item — please try again.");
       });
-  }, [create, teamId, items, scopedTeamName, scopedStatusId, newItemDisabled]);
+  }, [create, teamId, rows, scopedTeamName, scopedStatusId, newItemDisabled]);
 
   // Editor's onSave returns void; the hook's update returns the saved WorkItem.
   // Await + discard, and let rejections propagate so the editor keeps the Sheet

@@ -565,6 +565,57 @@ describe("WorkboardScreen", () => {
     expect(payload).not.toHaveProperty("phase");
   });
 
+  it("derives the unscoped create target from the ACTIVE Team filter, not the newest row's team", async () => {
+    // Codex P2: when the unscoped board is FILTERED to a Team other than the
+    // newest row's team, the create target must come from the rows the filter
+    // actually SHOWS, not the raw items[0] (ordered updated_at desc). Otherwise a
+    // new item created while filtered to team X lands in the newest row's team.
+    const base = createMockWorkItemRepository();
+    const all = await base.list();
+    const unfilteredFirst = all[0];
+    // The first row VISIBLE once the board is filtered to Sourcing — this is what
+    // the derivation must target. Sourcing is deliberately NOT items[0]'s team.
+    const firstSourcing = all.find((item) => item.department === "Sourcing");
+    expect(firstSourcing).toBeDefined();
+    expect(unfilteredFirst.department).not.toBe("Sourcing");
+
+    // Seed an unscoped board pre-filtered to Sourcing. On the unscoped route the
+    // Team facet is NOT stripped, so this persisted selection filters the rows.
+    const defaults = defaultWorkboardFilterState();
+    window.localStorage.setItem(
+      FILTER_STORAGE_KEY,
+      serializePersistedView({
+        filterState: {
+          ...defaults,
+          filters: { ...defaults.filters, team: new Set(["Sourcing"]) },
+        },
+        view: "table",
+      }),
+    );
+
+    const createSpy = vi.fn((input: CreateWorkItemInput) => base.create(input));
+    const repository = { ...base, create: createSpy };
+    render(<WorkboardScreen repository={repository} />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /new work item/i }));
+
+    // The create targets the FILTERED team (Sourcing), not items[0]'s team.
+    await waitFor(() => {
+      expect(createSpy).toHaveBeenCalledWith({
+        team_id: firstSourcing?.team_id,
+        department: "Sourcing",
+      });
+    });
+    const payload = createSpy.mock.calls[0]?.[0];
+    expect(payload?.team_id).not.toBe(unfilteredFirst.team_id);
+    expect(payload).not.toHaveProperty("status_id");
+    expect(payload).not.toHaveProperty("phase");
+  });
+
   it("still calls create({}) on an empty board — nothing to derive, button stays usable", async () => {
     const base = createMockWorkItemRepository();
     const createSpy = vi.fn((input: CreateWorkItemInput) => base.create(input));
@@ -651,26 +702,42 @@ describe("WorkboardScreen", () => {
     });
   });
 
-  it("keeps the New button disabled when the initial load fails", async () => {
+  it("keeps the New button disabled AFTER the initial load rejects, not merely while loading", async () => {
     const base = createMockWorkItemRepository();
-    // The list load rejects: the hook clears `loading` and sets `error`, but
-    // `items` stays empty — the board is NOT known-empty, so New must stay
-    // disabled rather than re-enable and post a bare create({}) against a real
-    // backend (CodeRabbit review, PR #105).
-    const repository = {
-      ...base,
-      list: () => Promise.reject(new Error("backend down")),
-    };
+    // Use a DEFERRED rejection so the assertion runs in the SETTLED error state,
+    // not the loading state (which also disables New). An immediate reject could
+    // be observed while still loading and would miss a regression that re-enables
+    // New once `loading` clears but `items` is still empty (CodeRabbit, PR #105).
+    let rejectList: ((reason: Error) => void) | undefined;
+    const pending = new Promise<Awaited<ReturnType<typeof base.list>>>(
+      (_resolve, reject) => {
+        rejectList = reject;
+      },
+    );
+    const repository = { ...base, list: () => pending };
 
     render(<WorkboardScreen repository={repository} />);
 
-    // Once the load settles into the error state, the toolbar New button is
-    // disabled and stays that way (no successful load ever establishes the board).
-    await waitFor(() => {
-      expect(
-        screen.getByRole("button", { name: /new work item/i }),
-      ).toBeDisabled();
+    // While the load is pending the button is disabled BECAUSE of loading, and
+    // the error panel has NOT rendered yet — so we are provably still loading.
+    const newButton = await screen.findByRole("button", {
+      name: /new work item/i,
     });
+    expect(newButton).toBeDisabled();
+    expect(
+      screen.queryByText("Could not load work items"),
+    ).not.toBeInTheDocument();
+
+    // Now fail the load and flush: the hook clears `loading` and sets `error`.
+    rejectList?.(new Error("backend down"));
+
+    // The error panel proves the load has SETTLED into the error state (loading
+    // is false). The button MUST still be disabled here — that is the regression
+    // this guards: New re-enabling after the rejection while `items` is empty.
+    await screen.findByText("Could not load work items");
+    expect(
+      screen.getByRole("button", { name: /new work item/i }),
+    ).toBeDisabled();
   });
 
   it("renders the empty state when the repository has no work items", async () => {
