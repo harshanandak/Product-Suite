@@ -63,10 +63,13 @@ export interface Proposal {
  *  - `not_pending` — already handled (accepted/rejected elsewhere).
  * A genuine transport/network error still throws (it is not an accept RESULT).
  *
- * TODO(lane-A-rebase): once Lane A merges, DELETE this local definition and
+ * TODO(contracts-swap): Lane C now merges BEFORE Lane A, so this LOCAL mirror is
+ * the source of truth at merge time. It is structurally identical to Lane A's
+ * LOCKED envelope, so runtime is correct today. Once Lane A lands `AcceptResult`
+ * in `@product-suite/contracts`, DELETE this local definition and
  * `import type { AcceptResult } from "@product-suite/contracts"` (same package the
- * app already imports `WorkItem`/`Team`/`Status` from). This mirror matches Lane A's
- * LOCKED envelope EXACTLY, so the swap is import-only.
+ * app already imports `WorkItem`/`Team`/`Status` from) — an import-only swap.
+ * The team lead is filing the follow-up to do that swap after Lane A merges.
  */
 export type AcceptResult =
   | { readonly status: "applied"; readonly proposal_id: string; readonly item_id: string }

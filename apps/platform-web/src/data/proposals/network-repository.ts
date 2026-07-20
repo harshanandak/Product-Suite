@@ -114,8 +114,9 @@ export function createNetworkProposalRepository(
       // Lane A's contract ALWAYS carries the typed envelope in the JSON body,
       // discriminated on `status` — read that, not the HTTP code. Read the body
       // ONCE (the stream is single-use).
-      // TODO(lane-A-rebase): the returned union IS Lane A's `AcceptResult` from
-      // `@product-suite/contracts`; parsing stays here as the trust boundary.
+      // TODO(contracts-swap): the returned union IS Lane A's `AcceptResult`; once
+      // Lane A lands it in `@product-suite/contracts`, import that type here. Parsing
+      // stays in this adapter as the trust boundary regardless.
       const body = await readJsonBody(response);
       const status = typeof body?.status === "string" ? body.status : null;
       const proposalId = typeof body?.proposal_id === "string" ? body.proposal_id : id;
