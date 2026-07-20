@@ -1,4 +1,4 @@
-import * as React from "react";
+import { AskAgentContext } from "./use-ask-agent";
 
 /**
  * Optional context handed to the agent when it's invoked. Kept intentionally
@@ -29,19 +29,8 @@ export interface AgentFocusRequest {
   prompt?: string;
 }
 
-const AskAgentContext = React.createContext<AskAgent | null>(null);
-
-/** Provides the {@link useAskAgent} seam to the subtree (the shell wires it). */
-export const AskAgentProvider = AskAgentContext.Provider;
-
 /**
- * Access the single agent-invocation seam. Throws if used outside an
- * {@link AskAgentProvider} so a miswired call site fails loudly, not silently.
+ * Provides the agent-invocation seam to the subtree (the shell wires it). The
+ * matching `useAskAgent` hook and its context live in `./use-ask-agent`.
  */
-export function useAskAgent(): AskAgent {
-  const askAgent = React.useContext(AskAgentContext);
-  if (askAgent === null) {
-    throw new Error("useAskAgent must be used within an AskAgentProvider");
-  }
-  return askAgent;
-}
+export const AskAgentProvider = AskAgentContext.Provider;

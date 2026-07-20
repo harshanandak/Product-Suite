@@ -56,6 +56,23 @@ vi.mock("@tanstack/react-router", () => ({
 
 import { ProposalDetail } from "./ProposalDetail";
 
+// --- LOCKED accept-envelope builders (Lane A's `status`-keyed shape). ---
+const STALE_MESSAGE = "This item changed since the agent proposed it.";
+const INVALID_MESSAGE = "The server couldn’t apply this proposal as-is.";
+
+function applied(itemId: string): AcceptResult {
+  return { status: "applied", proposal_id: "p1", item_id: itemId };
+}
+function stale(message = STALE_MESSAGE): AcceptResult {
+  return { status: "stale", proposal_id: "p1", item_id: "wi_1", message };
+}
+function invalid(message = INVALID_MESSAGE, retryable = true): AcceptResult {
+  return { status: "invalid", proposal_id: "p1", message, retryable };
+}
+function failed(message: string, retryable: boolean): AcceptResult {
+  return { status: "failed", proposal_id: "p1", message, retryable };
+}
+
 function proposal(overrides: Partial<Proposal> = {}): Proposal {
   return {
     id: "p1",
@@ -91,8 +108,7 @@ function renderDetail(
   }> = {},
 ) {
   const accept =
-    handlers.accept ??
-    vi.fn(async (): Promise<AcceptResult> => ({ outcome: "stale" }));
+    handlers.accept ?? vi.fn(async (): Promise<AcceptResult> => stale());
   const reject = handlers.reject ?? vi.fn(async () => undefined);
   render(
     <ProposalDetail
@@ -153,10 +169,8 @@ describe("ProposalDetail", () => {
     ).toHaveAttribute("href", "/w/acme/workboard/item/wi_1");
   });
 
-  it("Accept surfaces a 409 stale outcome as the 'this item changed' banner (never silent)", async () => {
-    const accept = vi.fn(
-      async (): Promise<AcceptResult> => ({ outcome: "stale" }),
-    );
+  it("Accept surfaces a stale outcome as the 'this item changed' banner (never silent)", async () => {
+    const accept = vi.fn(async (): Promise<AcceptResult> => stale());
     renderDetail(proposal(), { accept });
     fireEvent.click(screen.getByRole("button", { name: "Accept" }));
     expect(accept).toHaveBeenCalledWith("p1", undefined);
@@ -169,25 +183,22 @@ describe("ProposalDetail", () => {
     expect(screen.getByRole("button", { name: "Discard" })).toBeInTheDocument();
   });
 
-  it("(stale) shows current-vs-proposed version context when the envelope carries it", async () => {
+  it("(stale) renders the envelope's plain-language message", async () => {
     const accept = vi.fn(
-      async (): Promise<AcceptResult> => ({
-        outcome: "stale",
-        currentVersion: 5,
-        proposedVersion: 3,
-      }),
+      async (): Promise<AcceptResult> =>
+        stale("Someone moved this to Done since the agent proposed it."),
     );
     renderDetail(proposal(), { accept });
     fireEvent.click(screen.getByRole("button", { name: "Accept" }));
     await waitFor(() =>
       expect(
-        screen.getByText(/Proposed against version 3 · now at version 5\./),
+        screen.getByText("Someone moved this to Done since the agent proposed it."),
       ).toBeInTheDocument(),
     );
   });
 
   it("(stale) Refresh re-bases via onRefresh and returns the pane to its live actions", async () => {
-    const accept = vi.fn(async (): Promise<AcceptResult> => ({ outcome: "stale" }));
+    const accept = vi.fn(async (): Promise<AcceptResult> => stale());
     const onRefresh = vi.fn();
     render(
       <ProposalDetail
@@ -214,8 +225,8 @@ describe("ProposalDetail", () => {
   it("(stale) Apply anyway re-attempts the accept EXPLICITLY", async () => {
     const accept = vi
       .fn<() => Promise<AcceptResult>>()
-      .mockResolvedValueOnce({ outcome: "stale" })
-      .mockResolvedValueOnce({ outcome: "applied", item: { id: "wi_7" } as WorkItem });
+      .mockResolvedValueOnce(stale())
+      .mockResolvedValueOnce(applied("wi_7"));
     renderDetail(proposal(), { accept });
     fireEvent.click(screen.getByRole("button", { name: "Accept" }));
     await waitFor(() =>
@@ -228,10 +239,8 @@ describe("ProposalDetail", () => {
     expect(accept).toHaveBeenCalledTimes(2);
   });
 
-  it("Accept surfaces a 422 invalid outcome as the 'needs attention' banner (never silent)", async () => {
-    const accept = vi.fn(
-      async (): Promise<AcceptResult> => ({ outcome: "invalid" }),
-    );
+  it("Accept surfaces an invalid outcome as the 'needs attention' banner (never silent)", async () => {
+    const accept = vi.fn(async (): Promise<AcceptResult> => invalid());
     renderDetail(proposal(), { accept });
     fireEvent.click(screen.getByRole("button", { name: "Accept" }));
     expect(accept).toHaveBeenCalledWith("p1", undefined);
@@ -246,32 +255,21 @@ describe("ProposalDetail", () => {
     expect(screen.getByRole("button", { name: "Discard" })).toBeInTheDocument();
   });
 
-  it("(invalid) renders each PLAIN-LANGUAGE field error from the envelope", async () => {
+  it("(invalid) renders the PLAIN-LANGUAGE message from the envelope", async () => {
     const accept = vi.fn(
-      async (): Promise<AcceptResult> => ({
-        outcome: "invalid",
-        fieldErrors: [
-          { field: "team_id", message: "Team not found" },
-          { field: "title", message: "Title is required" },
-        ],
-      }),
+      async (): Promise<AcceptResult> => invalid("Team “Growth” was not found."),
     );
     renderDetail(proposal(), { accept });
     fireEvent.click(screen.getByRole("button", { name: "Accept" }));
     await waitFor(() =>
-      expect(screen.getByText("Team not found")).toBeInTheDocument(),
+      expect(screen.getByText("Team “Growth” was not found.")).toBeInTheDocument(),
     );
-    expect(screen.getByText("Title is required")).toBeInTheDocument();
-    expect(screen.getByText("team_id")).toBeInTheDocument();
   });
 
-  it("(failed) shows the stated reason, and Retry only when retryable", async () => {
+  it("(failed, terminal) shows the reason with Discard ONLY — no dead Retry/Edit", async () => {
     const accept = vi.fn(
-      async (): Promise<AcceptResult> => ({
-        outcome: "failed",
-        reason: "The team this refers to no longer exists.",
-        retryable: false,
-      }),
+      async (): Promise<AcceptResult> =>
+        failed("The team this refers to no longer exists.", false),
     );
     renderDetail(proposal(), { accept });
     fireEvent.click(screen.getByRole("button", { name: "Accept" }));
@@ -280,8 +278,22 @@ describe("ProposalDetail", () => {
         screen.getByText("The team this refers to no longer exists."),
       ).toBeInTheDocument(),
     );
-    // A non-retryable failure hides Retry but still offers Edit/Discard.
+    // A non-retryable failure is TERMINAL: Retry AND Edit are hidden (they'd be
+    // dead ends); only Discard/acknowledge remains.
     expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Discard" })).toBeInTheDocument();
+  });
+
+  it("(failed, retryable) offers Retry + Edit + Discard", async () => {
+    const accept = vi.fn(
+      async (): Promise<AcceptResult> => failed("A transient error occurred.", true),
+    );
+    renderDetail(proposal(), { accept });
+    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument(),
+    );
     expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Discard" })).toBeInTheDocument();
   });
@@ -289,8 +301,8 @@ describe("ProposalDetail", () => {
   it("(needs attention) Retry re-attempts the accept", async () => {
     const accept = vi
       .fn<() => Promise<AcceptResult>>()
-      .mockResolvedValueOnce({ outcome: "invalid" })
-      .mockResolvedValueOnce({ outcome: "applied", item: { id: "wi_9" } as WorkItem });
+      .mockResolvedValueOnce(invalid())
+      .mockResolvedValueOnce(applied("wi_9"));
     renderDetail(proposal(), { accept });
     fireEvent.click(screen.getByRole("button", { name: "Accept" }));
     await waitFor(() =>
@@ -304,7 +316,7 @@ describe("ProposalDetail", () => {
   });
 
   it("(needs attention) Discard rejects the proposal", async () => {
-    const accept = vi.fn(async (): Promise<AcceptResult> => ({ outcome: "invalid" }));
+    const accept = vi.fn(async (): Promise<AcceptResult> => invalid());
     const reject = vi.fn(async () => undefined);
     renderDetail(proposal(), { accept, reject });
     fireEvent.click(screen.getByRole("button", { name: "Accept" }));
@@ -317,7 +329,7 @@ describe("ProposalDetail", () => {
   });
 
   it("(needs attention) Edit returns the pane to the live Accept/Reject surface", async () => {
-    const accept = vi.fn(async (): Promise<AcceptResult> => ({ outcome: "invalid" }));
+    const accept = vi.fn(async (): Promise<AcceptResult> => invalid());
     renderDetail(proposal(), { accept });
     fireEvent.click(screen.getByRole("button", { name: "Accept" }));
     await waitFor(() =>
@@ -331,12 +343,7 @@ describe("ProposalDetail", () => {
   });
 
   it("double-clicking Accept applies EXACTLY once (Stripe-style safe retry)", async () => {
-    const accept = vi.fn(
-      async (): Promise<AcceptResult> => ({
-        outcome: "applied",
-        item: { id: "wi_1" } as WorkItem,
-      }),
-    );
+    const accept = vi.fn(async (): Promise<AcceptResult> => applied("wi_1"));
     renderDetail(proposal(), { accept });
     const button = screen.getByRole("button", { name: "Accept" });
     // Two rapid clicks before the first request settles — the in-flight guard
@@ -350,12 +357,7 @@ describe("ProposalDetail", () => {
   });
 
   it("Accept success shows an Applied → view item link to the created item", async () => {
-    const accept = vi.fn(
-      async (): Promise<AcceptResult> => ({
-        outcome: "applied",
-        item: { id: "wi_9" } as WorkItem,
-      }),
-    );
+    const accept = vi.fn(async (): Promise<AcceptResult> => applied("wi_9"));
     renderDetail(proposal(), { accept });
     fireEvent.click(screen.getByRole("button", { name: "Accept" }));
     await waitFor(() =>
@@ -367,13 +369,8 @@ describe("ProposalDetail", () => {
 
   it("(memory) Accept success shows 'Memory logged.' linking to the decision log, NOT the work-item route", async () => {
     itemsMock.items = [];
-    const accept = vi.fn(
-      async (): Promise<AcceptResult> => ({
-        outcome: "applied",
-        // The applied row is a memory uuid — it must NOT be routed as a work item.
-        item: { id: "3f2a-mem-uuid" } as WorkItem,
-      }),
-    );
+    // The applied row is a memory uuid — it must NOT be routed as a work item.
+    const accept = vi.fn(async (): Promise<AcceptResult> => applied("3f2a-mem-uuid"));
     renderDetail(
       proposal({
         target_type: "memory",
@@ -550,12 +547,7 @@ describe("ProposalDetail", () => {
       memory: { id: "mem_1", title: "Use Postgres", body: "", topics: [] } as unknown,
       chain: [],
     });
-    const accept = vi.fn(
-      async (): Promise<AcceptResult> => ({
-        outcome: "applied",
-        item: { id: "mem-uuid" } as WorkItem,
-      }),
-    );
+    const accept = vi.fn(async (): Promise<AcceptResult> => applied("mem-uuid"));
     renderDetail(
       proposal({
         target_type: "memory",
@@ -613,12 +605,7 @@ describe("ProposalDetail", () => {
 
   it("(memory rule) shows 'applies when' + evidence + strength controls; banner says the rule is saved", async () => {
     itemsMock.items = [];
-    const accept = vi.fn(
-      async (): Promise<AcceptResult> => ({
-        outcome: "applied",
-        item: { id: "rule-uuid" } as WorkItem,
-      }),
-    );
+    const accept = vi.fn(async (): Promise<AcceptResult> => applied("rule-uuid"));
     renderDetail(
       proposal({
         target_type: "memory",
@@ -685,10 +672,7 @@ describe("ProposalDetail", () => {
       async (
         _id: string,
         _editedPayload?: Record<string, unknown>,
-      ): Promise<AcceptResult> => ({
-        outcome: "applied",
-        item: { id: "r" } as WorkItem,
-      }),
+      ): Promise<AcceptResult> => applied("r"),
     );
     const original = {
       kind: "rule",
@@ -753,7 +737,7 @@ describe("ProposalDetail", () => {
             resolveSecond = resolve;
           }),
       );
-    const accept = vi.fn(async (): Promise<AcceptResult> => ({ outcome: "stale" }));
+    const accept = vi.fn(async (): Promise<AcceptResult> => stale());
     const reject = vi.fn(async () => undefined);
     const { rerender } = render(
       <ProposalDetail

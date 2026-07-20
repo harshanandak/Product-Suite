@@ -6,7 +6,6 @@
  * PR1/PR2 backend shape exactly (`GET /api/agent/proposals`): the adapter never
  * reshapes it, so the UI reasons about precisely what `accept` will apply.
  */
-import type { WorkItem } from "@/data/work-items";
 
 /**
  * A pending agent proposal (tenant-scoped). `operation` decides how `payload` is
@@ -49,59 +48,50 @@ export interface Proposal {
 }
 
 /**
- * A single field-level validation error carried by an `invalid` accept outcome
- * (Lane A's `field_errors[]`). `field` names the offending payload key; `message`
- * is ALREADY plain-language and safe to show a human (never a stack trace) — the
- * "Needs attention" banner renders it verbatim.
- */
-export interface AcceptFieldError {
-  readonly field: string;
-  readonly message: string;
-}
-
-/**
- * The outcome of {@link ProposalRepository.accept}, SURFACED rather than thrown so
- * the detail view can react precisely instead of catching an opaque error:
- *  - `applied` — the backend applied it and returned the created/updated item.
- *  - `stale` — the underlying item changed since the proposal (409) or is gone
- *    (404); carries current-vs-proposed version context for the reconcile UI.
- *  - `invalid` — the payload failed server validation (422); carries per-field,
- *    plain-language reasons so the human sees WHY, never a raw error.
- *  - `failed` — the apply was rejected for a stated `reason` and may be
- *    `retryable`; the proposal stays pending so the human can retry/edit/discard.
- * A genuine transport/network error still throws (it is not an accept OUTCOME).
+ * The result of {@link ProposalRepository.accept}, SURFACED rather than thrown so
+ * the UI can react precisely instead of catching an opaque error. This is Lane
+ * C's LOCAL MIRROR of Lane A's LOCKED accept envelope — discriminated on
+ * `status`, snake_case, and ALWAYS carried in the JSON response body (the adapter
+ * reads `status` from the body, never the HTTP code):
+ *  - `applied`     — the write landed; `item_id` links to the created/updated item.
+ *  - `invalid`     — payload failed server validation; `message` is plain-language;
+ *                    `retryable` says whether an unchanged retry could plausibly succeed.
+ *  - `stale`       — the item changed since the proposal; `item_id` is the target and
+ *                    `message` explains the conflict (no version numbers in the envelope).
+ *  - `failed`      — rejected for a stated `message`; `retryable` drives the Retry action.
+ *  - `not_found`   — the proposal no longer exists.
+ *  - `not_pending` — already handled (accepted/rejected elsewhere).
+ * A genuine transport/network error still throws (it is not an accept RESULT).
  *
- * TODO(lane-A-rebase): this is Lane C's LOCAL mirror of Lane A's pinned accept
- * envelope. Once Lane A merges, swap this definition for its exported
- * `AcceptResult` import (`@product-suite/contracts` or the API package). Lane A's
- * shape discriminates on `status` (not `outcome`) and is snake_case:
- *   applied → { status:'applied', proposal_id, item_id }
- *   invalid → { status:'invalid', proposal_id, field_errors:[{field,message}] }
- *   stale   → { status:'stale', proposal_id, item_id, current_version, proposed_version }
- *   failed  → { status:'failed', proposal_id, reason, retryable }
- * The network adapter is the single translation point (status/snake_case →
- * outcome/camelCase); the UI already consumes this camelCase surface, so only the
- * adapter + this type change on rebase. Keep `applied.item` (the UI links to
- * `item.id`); map Lane A's `item_id` through the adapter.
+ * TODO(lane-A-rebase): once Lane A merges, DELETE this local definition and
+ * `import type { AcceptResult } from "@product-suite/contracts"` (same package the
+ * app already imports `WorkItem`/`Team`/`Status` from). This mirror matches Lane A's
+ * LOCKED envelope EXACTLY, so the swap is import-only.
  */
 export type AcceptResult =
-  | { readonly outcome: "applied"; readonly item: WorkItem }
+  | { readonly status: "applied"; readonly proposal_id: string; readonly item_id: string }
   | {
-      readonly outcome: "stale";
-      /** The item's CURRENT version — what a Refresh would re-base onto. */
-      readonly currentVersion?: number | null;
-      /** The version the agent's proposal was generated against. */
-      readonly proposedVersion?: number | null;
+      readonly status: "invalid";
+      readonly proposal_id: string;
+      /** A plain-language reason the payload failed validation (never raw error text). */
+      readonly message: string;
+      /** Whether re-submitting unchanged could plausibly succeed (drives Retry). */
+      readonly retryable: boolean;
     }
   | {
-      readonly outcome: "invalid";
-      /** Per-field, plain-language reasons; empty/absent ⇒ a generic message. */
-      readonly fieldErrors?: readonly AcceptFieldError[];
+      readonly status: "stale";
+      readonly proposal_id: string;
+      readonly item_id: string;
+      /** A plain-language explanation of what changed (never raw error text). */
+      readonly message: string;
     }
   | {
-      readonly outcome: "failed";
+      readonly status: "failed";
+      readonly proposal_id: string;
       /** A plain-language reason for the failure (never raw error text). */
-      readonly reason: string;
+      readonly message: string;
       /** Whether an unchanged retry could plausibly succeed (drives the Retry action). */
       readonly retryable: boolean;
-    };
+    }
+  | { readonly status: "not_found"; readonly proposal_id: string }
+  | { readonly status: "not_pending"; readonly proposal_id: string };

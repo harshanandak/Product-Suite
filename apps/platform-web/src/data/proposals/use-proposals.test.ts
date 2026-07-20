@@ -25,7 +25,14 @@ function pending(id: string): Proposal {
 function makeRepo(overrides: Partial<ProposalRepository> = {}): ProposalRepository {
   return {
     list: vi.fn(async () => [pending("p1"), pending("p2")]),
-    accept: vi.fn(async (): Promise<AcceptResult> => ({ outcome: "stale" })),
+    accept: vi.fn(
+      async (): Promise<AcceptResult> => ({
+        status: "stale",
+        proposal_id: "p1",
+        item_id: "wi_1",
+        message: "changed",
+      }),
+    ),
     reject: vi.fn(async () => undefined),
     activeRules: vi.fn(async () => []),
     ...overrides,
@@ -50,8 +57,9 @@ describe("useProposals", () => {
       .mockResolvedValueOnce([pending("p2")]);
     const accept = vi.fn(
       async (): Promise<AcceptResult> => ({
-        outcome: "applied",
-        item: { id: "wi_1" } as never,
+        status: "applied",
+        proposal_id: "p1",
+        item_id: "wi_1",
       }),
     );
     const repository = makeRepo({ list, accept });
@@ -63,7 +71,11 @@ describe("useProposals", () => {
       outcome = await result.current.accept("p1");
     });
 
-    expect(outcome).toEqual({ outcome: "applied", item: { id: "wi_1" } });
+    expect(outcome).toEqual({
+      status: "applied",
+      proposal_id: "p1",
+      item_id: "wi_1",
+    });
     expect(accept).toHaveBeenCalledWith("p1", undefined);
     // Refetched: p1 is gone from the pending set.
     await waitFor(() =>

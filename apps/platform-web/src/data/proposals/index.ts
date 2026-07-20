@@ -5,7 +5,7 @@
  * modules. Mirrors `data/work-items`' barrel: the underlying repository adapter
  * (mock vs network) swaps for the real backend without touching callers.
  */
-export type { AcceptFieldError, AcceptResult, Proposal } from "./types";
+export type { AcceptResult, Proposal } from "./types";
 
 export type { ProposalRepository } from "./repository";
 export { createMockProposalRepository } from "./repository";
@@ -18,6 +18,13 @@ export type {
   UseProposalsOptions,
   UseProposalsResult,
 } from "./use-proposals";
+
+export { useProposalActions } from "./use-proposal-actions";
+export type {
+  ProposalActionPhase,
+  UseProposalActionsOptions,
+  UseProposalActionsResult,
+} from "./use-proposal-actions";
 
 export {
   ProposalRepositoryProvider,

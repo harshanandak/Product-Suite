@@ -25,15 +25,15 @@ describe("proposal types", () => {
     expect(proposal.operation).toBe("create");
   });
 
-  it("AcceptResult narrows by its outcome discriminant", () => {
+  it("AcceptResult narrows by its status discriminant", () => {
     const results: AcceptResult[] = [
-      { outcome: "applied", item: { id: "wi_1", title: "T" } as never },
-      { outcome: "stale" },
-      { outcome: "invalid" },
+      { status: "applied", proposal_id: "p1", item_id: "wi_1" },
+      { status: "stale", proposal_id: "p1", item_id: "wi_1", message: "changed" },
+      { status: "invalid", proposal_id: "p1", message: "bad", retryable: true },
     ];
-    const applied = results.find((r) => r.outcome === "applied");
-    expect(applied && "item" in applied).toBe(true);
-    const stale = results.find((r) => r.outcome === "stale");
-    expect(stale && "item" in stale).toBe(false);
+    const applied = results.find((r) => r.status === "applied");
+    expect(applied && "item_id" in applied).toBe(true);
+    const invalid = results.find((r) => r.status === "invalid");
+    expect(invalid && "item_id" in invalid).toBe(false);
   });
 });

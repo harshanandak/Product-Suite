@@ -4,10 +4,10 @@ import { Link } from "@tanstack/react-router";
 
 import { Badge, Button, Textarea, cn } from "@product-suite/ui";
 
+import { AcceptStateView } from "@/agent-chat/AcceptStateView";
 import { useMemories, type MemoryRow } from "@/data/memories";
 import {
   useProposals,
-  type AcceptFieldError,
   type AcceptResult,
   type Proposal,
 } from "@/data/proposals";
@@ -71,24 +71,27 @@ type DisposeStatus =
   | { kind: "idle" }
   | { kind: "applied"; itemId: string }
   | { kind: "rejected" }
-  | { kind: "stale"; currentVersion?: number | null; proposedVersion?: number | null }
-  | { kind: "invalid"; fieldErrors?: readonly AcceptFieldError[] }
-  | { kind: "failed"; reason: string; retryable: boolean };
+  | { kind: "stale"; message: string }
+  | { kind: "invalid"; message: string; retryable: boolean }
+  | { kind: "failed"; message: string; retryable: boolean }
+  | { kind: "gone" };
 
-/** Map an accept outcome to the disposition it leaves the pane in. */
+/** Map an accept result (Lane A's LOCKED `status`-keyed envelope) to the pane disposition. */
 function outcomeToStatus(result: AcceptResult): DisposeStatus {
-  if (result.outcome === "applied") return { kind: "applied", itemId: result.item.id };
-  if (result.outcome === "stale") {
-    return {
-      kind: "stale",
-      currentVersion: result.currentVersion,
-      proposedVersion: result.proposedVersion,
-    };
+  switch (result.status) {
+    case "applied":
+      return { kind: "applied", itemId: result.item_id };
+    case "stale":
+      return { kind: "stale", message: result.message };
+    case "failed":
+      return { kind: "failed", message: result.message, retryable: result.retryable };
+    case "invalid":
+      return { kind: "invalid", message: result.message, retryable: result.retryable };
+    case "not_found":
+    case "not_pending":
+      // Nothing to act on — the proposal is gone or already handled.
+      return { kind: "gone" };
   }
-  if (result.outcome === "failed") {
-    return { kind: "failed", reason: result.reason, retryable: result.retryable };
-  }
-  return { kind: "invalid", fieldErrors: result.fieldErrors };
 }
 
 /** Border/surface classes per banner tone. */
@@ -107,137 +110,6 @@ function StatusBanner({
   return (
     <output className={cn("block rounded-md border px-3 py-2 text-sm", BANNER_TONE[tone])}>
       {children}
-    </output>
-  );
-}
-
-/**
- * "Needs attention" — the legible-failure banner for an `invalid` or `failed`
- * accept (Linear-style compensation, never a dead toast). The proposal stays
- * pending; the reviewer sees a PLAIN-LANGUAGE reason (per-field for `invalid`,
- * the stated reason for `failed`) and clear recovery: Retry (re-attempt the same
- * accept), Edit (return to the decision surface to adjust), Discard (reject it).
- */
-function NeedsAttentionBanner({
-  fieldErrors,
-  reason,
-  retryable,
-  busy,
-  onRetry,
-  onEdit,
-  onDiscard,
-}: Readonly<{
-  /** Per-field reasons for an `invalid` outcome; empty ⇒ the generic `reason`. */
-  fieldErrors?: readonly AcceptFieldError[];
-  /** The single plain-language reason (a `failed` outcome, or an invalid fallback). */
-  reason: string;
-  /** Whether Retry is offered (a non-retryable failure hides it). */
-  retryable: boolean;
-  busy: boolean;
-  onRetry: () => void;
-  onEdit: () => void;
-  onDiscard: () => void;
-}>) {
-  const hasFieldErrors = (fieldErrors?.length ?? 0) > 0;
-  return (
-    <output
-      className={cn(
-        "block rounded-md border px-3.5 py-3 text-sm",
-        "border-destructive/40 bg-destructive/5 text-foreground",
-      )}
-    >
-      <p className="font-semibold text-foreground">Couldn’t apply this proposal</p>
-      {hasFieldErrors ? (
-        <ul className="mt-1.5 flex list-none flex-col gap-1 p-0">
-          {fieldErrors!.map((fieldError) => (
-            <li key={fieldError.field} className="flex flex-wrap gap-1.5 text-muted-foreground">
-              <span className="font-mono text-xs text-foreground/70">{fieldError.field}</span>
-              <span>{fieldError.message}</span>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="mt-1 text-muted-foreground">{reason}</p>
-      )}
-      <p className="mt-1.5 text-xs text-muted-foreground">
-        Nothing was applied — the proposal is still here to retry, edit, or discard.
-      </p>
-      <div className="mt-2.5 flex flex-wrap gap-2">
-        {retryable ? (
-          <Button size="sm" variant="default" disabled={busy} onClick={onRetry}>
-            Retry
-          </Button>
-        ) : null}
-        <Button size="sm" variant="outline" disabled={busy} onClick={onEdit}>
-          Edit
-        </Button>
-        <Button size="sm" variant="ghost" disabled={busy} onClick={onDiscard}>
-          Discard
-        </Button>
-      </div>
-    </output>
-  );
-}
-
-/** Render "version N" when a numeric version is known, else null (unknown). */
-function versionLabel(version: number | null | undefined): string | null {
-  return typeof version === "number" ? `version ${version}` : null;
-}
-
-/**
- * "This item changed" — the reactive graceful-staleness surface (GitHub/Notion
- * never-clobber). The underlying item moved since the agent proposed against it,
- * so the reviewer chooses: Refresh (re-base against the current item), Discard,
- * or — explicit, never the default — Apply anyway (apply the agent's original
- * despite the change). We NEVER silently clobber.
- */
-function ItemChangedBanner({
-  currentVersion,
-  proposedVersion,
-  busy,
-  onRefresh,
-  onDiscard,
-  onApplyAnyway,
-}: Readonly<{
-  currentVersion?: number | null;
-  proposedVersion?: number | null;
-  busy: boolean;
-  onRefresh: () => void;
-  onDiscard: () => void;
-  onApplyAnyway: () => void;
-}>) {
-  const proposed = versionLabel(proposedVersion);
-  const current = versionLabel(currentVersion);
-  return (
-    <output
-      className={cn(
-        "block rounded-md border px-3.5 py-3 text-sm",
-        "border-primary/40 bg-primary/5 text-foreground",
-      )}
-    >
-      <p className="font-semibold text-foreground">This item changed</p>
-      <p className="mt-1 text-muted-foreground">
-        This item changed since the agent proposed it. Applying now could overwrite that change.
-      </p>
-      {proposed && current ? (
-        <p className="mt-1.5 text-xs text-muted-foreground">
-          Proposed against {proposed} · now at {current}.
-        </p>
-      ) : null}
-      <div className="mt-2.5 flex flex-wrap items-center gap-2">
-        <Button size="sm" variant="default" disabled={busy} onClick={onRefresh}>
-          Refresh
-        </Button>
-        <Button size="sm" variant="ghost" disabled={busy} onClick={onDiscard}>
-          Discard
-        </Button>
-        <Button size="sm" variant="outline" disabled={busy} onClick={onApplyAnyway}>
-          Apply anyway
-        </Button>
-      </div>
-      <p className="mt-2 text-xs text-muted-foreground">
-        Apply anyway keeps the agent’s original despite the change.
-      </p>
     </output>
   );
 }
@@ -343,6 +215,7 @@ function ActionButtons({
  */
 function DispositionBlock({
   status,
+  proposalId,
   workspace,
   isMemory,
   isRule,
@@ -365,6 +238,7 @@ function DispositionBlock({
   onApplyAnyway,
 }: Readonly<{
   status: DisposeStatus;
+  proposalId: string;
   workspace: string;
   isMemory: boolean;
   isRule: boolean;
@@ -419,40 +293,32 @@ function DispositionBlock({
     );
   }
   if (status.kind === "rejected") return <StatusBanner tone="muted">Rejected.</StatusBanner>;
-  if (status.kind === "stale") {
+  if (status.kind === "gone") {
+    return <StatusBanner tone="muted">This proposal is no longer available.</StatusBanner>;
+  }
+  // The recoverable dispositions (stale / invalid / failed) render through the
+  // SHARED AcceptStateView — the same component the inline chat card uses — so the
+  // inbox and the chat show identical "This item changed" / "Needs attention" UX.
+  if (status.kind === "stale" || status.kind === "invalid" || status.kind === "failed") {
+    const settledResult: AcceptResult =
+      status.kind === "stale"
+        ? { status: "stale", proposal_id: proposalId, item_id: "", message: status.message }
+        : {
+            status: status.kind,
+            proposal_id: proposalId,
+            message: status.message,
+            retryable: status.retryable,
+          };
     return (
-      <ItemChangedBanner
-        currentVersion={status.currentVersion}
-        proposedVersion={status.proposedVersion}
+      <AcceptStateView
+        phase="settled"
+        result={settledResult}
         busy={busy}
+        onRetry={onRetry}
+        onEdit={onEdit}
+        onDiscard={onDiscard}
         onRefresh={onRefresh}
-        onDiscard={onDiscard}
         onApplyAnyway={onApplyAnyway}
-      />
-    );
-  }
-  if (status.kind === "invalid") {
-    return (
-      <NeedsAttentionBanner
-        fieldErrors={status.fieldErrors}
-        reason="The server couldn’t apply this proposal as-is."
-        retryable
-        busy={busy}
-        onRetry={onRetry}
-        onEdit={onEdit}
-        onDiscard={onDiscard}
-      />
-    );
-  }
-  if (status.kind === "failed") {
-    return (
-      <NeedsAttentionBanner
-        reason={status.reason}
-        retryable={status.retryable}
-        busy={busy}
-        onRetry={onRetry}
-        onEdit={onEdit}
-        onDiscard={onDiscard}
       />
     );
   }
@@ -999,6 +865,7 @@ export function ProposalDetail({
       {/* Actions / terminal disposition status */}
       <DispositionBlock
         status={status}
+        proposalId={proposal.id}
         workspace={workspace}
         isMemory={isMemory}
         isRule={isRuleProposal}

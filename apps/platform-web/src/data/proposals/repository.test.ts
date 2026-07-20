@@ -21,17 +21,17 @@ describe("createMockProposalRepository", () => {
     const repo = createMockProposalRepository();
     const [first] = await repo.list();
     const result = await repo.accept(first.id);
-    expect(result.outcome).toBe("applied");
-    if (result.outcome === "applied") {
-      expect(result.item.id).toBeTruthy();
+    expect(result.status).toBe("applied");
+    if (result.status === "applied") {
+      expect(result.item_id).toBeTruthy();
     }
     const after = await repo.list();
     expect(after.some((p) => p.id === first.id)).toBe(false);
   });
 
-  it("accept on an unknown id reports a stale outcome", async () => {
+  it("accept on an unknown id reports a not_pending outcome", async () => {
     const result = await createMockProposalRepository().accept("nope");
-    expect(result).toEqual({ outcome: "stale" });
+    expect(result).toEqual({ status: "not_pending", proposal_id: "nope" });
   });
 
   it("reject removes the proposal from the pending list", async () => {

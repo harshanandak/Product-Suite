@@ -1,7 +1,5 @@
-import type { WorkItem } from "@/data/work-items";
-
 import type { ProposalRepository } from "./repository";
-import type { AcceptFieldError, AcceptResult, Proposal } from "./types";
+import type { AcceptResult, Proposal } from "./types";
 
 /** Parse a Response body as JSON once, tolerating a non-JSON/empty body (→ null). */
 async function readJsonBody(response: Response): Promise<Record<string, unknown> | null> {
@@ -13,35 +11,10 @@ async function readJsonBody(response: Response): Promise<Record<string, unknown>
   }
 }
 
-/** A finite number or null (guards NaN/undefined out of the version fields). */
-function numberOrNull(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-/**
- * Extract `field_errors[]` from an accept envelope body — Lane A's snake_case
- * shape `[{ field, message }]`. Anything malformed is dropped, so the UI only
- * ever renders well-formed, plain-language rows (empty ⇒ generic fallback).
- */
-function readFieldErrors(body: Record<string, unknown> | null): AcceptFieldError[] {
-  const raw = body?.field_errors;
-  if (!Array.isArray(raw)) return [];
-  const errors: AcceptFieldError[] = [];
-  for (const entry of raw) {
-    if (entry && typeof entry === "object") {
-      const { field, message } = entry as Record<string, unknown>;
-      if (typeof field === "string" && typeof message === "string") {
-        errors.push({ field, message });
-      }
-    }
-  }
-  return errors;
-}
-
-/** Read the envelope's plain-language error message (`error` or `message`), if any. */
+/** Read the envelope's plain-language message (`message` or `error`), if any. */
 function readBodyMessage(body: Record<string, unknown> | null): string | null {
-  if (typeof body?.error === "string") return body.error;
   if (typeof body?.message === "string") return body.message;
+  if (typeof body?.error === "string") return body.error;
   return null;
 }
 
@@ -138,45 +111,77 @@ export function createNetworkProposalRepository(
         `/api/agent/proposals/${id}/accept`,
         editedPayload === undefined ? undefined : { edited_payload: editedPayload },
       );
-      if (response.ok) {
-        const item = (await response.json()) as WorkItem;
-        return { outcome: "applied", item };
-      }
-      // Read the error body ONCE (the stream is single-use) and derive every
-      // non-applied outcome from it — the UX needs the envelope's richer fields
-      // (field errors, current-vs-proposed versions, a stated failure reason),
-      // not just the HTTP code.
-      // TODO(lane-A-rebase): once Lane A ships, discriminate on the body's
-      // `status` field directly (per the pinned envelope) instead of the HTTP
-      // code; the field extraction below already matches Lane A's snake_case.
+      // Lane A's contract ALWAYS carries the typed envelope in the JSON body,
+      // discriminated on `status` — read that, not the HTTP code. Read the body
+      // ONCE (the stream is single-use).
+      // TODO(lane-A-rebase): the returned union IS Lane A's `AcceptResult` from
+      // `@product-suite/contracts`; parsing stays here as the trust boundary.
       const body = await readJsonBody(response);
-      const envelopeStatus = typeof body?.status === "string" ? body.status : null;
+      const status = typeof body?.status === "string" ? body.status : null;
+      const proposalId = typeof body?.proposal_id === "string" ? body.proposal_id : id;
+      const itemId = typeof body?.item_id === "string" ? body.item_id : "";
 
-      // 409 (item changed / not pending) and 404 (gone) surface as `stale` with
-      // the current-vs-proposed version context the reconcile UI shows.
-      if (response.status === 409 || response.status === 404 || envelopeStatus === "stale") {
+      switch (status) {
+        case "applied":
+          return { status: "applied", proposal_id: proposalId, item_id: itemId };
+        case "invalid":
+          return {
+            status: "invalid",
+            proposal_id: proposalId,
+            message: readBodyMessage(body) ?? "The server couldn't apply this proposal as-is.",
+            // invalid is fixable by default — only a false flag hides Retry.
+            retryable: body?.retryable !== false,
+          };
+        case "stale":
+          return {
+            status: "stale",
+            proposal_id: proposalId,
+            item_id: itemId,
+            message:
+              readBodyMessage(body) ??
+              "This item changed since the agent proposed it.",
+          };
+        case "failed":
+          return {
+            status: "failed",
+            proposal_id: proposalId,
+            message: readBodyMessage(body) ?? "Couldn't apply this proposal.",
+            // failed is terminal unless the backend explicitly says retryable.
+            retryable: body?.retryable === true,
+          };
+        case "not_found":
+          return { status: "not_found", proposal_id: proposalId };
+        case "not_pending":
+          return { status: "not_pending", proposal_id: proposalId };
+        default:
+          break;
+      }
+
+      // No typed envelope. Fall back to the HTTP code for an older backend, else
+      // throw a genuine transport error (401/network/unexpected 5xx).
+      if (response.ok && itemId) {
+        return { status: "applied", proposal_id: proposalId, item_id: itemId };
+      }
+      if (response.status === 409) {
         return {
-          outcome: "stale",
-          currentVersion: numberOrNull(body?.current_version),
-          proposedVersion: numberOrNull(body?.proposed_version),
+          status: "stale",
+          proposal_id: proposalId,
+          item_id: itemId,
+          message:
+            readBodyMessage(body) ?? "This item changed since the agent proposed it.",
         };
       }
-      // 422 (invalid payload) — the proposal can't be applied as-is; carry the
-      // per-field, plain-language reasons.
-      if (response.status === 422 || envelopeStatus === "invalid") {
-        return { outcome: "invalid", fieldErrors: readFieldErrors(body) };
+      if (response.status === 404) {
+        return { status: "not_found", proposal_id: proposalId };
       }
-      // An explicit `failed` envelope: a stated reason + retryability, surfaced
-      // (not thrown) so the human sees a legible failure with a retry choice.
-      if (envelopeStatus === "failed") {
+      if (response.status === 422) {
         return {
-          outcome: "failed",
-          reason: readBodyMessage(body) ?? `Couldn't apply this proposal (${response.status}).`,
-          retryable: body?.retryable !== false,
+          status: "invalid",
+          proposal_id: proposalId,
+          message: readBodyMessage(body) ?? "The server couldn't apply this proposal as-is.",
+          retryable: true,
         };
       }
-      // Anything else (401/network/unexpected 5xx with no envelope) is a real
-      // transport error, not an accept OUTCOME — throw so it surfaces as such.
       throw new Error(readBodyMessage(body) ?? `Request failed (${response.status})`);
     },
 

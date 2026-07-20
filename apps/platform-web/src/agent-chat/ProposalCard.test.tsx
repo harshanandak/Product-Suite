@@ -1,148 +1,51 @@
-import { render, screen } from "@testing-library/react";
-import type { ToolUIPart } from "ai";
-import type { ReactNode } from "react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-// Stub TanStack Link as a plain anchor that serializes to/params/search into an
-// href, so the deep-link target is assertable without a full router.
+import type { AcceptResult } from "@/data/proposals";
+
+// ProposalCard now navigates programmatically (no <Link>) and disposes proposals
+// through useProposalActions. Mock both seams so the card renders standalone and
+// its wiring is assertable without a router or a live repository.
+const navigateMock = vi.fn();
 vi.mock("@tanstack/react-router", () => ({
-  Link: ({
-    to,
-    params,
-    search,
-    children,
-    ...rest
-  }: {
-    to: string;
-    params?: Record<string, string>;
-    search?: Record<string, string>;
-    children: ReactNode;
-  } & Record<string, unknown>) => {
-    let href = to;
-    for (const [key, value] of Object.entries(params ?? {})) {
-      href = href.replace(`$${key}`, value);
-    }
-    if (search) href += `?${new URLSearchParams(search).toString()}`;
-    return (
-      <a href={href} {...rest}>
-        {children}
-      </a>
-    );
-  },
+  useNavigate: () => navigateMock,
 }));
 
-import { ProposalCard, proposalCardFromToolPart } from "./ProposalCard";
+// A controllable useProposalActions: each test sets `actions.current` before
+// rendering to drive the card's phase/result and to spy on accept/reject.
+const actions = vi.hoisted(() => ({
+  current: null as unknown,
+}));
+vi.mock("@/data/proposals", () => ({
+  useProposalActions: () => actions.current,
+}));
 
-function toolPart(part: Partial<ToolUIPart> & { type: string }): ToolUIPart {
-  return part as ToolUIPart;
+import { ProposalCard } from "./ProposalCard";
+
+function makeActions(
+  overrides: Partial<{
+    phase: "idle" | "applying" | "settled" | "rejected";
+    result: AcceptResult | null;
+    busy: boolean;
+    error: string | null;
+    accept: ReturnType<typeof vi.fn>;
+    reject: ReturnType<typeof vi.fn>;
+    reset: ReturnType<typeof vi.fn>;
+  }> = {},
+) {
+  return {
+    phase: "idle" as const,
+    result: null,
+    busy: false,
+    error: null,
+    accept: vi.fn(),
+    reject: vi.fn(),
+    reset: vi.fn(),
+    ...overrides,
+  };
 }
 
-describe("proposalCardFromToolPart", () => {
-  it("extracts a create card from the tool input + proposal_id", () => {
-    const data = proposalCardFromToolPart(
-      toolPart({
-        type: "tool-propose_create",
-        state: "output-available",
-        input: { title: "Ship auth", rationale: "The user asked for it." },
-        output: { proposed: true, proposal_id: "p_1" },
-      }),
-    );
-    expect(data).toEqual({
-      operation: "create",
-      proposalId: "p_1",
-      title: "Ship auth",
-      summary: "The user asked for it.",
-    });
-  });
-
-  it("falls back to the description for a create summary when no rationale", () => {
-    const data = proposalCardFromToolPart(
-      toolPart({
-        type: "tool-propose_create",
-        state: "output-available",
-        input: { title: "Ship auth", description: "OAuth login flow." },
-        output: { proposed: true, proposal_id: "p_2" },
-      }),
-    );
-    expect(data?.summary).toBe("OAuth login flow.");
-  });
-
-  it("extracts an update card, titling from the patch when present", () => {
-    const data = proposalCardFromToolPart(
-      toolPart({
-        type: "tool-propose_update",
-        state: "output-available",
-        input: {
-          id: "wi_9",
-          patch: { title: "Renamed task" },
-          rationale: "Clearer name.",
-        },
-        output: { proposed: true, proposal_id: "p_3" },
-      }),
-    );
-    expect(data).toEqual({
-      operation: "update",
-      proposalId: "p_3",
-      title: "Renamed task",
-      summary: "Clearer name.",
-    });
-  });
-
-  it("titles an update generically (never a raw uuid) when the patch has no title", () => {
-    const data = proposalCardFromToolPart(
-      toolPart({
-        type: "tool-propose_update",
-        state: "output-available",
-        input: { id: "wi_9", patch: { priority: "high" } },
-        output: { proposed: true, proposal_id: "p_4" },
-      }),
-    );
-    // The raw target uuid is noise in the transcript — the Inbox shows the real
-    // target. Assert the generic label and that the uuid never leaks in.
-    expect(data?.title).toBe("Proposed update");
-    expect(data?.title).not.toContain("wi_9");
-  });
-
-  it("returns null for a non-propose tool", () => {
-    expect(
-      proposalCardFromToolPart(
-        toolPart({
-          type: "tool-list_work_items",
-          state: "output-available",
-          input: {},
-          output: [],
-        }),
-      ),
-    ).toBeNull();
-  });
-
-  it("returns null while the proposal is still running (no output yet)", () => {
-    expect(
-      proposalCardFromToolPart(
-        toolPart({
-          type: "tool-propose_create",
-          state: "input-available",
-          input: { title: "Ship auth" },
-        }),
-      ),
-    ).toBeNull();
-  });
-
-  it("returns null for a refusal (proposed: false)", () => {
-    expect(
-      proposalCardFromToolPart(
-        toolPart({
-          type: "tool-propose_create",
-          state: "output-available",
-          input: { title: "Ship auth" },
-          output: { proposed: false, error: "could not create proposal" },
-        }),
-      ),
-    ).toBeNull();
-  });
-});
-
-describe("ProposalCard", () => {
+describe("ProposalCard (inline actions)", () => {
   const data = {
     operation: "create" as const,
     proposalId: "p_1",
@@ -150,28 +53,78 @@ describe("ProposalCard", () => {
     summary: "The user asked for it.",
   };
 
-  it("renders the badge, title, summary, pending pill, and NO accept control", () => {
+  it("renders the badge, title, summary, pending pill, and INLINE Accept/Edit/Discard", () => {
+    actions.current = makeActions();
     render(<ProposalCard data={data} workspace="befach-hq" />);
     expect(screen.getByText("Create")).toBeInTheDocument();
     expect(screen.getByText("Ship auth")).toBeInTheDocument();
     expect(screen.getByText("The user asked for it.")).toBeInTheDocument();
     expect(screen.getByText("Pending review")).toBeInTheDocument();
-    // The stance is sacred: no accept/apply button lives in the chat card.
+    // The proposal is now ACTIONABLE IN PLACE — the inline affordance is present.
+    expect(screen.getByRole("button", { name: "Accept" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Discard" })).toBeInTheDocument();
+  });
+
+  it("the Accept button uses the primary (indigo) style, NOT the success/green style", () => {
+    actions.current = makeActions();
+    render(<ProposalCard data={data} workspace="befach-hq" />);
+    const accept = screen.getByRole("button", { name: "Accept" });
+    // Regression guard: the earlier draft styled Accept green (bg-success); the
+    // design system's primary is indigo, so no success class may leak in.
+    expect(accept.className).not.toMatch(/success/);
+  });
+
+  it("Accept disposes the proposal in place (calls accept, no navigation)", () => {
+    const accept = vi.fn();
+    actions.current = makeActions({ accept });
+    render(<ProposalCard data={data} workspace="befach-hq" />);
+    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+    expect(accept).toHaveBeenCalledTimes(1);
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it("no longer shows a 'Review in Inbox' link (inline is the primary surface)", () => {
+    actions.current = makeActions();
+    render(<ProposalCard data={data} workspace="befach-hq" />);
     expect(
-      screen.queryByRole("button", { name: /accept|apply/i }),
+      screen.queryByRole("link", { name: /Review in Inbox/ }),
     ).not.toBeInTheDocument();
   });
 
-  it("deep-links Review in Inbox to the proposal's detail pane", () => {
+  it("applied → shows 'Applied.' and a View item action that navigates to the item", () => {
+    actions.current = makeActions({
+      phase: "settled",
+      result: { status: "applied", proposal_id: "p_1", item_id: "wi_1" },
+    });
     render(<ProposalCard data={data} workspace="befach-hq" />);
-    const link = screen.getByRole("link", { name: /Review in Inbox/ });
-    expect(link).toHaveAttribute(
-      "href",
-      "/w/befach-hq/inbox?proposal=p_1",
-    );
+    expect(screen.getByText("Applied.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /View item/ }));
+    expect(navigateMock).toHaveBeenCalledWith({
+      to: "/w/$workspace/workboard/item/$itemId",
+      params: { workspace: "befach-hq", itemId: "wi_1" },
+    });
+  });
+
+  it("invalid + non-retryable → terminal Discard-only (no dead Retry/Edit)", () => {
+    actions.current = makeActions({
+      phase: "settled",
+      result: {
+        status: "invalid",
+        proposal_id: "p_1",
+        message: "The team no longer exists.",
+        retryable: false,
+      },
+    });
+    render(<ProposalCard data={data} workspace="befach-hq" />);
+    expect(screen.getByText("The team no longer exists.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Discard" })).toBeInTheDocument();
   });
 
   it("labels an update card with the Update badge", () => {
+    actions.current = makeActions();
     render(
       <ProposalCard
         data={{ ...data, operation: "update" }}

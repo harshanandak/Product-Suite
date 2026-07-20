@@ -2,7 +2,8 @@ import { render, renderHook, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, it, expect, vi } from "vitest";
 
-import { AskAgentProvider, useAskAgent } from "./ask-agent";
+import { AskAgentProvider } from "./ask-agent";
+import { useAskAgent } from "./use-ask-agent";
 
 describe("useAskAgent", () => {
   it("returns the provided seam inside a provider", () => {

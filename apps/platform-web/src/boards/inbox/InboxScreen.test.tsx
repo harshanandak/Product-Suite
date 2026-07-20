@@ -10,7 +10,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ProposalRepository } from "@/data/proposals";
 import type { AcceptResult, Proposal } from "@/data/proposals";
-import type { WorkItem } from "@/data/work-items";
 
 // Mutable search stub so a test can drive the `?proposal=<id>` deep-link.
 let searchMock: { proposal?: string } = {};
@@ -58,7 +57,14 @@ function proposal(id: string, title: string): Proposal {
 function repoWith(proposals: Proposal[]): ProposalRepository {
   return {
     list: vi.fn(async () => proposals),
-    accept: vi.fn(async (): Promise<AcceptResult> => ({ outcome: "stale" })),
+    accept: vi.fn(
+      async (): Promise<AcceptResult> => ({
+        status: "stale",
+        proposal_id: "p1",
+        item_id: "wi_1",
+        message: "changed",
+      }),
+    ),
     reject: vi.fn(async () => undefined),
     activeRules: vi.fn(async () => []),
   };
@@ -198,7 +204,7 @@ describe("InboxScreen", () => {
     ).not.toBeInTheDocument();
 
     // Resolve so the disposition settles (flushes state before teardown).
-    resolveAccept({ outcome: "stale" });
+    resolveAccept({ status: "stale", proposal_id: "p1", item_id: "wi_1", message: "changed" });
     await waitFor(() =>
       expect(screen.getByText("This item changed")).toBeInTheDocument(),
     );
@@ -227,8 +233,9 @@ describe("InboxScreen", () => {
     );
     repository.accept = vi.fn(
       async (): Promise<AcceptResult> => ({
-        outcome: "applied",
-        item: { id: "wi_1" } as WorkItem,
+        status: "applied",
+        proposal_id: "p1",
+        item_id: "wi_1",
       }),
     );
 
