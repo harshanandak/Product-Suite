@@ -206,18 +206,27 @@ describe("InboxScreen", () => {
     );
   });
 
-  it("keeps the terminal Applied → View item banner after accepting the LAST pending proposal", async () => {
-    // The single-proposal case: on accept the proposal drops from the refetched
-    // list, so the pending list empties. The detail pane must still render its
-    // terminal confirmation (cached via seenRef) rather than blanking to the
-    // "No proposals to review" empty state — this is the moat's launch-gate
-    // confirmation for the common one-proposal flow (found by the e2e harness).
+  it("keeps the terminal Applied → View item banner across the whole accept→refetch→empty sequence for the LAST proposal", async () => {
+    // The single-proposal case, modelling the FULL invalidate-on-settle sequence:
+    // accept applies → the hook refetches → that reload is in flight (previously
+    // this flipped `isLoading`, swapping a skeleton in and unmounting the pane —
+    // a SECOND discard path beyond the empty-guard) → the reload returns an empty
+    // pending list. The terminal "Applied → View item" banner (cached via seenRef)
+    // must survive EVERY step: it stays mounted while the refetch runs (no
+    // skeleton) and after the list empties (no "No proposals" state). (kernel 7218a03e)
     const only = proposal("p1", "Alpha");
     const repository = repoWith([only]);
+    // The invalidate-on-settle refetch is held OPEN so we can assert the banner
+    // survives WHILE the reload is in flight, not just after it resolves.
+    let resolveRefetch: (proposals: Proposal[]) => void = () => {};
     let listCalls = 0;
-    // First load returns the proposal; the invalidate-on-settle refetch after
-    // accept returns an empty pending list.
-    repository.list = vi.fn(async () => (listCalls++ === 0 ? [only] : []));
+    repository.list = vi.fn(() =>
+      listCalls++ === 0
+        ? Promise.resolve([only])
+        : new Promise<Proposal[]>((resolve) => {
+            resolveRefetch = resolve;
+          }),
+    );
     repository.accept = vi.fn(
       async (): Promise<AcceptResult> => ({
         outcome: "applied",
@@ -232,14 +241,25 @@ describe("InboxScreen", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Accept" }));
 
-    // The applied confirmation persists (its "Applied → View item" banner); the
-    // inbox does NOT blank to the empty state even though the pending list is now
-    // empty. (This file's Link mock renders an href-less anchor, so assert on the
-    // banner text rather than an implicit link role.)
+    // Step 1 — accept has applied and the refetch is STILL in flight. The banner
+    // is up and the pane must stay mounted: no full skeleton flips in mid-refetch.
+    // (This file's Link mock renders an href-less anchor, so assert on the banner
+    // text rather than an implicit link role.)
     await waitFor(() =>
       expect(screen.getAllByText(/View item/i).length).toBeGreaterThan(0),
     );
     expect(screen.getByText(/Applied\./)).toBeInTheDocument();
+    expect(
+      screen.queryByLabelText("Loading proposals"),
+    ).not.toBeInTheDocument();
+    expect(repository.list).toHaveBeenCalledTimes(2);
+
+    // Step 2 — the reload settles to an EMPTY pending list. The inbox does NOT
+    // blank to the empty state; the terminal confirmation persists.
+    resolveRefetch([]);
+    await waitFor(() => expect(screen.getByText("0 pending")).toBeInTheDocument());
+    expect(screen.getByText(/Applied\./)).toBeInTheDocument();
+    expect(screen.getAllByText(/View item/i).length).toBeGreaterThan(0);
     expect(
       screen.queryByText("No proposals to review"),
     ).not.toBeInTheDocument();

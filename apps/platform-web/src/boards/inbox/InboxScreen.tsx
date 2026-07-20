@@ -92,6 +92,11 @@ export function InboxScreen({ repository }: Readonly<InboxScreenProps> = {}) {
     if (!isMutating) setSelectedId(id);
   };
 
+  // The full skeleton shows ONLY on the initial load (no data yet). A refetch
+  // after accept/reject raises `isRefetching`, NOT `isLoading`, so we fall through
+  // and keep the current list + detail pane mounted while it reloads — otherwise
+  // accepting the LAST proposal flips a skeleton in and discards the terminal
+  // "Applied → View item" banner mid-refetch (a second discard path; 7218a03e).
   if (isLoading) {
     return (
       <output className="block space-y-2.5" aria-label="Loading proposals">
