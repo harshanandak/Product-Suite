@@ -81,11 +81,71 @@ describe('work-item writes', () => {
     expect(statusCheckParams).toContain('team_1')
   })
 
-  it('POST returns 400 when status_id is missing (status is mandatory)', async () => {
+  it('POST resolves the team default status when status_id is omitted', async () => {
     const sql = vi.fn()
     sql
       .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
       .mockResolvedValueOnce([{ n: 1 }]) // team ownership check (owned)
+      .mockResolvedValueOnce([{ id: 'status_default' }]) // team default status lookup
+      .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId
+    ;(sql as unknown as { query: ReturnType<typeof vi.fn> }).query = vi.fn()
+    ;(sql as unknown as { transaction: ReturnType<typeof vi.fn> }).transaction = vi
+      .fn()
+      .mockResolvedValue([[WI_ROW], [{}]])
+    createSql.mockReturnValue(sql)
+    const res = await app.request('/api/work-items', {
+      method: 'POST',
+      ...auth,
+      body: JSON.stringify({ title: 'A', team_id: 'team_1' }),
+    })
+    expect(res.status).toBe(201)
+    // The default was DERIVED from the item's own team, never trusted from the body,
+    // and excludes the reserved `triage` inbox category.
+    const defaultLookupParams = sql.mock.calls[2]?.slice(1) ?? []
+    expect(defaultLookupParams).toContain('team_1')
+  })
+
+  it('POST rejects a MALFORMED JSON body with 400 (never silently creates an Untitled item)', async () => {
+    // A non-empty body that fails to parse must 400, not swallow to {} and default
+    // a stray "Untitled work item" now that team_id defaults for single-team tenants.
+    const sql = vi.fn() // must never be reached — rejected before any tenant lookup
+    createSql.mockReturnValue(sql)
+    const res = await app.request('/api/work-items', {
+      method: 'POST',
+      ...auth,
+      body: '{ this is not valid json',
+    })
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'Malformed JSON body' })
+    expect(sql).not.toHaveBeenCalled()
+  })
+
+  it('POST allows a genuinely EMPTY body — defaults into the caller’s sole team (201)', async () => {
+    const sql = vi.fn()
+    sql
+      .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
+      .mockResolvedValueOnce([{ id: 'team_solo' }]) // resolveDefaultTeamId (single team)
+      .mockResolvedValueOnce([{ id: 'status_default' }]) // resolveDefaultStatusId
+      .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId
+    ;(sql as unknown as { query: ReturnType<typeof vi.fn> }).query = vi.fn()
+    ;(sql as unknown as { transaction: ReturnType<typeof vi.fn> }).transaction = vi
+      .fn()
+      .mockResolvedValue([[{ ...WI_ROW, team_id: 'team_solo', status_id: 'status_default' }], [{}]])
+    createSql.mockReturnValue(sql)
+    const res = await app.request('/api/work-items', {
+      method: 'POST',
+      ...auth,
+      body: '', // zero-byte body is "genuinely empty", not malformed
+    })
+    expect(res.status).toBe(201)
+  })
+
+  it('POST returns a clear error when the team has no default status', async () => {
+    const sql = vi.fn()
+    sql
+      .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
+      .mockResolvedValueOnce([{ n: 1 }]) // team ownership check (owned)
+      .mockResolvedValueOnce([]) // team default status lookup: team has no statuses
     createSql.mockReturnValue(sql)
     const res = await app.request('/api/work-items', {
       method: 'POST',
@@ -93,9 +153,9 @@ describe('work-item writes', () => {
       body: JSON.stringify({ title: 'A', team_id: 'team_1' }),
     })
     expect(res.status).toBe(400)
-    expect(await res.json()).toEqual({ error: 'status_id is required' })
-    // Rejected before any status lookup — only tenant + team checks ran.
-    expect(sql).toHaveBeenCalledTimes(2)
+    expect(await res.json()).toEqual({
+      error: 'team has no default status; add a status to this team before creating items',
+    })
   })
 
   it('POST returns 400 for a status that is not the team’s (no cross-team use)', async () => {
@@ -114,18 +174,30 @@ describe('work-item writes', () => {
     expect(await res.json()).toEqual({ error: 'Unknown status' })
   })
 
-  it('POST returns 400 when team_id is missing (team is mandatory)', async () => {
-    const sql = vi.fn().mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
+  it('POST defaults to the caller’s sole team (and its default status) when team_id is omitted', async () => {
+    const sql = vi.fn()
+    sql
+      .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
+      .mockResolvedValueOnce([{ id: 'team_solo' }]) // resolveDefaultTeamId: tenant has exactly one team
+      .mockResolvedValueOnce([{ id: 'status_default' }]) // that team's default status
+      .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId (lazy actor)
+    ;(sql as unknown as { query: ReturnType<typeof vi.fn> }).query = vi.fn()
+    ;(sql as unknown as { transaction: ReturnType<typeof vi.fn> }).transaction = vi
+      .fn()
+      .mockResolvedValue([[{ ...WI_ROW, team_id: 'team_solo', status_id: 'status_default' }], [{}]])
     createSql.mockReturnValue(sql)
     const res = await app.request('/api/work-items', {
       method: 'POST',
       ...auth,
       body: JSON.stringify({ title: 'A' }),
     })
-    expect(res.status).toBe(400)
-    expect(await res.json()).toEqual({ error: 'team_id is required' })
-    // Rejected before any insert — only the tenant lookup ran.
-    expect(sql).toHaveBeenCalledTimes(1)
+    expect(res.status).toBe(201)
+    const created = (await res.json()) as { team_id: string; status_id: string }
+    expect(created.team_id).toBe('team_solo')
+    expect(created.status_id).toBe('status_default')
+    // The default team was DERIVED from the caller's resolved tenant, never trusted from the body.
+    const teamLookupParams = sql.mock.calls[1]?.slice(1) ?? []
+    expect(teamLookupParams).toContain('t_1')
   })
 
   it('POST returns 400 for a team belonging to another tenant (no cross-tenant use)', async () => {

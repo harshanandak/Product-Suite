@@ -115,15 +115,37 @@ workItemsRoutes.get('/', async (c) => {
 /**
  * Create a work item in the caller's org. The target org is the caller's single
  * active tenant — unambiguous now that org = workspace. Rejects when the caller
- * is in no org (403) or in several (400, ambiguous). `team_id` is REQUIRED and
- * must belong to the same org (a team from another tenant is indistinguishable
- * from an unknown one → 400, no leak). A `project_id`, if given, must likewise
- * belong to the same org.
+ * is in no org (403) or in several (400, ambiguous). `team_id` is OPTIONAL: when
+ * omitted it defaults to the caller's sole team, so a single-team workspace never
+ * has to name its team; a tenant with multiple teams gets a clear 400 (ambiguous)
+ * and a tenant with no team a clear 400. When supplied it must belong to the same
+ * org (a team from another tenant is indistinguishable from an unknown one → 400,
+ * no leak). A `project_id`, if given, must likewise belong to the same org.
  */
 workItemsRoutes.post('/', async (c) => {
   const claims = c.get('claims')
   const sql = sqlFrom(c.env ?? {})
-  const body = (await c.req.json().catch(() => ({}))) as CreateWorkItemBody
+  // Distinguish a genuinely-empty body (default a new item — acceptable) from
+  // MALFORMED JSON. Read the raw text first: an empty/whitespace body becomes {}
+  // (defaults apply), but a non-empty body that fails to parse — or parses to a
+  // non-object — is a 400, never silently swallowed to {} (which, now that team_id
+  // defaults, would create a stray "Untitled work item" in a single-team tenant).
+  const raw = (await c.req.text()).trim()
+  let body: CreateWorkItemBody
+  if (raw === '') {
+    body = {}
+  } else {
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(raw)
+    } catch {
+      return c.json({ error: 'Malformed JSON body' }, 400)
+    }
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      return c.json({ error: 'Malformed JSON body' }, 400)
+    }
+    body = parsed as CreateWorkItemBody
+  }
 
   try {
     // The target org is the caller's single active tenant (ambiguity/absence are
