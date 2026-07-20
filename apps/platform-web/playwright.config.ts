@@ -6,13 +6,16 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 /**
- * Load `.env.e2e` (gitignored) into `process.env` without a dotenv dependency.
- * A real shell env var always wins (we never override an already-set key), so
- * `CLERK_SECRET_KEY=… bun run e2e` still overrides the file. Missing file ⇒ no-op
- * (deployed-mode / CI can supply the vars directly).
+ * Load the E2E run vars into `process.env` without a dotenv dependency. Files are
+ * read in PRECEDENCE order — `.env.e2e` (the canonical, documented file) first,
+ * then `.dev.vars` as a fallback for anyone who keeps their local secrets there —
+ * and a key already set (by the shell OR an earlier file) is NEVER overridden. So
+ * `CLERK_SECRET_KEY=… bun run e2e` still wins, and `.env.e2e` beats `.dev.vars`.
+ * Both files are gitignored; a missing file is a no-op (CI can supply vars directly).
  */
-function loadEnvE2E(): void {
-  const file = path.join(here, ".env.e2e");
+const ENV_FILES = [".env.e2e", ".dev.vars"] as const;
+
+function loadEnvFile(file: string): void {
   if (!fs.existsSync(file)) return;
   for (const raw of fs.readFileSync(file, "utf8").split(/\r?\n/)) {
     const line = raw.trim();
@@ -30,7 +33,11 @@ function loadEnvE2E(): void {
     if (key && process.env[key] === undefined) process.env[key] = val;
   }
 }
-loadEnvE2E();
+
+function loadEnvFiles(): void {
+  for (const name of ENV_FILES) loadEnvFile(path.join(here, name));
+}
+loadEnvFiles();
 
 /**
  * A defined-only string view of `process.env` (Playwright's `webServer.env`
@@ -58,11 +65,15 @@ function childEnv(): Record<string, string> {
  *    specs against a live deploy; the `webServer` block is then skipped.
  *
  * NOTE on the local port: `vite.config.ts` defaults the dev server to :5180,
- * but the task pins the local baseURL to :5173. We therefore force Vite onto
- * :5173 in the `webServer.command` (`--port 5173`) so the started server and
- * the baseURL always agree. `strictPort` is false in vite.config, so if 5173 is
- * already taken Vite would pick another port and Playwright's wait-for-url would
- * fail — free 5173 first (or export E2E_BASE_URL to bypass the managed server).
+ * but the local baseURL is pinned to :5173. We force Vite onto :5173 in the
+ * `webServer.command` (`--port 5173 --strictPort`) so the started server and the
+ * baseURL always agree. `--strictPort` makes Vite FAIL FAST with a clear
+ * "Port 5173 is already in use" error instead of silently drifting to another
+ * port that Playwright's wait-for-url isn't watching (which would hang until the
+ * webServer timeout). When a dev server is already up on :5173, Playwright reuses
+ * it (`reuseExistingServer`, see below) rather than starting a second one — so a
+ * deliberate reuse is fine while an accidental collision fails loudly. Export
+ * `E2E_BASE_URL` to bypass the managed server entirely (deployed mode).
  */
 const BASE_URL = process.env.E2E_BASE_URL ?? "http://localhost:5173";
 const IS_DEPLOYED = Boolean(process.env.E2E_BASE_URL);
@@ -105,7 +116,9 @@ export default defineConfig({
   webServer: IS_DEPLOYED
     ? undefined
     : {
-        command: "bun run dev --port 5173",
+        // `--strictPort`: fail fast if :5173 is taken rather than drift to another
+        // port Playwright isn't watching (see the port note above).
+        command: "bun run dev --port 5173 --strictPort",
         url: BASE_URL,
         reuseExistingServer: !process.env.CI,
         timeout: 120_000,

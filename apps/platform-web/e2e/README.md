@@ -17,12 +17,13 @@ The loop touches three real services whose secrets are **not** in the repo:
 | --- | --- | --- |
 | `CLERK_SECRET_KEY` | `@clerk/testing` (setup) | mint a Clerk Testing Token for programmatic sign-in |
 | `VITE_CLERK_PUBLISHABLE_KEY` | web app + setup | the Clerk instance the app boots with (same instance as the secret key) |
-| `E2E_CLERK_USER` / `E2E_CLERK_PASSWORD` | setup | a password test user to sign in as |
-| `DATABASE_URL` (Neon) | platform-API | the validated write actually persists |
+| `E2E_CLERK_USER` | setup | the Clerk test-mode user to sign in as (no password — token/"ticket" sign-in) |
+| `DATABASE_URL` (Neon) | platform-API + spec | the validated write persists; the spec also reads back `applied_from_proposal_id` |
 | `OPENROUTER_API_KEY` | platform-API | the agent LLM produces the proposal |
 
-Copy `apps/platform-web/.dev.vars.example` and fill these in. `.dev.vars` / `.env`
-are gitignored.
+Copy `apps/platform-web/.dev.vars.example` to `apps/platform-web/.env.e2e` (the
+canonical file Playwright loads first) and fill these in; `.dev.vars` is also loaded
+as a fallback. Both files are gitignored.
 
 ## Run — LOCAL mode (default)
 
@@ -34,18 +35,21 @@ Three processes. The Vite dev server proxies `/api/*` → the local API worker o
 #    (+ Clerk keys) in its own .dev.vars. Serves on :8787.
 bun run --cwd apps/platform-api dev        # wrangler dev
 
-# 2) Web + tests (from apps/platform-web). Export the E2E/Clerk vars first, e.g.:
+# 2) Web + tests (from apps/platform-web). Put the E2E/Clerk vars in `.env.e2e`
+#    (or export them), e.g.:
 export CLERK_SECRET_KEY=sk_test_...
 export VITE_CLERK_PUBLISHABLE_KEY=pk_test_...
-export E2E_CLERK_USER=e2e-tester@example.com
-export E2E_CLERK_PASSWORD=...
-# Playwright auto-starts `bun run dev --port 5173` (its webServer). Just run:
+export E2E_CLERK_USER=e2e-tester@example.com    # no password — ticket sign-in
+# Playwright auto-starts `bun run dev --port 5173 --strictPort` (its webServer)
+# and reuses an existing :5173 server if one is already up. Just run:
 bun run --cwd apps/platform-web e2e
 ```
 
 Playwright manages the **web** server (Vite on :5173) for you; you only start the
-API worker manually. If :5173 is busy, free it (Vite's `strictPort` is false and
-would drift to another port that Playwright isn't watching), or use deployed mode.
+API worker manually. The webServer runs Vite with `--strictPort`, so an accidental
+:5173 collision fails fast with a clear "Port 5173 is already in use" error rather
+than drifting to a port Playwright isn't watching; a dev server already up on :5173
+is reused instead. Free the port or use deployed mode if the collision is real.
 
 ## Run — DEPLOYED mode
 
@@ -56,7 +60,7 @@ are started (the `webServer` block is skipped when `E2E_BASE_URL` is set):
 export E2E_BASE_URL=https://<your-deploy-url>
 export CLERK_SECRET_KEY=sk_test_...          # still needed to mint the token
 export VITE_CLERK_PUBLISHABLE_KEY=pk_test_... # must match the deploy's Clerk instance
-export E2E_CLERK_USER=... E2E_CLERK_PASSWORD=...
+export E2E_CLERK_USER=...                     # no password — ticket sign-in
 bun run --cwd apps/platform-web e2e
 ```
 

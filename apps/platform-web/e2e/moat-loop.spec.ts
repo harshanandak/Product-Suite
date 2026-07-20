@@ -1,6 +1,8 @@
 import { setupClerkTestingToken } from "@clerk/testing/playwright";
 import { expect, test } from "@playwright/test";
 
+import { readWorkItemAppliedFrom } from "./db-provenance.e2e";
+
 /**
  * THE MOAT LOOP — end-to-end proof that:
  *   agent proposes → Review Inbox → accept → validated write applies.
@@ -69,9 +71,17 @@ test("agent proposes a create → accept in inbox → item appears on the workbo
   // On success the panel renders a ProposalCard with a "Review in Inbox" link.
   // VERIFY against live app: exact wording + how long the agent takes to emit
   // a proposal tool-call.
-  await expect(
-    agentPanel.getByRole("link", { name: /Review in Inbox/i }),
-  ).toBeVisible({ timeout: AGENT_TIMEOUT });
+  const reviewLink = agentPanel.getByRole("link", { name: /Review in Inbox/i });
+  await expect(reviewLink).toBeVisible({ timeout: AGENT_TIMEOUT });
+
+  // Capture the proposal id from the deep-link (ProposalCard links to the inbox
+  // with `?proposal=<id>`) so step f can assert the PERSISTED provenance pointer
+  // (work_items.applied_from_proposal_id) equals THIS accepted proposal's id.
+  const reviewHref = await reviewLink.getAttribute("href");
+  const proposalId = reviewHref
+    ? new URL(reviewHref, page.url()).searchParams.get("proposal")
+    : null;
+  expect(proposalId, "ProposalCard link must carry ?proposal=<id>").toBeTruthy();
 
   // ── d. Review Inbox shows the proposed create ─────────────────────────────
   await page.goto(`/w/${WORKSPACE}/inbox`);
@@ -104,4 +114,24 @@ test("agent proposes a create → accept in inbox → item appears on the workbo
       timeout: 5_000,
     });
   }).toPass({ timeout: AGENT_TIMEOUT });
+
+  // ── g. The write is PERSISTED with provenance (not just a UI banner) ───────
+  // Read Neon directly: the created work item must carry the durable
+  // `applied_from_proposal_id` pointer back to the proposal we accepted. Soft-skip
+  // when DATABASE_URL is absent (helper returns undefined) so the spec still runs
+  // UI-only in deployed mode without DB access.
+  const persisted = await readWorkItemAppliedFrom(proposalId as string);
+  if (persisted === undefined) {
+    test.info().annotations.push({
+      type: "skip",
+      description:
+        "DATABASE_URL unset — skipped the persisted applied_from_proposal_id provenance check.",
+    });
+  } else {
+    expect(
+      persisted,
+      "a work item must be linked to the accepted proposal via applied_from_proposal_id",
+    ).not.toBeNull();
+    expect(persisted?.title).toBe(ITEM_TITLE);
+  }
 });

@@ -1,6 +1,8 @@
-# ── E2E moat-loop run vars (copy to .dev.vars / .env and fill in) ─────────────
-# The real values are NOT in the repo. Supply them to run the loop for real.
-# .dev.vars / .env are gitignored — never commit filled-in secrets.
+# ── E2E moat-loop run vars ────────────────────────────────────────────────────
+# Copy this to `.env.e2e` (the CANONICAL file Playwright loads first) and fill in.
+# `.dev.vars` is also loaded as a fallback if you keep local secrets there.
+# The real values are NOT in the repo; both files are gitignored — never commit
+# filled-in secrets.
 
 # ── Clerk (auth) ──────────────────────────────────────────────────────────────
 # Backend key: @clerk/testing uses this to mint a Testing Token for sign-in.
@@ -8,9 +10,13 @@ CLERK_SECRET_KEY=sk_test_xxx
 # Publishable key the WEB app boots with (env.ts → CLERK_PUBLISHABLE_KEY).
 # Must belong to the SAME Clerk instance as CLERK_SECRET_KEY above.
 VITE_CLERK_PUBLISHABLE_KEY=pk_test_xxx
-# A password-strategy test user in that Clerk instance (the E2E signs in as this).
+# The Clerk test-mode user the E2E signs in as. NO password is needed:
+# global.setup.e2e.ts calls `clerk.signIn({ emailAddress })`, which mints a
+# short-lived Backend-API sign-in token and signs in with strategy "ticket".
+# (If you ever switch to an email-code flow instead, Clerk test mode accepts the
+# fixed verification code `424242` for any `+clerk_test` address / test user, so
+# no real inbox is required — see https://clerk.com/docs/testing/test-emails-and-phones.)
 E2E_CLERK_USER=e2e-tester@example.com
-E2E_CLERK_PASSWORD=change-me
 
 # ── Target selection ──────────────────────────────────────────────────────────
 # LOCAL mode: leave E2E_BASE_URL UNSET — Playwright starts `bun run dev` on :5173.

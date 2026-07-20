@@ -1,5 +1,6 @@
 import { clerk, clerkSetup } from "@clerk/testing/playwright";
 import { expect, test as setup } from "@playwright/test";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -55,5 +56,8 @@ setup("authenticate via Clerk", async ({ page }) => {
   // The TopBar's "Ask agent" button only renders inside the authenticated shell.
   await expect(page.getByRole("button", { name: "Ask agent" })).toBeVisible();
 
+  // A fresh checkout has no `e2e/.auth/` (it's gitignored), so create it before
+  // writing — `storageState` does not mkdir the parent and would otherwise ENOENT.
+  fs.mkdirSync(path.dirname(authFile), { recursive: true });
   await page.context().storageState({ path: authFile });
 });
