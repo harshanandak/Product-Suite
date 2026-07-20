@@ -64,7 +64,7 @@ proposalsRoutes.post('/:id/accept', async (c) => {
     if (!approverUserId) {
       console.error('[proposals] accept: tenant resolved but no user identity for subject')
       return c.json(
-        { status: 'failed', proposal_id: id, reason: 'No user identity for subject', retryable: false } satisfies AcceptResult,
+        { status: 'failed', proposal_id: id, message: 'No user identity for subject', retryable: false } satisfies AcceptResult,
         500,
       )
     }
@@ -75,7 +75,7 @@ proposalsRoutes.post('/:id/accept', async (c) => {
     console.error('[proposals] accept failed', cause)
     // An unexpected error is a `failed` envelope (retryable) — the proposal stays pending.
     return c.json(
-      { status: 'failed', proposal_id: id, reason: 'Failed to accept proposal', retryable: true } satisfies AcceptResult,
+      { status: 'failed', proposal_id: id, message: 'Failed to accept proposal', retryable: true } satisfies AcceptResult,
       500,
     )
   }

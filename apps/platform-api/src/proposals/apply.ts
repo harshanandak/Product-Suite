@@ -3,7 +3,7 @@ import { z } from 'zod'
 import type { AcceptResult } from '@product-suite/contracts'
 import type { Sql } from '@product-suite/db'
 
-import { DomainError, type DomainErrorCode } from '../domain/errors'
+import { DomainError } from '../domain/errors'
 import {
   createMemory,
   deferMemory,
@@ -114,56 +114,19 @@ function sqlQuery<Row = Record<string, unknown>>(
 
 /**
  * Terminally fail a permanently-invalid proposal (a structural pre-check failure that
- * no payload edit can fix) and report it as `invalid` with a field-scoped reason. The
- * flip is GUARDED on `status='pending'` so it is a no-op if the proposal was already
- * decided — it never resurrects or re-decides a row.
+ * no payload edit can fix) and report the TERMINAL `failed` envelope (retryable:false —
+ * the Inbox offers Discard only, never Retry/Edit). The flip is GUARDED on
+ * `status='pending'` so it is a no-op if the proposal was already decided — it never
+ * resurrects or re-decides a row.
  */
-async function failInvalid(
-  sql: Sql,
-  proposalId: string,
-  field: string,
-  message: string,
-): Promise<AcceptResult> {
+async function failTerminal(sql: Sql, proposalId: string, message: string): Promise<AcceptResult> {
   await sqlQuery(
     sql,
     `update proposals set status = 'failed', rejection_reason = $1, updated_at = now()
      where id = $2 and status = 'pending'`,
     [message, proposalId],
   )
-  return { status: 'invalid', proposal_id: proposalId, field_errors: [{ field, message }] }
-}
-
-/** Known payload id fields (for field-scoped `invalid` errors). */
-const KNOWN_FIELDS = new Set(['team_id', 'status_id', 'project_id', 'parent_id', 'target_id'])
-
-/**
- * Best-effort payload field a DomainError refers to, so an `invalid` envelope can point
- * the Review Inbox at the offending field. Mapped by code; for `invalid_input` (from the
- * accept-time validator) the message leads with the field name (e.g. "team_id must …").
- */
-function fieldForDomainError(code: DomainErrorCode, message: string): string {
-  switch (code) {
-    case 'unknown_team':
-    case 'team_required_multiple':
-    case 'no_team':
-    case 'cannot_change_team_in_hierarchy':
-      return 'team_id'
-    case 'unknown_status':
-    case 'no_default_status':
-      return 'status_id'
-    case 'unknown_project':
-      return 'project_id'
-    case 'unknown_parent':
-    case 'parent_different_team':
-    case 'max_depth':
-    case 'self_parent':
-    case 'parent_has_children':
-      return 'parent_id'
-    default: {
-      const first = message.split(/[\s:]/)[0] ?? ''
-      return KNOWN_FIELDS.has(first) ? first : ''
-    }
-  }
+  return { status: 'failed', proposal_id: proposalId, message, retryable: false }
 }
 
 /** Canonical 8-4-4-4-12 UUID (any version). */
@@ -247,27 +210,15 @@ function classifyWriteFailure(cause: unknown, proposal: ProposalRow): AcceptResu
   const proposalId = proposal.id
   if (cause instanceof DomainError) {
     if (cause.code === 'stale' || cause.code === 'conflict') {
-      // v1 work_items carry no version column, so `current_version` is honestly null;
-      // `proposed_version` echoes what the proposal was generated against.
-      return {
-        status: 'stale',
-        proposal_id: proposalId,
-        item_id: proposal.target_id,
-        current_version: null,
-        proposed_version: proposal.target_version ?? null,
-      }
+      return { status: 'stale', proposal_id: proposalId, item_id: proposal.target_id, message: cause.message }
     }
-    return {
-      status: 'invalid',
-      proposal_id: proposalId,
-      field_errors: [{ field: fieldForDomainError(cause.code, cause.message), message: cause.message }],
-    }
+    return { status: 'invalid', proposal_id: proposalId, message: cause.message }
   }
   if (isPgDataError(cause)) {
     return {
       status: 'invalid',
       proposal_id: proposalId,
-      field_errors: [{ field: '', message: 'a field references something that no longer exists' }],
+      message: 'a field references something that no longer exists',
     }
   }
   throw cause
@@ -401,14 +352,14 @@ export async function applyProposal(
   // Terminally FAIL (guarded flip, no-op if already decided) so they don't sit in
   // `listPending` forever; no payload edit could rescue them.
   if (!SUPPORTED.has(`${proposal.target_type}:${proposal.operation}`)) {
-    return failInvalid(sql, proposalId, 'operation', `unsupported ${proposal.target_type}:${proposal.operation}`)
+    return failTerminal(sql, proposalId, `unsupported ${proposal.target_type}:${proposal.operation}`)
   }
-  if (!proposal.run_id) return failInvalid(sql, proposalId, '', 'missing run_id (no attributable actor)')
+  if (!proposal.run_id) return failTerminal(sql, proposalId, 'missing run_id (no attributable actor)')
   // Every non-create names a `uuid` target it acts on (work_item:update, memory:
   // supersede|retract|defer). Missing OR malformed (a slug that would `22P02`) is a
   // permanent structural defect — `isUuid(null)` is false, so this covers both.
   if (proposal.operation !== 'create' && !isUuid(proposal.target_id)) {
-    return failInvalid(sql, proposalId, 'target_id', `${proposal.operation} proposal has a missing or malformed target_id`)
+    return failTerminal(sql, proposalId, `${proposal.operation} proposal has a missing or malformed target_id`)
   }
 
   // The payload actually applied: this call's human edit → a previously-persisted edit/
@@ -436,11 +387,7 @@ export async function applyProposal(
       // `pending` (the human corrects the payload and re-accepts). Anything unexpected
       // is rethrown → route 500 (still pending, never applied).
       if (cause instanceof DomainError) {
-        return {
-          status: 'invalid',
-          proposal_id: proposalId,
-          field_errors: [{ field: fieldForDomainError(cause.code, cause.message), message: cause.message }],
-        }
+        return { status: 'invalid', proposal_id: proposalId, message: cause.message }
       }
       throw cause
     }

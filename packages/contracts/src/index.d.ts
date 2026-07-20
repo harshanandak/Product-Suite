@@ -806,43 +806,44 @@ export function deriveHealth(
 // so the Review Inbox renders every outcome legibly (Linear-style optimistic +
 // rollback) instead of guessing from a raw error. Discriminated on `status`, the
 // same shape convention as {@link AuthClaimsValidationResult}. HTTP mapping:
-// applied → 200, invalid → 422, stale → 409, failed → 5xx, not_found → 404,
-// not_pending → 409. `applied` / `invalid` / `stale` / `failed` are the four core
-// decision outcomes; `not_found` / `not_pending` are the pre-decision guards.
+// applied → 200, invalid → 422, stale → 409, failed → 500, not_found → 404,
+// not_pending → 409.
+//
+// The Inbox branches on `status`:
+//  - `invalid`  → RECOVERABLE: the proposal stays pending. Render "Needs attention"
+//                 with Retry / Edit / Discard; `message` is the plain-language reason.
+//  - `failed`   → TERMINAL/structural (retryable:false) OR an unexpected server error
+//                 (retryable:true). Render "Couldn't apply" with Discard/acknowledge;
+//                 offer Retry only when `retryable` is true.
+//  - `stale`    → the target moved; stays pending. Render the reconcile choices.
+//  - `applied`  → success; `item_id` drives the "View item →" link.
+// (`not_found` / `not_pending` are the pre-decision guards.)
 // ---------------------------------------------------------------------------
-
-/** One plain-language field rejection inside an {@link AcceptResult} `invalid`. */
-export interface AcceptFieldError {
-  /** The payload field at fault (e.g. `"team_id"`), or `""` for a non-field error. */
-  field: string;
-  /** Human-readable reason, e.g. `"Team not found"`. */
-  message: string;
-}
 
 export type AcceptResult =
   /** Applied exactly once; `item_id` is the created/updated work item or memory. */
   | { status: "applied"; proposal_id: string; item_id: string }
   /**
-   * Declined for a fixable payload problem (malformed/absent id, unknown team,
-   * unsupported operation). The proposal is NOT applied; a recoverable one stays
-   * reviewable, a permanently-invalid one is terminally failed server-side.
+   * RECOVERABLE decline — a fixable payload problem (malformed/absent id, unknown
+   * team, a domain-invariant violation). The proposal is NOT applied and STAYS
+   * pending, so the human corrects the payload and re-accepts. `message` is the
+   * plain-language reason. (Per-field `field_errors[]` is deferred to a later pass.)
    */
-  | { status: "invalid"; proposal_id: string; field_errors: AcceptFieldError[] }
+  | { status: "invalid"; proposal_id: string; message: string }
   /**
    * The target moved under the write (version/existence conflict) — the proposal
-   * stays reviewable, never silently clobbered. `current_version` is `null` while
-   * work items carry no version column (v1); `proposed_version` echoes the
-   * proposal's `target_version`.
+   * stays reviewable, never silently clobbered. `item_id` is the target that moved.
+   * Current-vs-proposed version numbers are deferred with the staleness epic (work
+   * items carry no version column yet; only memory `conflict` fires today).
    */
-  | {
-      status: "stale";
-      proposal_id: string;
-      item_id: string | null;
-      current_version: number | null;
-      proposed_version: number | null;
-    }
-  /** An unexpected server error; the proposal stays pending. `retryable` hints the UI. */
-  | { status: "failed"; proposal_id: string; reason: string; retryable: boolean }
+  | { status: "stale"; proposal_id: string; item_id: string | null; message: string }
+  /**
+   * TERMINAL decline. `retryable:false` = a permanent structural defect (unsupported
+   * operation, no attributable run, malformed target) — the proposal is terminally
+   * `failed` server-side; the UI offers Discard/acknowledge only. `retryable:true` =
+   * an unexpected server error — the proposal stays pending and a retry may succeed.
+   */
+  | { status: "failed"; proposal_id: string; message: string; retryable: boolean }
   /** Not in the caller's tenants (or never existed). */
   | { status: "not_found"; proposal_id: string }
   /** Already decided, or a concurrent accept won the exactly-once flip. */
