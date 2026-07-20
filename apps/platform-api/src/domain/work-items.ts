@@ -142,33 +142,40 @@ export async function createWorkItem(
 ): Promise<WorkItemRow> {
   const { tenantId } = ctx
 
-  // team_id: when SUPPLIED it must be one of the caller's org's teams (this guard
-  // is unchanged). Never trust the client id: a team from another tenant fails it
-  // → rejected as unknown (no cross-tenant leak). When OMITTED, default to the
-  // caller's team ONLY if the tenant is unambiguous (exactly one team); multiple
-  // or zero teams raise a clear 4xx (see {@link resolveDefaultTeamId}).
-  let teamId = input.team_id
-  if (teamId) {
+  // team_id: SUPPLIED (present on input, even if blank/empty) it must be one of
+  // the caller's org's teams — never trust the client id: a blank, unknown, or
+  // cross-tenant id fails the ownership check → rejected as unknown_team (no
+  // cross-tenant leak). Defaulting is triggered ONLY when the key is ABSENT
+  // (=== undefined), so a provided-but-blank id rejects instead of silently
+  // defaulting. When omitted, default to the caller's team ONLY if the tenant is
+  // unambiguous (exactly one team); multiple or zero teams raise a clear 4xx
+  // (see {@link resolveDefaultTeamId}).
+  let teamId: string
+  if (input.team_id === undefined) {
+    teamId = await resolveDefaultTeamId(sql, tenantId)
+  } else {
+    teamId = input.team_id
     const ownedTeam = (await sql`
       select 1 from teams where id = ${teamId} and tenant_id = ${tenantId}
     `) as unknown[]
     if (ownedTeam.length === 0) throw new DomainError('unknown_team', 'Unknown team')
-  } else {
-    teamId = await resolveDefaultTeamId(sql, tenantId)
   }
 
-  // status_id: when supplied it must be a status of the SAME team (the team was
-  // just verified in-tenant, so matching on team_id confines it to the tenant too —
-  // a cross-team or unknown status is rejected as 'Unknown status', no leak). When
-  // OMITTED, resolve the team's DEFAULT status server-side instead of 400ing.
-  let statusId = input.status_id
-  if (statusId) {
+  // status_id: SUPPLIED (present, even if blank/empty) it must be a status of the
+  // SAME team (matching on team_id confines it to the tenant too — a blank,
+  // cross-team, or unknown status is rejected as 'Unknown status', no leak).
+  // Defaulting fires ONLY when the key is ABSENT (=== undefined); a
+  // provided-but-blank status rejects instead of defaulting. When omitted, resolve
+  // the team's DEFAULT status server-side instead of 400ing.
+  let statusId: string
+  if (input.status_id === undefined) {
+    statusId = await resolveDefaultStatusId(sql, teamId)
+  } else {
+    statusId = input.status_id
     const ownedStatus = (await sql`
       select 1 from statuses where id = ${statusId} and team_id = ${teamId}
     `) as unknown[]
     if (ownedStatus.length === 0) throw new DomainError('unknown_status', 'Unknown status')
-  } else {
-    statusId = await resolveDefaultStatusId(sql, teamId)
   }
 
   if (input.project_id != null) {

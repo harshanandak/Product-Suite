@@ -112,6 +112,40 @@ describe('createWorkItem', () => {
     ).rejects.toMatchObject({ code: 'no_team' })
   })
 
+  it('rejects a provided-but-blank team_id (empty string or null) as unknown_team, never defaulting', async () => {
+    // Only an ABSENT key defaults; a supplied blank must reach validation and reject.
+    // null is out-of-type (team_id: string) but can arrive via the untyped route body.
+    for (const blank of ['', null]) {
+      const sql = vi.fn().mockResolvedValueOnce([]) // team-ownership check → no such team
+      await expect(
+        createWorkItem(sql as unknown as Sql, { tenantId: 't_1', actor }, {
+          title: 'A',
+          team_id: blank as unknown as string,
+        }),
+      ).rejects.toMatchObject({ code: 'unknown_team' })
+      // Validated (1 read), NOT defaulted — resolveDefaultTeamId never ran.
+      expect(sql).toHaveBeenCalledTimes(1)
+    }
+  })
+
+  it('rejects a provided-but-blank status_id (empty string or null) as unknown_status, never defaulting', async () => {
+    for (const blank of ['', null]) {
+      const sql = vi.fn()
+      sql
+        .mockResolvedValueOnce([{ n: 1 }]) // team owned
+        .mockResolvedValueOnce([]) // status-ownership check → no such status
+      await expect(
+        createWorkItem(sql as unknown as Sql, { tenantId: 't_1', actor }, {
+          title: 'A',
+          team_id: 'team_1',
+          status_id: blank as unknown as string,
+        }),
+      ).rejects.toMatchObject({ code: 'unknown_status' })
+      // Validated (2 reads), NOT defaulted — resolveDefaultStatusId never ran.
+      expect(sql).toHaveBeenCalledTimes(2)
+    }
+  })
+
   it('rejects a parent already nested (depth cap) with DomainError max_depth', async () => {
     const sql = vi.fn()
     sql
