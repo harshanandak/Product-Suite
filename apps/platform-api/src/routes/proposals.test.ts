@@ -143,8 +143,9 @@ describe('/api/agent/proposals', () => {
 
     const res = await app.request('/api/agent/proposals/p1/accept', { method: 'POST', ...auth })
     expect(res.status).toBe(200)
-    const body = (await res.json()) as { id: string }
-    expect(body.id).toBe('wi_new')
+    // The accept endpoint returns the stable AcceptResult envelope in the body.
+    const body = (await res.json()) as { status: string; proposal_id: string; item_id: string }
+    expect(body).toEqual({ status: 'applied', proposal_id: 'p1', item_id: 'wi_new' })
     expect(getStatus()).toBe('applied')
   })
 

@@ -142,7 +142,8 @@ describe('applyProposal (write-first, flip-last)', () => {
   it('applies a pending create through the domain command as an agent on-behalf-of the approver', async () => {
     const { sql, getStatus } = makeSql({})
     const res = await applyProposal(sql, ctx, 'p1')
-    expect(res).toEqual({ applied: true, result: WI_ROW })
+    // The stable envelope: applied + the resulting item id (not the full row).
+    expect(res).toEqual({ status: 'applied', proposal_id: 'p1', item_id: 'wi_new' })
     expect(getStatus()).toBe('applied')
     expect(createWorkItem).toHaveBeenCalledTimes(1)
     // The write is stamped as the run acting on behalf of the approver, and carries
@@ -167,7 +168,7 @@ describe('applyProposal (write-first, flip-last)', () => {
       return WI_ROW
     })
     const res = await applyProposal(sql, ctx, 'p1')
-    expect(res.applied).toBe(true)
+    expect(res.status).toBe('applied')
     expect(flippedWhileWriting).toBe(false)
     // The flip is the winner-gate: its UPDATE must carry `status = 'pending'`.
     const flip = (query.mock.calls as [string, unknown[]][]).find(([t]) =>
@@ -181,11 +182,11 @@ describe('applyProposal (write-first, flip-last)', () => {
   it('two concurrent accepts: exactly one applies, the other is not_pending (guarded flip)', async () => {
     const { sql, query } = makeSql({})
     const [a, b] = await Promise.all([applyProposal(sql, ctx, 'p1'), applyProposal(sql, ctx, 'p1')])
-    const applied = [a, b].filter((r) => r.applied)
-    const rejected = [a, b].filter((r) => !r.applied)
+    const applied = [a, b].filter((r) => r.status === 'applied')
+    const rejected = [a, b].filter((r) => r.status !== 'applied')
     expect(applied).toHaveLength(1)
     expect(rejected).toHaveLength(1)
-    expect(rejected[0]).toEqual({ applied: false, reason: 'not_pending' })
+    expect(rejected[0]).toEqual({ status: 'not_pending', proposal_id: 'p1' })
     // The gate is the SQL itself, not the command: every FLIP UPDATE must carry the
     // exactly-once guard `status = 'pending'`. Assert on the real SQL text so deleting
     // the guard from apply.ts would fail here (the command mock alone wouldn't).
@@ -201,9 +202,9 @@ describe('applyProposal (write-first, flip-last)', () => {
   it('a second accept of an already-applied proposal is a no-op (not_pending)', async () => {
     const { sql } = makeSql({})
     const first = await applyProposal(sql, ctx, 'p1')
-    expect(first.applied).toBe(true)
+    expect(first.status).toBe('applied')
     const second = await applyProposal(sql, ctx, 'p1')
-    expect(second).toEqual({ applied: false, reason: 'not_pending' })
+    expect(second).toEqual({ status: 'not_pending', proposal_id: 'p1' })
     expect(createWorkItem).toHaveBeenCalledTimes(1)
   })
 
@@ -213,7 +214,7 @@ describe('applyProposal (write-first, flip-last)', () => {
       proposal: { payload: { title: 'A', status_id: STATUS_ID, department: 'Eng' } },
     })
     const res = await applyProposal(sql, ctx, 'p1')
-    expect(res).toEqual({ applied: true, result: WI_ROW })
+    expect(res).toEqual({ status: 'applied', proposal_id: 'p1', item_id: 'wi_new' })
     expect(resolveDefaultTeamId).toHaveBeenCalledWith(sql, 't_1')
     // The resolved id reached the domain command (deterministic write)...
     const [, , input] = createWorkItem.mock.calls[0] ?? []
@@ -227,13 +228,14 @@ describe('applyProposal (write-first, flip-last)', () => {
     expect(JSON.parse(flip?.[1]?.[2] as string)).toMatchObject({ team_id: TEAM_ID })
   })
 
-  it('accept-time validation: a malformed team_id is a clean invalid, proposal stays pending, no write', async () => {
+  it('accept-time validation: a malformed team_id is a clean invalid (field-scoped), proposal stays pending, no write', async () => {
     const { sql, getStatus, query } = makeSql({
       proposal: { payload: { title: 'A', team_id: 'not-a-uuid', status_id: STATUS_ID } },
     })
     const res = await applyProposal(sql, ctx, 'p1')
-    expect(res.applied).toBe(false)
-    expect(res).toMatchObject({ reason: 'invalid' })
+    expect(res).toMatchObject({ status: 'invalid', proposal_id: 'p1' })
+    // The envelope points the Inbox at the offending field.
+    if (res.status === 'invalid') expect(res.field_errors[0]?.field).toBe('team_id')
     // Fixable field error → recoverable: never claimed, never written, never flipped.
     expect(getStatus()).toBe('pending')
     expect(createWorkItem).not.toHaveBeenCalled()
@@ -251,16 +253,18 @@ describe('applyProposal (write-first, flip-last)', () => {
       proposal: { payload: { title: 'A', status_id: STATUS_ID, department: 'Eng' } },
     })
     const res = await applyProposal(sql, ctx, 'p1')
-    expect(res).toMatchObject({ reason: 'invalid' })
+    expect(res).toMatchObject({ status: 'invalid', proposal_id: 'p1' })
+    if (res.status === 'invalid') expect(res.field_errors[0]?.field).toBe('team_id')
     expect(getStatus()).toBe('pending')
     expect(createWorkItem).not.toHaveBeenCalled()
   })
 
-  it('write fails (unknown_team) → NOT flipped: proposal stays pending, recoverable', async () => {
+  it('write fails (unknown_team) → NOT flipped: proposal stays pending, recoverable invalid', async () => {
     createWorkItem.mockReset().mockRejectedValue(new DomainError('unknown_team', 'Unknown team'))
     const { sql, getStatus, query } = makeSql({})
     const res = await applyProposal(sql, ctx, 'p1')
-    expect(res).toMatchObject({ reason: 'invalid' })
+    expect(res).toMatchObject({ status: 'invalid', proposal_id: 'p1' })
+    if (res.status === 'invalid') expect(res.field_errors[0]).toEqual({ field: 'team_id', message: 'Unknown team' })
     // The write ran BEFORE any flip, so the failed proposal is still pending (re-acceptable).
     expect(getStatus()).toBe('pending')
     expect(createWorkItem).toHaveBeenCalledTimes(1)
@@ -275,7 +279,7 @@ describe('applyProposal (write-first, flip-last)', () => {
     createWorkItem.mockReset().mockRejectedValue(pgErr)
     const { sql, getStatus } = makeSql({})
     const res = await applyProposal(sql, ctx, 'p1')
-    expect(res).toMatchObject({ reason: 'invalid' })
+    expect(res).toMatchObject({ status: 'invalid', proposal_id: 'p1' })
     expect(getStatus()).toBe('pending')
   })
 
@@ -286,13 +290,20 @@ describe('applyProposal (write-first, flip-last)', () => {
     expect(getStatus()).toBe('pending')
   })
 
-  it('stale: the update command throws DomainError(stale) → proposal stays pending (reviewable)', async () => {
+  it('stale: the update command throws DomainError(stale) → stale envelope, proposal stays pending', async () => {
     updateWorkItem.mockReset().mockRejectedValue(new DomainError('stale', 'target changed'))
     const { sql, getStatus } = makeSql({
-      proposal: { operation: 'update', target_id: WI_TARGET, payload: { phase: 'done' } },
+      proposal: { operation: 'update', target_id: WI_TARGET, target_version: 3, payload: { phase: 'done' } },
     })
     const res = await applyProposal(sql, ctx, 'p1')
-    expect(res).toMatchObject({ reason: 'stale' })
+    // The stale envelope carries item + version context for the reconcile UI.
+    expect(res).toEqual({
+      status: 'stale',
+      proposal_id: 'p1',
+      item_id: WI_TARGET,
+      current_version: null,
+      proposed_version: 3,
+    })
     expect(getStatus()).toBe('pending') // never flipped → still reviewable
     expect(updateWorkItem).toHaveBeenCalledTimes(1)
     expect(createWorkItem).not.toHaveBeenCalled()
@@ -301,14 +312,14 @@ describe('applyProposal (write-first, flip-last)', () => {
   it('returns not_found for a proposal outside the caller tenants (no write)', async () => {
     const sql = vi.fn(async () => []) as unknown as Sql // getProposalScoped → null
     const res = await applyProposal(sql, ctx, 'p_ghost')
-    expect(res).toEqual({ applied: false, reason: 'not_found' })
+    expect(res).toEqual({ status: 'not_found', proposal_id: 'p_ghost' })
     expect(createWorkItem).not.toHaveBeenCalled()
   })
 
   it('returns invalid for an unsupported target/operation AND terminally fails it (never written)', async () => {
     const { sql, getStatus } = makeSql({ proposal: { target_type: 'invoice', operation: 'create' } })
     const res = await applyProposal(sql, ctx, 'p1')
-    expect(res).toEqual({ applied: false, reason: 'invalid' })
+    expect(res).toMatchObject({ status: 'invalid', proposal_id: 'p1' })
     // A permanently-invalid proposal goes TERMINAL (failed) so it can't sit pending
     // in listPending forever; the command never runs.
     expect(getStatus()).toBe('failed')
@@ -318,12 +329,12 @@ describe('applyProposal (write-first, flip-last)', () => {
   it('a proposal with null run_id terminally fails; a second accept is not_pending', async () => {
     const { sql, getStatus } = makeSql({ proposal: { run_id: null } })
     const res = await applyProposal(sql, ctx, 'p1')
-    expect(res).toEqual({ applied: false, reason: 'invalid' })
+    expect(res).toMatchObject({ status: 'invalid', proposal_id: 'p1' })
     expect(getStatus()).toBe('failed') // no longer pending → out of listPending
     expect(createWorkItem).not.toHaveBeenCalled()
     // The proposal is now terminal: re-accepting it is a no-op, not a perpetual 422.
     const second = await applyProposal(sql, ctx, 'p1')
-    expect(second).toEqual({ applied: false, reason: 'not_pending' })
+    expect(second).toEqual({ status: 'not_pending', proposal_id: 'p1' })
   })
 
   it('a non-create with a malformed target_id terminally fails (no 22P02 500)', async () => {
@@ -331,7 +342,8 @@ describe('applyProposal (write-first, flip-last)', () => {
       proposal: { operation: 'update', target_id: 'not-a-uuid', payload: { phase: 'done' } },
     })
     const res = await applyProposal(sql, ctx, 'p1')
-    expect(res).toEqual({ applied: false, reason: 'invalid' })
+    expect(res).toMatchObject({ status: 'invalid', proposal_id: 'p1' })
+    if (res.status === 'invalid') expect(res.field_errors[0]?.field).toBe('target_id')
     expect(getStatus()).toBe('failed')
     expect(updateWorkItem).not.toHaveBeenCalled()
   })
@@ -346,7 +358,7 @@ describe('applyProposal (write-first, flip-last)', () => {
   it('applies a memory:create through the memory domain with the agent actor + proposal provenance', async () => {
     const { sql, getStatus } = makeSql({ proposal: MEMORY_CREATE })
     const res = await applyProposal(sql, ctx, 'p1')
-    expect(res).toEqual({ applied: true, result: MEM_ROW })
+    expect(res).toEqual({ status: 'applied', proposal_id: 'p1', item_id: 'mem_new' })
     expect(getStatus()).toBe('applied')
     expect(createWorkItem).not.toHaveBeenCalled()
     expect(createMemory).toHaveBeenCalledTimes(1)
@@ -385,7 +397,7 @@ describe('applyProposal (write-first, flip-last)', () => {
       },
     })
     const res = await applyProposal(sql, ctx, 'p1')
-    expect(res).toEqual({ applied: true, result: MEM_ROW })
+    expect(res).toEqual({ status: 'applied', proposal_id: 'p1', item_id: 'mem_new' })
     expect(getStatus()).toBe('applied')
     expect(createMemory).toHaveBeenCalledTimes(1)
     const [, , input] = createMemory.mock.calls[0] ?? []
@@ -425,7 +437,7 @@ describe('applyProposal (write-first, flip-last)', () => {
       pinned: true,
     }
     const res = await applyProposal(sql, ctx, 'p1', editedPayload)
-    expect(res).toEqual({ applied: true, result: MEM_ROW })
+    expect(res).toEqual({ status: 'applied', proposal_id: 'p1', item_id: 'mem_new' })
     expect(getStatus()).toBe('applied')
     // The MERGED payload reached the domain command — strength stuck.
     expect(createMemory).toHaveBeenCalledTimes(1)
@@ -443,7 +455,7 @@ describe('applyProposal (write-first, flip-last)', () => {
   it('accept with NO editedPayload leaves edited_payload untouched (backward compatible; binds null $3)', async () => {
     const { sql, query } = makeSql({ proposal: MEMORY_CREATE })
     const res = await applyProposal(sql, ctx, 'p1')
-    expect(res.applied).toBe(true)
+    expect(res.status).toBe('applied')
     const flip = (query.mock.calls as [string, unknown[]][]).find(([t]) =>
       t.includes("set status = 'applied'"),
     )
@@ -456,7 +468,7 @@ describe('applyProposal (write-first, flip-last)', () => {
     getMemoryBySourceProposalId.mockResolvedValue(existing)
     const { sql } = makeSql({ proposal: MEMORY_CREATE })
     const res = await applyProposal(sql, ctx, 'p1')
-    expect(res).toEqual({ applied: true, result: existing })
+    expect(res).toEqual({ status: 'applied', proposal_id: 'p1', item_id: 'mem_existing' })
     // The guard fired: the domain create never ran (no second memory row).
     expect(createMemory).not.toHaveBeenCalled()
     // The lookup is tenant-scoped to the proposal's own org (the apply is the boundary).
@@ -473,7 +485,7 @@ describe('applyProposal (write-first, flip-last)', () => {
       },
     })
     const res = await applyProposal(sql, ctx, 'p1')
-    expect(res).toEqual({ applied: true, result: MEM_ROW })
+    expect(res).toEqual({ status: 'applied', proposal_id: 'p1', item_id: 'mem_new' })
     expect(supersedeMemory).toHaveBeenCalledTimes(1)
     const [, cmdCtx, targetId, input] = supersedeMemory.mock.calls[0] ?? []
     // Tenant isolation: the command is scoped to the proposal's OWN tenant, so a
@@ -495,7 +507,11 @@ describe('applyProposal (write-first, flip-last)', () => {
     const retractSql = makeSql({
       proposal: { target_type: 'memory', operation: 'retract', target_id: MEM_TARGET, payload: {} },
     })
-    expect(await applyProposal(retractSql.sql, ctx, 'p1')).toEqual({ applied: true, result: MEM_ROW })
+    expect(await applyProposal(retractSql.sql, ctx, 'p1')).toEqual({
+      status: 'applied',
+      proposal_id: 'p1',
+      item_id: 'mem_new',
+    })
     expect(retractMemory).toHaveBeenCalledWith(retractSql.sql, { tenantIds: ['t_1'], actor: 'run_1' }, MEM_TARGET)
 
     const deferSql = makeSql({
@@ -506,13 +522,17 @@ describe('applyProposal (write-first, flip-last)', () => {
         payload: { waiting_on: 'legal', review_after: '2026-08-01' },
       },
     })
-    expect(await applyProposal(deferSql.sql, ctx, 'p1')).toEqual({ applied: true, result: MEM_ROW })
+    expect(await applyProposal(deferSql.sql, ctx, 'p1')).toEqual({
+      status: 'applied',
+      proposal_id: 'p1',
+      item_id: 'mem_new',
+    })
     const [, , deferTarget, deferInput] = deferMemory.mock.calls[0] ?? []
     expect(deferTarget).toBe(MEM_TARGET)
     expect(deferInput).toMatchObject({ waitingOn: 'legal', reviewAfter: '2026-08-01' })
   })
 
-  it('memory supersede DomainError(conflict) → proposal stays pending (reviewable, not terminal)', async () => {
+  it('memory supersede DomainError(conflict) → stale envelope, proposal stays pending (reviewable)', async () => {
     supersedeMemory.mockReset().mockRejectedValue(new DomainError('conflict', 'no longer active'))
     const { sql, getStatus } = makeSql({
       proposal: {
@@ -523,7 +543,7 @@ describe('applyProposal (write-first, flip-last)', () => {
       },
     })
     const res = await applyProposal(sql, ctx, 'p1')
-    expect(res).toMatchObject({ reason: 'stale' })
+    expect(res).toMatchObject({ status: 'stale', proposal_id: 'p1', item_id: MEM_TARGET })
     expect(getStatus()).toBe('pending') // still reviewable, like a stale work-item update
   })
 
@@ -538,7 +558,7 @@ describe('applyProposal (write-first, flip-last)', () => {
       },
     })
     const res = await applyProposal(sql, ctx, 'p1')
-    expect(res).toMatchObject({ reason: 'invalid' })
+    expect(res).toMatchObject({ status: 'invalid', proposal_id: 'p1' })
     // The write ran before any flip, so the proposal is still pending (the human can discard it).
     expect(getStatus()).toBe('pending')
   })
@@ -548,7 +568,7 @@ describe('applyProposal (write-first, flip-last)', () => {
       proposal: { target_type: 'memory', operation: 'frobnicate', target_id: MEM_TARGET, payload: {} },
     })
     const res = await applyProposal(sql, ctx, 'p1')
-    expect(res).toEqual({ applied: false, reason: 'invalid' })
+    expect(res).toMatchObject({ status: 'invalid', proposal_id: 'p1' })
     expect(getStatus()).toBe('failed')
     expect(supersedeMemory).not.toHaveBeenCalled()
   })

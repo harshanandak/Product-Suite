@@ -798,3 +798,52 @@ export function deriveHealth(
   checks: ReadonlyArray<Pick<Check, "status" | "due_date">>,
   now?: number,
 ): Health;
+
+// ---------------------------------------------------------------------------
+// Proposal accept envelope (atomic-accept wave). The STABLE, typed result the
+// accept endpoint (`POST /api/agent/proposals/:id/accept`) ALWAYS returns in the
+// JSON body — the client reads `status` from the body, never only the HTTP code —
+// so the Review Inbox renders every outcome legibly (Linear-style optimistic +
+// rollback) instead of guessing from a raw error. Discriminated on `status`, the
+// same shape convention as {@link AuthClaimsValidationResult}. HTTP mapping:
+// applied → 200, invalid → 422, stale → 409, failed → 5xx, not_found → 404,
+// not_pending → 409. `applied` / `invalid` / `stale` / `failed` are the four core
+// decision outcomes; `not_found` / `not_pending` are the pre-decision guards.
+// ---------------------------------------------------------------------------
+
+/** One plain-language field rejection inside an {@link AcceptResult} `invalid`. */
+export interface AcceptFieldError {
+  /** The payload field at fault (e.g. `"team_id"`), or `""` for a non-field error. */
+  field: string;
+  /** Human-readable reason, e.g. `"Team not found"`. */
+  message: string;
+}
+
+export type AcceptResult =
+  /** Applied exactly once; `item_id` is the created/updated work item or memory. */
+  | { status: "applied"; proposal_id: string; item_id: string }
+  /**
+   * Declined for a fixable payload problem (malformed/absent id, unknown team,
+   * unsupported operation). The proposal is NOT applied; a recoverable one stays
+   * reviewable, a permanently-invalid one is terminally failed server-side.
+   */
+  | { status: "invalid"; proposal_id: string; field_errors: AcceptFieldError[] }
+  /**
+   * The target moved under the write (version/existence conflict) — the proposal
+   * stays reviewable, never silently clobbered. `current_version` is `null` while
+   * work items carry no version column (v1); `proposed_version` echoes the
+   * proposal's `target_version`.
+   */
+  | {
+      status: "stale";
+      proposal_id: string;
+      item_id: string | null;
+      current_version: number | null;
+      proposed_version: number | null;
+    }
+  /** An unexpected server error; the proposal stays pending. `retryable` hints the UI. */
+  | { status: "failed"; proposal_id: string; reason: string; retryable: boolean }
+  /** Not in the caller's tenants (or never existed). */
+  | { status: "not_found"; proposal_id: string }
+  /** Already decided, or a concurrent accept won the exactly-once flip. */
+  | { status: "not_pending"; proposal_id: string };

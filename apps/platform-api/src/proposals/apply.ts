@@ -1,8 +1,9 @@
 import { z } from 'zod'
 
+import type { AcceptResult } from '@product-suite/contracts'
 import type { Sql } from '@product-suite/db'
 
-import { DomainError } from '../domain/errors'
+import { DomainError, type DomainErrorCode } from '../domain/errors'
 import {
   createMemory,
   deferMemory,
@@ -23,21 +24,31 @@ import type { ActorContext } from '../provenance/record-write'
 import { getProposalScoped, type ProposalRow } from './repository'
 
 /**
- * The outcome of applying a proposal — a stable, UX-legible envelope (never a raw
- * 500). `not_found` = not in the caller's tenants (route → 404). `not_pending` = it
- * was already decided or a concurrent accept won the flip (→ 409). `stale` = the
- * target moved/vanished under the write so the proposal STAYS pending and reviewable
- * (→ 409). `invalid` = the write was declined (a malformed/absent id, an unsupported
- * proposal, or a domain-invariant failure) → 422. Two DB dispositions share the
- * `invalid` reason: a FIXABLE field error leaves the proposal `pending` (the human
- * corrects the payload and re-accepts); a PERMANENT structural defect (unsupported
- * op, no run, malformed target) is terminally `failed`. `message` is a plain-language
- * reason the route surfaces so the Review Inbox can render a legible failure/stale
- * state rather than a generic error.
+ * `applyProposal` returns the shared {@link AcceptResult} envelope (defined in
+ * `@product-suite/contracts` so the Review Inbox imports the SAME type) — a stable,
+ * UX-legible discriminated union, never a raw 500. Variants: `applied` (exactly once),
+ * `invalid` (a fixable payload/field problem; a recoverable one stays `pending`, a
+ * permanent structural defect is terminally `failed` server-side), `stale` (the target
+ * moved — stays reviewable), `not_found`, `not_pending`. The route maps `status` →
+ * HTTP via {@link acceptHttpStatus} and ALWAYS emits the envelope in the body.
  */
-export type ApplyResult =
-  | { applied: true; result: WorkItemRow | MemoryRow }
-  | { applied: false; reason: 'not_found' | 'not_pending' | 'stale' | 'invalid'; message?: string }
+
+/** The HTTP status the accept route returns for each {@link AcceptResult} variant. */
+export function acceptHttpStatus(status: AcceptResult['status']): 200 | 404 | 409 | 422 | 500 {
+  switch (status) {
+    case 'applied':
+      return 200
+    case 'invalid':
+      return 422
+    case 'stale':
+    case 'not_pending':
+      return 409
+    case 'not_found':
+      return 404
+    case 'failed':
+      return 500
+  }
+}
 
 /**
  * Runtime shapes for the three memory payloads that carry data. `payload`/`edited_payload`
@@ -102,18 +113,57 @@ function sqlQuery<Row = Record<string, unknown>>(
 }
 
 /**
- * Terminally fail a permanently-invalid proposal (a structural pre-check failure)
- * and report `invalid`. The flip is GUARDED on `status='pending'` so it is a no-op
- * if the proposal was already decided — it never resurrects or re-decides a row.
+ * Terminally fail a permanently-invalid proposal (a structural pre-check failure that
+ * no payload edit can fix) and report it as `invalid` with a field-scoped reason. The
+ * flip is GUARDED on `status='pending'` so it is a no-op if the proposal was already
+ * decided — it never resurrects or re-decides a row.
  */
-async function failInvalid(sql: Sql, proposalId: string, reason: string): Promise<ApplyResult> {
+async function failInvalid(
+  sql: Sql,
+  proposalId: string,
+  field: string,
+  message: string,
+): Promise<AcceptResult> {
   await sqlQuery(
     sql,
     `update proposals set status = 'failed', rejection_reason = $1, updated_at = now()
      where id = $2 and status = 'pending'`,
-    [reason, proposalId],
+    [message, proposalId],
   )
-  return { applied: false, reason: 'invalid' }
+  return { status: 'invalid', proposal_id: proposalId, field_errors: [{ field, message }] }
+}
+
+/** Known payload id fields (for field-scoped `invalid` errors). */
+const KNOWN_FIELDS = new Set(['team_id', 'status_id', 'project_id', 'parent_id', 'target_id'])
+
+/**
+ * Best-effort payload field a DomainError refers to, so an `invalid` envelope can point
+ * the Review Inbox at the offending field. Mapped by code; for `invalid_input` (from the
+ * accept-time validator) the message leads with the field name (e.g. "team_id must …").
+ */
+function fieldForDomainError(code: DomainErrorCode, message: string): string {
+  switch (code) {
+    case 'unknown_team':
+    case 'team_required_multiple':
+    case 'no_team':
+    case 'cannot_change_team_in_hierarchy':
+      return 'team_id'
+    case 'unknown_status':
+    case 'no_default_status':
+      return 'status_id'
+    case 'unknown_project':
+      return 'project_id'
+    case 'unknown_parent':
+    case 'parent_different_team':
+    case 'max_depth':
+    case 'self_parent':
+    case 'parent_has_children':
+      return 'parent_id'
+    default: {
+      const first = message.split(/[\s:]/)[0] ?? ''
+      return KNOWN_FIELDS.has(first) ? first : ''
+    }
+  }
 }
 
 /** Canonical 8-4-4-4-12 UUID (any version). */
@@ -193,15 +243,32 @@ async function validateAndResolveWorkItemPayload(
  * payload, 4xx). A genuinely unexpected error (connection/bug) is rethrown → the
  * route's 500; the proposal stays `pending` and a re-accept re-drives idempotently.
  */
-function classifyWriteFailure(cause: unknown): ApplyResult {
+function classifyWriteFailure(cause: unknown, proposal: ProposalRow): AcceptResult {
+  const proposalId = proposal.id
   if (cause instanceof DomainError) {
     if (cause.code === 'stale' || cause.code === 'conflict') {
-      return { applied: false, reason: 'stale', message: cause.message }
+      // v1 work_items carry no version column, so `current_version` is honestly null;
+      // `proposed_version` echoes what the proposal was generated against.
+      return {
+        status: 'stale',
+        proposal_id: proposalId,
+        item_id: proposal.target_id,
+        current_version: null,
+        proposed_version: proposal.target_version ?? null,
+      }
     }
-    return { applied: false, reason: 'invalid', message: cause.message }
+    return {
+      status: 'invalid',
+      proposal_id: proposalId,
+      field_errors: [{ field: fieldForDomainError(cause.code, cause.message), message: cause.message }],
+    }
   }
   if (isPgDataError(cause)) {
-    return { applied: false, reason: 'invalid', message: 'a field references something that no longer exists' }
+    return {
+      status: 'invalid',
+      proposal_id: proposalId,
+      field_errors: [{ field: '', message: 'a field references something that no longer exists' }],
+    }
   }
   throw cause
 }
@@ -322,26 +389,26 @@ export async function applyProposal(
   ctx: { tenantIds: string[]; approverUserId: string },
   proposalId: string,
   editedPayload?: Record<string, unknown> | null,
-): Promise<ApplyResult> {
+): Promise<AcceptResult> {
   const { approverUserId } = ctx
 
   // (1) LOAD (scoped).
   const proposal = await getProposalScoped(sql, proposalId, ctx.tenantIds)
-  if (!proposal) return { applied: false, reason: 'not_found' }
-  if (proposal.status !== 'pending') return { applied: false, reason: 'not_pending' }
+  if (!proposal) return { status: 'not_found', proposal_id: proposalId }
+  if (proposal.status !== 'pending') return { status: 'not_pending', proposal_id: proposalId }
 
   // (2) STRUCTURAL pre-checks — PERMANENT invariant failures this slice can never apply.
   // Terminally FAIL (guarded flip, no-op if already decided) so they don't sit in
   // `listPending` forever; no payload edit could rescue them.
   if (!SUPPORTED.has(`${proposal.target_type}:${proposal.operation}`)) {
-    return failInvalid(sql, proposalId, `unsupported ${proposal.target_type}:${proposal.operation}`)
+    return failInvalid(sql, proposalId, 'operation', `unsupported ${proposal.target_type}:${proposal.operation}`)
   }
-  if (!proposal.run_id) return failInvalid(sql, proposalId, 'missing run_id (no attributable actor)')
+  if (!proposal.run_id) return failInvalid(sql, proposalId, '', 'missing run_id (no attributable actor)')
   // Every non-create names a `uuid` target it acts on (work_item:update, memory:
   // supersede|retract|defer). Missing OR malformed (a slug that would `22P02`) is a
   // permanent structural defect — `isUuid(null)` is false, so this covers both.
   if (proposal.operation !== 'create' && !isUuid(proposal.target_id)) {
-    return failInvalid(sql, proposalId, `${proposal.operation} proposal has a missing or malformed target_id`)
+    return failInvalid(sql, proposalId, 'target_id', `${proposal.operation} proposal has a missing or malformed target_id`)
   }
 
   // The payload actually applied: this call's human edit → a previously-persisted edit/
@@ -368,7 +435,13 @@ export async function applyProposal(
       // A malformed/absent-but-ambiguous id is a FIXABLE decline — the proposal stays
       // `pending` (the human corrects the payload and re-accepts). Anything unexpected
       // is rethrown → route 500 (still pending, never applied).
-      if (cause instanceof DomainError) return { applied: false, reason: 'invalid', message: cause.message }
+      if (cause instanceof DomainError) {
+        return {
+          status: 'invalid',
+          proposal_id: proposalId,
+          field_errors: [{ field: fieldForDomainError(cause.code, cause.message), message: cause.message }],
+        }
+      }
       throw cause
     }
   }
@@ -402,7 +475,7 @@ export async function applyProposal(
       )
     }
   } catch (cause) {
-    return classifyWriteFailure(cause)
+    return classifyWriteFailure(cause, proposal)
   }
 
   // (5) FLIP LAST — the single exactly-once winner-gate. ONE guarded statement stamps
@@ -417,6 +490,6 @@ export async function applyProposal(
      where id = $2 and status = 'pending' returning id`,
     [approverUserId, proposalId, payloadToPersist, JSON.stringify(result)],
   )
-  if (flipped.length === 0) return { applied: false, reason: 'not_pending' }
-  return { applied: true, result }
+  if (flipped.length === 0) return { status: 'not_pending', proposal_id: proposalId }
+  return { status: 'applied', proposal_id: proposalId, item_id: result.id }
 }

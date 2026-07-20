@@ -1,9 +1,11 @@
 import { Hono } from 'hono'
 
+import type { AcceptResult } from '@product-suite/contracts'
+
 import { callerTenantIds, callerUserId } from '../auth/tenant-scope'
 import { sqlFrom } from '../db'
 import type { AuthedEnv } from '../middleware/clerk-auth'
-import { applyProposal } from '../proposals/apply'
+import { acceptHttpStatus, applyProposal } from '../proposals/apply'
 import { getProposalScoped, listPending } from '../proposals/repository'
 
 /**
@@ -34,9 +36,10 @@ proposalsRoutes.get('/', async (c) => {
 
 /**
  * Accept a proposal: apply it EXACTLY ONCE through the domain command, attributed to
- * the agent run acting on behalf of THIS approver. `applyProposal` owns the
- * claim-then-command exactly-once gate; the route only maps its outcome to a status:
- * applied → 200, not_found → 404, not_pending|stale → 409, invalid → 422.
+ * the agent run acting on behalf of THIS approver. `applyProposal` owns the write-first/
+ * flip-last exactly-once gate and returns the stable {@link AcceptResult} envelope. The
+ * route ALWAYS emits that envelope in the JSON body (so the Review Inbox reads `status`
+ * from the body, not just the HTTP code) and maps `status` → HTTP via `acceptHttpStatus`.
  */
 proposalsRoutes.post('/:id/accept', async (c) => {
   const claims = c.get('claims')
@@ -53,31 +56,28 @@ proposalsRoutes.post('/:id/accept', async (c) => {
 
   try {
     const tenantIds = await callerTenantIds(sql, claims)
-    if (tenantIds.length === 0) return c.json({ error: 'Not found' }, 404)
+    if (tenantIds.length === 0) {
+      return c.json({ status: 'not_found', proposal_id: id } satisfies AcceptResult, 404)
+    }
 
     const approverUserId = await callerUserId(sql, claims)
     if (!approverUserId) {
       console.error('[proposals] accept: tenant resolved but no user identity for subject')
-      return c.json({ error: 'Failed to accept proposal' }, 500)
+      return c.json(
+        { status: 'failed', proposal_id: id, reason: 'No user identity for subject', retryable: false } satisfies AcceptResult,
+        500,
+      )
     }
 
     const res = await applyProposal(sql, { tenantIds, approverUserId }, id, editedPayload)
-    if (res.applied) return c.json(res.result, 200)
-    // `message` (when present) is the plain-language reason from the apply path so the
-    // Review Inbox can render a legible failure/stale state instead of a generic error.
-    switch (res.reason) {
-      case 'not_found':
-        return c.json({ error: 'Not found' }, 404)
-      case 'not_pending':
-        return c.json({ error: 'Proposal is no longer pending' }, 409)
-      case 'stale':
-        return c.json({ error: res.message ?? 'Target changed; proposal is stale' }, 409)
-      case 'invalid':
-        return c.json({ error: res.message ?? 'Proposal could not be applied' }, 422)
-    }
+    return c.json(res, acceptHttpStatus(res.status))
   } catch (cause) {
     console.error('[proposals] accept failed', cause)
-    return c.json({ error: 'Failed to accept proposal' }, 500)
+    // An unexpected error is a `failed` envelope (retryable) — the proposal stays pending.
+    return c.json(
+      { status: 'failed', proposal_id: id, reason: 'Failed to accept proposal', retryable: true } satisfies AcceptResult,
+      500,
+    )
   }
 })
 
