@@ -616,6 +616,55 @@ describe("WorkboardScreen", () => {
     expect(payload).not.toHaveProperty("phase");
   });
 
+  it("falls back to the pinned Team filter for the unscoped create when a search hides every row", async () => {
+    // Codex P2 edge: filtered to Sourcing AND a search that matches nothing, so
+    // ZERO rows are visible. The target team is still knowable from the pinned
+    // Team facet, so the create must carry Sourcing's team_id — NOT fall back to
+    // create({}), which 400s in a multi-team tenant (the server refuses an
+    // omitted team_id: resolveDefaultTeamId → team_required_multiple).
+    const base = createMockWorkItemRepository();
+    const all = await base.list();
+    const firstSourcing = all.find((item) => item.department === "Sourcing");
+    expect(firstSourcing).toBeDefined();
+
+    // Unscoped board pinned to Sourcing with a search no item matches.
+    const defaults = defaultWorkboardFilterState();
+    window.localStorage.setItem(
+      FILTER_STORAGE_KEY,
+      serializePersistedView({
+        filterState: {
+          ...defaults,
+          search: "zzz-no-such-item-zzz",
+          filters: { ...defaults.filters, team: new Set(["Sourcing"]) },
+        },
+        view: "table",
+      }),
+    );
+
+    const createSpy = vi.fn((input: CreateWorkItemInput) => base.create(input));
+    const repository = { ...base, create: createSpy };
+    render(<WorkboardScreen repository={repository} />);
+
+    // The search hides every row (no-match state), but the toolbar New button
+    // stays reachable and enabled once the load settles.
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /new work item/i }),
+      ).toBeEnabled();
+    });
+    expect(screen.queryAllByTestId("work-item-row")).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole("button", { name: /new work item/i }));
+
+    // Derived from the pinned Team facet, not create({}).
+    await waitFor(() => {
+      expect(createSpy).toHaveBeenCalledWith({
+        team_id: firstSourcing?.team_id,
+        department: "Sourcing",
+      });
+    });
+  });
+
   it("still calls create({}) on an empty board — nothing to derive, button stays usable", async () => {
     const base = createMockWorkItemRepository();
     const createSpy = vi.fn((input: CreateWorkItemInput) => base.create(input));

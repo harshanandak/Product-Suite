@@ -147,6 +147,46 @@ function generateViewId(existing: ReadonlyArray<SavedView>): string {
 }
 
 /**
+ * Resolve the create-defaults for an UNSCOPED "New" item — team_id + department
+ * only. The server assigns the initial status (kernel issue 648b180d); the
+ * client never sends status_id/phase (the newest row can be a completed status).
+ * Target team is chosen by a clear precedence so this stops being whack-a-mole:
+ *
+ *   1. the first row VISIBLE under the active filter — the team the user is
+ *      looking at (correct even when the board is filtered to a team other than
+ *      the newest row's);
+ *   2. else, when a search/other facet hides EVERY row but the Team facet still
+ *      pins one or more teams (it matches on the `department` name), the target
+ *      is still knowable — use any loaded row in a pinned team. Dropping it to
+ *      create({}) would 400 in a MULTI-team tenant, where the server refuses an
+ *      omitted team_id (resolveDefaultTeamId → team_required_multiple);
+ *   3. else nothing is derivable (empty board / no team pinned) — create({}) and
+ *      let the server resolve the single-team default.
+ */
+function resolveUnscopedCreateDefaults(
+  visibleRows: readonly Pick<WorkItem, "team_id" | "department">[],
+  loadedItems: readonly Pick<WorkItem, "team_id" | "department">[],
+  pinnedTeamNames: ReadonlySet<string>,
+): CreateWorkItemInput {
+  const firstVisible = visibleRows[0];
+  if (firstVisible) {
+    return {
+      team_id: firstVisible.team_id,
+      department: firstVisible.department,
+    };
+  }
+  if (pinnedTeamNames.size > 0) {
+    const pinned = loadedItems.find((item) =>
+      pinnedTeamNames.has(item.department),
+    );
+    if (pinned) {
+      return { team_id: pinned.team_id, department: pinned.department };
+    }
+  }
+  return {};
+}
+
+/**
  * Workboard SCREEN — the live composition of the Toolbar + Table + Editor over
  * the data seam (DESIGN §2 / §4).
  *
@@ -508,32 +548,21 @@ export function WorkboardScreen({
     // under the correct Team column, plus a same-team `status_id` sourced from a
     // SAME-TEAM sibling — see `scopedTeamName` / `scopedStatusId`.
     //
-    // Unscoped route: derive ONLY team_id + department from the FIRST VISIBLE row
-    // under the active filter (`rows`, not the raw `items[0]`) — the client
-    // supplies these for MULTI-TEAM disambiguation (a mixed board needs a target
-    // team, and the Team grouping/facets read `department`), and lets the SERVER
-    // assign the initial status (kernel issue 648b180d). Deriving from `rows`
-    // matters: when the board is FILTERED to a Team other than the newest row's
-    // team, `items[0]` (ordered `updated_at desc`) belongs to the WRONG team, so
-    // the new item would land off-filter — `rows[0]` is a row the active filter
-    // actually shows, so the create targets the team the user is looking at.
-    // Crucially, we NO LONGER borrow the row's `status_id`/`phase`: `items[0]`
-    // can be a COMPLETED status (Execute/Review/Done), and sending it would BIRTH
-    // a brand-new item in a done column. Omitting them makes the server seed the
-    // correct initial status instead (single-team tenants default team_id
-    // server-side too). On an EMPTY filtered set there is nothing to derive —
-    // fall back to create({}) and let the server resolve the team default (the
-    // New button stays enabled so a fresh workspace can still create its first
-    // item).
-    const firstVisible = rows[0];
+    // Unscoped route: supply ONLY team_id + department (for MULTI-TEAM
+    // disambiguation — a mixed board needs a target team, and the Team
+    // grouping/facets read `department`) and let the SERVER assign the initial
+    // status (kernel issue 648b180d). We NEVER borrow the row's `status_id`/
+    // `phase`: the newest row (`items` is ordered `updated_at desc`) can be a
+    // COMPLETED status, so sending it would BIRTH a brand-new item in a done
+    // column. `resolveUnscopedCreateDefaults` picks the target team by a clear
+    // precedence — visible row → pinned Team filter → create({}) — see its doc.
     const input: CreateWorkItemInput =
       teamId === undefined
-        ? firstVisible
-          ? {
-              team_id: firstVisible.team_id,
-              department: firstVisible.department,
-            }
-          : {}
+        ? resolveUnscopedCreateDefaults(
+            rows,
+            items,
+            effectiveFilterState.filters.team,
+          )
         : {
             team_id: teamId,
             ...(scopedTeamName === undefined
@@ -552,7 +581,16 @@ export function WorkboardScreen({
         // payload the API refuses) must be visible, not an invisible no-op.
         toast.error("Couldn't create the work item — please try again.");
       });
-  }, [create, teamId, rows, scopedTeamName, scopedStatusId, newItemDisabled]);
+  }, [
+    create,
+    teamId,
+    rows,
+    items,
+    effectiveFilterState,
+    scopedTeamName,
+    scopedStatusId,
+    newItemDisabled,
+  ]);
 
   // Editor's onSave returns void; the hook's update returns the saved WorkItem.
   // Await + discard, and let rejections propagate so the editor keeps the Sheet
