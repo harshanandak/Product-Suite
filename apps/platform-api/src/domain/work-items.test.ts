@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { Sql } from '@product-suite/db'
 
-import { createWorkItem, resolveDefaultStatusId, updateWorkItem } from './work-items'
+import { createWorkItem, resolveDefaultStatusId, resolveDefaultTeamId, updateWorkItem } from './work-items'
 
 const actor = { actorType: 'human', actorId: 'u_1' } as const
 
@@ -76,6 +76,40 @@ describe('createWorkItem', () => {
     await expect(
       createWorkItem(sql as unknown as Sql, { tenantId: 't_1', actor }, { team_id: 'team_1' }),
     ).rejects.toMatchObject({ code: 'no_default_status' })
+  })
+
+  it('resolves the caller’s sole team (and its default status) when team_id is omitted', async () => {
+    const sql = vi.fn()
+    sql
+      .mockResolvedValueOnce([{ id: 'team_solo' }]) // resolveDefaultTeamId: tenant has exactly one team
+      .mockResolvedValueOnce([{ id: 'status_default' }]) // that team's default status
+    ;(sql as unknown as { query: ReturnType<typeof vi.fn> }).query = vi.fn()
+    ;(sql as unknown as { transaction: ReturnType<typeof vi.fn> }).transaction = vi
+      .fn()
+      .mockResolvedValue([[{ ...WI_ROW, team_id: 'team_solo', status_id: 'status_default' }], [{}]])
+    const created = await createWorkItem(
+      sql as unknown as Sql,
+      { tenantId: 't_1', actor },
+      { title: 'A' },
+    )
+    expect(created.team_id).toBe('team_solo')
+    expect(created.status_id).toBe('status_default')
+    // Team DERIVED from the tenant, then its default status — no team-ownership check (2 reads).
+    expect(sql).toHaveBeenCalledTimes(2)
+  })
+
+  it('rejects a create with no team_id when the tenant has multiple teams (team_required_multiple)', async () => {
+    const sql = vi.fn().mockResolvedValueOnce([{ id: 'team_1' }, { id: 'team_2' }]) // ambiguous tenant
+    await expect(
+      createWorkItem(sql as unknown as Sql, { tenantId: 't_1', actor }, { title: 'A' }),
+    ).rejects.toMatchObject({ code: 'team_required_multiple' })
+  })
+
+  it('rejects a create with no team_id when the tenant has zero teams (no_team)', async () => {
+    const sql = vi.fn().mockResolvedValueOnce([]) // tenant has no team to create into
+    await expect(
+      createWorkItem(sql as unknown as Sql, { tenantId: 't_1', actor }, { title: 'A' }),
+    ).rejects.toMatchObject({ code: 'no_team' })
   })
 
   it('rejects a parent already nested (depth cap) with DomainError max_depth', async () => {
@@ -159,6 +193,33 @@ describe('resolveDefaultStatusId', () => {
     const sql = vi.fn().mockResolvedValueOnce([])
     await expect(resolveDefaultStatusId(sql as unknown as Sql, 'team_empty')).rejects.toMatchObject({
       code: 'no_default_status',
+    })
+  })
+})
+
+describe('resolveDefaultTeamId', () => {
+  it('returns the tenant’s sole team, scoped to the tenant (reads one extra row to detect ambiguity)', async () => {
+    const sql = vi.fn().mockResolvedValueOnce([{ id: 'team_only' }])
+    const id = await resolveDefaultTeamId(sql as unknown as Sql, 't_1')
+    expect(id).toBe('team_only')
+    // Scoped to the caller's tenant, and `limit 2` classifies none/one/many in one read.
+    const query = (sql.mock.calls[0]?.[0] as string[]).join('?')
+    expect(query).toContain('tenant_id')
+    expect(query).toContain('limit 2')
+    expect(sql.mock.calls[0]?.slice(1)).toContain('t_1')
+  })
+
+  it('throws team_required_multiple when the tenant has more than one team', async () => {
+    const sql = vi.fn().mockResolvedValueOnce([{ id: 'team_1' }, { id: 'team_2' }])
+    await expect(resolveDefaultTeamId(sql as unknown as Sql, 't_1')).rejects.toMatchObject({
+      code: 'team_required_multiple',
+    })
+  })
+
+  it('throws no_team when the tenant has no teams', async () => {
+    const sql = vi.fn().mockResolvedValueOnce([])
+    await expect(resolveDefaultTeamId(sql as unknown as Sql, 't_empty')).rejects.toMatchObject({
+      code: 'no_team',
     })
   })
 })

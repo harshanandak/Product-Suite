@@ -115,10 +115,12 @@ workItemsRoutes.get('/', async (c) => {
 /**
  * Create a work item in the caller's org. The target org is the caller's single
  * active tenant — unambiguous now that org = workspace. Rejects when the caller
- * is in no org (403) or in several (400, ambiguous). `team_id` is REQUIRED and
- * must belong to the same org (a team from another tenant is indistinguishable
- * from an unknown one → 400, no leak). A `project_id`, if given, must likewise
- * belong to the same org.
+ * is in no org (403) or in several (400, ambiguous). `team_id` is OPTIONAL: when
+ * omitted it defaults to the caller's sole team, so a single-team workspace never
+ * has to name its team; a tenant with multiple teams gets a clear 400 (ambiguous)
+ * and a tenant with no team a clear 400. When supplied it must belong to the same
+ * org (a team from another tenant is indistinguishable from an unknown one → 400,
+ * no leak). A `project_id`, if given, must likewise belong to the same org.
  */
 workItemsRoutes.post('/', async (c) => {
   const claims = c.get('claims')
