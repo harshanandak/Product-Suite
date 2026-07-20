@@ -71,6 +71,43 @@ describe("useProposals", () => {
     );
   });
 
+  it("raises isLoading (not isRefetching) on the initial load, then isRefetching (not isLoading) on a settle refetch", async () => {
+    // The banner-loss fix (kernel 7218a03e): a refetch after accept must NOT flip
+    // `isLoading` — that is the initial-skeleton signal that unmounts the detail
+    // pane. Hold the refetch open to observe the flag it actually raises.
+    let resolveRefetch: (proposals: Proposal[]) => void = () => {};
+    let listCalls = 0;
+    const list = vi.fn(() =>
+      listCalls++ === 0
+        ? Promise.resolve([pending("p1")])
+        : new Promise<Proposal[]>((resolve) => {
+            resolveRefetch = resolve;
+          }),
+    );
+    const repository = makeRepo({ list });
+    const { result } = renderHook(() => useProposals({ repository }));
+
+    // Initial load: isLoading is the raised flag, never isRefetching.
+    expect(result.current.isLoading).toBe(true);
+    expect(result.current.isRefetching).toBe(false);
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    // A settle refetch: isRefetching raises, isLoading stays down (no skeleton).
+    act(() => {
+      result.current.refetch();
+    });
+    await waitFor(() => expect(result.current.isRefetching).toBe(true));
+    expect(result.current.isLoading).toBe(false);
+
+    // Resolving the reload clears the background flag.
+    await act(async () => {
+      resolveRefetch([pending("p1"), pending("p2")]);
+    });
+    await waitFor(() => expect(result.current.isRefetching).toBe(false));
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.proposals.map((p) => p.id)).toEqual(["p1", "p2"]);
+  });
+
   it("reject forwards the reason and refetches on settle", async () => {
     const reject = vi.fn(async () => undefined);
     const list = vi

@@ -92,6 +92,11 @@ export function InboxScreen({ repository }: Readonly<InboxScreenProps> = {}) {
     if (!isMutating) setSelectedId(id);
   };
 
+  // The full skeleton shows ONLY on the initial load (no data yet). A refetch
+  // after accept/reject raises `isRefetching`, NOT `isLoading`, so we fall through
+  // and keep the current list + detail pane mounted while it reloads — otherwise
+  // accepting the LAST proposal flips a skeleton in and discards the terminal
+  // "Applied → View item" banner mid-refetch (a second discard path; 7218a03e).
   if (isLoading) {
     return (
       <output className="block space-y-2.5" aria-label="Loading proposals">
@@ -116,7 +121,13 @@ export function InboxScreen({ repository }: Readonly<InboxScreenProps> = {}) {
     );
   }
 
-  if (proposals.length === 0) {
+  // Only the TRUE empty inbox shows the teaching empty state. When the pending
+  // list is empty but we still have a cached selection (`selected` resolved from
+  // seenRef above — a proposal just disposed via the detail pane), fall through
+  // and render the detail pane so its terminal "Applied → View item" / stale
+  // banner stays visible instead of blanking. Without the `selected === null`
+  // guard, accepting the LAST pending proposal silently loses that confirmation.
+  if (proposals.length === 0 && selected === null) {
     return (
       <EmptyState
         title="No proposals to review"

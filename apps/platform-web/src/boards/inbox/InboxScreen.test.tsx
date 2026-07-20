@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ProposalRepository } from "@/data/proposals";
 import type { AcceptResult, Proposal } from "@/data/proposals";
+import type { WorkItem } from "@/data/work-items";
 
 // Mutable search stub so a test can drive the `?proposal=<id>` deep-link.
 let searchMock: { proposal?: string } = {};
@@ -203,5 +204,64 @@ describe("InboxScreen", () => {
         screen.getByText(/no longer pending/),
       ).toBeInTheDocument(),
     );
+  });
+
+  it("keeps the terminal Applied → View item banner across the whole accept→refetch→empty sequence for the LAST proposal", async () => {
+    // The single-proposal case, modelling the FULL invalidate-on-settle sequence:
+    // accept applies → the hook refetches → that reload is in flight (previously
+    // this flipped `isLoading`, swapping a skeleton in and unmounting the pane —
+    // a SECOND discard path beyond the empty-guard) → the reload returns an empty
+    // pending list. The terminal "Applied → View item" banner (cached via seenRef)
+    // must survive EVERY step: it stays mounted while the refetch runs (no
+    // skeleton) and after the list empties (no "No proposals" state). (kernel 7218a03e)
+    const only = proposal("p1", "Alpha");
+    const repository = repoWith([only]);
+    // The invalidate-on-settle refetch is held OPEN so we can assert the banner
+    // survives WHILE the reload is in flight, not just after it resolves.
+    let resolveRefetch: (proposals: Proposal[]) => void = () => {};
+    let listCalls = 0;
+    repository.list = vi.fn(() =>
+      listCalls++ === 0
+        ? Promise.resolve([only])
+        : new Promise<Proposal[]>((resolve) => {
+            resolveRefetch = resolve;
+          }),
+    );
+    repository.accept = vi.fn(
+      async (): Promise<AcceptResult> => ({
+        outcome: "applied",
+        item: { id: "wi_1" } as WorkItem,
+      }),
+    );
+
+    render(<InboxScreen repository={repository} />);
+    await waitFor(() =>
+      expect(screen.getByText("Create work item “Alpha”")).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+
+    // Step 1 — accept has applied and the refetch is STILL in flight. The banner
+    // is up and the pane must stay mounted: no full skeleton flips in mid-refetch.
+    // (This file's Link mock renders an href-less anchor, so assert on the banner
+    // text rather than an implicit link role.)
+    await waitFor(() =>
+      expect(screen.getAllByText(/View item/i).length).toBeGreaterThan(0),
+    );
+    expect(screen.getByText(/Applied\./)).toBeInTheDocument();
+    expect(
+      screen.queryByLabelText("Loading proposals"),
+    ).not.toBeInTheDocument();
+    expect(repository.list).toHaveBeenCalledTimes(2);
+
+    // Step 2 — the reload settles to an EMPTY pending list. The inbox does NOT
+    // blank to the empty state; the terminal confirmation persists.
+    resolveRefetch([]);
+    await waitFor(() => expect(screen.getByText("0 pending")).toBeInTheDocument());
+    expect(screen.getByText(/Applied\./)).toBeInTheDocument();
+    expect(screen.getAllByText(/View item/i).length).toBeGreaterThan(0);
+    expect(
+      screen.queryByText("No proposals to review"),
+    ).not.toBeInTheDocument();
   });
 });

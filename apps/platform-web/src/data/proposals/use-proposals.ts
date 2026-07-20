@@ -29,8 +29,20 @@ export interface UseProposalsOptions {
 export interface UseProposalsResult {
   /** The pending proposals (the inbox list). */
   proposals: Proposal[];
-  /** True while the initial load is in flight. */
+  /**
+   * True ONLY while the very first load (before any successful settle) is in
+   * flight — the full-skeleton signal. A refetch after accept/reject does NOT
+   * raise this (see {@link isRefetching}), so the detail pane and its terminal
+   * banner stay mounted through an invalidate-on-settle reload (kernel 7218a03e).
+   */
   isLoading: boolean;
+  /**
+   * True while a BACKGROUND reload (a `refetch` after the first successful load)
+   * is in flight. Callers keep rendering current data during this window rather
+   * than unmounting to a skeleton — the fix for the residual banner loss where
+   * accepting the LAST proposal flipped `isLoading` and discarded the pane.
+   */
+  isRefetching: boolean;
   /** Set if the initial load failed; `refetch` to retry. */
   error: Error | null;
   /**
@@ -73,9 +85,15 @@ export function useProposals(
 
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefetching, setIsRefetching] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [mutatingCount, setMutatingCount] = useState(0);
+
+  // Flips true after the FIRST successful load and never back — distinguishes the
+  // initial skeleton load from every later background refetch. A failed initial
+  // load leaves it false so a retry still shows the skeleton, not a bare reload.
+  const hasLoadedRef = useRef(false);
 
   // Guards against setState after unmount across async loads/mutations.
   const mountedRef = useRef(true);
@@ -88,7 +106,13 @@ export function useProposals(
 
   useEffect(() => {
     let cancelled = false;
-    setIsLoading(true);
+    // The FIRST load (before any successful settle) raises the full-skeleton
+    // `isLoading`; every later reload is a background `isRefetching` refresh that
+    // keeps current data — and the detail pane's terminal banner — on screen
+    // while it runs. Redirecting the reload away from `isLoading` is the fix for
+    // the residual banner loss on accepting the LAST proposal (kernel 7218a03e).
+    if (hasLoadedRef.current) setIsRefetching(true);
+    else setIsLoading(true);
     setError(null);
 
     repository
@@ -96,6 +120,9 @@ export function useProposals(
       .then((loaded) => {
         if (cancelled || !mountedRef.current) return;
         setProposals(loaded);
+        // Only a SUCCESSFUL load marks us as loaded — a failed initial load must
+        // stay "initial" so its retry shows the skeleton, not a bare refetch.
+        hasLoadedRef.current = true;
       })
       .catch((cause: unknown) => {
         if (cancelled || !mountedRef.current) return;
@@ -104,6 +131,7 @@ export function useProposals(
       .finally(() => {
         if (cancelled || !mountedRef.current) return;
         setIsLoading(false);
+        setIsRefetching(false);
       });
 
     return () => {
@@ -153,6 +181,7 @@ export function useProposals(
   return {
     proposals,
     isLoading,
+    isRefetching,
     error,
     accept,
     reject,

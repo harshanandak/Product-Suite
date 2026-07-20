@@ -9,3 +9,9 @@ coverage
 # excludes all `.env.*`; this negation wins for this directory). It only carries
 # VITE_USE_FIXTURES=true and is inert in production builds.
 !.env.fixtures
+
+# E2E (Playwright) — secrets + generated artifacts
+.dev.vars
+playwright-report
+test-results
+e2e/.auth
