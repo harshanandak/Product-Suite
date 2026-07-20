@@ -83,22 +83,79 @@ describe("createNetworkProposalRepository", () => {
 
   it("accept maps 409 to a stale outcome (not an opaque throw)", async () => {
     fetchMock.mockResolvedValueOnce(jsonError(409, "not pending"));
-    await expect(makeRepo().accept("p1")).resolves.toEqual({ outcome: "stale" });
+    await expect(makeRepo().accept("p1")).resolves.toEqual({
+      outcome: "stale",
+      currentVersion: null,
+      proposedVersion: null,
+    });
+  });
+
+  it("accept carries current-vs-proposed versions from a 409 envelope body", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 409,
+      json: async () => ({ current_version: 5, proposed_version: 3 }),
+    } as Response);
+    await expect(makeRepo().accept("p1")).resolves.toEqual({
+      outcome: "stale",
+      currentVersion: 5,
+      proposedVersion: 3,
+    });
   });
 
   it("accept maps 404 to a stale outcome", async () => {
     fetchMock.mockResolvedValueOnce(jsonError(404));
-    await expect(makeRepo().accept("p1")).resolves.toEqual({ outcome: "stale" });
-  });
-
-  it("accept maps 422 to an invalid outcome", async () => {
-    fetchMock.mockResolvedValueOnce(jsonError(422, "bad payload"));
     await expect(makeRepo().accept("p1")).resolves.toEqual({
-      outcome: "invalid",
+      outcome: "stale",
+      currentVersion: null,
+      proposedVersion: null,
     });
   });
 
-  it("accept still throws on a real error (e.g. 500)", async () => {
+  it("accept maps 422 to an invalid outcome (empty field errors when none given)", async () => {
+    fetchMock.mockResolvedValueOnce(jsonError(422, "bad payload"));
+    await expect(makeRepo().accept("p1")).resolves.toEqual({
+      outcome: "invalid",
+      fieldErrors: [],
+    });
+  });
+
+  it("accept extracts plain-language field_errors from a 422 envelope body", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 422,
+      json: async () => ({
+        field_errors: [
+          { field: "team_id", message: "Team not found" },
+          { field: "bad", notAMessage: true },
+        ],
+      }),
+    } as Response);
+    // Only the well-formed row survives; malformed entries are dropped.
+    await expect(makeRepo().accept("p1")).resolves.toEqual({
+      outcome: "invalid",
+      fieldErrors: [{ field: "team_id", message: "Team not found" }],
+    });
+  });
+
+  it("accept surfaces an explicit failed envelope (reason + retryable) instead of throwing", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      json: async () => ({
+        status: "failed",
+        message: "The team this refers to no longer exists.",
+        retryable: false,
+      }),
+    } as Response);
+    await expect(makeRepo().accept("p1")).resolves.toEqual({
+      outcome: "failed",
+      reason: "The team this refers to no longer exists.",
+      retryable: false,
+    });
+  });
+
+  it("accept still throws on a real error (e.g. 500) with no accept envelope", async () => {
     fetchMock.mockResolvedValueOnce(jsonError(500, "boom"));
     await expect(makeRepo().accept("p1")).rejects.toThrow("boom");
   });

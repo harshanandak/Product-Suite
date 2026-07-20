@@ -200,9 +200,7 @@ describe("InboxScreen", () => {
     // Resolve so the disposition settles (flushes state before teardown).
     resolveAccept({ outcome: "stale" });
     await waitFor(() =>
-      expect(
-        screen.getByText(/no longer pending/),
-      ).toBeInTheDocument(),
+      expect(screen.getByText("This item changed")).toBeInTheDocument(),
     );
   });
 

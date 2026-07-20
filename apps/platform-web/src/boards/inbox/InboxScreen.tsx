@@ -171,6 +171,7 @@ export function InboxScreen({ repository }: Readonly<InboxScreenProps> = {}) {
                 reject={reject}
                 isMutating={isMutating}
                 workspace={workspace}
+                onRefresh={refetch}
               />
             </div>
           ) : null}

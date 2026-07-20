@@ -49,14 +49,59 @@ export interface Proposal {
 }
 
 /**
+ * A single field-level validation error carried by an `invalid` accept outcome
+ * (Lane A's `field_errors[]`). `field` names the offending payload key; `message`
+ * is ALREADY plain-language and safe to show a human (never a stack trace) — the
+ * "Needs attention" banner renders it verbatim.
+ */
+export interface AcceptFieldError {
+  readonly field: string;
+  readonly message: string;
+}
+
+/**
  * The outcome of {@link ProposalRepository.accept}, SURFACED rather than thrown so
  * the detail view can react precisely instead of catching an opaque error:
  *  - `applied` — the backend applied it and returned the created/updated item.
- *  - `stale` — no longer pending (HTTP 409) or gone (404); the list must refetch.
- *  - `invalid` — the payload failed server validation (422).
- * A genuine transport/5xx error still throws (it is not an accept OUTCOME).
+ *  - `stale` — the underlying item changed since the proposal (409) or is gone
+ *    (404); carries current-vs-proposed version context for the reconcile UI.
+ *  - `invalid` — the payload failed server validation (422); carries per-field,
+ *    plain-language reasons so the human sees WHY, never a raw error.
+ *  - `failed` — the apply was rejected for a stated `reason` and may be
+ *    `retryable`; the proposal stays pending so the human can retry/edit/discard.
+ * A genuine transport/network error still throws (it is not an accept OUTCOME).
+ *
+ * TODO(lane-A-rebase): this is Lane C's LOCAL mirror of Lane A's pinned accept
+ * envelope. Once Lane A merges, swap this definition for its exported
+ * `AcceptResult` import (`@product-suite/contracts` or the API package). Lane A's
+ * shape discriminates on `status` (not `outcome`) and is snake_case:
+ *   applied → { status:'applied', proposal_id, item_id }
+ *   invalid → { status:'invalid', proposal_id, field_errors:[{field,message}] }
+ *   stale   → { status:'stale', proposal_id, item_id, current_version, proposed_version }
+ *   failed  → { status:'failed', proposal_id, reason, retryable }
+ * The network adapter is the single translation point (status/snake_case →
+ * outcome/camelCase); the UI already consumes this camelCase surface, so only the
+ * adapter + this type change on rebase. Keep `applied.item` (the UI links to
+ * `item.id`); map Lane A's `item_id` through the adapter.
  */
 export type AcceptResult =
   | { readonly outcome: "applied"; readonly item: WorkItem }
-  | { readonly outcome: "stale" }
-  | { readonly outcome: "invalid" };
+  | {
+      readonly outcome: "stale";
+      /** The item's CURRENT version — what a Refresh would re-base onto. */
+      readonly currentVersion?: number | null;
+      /** The version the agent's proposal was generated against. */
+      readonly proposedVersion?: number | null;
+    }
+  | {
+      readonly outcome: "invalid";
+      /** Per-field, plain-language reasons; empty/absent ⇒ a generic message. */
+      readonly fieldErrors?: readonly AcceptFieldError[];
+    }
+  | {
+      readonly outcome: "failed";
+      /** A plain-language reason for the failure (never raw error text). */
+      readonly reason: string;
+      /** Whether an unchanged retry could plausibly succeed (drives the Retry action). */
+      readonly retryable: boolean;
+    };

@@ -1,7 +1,49 @@
 import type { WorkItem } from "@/data/work-items";
 
 import type { ProposalRepository } from "./repository";
-import type { AcceptResult, Proposal } from "./types";
+import type { AcceptFieldError, AcceptResult, Proposal } from "./types";
+
+/** Parse a Response body as JSON once, tolerating a non-JSON/empty body (→ null). */
+async function readJsonBody(response: Response): Promise<Record<string, unknown> | null> {
+  try {
+    const body = (await response.json()) as unknown;
+    return body && typeof body === "object" ? (body as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A finite number or null (guards NaN/undefined out of the version fields). */
+function numberOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * Extract `field_errors[]` from an accept envelope body — Lane A's snake_case
+ * shape `[{ field, message }]`. Anything malformed is dropped, so the UI only
+ * ever renders well-formed, plain-language rows (empty ⇒ generic fallback).
+ */
+function readFieldErrors(body: Record<string, unknown> | null): AcceptFieldError[] {
+  const raw = body?.field_errors;
+  if (!Array.isArray(raw)) return [];
+  const errors: AcceptFieldError[] = [];
+  for (const entry of raw) {
+    if (entry && typeof entry === "object") {
+      const { field, message } = entry as Record<string, unknown>;
+      if (typeof field === "string" && typeof message === "string") {
+        errors.push({ field, message });
+      }
+    }
+  }
+  return errors;
+}
+
+/** Read the envelope's plain-language error message (`error` or `message`), if any. */
+function readBodyMessage(body: Record<string, unknown> | null): string | null {
+  if (typeof body?.error === "string") return body.error;
+  if (typeof body?.message === "string") return body.message;
+  return null;
+}
 
 /** Configuration for {@link createNetworkProposalRepository}. */
 export interface NetworkProposalRepositoryOptions {
@@ -100,16 +142,42 @@ export function createNetworkProposalRepository(
         const item = (await response.json()) as WorkItem;
         return { outcome: "applied", item };
       }
-      // 409 (not pending / stale) and 404 (gone) both mean "no longer pending".
-      if (response.status === 409 || response.status === 404) {
-        return { outcome: "stale" };
+      // Read the error body ONCE (the stream is single-use) and derive every
+      // non-applied outcome from it — the UX needs the envelope's richer fields
+      // (field errors, current-vs-proposed versions, a stated failure reason),
+      // not just the HTTP code.
+      // TODO(lane-A-rebase): once Lane A ships, discriminate on the body's
+      // `status` field directly (per the pinned envelope) instead of the HTTP
+      // code; the field extraction below already matches Lane A's snake_case.
+      const body = await readJsonBody(response);
+      const envelopeStatus = typeof body?.status === "string" ? body.status : null;
+
+      // 409 (item changed / not pending) and 404 (gone) surface as `stale` with
+      // the current-vs-proposed version context the reconcile UI shows.
+      if (response.status === 409 || response.status === 404 || envelopeStatus === "stale") {
+        return {
+          outcome: "stale",
+          currentVersion: numberOrNull(body?.current_version),
+          proposedVersion: numberOrNull(body?.proposed_version),
+        };
       }
-      // 422 (invalid payload) — the proposal can't be applied as-is.
-      if (response.status === 422) {
-        return { outcome: "invalid" };
+      // 422 (invalid payload) — the proposal can't be applied as-is; carry the
+      // per-field, plain-language reasons.
+      if (response.status === 422 || envelopeStatus === "invalid") {
+        return { outcome: "invalid", fieldErrors: readFieldErrors(body) };
       }
-      // Anything else (401/5xx/…) is a real error, not an accept OUTCOME.
-      throw new Error(await errorMessage(response));
+      // An explicit `failed` envelope: a stated reason + retryability, surfaced
+      // (not thrown) so the human sees a legible failure with a retry choice.
+      if (envelopeStatus === "failed") {
+        return {
+          outcome: "failed",
+          reason: readBodyMessage(body) ?? `Couldn't apply this proposal (${response.status}).`,
+          retryable: body?.retryable !== false,
+        };
+      }
+      // Anything else (401/network/unexpected 5xx with no envelope) is a real
+      // transport error, not an accept OUTCOME — throw so it surfaces as such.
+      throw new Error(readBodyMessage(body) ?? `Request failed (${response.status})`);
     },
 
     reject: (id: string, reason?: string) =>

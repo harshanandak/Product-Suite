@@ -5,7 +5,12 @@ import { Link } from "@tanstack/react-router";
 import { Badge, Button, Textarea, cn } from "@product-suite/ui";
 
 import { useMemories, type MemoryRow } from "@/data/memories";
-import { useProposals, type AcceptResult, type Proposal } from "@/data/proposals";
+import {
+  useProposals,
+  type AcceptFieldError,
+  type AcceptResult,
+  type Proposal,
+} from "@/data/proposals";
 import { useWorkItems, type WorkItem } from "@/data/work-items";
 
 import {
@@ -47,21 +52,43 @@ export interface ProposalDetailProps {
   isMutating: boolean;
   /** Active workspace slug — used to link to the target/applied work item. */
   workspace: string;
+  /**
+   * Re-base a stale proposal against the current item (the "Refresh" action on
+   * the "this item changed" banner). Typically the inbox's list `refetch` — it
+   * re-reads pending proposals so the reviewer sees the current state. Optional:
+   * defaults to a no-op so the component renders standalone (tests/harness).
+   */
+  onRefresh?: () => void;
 }
 
-/** The terminal state a disposition leaves the pane in (survives list refetch). */
+/**
+ * The state a disposition leaves the pane in. `applied`/`rejected` are TERMINAL
+ * (survive the list refetch); `stale`/`invalid`/`failed` are RECOVERABLE — each
+ * carries the envelope context its banner needs and offers next actions
+ * (refresh/retry/edit/discard/apply-anyway) rather than being a dead end.
+ */
 type DisposeStatus =
   | { kind: "idle" }
   | { kind: "applied"; itemId: string }
   | { kind: "rejected" }
-  | { kind: "stale" }
-  | { kind: "invalid" };
+  | { kind: "stale"; currentVersion?: number | null; proposedVersion?: number | null }
+  | { kind: "invalid"; fieldErrors?: readonly AcceptFieldError[] }
+  | { kind: "failed"; reason: string; retryable: boolean };
 
-/** Map an accept outcome to the terminal disposition it leaves the pane in. */
+/** Map an accept outcome to the disposition it leaves the pane in. */
 function outcomeToStatus(result: AcceptResult): DisposeStatus {
   if (result.outcome === "applied") return { kind: "applied", itemId: result.item.id };
-  if (result.outcome === "stale") return { kind: "stale" };
-  return { kind: "invalid" };
+  if (result.outcome === "stale") {
+    return {
+      kind: "stale",
+      currentVersion: result.currentVersion,
+      proposedVersion: result.proposedVersion,
+    };
+  }
+  if (result.outcome === "failed") {
+    return { kind: "failed", reason: result.reason, retryable: result.retryable };
+  }
+  return { kind: "invalid", fieldErrors: result.fieldErrors };
 }
 
 /** Border/surface classes per banner tone. */
@@ -80,6 +107,137 @@ function StatusBanner({
   return (
     <output className={cn("block rounded-md border px-3 py-2 text-sm", BANNER_TONE[tone])}>
       {children}
+    </output>
+  );
+}
+
+/**
+ * "Needs attention" — the legible-failure banner for an `invalid` or `failed`
+ * accept (Linear-style compensation, never a dead toast). The proposal stays
+ * pending; the reviewer sees a PLAIN-LANGUAGE reason (per-field for `invalid`,
+ * the stated reason for `failed`) and clear recovery: Retry (re-attempt the same
+ * accept), Edit (return to the decision surface to adjust), Discard (reject it).
+ */
+function NeedsAttentionBanner({
+  fieldErrors,
+  reason,
+  retryable,
+  busy,
+  onRetry,
+  onEdit,
+  onDiscard,
+}: Readonly<{
+  /** Per-field reasons for an `invalid` outcome; empty ⇒ the generic `reason`. */
+  fieldErrors?: readonly AcceptFieldError[];
+  /** The single plain-language reason (a `failed` outcome, or an invalid fallback). */
+  reason: string;
+  /** Whether Retry is offered (a non-retryable failure hides it). */
+  retryable: boolean;
+  busy: boolean;
+  onRetry: () => void;
+  onEdit: () => void;
+  onDiscard: () => void;
+}>) {
+  const hasFieldErrors = (fieldErrors?.length ?? 0) > 0;
+  return (
+    <output
+      className={cn(
+        "block rounded-md border px-3.5 py-3 text-sm",
+        "border-destructive/40 bg-destructive/5 text-foreground",
+      )}
+    >
+      <p className="font-semibold text-foreground">Couldn’t apply this proposal</p>
+      {hasFieldErrors ? (
+        <ul className="mt-1.5 flex list-none flex-col gap-1 p-0">
+          {fieldErrors!.map((fieldError) => (
+            <li key={fieldError.field} className="flex flex-wrap gap-1.5 text-muted-foreground">
+              <span className="font-mono text-xs text-foreground/70">{fieldError.field}</span>
+              <span>{fieldError.message}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-1 text-muted-foreground">{reason}</p>
+      )}
+      <p className="mt-1.5 text-xs text-muted-foreground">
+        Nothing was applied — the proposal is still here to retry, edit, or discard.
+      </p>
+      <div className="mt-2.5 flex flex-wrap gap-2">
+        {retryable ? (
+          <Button size="sm" variant="default" disabled={busy} onClick={onRetry}>
+            Retry
+          </Button>
+        ) : null}
+        <Button size="sm" variant="outline" disabled={busy} onClick={onEdit}>
+          Edit
+        </Button>
+        <Button size="sm" variant="ghost" disabled={busy} onClick={onDiscard}>
+          Discard
+        </Button>
+      </div>
+    </output>
+  );
+}
+
+/** Render "version N" when a numeric version is known, else null (unknown). */
+function versionLabel(version: number | null | undefined): string | null {
+  return typeof version === "number" ? `version ${version}` : null;
+}
+
+/**
+ * "This item changed" — the reactive graceful-staleness surface (GitHub/Notion
+ * never-clobber). The underlying item moved since the agent proposed against it,
+ * so the reviewer chooses: Refresh (re-base against the current item), Discard,
+ * or — explicit, never the default — Apply anyway (apply the agent's original
+ * despite the change). We NEVER silently clobber.
+ */
+function ItemChangedBanner({
+  currentVersion,
+  proposedVersion,
+  busy,
+  onRefresh,
+  onDiscard,
+  onApplyAnyway,
+}: Readonly<{
+  currentVersion?: number | null;
+  proposedVersion?: number | null;
+  busy: boolean;
+  onRefresh: () => void;
+  onDiscard: () => void;
+  onApplyAnyway: () => void;
+}>) {
+  const proposed = versionLabel(proposedVersion);
+  const current = versionLabel(currentVersion);
+  return (
+    <output
+      className={cn(
+        "block rounded-md border px-3.5 py-3 text-sm",
+        "border-primary/40 bg-primary/5 text-foreground",
+      )}
+    >
+      <p className="font-semibold text-foreground">This item changed</p>
+      <p className="mt-1 text-muted-foreground">
+        This item changed since the agent proposed it. Applying now could overwrite that change.
+      </p>
+      {proposed && current ? (
+        <p className="mt-1.5 text-xs text-muted-foreground">
+          Proposed against {proposed} · now at {current}.
+        </p>
+      ) : null}
+      <div className="mt-2.5 flex flex-wrap items-center gap-2">
+        <Button size="sm" variant="default" disabled={busy} onClick={onRefresh}>
+          Refresh
+        </Button>
+        <Button size="sm" variant="ghost" disabled={busy} onClick={onDiscard}>
+          Discard
+        </Button>
+        <Button size="sm" variant="outline" disabled={busy} onClick={onApplyAnyway}>
+          Apply anyway
+        </Button>
+      </div>
+      <p className="mt-2 text-xs text-muted-foreground">
+        Apply anyway keeps the agent’s original despite the change.
+      </p>
     </output>
   );
 }
@@ -195,10 +353,16 @@ function DispositionBlock({
   isMutating,
   disableAccept,
   acceptHint,
+  busy,
   onAccept,
   onReject,
   onStartReject,
   onCancelReject,
+  onRetry,
+  onEdit,
+  onDiscard,
+  onRefresh,
+  onApplyAnyway,
 }: Readonly<{
   status: DisposeStatus;
   workspace: string;
@@ -211,10 +375,17 @@ function DispositionBlock({
   isMutating: boolean;
   disableAccept: boolean;
   acceptHint: string | null;
+  /** True while any recovery action (retry/discard/apply-anyway/refresh) is in flight. */
+  busy: boolean;
   onAccept: () => void;
   onReject: () => void;
   onStartReject: () => void;
   onCancelReject: () => void;
+  onRetry: () => void;
+  onEdit: () => void;
+  onDiscard: () => void;
+  onRefresh: () => void;
+  onApplyAnyway: () => void;
 }>) {
   if (status.kind === "applied") {
     // A memory has no workboard item — link to the decision log, never the
@@ -250,16 +421,39 @@ function DispositionBlock({
   if (status.kind === "rejected") return <StatusBanner tone="muted">Rejected.</StatusBanner>;
   if (status.kind === "stale") {
     return (
-      <StatusBanner tone="muted">
-        This proposal is no longer pending — the list has been refreshed.
-      </StatusBanner>
+      <ItemChangedBanner
+        currentVersion={status.currentVersion}
+        proposedVersion={status.proposedVersion}
+        busy={busy}
+        onRefresh={onRefresh}
+        onDiscard={onDiscard}
+        onApplyAnyway={onApplyAnyway}
+      />
     );
   }
   if (status.kind === "invalid") {
     return (
-      <StatusBanner tone="destructive">
-        The server rejected this proposal as invalid.
-      </StatusBanner>
+      <NeedsAttentionBanner
+        fieldErrors={status.fieldErrors}
+        reason="The server couldn’t apply this proposal as-is."
+        retryable
+        busy={busy}
+        onRetry={onRetry}
+        onEdit={onEdit}
+        onDiscard={onDiscard}
+      />
+    );
+  }
+  if (status.kind === "failed") {
+    return (
+      <NeedsAttentionBanner
+        reason={status.reason}
+        retryable={status.retryable}
+        busy={busy}
+        onRetry={onRetry}
+        onEdit={onEdit}
+        onDiscard={onDiscard}
+      />
     );
   }
   if (rejecting) {
@@ -276,7 +470,9 @@ function DispositionBlock({
   }
   return (
     <ActionButtons
-      isMutating={isMutating}
+      // `busy` folds the local in-flight guard into the disabled state so the
+      // primary Accept greys out during its own request (double-click-safe).
+      isMutating={isMutating || busy}
       disableAccept={disableAccept}
       acceptLabel={isRule ? "Accept rule" : "Accept"}
       acceptHint={acceptHint}
@@ -548,6 +744,7 @@ export function ProposalDetail({
   reject,
   isMutating,
   workspace,
+  onRefresh,
 }: Readonly<ProposalDetailProps>) {
   const isMemory = proposal.target_type === "memory";
   // A reflection-authored rule proposal — it gets the applicability/evidence/strength
@@ -656,25 +853,39 @@ export function ProposalDetail({
   // the pane sitting idle (an invisible failure). We mirror WorkboardScreen's
   // aria-live error surfacing so the user always sees a failed disposition.
   const [error, setError] = useState<string | null>(null);
+  // Local in-flight guard for EVERY write this pane can fire (accept, retry,
+  // apply-anyway, discard). Stripe-style safe-retry: a double-click on Accept
+  // (or any recovery button) must apply exactly once, independent of the parent's
+  // `isMutating` — the ref rejects re-entry synchronously (before React paints
+  // the disabled state), and `busy` disables the buttons for the visual guard.
+  const [busy, setBusy] = useState(false);
+  const inFlightRef = useRef(false);
 
-  const onAccept = (): void => {
-    // The hook refetches the list on settle; we branch on the SURFACED outcome so
-    // a stale/invalid disposition is never a silent failure. A THROWN error
-    // (transport 5xx/401/network) surfaces as a visible banner, never silence.
-    setError(null);
+  /** The FULL merged edited_payload for a reviewer-tuned rule, else undefined. */
+  const editedPayloadForAccept = (): Record<string, unknown> | undefined =>
     // When the reviewer changed a rule's strength, fold it into the FULL merged
     // payload — the API applies `edited_payload ?? payload` as a wholesale replace and
     // re-validates (kind+title required), so a partial `{enforcement,pinned}` would drop
     // those and terminally fail the proposal. An untouched proposal accepts as-is.
-    const editedPayload =
-      isRuleProposal && ruleStrengthTouched.current
-        ? {
-            ...(proposal.payload as Record<string, unknown>),
-            enforcement: ruleStrength.enforcement,
-            pinned: ruleStrength.pinned,
-          }
-        : undefined;
-    void accept(proposal.id, editedPayload)
+    isRuleProposal && ruleStrengthTouched.current
+      ? {
+          ...(proposal.payload as Record<string, unknown>),
+          enforcement: ruleStrength.enforcement,
+          pinned: ruleStrength.pinned,
+        }
+      : undefined;
+
+  // Accept (and re-accept via Retry / Apply anyway) — one guarded path. The hook
+  // refetches the list on settle; we branch on the SURFACED outcome so a
+  // stale/invalid/failed disposition is never silent. A THROWN error (transport
+  // 5xx/401/network) surfaces as a visible banner, never silence. The
+  // `inFlightRef` gate makes a double-click a single apply (idempotent-safe).
+  const runAccept = (): void => {
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+    setBusy(true);
+    setError(null);
+    void accept(proposal.id, editedPayloadForAccept())
       .then((result) => {
         setStatus(outcomeToStatus(result));
       })
@@ -684,8 +895,62 @@ export function ProposalDetail({
             ? err.message
             : "Couldn't accept this proposal. Please try again.",
         );
+      })
+      .finally(() => {
+        inFlightRef.current = false;
+        setBusy(false);
       });
   };
+
+  const onAccept = runAccept;
+
+  // Discard from a recoverable banner (invalid/failed/stale) = reject the
+  // proposal, sharing the single in-flight guard so it can't race a retry.
+  const onDiscard = (): void => {
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+    setBusy(true);
+    setError(null);
+    void reject(proposal.id)
+      .then(() => {
+        setStatus({ kind: "rejected" });
+      })
+      .catch((err: unknown) => {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Couldn't discard this proposal. Please try again.",
+        );
+      })
+      .finally(() => {
+        inFlightRef.current = false;
+        setBusy(false);
+      });
+  };
+
+  // Edit = dismiss the recoverable banner back to the decision surface so the
+  // reviewer can adjust (e.g. a rule's strength) and re-accept.
+  const onEdit = (): void => {
+    setError(null);
+    setStatus({ kind: "idle" });
+  };
+
+  // Refresh a stale proposal = re-base against the current item: ask the inbox to
+  // refetch, then return the pane to its live action state.
+  // TODO(lane-A-rebase): the FULL field-granular staleness engine (epic
+  // a41345b4) shows a live current-vs-proposed diff here; this reactive slice
+  // re-pulls the list so the reviewer sees current state, never a silent clobber.
+  const onRefreshAction = (): void => {
+    setError(null);
+    setStatus({ kind: "idle" });
+    onRefresh?.();
+  };
+
+  // Apply anyway = re-attempt accept EXPLICITLY despite the staleness (never the
+  // default). Same guarded path as Accept.
+  // TODO(lane-A-rebase): a true force-apply needs Lane A's force/target_version
+  // param on accept; today this re-attempts and the backend re-checks.
+  const onApplyAnyway = runAccept;
 
   const onReject = (): void => {
     const trimmed = reason.trim();
@@ -744,6 +1009,7 @@ export function ProposalDetail({
         isMutating={isMutating}
         disableAccept={disableAccept}
         acceptHint={acceptHint}
+        busy={busy}
         onAccept={onAccept}
         onReject={onReject}
         onStartReject={() => setRejecting(true)}
@@ -753,6 +1019,11 @@ export function ProposalDetail({
           // Clear any prior failed-reject banner — nothing is in flight.
           setError(null);
         }}
+        onRetry={runAccept}
+        onEdit={onEdit}
+        onDiscard={onDiscard}
+        onRefresh={onRefreshAction}
+        onApplyAnyway={onApplyAnyway}
       />
 
       {/* provenance — fine print */}
