@@ -531,7 +531,7 @@ describe("WorkboardScreen", () => {
     expect(create).not.toHaveBeenCalled();
   });
 
-  it("derives team_id + status_id + department + phase from the first item as an atomic quadruple for the unscoped New", async () => {
+  it("derives ONLY team_id + department for the unscoped New and lets the server assign the initial status", async () => {
     const base = createMockWorkItemRepository();
     const createSpy = vi.fn((input: CreateWorkItemInput) => base.create(input));
     const repository = { ...base, create: createSpy };
@@ -545,26 +545,24 @@ describe("WorkboardScreen", () => {
     // The screen derives the create defaults from the FIRST loaded item; capture
     // it so the assertion tracks the fixture rather than hard-coding its ids.
     const [first] = await base.list();
-    // The fixture's first item is a NON-plan phase (fixtures seed wi_auth as
-    // "execute"), so passing phase through actually matters — without it the
-    // server would default phase to "plan" and disagree with the borrowed status.
-    expect(first.phase).not.toBe("plan");
 
     fireEvent.click(screen.getByRole("button", { name: /new work item/i }));
 
-    // The unscoped New passes team_id, status_id, department, AND phase from the
-    // SAME first item as one ATOMIC quadruple (a status belongs to a team) —
-    // mirroring the mock's workItems[0] backfill and the scoped #104 fix, so the
-    // real API's required status_id is satisfied instead of POSTing a bare {} the
-    // backend rejects, and the borrowed status_id stays aligned with its phase.
+    // The unscoped New passes ONLY team_id + department from the first item — for
+    // MULTI-TEAM disambiguation and Team grouping/facet consistency — and OMITS
+    // status_id/phase so the SERVER seeds the team's initial status (#108, kernel
+    // issue 648b180d). It must NOT borrow items[0]'s status_id: the live list is
+    // ordered `updated_at desc`, so the first item can be a COMPLETED status and
+    // a brand-new item would otherwise be born in a done column.
     await waitFor(() => {
       expect(createSpy).toHaveBeenCalledWith({
         team_id: first.team_id,
-        status_id: first.status_id,
         department: first.department,
-        phase: first.phase,
       });
     });
+    const payload = createSpy.mock.calls[0]?.[0];
+    expect(payload).not.toHaveProperty("status_id");
+    expect(payload).not.toHaveProperty("phase");
   });
 
   it("still calls create({}) on an empty board — nothing to derive, button stays usable", async () => {

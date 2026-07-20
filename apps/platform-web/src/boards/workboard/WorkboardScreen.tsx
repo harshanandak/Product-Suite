@@ -496,40 +496,37 @@ export function WorkboardScreen({
     // action is disabled in the UI on an empty scoped team, but guard here too
     // so no invalid/cross-team-status create can ever fire.
     if (newItemDisabled) return;
-    // Derive the create defaults CLIENT-SIDE. The server is (becoming)
-    // authoritative for resolving a team's default status, but until that lands
-    // the network repository POSTs the raw input and the real API rejects a
-    // create with no `status_id` — so this derivation is DEFENSE-IN-DEPTH, not
-    // dead code: do NOT "clean it up" when the server default lands.
+    // Derive the create defaults CLIENT-SIDE. The SERVER is authoritative for a
+    // team's INITIAL status: #108 landed server-side resolution of the team's
+    // default status (lowest-position non-triage status) whenever `status_id` is
+    // omitted from the create (kernel issue 648b180d).
     //
     // Scoped route (teamId set): thread the route's teamId so the new item
     // lands on THIS team — without it the repo backfills team_id from a default
     // and the fresh item can vanish from the scoped list. Carry the team's
     // `department` NAME (when a sibling supplies it) so the item GROUPS/LABELS
-    // under the correct Team column, plus a prod-valid `status_id` sourced from
-    // a SAME-TEAM sibling — see `scopedTeamName` / `scopedStatusId`.
+    // under the correct Team column, plus a same-team `status_id` sourced from a
+    // SAME-TEAM sibling — see `scopedTeamName` / `scopedStatusId`.
     //
-    // Unscoped route: derive team_id, status_id, department, AND phase from the
-    // SAME first loaded item as one atomic quadruple (a status belongs to a
-    // team, so pulling them from different items could pair a status with a team
-    // it doesn't belong to), mirroring the mock repository's own `workItems[0]`
-    // backfill. `phase` is derived alongside because the server defaults phase to
-    // 'plan' (createWorkItem: `input.phase ?? 'plan'`); borrowing a NON-plan
-    // sibling's status_id without its phase would create a row whose phase and
-    // status_id disagree, and the UI still reads phase (Codex review, PR #105).
-    // Keep phase here until the phase→status_id field flip retires the legacy
-    // field. On an EMPTY board there is nothing to derive — fall back to
-    // create({}) and let the server resolve the team default (the New button
-    // stays enabled so a fresh workspace can still create its first item).
+    // Unscoped route: derive ONLY team_id + department from the SAME first loaded
+    // item — the client supplies these for MULTI-TEAM disambiguation (a mixed
+    // board needs a target team, and the Team grouping/facets read `department`),
+    // and lets the SERVER assign the initial status (kernel issue 648b180d).
+    // Crucially, we NO LONGER borrow the first item's `status_id`/`phase`: the
+    // live list is ordered `updated_at desc`, so items[0] can be a COMPLETED
+    // status (Execute/Review/Done) — sending it would BIRTH a brand-new item in
+    // a done column. Omitting them makes the server seed the correct initial
+    // status instead (single-team tenants would default team_id server-side too).
+    // On an EMPTY board there is nothing to derive — fall back to create({}) and
+    // let the server resolve the team default (the New button stays enabled so a
+    // fresh workspace can still create its first item).
     const first = items[0];
     const input: CreateWorkItemInput =
       teamId === undefined
         ? first
           ? {
               team_id: first.team_id,
-              status_id: first.status_id,
               department: first.department,
-              phase: first.phase,
             }
           : {}
         : {
