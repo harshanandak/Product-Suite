@@ -33,9 +33,15 @@ import { getProposalScoped, type ProposalRow } from './repository'
  * HTTP via {@link acceptHttpStatus} and ALWAYS emits the envelope in the body.
  */
 
-/** The HTTP status the accept route returns for each {@link AcceptResult} variant. */
-export function acceptHttpStatus(status: AcceptResult['status']): 200 | 404 | 409 | 422 | 500 {
-  switch (status) {
+/**
+ * The HTTP status the accept route returns for an {@link AcceptResult}. `failed` splits
+ * on `retryable`: a genuine (transient) server fault → 500 so it SHOULD alert; a
+ * deterministic non-retryable failure → 422 (unprocessable, NOT a server error) so it
+ * never pollutes 5xx dashboards. 5xx is reserved for real server faults; 4xx covers
+ * deterministic bad/undeliverable proposals.
+ */
+export function acceptHttpStatus(result: AcceptResult): 200 | 404 | 409 | 422 | 500 {
+  switch (result.status) {
     case 'applied':
       return 200
     case 'invalid':
@@ -46,7 +52,7 @@ export function acceptHttpStatus(status: AcceptResult['status']): 200 | 404 | 40
     case 'not_found':
       return 404
     case 'failed':
-      return 500
+      return result.retryable ? 500 : 422
   }
 }
 

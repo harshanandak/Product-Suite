@@ -63,21 +63,29 @@ proposalsRoutes.post('/:id/accept', async (c) => {
     const approverUserId = await callerUserId(sql, claims)
     if (!approverUserId) {
       console.error('[proposals] accept: tenant resolved but no user identity for subject')
-      return c.json(
-        { status: 'failed', proposal_id: id, message: 'No user identity for subject', retryable: false } satisfies AcceptResult,
-        500,
-      )
+      // Deterministic (a retry won't conjure an identity mapping) → non-retryable → 422,
+      // so a per-request provisioning gap never pages the on-call as a 5xx.
+      const noIdentity: AcceptResult = {
+        status: 'failed',
+        proposal_id: id,
+        message: 'No user identity for subject',
+        retryable: false,
+      }
+      return c.json(noIdentity, acceptHttpStatus(noIdentity))
     }
 
     const res = await applyProposal(sql, { tenantIds, approverUserId }, id, editedPayload)
-    return c.json(res, acceptHttpStatus(res.status))
+    return c.json(res, acceptHttpStatus(res))
   } catch (cause) {
     console.error('[proposals] accept failed', cause)
-    // An unexpected error is a `failed` envelope (retryable) — the proposal stays pending.
-    return c.json(
-      { status: 'failed', proposal_id: id, message: 'Failed to accept proposal', retryable: true } satisfies AcceptResult,
-      500,
-    )
+    // An unexpected error is a genuine (transient) server fault → retryable → 500 (alerts).
+    const failure: AcceptResult = {
+      status: 'failed',
+      proposal_id: id,
+      message: 'Failed to accept proposal',
+      retryable: true,
+    }
+    return c.json(failure, acceptHttpStatus(failure))
   }
 })
 

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Sql } from '@product-suite/db'
 
 import { DomainError } from '../domain/errors'
-import { applyProposal } from './apply'
+import { acceptHttpStatus, applyProposal } from './apply'
 
 // The domain commands are the SHARED validated write path — here we mock them so
 // each test controls exactly what the command does (returns a row / throws a typed
@@ -582,5 +582,21 @@ describe('applyProposal (write-first, flip-last)', () => {
     expect(res).toMatchObject({ status: 'invalid', proposal_id: 'p1', retryable: false })
     expect(getStatus()).toBe('failed')
     expect(supersedeMemory).not.toHaveBeenCalled()
+  })
+})
+
+describe('acceptHttpStatus', () => {
+  it('splits `failed` on retryable: transient → 500 (alerts), deterministic → 422 (not a 5xx)', () => {
+    expect(acceptHttpStatus({ status: 'failed', proposal_id: 'p1', message: 'x', retryable: true })).toBe(500)
+    expect(acceptHttpStatus({ status: 'failed', proposal_id: 'p1', message: 'x', retryable: false })).toBe(422)
+  })
+
+  it('maps the decision + guard variants to their fixed statuses', () => {
+    expect(acceptHttpStatus({ status: 'applied', proposal_id: 'p1', item_id: 'w' })).toBe(200)
+    expect(acceptHttpStatus({ status: 'invalid', proposal_id: 'p1', message: 'x', retryable: true })).toBe(422)
+    expect(acceptHttpStatus({ status: 'invalid', proposal_id: 'p1', message: 'x', retryable: false })).toBe(422)
+    expect(acceptHttpStatus({ status: 'stale', proposal_id: 'p1', item_id: 'w', message: 'x' })).toBe(409)
+    expect(acceptHttpStatus({ status: 'not_found', proposal_id: 'p1' })).toBe(404)
+    expect(acceptHttpStatus({ status: 'not_pending', proposal_id: 'p1' })).toBe(409)
   })
 })

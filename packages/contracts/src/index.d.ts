@@ -806,8 +806,9 @@ export function deriveHealth(
 // so the Review Inbox renders every outcome legibly (Linear-style optimistic +
 // rollback) instead of guessing from a raw error. Discriminated on `status`, the
 // same shape convention as {@link AuthClaimsValidationResult}. HTTP mapping:
-// applied → 200, invalid → 422, stale → 409, failed → 500, not_found → 404,
-// not_pending → 409.
+// applied → 200, invalid → 422, stale → 409, not_found → 404, not_pending → 409,
+// and `failed` splits on retryable — retryable:true → 500 (a genuine server fault,
+// alert-worthy), retryable:false → 422 (deterministic/unprocessable, not a 5xx).
 //
 // The Inbox renders `invalid` and `failed` the SAME way ("Needs attention") and
 // branches on the single `retryable` field — Retry/Edit/Discard when `retryable` is
