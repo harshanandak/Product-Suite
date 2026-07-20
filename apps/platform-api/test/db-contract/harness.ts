@@ -140,6 +140,15 @@ export async function query<Row = Record<string, unknown>>(
  * the chain runs. This mirrors production, where those tables pre-exist.
  */
 async function applyMigrations(sql: Sql): Promise<void> {
+  // Start from a pristine schema so the tier is PARENT-AGNOSTIC: the branch may be
+  // cloned from an empty root OR from a populated production branch (which already
+  // has these tables + data), and a contract test must depend on neither. Resetting
+  // `public` guarantees migration 0000 runs against an empty schema every time — the
+  // literal "fresh branch" test 10 asserts. Safe because the branch is ephemeral and
+  // isolated (deleted in teardown); it never touches the parent.
+  await exec(sql, `drop schema if exists public cascade`)
+  await exec(sql, `create schema public`)
+
   // Minimal stand-ins for the externally-owned identity tables the FKs reference.
   await exec(sql, `create table if not exists tenants (id text primary key, name text)`)
   await exec(sql, `create table if not exists users (id text primary key, email text)`)
