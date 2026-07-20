@@ -112,28 +112,26 @@ describe('createWorkItem', () => {
     ).rejects.toMatchObject({ code: 'no_team' })
   })
 
-  it('rejects a provided-but-blank team_id (empty string or null) as unknown_team, never defaulting', async () => {
-    // Only an ABSENT key defaults; a supplied blank must reach validation and reject.
-    // null is out-of-type (team_id: string) but can arrive via the untyped route body.
-    for (const blank of ['', null]) {
-      const sql = vi.fn().mockResolvedValueOnce([]) // team-ownership check → no such team
+  it('rejects a provided-but-blank team_id (empty/whitespace/null) as unknown_team BEFORE any query', async () => {
+    // Only an ABSENT key defaults; a supplied blank must reject. team_id is a uuid
+    // column, so the guard must fire BEFORE the query — a blank reaching the query
+    // would raise Postgres 22P02 (500), not a clean 400. null is out-of-type
+    // (team_id: string) but can arrive via the untyped route body.
+    for (const blank of ['', '   ', null]) {
+      const sql = vi.fn() // must never be called — guard rejects pre-query
       await expect(
         createWorkItem(sql as unknown as Sql, { tenantId: 't_1', actor }, {
           title: 'A',
           team_id: blank as unknown as string,
         }),
       ).rejects.toMatchObject({ code: 'unknown_team' })
-      // Validated (1 read), NOT defaulted — resolveDefaultTeamId never ran.
-      expect(sql).toHaveBeenCalledTimes(1)
+      expect(sql).not.toHaveBeenCalled() // no uuid query ran → no 22P02/500, no defaulting
     }
   })
 
-  it('rejects a provided-but-blank status_id (empty string or null) as unknown_status, never defaulting', async () => {
-    for (const blank of ['', null]) {
-      const sql = vi.fn()
-      sql
-        .mockResolvedValueOnce([{ n: 1 }]) // team owned
-        .mockResolvedValueOnce([]) // status-ownership check → no such status
+  it('rejects a provided-but-blank status_id (empty/whitespace/null) as unknown_status BEFORE the status query', async () => {
+    for (const blank of ['', '   ', null]) {
+      const sql = vi.fn().mockResolvedValueOnce([{ n: 1 }]) // team ownership check (owned)
       await expect(
         createWorkItem(sql as unknown as Sql, { tenantId: 't_1', actor }, {
           title: 'A',
@@ -141,8 +139,9 @@ describe('createWorkItem', () => {
           status_id: blank as unknown as string,
         }),
       ).rejects.toMatchObject({ code: 'unknown_status' })
-      // Validated (2 reads), NOT defaulted — resolveDefaultStatusId never ran.
-      expect(sql).toHaveBeenCalledTimes(2)
+      // Only the team check ran (1 read); the blank status rejected before its own
+      // uuid query — no 22P02/500, no resolveDefaultStatusId defaulting.
+      expect(sql).toHaveBeenCalledTimes(1)
     }
   })
 

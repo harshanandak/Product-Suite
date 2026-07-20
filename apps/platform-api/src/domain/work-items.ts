@@ -155,6 +155,11 @@ export async function createWorkItem(
     teamId = await resolveDefaultTeamId(sql, tenantId)
   } else {
     teamId = input.team_id
+    // teams.id is a uuid column, so a blank/whitespace (or, via the untyped route
+    // body, a null) id fed to the query raises Postgres 22P02 → 500, NOT a clean
+    // 400. Reject it up front as unknown_team, BEFORE the query — never rely on the
+    // query result to catch a syntactically-invalid uuid.
+    if (!teamId || teamId.trim() === '') throw new DomainError('unknown_team', 'Unknown team')
     const ownedTeam = (await sql`
       select 1 from teams where id = ${teamId} and tenant_id = ${tenantId}
     `) as unknown[]
@@ -172,6 +177,9 @@ export async function createWorkItem(
     statusId = await resolveDefaultStatusId(sql, teamId)
   } else {
     statusId = input.status_id
+    // statuses.id is a uuid column too — same 22P02 hazard as team_id above. Reject
+    // a blank/whitespace/null status id up front as unknown_status, BEFORE the query.
+    if (!statusId || statusId.trim() === '') throw new DomainError('unknown_status', 'Unknown status')
     const ownedStatus = (await sql`
       select 1 from statuses where id = ${statusId} and team_id = ${teamId}
     `) as unknown[]
