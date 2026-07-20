@@ -105,6 +105,41 @@ describe('work-item writes', () => {
     expect(defaultLookupParams).toContain('team_1')
   })
 
+  it('POST rejects a MALFORMED JSON body with 400 (never silently creates an Untitled item)', async () => {
+    // A non-empty body that fails to parse must 400, not swallow to {} and default
+    // a stray "Untitled work item" now that team_id defaults for single-team tenants.
+    const sql = vi.fn() // must never be reached — rejected before any tenant lookup
+    createSql.mockReturnValue(sql)
+    const res = await app.request('/api/work-items', {
+      method: 'POST',
+      ...auth,
+      body: '{ this is not valid json',
+    })
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'Malformed JSON body' })
+    expect(sql).not.toHaveBeenCalled()
+  })
+
+  it('POST allows a genuinely EMPTY body — defaults into the caller’s sole team (201)', async () => {
+    const sql = vi.fn()
+    sql
+      .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
+      .mockResolvedValueOnce([{ id: 'team_solo' }]) // resolveDefaultTeamId (single team)
+      .mockResolvedValueOnce([{ id: 'status_default' }]) // resolveDefaultStatusId
+      .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId
+    ;(sql as unknown as { query: ReturnType<typeof vi.fn> }).query = vi.fn()
+    ;(sql as unknown as { transaction: ReturnType<typeof vi.fn> }).transaction = vi
+      .fn()
+      .mockResolvedValue([[{ ...WI_ROW, team_id: 'team_solo', status_id: 'status_default' }], [{}]])
+    createSql.mockReturnValue(sql)
+    const res = await app.request('/api/work-items', {
+      method: 'POST',
+      ...auth,
+      body: '', // zero-byte body is "genuinely empty", not malformed
+    })
+    expect(res.status).toBe(201)
+  })
+
   it('POST returns a clear error when the team has no default status', async () => {
     const sql = vi.fn()
     sql
