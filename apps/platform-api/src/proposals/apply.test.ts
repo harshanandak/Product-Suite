@@ -233,7 +233,8 @@ describe('applyProposal (write-first, flip-last)', () => {
       proposal: { payload: { title: 'A', team_id: 'not-a-uuid', status_id: STATUS_ID } },
     })
     const res = await applyProposal(sql, ctx, 'p1')
-    expect(res).toMatchObject({ status: 'invalid', proposal_id: 'p1' })
+    // Recoverable decline → invalid + retryable:true; the Inbox offers Retry/Edit.
+    expect(res).toMatchObject({ status: 'invalid', proposal_id: 'p1', retryable: true })
     // The plain-language reason names the offending field.
     if (res.status === 'invalid') expect(res.message).toContain('team_id')
     // Fixable field error → recoverable: never claimed, never written, never flipped.
@@ -253,7 +254,7 @@ describe('applyProposal (write-first, flip-last)', () => {
       proposal: { payload: { title: 'A', status_id: STATUS_ID, department: 'Eng' } },
     })
     const res = await applyProposal(sql, ctx, 'p1')
-    expect(res).toMatchObject({ status: 'invalid', proposal_id: 'p1' })
+    expect(res).toMatchObject({ status: 'invalid', proposal_id: 'p1', retryable: true })
     if (res.status === 'invalid') expect(res.message).toContain('team')
     expect(getStatus()).toBe('pending')
     expect(createWorkItem).not.toHaveBeenCalled()
@@ -263,7 +264,7 @@ describe('applyProposal (write-first, flip-last)', () => {
     createWorkItem.mockReset().mockRejectedValue(new DomainError('unknown_team', 'Unknown team'))
     const { sql, getStatus, query } = makeSql({})
     const res = await applyProposal(sql, ctx, 'p1')
-    expect(res).toMatchObject({ status: 'invalid', proposal_id: 'p1' })
+    expect(res).toMatchObject({ status: 'invalid', proposal_id: 'p1', retryable: true })
     if (res.status === 'invalid') expect(res.message).toBe('Unknown team')
     // The write ran BEFORE any flip, so the failed proposal is still pending (re-acceptable).
     expect(getStatus()).toBe('pending')
@@ -274,12 +275,28 @@ describe('applyProposal (write-first, flip-last)', () => {
     expect(flips).toHaveLength(0)
   })
 
+  it('retryable distinguishes a RECOVERABLE invalid (stays pending) from a TERMINAL one (failed in DB)', async () => {
+    // Recoverable: a fixable payload id — invalid + retryable:true, proposal stays pending.
+    const recoverable = makeSql({
+      proposal: { payload: { title: 'A', team_id: 'not-a-uuid', status_id: STATUS_ID } },
+    })
+    const rec = await applyProposal(recoverable.sql, ctx, 'p1')
+    expect(rec).toMatchObject({ status: 'invalid', retryable: true })
+    expect(recoverable.getStatus()).toBe('pending')
+
+    // Terminal: a structural defect no edit can fix — invalid + retryable:false, DB → failed.
+    const terminal = makeSql({ proposal: { run_id: null } })
+    const term = await applyProposal(terminal.sql, ctx, 'p1')
+    expect(term).toMatchObject({ status: 'invalid', retryable: false })
+    expect(terminal.getStatus()).toBe('failed')
+  })
+
   it('write fails (raw pg 22P02) → classified as invalid (not a 500), proposal stays pending', async () => {
     const pgErr = Object.assign(new Error('invalid input syntax for type uuid: "open"'), { code: '22P02' })
     createWorkItem.mockReset().mockRejectedValue(pgErr)
     const { sql, getStatus } = makeSql({})
     const res = await applyProposal(sql, ctx, 'p1')
-    expect(res).toMatchObject({ status: 'invalid', proposal_id: 'p1' })
+    expect(res).toMatchObject({ status: 'invalid', proposal_id: 'p1', retryable: true })
     expect(getStatus()).toBe('pending')
   })
 
@@ -310,12 +327,12 @@ describe('applyProposal (write-first, flip-last)', () => {
     expect(createWorkItem).not.toHaveBeenCalled()
   })
 
-  it('returns terminal failed for an unsupported target/operation AND fails it in the DB (never written)', async () => {
+  it('returns terminal invalid for an unsupported target/operation AND fails it in the DB (never written)', async () => {
     const { sql, getStatus } = makeSql({ proposal: { target_type: 'invoice', operation: 'create' } })
     const res = await applyProposal(sql, ctx, 'p1')
-    // A permanent structural defect → TERMINAL failed (retryable:false); it can't sit
-    // pending in listPending forever, and the command never runs.
-    expect(res).toMatchObject({ status: 'failed', proposal_id: 'p1', retryable: false })
+    // A permanent structural defect → invalid + retryable:false (Discard only); it can't
+    // sit pending in listPending forever, and the command never runs.
+    expect(res).toMatchObject({ status: 'invalid', proposal_id: 'p1', retryable: false })
     expect(getStatus()).toBe('failed')
     expect(createWorkItem).not.toHaveBeenCalled()
   })
@@ -323,7 +340,7 @@ describe('applyProposal (write-first, flip-last)', () => {
   it('a proposal with null run_id terminally fails; a second accept is not_pending', async () => {
     const { sql, getStatus } = makeSql({ proposal: { run_id: null } })
     const res = await applyProposal(sql, ctx, 'p1')
-    expect(res).toMatchObject({ status: 'failed', proposal_id: 'p1', retryable: false })
+    expect(res).toMatchObject({ status: 'invalid', proposal_id: 'p1', retryable: false })
     expect(getStatus()).toBe('failed') // no longer pending → out of listPending
     expect(createWorkItem).not.toHaveBeenCalled()
     // The proposal is now terminal: re-accepting it is a no-op, not a perpetual error.
@@ -336,8 +353,8 @@ describe('applyProposal (write-first, flip-last)', () => {
       proposal: { operation: 'update', target_id: 'not-a-uuid', payload: { phase: 'done' } },
     })
     const res = await applyProposal(sql, ctx, 'p1')
-    expect(res).toMatchObject({ status: 'failed', proposal_id: 'p1', retryable: false })
-    if (res.status === 'failed') expect(res.message).toContain('target_id')
+    expect(res).toMatchObject({ status: 'invalid', proposal_id: 'p1', retryable: false })
+    if (res.status === 'invalid') expect(res.message).toContain('target_id')
     expect(getStatus()).toBe('failed')
     expect(updateWorkItem).not.toHaveBeenCalled()
   })
@@ -552,7 +569,7 @@ describe('applyProposal (write-first, flip-last)', () => {
       },
     })
     const res = await applyProposal(sql, ctx, 'p1')
-    expect(res).toMatchObject({ status: 'invalid', proposal_id: 'p1' })
+    expect(res).toMatchObject({ status: 'invalid', proposal_id: 'p1', retryable: true })
     // The write ran before any flip, so the proposal is still pending (the human can discard it).
     expect(getStatus()).toBe('pending')
   })
@@ -562,7 +579,7 @@ describe('applyProposal (write-first, flip-last)', () => {
       proposal: { target_type: 'memory', operation: 'frobnicate', target_id: MEM_TARGET, payload: {} },
     })
     const res = await applyProposal(sql, ctx, 'p1')
-    expect(res).toMatchObject({ status: 'failed', proposal_id: 'p1', retryable: false })
+    expect(res).toMatchObject({ status: 'invalid', proposal_id: 'p1', retryable: false })
     expect(getStatus()).toBe('failed')
     expect(supersedeMemory).not.toHaveBeenCalled()
   })

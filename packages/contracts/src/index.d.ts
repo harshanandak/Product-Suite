@@ -809,12 +809,15 @@ export function deriveHealth(
 // applied → 200, invalid → 422, stale → 409, failed → 500, not_found → 404,
 // not_pending → 409.
 //
-// The Inbox branches on `status`:
-//  - `invalid`  → RECOVERABLE: the proposal stays pending. Render "Needs attention"
-//                 with Retry / Edit / Discard; `message` is the plain-language reason.
-//  - `failed`   → TERMINAL/structural (retryable:false) OR an unexpected server error
-//                 (retryable:true). Render "Couldn't apply" with Discard/acknowledge;
-//                 offer Retry only when `retryable` is true.
+// The Inbox renders `invalid` and `failed` the SAME way ("Needs attention") and
+// branches on the single `retryable` field — Retry/Edit/Discard when `retryable` is
+// true, Discard/acknowledge only when false:
+//  - `invalid`  → a DECIDED decline. retryable:true = a fixable payload/field problem,
+//                 the proposal STAYS pending (correct + re-accept). retryable:false = a
+//                 permanent structural defect (unsupported op, no run, malformed target),
+//                 the proposal is terminally `failed` server-side. `message` is the reason.
+//  - `failed`   → an UNEXPECTED server error (not a decision). retryable hints whether a
+//                 retry may help; the proposal stays pending.
 //  - `stale`    → the target moved; stays pending. Render the reconcile choices.
 //  - `applied`  → success; `item_id` drives the "View item →" link.
 // (`not_found` / `not_pending` are the pre-decision guards.)
@@ -824,12 +827,14 @@ export type AcceptResult =
   /** Applied exactly once; `item_id` is the created/updated work item or memory. */
   | { status: "applied"; proposal_id: string; item_id: string }
   /**
-   * RECOVERABLE decline — a fixable payload problem (malformed/absent id, unknown
-   * team, a domain-invariant violation). The proposal is NOT applied and STAYS
-   * pending, so the human corrects the payload and re-accepts. `message` is the
-   * plain-language reason. (Per-field `field_errors[]` is deferred to a later pass.)
+   * A DECIDED decline. `retryable:true` = a fixable payload problem (malformed/absent
+   * id, unknown team, a domain-invariant violation) — the proposal is NOT applied and
+   * STAYS pending, so the human corrects it and re-accepts. `retryable:false` = a
+   * permanent structural defect (unsupported operation, no attributable run, malformed
+   * target) — the proposal is terminally `failed` server-side (Discard/acknowledge
+   * only). `message` is the plain-language reason. (Per-field `field_errors[]` deferred.)
    */
-  | { status: "invalid"; proposal_id: string; message: string }
+  | { status: "invalid"; proposal_id: string; message: string; retryable: boolean }
   /**
    * The target moved under the write (version/existence conflict) — the proposal
    * stays reviewable, never silently clobbered. `item_id` is the target that moved.
@@ -838,10 +843,8 @@ export type AcceptResult =
    */
   | { status: "stale"; proposal_id: string; item_id: string | null; message: string }
   /**
-   * TERMINAL decline. `retryable:false` = a permanent structural defect (unsupported
-   * operation, no attributable run, malformed target) — the proposal is terminally
-   * `failed` server-side; the UI offers Discard/acknowledge only. `retryable:true` =
-   * an unexpected server error — the proposal stays pending and a retry may succeed.
+   * An UNEXPECTED server error (a bug/outage, not a decision) — the proposal stays
+   * pending. `retryable` hints whether a retry may succeed (transient → true).
    */
   | { status: "failed"; proposal_id: string; message: string; retryable: boolean }
   /** Not in the caller's tenants (or never existed). */

@@ -114,8 +114,9 @@ function sqlQuery<Row = Record<string, unknown>>(
 
 /**
  * Terminally fail a permanently-invalid proposal (a structural pre-check failure that
- * no payload edit can fix) and report the TERMINAL `failed` envelope (retryable:false —
- * the Inbox offers Discard only, never Retry/Edit). The flip is GUARDED on
+ * no payload edit can fix) and report it as `invalid` with `retryable:false` — a DECIDED
+ * decline the Inbox renders with Discard/acknowledge only (never Retry/Edit). The DB row
+ * is flipped to `failed` so it leaves `listPending`; the flip is GUARDED on
  * `status='pending'` so it is a no-op if the proposal was already decided — it never
  * resurrects or re-decides a row.
  */
@@ -126,7 +127,7 @@ async function failTerminal(sql: Sql, proposalId: string, message: string): Prom
      where id = $2 and status = 'pending'`,
     [message, proposalId],
   )
-  return { status: 'failed', proposal_id: proposalId, message, retryable: false }
+  return { status: 'invalid', proposal_id: proposalId, message, retryable: false }
 }
 
 /** Canonical 8-4-4-4-12 UUID (any version). */
@@ -212,13 +213,16 @@ function classifyWriteFailure(cause: unknown, proposal: ProposalRow): AcceptResu
     if (cause.code === 'stale' || cause.code === 'conflict') {
       return { status: 'stale', proposal_id: proposalId, item_id: proposal.target_id, message: cause.message }
     }
-    return { status: 'invalid', proposal_id: proposalId, message: cause.message }
+    // A domain-invariant violation is a RECOVERABLE decline — the write never flipped, so
+    // the proposal is still pending; the human corrects the payload and re-accepts.
+    return { status: 'invalid', proposal_id: proposalId, message: cause.message, retryable: true }
   }
   if (isPgDataError(cause)) {
     return {
       status: 'invalid',
       proposal_id: proposalId,
       message: 'a field references something that no longer exists',
+      retryable: true,
     }
   }
   throw cause
@@ -387,7 +391,7 @@ export async function applyProposal(
       // `pending` (the human corrects the payload and re-accepts). Anything unexpected
       // is rethrown → route 500 (still pending, never applied).
       if (cause instanceof DomainError) {
-        return { status: 'invalid', proposal_id: proposalId, message: cause.message }
+        return { status: 'invalid', proposal_id: proposalId, message: cause.message, retryable: true }
       }
       throw cause
     }
