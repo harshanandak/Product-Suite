@@ -118,26 +118,45 @@ async function waitForOperations(
 export async function createEphemeralBranch(namePrefix = 'db-contract'): Promise<EphemeralBranch> {
   const { apiKey, projectId, parentBranchId } = neonConfig()
   const name = `${namePrefix}-${Date.now()}-${randomBytes(4).toString('hex')}`
+  // Safety net for a leaked branch: the workflow uses cancel-in-progress, so a
+  // runner can be killed between this POST and the test's `finally` cleanup.
+  // Neon auto-deletes the branch at `expires_at`, so a cancelled/crashed run can
+  // never leave a branch (and its storage cost) behind indefinitely.
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString()
+  const branchInput = parentBranchId
+    ? { name, parent_id: parentBranchId, expires_at: expiresAt }
+    : { name, expires_at: expiresAt }
   const body = (await neonFetch(apiKey, `/projects/${projectId}/branches`, {
     method: 'POST',
     body: {
       endpoints: [{ type: 'read_write' }],
-      branch: parentBranchId ? { name, parent_id: parentBranchId } : { name },
+      branch: branchInput,
     },
   })) as CreateBranchResponse
 
   const branchId = body.branch?.id
-  const connectionUri = body.connection_uris?.[0]?.connection_uri
-  if (!branchId || !connectionUri) {
-    throw new Error(
-      'Neon create-branch response missing branch.id or connection_uris — ' +
-        'ensure the request created an endpoint and the parent branch has a role + database.',
-    )
+  if (!branchId) {
+    throw new Error('Neon create-branch response missing branch.id — the request created no branch.')
   }
-  if (body.operations?.length) {
-    await waitForOperations(apiKey, projectId, body.operations)
+  // The branch exists now, but `withDbBranch` has NOT yet entered its try/finally,
+  // so anything that throws below (missing compute URI, a failed create/compute
+  // operation) would leak the branch. Delete it on failure before rethrowing.
+  try {
+    const connectionUri = body.connection_uris?.[0]?.connection_uri
+    if (!connectionUri) {
+      throw new Error(
+        'Neon create-branch response missing connection_uris — ensure the request ' +
+          'created an endpoint and the parent branch has a role + database.',
+      )
+    }
+    if (body.operations?.length) {
+      await waitForOperations(apiKey, projectId, body.operations)
+    }
+    return { branchId, connectionUri }
+  } catch (cause) {
+    await deleteEphemeralBranch(branchId)
+    throw cause
   }
-  return { branchId, connectionUri }
 }
 
 /**

@@ -32,11 +32,12 @@ jobs:
   db-contract:
     name: db-contract
     runs-on: ubuntu-latest
+    # Neon secrets are scoped to ONLY the steps that need them (below), NOT the
+    # job level — otherwise `bun install`'s lifecycle scripts (e.g. `prepare`)
+    # would run with NEON_API_KEY in the environment, letting a compromised
+    # dependency exfiltrate it.
     env:
       CI: "true"
-      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
-      NEON_PROJECT_ID: ${{ secrets.NEON_PROJECT_ID }}
-      NEON_PARENT_BRANCH_ID: ${{ secrets.NEON_PARENT_BRANCH_ID }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -53,6 +54,9 @@ jobs:
 
       - name: Report Neon credential availability
         shell: bash
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ secrets.NEON_PROJECT_ID }}
         run: |
           if [ -n "$NEON_API_KEY" ] && [ -n "$NEON_PROJECT_ID" ]; then
             echo "Neon credentials present — db-contract suite will run against ephemeral branches."
@@ -62,4 +66,8 @@ jobs:
 
       - name: Run db-contract suite (ephemeral Neon branch per test)
         working-directory: apps/platform-api
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ secrets.NEON_PROJECT_ID }}
+          NEON_PARENT_BRANCH_ID: ${{ secrets.NEON_PARENT_BRANCH_ID }}
         run: bunx vitest run test/db-contract
