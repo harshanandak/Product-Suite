@@ -63,15 +63,17 @@ proposalsRoutes.post('/:id/accept', async (c) => {
 
     const res = await applyProposal(sql, { tenantIds, approverUserId }, id, editedPayload)
     if (res.applied) return c.json(res.result, 200)
+    // `message` (when present) is the plain-language reason from the apply path so the
+    // Review Inbox can render a legible failure/stale state instead of a generic error.
     switch (res.reason) {
       case 'not_found':
         return c.json({ error: 'Not found' }, 404)
       case 'not_pending':
         return c.json({ error: 'Proposal is no longer pending' }, 409)
       case 'stale':
-        return c.json({ error: 'Target changed; proposal is stale' }, 409)
+        return c.json({ error: res.message ?? 'Target changed; proposal is stale' }, 409)
       case 'invalid':
-        return c.json({ error: 'Proposal could not be applied' }, 422)
+        return c.json({ error: res.message ?? 'Proposal could not be applied' }, 422)
     }
   } catch (cause) {
     console.error('[proposals] accept failed', cause)

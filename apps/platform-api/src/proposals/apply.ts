@@ -13,6 +13,7 @@ import {
 } from '../domain/memories'
 import {
   createWorkItem,
+  resolveDefaultTeamId,
   updateWorkItem,
   type CreateWorkItemInput,
   type UpdateWorkItemInput,
@@ -22,15 +23,21 @@ import type { ActorContext } from '../provenance/record-write'
 import { getProposalScoped, type ProposalRow } from './repository'
 
 /**
- * The outcome of applying a proposal. `not_found` = not in the caller's tenants
- * (the route maps it to 404); the rest are decision outcomes: `not_pending` = it
- * was already decided/claimed (a duplicate or racing accept → 409), `stale` = the
- * target moved/vanished under it so the proposal stays reviewable (→ 409), `invalid`
- * = a permanent invariant failure that terminally FAILED the proposal (→ 422).
+ * The outcome of applying a proposal — a stable, UX-legible envelope (never a raw
+ * 500). `not_found` = not in the caller's tenants (route → 404). `not_pending` = it
+ * was already decided or a concurrent accept won the flip (→ 409). `stale` = the
+ * target moved/vanished under the write so the proposal STAYS pending and reviewable
+ * (→ 409). `invalid` = the write was declined (a malformed/absent id, an unsupported
+ * proposal, or a domain-invariant failure) → 422. Two DB dispositions share the
+ * `invalid` reason: a FIXABLE field error leaves the proposal `pending` (the human
+ * corrects the payload and re-accepts); a PERMANENT structural defect (unsupported
+ * op, no run, malformed target) is terminally `failed`. `message` is a plain-language
+ * reason the route surfaces so the Review Inbox can render a legible failure/stale
+ * state rather than a generic error.
  */
 export type ApplyResult =
   | { applied: true; result: WorkItemRow | MemoryRow }
-  | { applied: false; reason: 'not_found' | 'not_pending' | 'stale' | 'invalid' }
+  | { applied: false; reason: 'not_found' | 'not_pending' | 'stale' | 'invalid'; message?: string }
 
 /**
  * Runtime shapes for the three memory payloads that carry data. `payload`/`edited_payload`
@@ -107,6 +114,96 @@ async function failInvalid(sql: Sql, proposalId: string, reason: string): Promis
     [reason, proposalId],
   )
   return { applied: false, reason: 'invalid' }
+}
+
+/** Canonical 8-4-4-4-12 UUID (any version). */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** True when a value is a well-formed UUID string — safe to bind to a `uuid` column
+ *  without risking a Postgres `22P02` cast error. A non-string / blank / slug is not. */
+function isUuid(value: unknown): value is string {
+  return typeof value === 'string' && UUID_RE.test(value.trim())
+}
+
+/**
+ * A Postgres DATA error (bad value, not a bug/outage): `22xxx` (e.g. `22P02`, an
+ * invalid-uuid cast — the exact class this wave stops leaking as a 500) or `23xxx`
+ * (constraint violation). neon surfaces the SQLSTATE on `.code`; the message regex is
+ * a fallback for wrappers that drop it. A data error means the PAYLOAD is bad, so it
+ * classifies to `invalid` (4xx); anything else is genuinely unexpected → rethrow → 500.
+ */
+function isPgDataError(cause: unknown): boolean {
+  const code = (cause as { code?: unknown } | null)?.code
+  if (typeof code === 'string' && (code.startsWith('22') || code.startsWith('23'))) return true
+  const message = cause instanceof Error ? cause.message : String(cause)
+  return /invalid input syntax|violates .* constraint|out of range/i.test(message)
+}
+
+/**
+ * Accept-time validation + default-resolution for a `work_item` proposal, BEFORE the
+ * write. Every id that will bind to a `uuid` column (team_id, status_id, project_id,
+ * parent_id) must be a well-formed UUID here — otherwise a slug like `team_id='open'`
+ * reaches the query and Postgres raises `22P02` as a raw 500 that escapes the domain
+ * layer (the 2b91cd2c bug). A present-but-malformed id is a FIXABLE `invalid_input`
+ * (the caller returns `invalid` and the proposal stays `pending` for correction).
+ *
+ * Folds 6055d30e: an ABSENT `team_id` on a create resolves the caller's SOLE team
+ * (`resolveDefaultTeamId`) and SNAPSHOTS the resolved id into the returned payload, so
+ * the flip can persist it into `edited_payload` and any re-drive uses the SAME team id
+ * deterministically — even if a 2nd team is added later (no schema change). Existence
+ * of each id is still enforced downstream by the domain command, which now throws a
+ * typed `DomainError` (a clean 4xx) instead of a 500.
+ */
+async function validateAndResolveWorkItemPayload(
+  sql: Sql,
+  tenantId: string,
+  operation: string,
+  payload: Record<string, unknown>,
+): Promise<{ payload: Record<string, unknown>; snapshot: boolean }> {
+  for (const field of ['status_id', 'project_id', 'parent_id'] as const) {
+    const v = payload[field]
+    if (v !== undefined && v !== null && !isUuid(v)) {
+      throw new DomainError('invalid_input', `${field} must be a valid id`)
+    }
+  }
+  if (operation === 'create') {
+    // ABSENT team_id → resolve the sole team + snapshot it (6055d30e). PRESENT →
+    // must be a well-formed UUID (a blank/slug id is a clean decline, not a 500).
+    if (payload.team_id === undefined) {
+      const teamId = await resolveDefaultTeamId(sql, tenantId) // throws team_required_multiple / no_team
+      return { payload: { ...payload, team_id: teamId }, snapshot: true }
+    }
+    if (!isUuid(payload.team_id)) throw new DomainError('invalid_input', 'team_id must be a valid id')
+    return { payload, snapshot: false }
+  }
+  // update: a team_id in the patch is optional, but must be well-formed when present.
+  if (payload.team_id !== undefined && payload.team_id !== null && !isUuid(payload.team_id)) {
+    throw new DomainError('invalid_input', 'team_id must be a valid id')
+  }
+  return { payload, snapshot: false }
+}
+
+/**
+ * Classify a write failure into a decision outcome WITHOUT touching the proposal. The
+ * write ran while the proposal was still `pending` (we flip only AFTER success), so
+ * every classified failure leaves it re-acceptable — the "applied-without-a-row" ghost
+ * state is unreachable. `stale`/`conflict` (the target moved) → `stale` (reviewable).
+ * Any other `DomainError`, and any raw pg DATA error (a `22P02` malformed uuid that
+ * slipped past accept-time validation, a constraint violation), → `invalid` (bad
+ * payload, 4xx). A genuinely unexpected error (connection/bug) is rethrown → the
+ * route's 500; the proposal stays `pending` and a re-accept re-drives idempotently.
+ */
+function classifyWriteFailure(cause: unknown): ApplyResult {
+  if (cause instanceof DomainError) {
+    if (cause.code === 'stale' || cause.code === 'conflict') {
+      return { applied: false, reason: 'stale', message: cause.message }
+    }
+    return { applied: false, reason: 'invalid', message: cause.message }
+  }
+  if (isPgDataError(cause)) {
+    return { applied: false, reason: 'invalid', message: 'a field references something that no longer exists' }
+  }
+  throw cause
 }
 
 /**
@@ -194,31 +291,31 @@ async function applyMemoryCommand(
 
 /**
  * Apply a pending proposal EXACTLY ONCE, through the SAME validated domain command
- * the human UI uses — the moat's single write path (Design C: claim-then-command).
+ * the human UI uses — the moat's single write path. Sequence: **write-first, flip-last**
+ * (the 2b91cd2c fix). The old order claimed (`status→applied`) BEFORE the write, so a
+ * raw pg `22P02` (a slug bound to a `uuid` column) escaped the `DomainError`-only catch
+ * as a 500 and stranded the proposal `applied` with no row. Reordered so the dangerous
+ * "applied-without-a-row" state is unreachable:
  *
- *  1. LOAD the proposal scoped to the caller's tenants (`not_found` if not theirs).
- *  2. Build the AGENT actor from the proposal's run (the run is the actor, the
- *     approver is `on_behalf_of`); v1 proposals must come from a run.
- *  3. CLAIM — the atomic exactly-once gate. A single `UPDATE … WHERE status='pending'`
- *     row-locks the proposal, so concurrent/duplicate accepts serialize here and only
- *     ONE gets a row back; every other matches 0 rows → `not_pending`. This is the
- *     single point that decides the winner. It is NOT wrapped in a transaction with
- *     the command: Neon HTTP has no interactive txn, and the command MUST be the
- *     shared validated path (never a hand-written domain write).
- *  4. COMMAND — only the claim-winner dispatches to the domain command. On success
- *     the applied write is recorded on the proposal and `{applied:true}` returns.
- *  5. COMPENSATE on a `DomainError`:
- *     - `stale` → GUARDED revert to `pending` (only if THIS call still owns the
- *       claim) so the proposal stays reviewable → `stale`.
- *     - any other (permanent/invalid) → GUARDED terminal `failed` → `invalid`.
- *     Both guards match `status='applied' AND decided_by=$approver`, so they touch
- *     only the row THIS call claimed — no other accept can win while it is non-pending.
- *
- * Deliberate v1 tradeoff (for founder review): the claim (commit 1) and the write
- * (commit 2) are NOT one atomic transaction. A process crash in the gap could leave
- * a proposal `applied` but unwritten; the create path is made idempotent via
- * `work_items.applied_from_proposal_id` (a re-drive returns the existing row), and a
- * recovery sweep for `applied`-without-`applied_write` rows is a fast-follow.
+ *  1. LOAD scoped (`not_found` if not the caller's) and guard `pending`.
+ *  2. STRUCTURAL pre-checks — PERMANENT defects (unsupported op, no run, missing/
+ *     malformed target) that no payload edit can fix → terminal `failed` (guarded flip),
+ *     so they leave `listPending`.
+ *  3. ACCEPT-TIME VALIDATION + resolution (work_item) — every id that binds to a `uuid`
+ *     column must be well-formed here; a malformed/absent-but-ambiguous id is a FIXABLE
+ *     `invalid` and the proposal STAYS `pending`. This kills the `22P02` 500 class at the
+ *     door. Folds 6055d30e: resolve the sole team when `team_id` is omitted and snapshot it.
+ *  4. WRITE FIRST — dispatch the domain command while the proposal is still `pending`, so
+ *     ANY failure leaves it re-acceptable. Create is idempotent (unique index on
+ *     `applied_from_proposal_id` → a re-drive returns the existing row); update is guarded
+ *     by `target_version`. A failure is CLASSIFIED without touching the proposal
+ *     (`stale`/`conflict` → reviewable; other/data error → `invalid`; unexpected → rethrow→500).
+ *  5. FLIP LAST — only on write success, ONE guarded `UPDATE … WHERE status='pending'`
+ *     stamps `decided_by/at`, the (coalesced) edited/snapshot payload, and `applied_write`.
+ *     It is the single exactly-once winner-gate: concurrent accepts both run the idempotent
+ *     write, but only one flip matches `pending` (the rest → `not_pending`, harmless — the
+ *     write deduped to one row). Exactly-once now rests on the unique index (create) +
+ *     `target_version` (update) + this guarded flip, NOT on a claim-before-write.
  */
 export async function applyProposal(
   sql: Sql,
@@ -226,51 +323,57 @@ export async function applyProposal(
   proposalId: string,
   editedPayload?: Record<string, unknown> | null,
 ): Promise<ApplyResult> {
-  const { tenantIds, approverUserId } = ctx
+  const { approverUserId } = ctx
 
   // (1) LOAD (scoped).
-  const proposal = await getProposalScoped(sql, proposalId, tenantIds)
+  const proposal = await getProposalScoped(sql, proposalId, ctx.tenantIds)
   if (!proposal) return { applied: false, reason: 'not_found' }
   if (proposal.status !== 'pending') return { applied: false, reason: 'not_pending' }
 
-  // Structural pre-checks. Each is a PERMANENT invariant failure (this slice can
-  // never apply the proposal), so it must terminally FAIL the proposal instead of
-  // leaving it pending forever in `listPending`. The guarded flip (only while still
-  // `pending`) is a no-op if another path already decided it. The (target_type,
-  // operation) must be one we can apply, an agent write must be attributable to a
-  // run, and an update must name a target.
+  // (2) STRUCTURAL pre-checks — PERMANENT invariant failures this slice can never apply.
+  // Terminally FAIL (guarded flip, no-op if already decided) so they don't sit in
+  // `listPending` forever; no payload edit could rescue them.
   if (!SUPPORTED.has(`${proposal.target_type}:${proposal.operation}`)) {
     return failInvalid(sql, proposalId, `unsupported ${proposal.target_type}:${proposal.operation}`)
   }
   if (!proposal.run_id) return failInvalid(sql, proposalId, 'missing run_id (no attributable actor)')
-  // Every operation except a create names a target it acts on (work_item:update,
-  // memory:supersede|retract|defer). A missing target is a permanent structural failure.
-  if (proposal.operation !== 'create' && !proposal.target_id) {
-    return failInvalid(sql, proposalId, `${proposal.operation} proposal has no target_id`)
+  // Every non-create names a `uuid` target it acts on (work_item:update, memory:
+  // supersede|retract|defer). Missing OR malformed (a slug that would `22P02`) is a
+  // permanent structural defect — `isUuid(null)` is false, so this covers both.
+  if (proposal.operation !== 'create' && !isUuid(proposal.target_id)) {
+    return failInvalid(sql, proposalId, `${proposal.operation} proposal has a missing or malformed target_id`)
   }
 
-  // (3) CLAIM — the exactly-once gate (a single statement). It flips the lifecycle
-  // columns AND, atomically in the SAME statement, persists the human's gold-label
-  // correction when the approver edited the proposal (per-rule strength / pin lives
-  // here). `edited_payload = coalesce($3::jsonb, edited_payload)` keeps the existing
-  // value (normally null) when no edit was sent, so a no-body accept is unchanged and
-  // the write can never race the claim. The applied payload is READ from the claimed
-  // row below (`edited_payload ?? payload`).
-  const claimedRows = await sqlQuery<ProposalRow>(
-    sql,
-    `update proposals set status = 'applied', decided_by = $1, decided_at = now(),
-       updated_at = now(), edited_payload = coalesce($3::jsonb, edited_payload)
-     where id = $2 and status = 'pending' returning *`,
-    [approverUserId, proposalId, editedPayload == null ? null : JSON.stringify(editedPayload)],
-  )
-  const claimed = claimedRows[0]
-  if (!claimed) return { applied: false, reason: 'not_pending' }
+  // The payload actually applied: this call's human edit → a previously-persisted edit/
+  // snapshot → the agent's original. (Read from the LOADED row; the flip persists it.)
+  const basePayload = (editedPayload ?? proposal.edited_payload ?? proposal.payload) as Record<string, unknown>
 
-  // The payload actually applied is the human-edited one when present, else the
-  // agent's original — read from the CLAIMED row (never re-stamped by the claim).
-  const appliedPayload = (claimed.edited_payload ?? claimed.payload) as Record<string, unknown>
+  // (3) ACCEPT-TIME VALIDATION + default-resolution (work_item only — the named
+  // `22P02` class). `payloadToPersist` is the `$3` coalesced onto `edited_payload` at
+  // the flip: the human edit when present, and — when we resolve a default team — the
+  // SNAPSHOT with the resolved id (6055d30e), so a re-drive is deterministic.
+  let effectivePayload = basePayload
+  let payloadToPersist: string | null = editedPayload != null ? JSON.stringify(editedPayload) : null
+  if (proposal.target_type === 'work_item') {
+    try {
+      const resolved = await validateAndResolveWorkItemPayload(
+        sql,
+        proposal.tenant_id,
+        proposal.operation,
+        basePayload,
+      )
+      effectivePayload = resolved.payload
+      if (resolved.snapshot) payloadToPersist = JSON.stringify(resolved.payload)
+    } catch (cause) {
+      // A malformed/absent-but-ambiguous id is a FIXABLE decline — the proposal stays
+      // `pending` (the human corrects the payload and re-accepts). Anything unexpected
+      // is rethrown → route 500 (still pending, never applied).
+      if (cause instanceof DomainError) return { applied: false, reason: 'invalid', message: cause.message }
+      throw cause
+    }
+  }
 
-  // (2) actor — the winner writes as the agent acting on behalf of the approver.
+  // Actor — the agent run acting on behalf of the approver.
   const actor: ActorContext = {
     actorType: 'agent',
     actorId: proposal.run_id,
@@ -278,61 +381,42 @@ export async function applyProposal(
     runId: proposal.run_id,
   }
 
+  // (4) WRITE FIRST — the proposal is STILL `pending`, so a failure here leaves it
+  // re-acceptable. On failure, classify WITHOUT touching the proposal.
+  let result: WorkItemRow | MemoryRow
   try {
-    // (4) COMMAND — only the winner reaches here; dispatch (target_type, operation).
-    let result: WorkItemRow | MemoryRow
     if (proposal.target_type === 'memory') {
-      result = await applyMemoryCommand(sql, claimed, appliedPayload, approverUserId)
+      result = await applyMemoryCommand(sql, proposal, effectivePayload, approverUserId)
     } else if (proposal.operation === 'create') {
       result = await createWorkItem(
         sql,
-        { tenantId: claimed.tenant_id, actor, appliedFromProposalId: claimed.id },
-        appliedPayload as CreateWorkItemInput,
+        { tenantId: proposal.tenant_id, actor, appliedFromProposalId: proposal.id },
+        effectivePayload as CreateWorkItemInput,
       )
     } else {
       result = await updateWorkItem(
         sql,
-        { tenantIds: [claimed.tenant_id], actor, expectedVersion: claimed.target_version ?? undefined },
-        claimed.target_id as string,
-        appliedPayload as UpdateWorkItemInput,
+        { tenantIds: [proposal.tenant_id], actor, expectedVersion: proposal.target_version ?? undefined },
+        proposal.target_id as string,
+        effectivePayload as UpdateWorkItemInput,
       )
     }
-    // Record the actual write on the proposal (idempotency + audit).
-    await sqlQuery(
-      sql,
-      `update proposals set applied_write = $1::jsonb, updated_at = now() where id = $2`,
-      [JSON.stringify(result), proposalId],
-    )
-    return { applied: true, result }
   } catch (cause) {
-    if (cause instanceof DomainError) {
-      // `stale` (work-item version moved) and `conflict` (a memory that is no longer
-      // active — a concurrent supersede/retract won) are the SAME kind of outcome: the
-      // target moved under us, so keep the proposal reviewable rather than terminally
-      // failing it. Every other DomainError is a permanent invariant failure.
-      if (cause.code === 'stale' || cause.code === 'conflict') {
-        // (5) GUARDED revert — the target moved; keep the proposal reviewable.
-        await sqlQuery(
-          sql,
-          `update proposals set status = 'pending', decided_by = null, decided_at = null,
-             updated_at = now()
-           where id = $1 and status = 'applied' and decided_by = $2`,
-          [proposalId, approverUserId],
-        )
-        return { applied: false, reason: 'stale' }
-      }
-      // (5) GUARDED terminal — a permanent invariant failure fails the proposal.
-      await sqlQuery(
-        sql,
-        `update proposals set status = 'failed', rejection_reason = $1, updated_at = now()
-         where id = $2 and status = 'applied' and decided_by = $3`,
-        [cause.message, proposalId, approverUserId],
-      )
-      return { applied: false, reason: 'invalid' }
-    }
-    // A non-domain failure (DB/actor error) is not a decision outcome — surface it
-    // so the route maps it to 500 (the proposal stays `applied`; the recovery sweep
-    // re-drives it idempotently).
-    throw cause
+    return classifyWriteFailure(cause)
   }
+
+  // (5) FLIP LAST — the single exactly-once winner-gate. ONE guarded statement stamps
+  // the decision, the coalesced edited/snapshot payload ($3), and `applied_write` ($4).
+  // Losing the `WHERE status='pending'` race → `not_pending` (a concurrent accept won;
+  // our write was idempotent, so no double-row).
+  const flipped = await sqlQuery<{ id: string }>(
+    sql,
+    `update proposals set status = 'applied', decided_by = $1, decided_at = now(),
+       updated_at = now(), edited_payload = coalesce($3::jsonb, edited_payload),
+       applied_write = $4::jsonb
+     where id = $2 and status = 'pending' returning id`,
+    [approverUserId, proposalId, payloadToPersist, JSON.stringify(result)],
+  )
+  if (flipped.length === 0) return { applied: false, reason: 'not_pending' }
+  return { applied: true, result }
 }

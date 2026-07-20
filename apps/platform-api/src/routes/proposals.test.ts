@@ -8,6 +8,11 @@ vi.mock('@product-suite/db', () => ({ createSql }))
 
 import app from '../app'
 
+// Accept-time validation rejects any id that is not a well-formed UUID (a slug would
+// `22P02` against a uuid column), so fixtures use canonical ids that reach the domain.
+const TEAM_ID = '11111111-1111-4111-8111-111111111111'
+const STATUS_ID = '22222222-2222-4222-8222-222222222222'
+
 const WI_ROW = {
   id: 'wi_new',
   title: 'A',
@@ -18,8 +23,8 @@ const WI_ROW = {
   tags: [],
   source: 'manual',
   project_id: null,
-  team_id: 'team_1',
-  status_id: 'status_1',
+  team_id: TEAM_ID,
+  status_id: STATUS_ID,
   parent_id: null,
   depth: 0,
   department: 'Eng',
@@ -37,7 +42,7 @@ const PROPOSAL = {
   target_type: 'work_item',
   target_id: null,
   operation: 'create',
-  payload: { title: 'A', team_id: 'team_1', status_id: 'status_1', department: 'Eng' },
+  payload: { title: 'A', team_id: TEAM_ID, status_id: STATUS_ID, department: 'Eng' },
   edited_payload: null,
   target_version: null,
   status: 'pending',
@@ -147,7 +152,7 @@ describe('/api/agent/proposals', () => {
     const { sql } = makeSql({})
     createSql.mockReturnValue(sql)
 
-    const editedPayload = { title: 'A', team_id: 'team_1', status_id: 'status_1', department: 'Ops' }
+    const editedPayload = { title: 'A', team_id: TEAM_ID, status_id: STATUS_ID, department: 'Ops' }
     const res = await app.request('/api/agent/proposals/p1/accept', {
       method: 'POST',
       ...auth,
