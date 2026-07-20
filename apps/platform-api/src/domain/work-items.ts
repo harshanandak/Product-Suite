@@ -58,10 +58,78 @@ async function resolveActor(source: ActorSource): Promise<ActorContext> {
 export type CreateWorkItemInput = { title?: string; source?: WorkItem['source'] } & Partial<WorkItemPatch>
 
 /**
+ * Resolve a team's DEFAULT workflow status — the state a newly-created item lands
+ * in when the caller omits `status_id`. The default is DERIVED from ordering (no
+ * `is_default` flag to fall out of sync): the lowest-`position` status whose
+ * category is NOT `triage`. `triage` is the reserved agent/integration inbox and
+ * is never a human create-default, so it is excluded even when it sorts first;
+ * ties on `position` break by `name` for determinism. This mirrors the phase→status
+ * backfill (the default phase `plan` maps to the first non-triage status, e.g.
+ * "Backlog"). Throws `no_default_status` when the team has no statuses at all — a
+ * clear signal to add a status before creating items, not a generic 400. Callers
+ * MUST have already verified `teamId` is one of the caller's teams (this does not
+ * re-scope to the tenant; it trusts the prior team-ownership guard).
+ */
+export async function resolveDefaultStatusId(sql: Sql, teamId: string): Promise<string> {
+  // SEAM: a future per-team "default status" workspace setting would override the
+  // ordering-derived pick here — read the configured status_id first and only
+  // fall back to the lowest-position non-triage status below when unset.
+  const rows = (await sql`
+    select id from statuses
+    where team_id = ${teamId} and category <> 'triage'
+    order by position, name
+    limit 1
+  `) as { id: string }[]
+  const def = rows[0]
+  if (!def) {
+    throw new DomainError(
+      'no_default_status',
+      'team has no default status; add a status to this team before creating items',
+    )
+  }
+  return def.id
+}
+
+/**
+ * Resolve the team a create lands in when the caller OMITS `team_id`. Defaults
+ * ONLY when the caller's tenant is unambiguous — EXACTLY ONE team — so a
+ * single-team workspace never has to name its team. With MULTIPLE teams the
+ * target is ambiguous, so we refuse with a clear 4xx (`team_required_multiple`)
+ * rather than silently guessing which team an item belongs to; with ZERO teams
+ * there is nothing to create into (`no_team`). Scoped to the caller's tenant, so
+ * it can neither resolve nor leak another tenant's team.
+ *
+ * SEAM: a future "default team" workspace setting would override the single-team
+ * shortcut here — pick the configured team before falling back to the count.
+ */
+export async function resolveDefaultTeamId(sql: Sql, tenantId: string): Promise<string> {
+  // `limit 2` classifies none / one / many with a single read — one extra row is
+  // all we need to know the tenant is ambiguous, without counting the whole table.
+  const rows = (await sql`
+    select id from teams where tenant_id = ${tenantId} order by id limit 2
+  `) as { id: string }[]
+  if (rows.length === 0) {
+    throw new DomainError(
+      'no_team',
+      'no team to create into; create a team before creating items',
+    )
+  }
+  if (rows.length > 1) {
+    throw new DomainError('team_required_multiple', 'multiple teams — specify team_id')
+  }
+  return rows[0].id
+}
+
+/**
  * Create a work item in one org, through the single validated write path. Anchors
- * to the resolved `tenantId`; `team_id`/`status_id` are mandatory and verified
- * in-tenant/in-team (a foreign id is indistinguishable from unknown → rejected,
- * no leak); an optional `parent_id` must be in-tenant, same-team, and top-level
+ * to the resolved `tenantId`. `team_id` is OPTIONAL on input: when supplied it is
+ * verified in-tenant (a foreign id is indistinguishable from unknown → rejected,
+ * no leak); when OMITTED it defaults to the caller's sole team, or raises a clear
+ * 4xx when the tenant has multiple/zero teams (see {@link resolveDefaultTeamId}).
+ * `status_id` is OPTIONAL on input: when supplied it must belong to the resolved
+ * team; when OMITTED the team's DEFAULT status is resolved server-side (see
+ * {@link resolveDefaultStatusId}) so the item always persists a valid team-scoped
+ * `status_id`. An optional `parent_id` must be in-tenant, same-team, and top-level
  * (depth cap 1). The item + its `created` activity event are written as ONE atomic
  * Neon batch (`recordWriteTx`) with the id generated client-side, so the batch
  * stays non-interactive. Throws `DomainError` on any invariant violation.
@@ -73,22 +141,34 @@ export async function createWorkItem(
 ): Promise<WorkItemRow> {
   const { tenantId } = ctx
 
-  // team_id is mandatory and must be one of the caller's org's teams. Never trust
-  // the client id: a team from another tenant fails this guard → rejected as
-  // unknown (no cross-tenant leak).
-  if (!input.team_id) throw new DomainError('unknown_team', 'team_id is required')
-  const ownedTeam = (await sql`
-    select 1 from teams where id = ${input.team_id} and tenant_id = ${tenantId}
-  `) as unknown[]
-  if (ownedTeam.length === 0) throw new DomainError('unknown_team', 'Unknown team')
+  // team_id: when SUPPLIED it must be one of the caller's org's teams (this guard
+  // is unchanged). Never trust the client id: a team from another tenant fails it
+  // → rejected as unknown (no cross-tenant leak). When OMITTED, default to the
+  // caller's team ONLY if the tenant is unambiguous (exactly one team); multiple
+  // or zero teams raise a clear 4xx (see {@link resolveDefaultTeamId}).
+  let teamId = input.team_id
+  if (teamId) {
+    const ownedTeam = (await sql`
+      select 1 from teams where id = ${teamId} and tenant_id = ${tenantId}
+    `) as unknown[]
+    if (ownedTeam.length === 0) throw new DomainError('unknown_team', 'Unknown team')
+  } else {
+    teamId = await resolveDefaultTeamId(sql, tenantId)
+  }
 
-  // status_id is mandatory and must be a status of the SAME team. The team was
-  // just verified in-tenant, so matching on team_id also confines it to the tenant.
-  if (!input.status_id) throw new DomainError('unknown_status', 'status_id is required')
-  const ownedStatus = (await sql`
-    select 1 from statuses where id = ${input.status_id} and team_id = ${input.team_id}
-  `) as unknown[]
-  if (ownedStatus.length === 0) throw new DomainError('unknown_status', 'Unknown status')
+  // status_id: when supplied it must be a status of the SAME team (the team was
+  // just verified in-tenant, so matching on team_id confines it to the tenant too —
+  // a cross-team or unknown status is rejected as 'Unknown status', no leak). When
+  // OMITTED, resolve the team's DEFAULT status server-side instead of 400ing.
+  let statusId = input.status_id
+  if (statusId) {
+    const ownedStatus = (await sql`
+      select 1 from statuses where id = ${statusId} and team_id = ${teamId}
+    `) as unknown[]
+    if (ownedStatus.length === 0) throw new DomainError('unknown_status', 'Unknown status')
+  } else {
+    statusId = await resolveDefaultStatusId(sql, teamId)
+  }
 
   if (input.project_id != null) {
     const owned = (await sql`
@@ -108,7 +188,7 @@ export async function createWorkItem(
     `) as { team_id: string; parent_id: string | null }[]
     const parent = parentRows[0]
     if (!parent) throw new DomainError('unknown_parent', 'Unknown parent')
-    if (parent.team_id !== input.team_id)
+    if (parent.team_id !== teamId)
       throw new DomainError('parent_different_team', 'parent belongs to a different team')
     if (parent.parent_id != null) throw new DomainError('max_depth', 'max nesting depth is 1')
     depth = 1
@@ -135,8 +215,8 @@ export async function createWorkItem(
     tags: input.tags ?? [],
     source: input.source ?? 'manual',
     project_id: input.project_id ?? null,
-    team_id: input.team_id,
-    status_id: input.status_id,
+    team_id: teamId,
+    status_id: statusId,
     parent_id: input.parent_id ?? null,
     depth,
     department: input.department ?? 'General',

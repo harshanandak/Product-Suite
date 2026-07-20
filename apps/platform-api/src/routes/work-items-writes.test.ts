@@ -81,11 +81,36 @@ describe('work-item writes', () => {
     expect(statusCheckParams).toContain('team_1')
   })
 
-  it('POST returns 400 when status_id is missing (status is mandatory)', async () => {
+  it('POST resolves the team default status when status_id is omitted', async () => {
     const sql = vi.fn()
     sql
       .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
       .mockResolvedValueOnce([{ n: 1 }]) // team ownership check (owned)
+      .mockResolvedValueOnce([{ id: 'status_default' }]) // team default status lookup
+      .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId
+    ;(sql as unknown as { query: ReturnType<typeof vi.fn> }).query = vi.fn()
+    ;(sql as unknown as { transaction: ReturnType<typeof vi.fn> }).transaction = vi
+      .fn()
+      .mockResolvedValue([[WI_ROW], [{}]])
+    createSql.mockReturnValue(sql)
+    const res = await app.request('/api/work-items', {
+      method: 'POST',
+      ...auth,
+      body: JSON.stringify({ title: 'A', team_id: 'team_1' }),
+    })
+    expect(res.status).toBe(201)
+    // The default was DERIVED from the item's own team, never trusted from the body,
+    // and excludes the reserved `triage` inbox category.
+    const defaultLookupParams = sql.mock.calls[2]?.slice(1) ?? []
+    expect(defaultLookupParams).toContain('team_1')
+  })
+
+  it('POST returns a clear error when the team has no default status', async () => {
+    const sql = vi.fn()
+    sql
+      .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
+      .mockResolvedValueOnce([{ n: 1 }]) // team ownership check (owned)
+      .mockResolvedValueOnce([]) // team default status lookup: team has no statuses
     createSql.mockReturnValue(sql)
     const res = await app.request('/api/work-items', {
       method: 'POST',
@@ -93,9 +118,9 @@ describe('work-item writes', () => {
       body: JSON.stringify({ title: 'A', team_id: 'team_1' }),
     })
     expect(res.status).toBe(400)
-    expect(await res.json()).toEqual({ error: 'status_id is required' })
-    // Rejected before any status lookup — only tenant + team checks ran.
-    expect(sql).toHaveBeenCalledTimes(2)
+    expect(await res.json()).toEqual({
+      error: 'team has no default status; add a status to this team before creating items',
+    })
   })
 
   it('POST returns 400 for a status that is not the team’s (no cross-team use)', async () => {

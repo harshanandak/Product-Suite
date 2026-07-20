@@ -10,7 +10,19 @@
  */
 export type DomainErrorCode =
   | 'unknown_team'
+  // A create OMITTED `team_id` and the caller's tenant has NO team to default
+  // into — nothing to create against. A clear 4xx (create a team first), not the
+  // generic "team_id is required".
+  | 'no_team'
+  // A create OMITTED `team_id` but the caller's tenant has MULTIPLE teams, so the
+  // target is ambiguous. Refuse with a clear 4xx naming the fix (specify team_id)
+  // instead of silently guessing which team the item belongs to.
+  | 'team_required_multiple'
   | 'unknown_status'
+  // A create omitted `status_id` and its team has NO statuses to derive a default
+  // from — the item cannot be placed in a workflow state. A clear 4xx (not the
+  // generic "status_id is required") so the caller knows to add a status first.
+  | 'no_default_status'
   | 'unknown_project'
   | 'unknown_parent'
   | 'parent_different_team'

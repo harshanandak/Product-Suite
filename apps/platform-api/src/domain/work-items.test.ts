@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { Sql } from '@product-suite/db'
 
-import { createWorkItem, updateWorkItem } from './work-items'
+import { createWorkItem, resolveDefaultStatusId, updateWorkItem } from './work-items'
 
 const actor = { actorType: 'human', actorId: 'u_1' } as const
 
@@ -36,11 +36,46 @@ describe('createWorkItem', () => {
     ).rejects.toMatchObject({ code: 'unknown_team' })
   })
 
-  it('rejects a missing status_id with DomainError unknown_status', async () => {
-    const sql = vi.fn().mockResolvedValueOnce([{ n: 1 }]) // team owned
+  it('rejects a status_id that is not the team’s with DomainError unknown_status', async () => {
+    const sql = vi.fn()
+    sql
+      .mockResolvedValueOnce([{ n: 1 }]) // team owned
+      .mockResolvedValueOnce([]) // status belongs-to-team check → not this team's
+    await expect(
+      createWorkItem(sql as unknown as Sql, { tenantId: 't_1', actor }, {
+        team_id: 'team_1',
+        status_id: 'status_other',
+      }),
+    ).rejects.toMatchObject({ code: 'unknown_status' })
+  })
+
+  it('resolves the team default status when status_id is omitted', async () => {
+    const sql = vi.fn()
+    sql
+      .mockResolvedValueOnce([{ n: 1 }]) // team owned
+      .mockResolvedValueOnce([{ id: 'status_default' }]) // team default status lookup
+    ;(sql as unknown as { query: ReturnType<typeof vi.fn> }).query = vi.fn()
+    ;(sql as unknown as { transaction: ReturnType<typeof vi.fn> }).transaction = vi
+      .fn()
+      .mockResolvedValue([[{ ...WI_ROW, status_id: 'status_default' }], [{}]])
+    const created = await createWorkItem(
+      sql as unknown as Sql,
+      { tenantId: 't_1', actor },
+      { title: 'A', team_id: 'team_1' },
+    )
+    expect(created.status_id).toBe('status_default')
+    // The default resolution ran in place of a status-ownership check (2 reads, no 400).
+    expect(sql).toHaveBeenCalledTimes(2)
+  })
+
+  it('rejects a create with no status_id when the team has no statuses (no_default_status)', async () => {
+    const sql = vi.fn()
+    sql
+      .mockResolvedValueOnce([{ n: 1 }]) // team owned
+      .mockResolvedValueOnce([]) // team default status lookup → none
     await expect(
       createWorkItem(sql as unknown as Sql, { tenantId: 't_1', actor }, { team_id: 'team_1' }),
-    ).rejects.toMatchObject({ code: 'unknown_status' })
+    ).rejects.toMatchObject({ code: 'no_default_status' })
   })
 
   it('rejects a parent already nested (depth cap) with DomainError max_depth', async () => {
@@ -105,6 +140,26 @@ describe('createWorkItem', () => {
     // The re-drive returns the row a prior apply attempt already wrote — no error,
     // no second create (the apply is exactly-once).
     expect(created.id).toBe('wi_existing')
+  })
+})
+
+describe('resolveDefaultStatusId', () => {
+  it('picks the lowest-position non-triage status, scoped to the team', async () => {
+    const sql = vi.fn().mockResolvedValueOnce([{ id: 'status_backlog' }])
+    const id = await resolveDefaultStatusId(sql as unknown as Sql, 'team_1')
+    expect(id).toBe('status_backlog')
+    // The query excludes the reserved `triage` inbox and orders deterministically.
+    const query = (sql.mock.calls[0]?.[0] as string[]).join('?')
+    expect(query).toContain("category <> 'triage'")
+    expect(query).toContain('order by position')
+    expect(sql.mock.calls[0]?.slice(1)).toContain('team_1')
+  })
+
+  it('throws no_default_status when the team has no statuses', async () => {
+    const sql = vi.fn().mockResolvedValueOnce([])
+    await expect(resolveDefaultStatusId(sql as unknown as Sql, 'team_empty')).rejects.toMatchObject({
+      code: 'no_default_status',
+    })
   })
 })
 
