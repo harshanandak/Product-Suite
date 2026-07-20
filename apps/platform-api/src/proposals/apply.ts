@@ -61,8 +61,10 @@ export function acceptHttpStatus(result: AcceptResult): 200 | 404 | 409 | 422 | 
  * are `unknown` JSON — a human could edit `topics` to a bare string or `review_after` to a
  * number, which the domain casts would forward straight to a `timestamptz`/`text[]` bind and
  * cast-error into a 500 that leaves the proposal `applied`-without-a-write. We parse each
- * payload HERE and convert any mismatch to `invalid_input` (→ a terminal `failed` proposal),
- * so a malformed edit is a clean rejection, never a wedge. Domain commands still do the deeper
+ * payload HERE and convert any mismatch to `invalid_input`. The parse runs inside the
+ * write-first try, so a mismatch is CLASSIFIED as a recoverable `invalid` decline (the
+ * proposal stays `pending` for the human to correct + re-accept) — not a terminal `failed`.
+ * A malformed edit is a clean rejection, never a wedge. Domain commands still do the deeper
  * checks (non-empty title, UUID scope_id, ISO `review_after`); this layer only fixes TYPES.
  */
 const memoryCreatePayload = z.object({
@@ -180,6 +182,13 @@ async function validateAndResolveWorkItemPayload(
   operation: string,
   payload: Record<string, unknown>,
 ): Promise<{ payload: Record<string, unknown>; snapshot: boolean }> {
+  // The memory path is zod-guarded (parseMemoryPayload); the work_item path is not, so a
+  // human/agent-edited payload that is an array or scalar (`typeof [] === 'object'` slips
+  // past the route's object check) would otherwise reach createWorkItem as `[]` and land an
+  // "Untitled work item". Reject a non-plain-object payload as a FIXABLE `invalid` here.
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
+    throw new DomainError('invalid_input', 'work item payload must be an object')
+  }
   for (const field of ['status_id', 'project_id', 'parent_id'] as const) {
     const v = payload[field]
     if (v !== undefined && v !== null && !isUuid(v)) {
@@ -263,25 +272,40 @@ async function applyMemoryCommand(
     const existing = await getMemoryBySourceProposalId(sql, claimed.id, [tenantId])
     if (existing) return existing
     const p = parseMemoryPayload(memoryCreatePayload, payload)
-    return createMemory(
-      sql,
-      { tenantId, actor: runId },
-      {
-        kind: p.kind,
-        title: p.title,
-        body: p.body,
-        topics: p.topics,
-        scopeType: p.scope_type,
-        scopeId: p.scope_id ?? null,
-        attrs: p.attrs,
-        enforcement: p.enforcement,
-        pinned: p.pinned,
-        sourceKind: 'proposal',
-        sourceRunId: runId,
-        sourceProposalId: claimed.id,
-        decidedBy: approverUserId,
-      },
-    )
+    try {
+      return await createMemory(
+        sql,
+        { tenantId, actor: runId },
+        {
+          kind: p.kind,
+          title: p.title,
+          body: p.body,
+          topics: p.topics,
+          scopeType: p.scope_type,
+          scopeId: p.scope_id ?? null,
+          attrs: p.attrs,
+          enforcement: p.enforcement,
+          pinned: p.pinned,
+          sourceKind: 'proposal',
+          sourceRunId: runId,
+          sourceProposalId: claimed.id,
+          decidedBy: approverUserId,
+        },
+      )
+    } catch (cause) {
+      // Idempotent converge (mirrors createWorkItem's applied_from_proposal_uniq catch):
+      // the check-then-insert above races a concurrent re-drive, so a second accept can
+      // slip past the `existing` lookup and both attempt the create. The partial-unique
+      // index `memories_source_proposal_uniq` (23505) rejects the loser — return the
+      // winning row, so the apply is exactly-once (converge), never a misreported `invalid`.
+      const code = (cause as { code?: unknown } | null)?.code
+      const message = cause instanceof Error ? cause.message : String(cause)
+      if (code === '23505' || message.includes('memories_source_proposal_uniq')) {
+        const converged = await getMemoryBySourceProposalId(sql, claimed.id, [tenantId])
+        if (converged) return converged
+      }
+      throw cause
+    }
   }
   if (claimed.operation === 'supersede') {
     const p = parseMemoryPayload(memorySupersedePayload, payload)
@@ -335,15 +359,19 @@ async function applyMemoryCommand(
  *     door. Folds 6055d30e: resolve the sole team when `team_id` is omitted and snapshot it.
  *  4. WRITE FIRST — dispatch the domain command while the proposal is still `pending`, so
  *     ANY failure leaves it re-acceptable. Create is idempotent (unique index on
- *     `applied_from_proposal_id` → a re-drive returns the existing row); update is guarded
- *     by `target_version`. A failure is CLASSIFIED without touching the proposal
+ *     `applied_from_proposal_id` → a re-drive returns the existing row). Update has NO
+ *     version guard today — `expectedVersion` is threaded through but is a deliberate
+ *     no-op (v1 `work_items` has no version column; see `updateWorkItem`), so an update
+ *     applies last-writer-wins; proactive staleness detection is deferred to the staleness
+ *     epic (kernel a41345b4). A failure is CLASSIFIED without touching the proposal
  *     (`stale`/`conflict` → reviewable; other/data error → `invalid`; unexpected → rethrow→500).
  *  5. FLIP LAST — only on write success, ONE guarded `UPDATE … WHERE status='pending'`
  *     stamps `decided_by/at`, the (coalesced) edited/snapshot payload, and `applied_write`.
  *     It is the single exactly-once winner-gate: concurrent accepts both run the idempotent
  *     write, but only one flip matches `pending` (the rest → `not_pending`, harmless — the
  *     write deduped to one row). Exactly-once now rests on the unique index (create) +
- *     `target_version` (update) + this guarded flip, NOT on a claim-before-write.
+ *     the naturally-idempotent last-writer-wins update + this guarded flip, NOT on a
+ *     claim-before-write (no `target_version` gate exists yet — deferred to a41345b4).
  */
 export async function applyProposal(
   sql: Sql,
