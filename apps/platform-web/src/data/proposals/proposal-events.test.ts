@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  isTerminalAcceptOutcome,
   notifyProposalMutation,
   subscribeProposalMutations,
 } from "./proposal-events";
+import type { AcceptResult } from "./types";
 
 describe("proposal-events", () => {
   it("notifies every current subscriber", () => {
@@ -30,8 +32,35 @@ describe("proposal-events", () => {
   it("is safe when a listener unsubscribes during dispatch (iterates a copy)", () => {
     const off = subscribeProposalMutations(() => off());
     const other = vi.fn();
-    subscribeProposalMutations(other);
+    // Capture the second listener's unsubscribe and clear it before the test exits
+    // so it never leaks into the module-global set (order-independent tests).
+    const offOther = subscribeProposalMutations(other);
     expect(() => notifyProposalMutation()).not.toThrow();
     expect(other).toHaveBeenCalledTimes(1);
+    offOther();
+  });
+});
+
+describe("isTerminalAcceptOutcome", () => {
+  it("is true for outcomes that LEFT the pending set (applied / not_pending / not_found)", () => {
+    const terminal: AcceptResult[] = [
+      { status: "applied", proposal_id: "p", item_id: "wi_1" },
+      { status: "not_pending", proposal_id: "p" },
+      { status: "not_found", proposal_id: "p" },
+    ];
+    for (const result of terminal) {
+      expect(isTerminalAcceptOutcome(result)).toBe(true);
+    }
+  });
+
+  it("is false for still-pending recoverable outcomes (stale / invalid / failed)", () => {
+    const pending: AcceptResult[] = [
+      { status: "stale", proposal_id: "p", item_id: "wi_1", message: "changed" },
+      { status: "invalid", proposal_id: "p", message: "bad", retryable: true },
+      { status: "failed", proposal_id: "p", message: "nope", retryable: false },
+    ];
+    for (const result of pending) {
+      expect(isTerminalAcceptOutcome(result)).toBe(false);
+    }
   });
 });

@@ -41,6 +41,7 @@ function makeActions(
     accept: vi.fn(),
     reject: vi.fn(),
     reset: vi.fn(),
+    refresh: vi.fn(),
     ...overrides,
   };
 }

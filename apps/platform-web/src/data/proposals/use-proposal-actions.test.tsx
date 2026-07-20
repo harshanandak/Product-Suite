@@ -1,9 +1,18 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ProposalRepository } from "./repository";
 import type { AcceptResult } from "./types";
 import { useProposalActions } from "./use-proposal-actions";
+
+// Spy on the cross-instance disposal signal (keep isTerminalAcceptOutcome real) so
+// tests can assert the PRECISE terminal set that broadcasts.
+vi.mock("./proposal-events", async (importActual) => {
+  const actual = await importActual<typeof import("./proposal-events")>();
+  return { ...actual, notifyProposalMutation: vi.fn() };
+});
+import { notifyProposalMutation } from "./proposal-events";
+const notifySpy = vi.mocked(notifyProposalMutation);
 
 function makeRepo(overrides: Partial<ProposalRepository> = {}): ProposalRepository {
   return {
@@ -20,6 +29,15 @@ function makeRepo(overrides: Partial<ProposalRepository> = {}): ProposalReposito
     ...overrides,
   };
 }
+
+/** An accept repo that always resolves the given outcome. */
+function repoWithOutcome(result: AcceptResult): ProposalRepository {
+  return makeRepo({ accept: vi.fn(async () => result) });
+}
+
+beforeEach(() => {
+  notifySpy.mockClear();
+});
 
 describe("useProposalActions", () => {
   it("accept goes idle → applying → settled and reports the result", async () => {
@@ -114,6 +132,76 @@ describe("useProposalActions", () => {
     act(() => result.current.accept());
     await waitFor(() => expect(result.current.phase).toBe("settled"));
     act(() => result.current.reset());
+    expect(result.current.phase).toBe("idle");
+    expect(result.current.result).toBeNull();
+  });
+});
+
+describe("useProposalActions — disposal signal precision", () => {
+  it.each([
+    ["applied", { status: "applied", proposal_id: "p1", item_id: "wi_1" }],
+    ["not_pending", { status: "not_pending", proposal_id: "p1" }],
+    ["not_found", { status: "not_found", proposal_id: "p1" }],
+  ] as const)("broadcasts when accept leaves the pending set (%s)", async (_label, outcome) => {
+    const { result } = renderHook(() =>
+      useProposalActions("p1", { repository: repoWithOutcome(outcome as AcceptResult) }),
+    );
+    act(() => result.current.accept());
+    await waitFor(() => expect(result.current.phase).toBe("settled"));
+    expect(notifySpy).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["stale", { status: "stale", proposal_id: "p1", item_id: "wi_1", message: "changed" }],
+    ["invalid", { status: "invalid", proposal_id: "p1", message: "bad", retryable: true }],
+    ["failed", { status: "failed", proposal_id: "p1", message: "nope", retryable: false }],
+  ] as const)("does NOT broadcast when accept stays pending (%s)", async (_label, outcome) => {
+    const { result } = renderHook(() =>
+      useProposalActions("p1", { repository: repoWithOutcome(outcome as AcceptResult) }),
+    );
+    act(() => result.current.accept());
+    await waitFor(() => expect(result.current.phase).toBe("settled"));
+    expect(notifySpy).not.toHaveBeenCalled();
+  });
+
+  it("does NOT broadcast on a thrown transport error (stays pending as retryable failed)", async () => {
+    const repository = makeRepo({
+      accept: vi.fn(async () => {
+        throw new Error("500");
+      }),
+    });
+    const { result } = renderHook(() => useProposalActions("p1", { repository }));
+    act(() => result.current.accept());
+    await waitFor(() => expect(result.current.phase).toBe("settled"));
+    expect(result.current.result?.status).toBe("failed");
+    expect(notifySpy).not.toHaveBeenCalled();
+  });
+
+  it("broadcasts on a successful reject (user discard is terminal)", async () => {
+    const { result } = renderHook(() =>
+      useProposalActions("p1", { repository: makeRepo() }),
+    );
+    act(() => result.current.reject());
+    await waitFor(() => expect(result.current.phase).toBe("rejected"));
+    expect(notifySpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("refresh re-lists (broadcasts) AND returns the host to idle", async () => {
+    const { result } = renderHook(() =>
+      useProposalActions("p1", {
+        repository: repoWithOutcome({
+          status: "stale",
+          proposal_id: "p1",
+          item_id: "wi_1",
+          message: "changed",
+        }),
+      }),
+    );
+    act(() => result.current.accept());
+    await waitFor(() => expect(result.current.phase).toBe("settled"));
+    notifySpy.mockClear(); // ignore the accept path; assert only refresh's signal
+    act(() => result.current.refresh());
+    expect(notifySpy).toHaveBeenCalledTimes(1);
     expect(result.current.phase).toBe("idle");
     expect(result.current.result).toBeNull();
   });

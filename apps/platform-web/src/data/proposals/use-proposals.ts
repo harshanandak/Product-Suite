@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
+  isTerminalAcceptOutcome,
   notifyProposalMutation,
   subscribeProposalMutations,
 } from "./proposal-events";
@@ -166,12 +167,14 @@ export function useProposals(
     ): Promise<AcceptResult> => {
       setMutatingCount((count) => count + 1);
       try {
-        return await repository.accept(id, editedPayload);
+        const result = await repository.accept(id, editedPayload);
+        // Re-list every useProposals (this one, the launcher badge, the Pending
+        // section) ONLY when the proposal actually LEFT the pending set. A
+        // stale/invalid/failed outcome stays pending, so re-listing is wrong.
+        if (isTerminalAcceptOutcome(result)) notifyProposalMutation();
+        return result;
       } finally {
         if (mountedRef.current) setMutatingCount((count) => count - 1);
-        // Invalidate on settle — this instance AND every other useProposals (the
-        // launcher badge, the Pending section) re-list via the shared signal.
-        notifyProposalMutation();
       }
     },
     [repository],
@@ -182,9 +185,11 @@ export function useProposals(
       setMutatingCount((count) => count + 1);
       try {
         await repository.reject(id, reason);
+        // A successful reject is a user discard — terminal, so re-list. A THROWN
+        // reject disposes nothing and must not signal (the throw skips this).
+        notifyProposalMutation();
       } finally {
         if (mountedRef.current) setMutatingCount((count) => count - 1);
-        notifyProposalMutation();
       }
     },
     [repository],

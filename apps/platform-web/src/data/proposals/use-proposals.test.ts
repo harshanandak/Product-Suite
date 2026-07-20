@@ -84,6 +84,29 @@ describe("useProposals", () => {
     );
   });
 
+  it("does NOT re-list on a still-pending accept (a stale outcome stays pending)", async () => {
+    const list = vi.fn<() => Promise<Proposal[]>>().mockResolvedValue([pending("p1")]);
+    const accept = vi.fn(
+      async (): Promise<AcceptResult> => ({
+        status: "stale",
+        proposal_id: "p1",
+        item_id: "wi_1",
+        message: "changed",
+      }),
+    );
+    const { result } = renderHook(() =>
+      useProposals({ repository: makeRepo({ list, accept }) }),
+    );
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(list).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await result.current.accept("p1");
+    });
+    // Stale leaves the proposal pending — no invalidation, so the list is NOT re-read.
+    expect(list).toHaveBeenCalledTimes(1);
+  });
+
   it("re-lists when a disposal is signalled from another instance (badge stays in sync)", async () => {
     const list = vi
       .fn<() => Promise<Proposal[]>>()

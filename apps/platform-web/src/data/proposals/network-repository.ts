@@ -191,11 +191,16 @@ export function createNetworkProposalRepository(
         return { status: "not_found", proposal_id: proposalId };
       }
       if (response.status === 422) {
+        // The CURRENT live API returns a bare 422 for invalid AND terminally flips
+        // the proposal to `failed` in the DB (apply.ts) — it is NOT recoverable. So
+        // a bare (non-envelope) 422 maps to `failed`, retryable:false (Discard-only),
+        // matching the live behaviour. The envelope-shaped 422 (status:"invalid",
+        // retryable) is handled by the `status` switch above once Lane A ships.
         return {
-          status: "invalid",
+          status: "failed",
           proposal_id: proposalId,
-          message: readBodyMessage(body) ?? "The server couldn't apply this proposal as-is.",
-          retryable: true,
+          message: readBodyMessage(body) ?? "This proposal could not be applied.",
+          retryable: false,
         };
       }
       throw new Error(readBodyMessage(body) ?? `Request failed (${response.status})`);

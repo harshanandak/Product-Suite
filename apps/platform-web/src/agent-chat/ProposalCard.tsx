@@ -49,9 +49,8 @@ export function ProposalCard({
 }: Readonly<{ data: ProposalCardData; workspace: string }>) {
   const isCreate = data.operation === "create";
   const navigate = useNavigate();
-  const { phase, result, busy, error, accept, reject, reset } = useProposalActions(
-    data.proposalId,
-  );
+  const { phase, result, busy, error, accept, reject, reset, refresh } =
+    useProposalActions(data.proposalId);
 
   const pill = statusPill(phase, result);
 
@@ -132,7 +131,7 @@ export function ProposalCard({
             onRetry={() => accept()}
             onEdit={reset}
             onDiscard={() => reject()}
-            onRefresh={reset}
+            onRefresh={refresh}
             onApplyAnyway={() => accept()}
             onViewItem={viewItem}
           />

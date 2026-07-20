@@ -219,13 +219,15 @@ describe("createNetworkProposalRepository", () => {
     });
   });
 
-  it("(legacy) accept maps a bare 422 to an invalid outcome (retryable)", async () => {
+  it("(shim) a bare 422 maps to a TERMINAL failed (the live API flips it to failed)", async () => {
+    // The current live API returns a bare 422 for invalid AND terminally marks the
+    // proposal `failed` in the DB — so it is NOT recoverable. Discard-only.
     fetchMock.mockResolvedValueOnce(jsonError(422, "bad payload"));
     await expect(makeRepo().accept("p1")).resolves.toEqual({
-      status: "invalid",
+      status: "failed",
       proposal_id: "p1",
       message: "bad payload",
-      retryable: true,
+      retryable: false,
     });
   });
 

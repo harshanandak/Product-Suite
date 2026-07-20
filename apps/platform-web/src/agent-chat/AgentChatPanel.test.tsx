@@ -154,6 +154,7 @@ vi.mock("@/data/proposals", () => ({
     accept: vi.fn(),
     reject: vi.fn(),
     reset: vi.fn(),
+    refresh: vi.fn(),
   }),
 }));
 

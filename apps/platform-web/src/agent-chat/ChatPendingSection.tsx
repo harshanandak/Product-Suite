@@ -58,7 +58,7 @@ function PendingRow({
   onResolved: (proposalId: string) => void;
 }>) {
   const navigate = useNavigate();
-  const { phase, result, busy, error, accept, reject, reset } = useProposalActions(
+  const { phase, result, busy, error, accept, reject, reset, refresh } = useProposalActions(
     proposal.id,
     {
       onSettled: (settled) => {
@@ -124,7 +124,7 @@ function PendingRow({
             onRetry={() => accept()}
             onEdit={reset}
             onDiscard={() => reject()}
-            onRefresh={reset}
+            onRefresh={refresh}
             onApplyAnyway={() => accept()}
             onViewItem={viewItem}
             appliedMessage={isMemory ? "Memory logged." : "Applied."}

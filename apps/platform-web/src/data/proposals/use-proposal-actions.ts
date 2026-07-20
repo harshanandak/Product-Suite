@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 
-import { notifyProposalMutation } from "./proposal-events";
+import {
+  isTerminalAcceptOutcome,
+  notifyProposalMutation,
+} from "./proposal-events";
 import { useProposalRepositoryContext } from "./ProposalRepositoryProvider";
 import type { ProposalRepository } from "./repository";
 import type { AcceptResult } from "./types";
@@ -39,6 +42,13 @@ export interface UseProposalActionsResult {
   reject: (reason?: string) => void;
   /** Return to `idle` (the host's Accept affordance) — the "Edit" recovery path. */
   reset: () => void;
+  /**
+   * Re-base a `stale` proposal against CURRENT state — the "Refresh" action on the
+   * "This item changed" surface. Re-lists proposals across every surface (via the
+   * shared signal, like the inbox's onRefresh) and returns this host to `idle` so the
+   * user re-decides against the current item, not the stale snapshot.
+   */
+  refresh: () => void;
 }
 
 /**
@@ -90,10 +100,11 @@ export function useProposalActions(
         setResult(settled);
         setPhase("settled");
         onSettled?.(settled);
-        // An applied proposal LEFT the pending set — re-sync every useProposals
-        // (the launcher badge, the Pending section). Stale/invalid/failed stay
-        // pending, so they intentionally do not signal.
-        if (settled.status === "applied") notifyProposalMutation();
+        // Re-sync every useProposals (launcher badge, Pending section, inbox) ONLY
+        // when the proposal LEFT the pending set — applied / not_pending / not_found.
+        // stale / invalid / failed stay pending and recoverable, so they must NOT
+        // signal (else the lists re-list needlessly and could remount a row).
+        if (isTerminalAcceptOutcome(settled)) notifyProposalMutation();
       })
       .catch((err: unknown) => {
         if (!mountedRef.current) return;
@@ -151,5 +162,14 @@ export function useProposalActions(
     setError(null);
   };
 
-  return { phase, result, busy, error, accept, reject, reset };
+  const refresh = (): void => {
+    // Re-base a stale proposal against CURRENT state: re-list proposals across every
+    // surface (like ProposalDetail's onRefresh re-reads the inbox), THEN drop back to
+    // the idle Accept affordance so the user re-decides against the current item — not
+    // the stale snapshot the conflict was raised on. Reset alone only hid the banner.
+    notifyProposalMutation();
+    reset();
+  };
+
+  return { phase, result, busy, error, accept, reject, reset, refresh };
 }

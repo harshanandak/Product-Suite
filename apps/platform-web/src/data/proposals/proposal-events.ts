@@ -1,19 +1,37 @@
+import type { AcceptResult } from "./types";
+
 /**
  * A tiny process-wide pub/sub for proposal DISPOSALS, so every independent
  * {@link useProposals} instance (the shell launcher badge, the chat Pending
- * section, the Review Inbox) stays in sync when a proposal is accepted or
- * rejected in ANY of them — without threading a shared store through the tree.
+ * section, the Review Inbox) stays in sync when a proposal leaves the pending set
+ * in ANY of them — without threading a shared store through the tree.
  *
  * A disposal in the inline card or a Pending row (via `useProposalActions`) or in
  * the inbox (via `useProposals.accept/reject`) calls {@link notifyProposalMutation};
  * every mounted `useProposals` subscribes and refetches, so the badge count can
- * never go stale after a disposal elsewhere.
+ * never go stale after a disposal elsewhere. An explicit "Refresh" on a stale card
+ * reuses the same signal to re-list against current state.
  *
- * Fire ONLY on a terminal disposal (applied / rejected) — a still-pending outcome
- * (stale / invalid / failed) leaves the pending set unchanged, so re-listing would
- * be wasted work (and could remount a row mid-recovery).
+ * Fire ONLY when the proposal actually LEFT the pending set — see
+ * {@link isTerminalAcceptOutcome}. A still-pending outcome (stale / invalid /
+ * failed / thrown transport error) must NOT signal, or every mounted useProposals
+ * re-lists needlessly (and could remount a row mid-recovery).
  */
 type ProposalMutationListener = () => void;
+
+/**
+ * Whether an accept outcome REMOVED the proposal from the pending set (so the
+ * pending count changed and listeners should re-list): `applied` wrote it,
+ * `not_pending`/`not_found` mean it is already gone. `stale`/`invalid`/`failed`
+ * leave it PENDING and recoverable, so they are NOT terminal and must not signal.
+ */
+export function isTerminalAcceptOutcome(result: AcceptResult): boolean {
+  return (
+    result.status === "applied" ||
+    result.status === "not_pending" ||
+    result.status === "not_found"
+  );
+}
 
 const listeners = new Set<ProposalMutationListener>();
 
