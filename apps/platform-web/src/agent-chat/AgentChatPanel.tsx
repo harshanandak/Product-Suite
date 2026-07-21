@@ -1,6 +1,6 @@
 import { useChat } from "@ai-sdk/react";
 import { getToolName, isToolUIPart, type ToolUIPart, type UIMessage } from "ai";
-import { History, Loader2, Plus, Sparkles, X } from "lucide-react";
+import { History, Loader2, Pin, PinOff, Plus, Sparkles, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -186,6 +186,13 @@ export function AgentChatPanel({
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const [showThreads, setShowThreads] = useState(false);
 
+  // Whether the user has PINNED the thread's linked object. A pinned context
+  // survives navigation without the panel nudging "start a new thread here?" —
+  // the explicit signal that this chat stays scoped to what was pinned, even as
+  // you move around the app. (The object itself already persists once captured;
+  // pinning is what silences the switch affordance.)
+  const [pinned, setPinned] = useState(false);
+
   const threadsAdapter = useMemo(
     () =>
       createAgentThreadsAdapter({
@@ -275,7 +282,11 @@ export function AgentChatPanel({
   if (!open) return null;
 
   const linked = threadObject ?? null;
-  const navChanged = linked !== null && linked.id !== currentObject.id;
+  // A pinned context suppresses the "you've navigated — start a new thread here?"
+  // nudge: the user committed to this scope, so navigation no longer offers to
+  // rebind it.
+  const navChanged =
+    linked !== null && !pinned && linked.id !== currentObject.id;
   const orgRequired = isOrgRequiredError(error);
   const isStreaming = status === "submitted" || status === "streaming";
 
@@ -302,6 +313,8 @@ export function AgentChatPanel({
     setThreadId(null);
     setMessages([]);
     setThreadObject(linkTo ?? currentObject);
+    // A fresh thread re-binds to the current screen, so any prior pin is dropped.
+    setPinned(false);
   };
 
   const startNewThreadHere = () => startNewThread(currentObject);
@@ -358,7 +371,7 @@ export function AgentChatPanel({
         <button
           type="button"
           onClick={openThreads}
-          aria-label="Show threads"
+          aria-label="Sessions"
           aria-expanded={showThreads}
           className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
         >
@@ -376,12 +389,12 @@ export function AgentChatPanel({
 
       {showThreads ? (
         <div
-          aria-label="Threads"
+          aria-label="Sessions"
           className="max-h-64 overflow-y-auto border-b border-border"
         >
           {threads.length === 0 ? (
             <p className="px-4 py-3 text-xs text-muted-foreground">
-              No saved threads yet.
+              No sessions yet.
             </p>
           ) : (
             <ul>
@@ -417,9 +430,29 @@ export function AgentChatPanel({
           </span>
           <button
             type="button"
-            onClick={() => setThreadObject(null)}
+            onClick={() => setPinned((value) => !value)}
+            aria-label={pinned ? "Unpin context" : "Pin context"}
+            aria-pressed={pinned}
+            title={
+              pinned
+                ? "Pinned — this chat stays scoped here as you navigate"
+                : "Pin so this chat stays scoped here as you navigate"
+            }
+            className={
+              "ml-auto flex size-5 items-center justify-center rounded hover:bg-accent hover:text-accent-foreground " +
+              (pinned ? "text-primary" : "text-muted-foreground")
+            }
+          >
+            {pinned ? <Pin className="size-3" /> : <PinOff className="size-3" />}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setThreadObject(null);
+              setPinned(false);
+            }}
             aria-label="Unlink"
-            className="ml-auto flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+            className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground"
           >
             <X className="size-3" />
           </button>
