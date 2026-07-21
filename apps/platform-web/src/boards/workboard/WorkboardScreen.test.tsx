@@ -39,9 +39,16 @@ import { WorkboardScreen } from "./WorkboardScreen";
 // The real TanStack `navigate` returns a Promise; the screen calls
 // `.catch(...)` on it, so the mock must resolve to keep that chain valid.
 const navMock = vi.hoisted(() => ({ fn: vi.fn(() => Promise.resolve()) }));
+// The screen reads an optional `?layout=` search seed; default to none, and let
+// individual tests set it to exercise the deep-link path (e.g. the graph
+// redirect landing as `?layout=graph`).
+const searchMock = vi.hoisted(() => ({
+  value: {} as { layout?: string },
+}));
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => navMock.fn,
   useParams: () => ({ workspace: "acme" }),
+  useSearch: () => searchMock.value,
 }));
 
 // For the context-repository test: a signed-in Clerk token so the network repo
@@ -142,6 +149,7 @@ afterAll(() => {
 beforeEach(() => {
   window.localStorage.clear();
   navMock.fn.mockClear();
+  searchMock.value = {};
 });
 
 // sonner's toast queue is module-global; clear it between tests so a toast from
@@ -1032,6 +1040,19 @@ describe("WorkboardScreen", () => {
     expect(frame.className).toContain("min-h-[480px]");
     expect(frame.className).toContain("h-[calc(100vh-13rem)]");
     // The table grid must NOT be the active surface in the Graph layout.
+    expect(
+      screen.queryByRole("grid", { name: "Work items" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("seeds the initial layout from a ?layout=graph deep link (the /workboard/graph redirect)", async () => {
+    // No persisted blob → default layout is List; the search seed must win so a
+    // legacy /workboard/graph link (redirected to ?layout=graph) opens the graph.
+    searchMock.value = { layout: "graph" };
+
+    render(<WorkboardScreen repository={createMockWorkItemRepository()} />);
+
+    expect(await screen.findByTestId("workboard-graph-frame")).toBeInTheDocument();
     expect(
       screen.queryByRole("grid", { name: "Work items" }),
     ).not.toBeInTheDocument();

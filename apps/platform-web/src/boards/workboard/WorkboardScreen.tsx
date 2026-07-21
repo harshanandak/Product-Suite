@@ -8,7 +8,7 @@ import {
   useState,
 } from "react";
 
-import { useNavigate, useParams } from "@tanstack/react-router";
+import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 
 import {
   Button,
@@ -51,6 +51,7 @@ import {
   type PersistedView,
   type SavedView,
   type WorkboardFilterState,
+  type WorkboardLayout,
 } from "./filter-state";
 import { GraphFilters } from "./graph/GraphFilters";
 import { WorkboardKanban } from "./kanban/WorkboardKanban";
@@ -263,6 +264,13 @@ export function WorkboardScreen({
   const { workspace } = useParams({ strict: false });
   const workspaceSlug = workspace ?? DEFAULT_WORKSPACE;
 
+  // Optional `?layout=` deep-link seed (the legacy /workboard/graph redirect
+  // lands here as `?layout=graph`). Read non-strictly so the team route — which
+  // has no such search — is unaffected. It seeds the INITIAL layout only; once
+  // mounted, the toolbar's Layout menu owns it.
+  const search = useSearch({ strict: false }) as { layout?: WorkboardLayout };
+  const layoutParam = search.layout;
+
   const {
     items,
     owners,
@@ -284,9 +292,13 @@ export function WorkboardScreen({
   // `selection` is FORCED empty: stale row ids must never survive a reload.
   const [filterState, setFilterState] = useState(() => {
     const persisted = readPersistedView();
-    return persisted === null
-      ? defaultWorkboardFilterState()
-      : hydrateFilterState(persisted);
+    const base =
+      persisted === null
+        ? defaultWorkboardFilterState()
+        : hydrateFilterState(persisted);
+    // A `?layout=` deep link wins over the persisted/default layout for the
+    // first render (the validated route search already dropped unknown values).
+    return layoutParam ? { ...base, layout: layoutParam } : base;
   });
 
   // The user's saved/named views (Rank 8b). Lazily hydrated from a SEPARATE

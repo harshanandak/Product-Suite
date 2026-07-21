@@ -70,13 +70,16 @@ describe("router", () => {
     }
   });
 
-  it("redirects /w/:ws/workboard/graph to the workboard items surface", async () => {
+  it("redirects /w/:ws/workboard/graph to the items surface on the Graph layout", async () => {
     await router.navigate({
       to: "/w/$workspace/workboard/graph",
       params: { workspace: "test-ws" },
     });
     await router.load();
 
+    // Lands on the single items surface…
     expect(router.state.location.pathname).toBe("/w/test-ws/workboard");
+    // …carrying the Graph layout so the deep link still opens the graph.
+    expect(router.state.location.search).toMatchObject({ layout: "graph" });
   });
 });
