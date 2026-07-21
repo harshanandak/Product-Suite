@@ -18,6 +18,33 @@ import { randomBytes } from 'node:crypto'
 
 const API_BASE = process.env.NEON_API_BASE ?? 'https://console.neon.tech/api/v2'
 
+/**
+ * Prefix every ephemeral test branch shares. Encoded once so the create path and
+ * the reaper agree on exactly which branches are "ours": `createEphemeralBranch`
+ * names branches `${TEST_BRANCH_PREFIX}-<ts>-<hex>`, and `reapStaleBranches` only
+ * ever deletes branches whose name starts with `${TEST_BRANCH_PREFIX}-`. Production
+ * / parent branches (named `main`, `production`, …) can never match, so the reaper
+ * is safe by construction.
+ */
+export const TEST_BRANCH_PREFIX = 'db-contract'
+
+/** How old a leaked test branch must be before the reaper deletes it (default 30 min). */
+export const STALE_BRANCH_MAX_AGE_MS = 30 * 60 * 1000
+
+/**
+ * Matches EXACTLY the names `createEphemeralBranch` mints — `${TEST_BRANCH_PREFIX}-
+ * <epoch-ms>-<8 hex>` (see the `name` template below). The reaper requires this
+ * full shape, NOT merely the prefix, so a durable branch a human happens to name
+ * with the same prefix (e.g. `db-contract-base` used as a parent) can never match
+ * and can never be deleted.
+ */
+const EPHEMERAL_BRANCH_NAME_RE = new RegExp(`^${TEST_BRANCH_PREFIX}-\\d+-[0-9a-f]{8}$`)
+
+/** True iff `name` is one this harness's `createEphemeralBranch` could have produced. */
+export function isEphemeralTestBranchName(name: string | undefined): boolean {
+  return typeof name === 'string' && EPHEMERAL_BRANCH_NAME_RE.test(name)
+}
+
 /** One create-branch operation the control plane runs asynchronously. */
 interface NeonOperation {
   id: string
@@ -115,7 +142,7 @@ async function waitForOperations(
  * returned `connection_uris` entry authenticates without extra setup. Waits for
  * the create/compute operations before returning.
  */
-export async function createEphemeralBranch(namePrefix = 'db-contract'): Promise<EphemeralBranch> {
+export async function createEphemeralBranch(namePrefix = TEST_BRANCH_PREFIX): Promise<EphemeralBranch> {
   const { apiKey, projectId, parentBranchId } = neonConfig()
   const name = `${namePrefix}-${Date.now()}-${randomBytes(4).toString('hex')}`
   // Safety net for a leaked branch: the workflow uses cancel-in-progress, so a
@@ -173,4 +200,166 @@ export async function deleteEphemeralBranch(branchId: string): Promise<void> {
     // eslint-disable-next-line no-console
     console.warn(`db-contract: failed to delete ephemeral Neon branch ${branchId}:`, cause)
   }
+}
+
+/** The subset of a list-branches entry the reaper reads. */
+interface BranchSummary {
+  id: string
+  name: string
+  /** ISO-8601 creation timestamp (e.g. `2022-12-08T19:55:43Z`). */
+  created_at?: string
+  /**
+   * Present only on branches created with a TTL. Neon forbids `expires_at` on
+   * default, parent, and protected branches, so its presence is a strong marker
+   * that a branch is a throwaway (exactly what `createEphemeralBranch` sets).
+   */
+  expires_at?: string
+  /** `true` for the project's default/primary branch — must never be reaped. */
+  default?: boolean
+  /** `true` for a protected branch — must never be reaped. */
+  protected?: boolean
+}
+
+/**
+ * One page of the cursor-paginated list-branches response. The next-page cursor
+ * comes back as `pagination.next` (verified against the live Neon API — the
+ * response also echoes `sort_by`/`sort_order`, which the harness ignores); the
+ * REQUEST passes that value back as the `cursor` query param.
+ */
+interface ListBranchesResponse {
+  branches?: BranchSummary[]
+  pagination?: { next?: string }
+}
+
+/** How many branches to request per list page (Neon allows 1–10000). */
+const LIST_PAGE_LIMIT = 100
+
+/**
+ * List EVERY project branch, following Neon's cursor pagination to the last page.
+ * The list endpoint is cursor-paginated (`?limit=&cursor=`), so a single fetch can
+ * miss stale branches on later pages — and a missed leaked branch is exactly what
+ * keeps the account at its cap. Bounded + repeat-cursor-guarded so a malformed
+ * cursor can never spin forever.
+ */
+async function listAllBranches(apiKey: string, projectId: string): Promise<BranchSummary[]> {
+  const all: BranchSummary[] = []
+  const seenCursors = new Set<string>()
+  let cursor: string | undefined
+
+  for (let page = 0; page < 1000; page++) {
+    const params = new URLSearchParams({ limit: String(LIST_PAGE_LIMIT) })
+    if (cursor) params.set('cursor', cursor)
+    const body = (await neonFetch(apiKey, `/projects/${projectId}/branches?${params.toString()}`, {
+      method: 'GET',
+    })) as ListBranchesResponse
+    const pageBranches = body.branches ?? []
+    all.push(...pageBranches)
+
+    // Neon returns the next-page cursor as `pagination.next` (NOT `.cursor`); it is
+    // passed back as the `cursor` request param above.
+    const next = body.pagination?.next
+    // Cursor-driven termination (the documented contract): keep paging while the
+    // server hands back a next cursor. Stop when it stops giving one, when a page
+    // comes back empty, or when a cursor repeats (defensive against a server that
+    // echoes the same cursor forever) so a malformed cursor can never loop.
+    if (pageBranches.length === 0 || !next || seenCursors.has(next)) break
+    seenCursors.add(next)
+    cursor = next
+  }
+
+  return all
+}
+
+/** The outcome of one reap pass, for logging in the global setup. */
+export interface ReapResult {
+  /** Total branches returned by the list call. */
+  scanned: number
+  /** Ids of the stale test branches that were deleted. */
+  deleted: string[]
+  /** Ids that matched + were stale but whose DELETE failed (mid-operation, etc.). */
+  failed: string[]
+}
+
+/**
+ * Decide whether a listed branch is a genuinely-ephemeral, reapable test branch.
+ * The predicate is deliberately CONSERVATIVE — every clause can only ever EXCLUDE a
+ * branch from deletion — so a durable branch can never be reaped even if several
+ * signals go wrong at once. A branch is reapable ONLY when ALL hold:
+ *
+ *   1. It is NOT the configured parent branch (`NEON_PARENT_BRANCH_ID`) that every
+ *      ephemeral test branch is cloned from — deleting it would break all future
+ *      runs. Checked first, and by id, so it holds regardless of the branch's name.
+ *   2. It is NOT the project's default/primary branch and NOT protected — Neon
+ *      never lets these expire, and we never delete them whatever they are named.
+ *   3. Its name matches the EXACT pattern `createEphemeralBranch` mints (prefix +
+ *      epoch-ms + 8 hex), not merely the shared prefix — so a human-named
+ *      same-prefix branch (e.g. `db-contract-base`) is left intact.
+ *   4. It carries an `expires_at` TTL marker — the ownership signal every branch
+ *      this harness creates sets, and one Neon forbids on default/parent/protected
+ *      branches. A stale same-prefix branch WITHOUT this marker is never deleted.
+ *   5. It has a parseable `created_at` older than `cutoff`. An unparseable
+ *      timestamp is treated as NOT stale (fail-safe), and a branch a sibling CI job
+ *      just created is younger than the cutoff and so is left alone.
+ */
+function isReapableBranch(
+  branch: BranchSummary,
+  parentBranchId: string | undefined,
+  cutoff: number,
+): boolean {
+  if (parentBranchId && branch.id === parentBranchId) return false
+  if (branch.default === true || branch.protected === true) return false
+  if (!isEphemeralTestBranchName(branch.name)) return false
+  if (!branch.expires_at) return false
+  const createdMs = branch.created_at ? Date.parse(branch.created_at) : NaN
+  return Number.isFinite(createdMs) && createdMs <= cutoff
+}
+
+/**
+ * Reap-before-run self-heal for the `BRANCHES_LIMIT_EXCEEDED` failure mode: a
+ * cancelled/crashed CI run (the workflow uses `cancel-in-progress: true`) can be
+ * killed between the create POST and the harness `finally`, leaking an ephemeral
+ * branch that Neon only auto-deletes at its `expires_at` (up to an hour later).
+ * Enough of those accumulate to hit the plan's branch cap, and then EVERY new run
+ * fails at branch creation before any test logic runs.
+ *
+ * Run once at global setup, this pages through ALL project branches and deletes
+ * only those `isReapableBranch` accepts — i.e. genuinely-ephemeral, aged-out test
+ * branches, NEVER the configured parent branch, the default/primary branch, a
+ * protected branch, or any branch lacking the exact ephemeral name + `expires_at`
+ * ownership marker. Best-effort throughout: a failed list or a failed individual
+ * delete is logged and swallowed, never thrown — the reaper must not turn a
+ * cleanup hiccup into a suite failure.
+ */
+export async function reapStaleBranches(
+  maxAgeMs: number = STALE_BRANCH_MAX_AGE_MS,
+): Promise<ReapResult> {
+  const result: ReapResult = { scanned: 0, deleted: [], failed: [] }
+  const { apiKey, projectId, parentBranchId } = neonConfig()
+
+  let branches: BranchSummary[]
+  try {
+    branches = await listAllBranches(apiKey, projectId)
+  } catch (cause) {
+    // eslint-disable-next-line no-console
+    console.warn('db-contract reap: failed to list branches (skipping reap):', cause)
+    return result
+  }
+
+  result.scanned = branches.length
+  const cutoff = Date.now() - maxAgeMs
+
+  for (const branch of branches) {
+    if (!isReapableBranch(branch, parentBranchId, cutoff)) continue
+
+    try {
+      await neonFetch(apiKey, `/projects/${projectId}/branches/${branch.id}`, { method: 'DELETE' })
+      result.deleted.push(branch.id)
+    } catch (cause) {
+      result.failed.push(branch.id)
+      // eslint-disable-next-line no-console
+      console.warn(`db-contract reap: failed to delete stale branch ${branch.id}:`, cause)
+    }
+  }
+
+  return result
 }
