@@ -18,6 +18,19 @@ import { randomBytes } from 'node:crypto'
 
 const API_BASE = process.env.NEON_API_BASE ?? 'https://console.neon.tech/api/v2'
 
+/**
+ * Prefix every ephemeral test branch shares. Encoded once so the create path and
+ * the reaper agree on exactly which branches are "ours": `createEphemeralBranch`
+ * names branches `${TEST_BRANCH_PREFIX}-<ts>-<hex>`, and `reapStaleBranches` only
+ * ever deletes branches whose name starts with `${TEST_BRANCH_PREFIX}-`. Production
+ * / parent branches (named `main`, `production`, …) can never match, so the reaper
+ * is safe by construction.
+ */
+export const TEST_BRANCH_PREFIX = 'db-contract'
+
+/** How old a leaked test branch must be before the reaper deletes it (default 30 min). */
+export const STALE_BRANCH_MAX_AGE_MS = 30 * 60 * 1000
+
 /** One create-branch operation the control plane runs asynchronously. */
 interface NeonOperation {
   id: string
@@ -115,7 +128,7 @@ async function waitForOperations(
  * returned `connection_uris` entry authenticates without extra setup. Waits for
  * the create/compute operations before returning.
  */
-export async function createEphemeralBranch(namePrefix = 'db-contract'): Promise<EphemeralBranch> {
+export async function createEphemeralBranch(namePrefix = TEST_BRANCH_PREFIX): Promise<EphemeralBranch> {
   const { apiKey, projectId, parentBranchId } = neonConfig()
   const name = `${namePrefix}-${Date.now()}-${randomBytes(4).toString('hex')}`
   // Safety net for a leaked branch: the workflow uses cancel-in-progress, so a
@@ -173,4 +186,80 @@ export async function deleteEphemeralBranch(branchId: string): Promise<void> {
     // eslint-disable-next-line no-console
     console.warn(`db-contract: failed to delete ephemeral Neon branch ${branchId}:`, cause)
   }
+}
+
+/** The subset of a list-branches entry the reaper reads. */
+interface BranchSummary {
+  id: string
+  name: string
+  /** ISO-8601 creation timestamp (e.g. `2022-12-08T19:55:43Z`). */
+  created_at?: string
+}
+
+/** The outcome of one reap pass, for logging in the global setup. */
+export interface ReapResult {
+  /** Total branches returned by the list call. */
+  scanned: number
+  /** Ids of the stale test branches that were deleted. */
+  deleted: string[]
+  /** Ids that matched + were stale but whose DELETE failed (mid-operation, etc.). */
+  failed: string[]
+}
+
+/**
+ * Reap-before-run self-heal for the `BRANCHES_LIMIT_EXCEEDED` failure mode: a
+ * cancelled/crashed CI run (the workflow uses `cancel-in-progress: true`) can be
+ * killed between the create POST and the harness `finally`, leaking an ephemeral
+ * branch that Neon only auto-deletes at its `expires_at` (up to an hour later).
+ * Enough of those accumulate to hit the plan's branch cap, and then EVERY new run
+ * fails at branch creation before any test logic runs.
+ *
+ * Run once at global setup, this lists all project branches and deletes any that
+ * (a) carry the `${TEST_BRANCH_PREFIX}-` name — so only our ephemeral test branches
+ * are ever touched, never the parent/production branch — AND (b) are older than
+ * `maxAgeMs`, so a branch a concurrently-running sibling job just created is left
+ * alone. Best-effort throughout: a failed list or a failed individual delete is
+ * logged and swallowed, never thrown — the reaper must not turn a cleanup hiccup
+ * into a suite failure.
+ */
+export async function reapStaleBranches(
+  maxAgeMs: number = STALE_BRANCH_MAX_AGE_MS,
+): Promise<ReapResult> {
+  const result: ReapResult = { scanned: 0, deleted: [], failed: [] }
+  const { apiKey, projectId } = neonConfig()
+
+  let branches: BranchSummary[]
+  try {
+    const body = (await neonFetch(apiKey, `/projects/${projectId}/branches`, {
+      method: 'GET',
+    })) as { branches?: BranchSummary[] }
+    branches = body.branches ?? []
+  } catch (cause) {
+    // eslint-disable-next-line no-console
+    console.warn('db-contract reap: failed to list branches (skipping reap):', cause)
+    return result
+  }
+
+  result.scanned = branches.length
+  const cutoff = Date.now() - maxAgeMs
+  const prefix = `${TEST_BRANCH_PREFIX}-`
+
+  for (const branch of branches) {
+    if (!branch.name?.startsWith(prefix)) continue
+    // No parseable timestamp → treat as NOT stale (fail safe: never delete a branch
+    // we can't age-check, so an unexpected same-prefix branch is left intact).
+    const createdMs = branch.created_at ? Date.parse(branch.created_at) : NaN
+    if (!Number.isFinite(createdMs) || createdMs > cutoff) continue
+
+    try {
+      await neonFetch(apiKey, `/projects/${projectId}/branches/${branch.id}`, { method: 'DELETE' })
+      result.deleted.push(branch.id)
+    } catch (cause) {
+      result.failed.push(branch.id)
+      // eslint-disable-next-line no-console
+      console.warn(`db-contract reap: failed to delete stale branch ${branch.id}:`, cause)
+    }
+  }
+
+  return result
 }
