@@ -205,6 +205,25 @@ describe("CommandPalette", () => {
     expect(screen.getByLabelText("Agent context")).toHaveTextContent("Digest");
   });
 
+  it("traps focus on the prompt textarea in prompt mode (Tab cannot escape the dialog)", async () => {
+    renderPalette();
+
+    fireEvent.keyDown(await screen.findByRole("combobox"), { key: "Tab" });
+    const prompt = screen.getByLabelText("Agent prompt");
+    prompt.focus();
+    expect(document.activeElement).toBe(prompt);
+
+    // The textarea is the ONLY focusable element in prompt mode, so the focus
+    // trap must cycle Tab back onto it rather than letting focus reach the inert
+    // chrome behind the backdrop. A cancelled event (fireEvent → false) proves
+    // the trap handled it; activeElement staying on the textarea proves the loop.
+    expect(fireEvent.keyDown(prompt, { key: "Tab" })).toBe(false);
+    expect(document.activeElement).toBe(prompt);
+    // Shift+Tab (backward) is trapped the same way.
+    expect(fireEvent.keyDown(prompt, { key: "Tab", shiftKey: true })).toBe(false);
+    expect(document.activeElement).toBe(prompt);
+  });
+
   it("submits the typed prompt to the agent seam bound to route context, and closes", async () => {
     const askAgent = vi.fn();
     const onOpenChange = vi.fn();

@@ -134,7 +134,11 @@ export function CommandPalette({
       const root = dialogRef.current;
       if (!root) return;
       const focusable = root.querySelectorAll<HTMLElement>(
-        'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        // `textarea` MUST be listed: in prompt mode it is the ONLY focusable
+        // element, so omitting it left `focusable` empty and the trap fell
+        // through — letting Tab/Shift-Tab escape the dialog (a11y bug). With it
+        // included, the textarea is both first and last, so Tab cycles to itself.
+        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
       );
       if (focusable.length === 0) return;
       const first = focusable[0];
