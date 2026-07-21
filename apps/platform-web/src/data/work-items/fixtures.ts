@@ -91,6 +91,12 @@ const RAW_WORK_ITEMS: ReadonlyArray<WorkItem> = [
   workItemOf("wi_samples", "Sample QC checklist", "done", "Sourcing", { type: "chore", priority: "low", tags: ["quality"], source: "manual", projectId: null, assigneeId: "user_kenji", dueDate: null, archived: true, createdAt: "2026-04-30T09:00:00.000Z", updatedAt: "2026-06-05T09:00:00.000Z" }),
   // item overdue + open check → blocked
   workItemOf("wi_logistics", "Warehouse intake flow", "plan", "Sourcing", { type: "bug", priority: "critical", tags: ["ops", "logistics"], source: "feedback", projectId: null, assigneeId: null, dueDate: "2026-06-05T00:00:00.000Z", createdAt: "2026-05-15T09:00:00.000Z", updatedAt: "2026-06-14T09:00:00.000Z" }),
+  // --- Nested Tasks under wi_auth (§11 owned child tier: one level deep) ---
+  // Two done + one in-flight → the parent rolls up to a 2/3 progress fraction.
+  // Children inherit the parent's team (Engineering) and project (proj_v2).
+  workItemOf("wi_auth_intake", "Draft new intake form", "done", "Engineering", { type: "chore", priority: "medium", source: "manual", projectId: "proj_v2", parentId: "wi_auth", assigneeId: "user_amara", createdAt: "2026-05-02T09:00:00.000Z", updatedAt: "2026-06-10T09:00:00.000Z" }),
+  workItemOf("wi_auth_migrate", "Migrate legacy records", "done", "Engineering", { type: "chore", priority: "high", source: "manual", projectId: "proj_v2", parentId: "wi_auth", assigneeId: "user_dev", createdAt: "2026-05-02T09:00:00.000Z", updatedAt: "2026-06-12T09:00:00.000Z" }),
+  workItemOf("wi_auth_cutover", "Cutover + verify", "execute", "Engineering", { type: "chore", priority: "high", source: "manual", projectId: "proj_v2", parentId: "wi_auth", assigneeId: "user_amara", dueDate: "2026-07-09T00:00:00.000Z", createdAt: "2026-05-02T09:00:00.000Z", updatedAt: "2026-06-18T09:00:00.000Z" }),
 ];
 
 const RAW_CHECKS: ReadonlyArray<Check> = [
@@ -238,9 +244,10 @@ function workItemOf(
     // `status_engineering_execute`) so the dataset satisfies the required
     // `status_id` without a separate statuses table.
     statusId = `status_${department.toLowerCase()}_${phase}`,
-    // Fixtures are all top-level today (no nested Tasks), so `parent_id` defaults
-    // to null and `depth` derives to 0. `depth` is server-derived (1 under a
-    // parent) — mirror that here rather than storing it independently.
+    // Most fixtures are top-level, so `parent_id` defaults to null and `depth`
+    // derives to 0; the `wi_auth_*` Tasks pass a `parentId` to nest one level.
+    // `depth` is server-derived (1 under a parent) — mirror that here rather than
+    // storing it independently.
     parentId = null,
     assigneeId = null,
     dueDate = null,
