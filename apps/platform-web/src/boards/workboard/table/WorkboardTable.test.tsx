@@ -270,6 +270,22 @@ describe("WorkboardTable — task nesting (tasks display option)", () => {
       }),
     ).toBeNull();
   });
+
+  it("keeps a filter-matched child visible in nested mode even if its parent is filtered out", async () => {
+    const all = await loadRows();
+    // Simulate WorkboardScreen having search/facet-filtered to just the child —
+    // its parent (wi_auth) is NOT in `rows`. The child must not vanish.
+    const child = all.find((r) => r.id === "wi_auth_intake");
+    expect(child).toBeDefined();
+    renderTable({ rows: [child!], groupBy: "none", tasks: "nested" });
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+
+    // The orphaned matching child is promoted to a visible top-level row.
+    expect(rowByTitle("Draft new intake form")).toHaveAttribute("data-depth", "0");
+  });
 });
 
 describe("WorkboardTable", () => {

@@ -186,14 +186,32 @@ describe("WorkItemDetailScreen", () => {
 
     // The new Task appears in the module…
     expect(await screen.findByText("Rotate signing keys")).toBeInTheDocument();
-    // …and it was persisted as a child of wi_auth (parent_id set, depth derived).
+    // …and it was persisted as a child of wi_auth (parent_id set, depth derived,
+    // and it inherits the parent's team so multi-team tenants resolve correctly).
     await waitFor(async () => {
-      const created = (await repo.list()).find(
-        (item) => item.title === "Rotate signing keys",
-      );
+      const list = await repo.list();
+      const created = list.find((item) => item.title === "Rotate signing keys");
+      const parent = list.find((item) => item.id === "wi_auth");
       expect(created?.parent_id).toBe("wi_auth");
       expect(created?.depth).toBe(1);
+      expect(created?.team_id).toBe(parent?.team_id);
     });
+  });
+
+  it("hides the Tasks module + Add-task form on a Task's own detail (no tasks-of-tasks)", async () => {
+    const repo = createMockWorkItemRepository();
+    // wi_auth_cutover is itself a Task (parent_id set); one-level nesting means it
+    // cannot own sub-tasks, so no Tasks module and no create path are rendered.
+    routerMock.params = { workspace: "acme", itemId: "wi_auth_cutover" };
+
+    render(<WorkItemDetailScreen repository={repo} />);
+    await screen.findByRole("heading", { level: 1, name: "Cutover + verify" });
+
+    expect(screen.queryByRole("heading", { name: /^tasks$/i })).toBeNull();
+    expect(screen.queryByLabelText("New task title")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /add task/i }),
+    ).toBeNull();
   });
 
   it("shows a parent breadcrumb on a child Task's detail", async () => {

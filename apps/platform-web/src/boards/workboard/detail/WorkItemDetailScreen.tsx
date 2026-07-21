@@ -605,15 +605,23 @@ export function WorkItemDetailScreen({
   // immediately; re-throws on failure so the form keeps the typed title.
   const handleAddTask = useCallback(
     async (title: string): Promise<void> => {
+      // Snapshot the PARENT (current item)'s team so the new sub-task inherits it.
+      // Without this, a multi-team tenant resolves the omitted team_id to a
+      // default/wrong team (same principle as the atomic-accept team_id snapshot).
+      const parent = items.find((candidate) => candidate.id === itemId);
       try {
-        await create({ title, parent_id: itemId });
+        await create({
+          title,
+          parent_id: itemId,
+          ...(parent ? { team_id: parent.team_id } : {}),
+        });
         await refreshActivity();
       } catch (cause) {
         toast.error("Couldn't add the task — please try again.");
         throw cause;
       }
     },
-    [create, itemId, refreshActivity],
+    [create, itemId, items, refreshActivity],
   );
 
   const row = useMemo<WorkItemRow | undefined>(
@@ -786,13 +794,18 @@ export function WorkItemDetailScreen({
                 onAdd={handleAddCheck}
                 pendingCheckIds={pendingCheckIds}
               />
-              <TasksModule
-                tasks={childTasks}
-                completed={taskRollup.completed}
-                total={taskRollup.total}
-                workspace={workspace}
-                onAddTask={handleAddTask}
-              />
+              {/* Nesting is one level deep — a Task cannot own sub-tasks (the
+                  backend rejects tasks-of-tasks), so the Tasks module + Add-task
+                  form appear only on a TOP-LEVEL item's detail. */}
+              {row.parent_id === null ? (
+                <TasksModule
+                  tasks={childTasks}
+                  completed={taskRollup.completed}
+                  total={taskRollup.total}
+                  workspace={workspace}
+                  onAddTask={handleAddTask}
+                />
+              ) : null}
             </TabsContent>
 
             <TabsContent value="activity" className="pt-5">

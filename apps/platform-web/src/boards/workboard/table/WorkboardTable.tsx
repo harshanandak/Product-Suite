@@ -768,7 +768,23 @@ function flattenRows(
     tasks === "nested"
       ? childrenByParent(rows)
       : new Map<string, WorkItemRow[]>();
-  const primary = tasks === "flat" ? rows : topLevelItems(rows);
+
+  // The PRIMARY rows the view lays out. `rows` is already search/facet-filtered
+  // by the parent, so in nested mode a child can match while its parent was
+  // filtered OUT — such an "orphaned" child is promoted to a top-level row so a
+  // match is never dropped; present-parent children still ride under their
+  // parent. `flat` shows every row; `hidden` shows top-level only.
+  let primary: WorkItemRow[];
+  if (tasks === "flat") {
+    primary = rows;
+  } else if (tasks === "hidden") {
+    primary = topLevelItems(rows);
+  } else {
+    const presentIds = new Set(rows.map((row) => row.id));
+    primary = rows.filter(
+      (row) => row.parent_id === null || !presentIds.has(row.parent_id),
+    );
+  }
 
   // Emit one primary row, plus (nested + expanded) its indented children.
   const emitItem = (row: WorkItemRow, out: FlatRow[]): void => {
