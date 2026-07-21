@@ -102,9 +102,9 @@ const workboardRoute = createRoute({
   // routes (incl. the workboard sub-routes) remain on the BoardScreen placeholder.
   component: WorkboardScreen,
 });
-// The Graph is returning as a Layout in Phase 2, so its old standalone path is
-// kept only to redirect legacy links onto the single work-items surface (the
-// graph components + their unit tests stay; just the route stops rendering them).
+// Graph is now a Layout of the single work-items surface (chosen via the
+// toolbar's Layout menu), not a standalone screen. This old path stays only to
+// redirect legacy `/workboard/graph` links onto that surface.
 const workboardGraphRoute = createRoute({
   getParentRoute: () => workspaceRoute,
   path: "workboard/graph",

@@ -19,7 +19,7 @@ import { FacetFilterMenu } from "../toolbar/FacetFilterMenu";
 
 /**
  * Floating FILTER cluster for the Graph view — search + the five facet menus
- * (Type / Owner / Department / Phase / Priority) + a clear action. It lives
+ * (Type / Owner / Team / Status / Priority) + a clear action. It lives
  * INSIDE the canvas (a top-left React Flow Panel) and mutates the shared
  * {@link WorkboardFilterState}; the screen runs {@link applyWorkboardFilters}
  * over it so the graph renders only the matching work items.
@@ -37,7 +37,7 @@ export interface GraphFiltersProps {
   onChange: (next: WorkboardFilterState) => void;
   /** Pickable owners (feeds the Owner facet, plus "Unassigned"). */
   owners: ReadonlyArray<Owner>;
-  /** Department names present in the data (feeds the Department facet). */
+  /** Team names present in the data (feeds the Team facet). */
   departments: ReadonlyArray<string>;
 }
 
@@ -65,12 +65,10 @@ export function GraphFilters({
   const toggleOwner = (ownerId: string): void => {
     onChange({ ...value, filters: { ...filters, owner: toggledSet(filters.owner, ownerId) } });
   };
-  const toggleDepartment = (department: string): void => {
+  const toggleTeam = (team: string): void => {
     onChange({
       ...value,
-      // Graph keeps its "Department" label (Phase-2 re-skin), but the shared
-      // filter field is now `team`.
-      filters: { ...filters, team: toggledSet(filters.team, department) },
+      filters: { ...filters, team: toggledSet(filters.team, team) },
     });
   };
   const togglePhase = (phase: Phase): void => {
@@ -137,14 +135,14 @@ export function GraphFilters({
           onToggle={toggleOwner}
         />
         <FacetFilterMenu
-          label="Department"
+          label="Team"
           variant="ghost"
           options={options.team}
           selected={filters.team}
-          onToggle={toggleDepartment}
+          onToggle={toggleTeam}
         />
         <FacetFilterMenu
-          label="Phase"
+          label="Status"
           variant="ghost"
           options={options.phase}
           selected={filters.phase}
