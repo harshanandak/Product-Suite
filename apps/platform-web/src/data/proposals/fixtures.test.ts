@@ -22,6 +22,15 @@ describe("proposal fixtures", () => {
     expect(ops.has("update")).toBe(true);
   });
 
+  it("carries a mix of sources spanning all three provenance facets", () => {
+    // The inbox's source facet (chat / autonomous / connector) needs a real
+    // spread so every filter has something to show.
+    const sources = new Set(createProposalFixtures().map((p) => p.source));
+    expect(sources.has("chat")).toBe(true);
+    expect(sources.has("autonomous")).toBe(true);
+    expect(sources.has("connector")).toBe(true);
+  });
+
   it("deep-clones per call so the mock repository can mutate without poisoning source", () => {
     const first = createProposalFixtures();
     const second = createProposalFixtures();

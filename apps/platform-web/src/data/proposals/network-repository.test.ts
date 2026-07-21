@@ -47,7 +47,8 @@ describe("createNetworkProposalRepository", () => {
   it("list GETs /api/agent/proposals with a bearer token + abort signal", async () => {
     fetchMock.mockResolvedValueOnce(jsonOk([{ id: "p1" }]));
     const result = await makeRepo().list();
-    expect(result).toEqual([{ id: "p1" }]);
+    // A source-less row is normalized to `source: null` (see the source tests below).
+    expect(result).toEqual([{ id: "p1", source: null }]);
     const { url, init } = callArgs();
     expect(url).toBe(`${BASE}/api/agent/proposals`);
     expect(init?.method).toBe("GET");
@@ -55,6 +56,26 @@ describe("createNetworkProposalRepository", () => {
       "Bearer tok_123",
     );
     expect(init?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("list passes through a valid source facet and nulls a missing/unknown one", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonOk([
+        { id: "p1", source: "chat" },
+        { id: "p2", source: "autonomous" },
+        { id: "p3", source: "connector" },
+        { id: "p4", source: "bogus" }, // junk ⇒ null
+        { id: "p5" }, // missing ⇒ null
+      ]),
+    );
+    const result = await makeRepo().list();
+    expect(result.map((p) => p.source)).toEqual([
+      "chat",
+      "autonomous",
+      "connector",
+      null,
+      null,
+    ]);
   });
 
   it("accept POSTs /:id/accept with NO body and returns the applied envelope", async () => {

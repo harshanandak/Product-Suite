@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { AcceptResult, Proposal } from "./types";
+import type { AcceptResult, Proposal, ProposalSource } from "./types";
 
 /**
  * Types-only module: these tests pin the CONTRACT shape (they compile-check the
@@ -19,10 +19,25 @@ describe("proposal types", () => {
       status: "pending",
       run_id: "r1",
       model_id: "m1",
+      source: "chat",
       created_at: "2026-07-13T00:00:00.000Z",
     };
     expect(proposal.target_id).toBeNull();
     expect(proposal.operation).toBe("create");
+    expect(proposal.source).toBe("chat");
+  });
+
+  it("source is one of the three provenance literals or null", () => {
+    // The field is nullable (the backend may omit it / send something unknown).
+    const sources: (ProposalSource | null)[] = [
+      "chat",
+      "autonomous",
+      "connector",
+      null,
+    ];
+    expect(sources).toHaveLength(4);
+    expect(sources).toContain("autonomous");
+    expect(sources).toContain(null);
   });
 
   it("AcceptResult narrows by its status discriminant", () => {

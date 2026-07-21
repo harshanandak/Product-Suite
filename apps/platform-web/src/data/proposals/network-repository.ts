@@ -1,5 +1,20 @@
 import type { ProposalRepository } from "./repository";
-import type { AcceptResult, Proposal } from "./types";
+import type { AcceptResult, Proposal, ProposalSource } from "./types";
+
+/** The recognized proposal sources; anything else off the wire normalizes to null. */
+const PROPOSAL_SOURCES: readonly ProposalSource[] = [
+  "chat",
+  "autonomous",
+  "connector",
+];
+
+/** Pass through a source only when it is exactly one of the known literals, else null. */
+function normalizeSource(value: unknown): ProposalSource | null {
+  return typeof value === "string" &&
+    (PROPOSAL_SOURCES as readonly string[]).includes(value)
+    ? (value as ProposalSource)
+    : null;
+}
 
 /** Parse a Response body as JSON once, tolerating a non-JSON/empty body (→ null). */
 async function readJsonBody(response: Response): Promise<Record<string, unknown> | null> {
@@ -96,7 +111,15 @@ export function createNetworkProposalRepository(
   }
 
   return {
-    list: () => request<Proposal[]>("GET", "/api/agent/proposals"),
+    async list(): Promise<Proposal[]> {
+      // Pass proposals through unreshaped, but normalize `source` at this trust
+      // boundary so the inbox facet only ever sees a known literal or null.
+      const proposals = await request<Proposal[]>("GET", "/api/agent/proposals");
+      return proposals.map((proposal) => ({
+        ...proposal,
+        source: normalizeSource(proposal.source),
+      }));
+    },
 
     async accept(
       id: string,
