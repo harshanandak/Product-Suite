@@ -44,11 +44,15 @@ import {
   type ColumnId,
   type GroupByField,
 } from "@/boards/workboard/filter-state";
-import type {
-  Owner,
-  WorkItem,
-  WorkItemPatch,
-  WorkItemRow,
+import {
+  childrenByParent,
+  taskProgress,
+  topLevelItems,
+  type Owner,
+  type TaskProgress,
+  type WorkItem,
+  type WorkItemPatch,
+  type WorkItemRow,
 } from "@/data/work-items";
 
 import { FacetFilterMenu } from "../toolbar/FacetFilterMenu";
@@ -112,6 +116,19 @@ export interface ColumnFilter {
  * from what the parent renders. Selection is fully CONTROLLED (`selection` +
  * `onSelectionChange`) so the toolbar and table share one selection set.
  */
+/**
+ * How the table treats child Tasks (§11 owned child tier). Mirrors filter-state's
+ * `TasksVisibility` (Lane A owns that export); declared locally so this component
+ * builds against the pinned v3 contract before Lane A's `filter-state.ts` lands.
+ * At the rebase onto Lane A, replace this with the imported `TasksVisibility`.
+ *
+ * - `nested` — children fold under their parent (indented, collapsed by default);
+ *   the parent shows a disclosure chevron + an `n/m` rollup.
+ * - `flat`   — no nesting; children render as ordinary top-level rows.
+ * - `hidden` — parents only; children are omitted entirely.
+ */
+export type TasksVisibility = "nested" | "flat" | "hidden";
+
 export interface WorkItemTableProps {
   /**
    * Rows already searched + filtered by the parent, each carrying derived
@@ -120,6 +137,13 @@ export interface WorkItemTableProps {
    * once, on read). The table does NOT filter — it renders exactly these rows.
    */
   rows: WorkItemRow[];
+  /**
+   * How child Tasks are displayed (Phase-3 nesting). Consumes the filter-state
+   * `tasks` display option — Lane A's `WorkboardScreen` passes `state.tasks` here
+   * (the A↔B seam). Defaults to `"nested"` (the product default) so read-only
+   * embeds get nesting without wiring.
+   */
+  tasks?: TasksVisibility;
   /** Owner lookup for the Owner column — resolves `assignee_id` → name/picker. */
   owners: ReadonlyArray<Owner>;
   /** Render skeletons mirroring the final layout during the initial load. */
@@ -713,21 +737,84 @@ function groupLabelFor(row: WorkItemRow, groupBy: GroupByField): string {
  */
 type FlatRow =
   | { kind: "group"; label: string; count: number; key: string; ids: string[] }
-  | { kind: "item"; row: WorkItemRow; key: string };
+  | {
+      kind: "item";
+      row: WorkItemRow;
+      key: string;
+      /** Tree depth: 0 = top-level, 1 = a child Task under a parent. */
+      depth: number;
+      /** True when this (top-level) row has child Tasks (nested mode only). */
+      hasChildren: boolean;
+      /** True when a parent's children are currently revealed. */
+      expanded: boolean;
+      /** `n/m` child rollup for a parent row; absent for leaves. */
+      progress?: TaskProgress;
+    };
 
 /**
- * Flatten `rows` into the virtualized list. When `groupBy === "none"` this is a
- * flat list of item rows; otherwise rows are bucketed by their group label
- * (preserving first-seen order) with a header row per bucket.
+ * Flatten `rows` into the virtualized list.
+ *
+ * Grouping + ordering apply to the PRIMARY rows only:
+ *  - `tasks === "flat"` → every row is primary (no nesting; children are ordinary
+ *    rows bucketed by their own group).
+ *  - `tasks === "nested" | "hidden"` → top-level items are primary; a `nested`
+ *    parent's children ride directly under it (indented, only when expanded),
+ *    ignoring their own group field (a Task belongs to its parent, §11);
+ *    `hidden` drops children entirely.
+ *
+ * When `groupBy === "none"` the result is one flat (optionally nested) list;
+ * otherwise primary rows are bucketed by their group label (first-seen order)
+ * with a header row per bucket.
  */
-function flattenRows(rows: WorkItemRow[], groupBy: GroupByField): FlatRow[] {
+function flattenRows(
+  rows: WorkItemRow[],
+  groupBy: GroupByField,
+  tasks: TasksVisibility,
+  expandedParents: ReadonlySet<string>,
+): FlatRow[] {
+  const kids =
+    tasks === "nested"
+      ? childrenByParent(rows)
+      : new Map<string, WorkItemRow[]>();
+  const primary = tasks === "flat" ? rows : topLevelItems(rows);
+
+  // Emit one primary row, plus (nested + expanded) its indented children.
+  const emitItem = (row: WorkItemRow, out: FlatRow[]): void => {
+    const children = kids.get(row.id) ?? [];
+    const hasChildren = children.length > 0;
+    const expanded = hasChildren && expandedParents.has(row.id);
+    out.push({
+      kind: "item",
+      row,
+      key: `item:${row.id}`,
+      depth: 0,
+      hasChildren,
+      expanded,
+      progress: hasChildren ? taskProgress(children) : undefined,
+    });
+    if (expanded) {
+      for (const child of children) {
+        out.push({
+          kind: "item",
+          row: child,
+          key: `item:${child.id}`,
+          depth: 1,
+          hasChildren: false,
+          expanded: false,
+        });
+      }
+    }
+  };
+
   if (groupBy === "none") {
-    return rows.map((row) => ({ kind: "item", row, key: `item:${row.id}` }));
+    const flat: FlatRow[] = [];
+    for (const row of primary) emitItem(row, flat);
+    return flat;
   }
 
   const order: string[] = [];
   const buckets = new Map<string, WorkItemRow[]>();
-  for (const row of rows) {
+  for (const row of primary) {
     const label = groupLabelFor(row, groupBy);
     const bucket = buckets.get(label);
     if (bucket) {
@@ -749,15 +836,41 @@ function flattenRows(rows: WorkItemRow[], groupBy: GroupByField): FlatRow[] {
       // across grouping dimensions — two same-label groups under different
       // `groupBy` modes must not share a collapsed/expanded state.
       key: `group:${groupBy}:${label}`,
-      // Carry the group's visible item ids so its header can drive a
-      // "select all in this group" checkbox over exactly these rows.
+      // Group select-all operates over the group's PRIMARY (top-level) ids; a
+      // child is selected via its own row when its parent is expanded.
       ids: items.map((item) => item.id),
     });
-    for (const row of items) {
-      flat.push({ kind: "item", row, key: `item:${row.id}` });
-    }
+    for (const row of items) emitItem(row, flat);
   }
   return flat;
+}
+
+/** Compact `▰▰▱ n/m` child-task rollup shown inline on a parent row's Name cell. */
+function RowTaskProgress({
+  completed,
+  total,
+}: Readonly<{ completed: number; total: number }>) {
+  return (
+    <span
+      className="ml-1 inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground"
+      aria-label={`${completed} of ${total} sub-tasks done`}
+    >
+      <span aria-hidden className="flex gap-0.5">
+        {Array.from({ length: total }, (_, index) => (
+          <span
+            key={index}
+            className={cn(
+              "h-1.5 w-2.5 rounded-sm",
+              index < completed ? "bg-primary" : "bg-muted",
+            )}
+          />
+        ))}
+      </span>
+      <span className="tabular-nums">
+        {completed}/{total}
+      </span>
+    </span>
+  );
 }
 
 function LoadingSkeleton() {
@@ -899,6 +1012,7 @@ export function WorkboardTable({
   error,
   onRetry,
   groupBy,
+  tasks = "nested",
   visibleColumns,
   selection,
   onSelectionChange,
@@ -913,15 +1027,43 @@ export function WorkboardTable({
     [visibleColumns],
   );
 
-  const itemIds = React.useMemo(
-    () => new Set(rows.map((row) => row.id)),
-    [rows],
+  // Expanded parent ids (nested mode). Parents start COLLAPSED — the top-level
+  // list reads clean and a child tier is revealed on demand, keeping the visible
+  // row/selection index path identical to a flat list until the user drills in.
+  const [expandedParents, setExpandedParents] = React.useState<Set<string>>(
+    () => new Set(),
   );
+  const toggleParentExpanded = React.useCallback((id: string) => {
+    // Always clone — never mutate the live state set in place.
+    setExpandedParents((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
 
   const flatRows = React.useMemo(
-    () => flattenRows(rows, groupBy),
-    [rows, groupBy],
+    () => flattenRows(rows, groupBy, tasks, expandedParents),
+    [rows, groupBy, tasks, expandedParents],
   );
+
+  // Ids eligible for the GLOBAL select-all: every item row present in the
+  // flattened list — top-level rows plus any REVEALED child Tasks. A collapsed
+  // child tier is excluded (you can't bulk-act on rows you can't see), while
+  // collapsed-GROUP rows remain (group collapse is a view toggle applied later,
+  // in `visibleFlatRows`, not a filter). So select-all tracks exactly the rows
+  // the nesting/hidden mode surfaces.
+  const itemIds = React.useMemo(() => {
+    const ids = new Set<string>();
+    for (const flat of flatRows) {
+      if (flat.kind === "item") ids.add(flat.row.id);
+    }
+    return ids;
+  }, [flatRows]);
 
   // Collapsed swimlane keys (the group FlatRow's stable `key`). Collapsing a
   // group hides its ITEM rows while keeping its header (which still carries the
@@ -1042,8 +1184,8 @@ export function WorkboardTable({
   // change can leave ids in `selection` that no longer map to a visible row, so
   // size-equality would falsely read "all selected" and drive bulk on hidden
   // rows. Counting how many visible rows are selected keeps the header honest.
-  const visibleSelected = rows.filter((row) => selection.has(row.id)).length;
-  const allSelected = rows.length > 0 && visibleSelected === rows.length;
+  const visibleSelected = [...itemIds].filter((id) => selection.has(id)).length;
+  const allSelected = itemIds.size > 0 && visibleSelected === itemIds.size;
   const someSelected = visibleSelected > 0 && !allSelected;
   /** Tri-state for the select-all header: minus glyph when partial. */
   let selectAllState: boolean | "indeterminate" = false;
@@ -1242,7 +1384,9 @@ export function WorkboardTable({
       // buttons/checkboxes activate on a synthetic click.
       if (event.key === "Enter" || event.key === " ") {
         const control = event.currentTarget.querySelector<HTMLElement>(
-          'button, [role="checkbox"], [role="combobox"], input, a[href]',
+          // The disclosure chevron (`[data-disclosure]`) is NOT the primary
+          // control — skip it so Enter opens the row via its title button.
+          'button:not([data-disclosure]), [role="checkbox"], [role="combobox"], input, a[href]',
         );
         if (control === null) return;
         event.preventDefault();
@@ -1557,6 +1701,7 @@ export function WorkboardTable({
                   aria-rowindex={ariaRowIndex}
                   aria-selected={isSelected}
                   data-testid="work-item-row"
+                  data-depth={flat.depth}
                   data-state={isSelected ? "selected" : undefined}
                   data-archived={isArchived ? "true" : undefined}
                   // `group` powers the hover/focus reveal of the row controls;
@@ -1638,8 +1783,45 @@ export function WorkboardTable({
                       )}
                       style={dataColumnStyle(column.id)}
                     >
-                      {column.id === "name" && isArchived ? (
-                        <span className="flex min-w-0 items-center gap-2">
+                      {column.id === "name" ? (
+                        <span
+                          className="flex min-w-0 items-center gap-1.5"
+                          style={
+                            flat.depth > 0
+                              ? { paddingLeft: `${flat.depth * 1.25}rem` }
+                              : undefined
+                          }
+                        >
+                          {flat.hasChildren ? (
+                            <button
+                              type="button"
+                              // Marks this as the disclosure toggle so the cell's
+                              // Enter/Space "primary control" resolver skips it and
+                              // still opens the row via the title button.
+                              data-disclosure
+                              aria-label={
+                                flat.expanded
+                                  ? `Hide sub-tasks of ${row.title}`
+                                  : `Show sub-tasks of ${row.title}`
+                              }
+                              aria-expanded={flat.expanded}
+                              className="shrink-0 rounded-sm p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                toggleParentExpanded(row.id);
+                              }}
+                            >
+                              {flat.expanded ? (
+                                <ChevronDown className="size-4" />
+                              ) : (
+                                <ChevronRight className="size-4" />
+                              )}
+                            </button>
+                          ) : flat.depth === 0 ? (
+                            // Keep childless top-level titles aligned with the
+                            // chevron column so parent/leaf rows line up.
+                            <span aria-hidden className="inline-block size-4 shrink-0" />
+                          ) : null}
                           {column.render({
                             row,
                             owners,
@@ -1647,12 +1829,20 @@ export function WorkboardTable({
                             onUpdateItem,
                             archived: isArchived,
                           })}
-                          <span
-                            data-testid="archived-indicator"
-                            className="shrink-0 rounded-sm bg-muted px-1.5 py-0.5 text-xs font-medium"
-                          >
-                            Archived
-                          </span>
+                          {isArchived ? (
+                            <span
+                              data-testid="archived-indicator"
+                              className="shrink-0 rounded-sm bg-muted px-1.5 py-0.5 text-xs font-medium"
+                            >
+                              Archived
+                            </span>
+                          ) : null}
+                          {flat.progress ? (
+                            <RowTaskProgress
+                              completed={flat.progress.completed}
+                              total={flat.progress.total}
+                            />
+                          ) : null}
                         </span>
                       ) : (
                         column.render({
