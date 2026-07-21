@@ -59,8 +59,11 @@ export function CommandPalette({
     const text = askPrompt.trim();
     if (text.length === 0) return;
     onOpenChange(false);
-    askAgent({ prompt: text });
-  }, [askPrompt, onOpenChange, askAgent]);
+    // Bind the submission to the object shown in the chip (the CURRENT route),
+    // NOT whatever a pre-existing panel thread was linked to — otherwise the chip
+    // and the agent's actual context would disagree.
+    askAgent({ prompt: text, object: context });
+  }, [askPrompt, onOpenChange, askAgent, context]);
 
   // Resolve the repository once (injected prop wins, else the provider's repo,
   // else the module singleton) — the useWorkItems/useTeams convention.

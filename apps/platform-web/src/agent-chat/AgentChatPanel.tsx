@@ -262,12 +262,21 @@ export function AgentChatPanel({
   // issued while closed doesn't steal focus.
   const focusNonce = focusRequest?.nonce;
   const focusPrompt = focusRequest?.prompt;
+  const focusObject = focusRequest?.object;
   useEffect(() => {
     if (!open || focusNonce === undefined) return;
     if (focusPrompt !== undefined) setDraft(focusPrompt);
+    // When the invocation asserts a scope (⌘K prompt chip = the current route),
+    // rebind the thread to it so the submission acts on what the caller SHOWED,
+    // not a stale prior thread's linked object. Any pin from the old object no
+    // longer applies, so clear it.
+    if (focusObject !== undefined) {
+      setThreadObject(focusObject);
+      setPinned(false);
+    }
     // The panel commits before effects run, so the input is already in the DOM.
     panelRef.current?.querySelector("textarea")?.focus();
-  }, [open, focusNonce, focusPrompt]);
+  }, [open, focusNonce, focusPrompt, focusObject]);
 
   // Escape closes the panel (non-modal: the board stays interactive otherwise).
   useEffect(() => {
@@ -335,6 +344,9 @@ export function AgentChatPanel({
     stop();
     threadEpochRef.current += 1;
     setShowThreads(false);
+    // The summary carries THIS session's linked object; capture it now so the
+    // rebind below reflects the thread being selected, not the panel-wide state.
+    const summary = threads.find((thread) => thread.id === id);
     threadsAdapter
       .messages(id)
       .then((loaded) => {
@@ -343,6 +355,12 @@ export function AgentChatPanel({
         // parameter type to bridge the monorepo's ai-version dedup (identical shape,
         // different resolved `ai` copy).
         setMessages(loaded as unknown as Parameters<typeof setMessages>[0]);
+        // Rebind per-session context: adopt this thread's own linked object and
+        // clear any pin carried from the previously-active session — otherwise the
+        // pin toggle (aria-pressed) and the navigation nudge would reflect the wrong
+        // thread's state (CodeRabbit: pin state leaks across sessions).
+        setThreadObject(summary?.linked_object ?? null);
+        setPinned(false);
       })
       .catch(() => {
         // A failed load leaves the current thread untouched (surfaced by the SDK's

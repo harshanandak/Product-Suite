@@ -215,8 +215,14 @@ describe("CommandPalette", () => {
     fireEvent.change(prompt, { target: { value: "break this item into tasks" } });
     fireEvent.keyDown(prompt, { key: "Enter" });
 
-    // Enter hands the prompt to the SAME invocation seam the panel opens through.
-    expect(askAgent).toHaveBeenCalledWith({ prompt: "break this item into tasks" });
+    // Enter hands the prompt to the SAME invocation seam the panel opens through,
+    // scoped to the object shown in the chip (the CURRENT route — "/w/test-ws"
+    // resolves to the home Digest screen) so the submission can't bind to a stale
+    // pre-existing thread's context.
+    expect(askAgent).toHaveBeenCalledWith({
+      prompt: "break this item into tasks",
+      object: { type: "screen", id: "/w/test-ws", title: "Digest" },
+    });
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
