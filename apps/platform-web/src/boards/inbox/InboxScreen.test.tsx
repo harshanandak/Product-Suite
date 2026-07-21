@@ -38,7 +38,11 @@ vi.mock("@/data/work-items", () => ({
 
 import { InboxScreen } from "./InboxScreen";
 
-function proposal(id: string, title: string): Proposal {
+function proposal(
+  id: string,
+  title: string,
+  source: Proposal["source"] = null,
+): Proposal {
   return {
     id,
     target_type: "work_item",
@@ -50,6 +54,7 @@ function proposal(id: string, title: string): Proposal {
     status: "pending",
     run_id: "r1",
     model_id: "m1",
+    source,
     created_at: "2026-07-13T09:12:00.000Z",
   };
 }
@@ -267,6 +272,66 @@ describe("InboxScreen", () => {
     expect(screen.getAllByText(/View item/i).length).toBeGreaterThan(0);
     expect(
       screen.queryByText("No proposals to review"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("filters the list by the source facet and updates the pending count", async () => {
+    render(
+      <InboxScreen
+        repository={repoWith([
+          proposal("p1", "Alpha", "chat"),
+          proposal("p2", "Beta", "autonomous"),
+        ])}
+      />,
+    );
+    // The facet group renders above the list; All shows both proposals.
+    await waitFor(() =>
+      expect(
+        screen.getByRole("group", { name: "Filter by source" }),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.getByText("2 pending")).toBeInTheDocument();
+
+    // Clicking Chat filters to chat-sourced proposals only.
+    fireEvent.click(screen.getByRole("button", { name: "Chat" }));
+    expect(screen.getByRole("button", { name: "Chat" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByText("1 pending")).toBeInTheDocument();
+    const list = screen.getByRole("list", { name: "Pending proposals" });
+    expect(within(list).getByText("Alpha")).toBeInTheDocument();
+    expect(within(list).queryByText("Beta")).not.toBeInTheDocument();
+
+    // All restores the full set.
+    fireEvent.click(screen.getByRole("button", { name: "All" }));
+    expect(screen.getByText("2 pending")).toBeInTheDocument();
+    const restored = screen.getByRole("list", { name: "Pending proposals" });
+    expect(within(restored).getByText("Beta")).toBeInTheDocument();
+  });
+
+  it("falls back to the first visible proposal when the selected one is filtered out", async () => {
+    render(
+      <InboxScreen
+        repository={repoWith([
+          proposal("p1", "Alpha", "chat"),
+          proposal("p2", "Beta", "connector"),
+        ])}
+      />,
+    );
+    // Default selection is the first row (Alpha, chat-sourced).
+    await waitFor(() =>
+      expect(screen.getByText("Create work item “Alpha”")).toBeInTheDocument(),
+    );
+
+    // Filtering to Connector hides Alpha; the pane falls back to the first
+    // visible proposal (Beta) rather than blanking.
+    fireEvent.click(screen.getByRole("button", { name: "Connector" }));
+    await waitFor(() =>
+      expect(screen.getByText("Create work item “Beta”")).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByText("Create work item “Alpha”"),
     ).not.toBeInTheDocument();
   });
 });

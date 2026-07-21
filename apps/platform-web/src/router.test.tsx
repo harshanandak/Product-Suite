@@ -49,7 +49,6 @@ describe("router", () => {
       "/w/$workspace/workboard/item/$itemId",
       "/w/$workspace/workboard/team/$teamId",
       "/w/$workspace/meetings",
-      "/w/$workspace/agents",
       "/w/$workspace/settings",
     ]) {
       expect(fullPaths).toContain(expected);
@@ -68,6 +67,35 @@ describe("router", () => {
     ]) {
       expect(fullPaths).not.toContain(dead);
     }
+  });
+
+  it("no longer registers the deleted Agent board routes", () => {
+    const fullPaths = collectFullPaths();
+
+    for (const dead of [
+      "/w/$workspace/agents",
+      "/w/$workspace/agents/approvals",
+      "/w/$workspace/agents/connectors",
+      "/w/$workspace/agents/history",
+    ]) {
+      expect(fullPaths).not.toContain(dead);
+    }
+  });
+
+  it("treats /w/:ws/agents as notFound (the board is deleted)", async () => {
+    await router.navigate({
+      to: "/w/$workspace/agents",
+      params: { workspace: "test-ws" },
+    } as never);
+    await router.load();
+
+    expect(router.state.location.pathname).toBe("/w/test-ws/agents");
+    // No agents child route matches, so the deepest match is the workspace route
+    // flagged as a global not-found — the shell renders the notFoundComponent.
+    const last = router.state.matches.at(-1) as
+      | { globalNotFound?: boolean }
+      | undefined;
+    expect(last?.globalNotFound).toBe(true);
   });
 
   it("redirects /w/:ws/workboard/graph to the items surface on the Graph layout", async () => {

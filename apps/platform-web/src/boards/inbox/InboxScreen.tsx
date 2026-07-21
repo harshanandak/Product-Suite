@@ -28,6 +28,21 @@ function SkeletonRow() {
 }
 
 /**
+ * The source-facet options. `all` shows everything (including null-source
+ * proposals); each other value filters to that origin. The union of `value`s is
+ * derived from this tuple, so adding a facet needs no separate type change.
+ */
+const SOURCE_FACETS = [
+  { value: "all", label: "All" },
+  { value: "chat", label: "Chat" },
+  { value: "autonomous", label: "Autonomous" },
+  { value: "connector", label: "Connector" },
+] as const;
+
+/** The active source filter — `all`, or one of the `ProposalSource` literals. */
+type SourceFilter = (typeof SOURCE_FACETS)[number]["value"];
+
+/**
  * Review inbox SCREEN — the surface where humans dispose of what agents propose.
  * A pending-proposals list (navigation) beside a selected-proposal detail pane
  * (the product: *what will actually change*). Mirrors {@link WorkboardScreen}'s
@@ -77,6 +92,27 @@ export function InboxScreen({ repository }: Readonly<InboxScreenProps> = {}) {
   useEffect(() => {
     for (const proposal of proposals) seenRef.current.set(proposal.id, proposal);
   }, [proposals]);
+
+  // The source facet (chat / autonomous / connector) narrows the list to one
+  // origin; `all` (default) shows every proposal, including null-source ones.
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
+  const visibleProposals =
+    sourceFilter === "all"
+      ? proposals
+      : proposals.filter((proposal) => proposal.source === sourceFilter);
+
+  // When the facet hides the currently-selected proposal WHILE it is still
+  // pending, fall back to the first visible row. Guard on it being in the pending
+  // list so a just-disposed proposal (kept alive via seenRef for its terminal
+  // banner) is never yanked away — that path leaves `selectedId` untouched.
+  useEffect(() => {
+    if (selectedId === null) return;
+    const stillPending = proposals.some((p) => p.id === selectedId);
+    const isVisible = visibleProposals.some((p) => p.id === selectedId);
+    if (stillPending && !isVisible) {
+      setSelectedId(visibleProposals[0]?.id ?? null);
+    }
+  }, [visibleProposals, proposals, selectedId]);
 
   const selected =
     selectedId === null
@@ -141,16 +177,44 @@ export function InboxScreen({ repository }: Readonly<InboxScreenProps> = {}) {
       <header className="flex items-baseline gap-2">
         <h1 className="text-lg font-semibold text-foreground">Review inbox</h1>
         <span className="text-sm text-muted-foreground">
-          {proposals.length} pending
+          {visibleProposals.length} pending
         </span>
       </header>
+
+      {/* Source facet — the ONE approval surface's origin filter (chat /
+          autonomous / connector), absorbing the old Agent-board Approvals queue. */}
+      <div
+        role="group"
+        aria-label="Filter by source"
+        className="flex flex-wrap gap-1.5"
+      >
+        {SOURCE_FACETS.map((facet) => {
+          const active = sourceFilter === facet.value;
+          return (
+            <button
+              key={facet.value}
+              type="button"
+              aria-pressed={active}
+              onClick={() => setSourceFilter(facet.value)}
+              className={
+                "rounded-full border px-3 py-1 text-xs font-medium transition-colors " +
+                (active
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground")
+              }
+            >
+              {facet.label}
+            </button>
+          );
+        })}
+      </div>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
         <ul
           className="flex list-none flex-col gap-2.5 p-0"
           aria-label="Pending proposals"
         >
-          {proposals.map((proposal) => (
+          {visibleProposals.map((proposal) => (
             <li key={proposal.id}>
               <ProposalListItem
                 proposal={proposal}

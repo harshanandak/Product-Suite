@@ -368,6 +368,34 @@ describe("AgentChatPanel", () => {
     expect(screen.queryByText("Linked to:")).not.toBeInTheDocument();
   });
 
+  it("pins the context chip so navigation stops offering a new thread", () => {
+    const { rerender } = renderPanel({ currentObject: itemObject });
+    // Pin the current context.
+    fireEvent.click(screen.getByRole("button", { name: /pin context/i }));
+
+    // Navigate to a different object; the pinned context must survive it.
+    rerender(
+      <AgentChatPanel
+        open
+        onClose={vi.fn()}
+        workspace="befach-hq"
+        currentObject={{ type: "work_item", id: "wi_2", title: "Billing" }}
+        getToken={async () => "tok"}
+      />,
+    );
+
+    // Pinned: still linked to the original object, and the "new thread here?"
+    // nudge is suppressed (the user committed to this context).
+    expect(screen.getByText("Ship auth")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Start a new thread here/ }),
+    ).not.toBeInTheDocument();
+    // The toggle now reads as pinned.
+    expect(
+      screen.getByRole("button", { name: /unpin context/i }),
+    ).toHaveAttribute("aria-pressed", "true");
+  });
+
   it("offers a new-thread affordance when the screen changes, not auto-switching", () => {
     const { rerender } = renderPanel({ currentObject: itemObject });
     // Navigate to a different object; the thread stays linked to the first.
@@ -387,14 +415,21 @@ describe("AgentChatPanel", () => {
     expect(screen.getByText("Ship auth")).toBeInTheDocument();
   });
 
-  it("opens the thread switcher and loads the org's threads", async () => {
+  it("opens the Sessions switcher and loads the org's past sessions", async () => {
     threadsAdapter.list.mockResolvedValueOnce([
       { id: "th_1", title: "Ship auth thread", linked_object: null, updated_at: "x" },
     ]);
     renderPanel();
-    fireEvent.click(screen.getByRole("button", { name: "Show threads" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
     expect(threadsAdapter.list).toHaveBeenCalledTimes(1);
     expect(await screen.findByText("Ship auth thread")).toBeInTheDocument();
+  });
+
+  it("shows an empty Sessions state when there are no past sessions", async () => {
+    threadsAdapter.list.mockResolvedValueOnce([]);
+    renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
+    expect(await screen.findByText("No sessions yet.")).toBeInTheDocument();
   });
 
   it("loads a selected thread's reconstructed history into the chat", async () => {
@@ -405,7 +440,7 @@ describe("AgentChatPanel", () => {
       { id: "u1", role: "user", parts: [{ type: "text", text: "hi" }] },
     ]);
     renderPanel();
-    fireEvent.click(screen.getByRole("button", { name: "Show threads" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
     fireEvent.click(await screen.findByText("T1"));
     await waitFor(() => expect(threadsAdapter.messages).toHaveBeenCalledWith("th_1"));
     // The prior thread's stream is aborted before the selected history loads in.
@@ -429,7 +464,7 @@ describe("AgentChatPanel", () => {
       { id: "th_1", title: "T1", linked_object: null, updated_at: "x" },
     ]);
     const { unmount } = renderPanel();
-    fireEvent.click(screen.getByRole("button", { name: "Show threads" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
     expect(await screen.findByText("T1")).toBeInTheDocument();
     // Simulate the shell remounting the panel on an org switch (`key={orgId}`): a
     // fresh instance starts with the switcher closed and no carried-over threads.

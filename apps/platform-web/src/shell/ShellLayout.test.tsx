@@ -49,16 +49,16 @@ describe("ShellLayout", () => {
   it("composes the signed-in chrome: board dock and board sidebar", async () => {
     renderWithRouter(<ShellLayout />, { path: "/w/test-ws/workboard" });
 
-    // Board dock — tier-1 nav: the same five board entries in fixed order.
+    // Board dock — tier-1 nav: the four board entries in fixed order (the Agent
+    // board was deleted in Phase 5).
     const dock = await screen.findByRole("navigation", { name: "Boards" });
     const dockLinks = within(dock).getAllByRole("link");
-    expect(dockLinks).toHaveLength(5);
+    expect(dockLinks).toHaveLength(4);
     expect(dockLinks.map((link) => link.getAttribute("aria-label"))).toEqual([
       "Home",
       "Workboard",
       "Meeting board",
       "Canvas board",
-      "Agent board",
     ]);
 
     // Board sidebar — derived from the URL-active board (workboard).
