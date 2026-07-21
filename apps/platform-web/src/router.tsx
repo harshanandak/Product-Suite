@@ -11,6 +11,7 @@ import { Button, EmptyState, ErrorState } from "@product-suite/ui";
 
 import { InboxScreen } from "./boards/inbox/InboxScreen";
 import { MemoryScreen } from "./boards/memory/MemoryScreen";
+import { SettingsScreen } from "./boards/settings/SettingsScreen";
 import { WorkItemDetailScreen } from "./boards/workboard/detail/WorkItemDetailScreen";
 import {
   WORKBOARD_LAYOUTS,
@@ -217,10 +218,13 @@ const agentsHistoryRoute = createRoute({
   component: BoardScreen,
 });
 
+// Settings renders the real Settings screen (Agents › Connectors + config),
+// which rehomes what the deleted Agent board carried. Reachable via ⌘K →
+// "Settings" and the /w/$workspace/settings route.
 const settingsRoute = createRoute({
   getParentRoute: () => workspaceRoute,
   path: "settings",
-  component: BoardScreen,
+  component: SettingsScreen,
 });
 
 const routeTree = rootRoute.addChildren([
