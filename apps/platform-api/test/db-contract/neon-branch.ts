@@ -220,10 +220,15 @@ interface BranchSummary {
   protected?: boolean
 }
 
-/** One page of the cursor-paginated list-branches response. */
+/**
+ * One page of the cursor-paginated list-branches response. The next-page cursor
+ * comes back as `pagination.next` (verified against the live Neon API — the
+ * response also echoes `sort_by`/`sort_order`, which the harness ignores); the
+ * REQUEST passes that value back as the `cursor` query param.
+ */
 interface ListBranchesResponse {
   branches?: BranchSummary[]
-  pagination?: { cursor?: string }
+  pagination?: { next?: string }
 }
 
 /** How many branches to request per list page (Neon allows 1–10000). */
@@ -250,7 +255,9 @@ async function listAllBranches(apiKey: string, projectId: string): Promise<Branc
     const pageBranches = body.branches ?? []
     all.push(...pageBranches)
 
-    const next = body.pagination?.cursor
+    // Neon returns the next-page cursor as `pagination.next` (NOT `.cursor`); it is
+    // passed back as the `cursor` request param above.
+    const next = body.pagination?.next
     // Cursor-driven termination (the documented contract): keep paging while the
     // server hands back a next cursor. Stop when it stops giving one, when a page
     // comes back empty, or when a cursor repeats (defensive against a server that

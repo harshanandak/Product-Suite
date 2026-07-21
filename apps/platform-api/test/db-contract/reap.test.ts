@@ -91,8 +91,12 @@ describe('reapStaleBranches safety predicate', () => {
         deleteCalls.push(url.pathname.split('/').pop() as string)
         return jsonRes({})
       }
+      // Neon returns the next-page cursor as `pagination.next` and takes it back as
+      // the `cursor` request param. A regression to reading `pagination.cursor`
+      // would stop after page 1 and leave `br-stale-2` (page 2) unreaped, failing
+      // the assertions below.
       const cursor = url.searchParams.get('cursor')
-      if (!cursor) return jsonRes({ branches: page1, pagination: { cursor: 'page2' } })
+      if (!cursor) return jsonRes({ branches: page1, pagination: { next: 'page2' } })
       if (cursor === 'page2') return jsonRes({ branches: page2 })
       return jsonRes({ branches: [] })
     })
