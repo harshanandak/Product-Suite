@@ -1,6 +1,26 @@
+import { execFileSync } from "node:child_process";
+import { join } from "node:path";
+
 import { describe, expect, test } from "bun:test";
 
 import { analyzeMigrationParity } from "../scripts/check-migration-parity.mjs";
+
+const SCRIPT_PATH = join(import.meta.dir, "..", "scripts", "check-migration-parity.mjs");
+const REAL_MIGRATIONS_DIR = join(import.meta.dir, "..", "packages", "db", "migrations");
+
+/** Runs the CLI in a real `node` subprocess (not Bun) so the entrypoint guard
+ * itself — not just the pure `analyzeMigrationParity` function — is covered
+ * under the exact runtime the deploy workflow and package.json invoke it
+ * with. Returns stdout/stderr/status instead of throwing on a non-zero exit,
+ * since a non-zero exit is an expected outcome for some of these tests. */
+function runCli(args) {
+  try {
+    const stdout = execFileSync("node", [SCRIPT_PATH, ...args], { encoding: "utf8" });
+    return { status: 0, stdout, stderr: "" };
+  } catch (err) {
+    return { status: err.status, stdout: err.stdout ?? "", stderr: err.stderr ?? "" };
+  }
+}
 
 function journal(tags) {
   return {
@@ -59,5 +79,28 @@ describe("check-migration-parity", () => {
     const realSqlFiles = readdirSync(migrationsDir).filter((name) => name.endsWith(".sql"));
 
     expect(analyzeMigrationParity(realJournal, realSqlFiles)).toEqual([]);
+  });
+
+  describe("CLI entrypoint (real `node` subprocess)", () => {
+    test("runs and passes when invoked directly with `node`", () => {
+      const { status, stdout } = runCli([REAL_MIGRATIONS_DIR]);
+
+      expect(status).toBe(0);
+      expect(stdout).toContain("Migration schema-parity check passed");
+    });
+
+    test("exits non-zero with a usage message when no path is given", () => {
+      const { status, stderr } = runCli([]);
+
+      expect(status).not.toBe(0);
+      expect(stderr).toContain("usage: check-migration-parity.mjs");
+    });
+
+    test("exits non-zero when the path resolves outside the expected tree", () => {
+      const { status, stderr } = runCli([join(import.meta.dir, "..", "scripts")]);
+
+      expect(status).not.toBe(0);
+      expect(stderr).toContain("outside the expected migrations tree");
+    });
   });
 });

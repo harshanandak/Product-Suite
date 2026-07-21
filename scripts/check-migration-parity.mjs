@@ -113,6 +113,13 @@ function runCli(migrationsDir) {
   }
 }
 
-if (import.meta.main) {
+// `import.meta.main` needs Node 22.18+/24.2+ (this script is invoked with
+// plain `node` from package.json and the deploy workflow, not guaranteed to
+// be that new on every runner). `process.argv[1]` compared against this
+// module's own path is the portable ESM equivalent of `require.main ===
+// module` and works on any Node or Bun version.
+const isDirectlyInvoked = process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url));
+
+if (isDirectlyInvoked) {
   runCli(process.argv[2]);
 }

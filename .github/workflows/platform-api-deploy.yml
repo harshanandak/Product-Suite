@@ -12,7 +12,9 @@ on:
       - "bun.lock"
       - ".github/workflows/platform-api-deploy.yml"
   # Manual trigger is the ONLY way `migrate` (below) ever runs — see that job's
-  # comment. A normal push to main only redeploys the Worker.
+  # comment. A normal push to main never runs migrate, and (see `deploy`'s
+  # `needs:` gate) therefore never auto-deploys either: this whole pipeline is
+  # human-started, on purpose, because it can touch the shared prod DB.
   workflow_dispatch: {}
 
 concurrency:
@@ -26,24 +28,35 @@ jobs:
   # Applying drizzle migrations against the shared Neon DB is the one
   # irreversible step in this pipeline (kernel issue 9256d8e4 — the deploy
   # pipeline previously never ran migrations at all, so the shared DB drifted
-  # 13 migrations behind merged code). This job is human-gated two ways:
-  #   1. `if:` restricts it to workflow_dispatch — it NEVER runs on an
-  #      automatic push, so a human always has to start the run from the
-  #      Actions tab.
+  # 13 migrations behind merged code). This job is human-gated three ways:
+  #   1. `if:` restricts it to workflow_dispatch AND refs/heads/main — it
+  #      NEVER runs on an automatic push, and a manual run targeting any
+  #      other branch/ref is rejected too (workflow_dispatch can target any
+  #      ref, so the push trigger's `branches: main` filter alone does not
+  #      protect it).
   #   2. `environment: db-migrate-production` — configure required reviewers
   #      on that environment (repo Settings -> Environments) for a second,
   #      explicit approval gate before the job is allowed to start. This repo
   #      setting is out of band from this workflow file and must be set up by
   #      a maintainer; until it is, gate #1 alone still prevents any
   #      unattended apply.
+  #   3. Its own job-level `concurrency` group with `cancel-in-progress:
+  #      false`, separate from the workflow-level group `deploy` uses. A
+  #      pending or executing migrate run can never be cancelled by a newer
+  #      push or another workflow run — an interrupted `bun run migrate`
+  #      would leave the schema half-applied. Later migrate runs queue
+  #      instead of pre-empting one another.
   # Also see the Product-Suite drizzle snapshot-drift memory: the meta
   # snapshot chain has been hand-reconciled before (regenerating journal
   # timestamps for ALREADY-APPLIED migrations breaks the migrator — treat
   # that as a breaking act, never a routine `drizzle-kit generate`).
   migrate:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: db-migrate-production
+    concurrency:
+      group: db-migrate-production
+      cancel-in-progress: false
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -83,10 +96,15 @@ jobs:
 
   deploy:
     needs: migrate
-    # Runs on every push (migrate is skipped -> result "skipped", not
-    # "failure", so this still proceeds) and after a manually-triggered
-    # migrate that succeeded. Never runs if a manual migrate failed.
-    if: ${{ always() && needs.migrate.result != 'failure' && needs.migrate.result != 'cancelled' }}
+    # No custom `if:` here on purpose. GitHub Actions' default gate for a job
+    # with `needs:` runs it ONLY when every needed job completed successfully
+    # — a *skipped* needed job does not count as success, so this job is
+    # skipped whenever `migrate` was skipped (every push), failed, or was
+    # cancelled, and runs only after a manually-dispatched `migrate` on main
+    # succeeds. That also means every deploy — schema-touching or not —
+    # currently requires a manual run; this pipeline is new (built in the
+    # same change as `migrate`), so there is no prior automatic-deploy
+    # behavior being narrowed here.
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -118,14 +136,24 @@ jobs:
         if: steps.guard.outputs.ready == 'true'
         run: bun install --frozen-lockfile --ignore-scripts
 
-      - name: Deploy Worker
+      - name: Run platform-api checks
+        if: steps.guard.outputs.ready == 'true'
+        # typecheck + test — the same gate apps/platform-api already has
+        # defined (root package.json `verify:platform-api`) but which no CI
+        # workflow runs today. A broken build must not reach the Worker.
+        run: bun run verify:platform-api
+
+      - name: Deploy Worker (production)
         if: steps.guard.outputs.ready == 'true'
         working-directory: apps/platform-api
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        # platform-api has no wrangler devDependency of its own — it reuses
-        # the one apps/platform-web pins (^4.0.0, resolved to 4.100.0 in
-        # bun.lock). Pinned to that exact version here too, rather than
-        # letting bunx pull an unverified "latest" wrangler.
-        run: bunx wrangler@4.100.0 deploy
+        # `--env production` selects the `env.production` block in
+        # wrangler.jsonc (Worker: platform-api-production). Without it,
+        # `wrangler deploy` targets the top-level (non-production) Worker and
+        # the real API is never updated. platform-api has no wrangler
+        # devDependency of its own — it reuses the exact version
+        # apps/platform-web pins (^4.0.0, resolved to 4.100.0 in bun.lock),
+        # pinned explicitly here so bunx never pulls an unverified "latest".
+        run: bunx wrangler@4.100.0 deploy --env production
