@@ -798,3 +798,57 @@ export function deriveHealth(
   checks: ReadonlyArray<Pick<Check, "status" | "due_date">>,
   now?: number,
 ): Health;
+
+// ---------------------------------------------------------------------------
+// Proposal accept envelope (atomic-accept wave). The STABLE, typed result the
+// accept endpoint (`POST /api/agent/proposals/:id/accept`) ALWAYS returns in the
+// JSON body — the client reads `status` from the body, never only the HTTP code —
+// so the Review Inbox renders every outcome legibly (Linear-style optimistic +
+// rollback) instead of guessing from a raw error. Discriminated on `status`, the
+// same shape convention as {@link AuthClaimsValidationResult}. HTTP mapping:
+// applied → 200, invalid → 422, stale → 409, not_found → 404, not_pending → 409,
+// and `failed` splits on retryable — retryable:true → 500 (a genuine server fault,
+// alert-worthy), retryable:false → 422 (deterministic/unprocessable, not a 5xx).
+//
+// The Inbox renders `invalid` and `failed` the SAME way ("Needs attention") and
+// branches on the single `retryable` field — Retry/Edit/Discard when `retryable` is
+// true, Discard/acknowledge only when false:
+//  - `invalid`  → a DECIDED decline. retryable:true = a fixable payload/field problem,
+//                 the proposal STAYS pending (correct + re-accept). retryable:false = a
+//                 permanent structural defect (unsupported op, no run, malformed target),
+//                 the proposal is terminally `failed` server-side. `message` is the reason.
+//  - `failed`   → an UNEXPECTED server error (not a decision). retryable hints whether a
+//                 retry may help; the proposal stays pending.
+//  - `stale`    → the target moved; stays pending. Render the reconcile choices.
+//  - `applied`  → success; `item_id` drives the "View item →" link.
+// (`not_found` / `not_pending` are the pre-decision guards.)
+// ---------------------------------------------------------------------------
+
+export type AcceptResult =
+  /** Applied exactly once; `item_id` is the created/updated work item or memory. */
+  | { status: "applied"; proposal_id: string; item_id: string }
+  /**
+   * A DECIDED decline. `retryable:true` = a fixable payload problem (malformed/absent
+   * id, unknown team, a domain-invariant violation) — the proposal is NOT applied and
+   * STAYS pending, so the human corrects it and re-accepts. `retryable:false` = a
+   * permanent structural defect (unsupported operation, no attributable run, malformed
+   * target) — the proposal is terminally `failed` server-side (Discard/acknowledge
+   * only). `message` is the plain-language reason. (Per-field `field_errors[]` deferred.)
+   */
+  | { status: "invalid"; proposal_id: string; message: string; retryable: boolean }
+  /**
+   * The target moved under the write (version/existence conflict) — the proposal
+   * stays reviewable, never silently clobbered. `item_id` is the target that moved.
+   * Current-vs-proposed version numbers are deferred with the staleness epic (work
+   * items carry no version column yet; only memory `conflict` fires today).
+   */
+  | { status: "stale"; proposal_id: string; item_id: string | null; message: string }
+  /**
+   * An UNEXPECTED server error (a bug/outage, not a decision) — the proposal stays
+   * pending. `retryable` hints whether a retry may succeed (transient → true).
+   */
+  | { status: "failed"; proposal_id: string; message: string; retryable: boolean }
+  /** Not in the caller's tenants (or never existed). */
+  | { status: "not_found"; proposal_id: string }
+  /** Already decided, or a concurrent accept won the exactly-once flip. */
+  | { status: "not_pending"; proposal_id: string };

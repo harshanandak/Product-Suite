@@ -307,9 +307,13 @@ export const workItems = pgTable(
   },
   (t) => ({
     byTenant: index('work_items_tenant_idx').on(t.tenantId),
-    appliedFromProposalUniq: uniqueIndex('work_items_applied_from_proposal_uniq').on(
-      t.appliedFromProposalId,
-    ),
+    // At most ONE work item per source proposal — the idempotency key for the
+    // proposal-apply write-first path (a re-drive returns the existing row instead of
+    // double-creating). PARTIAL (WHERE NOT NULL) so the many human-created/updated rows
+    // with a NULL source are unconstrained; mirrors `memories_source_proposal_uniq`.
+    appliedFromProposalUniq: uniqueIndex('work_items_applied_from_proposal_uniq')
+      .on(t.appliedFromProposalId)
+      .where(sql`${t.appliedFromProposalId} is not null`),
   }),
 )
 

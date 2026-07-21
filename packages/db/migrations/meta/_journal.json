@@ -99,6 +99,13 @@
       "when": 1784649600000,
       "tag": "0013_knowledge_base",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1784736000000,
+      "tag": "0014_work_item_applied_from_proposal_partial",
+      "breakpoints": true
     }
   ]
 }

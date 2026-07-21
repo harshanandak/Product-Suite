@@ -4,7 +4,6 @@ import { describe, expect, it } from 'vitest'
 
 import { applyProposal } from '../../src/proposals/apply'
 import { createProposal, getProposalScoped } from '../../src/proposals/repository'
-import type { WorkItemRow } from '../../src/domain/work-items'
 
 import { hasNeonCreds, query, withDbBranch } from './harness'
 
@@ -49,17 +48,15 @@ describe.skipIf(!hasNeonCreds())(
         proposal.id,
       )
 
-      expect(result.applied).toBe(true)
-      if (!result.applied) throw new Error('unreachable')
-      const item = result.result as WorkItemRow
-      expect(item.team_id).toBe(seed.teamId)
-      expect(item.status_id).toBe(seed.defaultStatusId)
+      expect(result.status).toBe('applied')
+      if (result.status !== 'applied') throw new Error('unreachable')
 
       // Persisted for real, with the idempotency key stamped, and the proposal flipped.
+      // The `applied` envelope carries only `item_id`; read the row back for the assertions.
       const rows = await query<{ team_id: string; status_id: string; applied_from_proposal_id: string | null }>(
         sql,
         `select team_id, status_id, applied_from_proposal_id from work_items where id = $1`,
-        [item.id],
+        [result.item_id],
       )
       expect(rows).toHaveLength(1)
       expect(rows[0]?.team_id).toBe(seed.teamId)
@@ -138,9 +135,7 @@ describe.skipIf(!hasNeonCreds())(
         { tenantIds: [seed.tenantId], approverUserId: seed.userId },
         proposal.id,
       )
-      expect(result.applied).toBe(false)
-      if (result.applied) throw new Error('unreachable')
-      expect(result.reason).toBe('not_found')
+      expect(result.status).toBe('not_found')
 
       // Untouched — still pending in its own tenant, no cross-tenant write.
       const untouched = await getProposalScoped(sql, proposal.id, [otherTenant])
@@ -165,14 +160,12 @@ describe.skipIf(!hasNeonCreds())(
         { tenantIds: [seed.tenantId], approverUserId: seed.userId },
         proposal.id,
       )
-      expect(result.applied).toBe(false)
-      if (result.applied) throw new Error('unreachable')
-      expect(result.reason).toBe('invalid')
+      expect(result.status).toBe('invalid')
 
       // The proposal is terminally `failed` with a legible reason — never left pending.
       const failed = await getProposalScoped(sql, proposal.id, [seed.tenantId])
       expect(failed?.status).toBe('failed')
-      expect(failed?.rejection_reason).toContain('no target_id')
+      expect(failed?.rejection_reason).toContain('missing or malformed target_id')
     })
   })
 })
