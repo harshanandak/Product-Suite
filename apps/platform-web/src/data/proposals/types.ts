@@ -8,6 +8,14 @@
  */
 
 /**
+ * Where a proposal ORIGINATED — the Review Inbox's source facet filters on it.
+ * `chat` (a user asked an agent in the chat panel), `autonomous` (an unattended
+ * agent run), or `connector` (an external integration). The backend may omit or
+ * send an unknown value, so `Proposal.source` is nullable (missing/unknown ⇒ null).
+ */
+export type ProposalSource = "chat" | "autonomous" | "connector";
+
+/**
  * A pending agent proposal (tenant-scoped). `operation` decides how `payload` is
  * read: a `create` payload is the full new item's fields; an `update` payload is
  * the CHANGED fields to merge onto the existing `target_id` item. `target_id` is
@@ -44,6 +52,12 @@ export interface Proposal {
   readonly run_id: string;
   /** The model that authored this proposal (provenance). */
   readonly model_id: string;
+  /**
+   * Where the proposal came from (drives the inbox source facet). Optional and
+   * nullable: the backend may omit it entirely or send an unrecognized value —
+   * both read as "no known source" (shown only under the All facet).
+   */
+  readonly source?: ProposalSource | null;
   readonly created_at: string;
 }
 

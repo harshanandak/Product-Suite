@@ -189,4 +189,82 @@ describe("CommandPalette", () => {
     // ...and closes the palette first so the two overlays never stack.
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
+
+  it("Tab flips the palette into Ask-agent prompt mode with a route context chip", async () => {
+    renderPalette();
+
+    // Wait for the search surface, then Tab into prompt mode (mockup §3c).
+    const searchInput = await screen.findByRole("combobox");
+    fireEvent.keyDown(searchInput, { key: "Tab" });
+
+    // The prompt input replaces the search list…
+    expect(screen.getByLabelText("Agent prompt")).toBeInTheDocument();
+    expect(screen.queryByRole("combobox")).toBeNull();
+    // …and a context chip shows what the agent is scoped to (the current route —
+    // "/w/test-ws" resolves to the home Digest screen in the harness).
+    expect(screen.getByLabelText("Agent context")).toHaveTextContent("Digest");
+  });
+
+  it("traps focus on the prompt textarea in prompt mode (Tab cannot escape the dialog)", async () => {
+    renderPalette();
+
+    fireEvent.keyDown(await screen.findByRole("combobox"), { key: "Tab" });
+    const prompt = screen.getByLabelText("Agent prompt");
+    prompt.focus();
+    expect(document.activeElement).toBe(prompt);
+
+    // The textarea is the ONLY focusable element in prompt mode, so the focus
+    // trap must cycle Tab back onto it rather than letting focus reach the inert
+    // chrome behind the backdrop. A cancelled event (fireEvent → false) proves
+    // the trap handled it; activeElement staying on the textarea proves the loop.
+    expect(fireEvent.keyDown(prompt, { key: "Tab" })).toBe(false);
+    expect(document.activeElement).toBe(prompt);
+    // Shift+Tab (backward) is trapped the same way.
+    expect(fireEvent.keyDown(prompt, { key: "Tab", shiftKey: true })).toBe(false);
+    expect(document.activeElement).toBe(prompt);
+  });
+
+  it("submits the typed prompt to the agent seam bound to route context, and closes", async () => {
+    const askAgent = vi.fn();
+    const onOpenChange = vi.fn();
+    renderPalette({ onOpenChange }, askAgent);
+
+    fireEvent.keyDown(await screen.findByRole("combobox"), { key: "Tab" });
+    const prompt = screen.getByLabelText("Agent prompt");
+    fireEvent.change(prompt, { target: { value: "break this item into tasks" } });
+    fireEvent.keyDown(prompt, { key: "Enter" });
+
+    // Enter hands the prompt to the SAME invocation seam the panel opens through,
+    // scoped to the object shown in the chip (the CURRENT route — "/w/test-ws"
+    // resolves to the home Digest screen) so the submission can't bind to a stale
+    // pre-existing thread's context.
+    expect(askAgent).toHaveBeenCalledWith({
+      prompt: "break this item into tasks",
+      object: { type: "screen", id: "/w/test-ws", title: "Digest" },
+    });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("does not submit an empty prompt", async () => {
+    const askAgent = vi.fn();
+    renderPalette({}, askAgent);
+    fireEvent.keyDown(await screen.findByRole("combobox"), { key: "Tab" });
+    fireEvent.keyDown(screen.getByLabelText("Agent prompt"), { key: "Enter" });
+    expect(askAgent).not.toHaveBeenCalled();
+  });
+
+  it("Escape leaves prompt mode back to search without closing the palette", async () => {
+    const onOpenChange = vi.fn();
+    renderPalette({ onOpenChange });
+
+    fireEvent.keyDown(await screen.findByRole("combobox"), { key: "Tab" });
+    expect(screen.getByLabelText("Agent prompt")).toBeInTheDocument();
+
+    fireEvent.keyDown(screen.getByLabelText("Agent prompt"), { key: "Escape" });
+
+    // First Escape returns to search (palette still open); it does not close.
+    expect(await screen.findByRole("combobox")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Agent prompt")).toBeNull();
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
 });

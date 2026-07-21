@@ -12,16 +12,23 @@ import {
 } from "./boards";
 
 describe("BOARDS", () => {
-  it("declares the five boards in canonical dock order", () => {
+  it("declares the four boards in canonical dock order (Agent board removed)", () => {
     const ids = BOARDS.map((board) => board.id);
-    const expected: BoardId[] = [
-      "home",
-      "workboard",
-      "meetings",
-      "canvas",
-      "agents",
-    ];
+    const expected: BoardId[] = ["home", "workboard", "meetings", "canvas"];
     expect(ids).toEqual(expected);
+  });
+
+  it("no longer declares the deleted Agent board", () => {
+    expect(BOARDS.some((board) => board.id === ("agents" as BoardId))).toBe(
+      false,
+    );
+  });
+});
+
+describe("deriveActiveBoard — deleted Agent board", () => {
+  it("returns null for agents/* paths so they fall through to notFound", () => {
+    expect(deriveActiveBoard("/w/x/agents", "x")).toBeNull();
+    expect(deriveActiveBoard("/w/x/agents/approvals", "x")).toBeNull();
   });
 });
 
@@ -53,8 +60,8 @@ describe("interpolate", () => {
 
 describe("href", () => {
   it("returns the interpolated concrete path", () => {
-    expect(href("/w/$workspace/agents/approvals", "acme")).toBe(
-      "/w/acme/agents/approvals",
+    expect(href("/w/$workspace/canvas/starred", "acme")).toBe(
+      "/w/acme/canvas/starred",
     );
   });
 });

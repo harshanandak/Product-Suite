@@ -36,6 +36,7 @@ const RAW_PROPOSALS: ReadonlyArray<Proposal> = [
     status: "pending",
     run_id: "run_9f2a",
     model_id: "kimi-k2.5",
+    source: "chat",
     created_at: "2026-07-13T09:12:00.000Z",
   },
   {
@@ -52,6 +53,7 @@ const RAW_PROPOSALS: ReadonlyArray<Proposal> = [
     status: "pending",
     run_id: "run_9f2a",
     model_id: "kimi-k2.5",
+    source: "autonomous",
     created_at: "2026-07-13T09:14:00.000Z",
   },
   {
@@ -72,6 +74,7 @@ const RAW_PROPOSALS: ReadonlyArray<Proposal> = [
     status: "pending",
     run_id: "run_c318",
     model_id: "glm-5",
+    source: "connector",
     created_at: "2026-07-13T09:18:00.000Z",
   },
 ];

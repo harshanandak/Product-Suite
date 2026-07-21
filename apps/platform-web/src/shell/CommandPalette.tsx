@@ -1,10 +1,12 @@
 import * as React from "react";
 import { Command } from "cmdk";
-import { useNavigate } from "@tanstack/react-router";
+import { useLocation, useNavigate } from "@tanstack/react-router";
 
 import { useTheme } from "@product-suite/ui";
+import { Sparkles } from "lucide-react";
 
 import { useAskAgent } from "@/agent-chat/use-ask-agent";
+import { resolveLinkedObject } from "@/agent-chat/linked-object";
 
 import { BOARDS, type To, href } from "./boards";
 import {
@@ -32,8 +34,36 @@ export function CommandPalette({
   repository?: WorkItemRepository;
 }>) {
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const { toggle } = useTheme();
   const askAgent = useAskAgent();
+
+  // "Ask agent" prompt mode (mockup §3c): Tab flips the search input into a
+  // prompt bound to the CURRENT route's object, so a submit hands the agent both
+  // the text AND what you were looking at. The palette stays stateless — it just
+  // forwards the prompt to the same invocation seam the panel opens through; the
+  // panel captures the route context itself on open.
+  const [askMode, setAskMode] = React.useState(false);
+  const [askPrompt, setAskPrompt] = React.useState("");
+  // Reset the prompt surface whenever the palette closes, so a re-open always
+  // starts in search mode with an empty prompt (the palette carries no state).
+  React.useEffect(() => {
+    if (!open) {
+      setAskMode(false);
+      setAskPrompt("");
+    }
+  }, [open]);
+  const context = resolveLinkedObject(pathname, workspace);
+
+  const submitPrompt = React.useCallback(() => {
+    const text = askPrompt.trim();
+    if (text.length === 0) return;
+    onOpenChange(false);
+    // Bind the submission to the object shown in the chip (the CURRENT route),
+    // NOT whatever a pre-existing panel thread was linked to — otherwise the chip
+    // and the agent's actual context would disagree.
+    askAgent({ prompt: text, object: context });
+  }, [askPrompt, onOpenChange, askAgent, context]);
 
   // Resolve the repository once (injected prop wins, else the provider's repo,
   // else the module singleton) — the useWorkItems/useTeams convention.
@@ -83,14 +113,32 @@ export function CommandPalette({
   const onDialogKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
       if (event.key === "Escape") {
-        onOpenChange(false);
+        // In prompt mode, Escape steps BACK to search rather than closing — one
+        // press to abandon the prompt, a second (now in search) to dismiss.
+        if (askMode) {
+          setAskMode(false);
+          setAskPrompt("");
+        } else {
+          onOpenChange(false);
+        }
         return;
       }
       if (event.key !== "Tab") return;
+      // Tab (forward) flips search → prompt mode; once there, the focus trap below
+      // keeps Tab within the dialog as usual.
+      if (!event.shiftKey && !askMode) {
+        event.preventDefault();
+        setAskMode(true);
+        return;
+      }
       const root = dialogRef.current;
       if (!root) return;
       const focusable = root.querySelectorAll<HTMLElement>(
-        'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        // `textarea` MUST be listed: in prompt mode it is the ONLY focusable
+        // element, so omitting it left `focusable` empty and the trap fell
+        // through — letting Tab/Shift-Tab escape the dialog (a11y bug). With it
+        // included, the textarea is both first and last, so Tab cycles to itself.
+        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
       );
       if (focusable.length === 0) return;
       const first = focusable[0];
@@ -103,7 +151,7 @@ export function CommandPalette({
         first.focus();
       }
     },
-    [onOpenChange],
+    [onOpenChange, askMode],
   );
 
   if (!open) return null;
@@ -125,6 +173,47 @@ export function CommandPalette({
         onKeyDown={onDialogKeyDown}
         className="relative w-full max-w-lg overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-lg"
       >
+        {askMode ? (
+          <div className="flex flex-col">
+            <div className="flex items-center gap-2 border-b border-border px-3 py-2.5 text-sm">
+              <Sparkles className="size-4 text-primary" />
+              <span className="font-semibold text-foreground">Ask agent</span>
+              <span
+                aria-label="Agent context"
+                className="ml-auto flex max-w-[55%] items-center gap-1.5 truncate rounded-full border border-border bg-accent/40 px-2.5 py-1 text-xs text-muted-foreground"
+              >
+                <span aria-hidden className="text-primary">
+                  ◉
+                </span>
+                <span className="truncate text-foreground">{context.title}</span>
+              </span>
+            </div>
+            <textarea
+              autoFocus
+              aria-label="Agent prompt"
+              value={askPrompt}
+              onChange={(event) => setAskPrompt(event.currentTarget.value)}
+              onKeyDown={(event) => {
+                // Enter (without a modifier) submits; Shift+Enter keeps a newline.
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  submitPrompt();
+                }
+              }}
+              placeholder="Ask the agent to read the board or propose a change…"
+              rows={3}
+              className="w-full resize-none bg-transparent px-3 py-3 text-sm outline-none placeholder:text-muted-foreground"
+            />
+            <div className="flex items-center gap-2 border-t border-border px-3 py-2 text-xs text-muted-foreground">
+              <span>
+                <kbd className="rounded bg-muted px-1">↵</kbd> opens the chat panel
+              </span>
+              <span className="ml-auto">
+                <kbd className="rounded bg-muted px-1">esc</kbd> back to search
+              </span>
+            </div>
+          </div>
+        ) : (
         <Command label="Command palette" className="flex flex-col">
           <Command.Input
             autoFocus
@@ -231,6 +320,7 @@ export function CommandPalette({
             </Command.Group>
           </Command.List>
         </Command>
+        )}
       </div>
     </div>
   );

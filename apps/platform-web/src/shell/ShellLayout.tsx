@@ -100,7 +100,11 @@ function ShellChrome() {
   // `useAskAgent` in agent-chat/ask-agent.tsx.
   const askAgent = React.useCallback<AskAgent>((options) => {
     setAgentOpen(true);
-    setAgentFocus((prev) => ({ nonce: prev.nonce + 1, prompt: options?.prompt }));
+    setAgentFocus((prev) => ({
+      nonce: prev.nonce + 1,
+      prompt: options?.prompt,
+      object: options?.object,
+    }));
   }, []);
   const [collapsed, setCollapsed] = React.useState(readSidebarCollapsed);
   // Transient reveal of a collapsed rail. Pointer and keyboard focus are tracked
@@ -163,7 +167,7 @@ function ShellChrome() {
         setPaletteOpen((open) => !open);
         return;
       }
-      if (mod && !paletteOpen && event.key >= "1" && event.key <= "5") {
+      if (mod && !paletteOpen && event.key >= "1" && event.key <= "4") {
         const board = BOARDS[Number(event.key) - 1];
         if (board) {
           event.preventDefault();

@@ -1,6 +1,6 @@
 import { useChat } from "@ai-sdk/react";
 import { getToolName, isToolUIPart, type ToolUIPart, type UIMessage } from "ai";
-import { History, Loader2, Plus, Sparkles, X } from "lucide-react";
+import { History, Loader2, Pin, PinOff, Plus, Sparkles, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -186,6 +186,13 @@ export function AgentChatPanel({
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const [showThreads, setShowThreads] = useState(false);
 
+  // Whether the user has PINNED the thread's linked object. A pinned context
+  // survives navigation without the panel nudging "start a new thread here?" —
+  // the explicit signal that this chat stays scoped to what was pinned, even as
+  // you move around the app. (The object itself already persists once captured;
+  // pinning is what silences the switch affordance.)
+  const [pinned, setPinned] = useState(false);
+
   const threadsAdapter = useMemo(
     () =>
       createAgentThreadsAdapter({
@@ -255,12 +262,21 @@ export function AgentChatPanel({
   // issued while closed doesn't steal focus.
   const focusNonce = focusRequest?.nonce;
   const focusPrompt = focusRequest?.prompt;
+  const focusObject = focusRequest?.object;
   useEffect(() => {
     if (!open || focusNonce === undefined) return;
     if (focusPrompt !== undefined) setDraft(focusPrompt);
+    // When the invocation asserts a scope (⌘K prompt chip = the current route),
+    // rebind the thread to it so the submission acts on what the caller SHOWED,
+    // not a stale prior thread's linked object. Any pin from the old object no
+    // longer applies, so clear it.
+    if (focusObject !== undefined) {
+      setThreadObject(focusObject);
+      setPinned(false);
+    }
     // The panel commits before effects run, so the input is already in the DOM.
     panelRef.current?.querySelector("textarea")?.focus();
-  }, [open, focusNonce, focusPrompt]);
+  }, [open, focusNonce, focusPrompt, focusObject]);
 
   // Escape closes the panel (non-modal: the board stays interactive otherwise).
   useEffect(() => {
@@ -275,7 +291,11 @@ export function AgentChatPanel({
   if (!open) return null;
 
   const linked = threadObject ?? null;
-  const navChanged = linked !== null && linked.id !== currentObject.id;
+  // A pinned context suppresses the "you've navigated — start a new thread here?"
+  // nudge: the user committed to this scope, so navigation no longer offers to
+  // rebind it.
+  const navChanged =
+    linked !== null && !pinned && linked.id !== currentObject.id;
   const orgRequired = isOrgRequiredError(error);
   const isStreaming = status === "submitted" || status === "streaming";
 
@@ -302,6 +322,8 @@ export function AgentChatPanel({
     setThreadId(null);
     setMessages([]);
     setThreadObject(linkTo ?? currentObject);
+    // A fresh thread re-binds to the current screen, so any prior pin is dropped.
+    setPinned(false);
   };
 
   const startNewThreadHere = () => startNewThread(currentObject);
@@ -322,6 +344,9 @@ export function AgentChatPanel({
     stop();
     threadEpochRef.current += 1;
     setShowThreads(false);
+    // The summary carries THIS session's linked object; capture it now so the
+    // rebind below reflects the thread being selected, not the panel-wide state.
+    const summary = threads.find((thread) => thread.id === id);
     threadsAdapter
       .messages(id)
       .then((loaded) => {
@@ -330,6 +355,12 @@ export function AgentChatPanel({
         // parameter type to bridge the monorepo's ai-version dedup (identical shape,
         // different resolved `ai` copy).
         setMessages(loaded as unknown as Parameters<typeof setMessages>[0]);
+        // Rebind per-session context: adopt this thread's own linked object and
+        // clear any pin carried from the previously-active session — otherwise the
+        // pin toggle (aria-pressed) and the navigation nudge would reflect the wrong
+        // thread's state (CodeRabbit: pin state leaks across sessions).
+        setThreadObject(summary?.linked_object ?? null);
+        setPinned(false);
       })
       .catch(() => {
         // A failed load leaves the current thread untouched (surfaced by the SDK's
@@ -358,7 +389,7 @@ export function AgentChatPanel({
         <button
           type="button"
           onClick={openThreads}
-          aria-label="Show threads"
+          aria-label="Sessions"
           aria-expanded={showThreads}
           className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
         >
@@ -376,12 +407,12 @@ export function AgentChatPanel({
 
       {showThreads ? (
         <div
-          aria-label="Threads"
+          aria-label="Sessions"
           className="max-h-64 overflow-y-auto border-b border-border"
         >
           {threads.length === 0 ? (
             <p className="px-4 py-3 text-xs text-muted-foreground">
-              No saved threads yet.
+              No sessions yet.
             </p>
           ) : (
             <ul>
@@ -417,9 +448,29 @@ export function AgentChatPanel({
           </span>
           <button
             type="button"
-            onClick={() => setThreadObject(null)}
+            onClick={() => setPinned((value) => !value)}
+            aria-label={pinned ? "Unpin context" : "Pin context"}
+            aria-pressed={pinned}
+            title={
+              pinned
+                ? "Pinned — this chat stays scoped here as you navigate"
+                : "Pin so this chat stays scoped here as you navigate"
+            }
+            className={
+              "ml-auto flex size-5 items-center justify-center rounded hover:bg-accent hover:text-accent-foreground " +
+              (pinned ? "text-primary" : "text-muted-foreground")
+            }
+          >
+            {pinned ? <Pin className="size-3" /> : <PinOff className="size-3" />}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setThreadObject(null);
+              setPinned(false);
+            }}
             aria-label="Unlink"
-            className="ml-auto flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+            className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground"
           >
             <X className="size-3" />
           </button>

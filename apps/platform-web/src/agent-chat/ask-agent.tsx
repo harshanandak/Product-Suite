@@ -1,3 +1,5 @@
+import type { AgentLinkedObject } from "@/data/agent/transport";
+
 import { AskAgentContext } from "./use-ask-agent";
 
 /**
@@ -8,6 +10,12 @@ import { AskAgentContext } from "./use-ask-agent";
 export interface AskAgentOptions {
   /** Seed text for the chat input (selected text, a row's title, …). */
   prompt?: string;
+  /**
+   * The object this invocation is explicitly scoped to (e.g. the ⌘K prompt's
+   * chip = the CURRENT route). When present, the panel rebinds its thread to it
+   * so the submission acts on what the caller SHOWED, not a stale prior thread.
+   */
+  object?: AgentLinkedObject;
 }
 
 /**
@@ -27,6 +35,13 @@ export type AskAgent = (options?: AskAgentOptions) => void;
 export interface AgentFocusRequest {
   nonce: number;
   prompt?: string;
+  /**
+   * The object to (re)bind the thread to on this invocation — carries the ⌘K
+   * prompt chip's CURRENT-route object so the submission binds to what was shown
+   * rather than a pre-existing thread's stale linked object. Omitted when the
+   * caller only re-focuses the panel without asserting a scope.
+   */
+  object?: AgentLinkedObject;
 }
 
 /**
