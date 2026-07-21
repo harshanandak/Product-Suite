@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { createMemory, supersedeMemory } from '../../src/domain/memories'
 import { createWorkItem } from '../../src/domain/work-items'
@@ -312,6 +312,133 @@ describe.skipIf(!hasNeonCreds())(
         // Never clobbered — the proposal stays pending for the human to reconcile.
         const pending = await getProposalScoped(sql, proposal.id, [seed.tenantId])
         expect(pending?.status).toBe('pending')
+      })
+    })
+
+    it('flip-loser (create): a reject that wins the race COMPENSATES the orphaned row (996b674c)', async () => {
+      await withDbBranch(async ({ sql, seed }) => {
+        const actor: ActorContext = {
+          actorType: 'agent',
+          actorId: seed.runId,
+          onBehalfOf: seed.userId,
+          runId: seed.runId,
+        }
+
+        // Drive the flip-loser window: the accept's write commits, a human reject lands
+        // out-of-band, then the accept's guarded flip matches 0 rows. The mitigation must
+        // re-read the decision and DELETE the row it created (the human's reject wins).
+        // The race resolves per run; loop until we observe the in-window compensation and
+        // assert the safety invariant on every outcome.
+        let compensated = false
+        for (let i = 0; i < 8 && !compensated; i++) {
+          const proposal = await createProposal(sql, {
+            tenant_id: seed.tenantId,
+            run_id: seed.runId,
+            target_type: 'work_item',
+            operation: 'create',
+            payload: { title: `Race create ${i}`, team_id: seed.teamId },
+          })
+          // The write already committed (idempotency key present) while the proposal is
+          // still pending — so a row is GUARANTEED to exist before the race. A rows==0 after
+          // a `rejected` outcome therefore unambiguously means compensation deleted it.
+          await createWorkItem(
+            sql,
+            { tenantId: seed.tenantId, actor, appliedFromProposalId: proposal.id },
+            { title: `Race create ${i}`, team_id: seed.teamId },
+          )
+
+          const [res] = await Promise.all([
+            applyProposal(sql, acceptCtx(seed.tenantId, seed.userId), proposal.id),
+            query(
+              sql,
+              `update proposals set status = 'rejected', decided_at = now(), updated_at = now()
+               where id = $1 and status = 'pending'`,
+              [proposal.id],
+            ),
+          ])
+
+          const after = await getProposalScoped(sql, proposal.id, [seed.tenantId])
+          const rows = await query<{ id: string }>(
+            sql,
+            `select id from work_items where applied_from_proposal_id = $1`,
+            [proposal.id],
+          )
+
+          if (after?.status === 'rejected' && rows.length === 0) {
+            // In-window loser: the row existed, then the reject won and the accept deleted it.
+            expect(res.status).toBe('not_pending')
+            compensated = true
+          } else if (after?.status === 'applied') {
+            // The accept won the flip; its row is kept (reject lost its guarded update).
+            expect(rows).toHaveLength(1)
+          }
+          // rejected + rows==1 → the reject beat the accept's LOAD (early-exit, no write to
+          // compensate); not the window under test — retry.
+        }
+        expect(compensated).toBe(true)
+      })
+    })
+
+    it('flip-loser (non-create): an in-place update that loses to a reject logs LOUDLY, row left', async () => {
+      await withDbBranch(async ({ sql, seed }) => {
+        const actor: ActorContext = {
+          actorType: 'agent',
+          actorId: seed.runId,
+          onBehalfOf: seed.userId,
+          runId: seed.runId,
+        }
+        // An in-place update has no clean undo, so the mitigation does NOT delete — it emits
+        // a loud, alertable console.error for manual reconciliation and leaves the row.
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+        try {
+          let logged = false
+          for (let i = 0; i < 8 && !logged; i++) {
+            const target = await createWorkItem(
+              sql,
+              { tenantId: seed.tenantId, actor },
+              { title: `Update target ${i}`, team_id: seed.teamId },
+            )
+            const proposal = await createProposal(sql, {
+              tenant_id: seed.tenantId,
+              run_id: seed.runId,
+              target_type: 'work_item',
+              operation: 'update',
+              target_id: target.id,
+              payload: { title: `Renamed ${i}` },
+            })
+
+            errorSpy.mockClear()
+            const [res] = await Promise.all([
+              applyProposal(sql, acceptCtx(seed.tenantId, seed.userId), proposal.id),
+              query(
+                sql,
+                `update proposals set status = 'rejected', decided_at = now(), updated_at = now()
+                 where id = $1 and status = 'pending'`,
+                [proposal.id],
+              ),
+            ])
+
+            // The target work item is NEVER deleted — there is no undo for an in-place write.
+            const rows = await query<{ id: string }>(sql, `select id from work_items where id = $1`, [target.id])
+            expect(rows).toHaveLength(1)
+
+            const after = await getProposalScoped(sql, proposal.id, [seed.tenantId])
+            const loudLog = errorSpy.mock.calls
+              .map((c) => String(c[0]))
+              .some((m) => m.includes(proposal.id) && m.includes('reconciliation'))
+            if (after?.status === 'rejected' && loudLog) {
+              // In-window loser: the update committed, then the reject won → loud log, no undo.
+              expect(res.status).toBe('not_pending')
+              logged = true
+            } else if (after?.status === 'applied') {
+              expect(res.status).toBe('applied')
+            }
+            // rejected without the log → the reject beat the accept's LOAD (early-exit); retry.
+          }
+          expect(logged).toBe(true)
+        } finally {
+          errorSpy.mockRestore()
+        }
       })
     })
   },

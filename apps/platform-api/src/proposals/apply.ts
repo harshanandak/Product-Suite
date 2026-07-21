@@ -475,6 +475,38 @@ export async function applyProposal(
      where id = $2 and status = 'pending' returning id`,
     [approverUserId, proposalId, payloadToPersist, JSON.stringify(result)],
   )
-  if (flipped.length === 0) return { status: 'not_pending', proposal_id: proposalId }
+  if (flipped.length === 0) {
+    // We LOST the flip: the guarded UPDATE matched no `pending` row, so the proposal was
+    // decided out from under us between our write (step 4) and this flip. Re-read to learn
+    // WHO won and whether our just-written row must be compensated. (Cheap mitigation for
+    // the flip-loser window; the full reject-fence — atomically blocking the write while a
+    // decision is in flight — is carved to kernel 996b674c.)
+    const current = await getProposalScoped(sql, proposalId, ctx.tenantIds)
+    const decided = current?.status
+    if (decided !== 'applied') {
+      if (proposal.operation === 'create' && (decided === 'rejected' || decided === 'failed')) {
+        // A human REJECT (or a terminal fail) won the race, but our accept-drive already
+        // created a row. The human's decision must win — COMPENSATE by deleting it. The row
+        // can ONLY have come from an accept-drive of THIS proposal (it is keyed on the
+        // proposal id), so the delete is precisely scoped and cannot touch anything else.
+        if (proposal.target_type === 'memory') {
+          await sqlQuery(sql, `delete from memories where source_proposal_id = $1`, [proposalId])
+        } else {
+          await sqlQuery(sql, `delete from work_items where applied_from_proposal_id = $1`, [proposalId])
+        }
+      } else if (decided === 'rejected' || decided === 'failed') {
+        // A non-create op (update/supersede/retract/defer) whose in-place mutation ALREADY
+        // committed, then lost to a non-accept decision. There is no clean automatic undo,
+        // so surface it LOUDLY for a human to reconcile rather than swallow it silently.
+        // (Compensation for in-place writes is also carved to kernel 996b674c.)
+        console.error(
+          `[proposals] flip-loser needs manual reconciliation: proposal ${proposalId} was ` +
+            `decided '${decided}' after a ${proposal.target_type}:${proposal.operation} write ` +
+            `committed row ${result.id} — the write cannot be auto-undone`,
+        )
+      }
+    }
+    return { status: 'not_pending', proposal_id: proposalId }
+  }
   return { status: 'applied', proposal_id: proposalId, item_id: result.id }
 }
