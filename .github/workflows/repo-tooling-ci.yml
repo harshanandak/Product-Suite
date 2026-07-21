@@ -9,6 +9,7 @@ on:
       - "CHANGELOG.md"
       - "docs/**"
       - "packages/contracts/**"
+      - "packages/db/**"
       - "packages/sdk/**"
       - "packages/ui-chat/**"
       - "packages/ui-canvas/**"
