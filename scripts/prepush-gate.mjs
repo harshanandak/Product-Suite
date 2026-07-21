@@ -20,12 +20,15 @@
 //   unknown range  → the FULL suite (no upstream to diff against, empty set).
 //
 // Env toggles:
-//   PREPUSH_GATE_FAST=1  → fast mode: for each AFFECTED workspace run only its
-//     `lint` and `typecheck` scripts (whichever it declares in its own
-//     package.json) and DEFER the `test` step to CI. The always-on cheap checks
-//     and the docs-only fast path are unchanged, and branch protection (a
-//     separate push-hook step) still applies. Mirrors `forge push --quick`.
-//     Unset (default) = full verify incl. tests, exactly as before.
+//   PREPUSH_GATE_FAST=1  → fast mode (mirrors `forge push --quick`): for each
+//     AFFECTED workspace whose gate INCLUDES lint, run only lint (+ typecheck if
+//     gated) and DEFER the test step to CI. A workspace with NO lint step — its
+//     tests are the ONLY local safety net (platform-api, db, every test-only
+//     package/service) — STILL runs its full suite incl. test, so fast mode can
+//     never green-light a broken API/DB/logic change locally. The always-on cheap
+//     checks and the docs-only fast path are unchanged, and branch protection (a
+//     separate push-hook step) still applies. Unset (default) = full verify incl.
+//     tests for every workspace, exactly as before.
 //   PREPUSH_GATE_DRY=1        → print the classification, run nothing (tests).
 //   PREPUSH_GATE_TEST_FILES   → comma-separated changed-file override (tests).
 import { execFileSync, spawnSync } from "node:child_process";
@@ -243,21 +246,48 @@ function classify(files) {
   return { kind: SCOPED, suites: suitesFor(affected), owners: [...owners], affected: [...affected] };
 }
 
-// FAST mode: run only each affected workspace's `lint` and `typecheck` scripts —
-// whichever it actually declares in its own package.json — and defer the `test`
-// step to CI. Returns ordered command descriptors { label, argv }, where argv is
-// passed after `bun`. The always-on cheap checks come first, exactly as the full
-// path prefixes them, and branch protection (a separate push-hook step) is
-// untouched. Script presence is read from the manifest, so nothing is hardcoded:
-// a workspace with neither lint nor typecheck contributes no extra check.
+// Which gate steps a workspace's MAPPED suite actually runs. This is read from the
+// effective `verify:*`/`test:*` scripts (not the raw package.json), because a
+// workspace can declare a `lint` script that its bundled verify deliberately omits
+// (e.g. platform-api/db declare `lint` but `verify:*` runs only typecheck+test).
+// The effective gate is the honest signal for "is lint part of this workspace's
+// local safety net". Detected by looking for `--cwd <dir> <step>` in the resolved
+// root script strings.
+function suiteSteps(dir, rootScripts) {
+  const blob = (SUITES[dir] ?? []).map((s) => rootScripts[s] ?? s).join(" && ");
+  const runs = (step) => blob.includes(`--cwd ${dir} ${step}`);
+  return { lint: runs("lint"), typecheck: runs("typecheck"), test: runs("test") };
+}
+
+// FAST mode (mirrors `forge push --quick`): lint + typecheck locally, tests deferred
+// to CI — but ONLY for workspaces whose gate includes lint. A workspace with NO lint
+// step (its tests are the ONLY local safety net — platform-api, db, and every
+// test-only package/service) still runs its full suite incl. test, so fast mode can
+// never green-light a broken API/DB/logic change locally; it just drops the (already
+// CI-covered) test step for lint-gated workspaces. Returns ordered { label, argv }
+// descriptors (argv passed after `bun`). Always-on cheap checks come first, exactly
+// as the full path prefixes them; branch protection (a separate push-hook step) is
+// untouched.
 function fastChecksFor(affected) {
-  const checks = ALWAYS.map((name) => ({ label: name, argv: ["run", name] }));
+  const rootScripts = readJSON(path.join(REPO_ROOT, "package.json"))?.scripts ?? {};
+  const checks = [];
+  const seen = new Set();
+  const add = (label, argv) => {
+    if (seen.has(label)) return;
+    seen.add(label);
+    checks.push({ label, argv });
+  };
+  for (const name of ALWAYS) add(name, ["run", name]);
   for (const dir of WORKSPACE_DIRS) {
     if (!affected.has(dir)) continue;
-    const pkg = readJSON(path.join(REPO_ROOT, dir, "package.json"));
-    const scripts = pkg?.scripts ?? {};
-    for (const name of ["lint", "typecheck"]) {
-      if (scripts[name]) checks.push({ label: `${dir}:${name}`, argv: ["run", "--cwd", dir, name] });
+    const steps = suiteSteps(dir, rootScripts);
+    if (steps.lint) {
+      // lint-gated workspace: lint (+ typecheck if gated), defer test to CI.
+      add(`${dir}:lint`, ["run", "--cwd", dir, "lint"]);
+      if (steps.typecheck) add(`${dir}:typecheck`, ["run", "--cwd", dir, "typecheck"]);
+    } else {
+      // no lint step → tests are the primary local gate: keep the full suite.
+      for (const s of SUITES[dir]) add(s, ["run", s]);
     }
   }
   return checks;
