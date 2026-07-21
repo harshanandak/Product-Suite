@@ -53,10 +53,86 @@ export const COLUMN_IDS: readonly ColumnId[] = [
 ];
 
 /**
- * The fields the rows may be grouped into swimlanes by. `"none"` is a flat list.
- * `"team"` matches the Table's current default grouping.
+ * The fields the rows may be grouped into swimlanes by (DESIGN §B "Group"
+ * options). `"phase"` is the **Status** grouping — the label-only rename from
+ * Phase 1 kept the `phase` identifier (the field flip to `status_id` is Phase 4),
+ * so "Group by Status" in the UI is this `"phase"` token. `"none"` is a flat list.
+ *
+ * `"project"` and `"cycle"` are valid tokens now but their data lands in Phase 4
+ * (`project_id` exists on the row; there is no cycle field yet — grouping by cycle
+ * currently buckets everything under "No cycle"). `"type"` is retained from v2.
  */
-export type GroupByField = "none" | "team" | "phase" | "priority" | "type";
+export type GroupByField =
+  | "phase"
+  | "project"
+  | "cycle"
+  | "priority"
+  | "assignee"
+  | "team"
+  | "type"
+  | "none";
+
+/**
+ * The group-by options in DESIGN §B order (Status·Project·Cycle·Priority·
+ * Assignee·Team·Type·None). The toolbar's Group menu maps over this; the last
+ * two (`type`, `none`) trail the design list as retained/utility options.
+ */
+export const GROUP_BY_FIELDS: readonly GroupByField[] = [
+  "phase",
+  "project",
+  "cycle",
+  "priority",
+  "assignee",
+  "team",
+  "type",
+  "none",
+];
+
+/**
+ * The layout renderer for the one Item surface (DESIGN §B "Layout"). Replaces the
+ * v2 `WorkboardView` (`table`/`kanban`): `list` is the former table, `board` the
+ * former kanban, and `graph` folds the ex-standalone graph screen in as a third
+ * renderer of the SAME filtered/grouped set.
+ */
+export type WorkboardLayout = "list" | "board" | "graph";
+
+/** The three layouts in toolbar order (List · Board · Graph); default `list`. */
+export const WORKBOARD_LAYOUTS: readonly WorkboardLayout[] = [
+  "list",
+  "board",
+  "graph",
+];
+
+/**
+ * Row ordering within each group (DESIGN §B "Sort"). `"manual"` preserves the
+ * incoming order (no reorder); the rest sort by the named field. Default
+ * `"updated"` (most-recently-updated first).
+ */
+export type SortByField = "manual" | "priority" | "updated" | "created" | "due";
+
+/** The sort options in toolbar order; default `updated`. */
+export const SORT_BY_FIELDS: readonly SortByField[] = [
+  "manual",
+  "priority",
+  "updated",
+  "created",
+  "due",
+];
+
+/**
+ * Sub-item (Tasks) visibility on the surface (DESIGN §B "Tasks"). Consumed by the
+ * Table's nesting renderer (Lane B / Phase 3): `"nested"` shows child tasks
+ * indented under their parent, `"flat"` shows every item at one level, `"hidden"`
+ * shows only parents. Default `"nested"`.
+ */
+export type TasksVisibility = "nested" | "flat" | "hidden";
+
+/** The tasks-visibility options in toolbar order; default `nested`. */
+export const TASKS_VISIBILITIES: readonly TasksVisibility[] = [
+  "nested",
+  "flat",
+  "hidden",
+];
 
 /**
  * Owner-filter sentinel for "no owner" (items routed to a team queue —
@@ -98,8 +174,14 @@ export interface WorkboardFilterState {
   search: string;
   /** Structured facet filters (see {@link WorkboardFilters}). */
   filters: WorkboardFilters;
-  /** Current swimlane grouping (`"team"` by default). */
+  /** The active layout renderer (List/Board/Graph); default `"list"`. */
+  layout: WorkboardLayout;
+  /** Current swimlane grouping (`"phase"`=Status by default, per DESIGN §B). */
   groupBy: GroupByField;
+  /** Row ordering within each group (`"updated"` by default). */
+  sortBy: SortByField;
+  /** Sub-item visibility (Lane B / Phase 3 consumes this); `"nested"` default. */
+  tasks: TasksVisibility;
   /** Which columns are shown, in {@link COLUMN_IDS} order. */
   visibleColumns: Set<ColumnId>;
   /** Selected work-item ids (row-selection checkboxes). */
@@ -107,9 +189,9 @@ export interface WorkboardFilterState {
 }
 
 /**
- * Fresh, fully-defaulted {@link WorkboardFilterState}: no search, no facet
- * filters, grouped by team (matching the Table's existing behaviour), all
- * columns visible, nothing selected.
+ * Fresh, fully-defaulted {@link WorkboardFilterState} (DESIGN §B defaults): no
+ * search, no facet filters, List layout, grouped by Status (`phase`), sorted by
+ * Updated, tasks nested, all columns visible, nothing selected.
  *
  * Returns a NEW value (fresh `Set` instances) on every call so consumers never
  * share mutable collections — safe to use as a `useState` initializer.
@@ -124,7 +206,10 @@ export function defaultWorkboardFilterState(): WorkboardFilterState {
       phase: new Set(),
       priority: new Set(),
     },
-    groupBy: "team",
+    layout: "list",
+    groupBy: "phase",
+    sortBy: "updated",
+    tasks: "nested",
     visibleColumns: new Set(COLUMN_IDS),
     selection: new Set(),
   };
@@ -181,11 +266,53 @@ function searchMatches(
   return haystacks.some((field) => field.toLowerCase().includes(needle));
 }
 
+/** Priority rank (severity-first) for the `sortBy: "priority"` ordering; mirrors
+ * {@link PRIORITY_ORDER} so the sort matches the facet/badge ordering everywhere.
+ * An unknown priority sorts last. */
+const PRIORITY_RANK = new Map<Priority, number>(
+  PRIORITY_ORDER.map((priority, index) => [priority, index]),
+);
+
+/**
+ * Comparator for the active {@link SortByField}. Timestamps sort most-recent
+ * first (descending ISO string compare); `due` sorts soonest-first with nulls
+ * last; `priority` sorts by severity via {@link PRIORITY_RANK}; `manual` is a
+ * no-op (returns 0) so the stable sort preserves the incoming order. A tie
+ * returns 0, so the stable sort keeps the pre-sort (filtered) order as the
+ * secondary key.
+ */
+function compareRowsBy(
+  a: WorkItemRow,
+  b: WorkItemRow,
+  sortBy: SortByField,
+): number {
+  switch (sortBy) {
+    case "priority":
+      return (
+        (PRIORITY_RANK.get(a.priority) ?? PRIORITY_ORDER.length) -
+        (PRIORITY_RANK.get(b.priority) ?? PRIORITY_ORDER.length)
+      );
+    case "updated":
+      return b.updated_at.localeCompare(a.updated_at);
+    case "created":
+      return b.created_at.localeCompare(a.created_at);
+    case "due":
+      if (a.due_date === null && b.due_date === null) return 0;
+      if (a.due_date === null) return 1;
+      if (b.due_date === null) return -1;
+      return a.due_date.localeCompare(b.due_date);
+    case "manual":
+      return 0;
+  }
+}
+
 /**
  * Apply the shared {@link WorkboardFilterState}'s search + facet filters to a set
- * of rows, returning the rows that pass ALL active criteria. PURE — never mutates
- * its inputs and reads no view state beyond `search` + `filters` (group-by,
- * column visibility, and selection are render concerns the Table owns).
+ * of rows, returning the rows that pass ALL active criteria, ORDERED by the
+ * active {@link SortByField}. PURE — never mutates its inputs (filters into a new
+ * array, then sorts that copy) and reads no view state beyond `search`,
+ * `filters`, and `sortBy` (group-by, column visibility, and selection are render
+ * concerns the Table owns).
  *
  * The Table never filters; the screen runs this once and hands the Table the
  * already-filtered `rows`, so the two surfaces can never desync (DESIGN §4).
@@ -207,9 +334,9 @@ export function applyWorkboardFilters(
   state: WorkboardFilterState,
   owners: ReadonlyArray<Owner> = [],
 ): WorkItemRow[] {
-  const { search, filters } = state;
+  const { search, filters, sortBy } = state;
   const ownerNameById = new Map(owners.map((owner) => [owner.id, owner.name]));
-  return rows.filter(
+  const filtered = rows.filter(
     (row) =>
       searchMatches(search, row, ownerNameById) &&
       facetMatches(filters.type, row.type) &&
@@ -220,6 +347,11 @@ export function applyWorkboardFilters(
       facetMatches(filters.phase, row.phase) &&
       facetMatches(filters.priority, row.priority),
   );
+  // `manual` keeps the incoming order; other keys sort the already-copied
+  // `filtered` array (never the caller's `rows`).
+  return sortBy === "manual"
+    ? filtered
+    : filtered.sort((a, b) => compareRowsBy(a, b, sortBy));
 }
 
 /**
@@ -306,34 +438,31 @@ export function buildFacetOptions(
 }
 
 /**
- * The board view the user last had open — Table (default) or Kanban. Persisted
- * alongside {@link WorkboardFilterState} so a reload restores the same surface.
- */
-export type WorkboardView = "table" | "kanban";
-
-/**
  * Single versioned localStorage key for the whole persisted view blob. Mirrors
- * the per-column-width precedent (`workboard.table.colw.v1.<id>`): a `v2` suffix
- * lets a future schema change bump to `v3` and ignore old payloads cleanly. The
- * `v1→v2` bump orphans pre-rename blobs (they carried a `department` facet key)
- * instead of mis-parsing them.
+ * the per-column-width precedent (`workboard.table.colw.v1.<id>`): the version
+ * suffix lets a schema change bump the key and ignore old payloads cleanly. The
+ * `v2→v3` bump (this wave) orphans pre-one-surface blobs — they carried a `view:
+ * table|kanban` key instead of `layout`, and lacked `sortBy`/`tasks` — so a fresh
+ * default is used rather than mis-parsing them (no migration shim).
  */
-export const FILTER_STORAGE_KEY = "workboard.filters.v2";
+export const FILTER_STORAGE_KEY = "workboard.filters.v3";
 
 /**
- * The subset of {@link WorkboardFilterState} (plus the active {@link WorkboardView})
- * that survives a reload. {@link WorkboardFilterState.selection} is DELIBERATELY
- * absent — restoring stale row ids across reloads is wrong, so selection always
- * rehydrates empty. Every field is optional: {@link parsePersistedView} omits any
- * field that is missing or fails validation, and the screen merges what survives
- * over a fresh {@link defaultWorkboardFilterState}.
+ * The subset of {@link WorkboardFilterState} that survives a reload.
+ * {@link WorkboardFilterState.selection} is DELIBERATELY absent — restoring stale
+ * row ids across reloads is wrong, so selection always rehydrates empty. Every
+ * field is optional: {@link parsePersistedView} omits any field that is missing
+ * or fails validation, and the screen merges what survives over a fresh
+ * {@link defaultWorkboardFilterState}.
  */
 export interface PersistedView {
   search?: string;
   filters?: WorkboardFilters;
+  layout?: WorkboardLayout;
   groupBy?: GroupByField;
+  sortBy?: SortByField;
+  tasks?: TasksVisibility;
   visibleColumns?: Set<ColumnId>;
-  view?: WorkboardView;
 }
 
 /** Allowed value sets for every enum field, used to drop unknown members on read. */
@@ -341,14 +470,10 @@ const TYPE_VALUES = new Set<WorkItemType>(WORK_ITEM_TYPE_ORDER);
 const PHASE_VALUES = new Set<Phase>(PHASE_FACET_ORDER);
 const PRIORITY_VALUES = new Set<Priority>(PRIORITY_ORDER);
 const COLUMN_VALUES = new Set<ColumnId>(COLUMN_IDS);
-const GROUP_BY_VALUES = new Set<GroupByField>([
-  "none",
-  "team",
-  "phase",
-  "priority",
-  "type",
-]);
-const VIEW_VALUES = new Set<WorkboardView>(["table", "kanban"]);
+const GROUP_BY_VALUES = new Set<GroupByField>(GROUP_BY_FIELDS);
+const LAYOUT_VALUES = new Set<WorkboardLayout>(WORKBOARD_LAYOUTS);
+const SORT_BY_VALUES = new Set<SortByField>(SORT_BY_FIELDS);
+const TASKS_VALUES = new Set<TasksVisibility>(TASKS_VISIBILITIES);
 
 /**
  * Snapshot the persistable slice of the live view state as a {@link PersistedView}
@@ -358,14 +483,13 @@ const VIEW_VALUES = new Set<WorkboardView>(["table", "kanban"]);
  * is DELIBERATELY excluded (stale row ids must never travel with a config). PURE —
  * clones every `Set` so the snapshot never aliases the live state's collections.
  */
-export function currentViewConfig(input: {
-  filterState: WorkboardFilterState;
-  view: WorkboardView;
-}): PersistedView {
-  const { filterState, view } = input;
+export function currentViewConfig(filterState: WorkboardFilterState): PersistedView {
   return {
     search: filterState.search,
+    layout: filterState.layout,
     groupBy: filterState.groupBy,
+    sortBy: filterState.sortBy,
+    tasks: filterState.tasks,
     filters: {
       type: new Set(filterState.filters.type),
       owner: new Set(filterState.filters.owner),
@@ -374,7 +498,6 @@ export function currentViewConfig(input: {
       priority: new Set(filterState.filters.priority),
     },
     visibleColumns: new Set(filterState.visibleColumns),
-    view,
   };
 }
 
@@ -387,7 +510,10 @@ export function currentViewConfig(input: {
 function persistedViewToStorable(config: PersistedView): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   if (config.search !== undefined) out.search = config.search;
+  if (config.layout !== undefined) out.layout = config.layout;
   if (config.groupBy !== undefined) out.groupBy = config.groupBy;
+  if (config.sortBy !== undefined) out.sortBy = config.sortBy;
+  if (config.tasks !== undefined) out.tasks = config.tasks;
   if (config.filters !== undefined) {
     out.filters = {
       type: [...config.filters.type],
@@ -400,7 +526,6 @@ function persistedViewToStorable(config: PersistedView): Record<string, unknown>
   if (config.visibleColumns !== undefined) {
     out.visibleColumns = [...config.visibleColumns];
   }
-  if (config.view !== undefined) out.view = config.view;
   return out;
 }
 
@@ -411,11 +536,10 @@ function persistedViewToStorable(config: PersistedView): Record<string, unknown>
  * only its argument and returns a string. Built from {@link currentViewConfig}
  * (which always populates every field), so the output stays the full, ordered blob.
  */
-export function serializePersistedView(input: {
-  filterState: WorkboardFilterState;
-  view: WorkboardView;
-}): string {
-  return JSON.stringify(persistedViewToStorable(currentViewConfig(input)));
+export function serializePersistedView(
+  filterState: WorkboardFilterState,
+): string {
+  return JSON.stringify(persistedViewToStorable(currentViewConfig(filterState)));
 }
 
 /** Keep only the string members of an array; non-arrays yield an empty list. */
@@ -459,16 +583,28 @@ export function coercePersistedView(record: unknown): PersistedView {
     result.search = rec.search;
   }
   if (
+    typeof rec.layout === "string" &&
+    LAYOUT_VALUES.has(rec.layout as WorkboardLayout)
+  ) {
+    result.layout = rec.layout as WorkboardLayout;
+  }
+  if (
     typeof rec.groupBy === "string" &&
     GROUP_BY_VALUES.has(rec.groupBy as GroupByField)
   ) {
     result.groupBy = rec.groupBy as GroupByField;
   }
   if (
-    typeof rec.view === "string" &&
-    VIEW_VALUES.has(rec.view as WorkboardView)
+    typeof rec.sortBy === "string" &&
+    SORT_BY_VALUES.has(rec.sortBy as SortByField)
   ) {
-    result.view = rec.view as WorkboardView;
+    result.sortBy = rec.sortBy as SortByField;
+  }
+  if (
+    typeof rec.tasks === "string" &&
+    TASKS_VALUES.has(rec.tasks as TasksVisibility)
+  ) {
+    result.tasks = rec.tasks as TasksVisibility;
   }
   if (Array.isArray(rec.visibleColumns)) {
     // Only restore a NON-empty validated set. An all-unknown array (e.g. after a
@@ -514,10 +650,11 @@ export function parsePersistedView(raw: string | null): PersistedView | null {
 /**
  * Single versioned localStorage key for the named/saved view LIST — a separate key
  * from {@link FILTER_STORAGE_KEY} (which holds the single last-applied config), so
- * the two persistence concerns never collide. `v2` lets a future schema bump
- * ignore old payloads cleanly; the `v1→v2` bump orphans pre-rename saved views.
+ * the two persistence concerns never collide. The version suffix lets a schema
+ * bump ignore old payloads cleanly; the `v2→v3` bump orphans pre-one-surface
+ * saved views (they stored `view` instead of `layout`, no `sortBy`/`tasks`).
  */
-export const SAVED_VIEWS_KEY = "workboard.savedViews.v2";
+export const SAVED_VIEWS_KEY = "workboard.savedViews.v3";
 
 /**
  * One named, user-saved Workboard view: a stable {@link id}, a display {@link name},

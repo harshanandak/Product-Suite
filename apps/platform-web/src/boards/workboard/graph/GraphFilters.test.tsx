@@ -40,7 +40,7 @@ describe("GraphFilters", () => {
     ).toHaveAttribute("aria-orientation", "vertical");
 
     expect(screen.getByLabelText("Search work items")).toBeInTheDocument();
-    for (const facet of ["type", "owner", "department", "phase", "priority"]) {
+    for (const facet of ["type", "owner", "team", "status", "priority"]) {
       expect(
         screen.getByRole("button", {
           name: new RegExp(`filter by ${facet}`, "i"),

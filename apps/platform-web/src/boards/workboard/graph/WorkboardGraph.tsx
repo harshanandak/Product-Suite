@@ -246,7 +246,7 @@ function GraphToolbar({
       <Tabs value={mode} onValueChange={onModeChange}>
         <TabsList aria-label="Graph layout">
           <TabsTrigger value="dependencies">Dependencies</TabsTrigger>
-          <TabsTrigger value="phase">Phase</TabsTrigger>
+          <TabsTrigger value="phase">Status</TabsTrigger>
         </TabsList>
       </Tabs>
       <Button

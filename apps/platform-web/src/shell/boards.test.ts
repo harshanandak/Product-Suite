@@ -86,6 +86,16 @@ describe("workboard nav (IA redesign)", () => {
     ]);
   });
 
+  it("Views is a real destination (Phase 2), Projects is still prototype-only", () => {
+    const views = workboardItems().find((item) => item.key === "views");
+    expect(views?.to).toBe("/w/$workspace/workboard/views");
+    expect(views?.prototypeOnly).toBeUndefined();
+
+    const projects = workboardItems().find((item) => item.key === "projects");
+    expect(projects?.prototypeOnly).toBe(true);
+    expect(projects?.to).toBeUndefined();
+  });
+
   it("has no strategy/insights/tasks/triage/feedback/intake/graph entries", () => {
     const keys = new Set(workboardItems().map((item) => item.key));
     for (const dead of [

@@ -197,12 +197,22 @@ const UNASSIGNED_DEPARTMENT = "";
 const UNASSIGNED_LABEL = "Unassigned";
 
 /**
- * Fold the toolbar's {@link GroupByField} into a concrete board axis. `none` is
- * not a real axis (a board needs columns), so it falls back to `phase`; every
- * other value already names a {@link BoardField}.
+ * Fold the toolbar's {@link GroupByField} into a concrete board axis. The board
+ * can only pivot on the four {@link BoardField} axes it builds columns for
+ * (phase/priority/type/team); every other option — `none` (a board needs
+ * columns) plus the fields the board has no column model for yet (`project`,
+ * `cycle`, `assignee`; their data lands in Phase 4) — falls back to `phase`, the
+ * board's default Status axis.
  */
 function boardFieldOf(groupBy: GroupByField): BoardField {
-  return groupBy === "none" ? "phase" : groupBy;
+  switch (groupBy) {
+    case "priority":
+    case "type":
+    case "team":
+      return groupBy;
+    default:
+      return "phase";
+  }
 }
 
 /** The grouping value a row contributes on the given axis (its column key). */

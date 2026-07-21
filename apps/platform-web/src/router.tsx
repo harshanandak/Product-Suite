@@ -13,6 +13,11 @@ import { InboxScreen } from "./boards/inbox/InboxScreen";
 import { MemoryScreen } from "./boards/memory/MemoryScreen";
 import { WorkItemDetailScreen } from "./boards/workboard/detail/WorkItemDetailScreen";
 import {
+  WORKBOARD_LAYOUTS,
+  type WorkboardLayout,
+} from "./boards/workboard/filter-state";
+import { WorkboardViewsScreen } from "./boards/workboard/views/WorkboardViewsScreen";
+import {
   TeamItemsScreen,
   WorkboardScreen,
 } from "./boards/workboard/WorkboardScreen";
@@ -100,17 +105,39 @@ const workboardRoute = createRoute({
   path: "workboard",
   // The Workboard index renders the live work-items screen; all other board
   // routes (incl. the workboard sub-routes) remain on the BoardScreen placeholder.
+  // `?layout=` is an optional deep-link seed for the initial Layout (used by the
+  // legacy /workboard/graph redirect); unknown values are dropped.
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { layout?: WorkboardLayout } =>
+    typeof search.layout === "string" &&
+    (WORKBOARD_LAYOUTS as readonly string[]).includes(search.layout)
+      ? { layout: search.layout as WorkboardLayout }
+      : {},
   component: WorkboardScreen,
 });
-// The Graph is returning as a Layout in Phase 2, so its old standalone path is
-// kept only to redirect legacy links onto the single work-items surface (the
-// graph components + their unit tests stay; just the route stops rendering them).
+// Graph is now a Layout of the single work-items surface (chosen via the
+// toolbar's Layout menu), not a standalone screen. This old path stays only to
+// redirect legacy `/workboard/graph` links onto that surface, landing on the
+// Graph layout via `?layout=graph` so a deep link still opens the graph.
 const workboardGraphRoute = createRoute({
   getParentRoute: () => workspaceRoute,
   path: "workboard/graph",
   beforeLoad: ({ params }) => {
-    throw redirect({ to: "/w/$workspace/workboard", params });
+    throw redirect({
+      to: "/w/$workspace/workboard",
+      params,
+      search: { layout: "graph" },
+    });
   },
+});
+// Saved Views list surface (Phase 2) — the named Layout×Group×Filter×Sort combos
+// the workboard toolbar saves. Applying one writes its config to the workboard's
+// storage key and navigates back to the work-items surface, which restores it.
+const workboardViewsRoute = createRoute({
+  getParentRoute: () => workspaceRoute,
+  path: "workboard/views",
+  component: WorkboardViewsScreen,
 });
 // The work-item DETAIL page — a real route (not the editor Sheet) so an item has
 // a durable, linkable home with room for its tabs (Overview/Tasks/…).
@@ -206,6 +233,7 @@ const routeTree = rootRoute.addChildren([
     memoryRoute,
     workboardRoute,
     workboardGraphRoute,
+    workboardViewsRoute,
     workboardItemRoute,
     workboardTeamRoute,
     meetingsRoute,

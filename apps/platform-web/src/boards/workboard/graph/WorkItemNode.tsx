@@ -181,7 +181,7 @@ function WorkItemNodeBody({ data }: NodeProps) {
           <PhaseSelect
             size="sm"
             value={row.phase}
-            aria-label={`Phase for ${row.title}`}
+            aria-label={`Status for ${row.title}`}
             onValueChange={handlePhaseChange}
           />
         ) : (

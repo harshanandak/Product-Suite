@@ -923,6 +923,24 @@ describe("WorkboardTable", () => {
     expect(screen.queryByTestId("swimlane-group")).not.toBeInTheDocument();
   });
 
+  it("folds an unsupported group-by (project) to Status swimlanes, not department (Codex #114)", async () => {
+    // A persisted/saved-view groupBy the List can't honor (project/cycle/
+    // assignee) must NOT bucket by `department` — it folds to Status (phase).
+    const rows = await loadRows();
+    renderTable({ rows, groupBy: "project" });
+
+    await screen.findAllByTestId("work-item-row");
+
+    const groupLabels = screen
+      .getAllByTestId("swimlane-group")
+      .map((node) => node.dataset.group);
+    // Folded to Status labels…
+    expect(groupLabels).toContain("Plan");
+    expect(groupLabels).toContain("Execute");
+    // …never a department bucket.
+    expect(groupLabels).not.toContain("Engineering");
+  });
+
   it("shows only the columns in visibleColumns, in canonical order", async () => {
     const rows = await loadRows();
     renderTable({

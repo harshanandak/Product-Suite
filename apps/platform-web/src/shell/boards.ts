@@ -80,9 +80,9 @@ export interface TeamRef {
 }
 
 /**
- * The always-present workboard rows (IA redesign). `Views` and `Projects` are
- * wired but not implemented in Phase 1, so they surface as prototype toasts;
- * they go live in Phases 2 and 4 respectively. `My items` lands on the shared
+ * The always-present workboard rows (IA redesign). `Views` went live in Phase 2
+ * (the Saved Views list surface); `Projects` is still wired-but-unimplemented and
+ * surfaces a prototype toast until Phase 4. `My items` lands on the shared
  * cross-team work-items surface until the Clerk→Owner mapping enables a real
  * assignee-me filter (see plan Risk 3).
  */
@@ -93,7 +93,12 @@ const WORKBOARD_STATIC_ITEMS: SidebarItem[] = [
     to: "/w/$workspace/workboard",
     icon: ListChecks,
   },
-  { key: "views", label: "Views", icon: Star, prototypeOnly: true },
+  {
+    key: "views",
+    label: "Views",
+    to: "/w/$workspace/workboard/views",
+    icon: Star,
+  },
   { key: "projects", label: "Projects", icon: Target, prototypeOnly: true },
 ];
 
