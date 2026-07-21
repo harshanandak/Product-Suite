@@ -189,4 +189,57 @@ describe("CommandPalette", () => {
     // ...and closes the palette first so the two overlays never stack.
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
+
+  it("Tab flips the palette into Ask-agent prompt mode with a route context chip", async () => {
+    renderPalette();
+
+    // Wait for the search surface, then Tab into prompt mode (mockup §3c).
+    const searchInput = await screen.findByRole("combobox");
+    fireEvent.keyDown(searchInput, { key: "Tab" });
+
+    // The prompt input replaces the search list…
+    expect(screen.getByLabelText("Agent prompt")).toBeInTheDocument();
+    expect(screen.queryByRole("combobox")).toBeNull();
+    // …and a context chip shows what the agent is scoped to (the current route —
+    // "/w/test-ws" resolves to the home Digest screen in the harness).
+    expect(screen.getByLabelText("Agent context")).toHaveTextContent("Digest");
+  });
+
+  it("submits the typed prompt to the agent seam bound to route context, and closes", async () => {
+    const askAgent = vi.fn();
+    const onOpenChange = vi.fn();
+    renderPalette({ onOpenChange }, askAgent);
+
+    fireEvent.keyDown(await screen.findByRole("combobox"), { key: "Tab" });
+    const prompt = screen.getByLabelText("Agent prompt");
+    fireEvent.change(prompt, { target: { value: "break this item into tasks" } });
+    fireEvent.keyDown(prompt, { key: "Enter" });
+
+    // Enter hands the prompt to the SAME invocation seam the panel opens through.
+    expect(askAgent).toHaveBeenCalledWith({ prompt: "break this item into tasks" });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("does not submit an empty prompt", async () => {
+    const askAgent = vi.fn();
+    renderPalette({}, askAgent);
+    fireEvent.keyDown(await screen.findByRole("combobox"), { key: "Tab" });
+    fireEvent.keyDown(screen.getByLabelText("Agent prompt"), { key: "Enter" });
+    expect(askAgent).not.toHaveBeenCalled();
+  });
+
+  it("Escape leaves prompt mode back to search without closing the palette", async () => {
+    const onOpenChange = vi.fn();
+    renderPalette({ onOpenChange });
+
+    fireEvent.keyDown(await screen.findByRole("combobox"), { key: "Tab" });
+    expect(screen.getByLabelText("Agent prompt")).toBeInTheDocument();
+
+    fireEvent.keyDown(screen.getByLabelText("Agent prompt"), { key: "Escape" });
+
+    // First Escape returns to search (palette still open); it does not close.
+    expect(await screen.findByRole("combobox")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Agent prompt")).toBeNull();
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
 });
