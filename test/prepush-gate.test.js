@@ -10,15 +10,21 @@ const scriptPath = path.join(
   "prepush-gate.mjs"
 );
 
-function classify(files) {
+function classify(files, extraEnv = {}) {
   return execFileSync(process.execPath, [scriptPath], {
     encoding: "utf8",
     env: {
       ...process.env,
       PREPUSH_GATE_TEST_FILES: files.join(","),
       PREPUSH_GATE_DRY: "1",
+      ...extraEnv,
     },
   }).trim();
+}
+
+// Same dry-run classification, but with the fast-mode toggle set.
+function classifyFast(files) {
+  return classify(files, { PREPUSH_GATE_FAST: "1" });
 }
 
 describe("prepush-gate classification", () => {
@@ -147,5 +153,64 @@ describe("prepush-gate classification", () => {
     const out = classify(["apps/platform-web/src/x.tsx"]);
     expect(out).not.toContain("ci:platform-web");
     expect(out).toContain("verify:platform-web");
+  });
+});
+
+describe("prepush-gate PREPUSH_GATE_FAST (lint+typecheck-only) mode", () => {
+  test("fast mode runs a workspace's lint + typecheck but NOT its test/verify", () => {
+    const out = classifyFast(["apps/platform-web/src/x.tsx"]);
+    expect(out).toContain("mode: fast");
+    // per-workspace lint + typecheck, resolved from the workspace package.json
+    expect(out).toContain("apps/platform-web:lint");
+    expect(out).toContain("apps/platform-web:typecheck");
+    // the test step is deferred to CI — no test/verify invocation for the workspace
+    expect(out).not.toContain("apps/platform-web:test");
+    expect(out).not.toContain("verify:platform-web");
+  });
+
+  test("fast mode still runs the always-on cheap checks", () => {
+    const out = classifyFast(["apps/platform-web/src/x.tsx"]);
+    expect(out).toContain("check:source-test");
+    expect(out).toContain("test:repo-tooling");
+  });
+
+  test("default (non-fast) mode is unchanged: still runs the full verify incl. test", () => {
+    const out = classify(["apps/platform-web/src/x.tsx"]);
+    expect(out).not.toContain("mode: fast");
+    expect(out).toContain("verify:platform-web");
+  });
+
+  test("fast mode skips a script the workspace does not define (meeting-web has no typecheck)", () => {
+    const out = classifyFast(["apps/meeting-web/src/x.ts"]);
+    expect(out).toContain("mode: fast");
+    expect(out).toContain("apps/meeting-web:lint");
+    // meeting-web's package.json defines no `typecheck` script → nothing to run
+    expect(out).not.toContain("apps/meeting-web:typecheck");
+  });
+
+  test("fast mode runs nothing extra for a test-only package (no lint, no typecheck)", () => {
+    // packages/ui defines only a `test` script → fast mode adds no lint/typecheck for it,
+    // but the always-on cheap checks still run.
+    const out = classifyFast(["packages/ui/src/button.tsx"]);
+    expect(out).toContain("mode: fast");
+    expect(out).toContain("check:source-test");
+    expect(out).not.toContain("packages/ui:lint");
+    expect(out).not.toContain("packages/ui:typecheck");
+    expect(out).not.toContain("test:ui");
+  });
+
+  test("fast mode narrows a cross-cutting (full-suite) push to lint+typecheck too", () => {
+    const out = classifyFast(["package.json"]);
+    expect(out).toContain("full-suite");
+    expect(out).toContain("mode: fast");
+    // a real workspace with lint+typecheck is exercised; tests are still deferred
+    expect(out).toContain("apps/platform-web:lint");
+    expect(out).toContain("apps/platform-web:typecheck");
+    expect(out).not.toContain("verify:platform-web");
+  });
+
+  test("fast mode keeps the docs-only fast path (docs push runs only source-test)", () => {
+    const out = classifyFast(["docs/plans/some-plan.md", "README.md"]);
+    expect(out).toContain("docs-only");
   });
 });

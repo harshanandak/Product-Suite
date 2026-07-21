@@ -18,6 +18,16 @@
 //                    checks. This is what lets a platform-web-only change run only
 //                    platform-web's verify suite instead of the whole monorepo.
 //   unknown range  → the FULL suite (no upstream to diff against, empty set).
+//
+// Env toggles:
+//   PREPUSH_GATE_FAST=1  → fast mode: for each AFFECTED workspace run only its
+//     `lint` and `typecheck` scripts (whichever it declares in its own
+//     package.json) and DEFER the `test` step to CI. The always-on cheap checks
+//     and the docs-only fast path are unchanged, and branch protection (a
+//     separate push-hook step) still applies. Mirrors `forge push --quick`.
+//     Unset (default) = full verify incl. tests, exactly as before.
+//   PREPUSH_GATE_DRY=1        → print the classification, run nothing (tests).
+//   PREPUSH_GATE_TEST_FILES   → comma-separated changed-file override (tests).
 import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -230,7 +240,27 @@ function classify(files) {
   const owners = collectOwners(files);
   if (owners === null) return { kind: FULL, reason: "unscoped file" };
   const affected = withDependents(owners, buildDependents());
-  return { kind: SCOPED, suites: suitesFor(affected), owners: [...owners] };
+  return { kind: SCOPED, suites: suitesFor(affected), owners: [...owners], affected: [...affected] };
+}
+
+// FAST mode: run only each affected workspace's `lint` and `typecheck` scripts —
+// whichever it actually declares in its own package.json — and defer the `test`
+// step to CI. Returns ordered command descriptors { label, argv }, where argv is
+// passed after `bun`. The always-on cheap checks come first, exactly as the full
+// path prefixes them, and branch protection (a separate push-hook step) is
+// untouched. Script presence is read from the manifest, so nothing is hardcoded:
+// a workspace with neither lint nor typecheck contributes no extra check.
+function fastChecksFor(affected) {
+  const checks = ALWAYS.map((name) => ({ label: name, argv: ["run", name] }));
+  for (const dir of WORKSPACE_DIRS) {
+    if (!affected.has(dir)) continue;
+    const pkg = readJSON(path.join(REPO_ROOT, dir, "package.json"));
+    const scripts = pkg?.scripts ?? {};
+    for (const name of ["lint", "typecheck"]) {
+      if (scripts[name]) checks.push({ label: `${dir}:${name}`, argv: ["run", "--cwd", dir, name] });
+    }
+  }
+  return checks;
 }
 
 // Run the selected suites SEQUENTIALLY, with live (inherited) output. Running
@@ -251,11 +281,43 @@ function runScripts(scripts) {
   process.exit(0);
 }
 
+// Run FAST-mode command descriptors ({ label, argv }) SEQUENTIALLY, live output.
+// Same fail-fast, same Windows .cmd-shim handling as runScripts; only the argv
+// shape differs (per-workspace `run --cwd <dir> <script>` vs a root script name).
+function runChecks(checks) {
+  for (const { argv } of checks) {
+    // Static argument arrays only; shell:true resolves bun's .cmd shim on Windows
+    // and nothing user-controlled is interpolated.
+    const r = spawnSync("bun", argv, { stdio: "inherit", shell: true }); // NOSONAR(S4036)
+    const status = r.status ?? 1;
+    if (status !== 0) process.exit(status);
+  }
+  process.exit(0);
+}
+
+// Opt-in fast mode: lint + typecheck locally, tests deferred to CI (mirrors the
+// documented `forge push --quick` contract). Default (unset) = full verify.
+const FAST = process.env.PREPUSH_GATE_FAST === "1";
+const FAST_NOTE = "mode: fast (lint+typecheck only, tests deferred to CI)";
+
+// The affected workspace-dir set a result implies: the computed set for a scoped
+// push, every workspace for a full push. (Docs-only never reaches here.)
+function affectedDirsFor(result) {
+  return result.kind === SCOPED ? new Set(result.affected) : new Set(WORKSPACE_DIRS);
+}
+
 const result = classify(changedFiles());
 
 // Dry-run mode for tests: report the classification without running anything.
 if (process.env.PREPUSH_GATE_DRY === "1") {
-  if (result.kind === SCOPED) {
+  if (result.kind === DOCS) {
+    console.log(`classification: ${result.kind}`);
+  } else if (FAST) {
+    const checks = fastChecksFor(affectedDirsFor(result));
+    console.log(`classification: ${result.kind}`);
+    console.log(FAST_NOTE);
+    console.log(`fast checks: ${checks.map((c) => c.label).join(", ")}`);
+  } else if (result.kind === SCOPED) {
     console.log("classification: scoped");
     console.log(`suites: ${result.suites.join(", ")}`);
   } else {
@@ -265,8 +327,16 @@ if (process.env.PREPUSH_GATE_DRY === "1") {
 }
 
 if (result.kind === DOCS) {
+  // Docs-only stays on the fast path regardless of FAST — nothing to narrow.
   console.log("prepush-gate: docs-only push — running fast checks only.");
   runScripts(["check:source-test"]);
+} else if (FAST) {
+  const checks = fastChecksFor(affectedDirsFor(result));
+  const scope = result.kind === SCOPED ? `scoped [${result.owners.join(", ")}]` : result.reason;
+  console.log(
+    `prepush-gate: ${scope} — FAST mode: lint+typecheck only (${checks.length} checks); tests deferred to CI.`,
+  );
+  runChecks(checks);
 } else if (result.kind === SCOPED) {
   console.log(
     `prepush-gate: scoped push [${result.owners.join(", ")}] — running: ${result.suites.join(", ")}`,

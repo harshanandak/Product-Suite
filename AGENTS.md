@@ -176,6 +176,8 @@ forge sync                    # Sync issue data
 forge clean                   # Remove merged worktrees
 ```
 
+> The pre-push gate honors `PREPUSH_GATE_FAST=1` — the `forge push --quick` contract: it runs each affected workspace's lint + typecheck (whichever it declares) and defers the test suite to CI. Branch protection and the always-on cheap checks still apply; default (unset) runs the full verify incl. tests.
+
 ## Build, Shell, and MCP
 
 **Package manager**: Bun (preferred for performance).
