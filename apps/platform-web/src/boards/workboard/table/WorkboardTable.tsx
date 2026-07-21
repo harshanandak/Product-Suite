@@ -43,6 +43,7 @@ import {
   COLUMN_IDS,
   type ColumnId,
   type GroupByField,
+  type TasksVisibility,
 } from "@/boards/workboard/filter-state";
 import {
   childrenByParent,
@@ -116,18 +117,9 @@ export interface ColumnFilter {
  * from what the parent renders. Selection is fully CONTROLLED (`selection` +
  * `onSelectionChange`) so the toolbar and table share one selection set.
  */
-/**
- * How the table treats child Tasks (§11 owned child tier). Mirrors filter-state's
- * `TasksVisibility` (Lane A owns that export); declared locally so this component
- * builds against the pinned v3 contract before Lane A's `filter-state.ts` lands.
- * At the rebase onto Lane A, replace this with the imported `TasksVisibility`.
- *
- * - `nested` — children fold under their parent (indented, collapsed by default);
- *   the parent shows a disclosure chevron + an `n/m` rollup.
- * - `flat`   — no nesting; children render as ordinary top-level rows.
- * - `hidden` — parents only; children are omitted entirely.
- */
-export type TasksVisibility = "nested" | "flat" | "hidden";
+// `TasksVisibility` (nested | flat | hidden) is owned by filter-state; re-export
+// it here so existing importers of the table's type keep resolving.
+export type { TasksVisibility };
 
 export interface WorkItemTableProps {
   /**
