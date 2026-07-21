@@ -143,14 +143,13 @@ describe("WorkboardToolbar", () => {
     expect(lastChange().sortBy).toBe("priority");
   });
 
-  it("renders the Tasks menu defaulting to Nested and reports the picked visibility", async () => {
-    const { lastChange } = renderToolbar();
+  it("does NOT render the Tasks selector yet (no runtime consumer; Phase 3 re-exposes it)", () => {
+    renderToolbar();
+    // The nested/flat/hidden control is intentionally hidden until Lane B wires
+    // a renderer that honors `filterState.tasks` (Codex #114 — no inert control).
     expect(
-      screen.getByRole("button", { name: "Tasks" }),
-    ).toHaveTextContent("Nested");
-    openMenu("Tasks");
-    fireEvent.click(await screen.findByRole("menuitemradio", { name: "Flat" }));
-    expect(lastChange().tasks).toBe("flat");
+      screen.queryByRole("button", { name: "Tasks" }),
+    ).not.toBeInTheDocument();
   });
 
   it("labels the Group control with the default Status grouping", () => {
@@ -407,6 +406,27 @@ describe("WorkboardToolbar", () => {
     expect(
       screen.queryByRole("menuitemradio", { name: "None" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("offers only the supported group-by fields (no Project/Cycle/Assignee — Codex #114)", async () => {
+    renderToolbar();
+    openMenu("Group by");
+    // Supported grouping is offered…
+    expect(
+      await screen.findByRole("menuitemradio", { name: "Status" }),
+    ).toBeInTheDocument();
+    for (const name of ["Priority", "Type", "Team", "No grouping"]) {
+      expect(
+        screen.getByRole("menuitemradio", { name }),
+      ).toBeInTheDocument();
+    }
+    // …but the unwired dimensions are NOT selectable (they'd mis-group the List
+    // into a `department` fallback until they have a real consumer).
+    for (const name of ["Project", "Cycle", "Assignee"]) {
+      expect(
+        screen.queryByRole("menuitemradio", { name }),
+      ).not.toBeInTheDocument();
+    }
   });
 
   it("toggles a column off via the columns menu", async () => {

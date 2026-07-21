@@ -42,16 +42,13 @@ import type { Owner, WorkItemPatch } from "@/data/work-items";
 import {
   COLUMN_IDS,
   FILTER_OWNER_UNASSIGNED,
-  GROUP_BY_FIELDS,
   SORT_BY_FIELDS,
-  TASKS_VISIBILITIES,
   WORKBOARD_LAYOUTS,
   toggledSet,
   type ColumnId,
   type GroupByField,
   type SavedView,
   type SortByField,
-  type TasksVisibility,
   type WorkboardFilterState,
   type WorkboardLayout,
 } from "../filter-state";
@@ -163,7 +160,9 @@ const LAYOUT_LABELS: Record<WorkboardLayout, string> = {
  * Group-by labels for ALL {@link GroupByField}s (DESIGN §B order:
  * Status·Project·Cycle·Priority·Assignee·Team·Type·None). `phase` is labelled
  * "Status" (the label-only rename that kept the `phase` token); `none` reads
- * "No grouping". The menu maps over {@link GROUP_BY_FIELDS} for its order.
+ * "No grouping". Covers every field so a persisted/saved-view groupBy still
+ * renders a correct trigger label even when the field is not user-selectable
+ * (see {@link EXPOSED_GROUP_BY_FIELDS}).
  */
 const GROUP_BY_LABELS: Record<GroupByField, string> = {
   phase: "Status",
@@ -176,6 +175,23 @@ const GROUP_BY_LABELS: Record<GroupByField, string> = {
   none: "No grouping",
 };
 
+/**
+ * The group-by fields OFFERED in the menu. `project`/`cycle`/`assignee` are
+ * intentionally omitted: the List (table) group-header path only supports
+ * `phase`/`priority`/`type`/`team`/`none` and would otherwise fall through to a
+ * `department` bucket, silently mis-grouping (Codex #114). They stay in the
+ * `GroupByField` enum + persistence (a saved view carrying one still round-trips
+ * and labels correctly) — just not selectable until a real consumer exists
+ * (Project/Cycle land in Phase 4; assignee grouping is future work).
+ */
+const EXPOSED_GROUP_BY_FIELDS: readonly GroupByField[] = [
+  "phase",
+  "priority",
+  "type",
+  "team",
+  "none",
+];
+
 /** Sort labels — the five {@link SortByField}s (DESIGN §B). */
 const SORT_BY_LABELS: Record<SortByField, string> = {
   manual: "Manual",
@@ -183,13 +199,6 @@ const SORT_BY_LABELS: Record<SortByField, string> = {
   updated: "Updated",
   created: "Created",
   due: "Due",
-};
-
-/** Tasks-visibility labels — the three {@link TasksVisibility}s (DESIGN §B). */
-const TASKS_LABELS: Record<TasksVisibility, string> = {
-  nested: "Nested",
-  flat: "Flat",
-  hidden: "Hidden",
 };
 
 /** Human labels for the toggleable columns (sentence case). */
@@ -410,10 +419,6 @@ export function WorkboardToolbar({
     onChange({ ...value, sortBy });
   };
 
-  const setTasks = (tasks: TasksVisibility): void => {
-    onChange({ ...value, tasks });
-  };
-
   const toggleColumn = (column: ColumnId): void => {
     onChange({
       ...value,
@@ -585,7 +590,7 @@ export function WorkboardToolbar({
               setGroupBy(next as GroupByField);
             }}
           >
-            {GROUP_BY_FIELDS.map((field) => (
+            {EXPOSED_GROUP_BY_FIELDS.map((field) => (
               <DropdownMenuRadioItem key={field} value={field}>
                 {GROUP_BY_LABELS[field]}
               </DropdownMenuRadioItem>
@@ -619,30 +624,14 @@ export function WorkboardToolbar({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {/* Tasks — sub-item visibility (DESIGN §B): Nested / Flat / Hidden. */}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="sm" aria-label="Tasks">
-            Tasks: {TASKS_LABELS[value.tasks]}
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="min-w-40">
-          <DropdownMenuLabel>Tasks</DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          <DropdownMenuRadioGroup
-            value={value.tasks}
-            onValueChange={(next) => {
-              setTasks(next as TasksVisibility);
-            }}
-          >
-            {TASKS_VISIBILITIES.map((visibility) => (
-              <DropdownMenuRadioItem key={visibility} value={visibility}>
-                {TASKS_LABELS[visibility]}
-              </DropdownMenuRadioItem>
-            ))}
-          </DropdownMenuRadioGroup>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      {/* Tasks — sub-item visibility (DESIGN §B): Nested / Flat / Hidden.
+          INTENTIONALLY HIDDEN for now: `filterState.tasks` has no runtime
+          consumer in this tree yet — the List/Board/Graph renderers don't honor
+          it, so exposing the control would ship an inert selector (Codex #114).
+          Lane B (Phase 3, inline task nesting) re-exposes this control TOGETHER
+          with the renderer that consumes `tasks`. The `tasks` state + its
+          `TasksVisibility` type stay in filter-state so persistence/saved views
+          keep round-tripping in the meantime. */}
 
       {/* Column visibility */}
       <DropdownMenu>
