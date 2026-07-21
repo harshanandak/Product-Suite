@@ -15,12 +15,15 @@ on:
   # comment. A normal push to main never runs migrate, and (see `deploy`'s
   # `needs:` gate) therefore never auto-deploys either: this whole pipeline is
   # human-started, on purpose, because it can touch the shared prod DB.
-  workflow_dispatch: {}
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
+# DELIBERATELY NO workflow-level `concurrency` block. A workflow-level group
+# with `cancel-in-progress: true` cancels the ENTIRE run — including an
+# approved, executing `migrate` — when a later push/dispatch enters the same
+# group, and a job-level `cancel-in-progress: false` does NOT override that
+# workflow-level cancellation (they are separate scopes). That would let a
+# newer run terminate `bun run migrate` mid-flight against the shared prod DB.
+# Concurrency is therefore declared per-job below: `migrate` gets a dedicated
+# non-cancelling group (never interrupted), while `preflight` and `deploy` get
+# their own cancellable groups. Do NOT reintroduce a top-level `concurrency:`.
 permissions:
   contents: read
 
@@ -37,6 +40,12 @@ jobs:
   preflight:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    # Own cancellable group: a newer dispatch supersedes an older run's
+    # not-yet-finished verification. Safe to cancel — no shared-DB side effects
+    # here. This is job-scoped, so it can never reach the `migrate` job's group.
+    concurrency:
+      group: platform-api-preflight-${{ github.ref }}
+      cancel-in-progress: true
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -83,11 +92,12 @@ jobs:
   #      setting is out of band from this workflow file and must be set up by
   #      a maintainer; until it is, gate #1 alone still prevents any
   #      unattended apply.
-  #   3. Its own job-level `concurrency` group with `cancel-in-progress:
-  #      false`, separate from the workflow-level group `deploy` uses. A
-  #      pending or executing migrate run can never be cancelled by a newer
-  #      push or another workflow run — an interrupted `bun run migrate`
-  #      would leave the schema half-applied. Later migrate runs queue
+  #   3. Its own dedicated job-level `concurrency` group with
+  #      `cancel-in-progress: false`. There is intentionally NO workflow-level
+  #      concurrency (see the top-of-file comment), so nothing at a wider
+  #      scope can cancel this run: a pending or executing migrate can never be
+  #      cancelled by a newer push or dispatch — an interrupted `bun run
+  #      migrate` would leave the schema half-applied. Later migrate runs queue
   #      instead of pre-empting one another.
   # Also see the Product-Suite drizzle snapshot-drift memory: the meta
   # snapshot chain has been hand-reconciled before (regenerating journal
@@ -154,6 +164,13 @@ jobs:
     # same change as `migrate`), so there is no prior automatic-deploy
     # behavior being narrowed here.
     runs-on: ubuntu-latest
+    # Own cancellable group so a newer run supersedes an in-flight Worker
+    # deploy (wrangler applies a new version atomically; a superseded deploy is
+    # simply replaced by the newer one). Job-scoped and separate from
+    # `migrate`'s group, so cancelling a deploy never touches a migration.
+    concurrency:
+      group: platform-api-deploy-${{ github.ref }}
+      cancel-in-progress: true
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
