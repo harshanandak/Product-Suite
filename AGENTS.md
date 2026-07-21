@@ -176,6 +176,8 @@ forge sync                    # Sync issue data
 forge clean                   # Remove merged worktrees
 ```
 
+> The pre-push gate honors `PREPUSH_GATE_FAST=1` — the `forge push --quick` contract: for each affected workspace whose gate includes lint, it runs lint + typecheck and defers that workspace's tests to CI. A workspace with no lint step (e.g. platform-api, db, test-only packages — where tests are the only local safety net) still runs its full suite incl. tests. Branch protection and the always-on cheap checks always apply; default (unset) runs the full verify incl. tests for every workspace.
+
 ## Build, Shell, and MCP
 
 **Package manager**: Bun (preferred for performance).
