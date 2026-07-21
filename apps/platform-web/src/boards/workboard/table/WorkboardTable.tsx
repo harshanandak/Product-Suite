@@ -686,18 +686,23 @@ function visibleColumnSpecs(
 /** Human-readable swimlane header text for a row under the active grouping. */
 function groupLabelFor(row: WorkItemRow, groupBy: GroupByField): string {
   switch (groupBy) {
-    case "phase":
-      return PHASE_LABELS[row.phase];
     case "priority":
       return PRIORITY_LABELS[row.priority];
     case "type":
       return WORK_ITEM_TYPE_LABELS[row.type];
-    // `groupBy === "none"` never reaches here — flattenRows short-circuits on it
-    // before any label is computed — so "team" is the only remaining case.
     // Reads `row.department`, the deprecated-but-retained team-name carrier.
     case "team":
-    default:
       return row.department;
+    // `groupBy === "none"` never reaches here — flattenRows short-circuits on it.
+    // `phase` (Status) is the default AND the safe FOLD target for group-by
+    // fields with no List consumer yet (project/cycle/assignee): a persisted or
+    // saved-view groupBy of one of those folds to Status swimlanes instead of
+    // mis-bucketing by `department` (Codex #114). Mirrors the Board renderer's
+    // fold (439c9dc). The toolbar no longer offers them, so this only guards
+    // persisted/stored state.
+    case "phase":
+    default:
+      return PHASE_LABELS[row.phase];
   }
 }
 

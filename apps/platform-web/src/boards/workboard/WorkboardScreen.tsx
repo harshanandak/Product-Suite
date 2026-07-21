@@ -301,6 +301,21 @@ export function WorkboardScreen({
     return layoutParam ? { ...base, layout: layoutParam } : base;
   });
 
+  // Once the `?layout=` seed has been consumed into the initial state, strip it
+  // from the URL (replace — no history entry) so it doesn't linger and re-apply
+  // on later navigation (Codex #114). The guard makes this inert on routes/loads
+  // without the seed; after the strip, `layoutParam` becomes undefined so a
+  // re-run is a no-op (never a redirect loop).
+  useEffect(() => {
+    if (layoutParam === undefined) return;
+    void navigate({
+      to: "/w/$workspace/workboard",
+      params: { workspace: workspaceSlug },
+      search: {},
+      replace: true,
+    });
+  }, [layoutParam, navigate, workspaceSlug]);
+
   // The user's saved/named views (Rank 8b). Lazily hydrated from a SEPARATE
   // localStorage key (SAVED_VIEWS_KEY) on mount — independent of the single
   // last-applied config the #48 effect persists to FILTER_STORAGE_KEY.

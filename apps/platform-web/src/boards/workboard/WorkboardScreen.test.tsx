@@ -1058,6 +1058,19 @@ describe("WorkboardScreen", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("clears the consumed ?layout= seed from the URL (replace, no history) — Codex #114", async () => {
+    searchMock.value = { layout: "graph" };
+
+    render(<WorkboardScreen repository={createMockWorkItemRepository()} />);
+    await screen.findByTestId("workboard-graph-frame");
+
+    // The seed is stripped via a replace-navigation to the bare workboard route,
+    // so it can't linger in the URL and re-apply on later navigation.
+    expect(navMock.fn).toHaveBeenCalledWith(
+      expect.objectContaining({ replace: true, search: {} }),
+    );
+  });
+
   it("never restores a stale selection — selection rehydrates empty", async () => {
     // Hand-craft a blob carrying a selection key (the serializer never writes
     // one); the parser must ignore it so no rows start selected.
