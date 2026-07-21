@@ -143,13 +143,25 @@ describe("WorkboardToolbar", () => {
     expect(lastChange().sortBy).toBe("priority");
   });
 
-  it("does NOT render the Tasks selector yet (no runtime consumer; Phase 3 re-exposes it)", () => {
-    renderToolbar();
-    // The nested/flat/hidden control is intentionally hidden until Lane B wires
-    // a renderer that honors `filterState.tasks` (Codex #114 — no inert control).
+  it("renders the Tasks menu defaulting to Nested and reports the picked visibility", async () => {
+    const { lastChange } = renderToolbar();
+    // Re-exposed in Phase 3 now that WorkboardTable honors `filterState.tasks`.
     expect(
-      screen.queryByRole("button", { name: "Tasks" }),
-    ).not.toBeInTheDocument();
+      screen.getByRole("button", { name: "Tasks" }),
+    ).toHaveTextContent("Nested");
+    openMenu("Tasks");
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "Flat" }));
+    expect(lastChange().tasks).toBe("flat");
+  });
+
+  it("offers all three task visibilities (Nested/Flat/Hidden) in the Tasks menu", async () => {
+    renderToolbar();
+    openMenu("Tasks");
+    for (const label of ["Nested", "Flat", "Hidden"]) {
+      expect(
+        await screen.findByRole("menuitemradio", { name: label }),
+      ).toBeInTheDocument();
+    }
   });
 
   it("labels the Group control with the default Status grouping", () => {

@@ -12,14 +12,39 @@ import { deriveHealth } from "./types";
 const NOW = Date.parse("2026-06-20T00:00:00.000Z");
 
 describe("work-item fixtures", () => {
-  it("provides ~8-12 work items across 2-3 departments", () => {
+  it("provides ~8-15 work items across 2-3 departments", () => {
     const items = createWorkItemFixtures();
+    // Range widened to cover the nested Task tier (a parent + its sub-items).
     expect(items.length).toBeGreaterThanOrEqual(8);
-    expect(items.length).toBeLessThanOrEqual(12);
+    expect(items.length).toBeLessThanOrEqual(15);
 
     const departments = new Set(items.map((item) => item.department));
     expect(departments.size).toBeGreaterThanOrEqual(2);
     expect(departments.size).toBeLessThanOrEqual(3);
+  });
+
+  it("seeds at least one parent with a nested Task tier (one level deep)", () => {
+    const items = createWorkItemFixtures();
+    const byId = new Map(items.map((item) => [item.id, item]));
+
+    const children = items.filter((item) => item.parent_id !== null);
+    expect(children.length).toBeGreaterThan(0);
+
+    for (const child of children) {
+      // Every child points at a real parent that is itself top-level (nesting is
+      // one level deep — a parent never has a parent), and derives depth 1.
+      const parent = byId.get(child.parent_id as string);
+      expect(parent).toBeDefined();
+      expect(parent?.parent_id).toBeNull();
+      expect(child.depth).toBe(1);
+      // A child inherits its parent's team (DESIGN §11).
+      expect(child.team_id).toBe(parent?.team_id);
+    }
+
+    // Top-level items derive depth 0.
+    for (const root of items.filter((item) => item.parent_id === null)) {
+      expect(root.depth).toBe(0);
+    }
   });
 
   it("gives every work item a mandatory team_id derived from its department", () => {

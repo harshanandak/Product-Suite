@@ -43,12 +43,14 @@ import {
   COLUMN_IDS,
   FILTER_OWNER_UNASSIGNED,
   SORT_BY_FIELDS,
+  TASKS_VISIBILITIES,
   WORKBOARD_LAYOUTS,
   toggledSet,
   type ColumnId,
   type GroupByField,
   type SavedView,
   type SortByField,
+  type TasksVisibility,
   type WorkboardFilterState,
   type WorkboardLayout,
 } from "../filter-state";
@@ -199,6 +201,13 @@ const SORT_BY_LABELS: Record<SortByField, string> = {
   updated: "Updated",
   created: "Created",
   due: "Due",
+};
+
+/** Tasks-visibility labels — how the List nests child Tasks (DESIGN §B). */
+const TASKS_LABELS: Record<TasksVisibility, string> = {
+  nested: "Nested",
+  flat: "Flat",
+  hidden: "Hidden",
 };
 
 /** Human labels for the toggleable columns (sentence case). */
@@ -419,6 +428,10 @@ export function WorkboardToolbar({
     onChange({ ...value, sortBy });
   };
 
+  const setTasks = (tasks: TasksVisibility): void => {
+    onChange({ ...value, tasks });
+  };
+
   const toggleColumn = (column: ColumnId): void => {
     onChange({
       ...value,
@@ -624,14 +637,33 @@ export function WorkboardToolbar({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {/* Tasks — sub-item visibility (DESIGN §B): Nested / Flat / Hidden.
-          INTENTIONALLY HIDDEN for now: `filterState.tasks` has no runtime
-          consumer in this tree yet — the List/Board/Graph renderers don't honor
-          it, so exposing the control would ship an inert selector (Codex #114).
-          Lane B (Phase 3, inline task nesting) re-exposes this control TOGETHER
-          with the renderer that consumes `tasks`. The `tasks` state + its
-          `TasksVisibility` type stay in filter-state so persistence/saved views
-          keep round-tripping in the meantime. */}
+      {/* Tasks — sub-item visibility (DESIGN §B): Nested / Flat / Hidden. Wired
+          end-to-end (Lane B / Phase 3): WorkboardScreen threads `filterState.tasks`
+          into WorkboardTable, whose List renderer honors it — so this control now
+          drives real nested / flat / hidden nesting. */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="sm" aria-label="Tasks">
+            Tasks: {TASKS_LABELS[value.tasks]}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="min-w-40">
+          <DropdownMenuLabel>Tasks</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuRadioGroup
+            value={value.tasks}
+            onValueChange={(next) => {
+              setTasks(next as TasksVisibility);
+            }}
+          >
+            {TASKS_VISIBILITIES.map((option) => (
+              <DropdownMenuRadioItem key={option} value={option}>
+                {TASKS_LABELS[option]}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       {/* Column visibility */}
       <DropdownMenu>

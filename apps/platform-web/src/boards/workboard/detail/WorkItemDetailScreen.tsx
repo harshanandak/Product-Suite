@@ -28,7 +28,9 @@ import {
 } from "@product-suite/ui";
 
 import {
+  childrenByParent,
   getDefaultRepository,
+  taskProgress,
   useItemChecks,
   useRepositoryContext,
   useWorkItems,
@@ -92,43 +94,11 @@ function EmptyTab({
   );
 }
 
-/** Overview tab — progress bar, the description brief, and tags. */
-function OverviewTab({
-  row,
-  completed,
-  total,
-  pct,
-}: Readonly<{
-  row: WorkItemRow;
-  completed: number;
-  total: number;
-  pct: number;
-}>) {
+/** Overview narrative block — the description brief and tags. */
+function OverviewTab({ row }: Readonly<{ row: WorkItemRow }>) {
   const hasDescription = Boolean(row.description && row.description.trim() !== "");
   return (
     <section className="space-y-5">
-      <div>
-        <div className="mb-1.5 flex items-baseline justify-between text-sm">
-          <span className="font-medium">Progress</span>
-          <span className="text-muted-foreground tabular-nums">
-            {completed} of {total} checks · {pct}%
-          </span>
-        </div>
-        <div
-          className="h-2 w-full overflow-hidden rounded-full bg-muted"
-          role="progressbar"
-          aria-label="Check progress"
-          aria-valuenow={pct}
-          aria-valuemin={0}
-          aria-valuemax={100}
-        >
-          <div
-            className="h-full rounded-full bg-primary"
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-      </div>
-
       {hasDescription ? (
         <p className="whitespace-pre-wrap text-sm leading-relaxed">
           {row.description}
@@ -160,19 +130,27 @@ function openFirst(checks: ReadonlyArray<Check>): Check[] {
 }
 
 /**
- * Checks tab — the item's real check records (open first), now WRITABLE (move ②).
- * Each row's checkbox advances the check one step around the status triad
+ * Checks module — the item's real check records (open first), WRITABLE (move ②).
+ * Promoted from a standalone tab onto the Overview (§C module order); it carries
+ * its own "Checks" heading + progress bar so the section reads on its own. Each
+ * row's checkbox advances the check one step around the status triad
  * (`onToggle` → repo `toggleStatus`); the header form adds a check (`onAdd` →
  * repo `createCheck`). Both surface a transient pending cue and never block the
- * whole tab — a failure is reported by the parent via a toast.
+ * module — a failure is reported by the parent via a toast.
  */
-function ChecksTab({
+function ChecksModule({
   checks,
+  completed,
+  total,
+  pct,
   onToggle,
   onAdd,
   pendingCheckIds,
 }: Readonly<{
   checks: ReadonlyArray<Check>;
+  completed: number;
+  total: number;
+  pct: number;
   onToggle: (id: string) => void;
   onAdd: (title: string) => Promise<void>;
   pendingCheckIds: ReadonlySet<string>;
@@ -198,7 +176,29 @@ function ChecksTab({
   };
 
   return (
-    <div className="space-y-4">
+    <section className="space-y-4">
+      <div>
+        <div className="mb-1.5 flex items-baseline justify-between">
+          <h2 className="text-sm font-medium">Checks</h2>
+          <span className="text-sm text-muted-foreground tabular-nums">
+            {completed} of {total} · {pct}%
+          </span>
+        </div>
+        <div
+          className="h-2 w-full overflow-hidden rounded-full bg-muted"
+          role="progressbar"
+          aria-label="Check progress"
+          aria-valuenow={pct}
+          aria-valuemin={0}
+          aria-valuemax={100}
+        >
+          <div
+            className="h-full rounded-full bg-primary"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      </div>
+
       <form onSubmit={(event) => void submit(event)} className="flex gap-2">
         <Input
           id={inputId}
@@ -266,7 +266,124 @@ function ChecksTab({
           })}
         </ul>
       )}
-    </div>
+    </section>
+  );
+}
+
+/** A parent's `n/m` task rollup — a segmented bar (▰▰▱) plus the fraction. */
+function TaskProgressMeter({
+  completed,
+  total,
+}: Readonly<{ completed: number; total: number }>) {
+  return (
+    <span
+      className="inline-flex items-center gap-2 text-sm text-muted-foreground"
+      aria-label={`${completed} of ${total} tasks complete`}
+    >
+      <span aria-hidden className="flex gap-0.5">
+        {Array.from({ length: total }, (_, index) => (
+          <span
+            key={index}
+            className={`h-2 w-3 rounded-sm ${
+              index < completed ? "bg-primary" : "bg-muted"
+            }`}
+          />
+        ))}
+      </span>
+      <span className="tabular-nums">
+        {completed}/{total}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * Tasks module — the item's owned child tier (§11). Lists each child Task as a
+ * link to its own detail page with a status pill, headed by an `n/m` rollup, and
+ * offers an inline "+ Add task" that creates a child under this item. One level
+ * deep: a Task never nests further here.
+ */
+function TasksModule({
+  tasks,
+  completed,
+  total,
+  workspace,
+  onAddTask,
+}: Readonly<{
+  tasks: ReadonlyArray<WorkItemRow>;
+  completed: number;
+  total: number;
+  workspace: string;
+  onAddTask: (title: string) => Promise<void>;
+}>) {
+  const inputId = useId();
+  const [title, setTitle] = useState("");
+  const [adding, setAdding] = useState(false);
+
+  const submit = async (event: React.FormEvent): Promise<void> => {
+    event.preventDefault();
+    const trimmed = title.trim();
+    if (trimmed === "" || adding) return;
+    setAdding(true);
+    try {
+      await onAddTask(trimmed);
+      setTitle("");
+    } catch {
+      // The parent surfaces the failure (toast); keep the field for a retry.
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  return (
+    <section className="space-y-4">
+      <div className="flex items-baseline justify-between">
+        <h2 className="text-sm font-medium">Tasks</h2>
+        {total > 0 ? (
+          <TaskProgressMeter completed={completed} total={total} />
+        ) : null}
+      </div>
+
+      {tasks.length > 0 ? (
+        <ul className="flex flex-col gap-2">
+          {tasks.map((task) => (
+            <li key={task.id}>
+              <Link
+                to="/w/$workspace/workboard/item/$itemId"
+                params={{ workspace, itemId: task.id }}
+                className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2.5 text-sm hover:bg-muted/50"
+              >
+                <span className="min-w-0 truncate">{task.title}</span>
+                <PhasePill phase={task.phase} />
+              </Link>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          No tasks yet — break this item down with “Add task”.
+        </p>
+      )}
+
+      <form onSubmit={(event) => void submit(event)} className="flex gap-2">
+        <Input
+          id={inputId}
+          value={title}
+          disabled={adding}
+          placeholder="Add a task…"
+          aria-label="New task title"
+          onChange={(event) => setTitle(event.target.value)}
+        />
+        <Button
+          type="submit"
+          variant="outline"
+          disabled={adding || title.trim() === ""}
+          className="shrink-0"
+        >
+          {adding ? <Spinner className="size-4" /> : "Add task"}
+        </Button>
+      </form>
+    </section>
   );
 }
 
@@ -406,6 +523,7 @@ export function WorkItemDetailScreen({
     error,
     refetch,
     update,
+    create,
   } = useWorkItems({ repository: repo });
 
   // Checks for this item's Checks tab + progress rollup (per-item fetch), now with
@@ -482,6 +600,30 @@ export function WorkItemDetailScreen({
     [createCheck, refreshActivity],
   );
 
+  // Add gesture for the Tasks module: create a CHILD work item under this item
+  // (a Task). The hook prepends it to `items`, so it shows in the Tasks module
+  // immediately; re-throws on failure so the form keeps the typed title.
+  const handleAddTask = useCallback(
+    async (title: string): Promise<void> => {
+      // Snapshot the PARENT (current item)'s team so the new sub-task inherits it.
+      // Without this, a multi-team tenant resolves the omitted team_id to a
+      // default/wrong team (same principle as the atomic-accept team_id snapshot).
+      const parent = items.find((candidate) => candidate.id === itemId);
+      try {
+        await create({
+          title,
+          parent_id: itemId,
+          ...(parent ? { team_id: parent.team_id } : {}),
+        });
+        await refreshActivity();
+      } catch (cause) {
+        toast.error("Couldn't add the task — please try again.");
+        throw cause;
+      }
+    },
+    [create, itemId, items, refreshActivity],
+  );
+
   const row = useMemo<WorkItemRow | undefined>(
     () => items.find((candidate) => candidate.id === itemId),
     [items, itemId],
@@ -501,6 +643,22 @@ export function WorkItemDetailScreen({
           edge.source_item_id === itemId || edge.target_item_id === itemId,
       ).length,
     [dependencies, itemId],
+  );
+
+  // Child Tasks under this item + their n/m rollup (Task 3.1 selectors).
+  const childTasks = useMemo<WorkItemRow[]>(
+    () => childrenByParent(items).get(itemId) ?? [],
+    [items, itemId],
+  );
+  const taskRollup = useMemo(() => taskProgress(childTasks), [childTasks]);
+
+  // The parent item when THIS item is itself a Task — drives the breadcrumb.
+  const parentRow = useMemo<WorkItemRow | undefined>(
+    () =>
+      row?.parent_id != null
+        ? items.find((candidate) => candidate.id === row.parent_id)
+        : undefined,
+    [items, row],
   );
 
   const backLink = (
@@ -563,6 +721,23 @@ export function WorkItemDetailScreen({
         <div className="mx-auto max-w-3xl px-6 py-6">
           {backLink}
 
+          {parentRow ? (
+            <nav
+              aria-label="Breadcrumb"
+              className="mt-2 flex items-center gap-1.5 text-sm text-muted-foreground"
+            >
+              <Link
+                to="/w/$workspace/workboard/item/$itemId"
+                params={{ workspace, itemId: parentRow.id }}
+                className="min-w-0 truncate hover:text-foreground hover:underline"
+              >
+                {parentRow.title}
+              </Link>
+              <span aria-hidden>▸</span>
+              <span className="min-w-0 truncate text-foreground">{row.title}</span>
+            </nav>
+          ) : null}
+
           <header className="mt-3">
             <div className="flex items-start justify-between gap-4">
               <h1 className="text-2xl font-semibold tracking-tight">
@@ -604,28 +779,33 @@ export function WorkItemDetailScreen({
           <Tabs defaultValue="overview" className="mt-6">
             <TabsList>
               <TabsTrigger value="overview">Overview</TabsTrigger>
-              <TabsTrigger value="checks">
-                Checks{total > 0 ? ` · ${total}` : ""}
-              </TabsTrigger>
               <TabsTrigger value="activity">Activity</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="overview" className="pt-5">
-              <OverviewTab
-                row={row}
+            <TabsContent value="overview" className="space-y-8 pt-5">
+              {/* §C module order: description → Checks → Tasks. */}
+              <OverviewTab row={row} />
+              <ChecksModule
+                checks={checks}
                 completed={completed}
                 total={total}
                 pct={pct}
-              />
-            </TabsContent>
-
-            <TabsContent value="checks" className="pt-5">
-              <ChecksTab
-                checks={checks}
                 onToggle={handleToggleCheck}
                 onAdd={handleAddCheck}
                 pendingCheckIds={pendingCheckIds}
               />
+              {/* Nesting is one level deep — a Task cannot own sub-tasks (the
+                  backend rejects tasks-of-tasks), so the Tasks module + Add-task
+                  form appear only on a TOP-LEVEL item's detail. */}
+              {row.parent_id === null ? (
+                <TasksModule
+                  tasks={childTasks}
+                  completed={taskRollup.completed}
+                  total={taskRollup.total}
+                  workspace={workspace}
+                  onAddTask={handleAddTask}
+                />
+              ) : null}
             </TabsContent>
 
             <TabsContent value="activity" className="pt-5">

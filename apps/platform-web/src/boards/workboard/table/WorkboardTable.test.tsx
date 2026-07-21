@@ -202,6 +202,92 @@ beforeEach(() => {
   window.localStorage.clear();
 });
 
+describe("WorkboardTable — task nesting (tasks display option)", () => {
+  it("nests child Tasks under the parent, collapsed by default, with an n/m rollup", async () => {
+    const rows = await loadRows();
+    renderTable({ rows, groupBy: "none", tasks: "nested" });
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+
+    const parent = rowByTitle("Workspace auth hardening");
+    // Two of wi_auth's three children are done → a 2/3 rollup on the parent.
+    expect(within(parent).getByText("2/3")).toBeInTheDocument();
+    // Children are hidden until the parent is expanded.
+    expect(
+      screen.queryByRole("button", { name: "Draft new intake form" }),
+    ).toBeNull();
+    // Parent depth is 0.
+    expect(parent).toHaveAttribute("data-depth", "0");
+
+    // Expand the parent's sub-tasks.
+    fireEvent.click(
+      within(parent).getByRole("button", {
+        name: /show sub-tasks of Workspace auth hardening/i,
+      }),
+    );
+
+    // The children now render, one level indented (data-depth="1").
+    const child = rowByTitle("Draft new intake form");
+    expect(child).toHaveAttribute("data-depth", "1");
+  });
+
+  it("omits children entirely when tasks=hidden (parents only, no disclosure)", async () => {
+    const rows = await loadRows();
+    renderTable({ rows, groupBy: "none", tasks: "hidden" });
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+
+    expect(
+      screen.getByRole("button", { name: "Workspace auth hardening" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Draft new intake form" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", {
+        name: /sub-tasks of Workspace auth hardening/i,
+      }),
+    ).toBeNull();
+  });
+
+  it("renders children as flat top-level rows when tasks=flat", async () => {
+    const rows = await loadRows();
+    renderTable({ rows, groupBy: "none", tasks: "flat" });
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+
+    // Children are ordinary rows: visible, depth 0, and no disclosure control.
+    expect(rowByTitle("Draft new intake form")).toHaveAttribute("data-depth", "0");
+    expect(
+      screen.queryByRole("button", {
+        name: /sub-tasks of Workspace auth hardening/i,
+      }),
+    ).toBeNull();
+  });
+
+  it("keeps a filter-matched child visible in nested mode even if its parent is filtered out", async () => {
+    const all = await loadRows();
+    // Simulate WorkboardScreen having search/facet-filtered to just the child —
+    // its parent (wi_auth) is NOT in `rows`. The child must not vanish.
+    const child = all.find((r) => r.id === "wi_auth_intake");
+    expect(child).toBeDefined();
+    renderTable({ rows: [child!], groupBy: "none", tasks: "nested" });
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+
+    // The orphaned matching child is promoted to a visible top-level row.
+    expect(rowByTitle("Draft new intake form")).toHaveAttribute("data-depth", "0");
+  });
+});
+
 describe("WorkboardTable", () => {
   it("renders a skeleton while loading", () => {
     renderTable({ loading: true });
@@ -728,6 +814,9 @@ describe("WorkboardTable", () => {
     const { props, rerender } = renderTable({
       rows,
       groupBy: "none",
+      // Flat mode so the visible list mirrors the data array order — this test
+      // exercises id-based shift-anchor re-resolution, not task nesting.
+      tasks: "flat",
       onSelectionChange,
     });
 
@@ -829,12 +918,15 @@ describe("WorkboardTable", () => {
       screen.getByRole("checkbox", { name: "Select all work items" }),
     );
 
-    // Selecting all adds the visible ids while keeping the off-screen id.
+    // Selecting all adds the visible (top-level) ids while keeping the off-screen
+    // id. Collapsed child Tasks are off-screen too, so they are left untouched.
     const next = onSelectionChange.mock.calls[0][0] as Set<string>;
     expect(next.has("wi_stale_offscreen")).toBe(true);
-    for (const row of rows) {
+    for (const row of rows.filter((r) => r.parent_id === null)) {
       expect(next.has(row.id)).toBe(true);
     }
+    // A collapsed child Task is not swept in — it isn't shown.
+    expect(next.has("wi_auth_intake")).toBe(false);
   });
 
   it("clears only visible rows when un-toggling select-all, keeping off-screen ids", async () => {
@@ -853,12 +945,15 @@ describe("WorkboardTable", () => {
       screen.getByRole("checkbox", { name: "Select all work items" }),
     );
 
-    // Clearing removes the visible ids but preserves the off-screen selection.
+    // Clearing removes the visible (top-level) ids but preserves the off-screen
+    // selection — and the collapsed child Tasks, which are off-screen too.
     const next = onSelectionChange.mock.calls[0][0] as Set<string>;
     expect(next.has("wi_stale_offscreen")).toBe(true);
-    for (const row of rows) {
+    for (const row of rows.filter((r) => r.parent_id === null)) {
       expect(next.has(row.id)).toBe(false);
     }
+    // A collapsed child stays selected — you only clear what you can see.
+    expect(next.has("wi_auth_intake")).toBe(true);
   });
 
   it("renders no bulk-actions toolbar (bulk lives in the screen toolbar)", async () => {

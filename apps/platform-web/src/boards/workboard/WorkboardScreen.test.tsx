@@ -174,6 +174,19 @@ describe("WorkboardScreen", () => {
     ).toBeInTheDocument();
   });
 
+  it("wires Tasks visibility into the List — a parent shows its sub-task disclosure (nested default)", async () => {
+    render(<WorkboardScreen repository={createMockWorkItemRepository()} />);
+
+    // filterState.tasks defaults to "nested" and is threaded into WorkboardTable:
+    // wi_auth (which seeds three child Tasks) renders a disclosure toggle. This
+    // proves the end-to-end wiring selector → filterState.tasks → List renderer.
+    expect(
+      await screen.findByRole("button", {
+        name: /show sub-tasks of Workspace auth hardening/i,
+      }),
+    ).toBeInTheDocument();
+  });
+
   it("scopes rows to the given teamId and hides the Team facet", async () => {
     render(
       <WorkboardScreen

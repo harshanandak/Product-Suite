@@ -836,6 +836,7 @@ export function WorkboardScreen({
         error={error}
         onRetry={refetch}
         groupBy={filterState.groupBy}
+        tasks={filterState.tasks}
         visibleColumns={filterState.visibleColumns}
         selection={filterState.selection}
         onSelectionChange={handleSelectionChange}

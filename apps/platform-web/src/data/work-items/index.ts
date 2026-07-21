@@ -42,6 +42,9 @@ export {
   wouldCreateCycle,
 } from "./dependency-graph";
 
+export { childrenByParent, taskProgress, topLevelItems } from "./nesting";
+export type { TaskProgress } from "./nesting";
+
 export {
   createActivityFixtures,
   createDependencyFixtures,

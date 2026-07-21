@@ -115,6 +115,45 @@ describe("createMockWorkItemRepository", () => {
     expect(a.id).not.toBe(b.id);
   });
 
+  it("creates a top-level item with no parent at depth 0", async () => {
+    const repo = createMockWorkItemRepository();
+    const created = await repo.create({ title: "Root" });
+    expect(created.parent_id).toBeNull();
+    expect(created.depth).toBe(0);
+  });
+
+  it("creates a Task under a parent — parent_id set, depth derived to 1", async () => {
+    const repo = createMockWorkItemRepository();
+    const [parent] = await repo.list();
+
+    const child = await repo.create({ title: "Sub-task", parent_id: parent.id });
+    expect(child.parent_id).toBe(parent.id);
+    // depth is server-derived from parent_id, never taken from the input.
+    expect(child.depth).toBe(1);
+
+    const reloaded = (await repo.list()).find((item) => item.id === child.id);
+    expect(reloaded?.parent_id).toBe(parent.id);
+    expect(reloaded?.depth).toBe(1);
+  });
+
+  it("re-parents via update and re-derives depth (1 under a parent, 0 when detached)", async () => {
+    const repo = createMockWorkItemRepository();
+    const items = await repo.list();
+    const parent = items.find((item) => item.parent_id === null);
+    const movable = items.find(
+      (item) => item.parent_id === null && item.id !== parent?.id,
+    );
+    if (!parent || !movable) throw new Error("fixtures need two top-level items");
+
+    const nested = await repo.update(movable.id, { parent_id: parent.id });
+    expect(nested.parent_id).toBe(parent.id);
+    expect(nested.depth).toBe(1);
+
+    const detached = await repo.update(movable.id, { parent_id: null });
+    expect(detached.parent_id).toBeNull();
+    expect(detached.depth).toBe(0);
+  });
+
   it("does not retain the caller's tags array reference after create", async () => {
     const repo = createMockWorkItemRepository();
     const callerTags = ["one"];
