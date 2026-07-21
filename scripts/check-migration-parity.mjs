@@ -1,6 +1,14 @@
 #!/usr/bin/env node
 import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+// Anchored to this script's own location (repo-root/scripts/...) rather than
+// process.cwd(), so it doesn't matter where the CLI is invoked from — the
+// only migrations tree this script will ever read is the real
+// packages/db/migrations under this checkout.
+const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
+const EXPECTED_MIGRATIONS_ROOT = resolve(SCRIPT_DIR, "..", "packages", "db", "migrations");
 
 /**
  * Compares the drizzle journal (packages/db/migrations/meta/_journal.json) —
@@ -50,10 +58,33 @@ export function analyzeMigrationParity(journal, sqlFileNames) {
   return issues;
 }
 
+/**
+ * Resolves `migrationsDir` and rejects it if it escapes the expected
+ * packages/db/migrations tree. `migrationsDir` comes straight from a CLI
+ * arg, so without this a caller (or a malicious/careless invocation) could
+ * point the check — and its readdir/readFileSync calls — anywhere on disk.
+ */
+function assertWithinExpectedTree(migrationsDir) {
+  const resolvedDir = resolve(migrationsDir);
+  const relativeToExpected = relative(EXPECTED_MIGRATIONS_ROOT, resolvedDir);
+  const isWithinExpectedTree =
+    resolvedDir === EXPECTED_MIGRATIONS_ROOT ||
+    (!relativeToExpected.startsWith("..") && !isAbsolute(relativeToExpected));
+
+  if (!isWithinExpectedTree) {
+    throw new Error(
+      `"${migrationsDir}" resolves to ${resolvedDir}, which is outside the expected migrations tree (${EXPECTED_MIGRATIONS_ROOT})`,
+    );
+  }
+
+  return resolvedDir;
+}
+
 function loadAndCheck(migrationsDir) {
-  const journalPath = join(migrationsDir, "meta", "_journal.json");
+  const resolvedDir = assertWithinExpectedTree(migrationsDir);
+  const journalPath = join(resolvedDir, "meta", "_journal.json");
   const journal = JSON.parse(readFileSync(journalPath, "utf8"));
-  const sqlFileNames = readdirSync(migrationsDir).filter((name) => name.endsWith(".sql"));
+  const sqlFileNames = readdirSync(resolvedDir).filter((name) => name.endsWith(".sql"));
   return analyzeMigrationParity(journal, sqlFileNames);
 }
 
@@ -64,9 +95,18 @@ function runCli(migrationsDir) {
     return;
   }
 
-  const issues = loadAndCheck(migrationsDir);
+  let issues;
+  try {
+    issues = loadAndCheck(migrationsDir);
+  } catch (err) {
+    console.error(`Migration schema-parity check failed for ${migrationsDir}: ${err.message}`);
+    process.exitCode = 1;
+    return;
+  }
+
   if (issues.length > 0) {
-    console.error(`Migration schema-parity check failed for ${migrationsDir}:\n${issues.map((i) => `  - ${i}`).join("\n")}`);
+    const formattedIssues = issues.map((issue) => `  - ${issue}`).join("\n");
+    console.error(`Migration schema-parity check failed for ${migrationsDir}:\n${formattedIssues}`);
     process.exitCode = 1;
   } else {
     console.log(`Migration schema-parity check passed for ${migrationsDir} (journal and .sql files agree).`);
