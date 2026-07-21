@@ -6,7 +6,11 @@ import {
   COLUMN_IDS,
   FILTER_OWNER_UNASSIGNED,
   FILTER_STORAGE_KEY,
+  GROUP_BY_FIELDS,
   SAVED_VIEWS_KEY,
+  SORT_BY_FIELDS,
+  TASKS_VISIBILITIES,
+  WORKBOARD_LAYOUTS,
   applyWorkboardFilters,
   currentViewConfig,
   defaultWorkboardFilterState,
@@ -59,10 +63,39 @@ describe("workboard filter state", () => {
     ]);
   });
 
-  it("defaults to no search, no facet filters, grouped by team", () => {
+  it("exposes the display-option option lists (layout, group, sort, tasks)", () => {
+    // The toolbar (2.2) and the renderers map over these; keep them the SSOT.
+    expect([...WORKBOARD_LAYOUTS]).toEqual(["list", "board", "graph"]);
+    expect([...SORT_BY_FIELDS]).toEqual([
+      "manual",
+      "priority",
+      "updated",
+      "created",
+      "due",
+    ]);
+    expect([...TASKS_VISIBILITIES]).toEqual(["nested", "flat", "hidden"]);
+    // Group order follows design §B: Status(phase)·Project·Cycle·Priority·
+    // Assignee·Team·Type·None (Type retained from v2; Cycle/Project data land in
+    // Phase 4 but are valid tokens now).
+    expect([...GROUP_BY_FIELDS]).toEqual([
+      "phase",
+      "project",
+      "cycle",
+      "priority",
+      "assignee",
+      "team",
+      "type",
+      "none",
+    ]);
+  });
+
+  it("defaults to List layout, grouped by Status(phase), sorted by Updated, tasks nested", () => {
     const state = defaultWorkboardFilterState();
     expect(state.search).toBe("");
-    expect(state.groupBy).toBe("team");
+    expect(state.layout).toBe("list");
+    expect(state.groupBy).toBe("phase");
+    expect(state.sortBy).toBe("updated");
+    expect(state.tasks).toBe("nested");
     expect(state.filters.type.size).toBe(0);
     expect(state.filters.owner.size).toBe(0);
     expect(state.filters.team.size).toBe(0);
@@ -249,17 +282,94 @@ describe("applyWorkboardFilters", () => {
   });
 });
 
-describe("persisted view state (serialize ⇄ parse)", () => {
-  it("exposes a single versioned storage key", () => {
-    expect(FILTER_STORAGE_KEY).toBe("workboard.filters.v2");
+describe("applyWorkboardFilters — sort ordering (2.5)", () => {
+  // Distinct priority + timestamps so each sort key produces a unique order.
+  const rows: WorkItemRow[] = [
+    rowOf({
+      id: "low-old",
+      priority: "low",
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-02-01T00:00:00.000Z",
+      due_date: "2026-12-01",
+    }),
+    rowOf({
+      id: "critical-new",
+      priority: "critical",
+      created_at: "2026-03-01T00:00:00.000Z",
+      updated_at: "2026-06-01T00:00:00.000Z",
+      due_date: "2026-06-01",
+    }),
+    rowOf({
+      id: "high-mid",
+      priority: "high",
+      created_at: "2026-02-01T00:00:00.000Z",
+      updated_at: "2026-04-01T00:00:00.000Z",
+      due_date: null,
+    }),
+  ];
+
+  const sortedIds = (sortBy: "manual" | "priority" | "updated" | "created" | "due") =>
+    applyWorkboardFilters(rows, {
+      ...defaultWorkboardFilterState(),
+      sortBy,
+    }).map((r) => r.id);
+
+  it("manual sort preserves the input row order", () => {
+    expect(sortedIds("manual")).toEqual(["low-old", "critical-new", "high-mid"]);
   });
 
-  it("round-trips a populated filter state + view", () => {
+  it("priority sort orders critical → high → low (severity first)", () => {
+    expect(sortedIds("priority")).toEqual([
+      "critical-new",
+      "high-mid",
+      "low-old",
+    ]);
+  });
+
+  it("updated sort orders most-recently-updated first", () => {
+    expect(sortedIds("updated")).toEqual([
+      "critical-new",
+      "high-mid",
+      "low-old",
+    ]);
+  });
+
+  it("created sort orders most-recently-created first", () => {
+    expect(sortedIds("created")).toEqual([
+      "critical-new",
+      "high-mid",
+      "low-old",
+    ]);
+  });
+
+  it("due sort orders soonest-due first, nulls last", () => {
+    expect(sortedIds("due")).toEqual(["critical-new", "low-old", "high-mid"]);
+  });
+
+  it("does not mutate the input rows array while sorting", () => {
+    const snapshot = [...rows];
+    applyWorkboardFilters(rows, {
+      ...defaultWorkboardFilterState(),
+      sortBy: "priority",
+    });
+    expect(rows).toEqual(snapshot);
+  });
+});
+
+describe("persisted view state (serialize ⇄ parse)", () => {
+  it("exposes a single versioned storage key (bumped to v3)", () => {
+    expect(FILTER_STORAGE_KEY).toBe("workboard.filters.v3");
+  });
+
+  it("round-trips a populated filter state (layout/group/sort/tasks/filters/columns)", () => {
     const base = defaultWorkboardFilterState();
     const filterState = {
       ...base,
       search: "auth",
+      layout: "board" as const,
       groupBy: "phase" as const,
+      sortBy: "priority" as const,
+      tasks: "flat" as const,
       filters: {
         type: new Set(["feature", "bug"] as const),
         owner: new Set(["user_kenji", FILTER_OWNER_UNASSIGNED]),
@@ -270,14 +380,14 @@ describe("persisted view state (serialize ⇄ parse)", () => {
       visibleColumns: new Set(["name", "type", "phase"] as const),
     };
 
-    const parsed = parsePersistedView(
-      serializePersistedView({ filterState, view: "kanban" }),
-    );
+    const parsed = parsePersistedView(serializePersistedView(filterState));
 
     expect(parsed).not.toBeNull();
     expect(parsed?.search).toBe("auth");
+    expect(parsed?.layout).toBe("board");
     expect(parsed?.groupBy).toBe("phase");
-    expect(parsed?.view).toBe("kanban");
+    expect(parsed?.sortBy).toBe("priority");
+    expect(parsed?.tasks).toBe("flat");
     expect(parsed?.visibleColumns).toEqual(new Set(["name", "type", "phase"]));
     expect(parsed?.filters?.type).toEqual(new Set(["feature", "bug"]));
     expect(parsed?.filters?.owner).toEqual(
@@ -289,12 +399,11 @@ describe("persisted view state (serialize ⇄ parse)", () => {
   });
 
   it("never serializes the selection set", () => {
-    const base = defaultWorkboardFilterState();
     const filterState = {
-      ...base,
+      ...defaultWorkboardFilterState(),
       selection: new Set(["wi_auth", "wi_realtime"]),
     };
-    const raw = serializePersistedView({ filterState, view: "table" });
+    const raw = serializePersistedView(filterState);
 
     expect(raw).not.toContain("selection");
     expect(raw).not.toContain("wi_auth");
@@ -320,10 +429,19 @@ describe("persisted view state (serialize ⇄ parse)", () => {
     expect(parsePersistedView('"a string"')).toBeNull();
   });
 
+  it("accepts the extended group-by tokens (project/cycle/assignee)", () => {
+    for (const groupBy of ["project", "cycle", "assignee"] as const) {
+      const parsed = parsePersistedView(JSON.stringify({ groupBy }));
+      expect(parsed?.groupBy).toBe(groupBy);
+    }
+  });
+
   it("drops unknown enum members while keeping valid ones", () => {
     const raw = JSON.stringify({
       groupBy: "phase",
-      view: "kanban",
+      layout: "board",
+      sortBy: "priority",
+      tasks: "flat",
       visibleColumns: ["name", "bogus", "source"],
       filters: {
         type: ["feature", "epic"],
@@ -354,20 +472,28 @@ describe("persisted view state (serialize ⇄ parse)", () => {
     expect(parsed?.visibleColumns).toBeUndefined();
   });
 
-  it("coerces an unknown groupBy / view to absent (falls back at merge)", () => {
+  it("coerces an unknown layout / group / sort / tasks to absent (falls back at merge)", () => {
     const parsed = parsePersistedView(
-      JSON.stringify({ groupBy: "galaxy", view: "spreadsheet", search: 42 }),
+      JSON.stringify({
+        groupBy: "galaxy",
+        layout: "spreadsheet",
+        sortBy: "alphabetical",
+        tasks: "collapsed",
+        search: 42,
+      }),
     );
     expect(parsed).not.toBeNull();
     expect(parsed?.groupBy).toBeUndefined();
-    expect(parsed?.view).toBeUndefined();
+    expect(parsed?.layout).toBeUndefined();
+    expect(parsed?.sortBy).toBeUndefined();
+    expect(parsed?.tasks).toBeUndefined();
     // a non-string search is garbage → absent
     expect(parsed?.search).toBeUndefined();
   });
 
   it("tolerates partial / missing fields", () => {
-    const parsed = parsePersistedView(JSON.stringify({ view: "kanban" }));
-    expect(parsed).toEqual({ view: "kanban" });
+    const parsed = parsePersistedView(JSON.stringify({ layout: "board" }));
+    expect(parsed).toEqual({ layout: "board" });
   });
 
   it("ignores non-array filter facets and non-array visibleColumns", () => {
@@ -404,12 +530,15 @@ describe("workboardTeams", () => {
 });
 
 describe("currentViewConfig", () => {
-  it("snapshots the persistable slice (search/groupBy/filters/columns/view)", () => {
+  it("snapshots the persistable slice (search/layout/group/sort/tasks/filters/columns)", () => {
     const base = defaultWorkboardFilterState();
     const filterState = {
       ...base,
       search: "auth",
+      layout: "board" as const,
       groupBy: "phase" as const,
+      sortBy: "priority" as const,
+      tasks: "hidden" as const,
       filters: {
         type: new Set(["feature"] as const),
         owner: new Set(["user_kenji"]),
@@ -419,10 +548,12 @@ describe("currentViewConfig", () => {
       },
       visibleColumns: new Set(["name", "type"] as const),
     };
-    const config = currentViewConfig({ filterState, view: "kanban" });
+    const config = currentViewConfig(filterState);
     expect(config.search).toBe("auth");
+    expect(config.layout).toBe("board");
     expect(config.groupBy).toBe("phase");
-    expect(config.view).toBe("kanban");
+    expect(config.sortBy).toBe("priority");
+    expect(config.tasks).toBe("hidden");
     expect(config.visibleColumns).toEqual(new Set(["name", "type"]));
     expect(config.filters?.type).toEqual(new Set(["feature"]));
     expect(config.filters?.priority).toEqual(new Set(["high"]));
@@ -430,11 +561,8 @@ describe("currentViewConfig", () => {
 
   it("never carries the selection into the config", () => {
     const config = currentViewConfig({
-      filterState: {
-        ...defaultWorkboardFilterState(),
-        selection: new Set(["wi_auth", "wi_realtime"]),
-      },
-      view: "table",
+      ...defaultWorkboardFilterState(),
+      selection: new Set(["wi_auth", "wi_realtime"]),
     });
     expect(config).not.toHaveProperty("selection");
     expect(JSON.stringify(config)).not.toContain("wi_auth");
@@ -442,7 +570,7 @@ describe("currentViewConfig", () => {
 
   it("clones the Sets so the snapshot never aliases live state", () => {
     const filterState = defaultWorkboardFilterState();
-    const config = currentViewConfig({ filterState, view: "table" });
+    const config = currentViewConfig(filterState);
     expect(config.filters?.type).not.toBe(filterState.filters.type);
     expect(config.visibleColumns).not.toBe(filterState.visibleColumns);
     // Mutating the live state after the snapshot must not change the config.
@@ -452,8 +580,8 @@ describe("currentViewConfig", () => {
 });
 
 describe("saved views (serialize ⇄ parse)", () => {
-  it("exposes a versioned storage key distinct from the filter key", () => {
-    expect(SAVED_VIEWS_KEY).toBe("workboard.savedViews.v2");
+  it("exposes a versioned storage key distinct from the filter key (bumped to v3)", () => {
+    expect(SAVED_VIEWS_KEY).toBe("workboard.savedViews.v3");
     expect(SAVED_VIEWS_KEY).not.toBe(FILTER_STORAGE_KEY);
   });
 
@@ -463,29 +591,26 @@ describe("saved views (serialize ⇄ parse)", () => {
         id: "v1",
         name: "My execute lane",
         config: currentViewConfig({
-          filterState: {
-            ...defaultWorkboardFilterState(),
-            search: "auth",
-            groupBy: "phase",
-            filters: {
-              type: new Set(["feature", "bug"] as const),
-              owner: new Set([FILTER_OWNER_UNASSIGNED]),
-              team: new Set(["Engineering"]),
-              phase: new Set(["execute"] as const),
-              priority: new Set(["high"] as const),
-            },
-            visibleColumns: new Set(["name", "phase"] as const),
+          ...defaultWorkboardFilterState(),
+          search: "auth",
+          layout: "board",
+          groupBy: "phase",
+          sortBy: "priority",
+          tasks: "nested",
+          filters: {
+            type: new Set(["feature", "bug"] as const),
+            owner: new Set([FILTER_OWNER_UNASSIGNED]),
+            team: new Set(["Engineering"]),
+            phase: new Set(["execute"] as const),
+            priority: new Set(["high"] as const),
           },
-          view: "kanban",
+          visibleColumns: new Set(["name", "phase"] as const),
         }),
       },
       {
         id: "v2",
         name: "All",
-        config: currentViewConfig({
-          filterState: defaultWorkboardFilterState(),
-          view: "table",
-        }),
+        config: currentViewConfig(defaultWorkboardFilterState()),
       },
     ];
 
@@ -494,8 +619,9 @@ describe("saved views (serialize ⇄ parse)", () => {
     expect(restored[0]?.id).toBe("v1");
     expect(restored[0]?.name).toBe("My execute lane");
     expect(restored[0]?.config.search).toBe("auth");
+    expect(restored[0]?.config.layout).toBe("board");
     expect(restored[0]?.config.groupBy).toBe("phase");
-    expect(restored[0]?.config.view).toBe("kanban");
+    expect(restored[0]?.config.sortBy).toBe("priority");
     expect(restored[0]?.config.filters?.type).toEqual(
       new Set(["feature", "bug"]),
     );
@@ -542,7 +668,7 @@ describe("saved views (serialize ⇄ parse)", () => {
         name: "Stale view",
         config: {
           groupBy: "galaxy",
-          view: "spreadsheet",
+          layout: "spreadsheet",
           visibleColumns: ["name", "bogus"],
           filters: {
             type: ["feature", "epic"],
@@ -558,7 +684,7 @@ describe("saved views (serialize ⇄ parse)", () => {
     // The entry SURVIVES (name + id valid) but its config is sanitised.
     expect(restored).toHaveLength(1);
     expect(restored[0]?.config.groupBy).toBeUndefined();
-    expect(restored[0]?.config.view).toBeUndefined();
+    expect(restored[0]?.config.layout).toBeUndefined();
     expect(restored[0]?.config.visibleColumns).toEqual(new Set(["name"]));
     expect(restored[0]?.config.filters?.type).toEqual(new Set(["feature"]));
     expect(restored[0]?.config.filters?.phase).toEqual(new Set(["execute"]));
@@ -571,11 +697,8 @@ describe("saved views (serialize ⇄ parse)", () => {
         id: "v1",
         name: "Live state snapshot",
         config: currentViewConfig({
-          filterState: {
-            ...defaultWorkboardFilterState(),
-            selection: new Set(["wi_auth"]),
-          },
-          view: "table",
+          ...defaultWorkboardFilterState(),
+          selection: new Set(["wi_auth"]),
         }),
       },
     ];
