@@ -49,8 +49,14 @@ describe('reapStaleBranches safety predicate', () => {
   const EXPIRES = new Date(Date.now() + 60 * 60 * 1000).toISOString()
 
   let deleteCalls: string[]
+  // Capture the ORIGINAL env so we restore (not wipe) it — if this file runs before
+  // the real-Neon db-contract tests in the same process, unconditionally deleting
+  // these would strip their creds. `undefined` means "was absent" → delete on restore.
+  const NEON_KEYS = ['NEON_API_KEY', 'NEON_PROJECT_ID', 'NEON_PARENT_BRANCH_ID'] as const
+  const originalEnv: Record<string, string | undefined> = {}
 
   beforeEach(() => {
+    for (const k of NEON_KEYS) originalEnv[k] = process.env[k]
     process.env.NEON_API_KEY = 'test-key'
     process.env.NEON_PROJECT_ID = PROJECT
     process.env.NEON_PARENT_BRANCH_ID = PARENT
@@ -59,9 +65,12 @@ describe('reapStaleBranches safety predicate', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals()
-    delete process.env.NEON_API_KEY
-    delete process.env.NEON_PROJECT_ID
-    delete process.env.NEON_PARENT_BRANCH_ID
+    // Restore each var to its captured value; delete only those originally absent.
+    for (const k of NEON_KEYS) {
+      const prior = originalEnv[k]
+      if (prior === undefined) delete process.env[k]
+      else process.env[k] = prior
+    }
   })
 
   it('reaps only aged-out ephemeral branches (across pages) and spares every durable branch', async () => {
