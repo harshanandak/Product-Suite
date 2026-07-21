@@ -4,7 +4,7 @@ import { useNavigate } from "@tanstack/react-router";
 
 import { useTheme } from "@product-suite/ui";
 
-import { useAskAgent } from "@/agent-chat/ask-agent";
+import { useAskAgent } from "@/agent-chat/use-ask-agent";
 
 import { BOARDS, type To, href } from "./boards";
 import {

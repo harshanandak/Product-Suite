@@ -8,6 +8,11 @@ function jsonOk(body: unknown, status = 200) {
   return { ok: true, status, json: async () => body } as Response;
 }
 
+/** A response (ok flag controlled) carrying a JSON body + a status code. */
+function jsonBody(ok: boolean, status: number, body: unknown) {
+  return { ok, status, json: async () => body } as Response;
+}
+
 /** A non-OK response carrying the API's `{ error }` envelope + a status. */
 function jsonError(status: number, error?: string) {
   return {
@@ -52,11 +57,12 @@ describe("createNetworkProposalRepository", () => {
     expect(init?.signal).toBeInstanceOf(AbortSignal);
   });
 
-  it("accept POSTs /:id/accept with NO body and returns the applied item", async () => {
-    const item = { id: "wi_9", title: "Made" };
-    fetchMock.mockResolvedValueOnce(jsonOk(item));
+  it("accept POSTs /:id/accept with NO body and returns the applied envelope", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonOk({ status: "applied", proposal_id: "p1", item_id: "wi_9" }),
+    );
     const result = await makeRepo().accept("p1");
-    expect(result).toEqual({ outcome: "applied", item });
+    expect(result).toEqual({ status: "applied", proposal_id: "p1", item_id: "wi_9" });
     const { url, init } = callArgs();
     expect(url).toBe(`${BASE}/api/agent/proposals/p1/accept`);
     expect(init?.method).toBe("POST");
@@ -68,11 +74,12 @@ describe("createNetworkProposalRepository", () => {
   });
 
   it("accept sends the FULL merged edited_payload in the body when the reviewer edited", async () => {
-    const item = { id: "rule_1", title: "Prefer concise titles" };
-    fetchMock.mockResolvedValueOnce(jsonOk(item));
+    fetchMock.mockResolvedValueOnce(
+      jsonOk({ status: "applied", proposal_id: "p1", item_id: "rule_1" }),
+    );
     const edited = { kind: "rule", title: "Prefer concise titles", enforcement: "hard" };
     const result = await makeRepo().accept("p1", edited);
-    expect(result).toEqual({ outcome: "applied", item });
+    expect(result).toEqual({ status: "applied", proposal_id: "p1", item_id: "rule_1" });
     const { init } = callArgs();
     // The human's gold-label correction rides as `edited_payload` (a wholesale
     // replace on the server) — never a partial that would drop kind/title.
@@ -81,24 +88,150 @@ describe("createNetworkProposalRepository", () => {
     expect(headers["Content-Type"]).toBe("application/json");
   });
 
-  it("accept maps 409 to a stale outcome (not an opaque throw)", async () => {
-    fetchMock.mockResolvedValueOnce(jsonError(409, "not pending"));
-    await expect(makeRepo().accept("p1")).resolves.toEqual({ outcome: "stale" });
-  });
-
-  it("accept maps 404 to a stale outcome", async () => {
-    fetchMock.mockResolvedValueOnce(jsonError(404));
-    await expect(makeRepo().accept("p1")).resolves.toEqual({ outcome: "stale" });
-  });
-
-  it("accept maps 422 to an invalid outcome", async () => {
-    fetchMock.mockResolvedValueOnce(jsonError(422, "bad payload"));
+  it("accept reads the outcome from the BODY status, not the HTTP code", async () => {
+    // A 200 that nonetheless carries an `invalid` envelope maps to invalid — the
+    // body's `status` is authoritative, never the transport code.
+    fetchMock.mockResolvedValueOnce(
+      jsonOk({ status: "invalid", proposal_id: "p1", message: "Title is required" }),
+    );
     await expect(makeRepo().accept("p1")).resolves.toEqual({
-      outcome: "invalid",
+      status: "invalid",
+      proposal_id: "p1",
+      message: "Title is required",
+      retryable: true,
     });
   });
 
-  it("accept still throws on a real error (e.g. 500)", async () => {
+  it("accept surfaces a stale envelope (item_id + message) instead of throwing", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonBody(false, 409, {
+        status: "stale",
+        proposal_id: "p1",
+        item_id: "wi_1",
+        message: "This item changed since the agent proposed it.",
+      }),
+    );
+    await expect(makeRepo().accept("p1")).resolves.toEqual({
+      status: "stale",
+      proposal_id: "p1",
+      item_id: "wi_1",
+      message: "This item changed since the agent proposed it.",
+    });
+  });
+
+  it("accept treats invalid as retryable unless the envelope says otherwise", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonBody(false, 422, {
+        status: "invalid",
+        proposal_id: "p1",
+        message: "Team not found",
+        retryable: false,
+      }),
+    );
+    await expect(makeRepo().accept("p1")).resolves.toEqual({
+      status: "invalid",
+      proposal_id: "p1",
+      message: "Team not found",
+      retryable: false,
+    });
+  });
+
+  it("accept surfaces an explicit failed envelope (message + retryable) instead of throwing", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonBody(false, 400, {
+        status: "failed",
+        proposal_id: "p1",
+        message: "The team this refers to no longer exists.",
+        retryable: false,
+      }),
+    );
+    await expect(makeRepo().accept("p1")).resolves.toEqual({
+      status: "failed",
+      proposal_id: "p1",
+      message: "The team this refers to no longer exists.",
+      retryable: false,
+    });
+  });
+
+  it("accept maps not_found / not_pending envelopes", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonBody(false, 404, { status: "not_found", proposal_id: "p1" }),
+    );
+    await expect(makeRepo().accept("p1")).resolves.toEqual({
+      status: "not_found",
+      proposal_id: "p1",
+    });
+    fetchMock.mockResolvedValueOnce(
+      jsonBody(false, 409, { status: "not_pending", proposal_id: "p2" }),
+    );
+    await expect(makeRepo().accept("p2")).resolves.toEqual({
+      status: "not_pending",
+      proposal_id: "p2",
+    });
+  });
+
+  // --- C-before-A shim: the CURRENT live API returns the applied ROW (not the
+  // envelope) on 2xx and `{error}` bodies on 4xx. The adapter must handle BOTH. ---
+
+  it("(row shape) treats a 2xx applied ROW body as applied, item_id from the row id", async () => {
+    // The live API (routes/proposals.ts) returns the applied work-item row on
+    // success — its id is `id`, NOT `item_id`. Must still surface as applied.
+    fetchMock.mockResolvedValueOnce(jsonOk({ id: "wi_42", title: "Ship pricing brief" }));
+    await expect(makeRepo().accept("p1")).resolves.toEqual({
+      status: "applied",
+      proposal_id: "p1",
+      item_id: "wi_42",
+    });
+  });
+
+  it("(envelope shape) still prefers item_id when the 2xx body carries the envelope", async () => {
+    fetchMock.mockResolvedValueOnce(jsonOk({ item_id: "wi_9", id: "ignore_me" }));
+    await expect(makeRepo().accept("p1")).resolves.toEqual({
+      status: "applied",
+      proposal_id: "p1",
+      item_id: "wi_9",
+    });
+  });
+
+  it("(shim) a bare 409 'stale' message maps to a stale outcome", async () => {
+    fetchMock.mockResolvedValueOnce(jsonError(409, "Target changed; proposal is stale"));
+    await expect(makeRepo().accept("p1")).resolves.toEqual({
+      status: "stale",
+      proposal_id: "p1",
+      item_id: "",
+      message: "Target changed; proposal is stale",
+    });
+  });
+
+  it("(shim) a bare 409 'no longer pending' message maps to not_pending (not stale)", async () => {
+    fetchMock.mockResolvedValueOnce(jsonError(409, "Proposal is no longer pending"));
+    await expect(makeRepo().accept("p1")).resolves.toEqual({
+      status: "not_pending",
+      proposal_id: "p1",
+    });
+  });
+
+  it("(legacy) accept maps a bare 404 to not_found", async () => {
+    fetchMock.mockResolvedValueOnce(jsonError(404));
+    await expect(makeRepo().accept("p1")).resolves.toEqual({
+      status: "not_found",
+      proposal_id: "p1",
+    });
+  });
+
+  it("(shim) a bare 422 maps to a TERMINAL failed (the live API flips it to failed)", async () => {
+    // The current live API returns a bare 422 for invalid AND terminally marks the
+    // proposal `failed` in the DB — so it is NOT recoverable. Discard-only.
+    fetchMock.mockResolvedValueOnce(jsonError(422, "bad payload"));
+    await expect(makeRepo().accept("p1")).resolves.toEqual({
+      status: "failed",
+      proposal_id: "p1",
+      message: "bad payload",
+      retryable: false,
+    });
+  });
+
+  it("accept still throws on a real error (e.g. 500) with no accept envelope", async () => {
     fetchMock.mockResolvedValueOnce(jsonError(500, "boom"));
     await expect(makeRepo().accept("p1")).rejects.toThrow("boom");
   });

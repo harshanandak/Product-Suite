@@ -15,6 +15,8 @@
     "test:watch": "vitest",
     "e2e": "playwright test",
     "e2e:ui": "playwright test --ui",
+    "harness": "vite --config e2e-harness/vite.harness.config.ts",
+    "e2e:harness": "playwright test --config playwright.harness.config.ts",
     "doctor": "npx react-doctor@latest",
     "deploy": "wrangler deploy",
     "deploy:preview": "wrangler versions upload"

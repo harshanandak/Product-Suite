@@ -1,91 +1,78 @@
-import { Link } from "@tanstack/react-router";
-import { getToolName, isToolUIPart, type ToolUIPart } from "ai";
-import { ArrowRight } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
 
-import { cn } from "@product-suite/ui";
+import { Button, cn } from "@product-suite/ui";
 
-/**
- * The data a {@link ProposalCard} renders, extracted from a `propose_*` tool
- * part. Per the grounding decision this comes from the tool-call INPUT args
- * (title / patch / rationale) plus the `proposal_id` from the bare tool OUTPUT —
- * there is NO backend enrichment, and confidence is not in the input, so it is
- * intentionally absent here.
- */
-export interface ProposalCardData {
-  operation: "create" | "update";
-  proposalId: string;
-  title: string;
-  summary?: string;
-}
+import { useProposalActions, type AcceptResult } from "@/data/proposals";
 
-/** The shape of a `propose_*` tool result (`agent/tools.ts`). */
-interface ProposeOutput {
-  proposed?: boolean;
-  proposal_id?: string;
-  error?: string;
-}
+import { AcceptStateView } from "./AcceptStateView";
+import type { ProposalCardData } from "./proposal-card-data";
 
-/** First defined string among the candidates, else undefined. */
-function firstString(...values: unknown[]): string | undefined {
-  for (const value of values) {
-    if (typeof value === "string" && value.trim().length > 0) return value;
+/** The state pill in the card header — mirrors the accept lifecycle, no navigation. */
+function statusPill(
+  phase: "idle" | "applying" | "settled" | "rejected",
+  result: AcceptResult | null,
+): { label: string; tone: "muted" | "primary" | "destructive" } {
+  if (phase === "applying") return { label: "Applying…", tone: "primary" };
+  if (phase === "rejected") return { label: "Discarded", tone: "muted" };
+  if (phase === "settled" && result) {
+    switch (result.status) {
+      case "applied":
+        return { label: "Applied ✓", tone: "primary" };
+      case "invalid":
+      case "failed":
+        return { label: "Needs attention", tone: "destructive" };
+      case "stale":
+        return { label: "This item changed", tone: "primary" };
+      case "not_found":
+        return { label: "Unavailable", tone: "muted" };
+      case "not_pending":
+        return { label: "Already handled", tone: "muted" };
+    }
   }
-  return undefined;
+  return { label: "Pending review", tone: "muted" };
 }
 
 /**
- * Build the card data from a settled `propose_*` tool part, or `null` when the
- * part is not a completed, successful proposal (wrong tool, still running, or a
- * refusal). Reads ONLY the tool INPUT + the `proposal_id` from the OUTPUT.
- */
-export function proposalCardFromToolPart(
-  part: ToolUIPart,
-): ProposalCardData | null {
-  if (!isToolUIPart(part)) return null;
-  const name = getToolName(part);
-  if (name !== "propose_create" && name !== "propose_update") return null;
-  if (part.state !== "output-available") return null;
-
-  const output = part.output as ProposeOutput | undefined;
-  if (!output?.proposed || typeof output.proposal_id !== "string") return null;
-  const proposalId = output.proposal_id;
-
-  const input = (part.input ?? {}) as Record<string, unknown>;
-
-  if (name === "propose_create") {
-    return {
-      operation: "create",
-      proposalId,
-      title: firstString(input.title) ?? "Untitled proposal",
-      summary: firstString(input.rationale, input.description),
-    };
-  }
-
-  // propose_update: title from the patch when present, else a generic label —
-  // never a raw uuid (noise in the transcript; the Inbox shows the real target).
-  const patch = (input.patch ?? {}) as Record<string, unknown>;
-  return {
-    operation: "update",
-    proposalId,
-    title: firstString(patch.title) ?? "Proposed update",
-    summary: firstString(input.rationale),
-  };
-}
-
-/**
- * The proposal moment (DESIGN §3): a distinct card in the message stream when a
- * `propose_*` tool completes — operation badge, proposed title, a short summary,
- * a "Pending review" pill, and the ONE primary action, "Review in Inbox →",
- * deep-linking to that proposal's detail. There is NO inline accept, ever:
- * disposition happens only in the Inbox (agent proposes, human disposes).
+ * The proposal moment, now ACTIONABLE IN PLACE (inline-proposal-ux design): a
+ * card in the message stream when a `propose_*` tool completes — operation
+ * badge, proposed title, a short summary, and inline Accept / Edit / Discard.
+ * Accepting transitions the card's own footer through Applying → Applied ✓ /
+ * Needs attention / This item changed via the shared {@link AcceptStateView} +
+ * {@link useProposalActions} — ZERO navigation. `accept` needs only the
+ * `proposalId` (the payload is server-side). "Edit" opens the full field editor
+ * in the inbox (inline field-editing is a deferred follow-up); "View item" after
+ * an applied write is the only, optional, after-the-fact navigation.
  */
 export function ProposalCard({
   data,
   workspace,
 }: Readonly<{ data: ProposalCardData; workspace: string }>) {
   const isCreate = data.operation === "create";
+  const navigate = useNavigate();
+  const { phase, result, busy, error, accept, reject, reset, refresh } =
+    useProposalActions(data.proposalId);
+
+  const pill = statusPill(phase, result);
+
+  const openInInbox = (): void => {
+    void navigate({
+      to: "/w/$workspace/inbox",
+      params: { workspace },
+      search: { proposal: data.proposalId },
+    });
+  };
+  const viewItem = (itemId: string): void => {
+    void navigate({
+      to: "/w/$workspace/workboard/item/$itemId",
+      params: { workspace, itemId },
+    });
+  };
+
   return (
-    <div className="rounded-lg border border-border bg-card p-4 text-sm shadow-sm">
+    <div
+      id={`proposal-card-${data.proposalId}`}
+      className="rounded-lg border border-border bg-card p-4 text-sm shadow-sm"
+    >
       <div className="flex flex-wrap items-center gap-2">
         <span
           className={cn(
@@ -97,8 +84,17 @@ export function ProposalCard({
         >
           {isCreate ? "Create" : "Update"}
         </span>
-        <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-          Pending review
+        <span
+          className={cn(
+            "rounded-full px-2 py-0.5 text-xs",
+            pill.tone === "primary"
+              ? "bg-primary/10 text-primary"
+              : pill.tone === "destructive"
+                ? "bg-destructive/10 text-destructive"
+                : "bg-muted text-muted-foreground",
+          )}
+        >
+          {pill.label}
         </span>
       </div>
 
@@ -107,15 +103,40 @@ export function ProposalCard({
         <p className="mt-1 line-clamp-3 text-muted-foreground">{data.summary}</p>
       ) : null}
 
-      <Link
-        to="/w/$workspace/inbox"
-        params={{ workspace }}
-        search={{ proposal: data.proposalId }}
-        className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
-      >
-        Review in Inbox
-        <ArrowRight className="size-3.5" />
-      </Link>
+      {/* A failed discard is surfaced VISIBLY (never a false success). */}
+      {error ? (
+        <output className="mt-2 block rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+          {error}
+        </output>
+      ) : null}
+
+      {phase === "idle" ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <Button size="sm" disabled={busy} onClick={() => accept()}>
+            Accept
+          </Button>
+          <Button size="sm" variant="outline" disabled={busy} onClick={openInInbox}>
+            Edit
+          </Button>
+          <Button size="sm" variant="ghost" disabled={busy} onClick={() => reject()}>
+            Discard
+          </Button>
+        </div>
+      ) : (
+        <div className="mt-3">
+          <AcceptStateView
+            phase={phase}
+            result={result}
+            busy={busy}
+            onRetry={() => accept()}
+            onEdit={reset}
+            onDiscard={() => reject()}
+            onRefresh={refresh}
+            onApplyAnyway={() => accept()}
+            onViewItem={viewItem}
+          />
+        </div>
+      )}
     </div>
   );
 }

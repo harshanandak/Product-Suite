@@ -1,7 +1,22 @@
-import type { WorkItem } from "@/data/work-items";
-
 import type { ProposalRepository } from "./repository";
 import type { AcceptResult, Proposal } from "./types";
+
+/** Parse a Response body as JSON once, tolerating a non-JSON/empty body (→ null). */
+async function readJsonBody(response: Response): Promise<Record<string, unknown> | null> {
+  try {
+    const body = (await response.json()) as unknown;
+    return body && typeof body === "object" ? (body as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Read the envelope's plain-language message (`message` or `error`), if any. */
+function readBodyMessage(body: Record<string, unknown> | null): string | null {
+  if (typeof body?.message === "string") return body.message;
+  if (typeof body?.error === "string") return body.error;
+  return null;
+}
 
 /** Configuration for {@link createNetworkProposalRepository}. */
 export interface NetworkProposalRepositoryOptions {
@@ -96,20 +111,99 @@ export function createNetworkProposalRepository(
         `/api/agent/proposals/${id}/accept`,
         editedPayload === undefined ? undefined : { edited_payload: editedPayload },
       );
+      // Lane A's contract ALWAYS carries the typed envelope in the JSON body,
+      // discriminated on `status` — read that, not the HTTP code. Read the body
+      // ONCE (the stream is single-use).
+      // TODO(contracts-swap): the returned union IS Lane A's `AcceptResult`; once
+      // Lane A lands it in `@product-suite/contracts`, import that type here. Parsing
+      // stays in this adapter as the trust boundary regardless.
+      const body = await readJsonBody(response);
+      const status = typeof body?.status === "string" ? body.status : null;
+      const proposalId = typeof body?.proposal_id === "string" ? body.proposal_id : id;
+      const itemId = typeof body?.item_id === "string" ? body.item_id : "";
+      // The applied item's id, tolerating BOTH response shapes: the LOCKED envelope
+      // carries `item_id`; the CURRENT live API (routes/proposals.ts) still returns
+      // the applied ROW on 2xx, whose id is `id`. Prefer the envelope field.
+      const rowId = typeof body?.id === "string" ? body.id : "";
+
+      switch (status) {
+        case "applied":
+          return { status: "applied", proposal_id: proposalId, item_id: itemId };
+        case "invalid":
+          return {
+            status: "invalid",
+            proposal_id: proposalId,
+            message: readBodyMessage(body) ?? "The server couldn't apply this proposal as-is.",
+            // invalid is fixable by default — only a false flag hides Retry.
+            retryable: body?.retryable !== false,
+          };
+        case "stale":
+          return {
+            status: "stale",
+            proposal_id: proposalId,
+            item_id: itemId,
+            message:
+              readBodyMessage(body) ??
+              "This item changed since the agent proposed it.",
+          };
+        case "failed":
+          return {
+            status: "failed",
+            proposal_id: proposalId,
+            message: readBodyMessage(body) ?? "Couldn't apply this proposal.",
+            // failed is terminal unless the backend explicitly says retryable.
+            retryable: body?.retryable === true,
+          };
+        case "not_found":
+          return { status: "not_found", proposal_id: proposalId };
+        case "not_pending":
+          return { status: "not_pending", proposal_id: proposalId };
+        default:
+          break;
+      }
+
+      // No typed envelope in the body. Reconcile the CURRENT live API shape by the
+      // HTTP code, else throw a genuine transport error (401/network/unexpected 5xx).
+      // TODO(contracts-swap): this whole block is the C-before-A shim. Because Lane C
+      // merges BEFORE Lane A's envelope ships, the live API still returns the applied
+      // ROW on 2xx (item_id from the row `id`) and `{error}` bodies on 4xx. Once Lane
+      // A's typed envelope is the only response, the `status` switch above handles
+      // everything and this HTTP-code reconciliation can be deleted.
       if (response.ok) {
-        const item = (await response.json()) as WorkItem;
-        return { outcome: "applied", item };
+        // A 2xx with no `status` is the live API's applied row → applied.
+        return { status: "applied", proposal_id: proposalId, item_id: itemId || rowId };
       }
-      // 409 (not pending / stale) and 404 (gone) both mean "no longer pending".
-      if (response.status === 409 || response.status === 404) {
-        return { outcome: "stale" };
+      if (response.status === 409) {
+        // The live API returns 409 for BOTH not_pending and stale; disambiguate by
+        // the message so a superseded proposal isn't mislabelled as a conflict.
+        if (/pending/i.test(readBodyMessage(body) ?? "")) {
+          return { status: "not_pending", proposal_id: proposalId };
+        }
+        return {
+          status: "stale",
+          proposal_id: proposalId,
+          item_id: itemId,
+          message:
+            readBodyMessage(body) ?? "This item changed since the agent proposed it.",
+        };
       }
-      // 422 (invalid payload) — the proposal can't be applied as-is.
+      if (response.status === 404) {
+        return { status: "not_found", proposal_id: proposalId };
+      }
       if (response.status === 422) {
-        return { outcome: "invalid" };
+        // The CURRENT live API returns a bare 422 for invalid AND terminally flips
+        // the proposal to `failed` in the DB (apply.ts) — it is NOT recoverable. So
+        // a bare (non-envelope) 422 maps to `failed`, retryable:false (Discard-only),
+        // matching the live behaviour. The envelope-shaped 422 (status:"invalid",
+        // retryable) is handled by the `status` switch above once Lane A ships.
+        return {
+          status: "failed",
+          proposal_id: proposalId,
+          message: readBodyMessage(body) ?? "This proposal could not be applied.",
+          retryable: false,
+        };
       }
-      // Anything else (401/5xx/…) is a real error, not an accept OUTCOME.
-      throw new Error(await errorMessage(response));
+      throw new Error(readBodyMessage(body) ?? `Request failed (${response.status})`);
     },
 
     reject: (id: string, reason?: string) =>

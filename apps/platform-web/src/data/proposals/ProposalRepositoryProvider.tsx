@@ -1,25 +1,13 @@
 import { useAuth } from "@clerk/clerk-react";
-import {
-  createContext,
-  type ReactNode,
-  useContext,
-  useMemo,
-  useRef,
-} from "react";
+import { type ReactNode, useContext, useMemo, useRef } from "react";
 
 import { USE_FIXTURES } from "@/fixtures-mode";
 
 import { API_BASE_URL } from "../../env";
 import { createNetworkProposalRepository } from "./network-repository";
+import { ProposalRepositoryContext } from "./proposal-repository-context";
 import { createMockProposalRepository } from "./repository";
 import type { ProposalRepository } from "./repository";
-
-/**
- * Holds the process-wide network {@link ProposalRepository} once provided. `null`
- * when no provider is mounted (tests, stories) — callers then fall back to the
- * in-memory mock via `getDefaultProposalRepository()`.
- */
-const ProposalRepositoryContext = createContext<ProposalRepository | null>(null);
 
 /** Access the provided proposal repository, or `null` outside a provider. */
 // eslint-disable-next-line react-refresh/only-export-components -- the context hook lives beside its provider (mirrors data/work-items)

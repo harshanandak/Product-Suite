@@ -3,6 +3,8 @@ import { Bell, Search, Sparkles } from "lucide-react";
 
 import { Button, ThemeToggle, cn } from "@product-suite/ui";
 
+import { useProposals } from "@/data/proposals";
+
 import { href } from "./boards";
 import { UserMenu } from "./UserMenu";
 
@@ -22,6 +24,13 @@ export function TopBar({
   onOpenPalette: () => void;
   onAskAgent: () => void;
 }>) {
+  // Pending-proposal count for the launcher badge. TopBar renders under the
+  // shell's ProposalRepositoryProvider, so the hook resolves the tenant repo.
+  // While the first load is in flight we show nothing (no phantom "0" flicker);
+  // the count only appears once real pending proposals have settled.
+  const { proposals, isLoading } = useProposals();
+  const pendingCount = isLoading ? 0 : proposals.length;
+
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border bg-background px-4">
       <div className="flex-1" />
@@ -48,10 +57,26 @@ export function TopBar({
         <Bell className="size-4" />
       </Link>
 
-      <Button variant="outline" size="sm" onClick={onAskAgent}>
-        <Sparkles />
-        Ask agent
-      </Button>
+      {/* Relative wrapper so the unread-style count badge can float in the
+          button's top-right corner without disturbing its layout. The badge is
+          a SIBLING of the button (not a child), so the button's accessible name
+          stays "Ask agent" while the badge carries its own label. */}
+      <div className="relative">
+        <Button variant="outline" size="sm" onClick={onAskAgent}>
+          <Sparkles />
+          Ask agent
+        </Button>
+        {pendingCount > 0 && (
+          <span
+            aria-label={`${pendingCount} pending proposal${pendingCount === 1 ? "" : "s"}`}
+            className={cn(
+              "pointer-events-none absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[0.625rem] font-semibold leading-none text-primary-foreground",
+            )}
+          >
+            {pendingCount > 9 ? "9+" : pendingCount}
+          </span>
+        )}
+      </div>
 
       <ThemeToggle />
 

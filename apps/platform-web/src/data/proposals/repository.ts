@@ -1,5 +1,3 @@
-import type { WorkItem } from "@/data/work-items";
-
 import { createProposalFixtures } from "./fixtures";
 import type { AcceptResult, Proposal } from "./types";
 
@@ -66,24 +64,17 @@ export function createMockProposalRepository(
       const index = proposals.findIndex((proposal) => proposal.id === id);
       if (index === -1) {
         // Already disposed of by another reviewer/tab — no longer pending.
-        return settle<AcceptResult>({ outcome: "stale" });
+        return settle<AcceptResult>({ status: "not_pending", proposal_id: id });
       }
       const [proposal] = proposals.splice(index, 1);
-      // Stamped per accept() (not once per repository) so each dev/demo
-      // acceptance reflects when it actually happened.
-      const now = new Date().toISOString();
-      // Synthesize the item accept "produces" so the mock's applied path has a
-      // linkable target id, mirroring what the real backend returns.
-      const item = {
-        id: proposal.target_id ?? `wi_new_${proposal.id}`,
-        title:
-          typeof proposal.payload.title === "string"
-            ? proposal.payload.title
-            : "Untitled work item",
-        created_at: now,
-        updated_at: now,
-      } as WorkItem;
-      return settle<AcceptResult>({ outcome: "applied", item });
+      // Synthesize the applied item id so the mock's applied path has a linkable
+      // target, mirroring what the real backend returns as `item_id`.
+      const itemId = proposal.target_id ?? `wi_new_${proposal.id}`;
+      return settle<AcceptResult>({
+        status: "applied",
+        proposal_id: id,
+        item_id: itemId,
+      });
     },
 
     reject(id: string) {

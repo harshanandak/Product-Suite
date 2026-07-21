@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import { notifyProposalMutation } from "./proposal-events";
 import type { ProposalRepository } from "./repository";
 import type { AcceptResult, Proposal } from "./types";
 import { useProposals } from "./use-proposals";
@@ -25,7 +26,14 @@ function pending(id: string): Proposal {
 function makeRepo(overrides: Partial<ProposalRepository> = {}): ProposalRepository {
   return {
     list: vi.fn(async () => [pending("p1"), pending("p2")]),
-    accept: vi.fn(async (): Promise<AcceptResult> => ({ outcome: "stale" })),
+    accept: vi.fn(
+      async (): Promise<AcceptResult> => ({
+        status: "stale",
+        proposal_id: "p1",
+        item_id: "wi_1",
+        message: "changed",
+      }),
+    ),
     reject: vi.fn(async () => undefined),
     activeRules: vi.fn(async () => []),
     ...overrides,
@@ -50,8 +58,9 @@ describe("useProposals", () => {
       .mockResolvedValueOnce([pending("p2")]);
     const accept = vi.fn(
       async (): Promise<AcceptResult> => ({
-        outcome: "applied",
-        item: { id: "wi_1" } as never,
+        status: "applied",
+        proposal_id: "p1",
+        item_id: "wi_1",
       }),
     );
     const repository = makeRepo({ list, accept });
@@ -63,9 +72,55 @@ describe("useProposals", () => {
       outcome = await result.current.accept("p1");
     });
 
-    expect(outcome).toEqual({ outcome: "applied", item: { id: "wi_1" } });
+    expect(outcome).toEqual({
+      status: "applied",
+      proposal_id: "p1",
+      item_id: "wi_1",
+    });
     expect(accept).toHaveBeenCalledWith("p1", undefined);
     // Refetched: p1 is gone from the pending set.
+    await waitFor(() =>
+      expect(result.current.proposals.map((p) => p.id)).toEqual(["p2"]),
+    );
+  });
+
+  it("does NOT re-list on a still-pending accept (a stale outcome stays pending)", async () => {
+    const list = vi.fn<() => Promise<Proposal[]>>().mockResolvedValue([pending("p1")]);
+    const accept = vi.fn(
+      async (): Promise<AcceptResult> => ({
+        status: "stale",
+        proposal_id: "p1",
+        item_id: "wi_1",
+        message: "changed",
+      }),
+    );
+    const { result } = renderHook(() =>
+      useProposals({ repository: makeRepo({ list, accept }) }),
+    );
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(list).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await result.current.accept("p1");
+    });
+    // Stale leaves the proposal pending — no invalidation, so the list is NOT re-read.
+    expect(list).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-lists when a disposal is signalled from another instance (badge stays in sync)", async () => {
+    const list = vi
+      .fn<() => Promise<Proposal[]>>()
+      .mockResolvedValueOnce([pending("p1"), pending("p2")])
+      .mockResolvedValueOnce([pending("p2")]);
+    const { result } = renderHook(() =>
+      useProposals({ repository: makeRepo({ list }) }),
+    );
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.proposals.map((p) => p.id)).toEqual(["p1", "p2"]);
+
+    // A disposal in the inline card or another useProposals fires the shared signal;
+    // this instance (e.g. the launcher badge) must re-list so its count can't lag.
+    act(() => notifyProposalMutation());
     await waitFor(() =>
       expect(result.current.proposals.map((p) => p.id)).toEqual(["p2"]),
     );

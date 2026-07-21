@@ -102,8 +102,10 @@ vi.mock("@product-suite/ui-chat/components/ai-elements/prompt-input", () => ({
   },
 }));
 
-// ProposalCard renders a TanStack Link; stub it as a plain anchor.
+// The inline ProposalCard + ChatPendingSection navigate programmatically; stub
+// useNavigate (and keep the Link stub for any remaining anchor usage).
 vi.mock("@tanstack/react-router", () => ({
+  useNavigate: () => vi.fn(),
   Link: ({
     to,
     params,
@@ -129,7 +131,34 @@ vi.mock("@tanstack/react-router", () => ({
   },
 }));
 
-import { AgentChatPanel, isOrgRequiredError } from "./AgentChatPanel";
+// The panel now mounts ChatPendingSection (useProposals) and the inline card
+// (useProposalActions). Stub the data seam so the section stays empty/hidden and
+// the inline card renders in its idle affordance without a live repository.
+vi.mock("@/data/proposals", () => ({
+  useProposals: () => ({
+    proposals: [],
+    isLoading: false,
+    isRefetching: false,
+    error: null,
+    accept: vi.fn(),
+    reject: vi.fn(),
+    activeRules: vi.fn(async () => []),
+    isMutating: false,
+    refetch: vi.fn(),
+  }),
+  useProposalActions: () => ({
+    phase: "idle",
+    result: null,
+    busy: false,
+    error: null,
+    accept: vi.fn(),
+    reject: vi.fn(),
+    reset: vi.fn(),
+    refresh: vi.fn(),
+  }),
+}));
+
+import { AgentChatPanel } from "./AgentChatPanel";
 
 const screenObject: AgentLinkedObject = {
   type: "screen",
@@ -172,18 +201,6 @@ beforeEach(() => {
   threadsAdapter.list.mockReset().mockResolvedValue([]);
   threadsAdapter.messages.mockReset().mockResolvedValue([]);
   threadsAdapter.archive.mockReset().mockResolvedValue(undefined);
-});
-
-describe("isOrgRequiredError", () => {
-  it("is true for the backend's 403 no-org body", () => {
-    expect(
-      isOrgRequiredError(new Error('{"error":"No active organization"}')),
-    ).toBe(true);
-  });
-  it("is false for other errors / undefined", () => {
-    expect(isOrgRequiredError(new Error("network down"))).toBe(false);
-    expect(isOrgRequiredError(undefined)).toBe(false);
-  });
 });
 
 describe("AgentChatPanel", () => {
@@ -282,9 +299,11 @@ describe("AgentChatPanel", () => {
     renderPanel();
     expect(screen.getByText("Create")).toBeInTheDocument();
     expect(screen.getByText("Ship auth")).toBeInTheDocument();
+    // The card is now ACTIONABLE IN PLACE — an inline Accept, not a deep link out.
+    expect(screen.getByRole("button", { name: "Accept" })).toBeInTheDocument();
     expect(
-      screen.getByRole("link", { name: /Review in Inbox/ }),
-    ).toHaveAttribute("href", "/w/befach-hq/inbox?proposal=p_1");
+      screen.queryByRole("link", { name: /Review in Inbox/ }),
+    ).not.toBeInTheDocument();
   });
 
   it("shows a quiet failure line (not an endless spinner) when a propose tool errors", () => {

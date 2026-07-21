@@ -6,7 +6,6 @@
  * PR1/PR2 backend shape exactly (`GET /api/agent/proposals`): the adapter never
  * reshapes it, so the UI reasons about precisely what `accept` will apply.
  */
-import type { WorkItem } from "@/data/work-items";
 
 /**
  * A pending agent proposal (tenant-scoped). `operation` decides how `payload` is
@@ -49,14 +48,53 @@ export interface Proposal {
 }
 
 /**
- * The outcome of {@link ProposalRepository.accept}, SURFACED rather than thrown so
- * the detail view can react precisely instead of catching an opaque error:
- *  - `applied` — the backend applied it and returned the created/updated item.
- *  - `stale` — no longer pending (HTTP 409) or gone (404); the list must refetch.
- *  - `invalid` — the payload failed server validation (422).
- * A genuine transport/5xx error still throws (it is not an accept OUTCOME).
+ * The result of {@link ProposalRepository.accept}, SURFACED rather than thrown so
+ * the UI can react precisely instead of catching an opaque error. This is Lane
+ * C's LOCAL MIRROR of Lane A's LOCKED accept envelope — discriminated on
+ * `status`, snake_case, and ALWAYS carried in the JSON response body (the adapter
+ * reads `status` from the body, never the HTTP code):
+ *  - `applied`     — the write landed; `item_id` links to the created/updated item.
+ *  - `invalid`     — payload failed server validation; `message` is plain-language;
+ *                    `retryable` says whether an unchanged retry could plausibly succeed.
+ *  - `stale`       — the item changed since the proposal; `item_id` is the target and
+ *                    `message` explains the conflict (no version numbers in the envelope).
+ *  - `failed`      — rejected for a stated `message`; `retryable` drives the Retry action.
+ *  - `not_found`   — the proposal no longer exists.
+ *  - `not_pending` — already handled (accepted/rejected elsewhere).
+ * A genuine transport/network error still throws (it is not an accept RESULT).
+ *
+ * TODO(contracts-swap): Lane C now merges BEFORE Lane A, so this LOCAL mirror is
+ * the source of truth at merge time. It is structurally identical to Lane A's
+ * LOCKED envelope, so runtime is correct today. Once Lane A lands `AcceptResult`
+ * in `@product-suite/contracts`, DELETE this local definition and
+ * `import type { AcceptResult } from "@product-suite/contracts"` (same package the
+ * app already imports `WorkItem`/`Team`/`Status` from) — an import-only swap.
+ * The team lead is filing the follow-up to do that swap after Lane A merges.
  */
 export type AcceptResult =
-  | { readonly outcome: "applied"; readonly item: WorkItem }
-  | { readonly outcome: "stale" }
-  | { readonly outcome: "invalid" };
+  | { readonly status: "applied"; readonly proposal_id: string; readonly item_id: string }
+  | {
+      readonly status: "invalid";
+      readonly proposal_id: string;
+      /** A plain-language reason the payload failed validation (never raw error text). */
+      readonly message: string;
+      /** Whether re-submitting unchanged could plausibly succeed (drives Retry). */
+      readonly retryable: boolean;
+    }
+  | {
+      readonly status: "stale";
+      readonly proposal_id: string;
+      readonly item_id: string;
+      /** A plain-language explanation of what changed (never raw error text). */
+      readonly message: string;
+    }
+  | {
+      readonly status: "failed";
+      readonly proposal_id: string;
+      /** A plain-language reason for the failure (never raw error text). */
+      readonly message: string;
+      /** Whether an unchanged retry could plausibly succeed (drives the Retry action). */
+      readonly retryable: boolean;
+    }
+  | { readonly status: "not_found"; readonly proposal_id: string }
+  | { readonly status: "not_pending"; readonly proposal_id: string };

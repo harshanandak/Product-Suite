@@ -4,8 +4,13 @@ import { Link } from "@tanstack/react-router";
 
 import { Badge, Button, Textarea, cn } from "@product-suite/ui";
 
+import { AcceptStateView } from "@/agent-chat/AcceptStateView";
 import { useMemories, type MemoryRow } from "@/data/memories";
-import { useProposals, type AcceptResult, type Proposal } from "@/data/proposals";
+import {
+  useProposals,
+  type AcceptResult,
+  type Proposal,
+} from "@/data/proposals";
 import { useWorkItems, type WorkItem } from "@/data/work-items";
 
 import {
@@ -47,21 +52,46 @@ export interface ProposalDetailProps {
   isMutating: boolean;
   /** Active workspace slug — used to link to the target/applied work item. */
   workspace: string;
+  /**
+   * Re-base a stale proposal against the current item (the "Refresh" action on
+   * the "this item changed" banner). Typically the inbox's list `refetch` — it
+   * re-reads pending proposals so the reviewer sees the current state. Optional:
+   * defaults to a no-op so the component renders standalone (tests/harness).
+   */
+  onRefresh?: () => void;
 }
 
-/** The terminal state a disposition leaves the pane in (survives list refetch). */
+/**
+ * The state a disposition leaves the pane in. `applied`/`rejected` are TERMINAL
+ * (survive the list refetch); `stale`/`invalid`/`failed` are RECOVERABLE — each
+ * carries the envelope context its banner needs and offers next actions
+ * (refresh/retry/edit/discard/apply-anyway) rather than being a dead end.
+ */
 type DisposeStatus =
   | { kind: "idle" }
   | { kind: "applied"; itemId: string }
   | { kind: "rejected" }
-  | { kind: "stale" }
-  | { kind: "invalid" };
+  | { kind: "stale"; message: string }
+  | { kind: "invalid"; message: string; retryable: boolean }
+  | { kind: "failed"; message: string; retryable: boolean }
+  | { kind: "gone" };
 
-/** Map an accept outcome to the terminal disposition it leaves the pane in. */
+/** Map an accept result (Lane A's LOCKED `status`-keyed envelope) to the pane disposition. */
 function outcomeToStatus(result: AcceptResult): DisposeStatus {
-  if (result.outcome === "applied") return { kind: "applied", itemId: result.item.id };
-  if (result.outcome === "stale") return { kind: "stale" };
-  return { kind: "invalid" };
+  switch (result.status) {
+    case "applied":
+      return { kind: "applied", itemId: result.item_id };
+    case "stale":
+      return { kind: "stale", message: result.message };
+    case "failed":
+      return { kind: "failed", message: result.message, retryable: result.retryable };
+    case "invalid":
+      return { kind: "invalid", message: result.message, retryable: result.retryable };
+    case "not_found":
+    case "not_pending":
+      // Nothing to act on — the proposal is gone or already handled.
+      return { kind: "gone" };
+  }
 }
 
 /** Border/surface classes per banner tone. */
@@ -185,6 +215,7 @@ function ActionButtons({
  */
 function DispositionBlock({
   status,
+  proposalId,
   workspace,
   isMemory,
   isRule,
@@ -195,12 +226,19 @@ function DispositionBlock({
   isMutating,
   disableAccept,
   acceptHint,
+  busy,
   onAccept,
   onReject,
   onStartReject,
   onCancelReject,
+  onRetry,
+  onEdit,
+  onDiscard,
+  onRefresh,
+  onApplyAnyway,
 }: Readonly<{
   status: DisposeStatus;
+  proposalId: string;
   workspace: string;
   isMemory: boolean;
   isRule: boolean;
@@ -211,10 +249,17 @@ function DispositionBlock({
   isMutating: boolean;
   disableAccept: boolean;
   acceptHint: string | null;
+  /** True while any recovery action (retry/discard/apply-anyway/refresh) is in flight. */
+  busy: boolean;
   onAccept: () => void;
   onReject: () => void;
   onStartReject: () => void;
   onCancelReject: () => void;
+  onRetry: () => void;
+  onEdit: () => void;
+  onDiscard: () => void;
+  onRefresh: () => void;
+  onApplyAnyway: () => void;
 }>) {
   if (status.kind === "applied") {
     // A memory has no workboard item — link to the decision log, never the
@@ -248,18 +293,33 @@ function DispositionBlock({
     );
   }
   if (status.kind === "rejected") return <StatusBanner tone="muted">Rejected.</StatusBanner>;
-  if (status.kind === "stale") {
-    return (
-      <StatusBanner tone="muted">
-        This proposal is no longer pending — the list has been refreshed.
-      </StatusBanner>
-    );
+  if (status.kind === "gone") {
+    return <StatusBanner tone="muted">This proposal is no longer available.</StatusBanner>;
   }
-  if (status.kind === "invalid") {
+  // The recoverable dispositions (stale / invalid / failed) render through the
+  // SHARED AcceptStateView — the same component the inline chat card uses — so the
+  // inbox and the chat show identical "This item changed" / "Needs attention" UX.
+  if (status.kind === "stale" || status.kind === "invalid" || status.kind === "failed") {
+    const settledResult: AcceptResult =
+      status.kind === "stale"
+        ? { status: "stale", proposal_id: proposalId, item_id: "", message: status.message }
+        : {
+            status: status.kind,
+            proposal_id: proposalId,
+            message: status.message,
+            retryable: status.retryable,
+          };
     return (
-      <StatusBanner tone="destructive">
-        The server rejected this proposal as invalid.
-      </StatusBanner>
+      <AcceptStateView
+        phase="settled"
+        result={settledResult}
+        busy={busy}
+        onRetry={onRetry}
+        onEdit={onEdit}
+        onDiscard={onDiscard}
+        onRefresh={onRefresh}
+        onApplyAnyway={onApplyAnyway}
+      />
     );
   }
   if (rejecting) {
@@ -276,7 +336,9 @@ function DispositionBlock({
   }
   return (
     <ActionButtons
-      isMutating={isMutating}
+      // `busy` folds the local in-flight guard into the disabled state so the
+      // primary Accept greys out during its own request (double-click-safe).
+      isMutating={isMutating || busy}
       disableAccept={disableAccept}
       acceptLabel={isRule ? "Accept rule" : "Accept"}
       acceptHint={acceptHint}
@@ -548,6 +610,7 @@ export function ProposalDetail({
   reject,
   isMutating,
   workspace,
+  onRefresh,
 }: Readonly<ProposalDetailProps>) {
   const isMemory = proposal.target_type === "memory";
   // A reflection-authored rule proposal — it gets the applicability/evidence/strength
@@ -573,7 +636,7 @@ export function ProposalDetail({
   }, []);
 
   // The work-item update diff reads the target's CURRENT values from the loaded list.
-  const { items } = useWorkItems();
+  const { items, refetch: refetchWorkItems } = useWorkItems();
   const workItemTarget =
     isMemory || proposal.target_id === null
       ? undefined
@@ -592,6 +655,9 @@ export function ProposalDetail({
   const [memoryTargetState, setMemoryTargetState] = useState<MemoryTargetState>({
     kind: "idle",
   });
+  // Bumped by the stale "Refresh" so the named memory target is RE-FETCHED against
+  // current state (the staleness is about the TARGET changing, not the proposal).
+  const [targetReloadKey, setTargetReloadKey] = useState(0);
   useEffect(() => {
     if (!isMemory || proposal.operation === "create" || !proposal.target_id) {
       setMemoryTargetState({ kind: "idle" });
@@ -611,7 +677,7 @@ export function ProposalDetail({
     return () => {
       cancelled = true;
     };
-  }, [isMemory, proposal.operation, proposal.target_id, getMemory]);
+  }, [isMemory, proposal.operation, proposal.target_id, getMemory, targetReloadKey]);
   const memoryTarget =
     memoryTargetState.kind === "ready" ? memoryTargetState.memory : undefined;
   // Block Accept while a named memory target is still loading or failed to load.
@@ -656,25 +722,39 @@ export function ProposalDetail({
   // the pane sitting idle (an invisible failure). We mirror WorkboardScreen's
   // aria-live error surfacing so the user always sees a failed disposition.
   const [error, setError] = useState<string | null>(null);
+  // Local in-flight guard for EVERY write this pane can fire (accept, retry,
+  // apply-anyway, discard). Stripe-style safe-retry: a double-click on Accept
+  // (or any recovery button) must apply exactly once, independent of the parent's
+  // `isMutating` — the ref rejects re-entry synchronously (before React paints
+  // the disabled state), and `busy` disables the buttons for the visual guard.
+  const [busy, setBusy] = useState(false);
+  const inFlightRef = useRef(false);
 
-  const onAccept = (): void => {
-    // The hook refetches the list on settle; we branch on the SURFACED outcome so
-    // a stale/invalid disposition is never a silent failure. A THROWN error
-    // (transport 5xx/401/network) surfaces as a visible banner, never silence.
-    setError(null);
+  /** The FULL merged edited_payload for a reviewer-tuned rule, else undefined. */
+  const editedPayloadForAccept = (): Record<string, unknown> | undefined =>
     // When the reviewer changed a rule's strength, fold it into the FULL merged
     // payload — the API applies `edited_payload ?? payload` as a wholesale replace and
     // re-validates (kind+title required), so a partial `{enforcement,pinned}` would drop
     // those and terminally fail the proposal. An untouched proposal accepts as-is.
-    const editedPayload =
-      isRuleProposal && ruleStrengthTouched.current
-        ? {
-            ...(proposal.payload as Record<string, unknown>),
-            enforcement: ruleStrength.enforcement,
-            pinned: ruleStrength.pinned,
-          }
-        : undefined;
-    void accept(proposal.id, editedPayload)
+    isRuleProposal && ruleStrengthTouched.current
+      ? {
+          ...(proposal.payload as Record<string, unknown>),
+          enforcement: ruleStrength.enforcement,
+          pinned: ruleStrength.pinned,
+        }
+      : undefined;
+
+  // Accept (and re-accept via Retry / Apply anyway) — one guarded path. The hook
+  // refetches the list on settle; we branch on the SURFACED outcome so a
+  // stale/invalid/failed disposition is never silent. A THROWN error (transport
+  // 5xx/401/network) surfaces as a visible banner, never silence. The
+  // `inFlightRef` gate makes a double-click a single apply (idempotent-safe).
+  const runAccept = (): void => {
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+    setBusy(true);
+    setError(null);
+    void accept(proposal.id, editedPayloadForAccept())
       .then((result) => {
         setStatus(outcomeToStatus(result));
       })
@@ -684,8 +764,68 @@ export function ProposalDetail({
             ? err.message
             : "Couldn't accept this proposal. Please try again.",
         );
+      })
+      .finally(() => {
+        inFlightRef.current = false;
+        setBusy(false);
       });
   };
+
+  const onAccept = runAccept;
+
+  // Discard from a recoverable banner (invalid/failed/stale) = reject the
+  // proposal, sharing the single in-flight guard so it can't race a retry.
+  const onDiscard = (): void => {
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+    setBusy(true);
+    setError(null);
+    void reject(proposal.id)
+      .then(() => {
+        setStatus({ kind: "rejected" });
+      })
+      .catch((err: unknown) => {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Couldn't discard this proposal. Please try again.",
+        );
+      })
+      .finally(() => {
+        inFlightRef.current = false;
+        setBusy(false);
+      });
+  };
+
+  // Edit = dismiss the recoverable banner back to the decision surface so the
+  // reviewer can adjust (e.g. a rule's strength) and re-accept.
+  const onEdit = (): void => {
+    setError(null);
+    setStatus({ kind: "idle" });
+  };
+
+  // Refresh a stale proposal = re-base against the current item: ask the inbox to
+  // refetch, then return the pane to its live action state.
+  // TODO(lane-A-rebase): the FULL field-granular staleness engine (epic
+  // a41345b4) shows a live current-vs-proposed diff here; this reactive slice
+  // re-pulls the list so the reviewer sees current state, never a silent clobber.
+  const onRefreshAction = (): void => {
+    setError(null);
+    setStatus({ kind: "idle" });
+    // Re-base against the TARGET's current state, not just the proposals list: the
+    // staleness is about the item the proposal edits, and the diff reads from it.
+    // Re-fetch the work-item list AND the named memory target (bump the reload key),
+    // then re-pull the pending list so the reviewer re-decides against current state.
+    refetchWorkItems();
+    setTargetReloadKey((key) => key + 1);
+    onRefresh?.();
+  };
+
+  // Apply anyway = re-attempt accept EXPLICITLY despite the staleness (never the
+  // default). Same guarded path as Accept.
+  // TODO(lane-A-rebase): a true force-apply needs Lane A's force/target_version
+  // param on accept; today this re-attempts and the backend re-checks.
+  const onApplyAnyway = runAccept;
 
   const onReject = (): void => {
     const trimmed = reason.trim();
@@ -734,6 +874,7 @@ export function ProposalDetail({
       {/* Actions / terminal disposition status */}
       <DispositionBlock
         status={status}
+        proposalId={proposal.id}
         workspace={workspace}
         isMemory={isMemory}
         isRule={isRuleProposal}
@@ -744,6 +885,7 @@ export function ProposalDetail({
         isMutating={isMutating}
         disableAccept={disableAccept}
         acceptHint={acceptHint}
+        busy={busy}
         onAccept={onAccept}
         onReject={onReject}
         onStartReject={() => setRejecting(true)}
@@ -753,6 +895,11 @@ export function ProposalDetail({
           // Clear any prior failed-reject banner — nothing is in flight.
           setError(null);
         }}
+        onRetry={runAccept}
+        onEdit={onEdit}
+        onDiscard={onDiscard}
+        onRefresh={onRefreshAction}
+        onApplyAnyway={onApplyAnyway}
       />
 
       {/* provenance — fine print */}

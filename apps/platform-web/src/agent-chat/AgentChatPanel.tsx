@@ -33,8 +33,11 @@ import {
   type AgentLinkedObject,
 } from "@/data/agent/transport";
 
+import { isOrgRequiredError } from "./agent-error";
 import type { AgentFocusRequest } from "./ask-agent";
-import { ProposalCard, proposalCardFromToolPart } from "./ProposalCard";
+import { ChatPendingSection } from "./ChatPendingSection";
+import { proposalCardFromToolPart } from "./proposal-card-data";
+import { ProposalCard } from "./ProposalCard";
 import { isProposeTool, toolLabel } from "./tool-labels";
 
 /** Props for {@link AgentChatPanel}. The shell owns open/close + Clerk. */
@@ -70,15 +73,6 @@ export interface AgentChatPanelProps {
    * input. Omitted where the panel is never invoked programmatically.
    */
   focusRequest?: AgentFocusRequest;
-}
-
-/**
- * Whether a chat error is the backend's 403 "no active organization" — the AI
- * SDK surfaces the response body as the error message. Distinguished so we can
- * show a friendly org-required panel instead of a scary chat error bubble.
- */
-export function isOrgRequiredError(error: Error | undefined): boolean {
-  return !!error && /no active organization/i.test(error.message);
 }
 
 /** Object-aware seed prompts for the empty state (DESIGN §5f). */
@@ -458,6 +452,9 @@ export function AgentChatPanel({
         </div>
       ) : (
         <>
+          {/* Quiet backstop pinned above the stream — catches proposals from
+              background agents / scrolled-past cards; disposes in place. */}
+          <ChatPendingSection workspace={workspace} />
           <Conversation className="flex-1">
             <ConversationContent>
               {messages.length === 0 ? (

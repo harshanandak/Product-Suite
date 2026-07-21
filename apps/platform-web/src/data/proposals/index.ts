@@ -19,6 +19,13 @@ export type {
   UseProposalsResult,
 } from "./use-proposals";
 
+export { useProposalActions } from "./use-proposal-actions";
+export type {
+  ProposalActionPhase,
+  UseProposalActionsOptions,
+  UseProposalActionsResult,
+} from "./use-proposal-actions";
+
 export {
   ProposalRepositoryProvider,
   useProposalRepositoryContext,
