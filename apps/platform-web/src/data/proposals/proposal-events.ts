@@ -21,16 +21,22 @@ type ProposalMutationListener = () => void;
 
 /**
  * Whether an accept outcome REMOVED the proposal from the pending set (so the
- * pending count changed and listeners should re-list): `applied` wrote it,
- * `not_pending`/`not_found` mean it is already gone. `stale`/`invalid`/`failed`
- * leave it PENDING and recoverable, so they are NOT terminal and must not signal.
+ * pending count changed and listeners should re-list):
+ *  - `applied` wrote it; `not_pending`/`not_found` mean it is already gone.
+ *  - `failed` with `retryable === false` is ALSO terminal: the server (apply.ts)
+ *    has already moved that proposal to `failed` in the DB, so it left the set.
+ *  - `stale`, `invalid`, and a RETRYABLE `failed` (transient) leave it PENDING and
+ *    recoverable, so they are NOT terminal and must not signal.
  */
 export function isTerminalAcceptOutcome(result: AcceptResult): boolean {
-  return (
+  if (
     result.status === "applied" ||
     result.status === "not_pending" ||
     result.status === "not_found"
-  );
+  ) {
+    return true;
+  }
+  return result.status === "failed" && result.retryable === false;
 }
 
 const listeners = new Set<ProposalMutationListener>();

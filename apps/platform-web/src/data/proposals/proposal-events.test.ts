@@ -42,22 +42,25 @@ describe("proposal-events", () => {
 });
 
 describe("isTerminalAcceptOutcome", () => {
-  it("is true for outcomes that LEFT the pending set (applied / not_pending / not_found)", () => {
+  it("is true for outcomes that LEFT the pending set (applied / not_pending / not_found / non-retryable failed)", () => {
     const terminal: AcceptResult[] = [
       { status: "applied", proposal_id: "p", item_id: "wi_1" },
       { status: "not_pending", proposal_id: "p" },
       { status: "not_found", proposal_id: "p" },
+      // The server already flipped this to failed in the DB — it is gone.
+      { status: "failed", proposal_id: "p", message: "terminal", retryable: false },
     ];
     for (const result of terminal) {
       expect(isTerminalAcceptOutcome(result)).toBe(true);
     }
   });
 
-  it("is false for still-pending recoverable outcomes (stale / invalid / failed)", () => {
+  it("is false for still-pending recoverable outcomes (stale / invalid / retryable failed)", () => {
     const pending: AcceptResult[] = [
       { status: "stale", proposal_id: "p", item_id: "wi_1", message: "changed" },
       { status: "invalid", proposal_id: "p", message: "bad", retryable: true },
-      { status: "failed", proposal_id: "p", message: "nope", retryable: false },
+      // A RETRYABLE failed is transient — the proposal is still pending.
+      { status: "failed", proposal_id: "p", message: "transient", retryable: true },
     ];
     for (const result of pending) {
       expect(isTerminalAcceptOutcome(result)).toBe(false);

@@ -636,7 +636,7 @@ export function ProposalDetail({
   }, []);
 
   // The work-item update diff reads the target's CURRENT values from the loaded list.
-  const { items } = useWorkItems();
+  const { items, refetch: refetchWorkItems } = useWorkItems();
   const workItemTarget =
     isMemory || proposal.target_id === null
       ? undefined
@@ -655,6 +655,9 @@ export function ProposalDetail({
   const [memoryTargetState, setMemoryTargetState] = useState<MemoryTargetState>({
     kind: "idle",
   });
+  // Bumped by the stale "Refresh" so the named memory target is RE-FETCHED against
+  // current state (the staleness is about the TARGET changing, not the proposal).
+  const [targetReloadKey, setTargetReloadKey] = useState(0);
   useEffect(() => {
     if (!isMemory || proposal.operation === "create" || !proposal.target_id) {
       setMemoryTargetState({ kind: "idle" });
@@ -674,7 +677,7 @@ export function ProposalDetail({
     return () => {
       cancelled = true;
     };
-  }, [isMemory, proposal.operation, proposal.target_id, getMemory]);
+  }, [isMemory, proposal.operation, proposal.target_id, getMemory, targetReloadKey]);
   const memoryTarget =
     memoryTargetState.kind === "ready" ? memoryTargetState.memory : undefined;
   // Block Accept while a named memory target is still loading or failed to load.
@@ -809,6 +812,12 @@ export function ProposalDetail({
   const onRefreshAction = (): void => {
     setError(null);
     setStatus({ kind: "idle" });
+    // Re-base against the TARGET's current state, not just the proposals list: the
+    // staleness is about the item the proposal edits, and the diff reads from it.
+    // Re-fetch the work-item list AND the named memory target (bump the reload key),
+    // then re-pull the pending list so the reviewer re-decides against current state.
+    refetchWorkItems();
+    setTargetReloadKey((key) => key + 1);
     onRefresh?.();
   };
 

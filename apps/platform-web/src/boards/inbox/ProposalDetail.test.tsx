@@ -7,9 +7,9 @@ import type { WorkItem } from "@/data/work-items";
 
 // The detail fetches the update target through the work-items hook; stub it with
 // a controlled item set so the diff + operation sentence are deterministic.
-const itemsMock = vi.hoisted(() => ({ items: [] as WorkItem[] }));
+const itemsMock = vi.hoisted(() => ({ items: [] as WorkItem[], refetch: vi.fn() }));
 vi.mock("@/data/work-items", () => ({
-  useWorkItems: () => ({ items: itemsMock.items }),
+  useWorkItems: () => ({ items: itemsMock.items, refetch: itemsMock.refetch }),
 }));
 
 // The memory surface fetches a supersede target through the memories hook; stub
@@ -197,7 +197,9 @@ describe("ProposalDetail", () => {
     );
   });
 
-  it("(stale) Refresh re-bases via onRefresh and returns the pane to its live actions", async () => {
+  it("(stale) Refresh re-bases against the TARGET (refetches work items) + onRefresh, then returns to live actions", async () => {
+    itemsMock.items = [];
+    itemsMock.refetch.mockClear();
     const accept = vi.fn(async (): Promise<AcceptResult> => stale());
     const onRefresh = vi.fn();
     render(
@@ -215,11 +217,44 @@ describe("ProposalDetail", () => {
       expect(screen.getByText("This item changed")).toBeInTheDocument(),
     );
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    // Re-bases the TARGET item (work-item list), not just the proposals list.
+    expect(itemsMock.refetch).toHaveBeenCalled();
     expect(onRefresh).toHaveBeenCalledTimes(1);
     // Back to the live decision surface: Accept is offered again.
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Accept" })).toBeInTheDocument(),
     );
+  });
+
+  it("(memory stale) Refresh RE-FETCHES the named memory target (re-base against current state)", async () => {
+    itemsMock.items = [];
+    const target = {
+      memory: { id: "mem_1", title: "Use Postgres", body: "", topics: [] } as unknown,
+      chain: [],
+    };
+    // One resolution for the initial target load, one for the Refresh re-fetch.
+    memoryMock.get.mockResolvedValueOnce(target).mockResolvedValueOnce(target);
+    const accept = vi.fn(async (): Promise<AcceptResult> => stale());
+    renderDetail(
+      proposal({
+        target_type: "memory",
+        target_id: "mem_1",
+        operation: "supersede",
+        payload: { change_reason: "x", title: "Use MongoDB" },
+      }),
+      { accept },
+    );
+    // Accept is gated until the initial target load resolves.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Accept" })).toBeEnabled(),
+    );
+    memoryMock.get.mockClear(); // assert only the Refresh-driven re-fetch
+    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Refresh" })).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    await waitFor(() => expect(memoryMock.get).toHaveBeenCalledWith("mem_1"));
   });
 
   it("(stale) Apply anyway re-attempts the accept EXPLICITLY", async () => {

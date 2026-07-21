@@ -142,6 +142,8 @@ describe("useProposalActions — disposal signal precision", () => {
     ["applied", { status: "applied", proposal_id: "p1", item_id: "wi_1" }],
     ["not_pending", { status: "not_pending", proposal_id: "p1" }],
     ["not_found", { status: "not_found", proposal_id: "p1" }],
+    // A non-retryable failed is terminal — the server already flipped it to failed.
+    ["failed (non-retryable)", { status: "failed", proposal_id: "p1", message: "nope", retryable: false }],
   ] as const)("broadcasts when accept leaves the pending set (%s)", async (_label, outcome) => {
     const { result } = renderHook(() =>
       useProposalActions("p1", { repository: repoWithOutcome(outcome as AcceptResult) }),
@@ -154,7 +156,8 @@ describe("useProposalActions — disposal signal precision", () => {
   it.each([
     ["stale", { status: "stale", proposal_id: "p1", item_id: "wi_1", message: "changed" }],
     ["invalid", { status: "invalid", proposal_id: "p1", message: "bad", retryable: true }],
-    ["failed", { status: "failed", proposal_id: "p1", message: "nope", retryable: false }],
+    // A RETRYABLE failed is transient — the proposal stays pending.
+    ["failed (retryable)", { status: "failed", proposal_id: "p1", message: "transient", retryable: true }],
   ] as const)("does NOT broadcast when accept stays pending (%s)", async (_label, outcome) => {
     const { result } = renderHook(() =>
       useProposalActions("p1", { repository: repoWithOutcome(outcome as AcceptResult) }),
