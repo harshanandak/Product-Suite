@@ -12,6 +12,7 @@ import { Button, EmptyState, ErrorState } from "@product-suite/ui";
 import { InboxScreen } from "./boards/inbox/InboxScreen";
 import { MemoryScreen } from "./boards/memory/MemoryScreen";
 import { WorkItemDetailScreen } from "./boards/workboard/detail/WorkItemDetailScreen";
+import { WorkboardViewsScreen } from "./boards/workboard/views/WorkboardViewsScreen";
 import {
   TeamItemsScreen,
   WorkboardScreen,
@@ -112,6 +113,14 @@ const workboardGraphRoute = createRoute({
     throw redirect({ to: "/w/$workspace/workboard", params });
   },
 });
+// Saved Views list surface (Phase 2) — the named Layout×Group×Filter×Sort combos
+// the workboard toolbar saves. Applying one writes its config to the workboard's
+// storage key and navigates back to the work-items surface, which restores it.
+const workboardViewsRoute = createRoute({
+  getParentRoute: () => workspaceRoute,
+  path: "workboard/views",
+  component: WorkboardViewsScreen,
+});
 // The work-item DETAIL page — a real route (not the editor Sheet) so an item has
 // a durable, linkable home with room for its tabs (Overview/Tasks/…).
 const workboardItemRoute = createRoute({
@@ -206,6 +215,7 @@ const routeTree = rootRoute.addChildren([
     memoryRoute,
     workboardRoute,
     workboardGraphRoute,
+    workboardViewsRoute,
     workboardItemRoute,
     workboardTeamRoute,
     meetingsRoute,
