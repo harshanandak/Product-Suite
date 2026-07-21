@@ -25,6 +25,49 @@ permissions:
   contents: read
 
 jobs:
+  # Preflight MUST pass before `migrate` touches the shared prod DB. It runs
+  # the same verification `deploy` needs (typecheck + test) AND fails fast when
+  # the Cloudflare deploy credentials are missing, so a run that would fail to
+  # typecheck/test, or that could never actually deploy, never applies a
+  # migration to the shared Neon DB first (kernel finding: verification lived
+  # downstream of migrate, so a broken build / missing deploy creds was only
+  # discovered AFTER the irreversible migration had already run). Gated to the
+  # exact same conditions as `migrate` (workflow_dispatch AND refs/heads/main)
+  # so it only runs in the real, human-started deploy path.
+  preflight:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Check Cloudflare deploy credentials
+        shell: bash
+        env:
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$CF_API_TOKEN" ] || [ -z "$CF_ACCOUNT_ID" ]; then
+            echo "::error::Required deploy secrets (CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID) not set — refusing to run migrations for a deploy that could never complete. Add them in repo Settings -> Secrets and variables -> Actions to enable this pipeline."
+            exit 1
+          fi
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.6
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Run platform-api checks
+        # typecheck + test — the same gate the Worker needs (root package.json
+        # `verify:platform-api`). A broken build must fail HERE, before any
+        # migration touches the shared prod DB.
+        run: bun run verify:platform-api
+
   # Applying drizzle migrations against the shared Neon DB is the one
   # irreversible step in this pipeline (kernel issue 9256d8e4 — the deploy
   # pipeline previously never ran migrations at all, so the shared DB drifted
@@ -51,6 +94,11 @@ jobs:
   # timestamps for ALREADY-APPLIED migrations breaks the migrator — treat
   # that as a breaking act, never a routine `drizzle-kit generate`).
   migrate:
+    # `needs: [preflight]` is the ordering fix: GitHub's default needs-gate runs
+    # migrate ONLY after preflight succeeds (a skipped/failed preflight skips
+    # migrate), so verification + the deploy-credential check always happen
+    # BEFORE this irreversible step. The three human gates below are unchanged.
+    needs: [preflight]
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: db-migrate-production
@@ -95,7 +143,7 @@ jobs:
         run: bun run migrate
 
   deploy:
-    needs: migrate
+    needs: [migrate]
     # No custom `if:` here on purpose. GitHub Actions' default gate for a job
     # with `needs:` runs it ONLY when every needed job completed successfully
     # — a *skipped* needed job does not count as success, so this job is
@@ -136,13 +184,12 @@ jobs:
         if: steps.guard.outputs.ready == 'true'
         run: bun install --frozen-lockfile --ignore-scripts
 
-      - name: Run platform-api checks
-        if: steps.guard.outputs.ready == 'true'
-        # typecheck + test — the same gate apps/platform-api already has
-        # defined (root package.json `verify:platform-api`) but which no CI
-        # workflow runs today. A broken build must not reach the Worker.
-        run: bun run verify:platform-api
-
+      # No verify step here: the `preflight` job (which gates `migrate`, which
+      # gates this job) already ran `verify:platform-api` before any migration,
+      # so re-running the full typecheck+test suite on the same commit here
+      # would be redundant. The `guard` above stays as cheap defense-in-depth —
+      # preflight already hard-fails on missing creds, so `ready` is expected
+      # true whenever this job runs.
       - name: Deploy Worker (production)
         if: steps.guard.outputs.ready == 'true'
         working-directory: apps/platform-api
