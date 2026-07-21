@@ -449,6 +449,22 @@ describe("WorkboardKanban", () => {
     ]);
   });
 
+  it("falls back to a phase board for a grouping the board has no column model for (project)", async () => {
+    // `project`/`cycle`/`assignee` are valid GroupByField tokens but the board
+    // builds no columns for them yet (Phase 4 data), so it defaults to the phase
+    // (Status) axis rather than throwing.
+    const rows = await loadRows();
+    renderKanban({ rows, groupBy: "project" });
+
+    const columns = await screen.findAllByTestId("kanban-column");
+    expect(columns.map((node) => node.dataset.phase)).toEqual([
+      "plan",
+      "execute",
+      "review",
+      "done",
+    ]);
+  });
+
   it("renders a read-only non-phase board without a mutator", async () => {
     const rows = await loadRows();
     // No onUpdateItem → read-only, but the pivot still renders every column.

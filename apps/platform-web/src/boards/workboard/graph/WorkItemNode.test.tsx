@@ -129,14 +129,14 @@ describe("WorkItemNode", () => {
       onUpdateItem: vi.fn().mockResolvedValue(undefined),
     });
     await screen.findByTestId("graph-node", undefined, SLOW);
-    expect(screen.getByLabelText("Phase for Test item")).toBeInTheDocument();
+    expect(screen.getByLabelText("Status for Test item")).toBeInTheDocument();
   });
 
   it("falls back to a read-only phase pill with no mutator", async () => {
     renderNode({ onUpdateItem: undefined });
     await screen.findByTestId("graph-node", undefined, SLOW);
     expect(
-      screen.queryByLabelText("Phase for Test item"),
+      screen.queryByLabelText("Status for Test item"),
     ).not.toBeInTheDocument();
   });
 });

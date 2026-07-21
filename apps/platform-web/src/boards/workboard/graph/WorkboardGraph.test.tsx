@@ -133,18 +133,18 @@ describe("WorkboardGraph", () => {
     expect(
       await screen.findByRole("tab", { name: "Dependencies" }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Phase" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Status" })).toBeInTheDocument();
     expect(screen.getByTestId("graph-auto-layout")).toBeInTheDocument();
   });
 
-  it("switches to Phase mode and renders the four swimlanes", async () => {
+  it("switches to Status (phase) mode and renders the four swimlanes", async () => {
     const rows = await loadRows();
     const dependencies = await loadDependencies();
     renderGraph({ rows, dependencies });
 
     // Radix Tabs activate on pointer/mouse-down (a bare click does not flip the
     // selection in jsdom), so drive the toggle via mouseDown.
-    fireEvent.mouseDown(await screen.findByRole("tab", { name: "Phase" }));
+    fireEvent.mouseDown(await screen.findByRole("tab", { name: "Status" }));
 
     await waitFor(() => {
       expect(screen.getAllByTestId("graph-phase-lane")).toHaveLength(4);
@@ -181,7 +181,7 @@ describe("WorkboardGraph", () => {
 
     // The editable PhaseSelect exposes an aria-labelled combobox per node.
     expect(
-      await screen.findByLabelText("Phase for Workspace auth hardening"),
+      await screen.findByLabelText("Status for Workspace auth hardening"),
     ).toBeInTheDocument();
   });
 
@@ -193,7 +193,7 @@ describe("WorkboardGraph", () => {
     // A node still renders, but the phase control falls back to a read-only pill.
     await screen.findByLabelText("Open Workspace auth hardening");
     expect(
-      screen.queryByLabelText("Phase for Workspace auth hardening"),
+      screen.queryByLabelText("Status for Workspace auth hardening"),
     ).not.toBeInTheDocument();
   });
 

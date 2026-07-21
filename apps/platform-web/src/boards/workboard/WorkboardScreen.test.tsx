@@ -39,9 +39,16 @@ import { WorkboardScreen } from "./WorkboardScreen";
 // The real TanStack `navigate` returns a Promise; the screen calls
 // `.catch(...)` on it, so the mock must resolve to keep that chain valid.
 const navMock = vi.hoisted(() => ({ fn: vi.fn(() => Promise.resolve()) }));
+// The screen reads an optional `?layout=` search seed; default to none, and let
+// individual tests set it to exercise the deep-link path (e.g. the graph
+// redirect landing as `?layout=graph`).
+const searchMock = vi.hoisted(() => ({
+  value: {} as { layout?: string },
+}));
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => navMock.fn,
   useParams: () => ({ workspace: "acme" }),
+  useSearch: () => searchMock.value,
 }));
 
 // For the context-repository test: a signed-in Clerk token so the network repo
@@ -142,6 +149,7 @@ afterAll(() => {
 beforeEach(() => {
   window.localStorage.clear();
   navMock.fn.mockClear();
+  searchMock.value = {};
 });
 
 // sonner's toast queue is module-global; clear it between tests so a toast from
@@ -229,11 +237,8 @@ describe("WorkboardScreen", () => {
     window.localStorage.setItem(
       FILTER_STORAGE_KEY,
       serializePersistedView({
-        filterState: {
-          ...base,
-          filters: { ...base.filters, team: new Set(["Marketing"]) },
-        },
-        view: "table",
+        ...base,
+        filters: { ...base.filters, team: new Set(["Marketing"]) },
       }),
     );
 
@@ -585,11 +590,8 @@ describe("WorkboardScreen", () => {
     window.localStorage.setItem(
       FILTER_STORAGE_KEY,
       serializePersistedView({
-        filterState: {
-          ...defaults,
-          filters: { ...defaults.filters, team: new Set(["Sourcing"]) },
-        },
-        view: "table",
+        ...defaults,
+        filters: { ...defaults.filters, team: new Set(["Sourcing"]) },
       }),
     );
 
@@ -632,12 +634,9 @@ describe("WorkboardScreen", () => {
     window.localStorage.setItem(
       FILTER_STORAGE_KEY,
       serializePersistedView({
-        filterState: {
-          ...defaults,
-          search: "zzz-no-such-item-zzz",
-          filters: { ...defaults.filters, team: new Set(["Sourcing"]) },
-        },
-        view: "table",
+        ...defaults,
+        search: "zzz-no-such-item-zzz",
+        filters: { ...defaults.filters, team: new Set(["Sourcing"]) },
       }),
     );
 
@@ -946,13 +945,10 @@ describe("WorkboardScreen", () => {
     window.localStorage.setItem(
       FILTER_STORAGE_KEY,
       serializePersistedView({
-        filterState: {
-          ...base,
-          search: "auth",
-          groupBy: "type",
-          visibleColumns,
-        },
-        view: "table",
+        ...base,
+        search: "auth",
+        groupBy: "type",
+        visibleColumns,
       }),
     );
 
@@ -982,11 +978,8 @@ describe("WorkboardScreen", () => {
     window.localStorage.setItem(
       FILTER_STORAGE_KEY,
       serializePersistedView({
-        filterState: {
-          ...base,
-          filters: { ...base.filters, phase: new Set(["execute"] as const) },
-        },
-        view: "table",
+        ...base,
+        filters: { ...base.filters, phase: new Set(["execute"] as const) },
       }),
     );
 
@@ -1008,32 +1001,81 @@ describe("WorkboardScreen", () => {
     ).toBeChecked();
   });
 
-  it("restores the persisted Kanban view from localStorage", async () => {
+  it("restores the persisted Board layout from localStorage", async () => {
     window.localStorage.setItem(
       FILTER_STORAGE_KEY,
       serializePersistedView({
-        filterState: defaultWorkboardFilterState(),
-        view: "kanban",
+        ...defaultWorkboardFilterState(),
+        layout: "board",
       }),
     );
 
     render(<WorkboardScreen repository={createMockWorkItemRepository()} />);
 
-    // The Kanban board (not the table grid) is the first surface shown.
+    // The Board (Kanban) surface — not the table grid — is shown first.
     expect(await screen.findByTestId("workboard-kanban")).toBeInTheDocument();
     expect(
       screen.queryByRole("grid", { name: "Work items" }),
     ).not.toBeInTheDocument();
   });
 
+  it("renders the Graph layout inside a definite-height frame (React Flow needs it)", async () => {
+    // Regression guard: React Flow renders nothing unless an ancestor supplies a
+    // DEFINITE height. Folded into the in-flow Items surface (no full-height
+    // route), the graph branch must wrap the canvas in a sized frame — without
+    // it the canvas collapses to 0px and the graph is invisible.
+    window.localStorage.setItem(
+      FILTER_STORAGE_KEY,
+      serializePersistedView({
+        ...defaultWorkboardFilterState(),
+        layout: "graph",
+      }),
+    );
+
+    render(<WorkboardScreen repository={createMockWorkItemRepository()} />);
+
+    const frame = await screen.findByTestId("workboard-graph-frame");
+    // A definite height (viewport calc) with a floor so React Flow always has a
+    // non-zero box to measure.
+    expect(frame.className).toContain("min-h-[480px]");
+    expect(frame.className).toContain("h-[calc(100vh-13rem)]");
+    // The table grid must NOT be the active surface in the Graph layout.
+    expect(
+      screen.queryByRole("grid", { name: "Work items" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("seeds the initial layout from a ?layout=graph deep link (the /workboard/graph redirect)", async () => {
+    // No persisted blob → default layout is List; the search seed must win so a
+    // legacy /workboard/graph link (redirected to ?layout=graph) opens the graph.
+    searchMock.value = { layout: "graph" };
+
+    render(<WorkboardScreen repository={createMockWorkItemRepository()} />);
+
+    expect(await screen.findByTestId("workboard-graph-frame")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("grid", { name: "Work items" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("clears the consumed ?layout= seed from the URL (replace, no history) — Codex #114", async () => {
+    searchMock.value = { layout: "graph" };
+
+    render(<WorkboardScreen repository={createMockWorkItemRepository()} />);
+    await screen.findByTestId("workboard-graph-frame");
+
+    // The seed is stripped via a replace-navigation to the bare workboard route,
+    // so it can't linger in the URL and re-apply on later navigation.
+    expect(navMock.fn).toHaveBeenCalledWith(
+      expect.objectContaining({ replace: true, search: {} }),
+    );
+  });
+
   it("never restores a stale selection — selection rehydrates empty", async () => {
     // Hand-craft a blob carrying a selection key (the serializer never writes
     // one); the parser must ignore it so no rows start selected.
     const valid = JSON.parse(
-      serializePersistedView({
-        filterState: defaultWorkboardFilterState(),
-        view: "table",
-      }),
+      serializePersistedView(defaultWorkboardFilterState()),
     );
     window.localStorage.setItem(
       FILTER_STORAGE_KEY,
