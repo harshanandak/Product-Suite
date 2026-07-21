@@ -769,28 +769,38 @@ export function WorkboardScreen({
         onUpdateItem={update}
       />
     ) : filterState.layout === "graph" ? (
-      <Suspense fallback={<GraphLoadingFallback />}>
-        <WorkboardGraph
-          rows={rows}
-          dependencies={dependencies}
-          owners={owners}
-          loading={loading}
-          error={error}
-          onRetry={refetch}
-          onSelectItem={handleSelectItem}
-          onUpdateItem={update}
-          onAddDependency={addDependency}
-          onRemoveDependency={removeDependency}
-          filters={
-            <GraphFilters
-              value={filterState}
-              onChange={setFilterState}
-              owners={owners}
-              departments={teams}
-            />
-          }
-        />
-      </Suspense>
+      // The graph is a React Flow canvas whose root is `h-full`; it renders
+      // nothing unless an ancestor gives a DEFINITE height (the ex-standalone
+      // screen got it from the full-height route). Folded into the in-flow Items
+      // surface, this wrapper supplies that height so the canvas fills the
+      // viewport below the top bar + toolbar.
+      <div
+        data-testid="workboard-graph-frame"
+        className="h-[calc(100vh-13rem)] min-h-[480px]"
+      >
+        <Suspense fallback={<GraphLoadingFallback />}>
+          <WorkboardGraph
+            rows={rows}
+            dependencies={dependencies}
+            owners={owners}
+            loading={loading}
+            error={error}
+            onRetry={refetch}
+            onSelectItem={handleSelectItem}
+            onUpdateItem={update}
+            onAddDependency={addDependency}
+            onRemoveDependency={removeDependency}
+            filters={
+              <GraphFilters
+                value={filterState}
+                onChange={setFilterState}
+                owners={owners}
+                departments={teams}
+              />
+            }
+          />
+        </Suspense>
+      </div>
     ) : (
       <WorkboardTable
         rows={rows}

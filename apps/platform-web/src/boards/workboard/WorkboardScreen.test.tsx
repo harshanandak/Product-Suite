@@ -1011,6 +1011,32 @@ describe("WorkboardScreen", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("renders the Graph layout inside a definite-height frame (React Flow needs it)", async () => {
+    // Regression guard: React Flow renders nothing unless an ancestor supplies a
+    // DEFINITE height. Folded into the in-flow Items surface (no full-height
+    // route), the graph branch must wrap the canvas in a sized frame — without
+    // it the canvas collapses to 0px and the graph is invisible.
+    window.localStorage.setItem(
+      FILTER_STORAGE_KEY,
+      serializePersistedView({
+        ...defaultWorkboardFilterState(),
+        layout: "graph",
+      }),
+    );
+
+    render(<WorkboardScreen repository={createMockWorkItemRepository()} />);
+
+    const frame = await screen.findByTestId("workboard-graph-frame");
+    // A definite height (viewport calc) with a floor so React Flow always has a
+    // non-zero box to measure.
+    expect(frame.className).toContain("min-h-[480px]");
+    expect(frame.className).toContain("h-[calc(100vh-13rem)]");
+    // The table grid must NOT be the active surface in the Graph layout.
+    expect(
+      screen.queryByRole("grid", { name: "Work items" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("never restores a stale selection — selection rehydrates empty", async () => {
     // Hand-craft a blob carrying a selection key (the serializer never writes
     // one); the parser must ignore it so no rows start selected.
