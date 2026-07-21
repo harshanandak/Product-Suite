@@ -5,15 +5,16 @@ import { renderWithRouter } from "../test/harness";
 import { BoardDock } from "./BoardDock";
 
 describe("BoardDock", () => {
-  it("renders the five board links and marks the active board", async () => {
+  it("renders the four board links and marks the active board", async () => {
     renderWithRouter(
       <BoardDock workspace="test-ws" activeBoard="workboard" />,
       { path: "/w/test-ws/workboard" },
     );
 
-    // The same five icons in fixed order on every screen (DESIGN §2).
+    // The same four icons in fixed order on every screen (DESIGN §2); the Agent
+    // board was deleted in Phase 5.
     // findBy* waits for the async RouterProvider to mount the route content.
-    const labels = ["Home", "Workboard", "Meeting board", "Canvas board", "Agent board"];
+    const labels = ["Home", "Workboard", "Meeting board", "Canvas board"];
     for (const label of labels) {
       expect(await screen.findByRole("link", { name: label })).toBeDefined();
     }
@@ -30,15 +31,15 @@ describe("BoardDock", () => {
     expect(homeLink.dataset.active).toBeUndefined();
   });
 
-  it("keeps all five boards in the DOM when collapsed, hiding the non-active ones", async () => {
+  it("keeps all four boards in the DOM when collapsed, hiding the non-active ones", async () => {
     renderWithRouter(
       <BoardDock workspace="test-ws" activeBoard="workboard" collapsed />,
       { path: "/w/test-ws/workboard" },
     );
 
-    // All five stay reachable (accessibility tree + keyboard) even at rest, so
+    // All four stay reachable (accessibility tree + keyboard) even at rest, so
     // browse-mode screen-reader users can still discover the other boards...
-    const labels = ["Home", "Workboard", "Meeting board", "Canvas board", "Agent board"];
+    const labels = ["Home", "Workboard", "Meeting board", "Canvas board"];
     for (const label of labels) {
       expect(await screen.findByRole("link", { name: label })).toBeInTheDocument();
     }
@@ -60,6 +61,6 @@ describe("BoardDock", () => {
       { path: "/w/test-ws/settings" },
     );
 
-    expect((await screen.findAllByRole("link")).length).toBe(5);
+    expect((await screen.findAllByRole("link")).length).toBe(4);
   });
 });

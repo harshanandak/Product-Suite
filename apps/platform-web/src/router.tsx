@@ -197,30 +197,10 @@ const canvasSharedRoute = createRoute({
   component: BoardScreen,
 });
 
-const agentsRoute = createRoute({
-  getParentRoute: () => workspaceRoute,
-  path: "agents",
-  component: BoardScreen,
-});
-const agentsApprovalsRoute = createRoute({
-  getParentRoute: () => workspaceRoute,
-  path: "agents/approvals",
-  component: BoardScreen,
-});
-const agentsConnectorsRoute = createRoute({
-  getParentRoute: () => workspaceRoute,
-  path: "agents/connectors",
-  component: BoardScreen,
-});
-const agentsHistoryRoute = createRoute({
-  getParentRoute: () => workspaceRoute,
-  path: "agents/history",
-  component: BoardScreen,
-});
-
 // Settings renders the real Settings screen (Agents › Connectors + config),
 // which rehomes what the deleted Agent board carried. Reachable via ⌘K →
-// "Settings" and the /w/$workspace/settings route.
+// "Settings" and the /w/$workspace/settings route. The standalone Agent board
+// and its agents/* routes are gone — agents/* now 404s via the root notFound.
 const settingsRoute = createRoute({
   getParentRoute: () => workspaceRoute,
   path: "settings",
@@ -248,10 +228,6 @@ const routeTree = rootRoute.addChildren([
     canvasRoute,
     canvasStarredRoute,
     canvasSharedRoute,
-    agentsRoute,
-    agentsApprovalsRoute,
-    agentsConnectorsRoute,
-    agentsHistoryRoute,
     settingsRoute,
   ]),
 ]);

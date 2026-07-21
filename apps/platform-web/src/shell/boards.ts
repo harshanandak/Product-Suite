@@ -1,19 +1,13 @@
 import {
-  Activity,
-  Bot,
   Calendar,
   Cpu,
   Frame,
-  History,
   Home,
   Inbox,
   LayoutGrid,
   ListChecks,
   MessageSquare,
   Newspaper,
-  Plug,
-  Plus,
-  ShieldCheck,
   Star,
   Target,
   Users,
@@ -35,7 +29,7 @@ import type { LinkProps } from "@tanstack/react-router";
  *   area, never here.
  */
 
-export type BoardId = "home" | "workboard" | "meetings" | "canvas" | "agents";
+export type BoardId = "home" | "workboard" | "meetings" | "canvas";
 
 /** A route target template (TanStack `to`), e.g. `/w/$workspace/workboard`. */
 export type To = NonNullable<LinkProps["to"]>;
@@ -230,49 +224,6 @@ export const BOARDS: BoardDef[] = [
       },
     ],
   },
-  {
-    id: "agents",
-    title: "Agent board",
-    label: "Agent board",
-    icon: Bot,
-    entry: "/w/$workspace/agents",
-    items: [
-      {
-        key: "runs",
-        label: "Runs",
-        to: "/w/$workspace/agents",
-        icon: Activity,
-      },
-      {
-        key: "approvals",
-        label: "Approvals",
-        to: "/w/$workspace/agents/approvals",
-        icon: ShieldCheck,
-        count: 1,
-      },
-      {
-        key: "connectors",
-        label: "Connectors",
-        to: "/w/$workspace/agents/connectors",
-        icon: Plug,
-      },
-      {
-        key: "history",
-        label: "Action history",
-        to: "/w/$workspace/agents/history",
-        icon: History,
-      },
-      { key: "your-agents", label: "Your agents", section: true },
-      {
-        key: "sourcing-scout",
-        label: "sourcing-scout",
-        icon: Bot,
-        prototypeOnly: true,
-      },
-      { key: "qa-bot", label: "qa-bot", icon: Bot, prototypeOnly: true },
-      { key: "new-agent", label: "New agent…", icon: Plus, prototypeOnly: true },
-    ],
-  },
 ];
 
 export function getBoard(id: BoardId): BoardDef {
@@ -345,8 +296,6 @@ export function deriveActiveBoard(
       return "meetings";
     case "canvas":
       return "canvas";
-    case "agents":
-      return "agents";
     default:
       return null;
   }

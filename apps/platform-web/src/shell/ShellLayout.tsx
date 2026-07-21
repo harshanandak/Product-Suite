@@ -167,7 +167,7 @@ function ShellChrome() {
         setPaletteOpen((open) => !open);
         return;
       }
-      if (mod && !paletteOpen && event.key >= "1" && event.key <= "5") {
+      if (mod && !paletteOpen && event.key >= "1" && event.key <= "4") {
         const board = BOARDS[Number(event.key) - 1];
         if (board) {
           event.preventDefault();
