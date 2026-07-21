@@ -26,9 +26,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   Input,
-  Tabs,
-  TabsList,
-  TabsTrigger,
   PHASE_LABELS,
   PRIORITY_LABELS,
   PRIORITY_ORDER,
@@ -45,11 +42,18 @@ import type { Owner, WorkItemPatch } from "@/data/work-items";
 import {
   COLUMN_IDS,
   FILTER_OWNER_UNASSIGNED,
+  GROUP_BY_FIELDS,
+  SORT_BY_FIELDS,
+  TASKS_VISIBILITIES,
+  WORKBOARD_LAYOUTS,
   toggledSet,
   type ColumnId,
   type GroupByField,
   type SavedView,
+  type SortByField,
+  type TasksVisibility,
   type WorkboardFilterState,
+  type WorkboardLayout,
 } from "../filter-state";
 
 import type { ColumnFilter } from "../table/WorkboardTable";
@@ -95,16 +99,12 @@ export interface WorkboardToolbarProps {
   value: WorkboardFilterState;
   /** Fired with a NEW state object on every change (controlled contract). */
   onChange: (next: WorkboardFilterState) => void;
-  /** Active board view; drives the leading Table/Kanban segmented switcher. */
-  view: "table" | "kanban";
-  /** Fired when the user switches between the Table and Kanban views. */
-  onViewChange: (view: "table" | "kanban") => void;
   /**
-   * Per-column facet configs (Type / Phase / Priority / Owner). The Table view
-   * renders these in its column headers; Kanban has no headers, so the toolbar
-   * renders them for that view. Both consume the SAME config, so a filter set in
-   * either view flows through the shared filter state. Omitted on views without
-   * column facets.
+   * Per-column facet configs (Type / Phase / Priority / Owner). The List layout
+   * renders these in its column headers; Board/Graph have no headers, so the
+   * toolbar renders them for those layouts. Both consume the SAME config, so a
+   * filter set anywhere flows through the shared filter state. Omitted on
+   * surfaces without column facets.
    */
   columnFilters?: Partial<Record<ColumnId, ColumnFilter>>;
   /** The pickable owners; feeds the Owner facet filter (plus "Unassigned"). */
@@ -152,23 +152,45 @@ export interface WorkboardToolbarProps {
   onDeleteView: (id: string) => void;
 }
 
-/** Group-by options in canonical order — labels for the 5 {@link GroupByField}s. */
-const GROUP_BY_LABELS: Record<GroupByField, string> = {
-  none: "No grouping",
-  team: "Team",
-  phase: "Status",
-  priority: "Priority",
-  type: "Type",
+/** Layout labels — the three {@link WorkboardLayout} renderers (DESIGN §B). */
+const LAYOUT_LABELS: Record<WorkboardLayout, string> = {
+  list: "List",
+  board: "Board",
+  graph: "Graph",
 };
 
-/** Render order for the group-by menu (matches {@link GroupByField}). */
-const GROUP_BY_ORDER: readonly GroupByField[] = [
-  "none",
-  "team",
-  "phase",
-  "priority",
-  "type",
-];
+/**
+ * Group-by labels for ALL {@link GroupByField}s (DESIGN §B order:
+ * Status·Project·Cycle·Priority·Assignee·Team·Type·None). `phase` is labelled
+ * "Status" (the label-only rename that kept the `phase` token); `none` reads
+ * "No grouping". The menu maps over {@link GROUP_BY_FIELDS} for its order.
+ */
+const GROUP_BY_LABELS: Record<GroupByField, string> = {
+  phase: "Status",
+  project: "Project",
+  cycle: "Cycle",
+  priority: "Priority",
+  assignee: "Assignee",
+  team: "Team",
+  type: "Type",
+  none: "No grouping",
+};
+
+/** Sort labels — the five {@link SortByField}s (DESIGN §B). */
+const SORT_BY_LABELS: Record<SortByField, string> = {
+  manual: "Manual",
+  priority: "Priority",
+  updated: "Updated",
+  created: "Created",
+  due: "Due",
+};
+
+/** Tasks-visibility labels — the three {@link TasksVisibility}s (DESIGN §B). */
+const TASKS_LABELS: Record<TasksVisibility, string> = {
+  nested: "Nested",
+  flat: "Flat",
+  hidden: "Hidden",
+};
 
 /** Human labels for the toggleable columns (sentence case). */
 const COLUMN_LABELS: Record<ColumnId, string> = {
@@ -246,8 +268,6 @@ function facetChips<T extends string>(
 export function WorkboardToolbar({
   value,
   onChange,
-  view,
-  onViewChange,
   owners,
   teams,
   hideTeamFacet = false,
@@ -378,8 +398,20 @@ export function WorkboardToolbar({
 
   // --- Group-by & columns -------------------------------------------------
 
+  const setLayout = (layout: WorkboardLayout): void => {
+    onChange({ ...value, layout });
+  };
+
   const setGroupBy = (groupBy: GroupByField): void => {
     onChange({ ...value, groupBy });
+  };
+
+  const setSortBy = (sortBy: SortByField): void => {
+    onChange({ ...value, sortBy });
+  };
+
+  const setTasks = (tasks: TasksVisibility): void => {
+    onChange({ ...value, tasks });
   };
 
   const toggleColumn = (column: ColumnId): void => {
@@ -434,19 +466,31 @@ export function WorkboardToolbar({
       aria-orientation="horizontal"
       className="flex flex-wrap items-center gap-2"
     >
-      {/* View switcher — Table / Kanban. Leads the toolbar (the page header and
-          its standalone tabs row were removed; this is now the sole view control). */}
-      <Tabs
-        value={view}
-        onValueChange={(next) =>
-          onViewChange(next === "kanban" ? "kanban" : "table")
-        }
-      >
-        <TabsList aria-label="Workboard view">
-          <TabsTrigger value="table">Table</TabsTrigger>
-          <TabsTrigger value="kanban">Kanban</TabsTrigger>
-        </TabsList>
-      </Tabs>
+      {/* Layout — List / Board / Graph. Leads the display-options row (DESIGN §B):
+          the single Item surface, three renderers over the same filtered set. */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="sm" aria-label="Layout">
+            Layout: {LAYOUT_LABELS[value.layout]}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="min-w-40">
+          <DropdownMenuLabel>Layout</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuRadioGroup
+            value={value.layout}
+            onValueChange={(next) => {
+              setLayout(next as WorkboardLayout);
+            }}
+          >
+            {WORKBOARD_LAYOUTS.map((layout) => (
+              <DropdownMenuRadioItem key={layout} value={layout}>
+                {LAYOUT_LABELS[layout]}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       {/* Search */}
       <div className="relative">
@@ -477,7 +521,8 @@ export function WorkboardToolbar({
           consumes, so a filter set here flows through the shared filter state.
           A still-visible column keeps its facet in the header (no duplicate). */}
       {HEADER_FACETS.map(({ id, label }) => {
-        const headerHidden = view === "kanban" || !value.visibleColumns.has(id);
+        const headerHidden =
+          value.layout !== "list" || !value.visibleColumns.has(id);
         if (!headerHidden) return null;
         const facet = columnFilters?.[id];
         return facet ? (
@@ -540,9 +585,59 @@ export function WorkboardToolbar({
               setGroupBy(next as GroupByField);
             }}
           >
-            {GROUP_BY_ORDER.map((field) => (
+            {GROUP_BY_FIELDS.map((field) => (
               <DropdownMenuRadioItem key={field} value={field}>
                 {GROUP_BY_LABELS[field]}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {/* Sort — row ordering within each group (DESIGN §B). */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="sm" aria-label="Sort by">
+            Sort: {SORT_BY_LABELS[value.sortBy]}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="min-w-40">
+          <DropdownMenuLabel>Sort by</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuRadioGroup
+            value={value.sortBy}
+            onValueChange={(next) => {
+              setSortBy(next as SortByField);
+            }}
+          >
+            {SORT_BY_FIELDS.map((field) => (
+              <DropdownMenuRadioItem key={field} value={field}>
+                {SORT_BY_LABELS[field]}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {/* Tasks — sub-item visibility (DESIGN §B): Nested / Flat / Hidden. */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="sm" aria-label="Tasks">
+            Tasks: {TASKS_LABELS[value.tasks]}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="min-w-40">
+          <DropdownMenuLabel>Tasks</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuRadioGroup
+            value={value.tasks}
+            onValueChange={(next) => {
+              setTasks(next as TasksVisibility);
+            }}
+          >
+            {TASKS_VISIBILITIES.map((visibility) => (
+              <DropdownMenuRadioItem key={visibility} value={visibility}>
+                {TASKS_LABELS[visibility]}
               </DropdownMenuRadioItem>
             ))}
           </DropdownMenuRadioGroup>

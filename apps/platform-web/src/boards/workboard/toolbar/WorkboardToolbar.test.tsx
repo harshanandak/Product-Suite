@@ -53,7 +53,6 @@ const TEAMS: ReadonlyArray<string> = ["Engineering", "Design"];
 function renderToolbar(overrides?: {
   value?: Partial<WorkboardFilterState>;
   selectedCount?: number;
-  view?: "table" | "kanban";
   columnFilters?: Partial<Record<ColumnId, ColumnFilter>>;
   savedViews?: ReadonlyArray<SavedView>;
   hideTeamFacet?: boolean;
@@ -61,7 +60,6 @@ function renderToolbar(overrides?: {
   const onChange = vi.fn<(next: WorkboardFilterState) => void>();
   const onNewItem = vi.fn();
   const onBulkApply = vi.fn<(patch: WorkItemPatch) => void>();
-  const onViewChange = vi.fn<(view: "table" | "kanban") => void>();
   const onApplyView = vi.fn<(view: SavedView) => void>();
   const onSaveView = vi.fn<(name: string) => void>();
   const onDeleteView = vi.fn<(id: string) => void>();
@@ -74,8 +72,6 @@ function renderToolbar(overrides?: {
     <WorkboardToolbar
       value={value}
       onChange={onChange}
-      view={overrides?.view ?? "table"}
-      onViewChange={onViewChange}
       owners={OWNERS}
       teams={TEAMS}
       hideTeamFacet={overrides?.hideTeamFacet}
@@ -94,7 +90,6 @@ function renderToolbar(overrides?: {
     onChange,
     onNewItem,
     onBulkApply,
-    onViewChange,
     onApplyView,
     onSaveView,
     onDeleteView,
@@ -117,16 +112,52 @@ function openMenu(triggerName: string | RegExp): void {
 }
 
 describe("WorkboardToolbar", () => {
-  it("renders the Table/Kanban view switcher and reports the picked view", () => {
-    const { onViewChange } = renderToolbar();
-    // The switcher leads the toolbar (the page header + standalone tabs row were
-    // removed), exposing both views as tabs…
-    expect(screen.getByRole("tab", { name: "Table" })).toBeInTheDocument();
-    // …and picking one reports the normalized view up to the screen. Radix tabs
-    // activate on mousedown (the left-button handler), not the synthetic click
-    // event, so drive mousedown to mirror a real pointer pick.
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Kanban" }));
-    expect(onViewChange).toHaveBeenCalledWith("kanban");
+  it("renders the Layout menu defaulting to List and reports the picked layout", async () => {
+    const { lastChange } = renderToolbar();
+    // The Layout control leads the display-options row, showing the default.
+    expect(
+      screen.getByRole("button", { name: "Layout" }),
+    ).toHaveTextContent("List");
+    openMenu("Layout");
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "Board" }));
+    expect(lastChange().layout).toBe("board");
+  });
+
+  it("offers all three layouts (List/Board/Graph) in the Layout menu", async () => {
+    renderToolbar();
+    openMenu("Layout");
+    for (const layout of ["List", "Board", "Graph"]) {
+      expect(
+        await screen.findByRole("menuitemradio", { name: layout }),
+      ).toBeInTheDocument();
+    }
+  });
+
+  it("renders the Sort menu defaulting to Updated and reports the picked field", async () => {
+    const { lastChange } = renderToolbar();
+    expect(
+      screen.getByRole("button", { name: "Sort by" }),
+    ).toHaveTextContent("Updated");
+    openMenu("Sort by");
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "Priority" }));
+    expect(lastChange().sortBy).toBe("priority");
+  });
+
+  it("renders the Tasks menu defaulting to Nested and reports the picked visibility", async () => {
+    const { lastChange } = renderToolbar();
+    expect(
+      screen.getByRole("button", { name: "Tasks" }),
+    ).toHaveTextContent("Nested");
+    openMenu("Tasks");
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "Flat" }));
+    expect(lastChange().tasks).toBe("flat");
+  });
+
+  it("labels the Group control with the default Status grouping", () => {
+    renderToolbar();
+    expect(
+      screen.getByRole("button", { name: "Group by" }),
+    ).toHaveTextContent("Status");
   });
 
   it("renders the search input with placeholder and the '/' hint", () => {
@@ -211,8 +242,8 @@ describe("WorkboardToolbar", () => {
     },
   };
 
-  it("renders the Type/Phase/Priority/Owner facets in the toolbar for the Kanban view", () => {
-    renderToolbar({ view: "kanban", columnFilters: COLUMN_FILTERS });
+  it("renders the Type/Phase/Priority/Owner facets in the toolbar for the Board layout", () => {
+    renderToolbar({ value: { layout: "board" }, columnFilters: COLUMN_FILTERS });
     for (const facet of ["type", "status", "priority", "owner"]) {
       expect(
         screen.getByRole("button", { name: `Filter by ${facet}` }),
@@ -220,20 +251,20 @@ describe("WorkboardToolbar", () => {
     }
   });
 
-  it("keeps those facets OUT of the toolbar for the Table view (they live in the column headers)", () => {
-    renderToolbar({ view: "table", columnFilters: COLUMN_FILTERS });
+  it("keeps those facets OUT of the toolbar for the List layout (they live in the column headers)", () => {
+    renderToolbar({ columnFilters: COLUMN_FILTERS });
     for (const facet of ["type", "status", "priority", "owner"]) {
       expect(
         screen.queryByRole("button", { name: `Filter by ${facet}` }),
       ).not.toBeInTheDocument();
     }
-    // Team is unconditional (it has no column), so it stays in both views.
+    // Team is unconditional (it has no column), so it stays in every layout.
     expect(
       screen.getByRole("button", { name: /filter by team/i }),
     ).toBeInTheDocument();
   });
 
-  it("falls a facet back into the toolbar when its column is HIDDEN in Table view", () => {
+  it("falls a facet back into the toolbar when its column is HIDDEN in List layout", () => {
     // Hiding `type` from the Columns menu removes its only trigger (the column
     // header), so the toolbar must carry it to keep the filter reachable.
     const visibleColumns = new Set(
@@ -241,7 +272,6 @@ describe("WorkboardToolbar", () => {
     );
     visibleColumns.delete("type");
     renderToolbar({
-      view: "table",
       columnFilters: COLUMN_FILTERS,
       value: { visibleColumns },
     });

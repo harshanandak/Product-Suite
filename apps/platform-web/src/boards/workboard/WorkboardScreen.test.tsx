@@ -229,11 +229,8 @@ describe("WorkboardScreen", () => {
     window.localStorage.setItem(
       FILTER_STORAGE_KEY,
       serializePersistedView({
-        filterState: {
-          ...base,
-          filters: { ...base.filters, team: new Set(["Marketing"]) },
-        },
-        view: "table",
+        ...base,
+        filters: { ...base.filters, team: new Set(["Marketing"]) },
       }),
     );
 
@@ -585,11 +582,8 @@ describe("WorkboardScreen", () => {
     window.localStorage.setItem(
       FILTER_STORAGE_KEY,
       serializePersistedView({
-        filterState: {
-          ...defaults,
-          filters: { ...defaults.filters, team: new Set(["Sourcing"]) },
-        },
-        view: "table",
+        ...defaults,
+        filters: { ...defaults.filters, team: new Set(["Sourcing"]) },
       }),
     );
 
@@ -632,12 +626,9 @@ describe("WorkboardScreen", () => {
     window.localStorage.setItem(
       FILTER_STORAGE_KEY,
       serializePersistedView({
-        filterState: {
-          ...defaults,
-          search: "zzz-no-such-item-zzz",
-          filters: { ...defaults.filters, team: new Set(["Sourcing"]) },
-        },
-        view: "table",
+        ...defaults,
+        search: "zzz-no-such-item-zzz",
+        filters: { ...defaults.filters, team: new Set(["Sourcing"]) },
       }),
     );
 
@@ -946,13 +937,10 @@ describe("WorkboardScreen", () => {
     window.localStorage.setItem(
       FILTER_STORAGE_KEY,
       serializePersistedView({
-        filterState: {
-          ...base,
-          search: "auth",
-          groupBy: "type",
-          visibleColumns,
-        },
-        view: "table",
+        ...base,
+        search: "auth",
+        groupBy: "type",
+        visibleColumns,
       }),
     );
 
@@ -982,11 +970,8 @@ describe("WorkboardScreen", () => {
     window.localStorage.setItem(
       FILTER_STORAGE_KEY,
       serializePersistedView({
-        filterState: {
-          ...base,
-          filters: { ...base.filters, phase: new Set(["execute"] as const) },
-        },
-        view: "table",
+        ...base,
+        filters: { ...base.filters, phase: new Set(["execute"] as const) },
       }),
     );
 
@@ -1008,18 +993,18 @@ describe("WorkboardScreen", () => {
     ).toBeChecked();
   });
 
-  it("restores the persisted Kanban view from localStorage", async () => {
+  it("restores the persisted Board layout from localStorage", async () => {
     window.localStorage.setItem(
       FILTER_STORAGE_KEY,
       serializePersistedView({
-        filterState: defaultWorkboardFilterState(),
-        view: "kanban",
+        ...defaultWorkboardFilterState(),
+        layout: "board",
       }),
     );
 
     render(<WorkboardScreen repository={createMockWorkItemRepository()} />);
 
-    // The Kanban board (not the table grid) is the first surface shown.
+    // The Board (Kanban) surface — not the table grid — is shown first.
     expect(await screen.findByTestId("workboard-kanban")).toBeInTheDocument();
     expect(
       screen.queryByRole("grid", { name: "Work items" }),
@@ -1030,10 +1015,7 @@ describe("WorkboardScreen", () => {
     // Hand-craft a blob carrying a selection key (the serializer never writes
     // one); the parser must ignore it so no rows start selected.
     const valid = JSON.parse(
-      serializePersistedView({
-        filterState: defaultWorkboardFilterState(),
-        view: "table",
-      }),
+      serializePersistedView(defaultWorkboardFilterState()),
     );
     window.localStorage.setItem(
       FILTER_STORAGE_KEY,

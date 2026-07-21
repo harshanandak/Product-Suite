@@ -1,10 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { useNavigate, useParams } from "@tanstack/react-router";
 
 import {
   Button,
   EmptyState,
+  Skeleton,
   toast,
   type Phase,
   type Priority,
@@ -42,11 +51,33 @@ import {
   type PersistedView,
   type SavedView,
   type WorkboardFilterState,
-  type WorkboardView,
 } from "./filter-state";
+import { GraphFilters } from "./graph/GraphFilters";
 import { WorkboardKanban } from "./kanban/WorkboardKanban";
 import { WorkboardTable, type ColumnFilter } from "./table/WorkboardTable";
 import { WorkboardToolbar } from "./toolbar/WorkboardToolbar";
+
+/**
+ * The Graph layout is LAZY-loaded: `@xyflow/react` + dagre + the React Flow CSS
+ * form a heavy chunk that should download only when the Graph layout is chosen —
+ * keeping it out of the main List/Board bundle (verified by a separate chunk).
+ */
+const WorkboardGraph = lazy(() => import("./graph/WorkboardGraph"));
+
+/** Announced skeleton shown while the lazy Graph chunk downloads. */
+function GraphLoadingFallback() {
+  return (
+    <div
+      role="status"
+      aria-busy="true"
+      aria-live="polite"
+      className="min-h-[420px] flex-1"
+    >
+      <span className="sr-only">Loading graph…</span>
+      <Skeleton aria-hidden="true" className="h-full w-full rounded-lg" />
+    </div>
+  );
+}
 
 /**
  * Props for {@link WorkboardScreen}.
@@ -109,7 +140,10 @@ function hydrateFilterState(config: PersistedView): WorkboardFilterState {
   const base = defaultWorkboardFilterState();
   return {
     search: config.search ?? base.search,
+    layout: config.layout ?? base.layout,
     groupBy: config.groupBy ?? base.groupBy,
+    sortBy: config.sortBy ?? base.sortBy,
+    tasks: config.tasks ?? base.tasks,
     filters: config.filters
       ? {
           type: new Set(config.filters.type),
@@ -229,8 +263,19 @@ export function WorkboardScreen({
   const { workspace } = useParams({ strict: false });
   const workspaceSlug = workspace ?? DEFAULT_WORKSPACE;
 
-  const { items, owners, loading, error, update, pendingIds, create, refetch } =
-    useWorkItems({ repository: repo });
+  const {
+    items,
+    owners,
+    dependencies,
+    loading,
+    error,
+    update,
+    pendingIds,
+    create,
+    refetch,
+    addDependency,
+    removeDependency,
+  } = useWorkItems({ repository: repo });
 
   // The single shared toolbar ⇄ table view state. Lazily hydrated from the
   // persisted blob (merged OVER a fresh default, so any missing/invalid field
@@ -629,15 +674,13 @@ export function WorkboardScreen({
     }));
   }, []);
 
-  // Active view — Table (default) or Kanban. Both consume the same filtered rows
-  // + handlers (action parity), so search/filters apply equally to both. The
-  // Graph is its own full-page sub-board route, not an inline tab (it is an
-  // unbounded canvas — see boards/workboard/graph/WorkboardGraphScreen.tsx).
-  const [view, setView] = useState<WorkboardView>(
-    () => readPersistedView()?.view ?? "table",
-  );
+  // The active Layout (List / Board / Graph) is driven from the shared filter
+  // state (DESIGN §B — Layout is a display option, not a separate route or tab).
+  // All three renderers consume the SAME filtered rows + handlers (action
+  // parity), so search/filters/sort apply equally to each; the toolbar's Layout
+  // menu mutates `filterState.layout` through the shared `onChange` setter.
 
-  // Persist the view state on every change. Keyed on [filterState, view]; the
+  // Persist the view state on every change. Keyed on [filterState]; the
   // serializer OMITS `selection`, so a selection-only change re-writes a
   // byte-identical blob (never leaking stale ids to the next reload). Guarded
   // for SSR + privacy-mode throws, like the column-width writer.
@@ -646,12 +689,12 @@ export function WorkboardScreen({
     try {
       window.localStorage.setItem(
         FILTER_STORAGE_KEY,
-        serializePersistedView({ filterState, view }),
+        serializePersistedView(filterState),
       );
     } catch {
       /* ignore quota / privacy-mode throws — the state still lives in memory */
     }
-  }, [filterState, view]);
+  }, [filterState]);
 
   // Persist the saved-views list to its own key on every change. Separate from
   // the #48 effect above (different key, different concern), guarded for SSR +
@@ -673,22 +716,21 @@ export function WorkboardScreen({
   // currentViewConfig excludes selection, so a saved view never carries row ids.
   const handleSaveView = useCallback(
     (name: string): void => {
-      const config = currentViewConfig({ filterState, view });
+      const config = currentViewConfig(filterState);
       setSavedViews((views) => [
         ...views,
         { id: generateViewId(views), name, config },
       ]);
     },
-    [filterState, view],
+    [filterState],
   );
 
   // Apply a saved view: rehydrate the live filter state from its config (the
-  // shared #48 hydrate path, selection forced empty) and restore its board view
-  // (defaulting to the CURRENT view when the config has none). Cloning inside
+  // shared #48 hydrate path, selection forced empty). The layout now rides
+  // inside the config, so hydrateFilterState restores it too. Cloning inside
   // hydrateFilterState means applying never mutates the stored saved view.
   const handleApplyView = useCallback((saved: SavedView): void => {
     setFilterState(hydrateFilterState(saved.config));
-    setView((current) => saved.config.view ?? current);
   }, []);
 
   // Remove a saved view by id; the persist effect mirrors the new list to storage.
@@ -711,10 +753,11 @@ export function WorkboardScreen({
   const noItems = !showTable && scopedItems.length === 0;
   const noMatches = !showTable && scopedItems.length > 0 && rows.length === 0;
 
-  // The active view (table or kanban) over the same filtered rows + handlers.
-  // Resolved here so the body JSX below stays a single (non-nested) ternary.
+  // The active Layout (List / Board / Graph) over the SAME filtered rows +
+  // handlers. Resolved here so the body JSX below stays a single (non-nested)
+  // ternary. Graph folds in the ex-standalone canvas as the third renderer.
   const activeView =
-    view === "kanban" ? (
+    filterState.layout === "board" ? (
       <WorkboardKanban
         rows={rows}
         owners={owners}
@@ -725,6 +768,29 @@ export function WorkboardScreen({
         onSelectItem={handleSelectItem}
         onUpdateItem={update}
       />
+    ) : filterState.layout === "graph" ? (
+      <Suspense fallback={<GraphLoadingFallback />}>
+        <WorkboardGraph
+          rows={rows}
+          dependencies={dependencies}
+          owners={owners}
+          loading={loading}
+          error={error}
+          onRetry={refetch}
+          onSelectItem={handleSelectItem}
+          onUpdateItem={update}
+          onAddDependency={addDependency}
+          onRemoveDependency={removeDependency}
+          filters={
+            <GraphFilters
+              value={filterState}
+              onChange={setFilterState}
+              owners={owners}
+              departments={teams}
+            />
+          }
+        />
+      </Suspense>
     ) : (
       <WorkboardTable
         rows={rows}
@@ -749,8 +815,6 @@ export function WorkboardScreen({
       <WorkboardToolbar
         value={filterState}
         onChange={setFilterState}
-        view={view}
-        onViewChange={setView}
         owners={owners}
         teams={teams}
         hideTeamFacet={teamId !== undefined}
@@ -759,7 +823,7 @@ export function WorkboardScreen({
         newItemDisabled={newItemDisabled}
         onBulkApply={handleBulkApply}
         onResetColumnWidths={
-          view === "table" ? handleResetColumnWidths : undefined
+          filterState.layout === "list" ? handleResetColumnWidths : undefined
         }
         columnFilters={columnFilters}
         savedViews={savedViews}
