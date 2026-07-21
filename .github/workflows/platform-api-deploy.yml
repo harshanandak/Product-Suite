@@ -15,6 +15,8 @@ on:
   # comment. A normal push to main never runs migrate, and (see `deploy`'s
   # `needs:` gate) therefore never auto-deploys either: this whole pipeline is
   # human-started, on purpose, because it can touch the shared prod DB.
+  workflow_dispatch: {}
+
 # DELIBERATELY NO workflow-level `concurrency` block. A workflow-level group
 # with `cancel-in-progress: true` cancels the ENTIRE run — including an
 # approved, executing `migrate` — when a later push/dispatch enters the same
