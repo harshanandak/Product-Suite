@@ -1,7 +1,7 @@
 import * as React from "react";
 
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
-import { ChevronDown, ChevronRight, Copy, MoreHorizontal } from "lucide-react";
+import { ChevronDown, ChevronRight, CornerDownRight, Copy, MoreHorizontal } from "lucide-react";
 
 import {
   AssigneePicker,
@@ -303,6 +303,13 @@ interface ColumnRenderContext {
    * dims wholesale, so status badges keep full opacity).
    */
   readonly archived?: boolean;
+  /**
+   * Whether this row is a nested child sub-task (depth > 0). Only the Name
+   * column reads it — to de-emphasize the child title (muted foreground) so the
+   * parent/child hierarchy reads at a glance and a sub-task never looks like a
+   * standalone, equally-weighted work item.
+   */
+  readonly nested?: boolean;
 }
 
 /** Up-to-2-char initials for the read-only Owner avatar (mirrors the picker). */
@@ -488,7 +495,7 @@ const COLUMN_SPECS: readonly ColumnSpec[] = [
     width: "16rem",
     grow: 2,
     minWidth: "16rem",
-    render: ({ row, onSelectItem, archived }) => (
+    render: ({ row, onSelectItem, archived, nested }) => (
       <div className="flex min-w-0 items-center gap-1.5">
         <button
           type="button"
@@ -497,9 +504,13 @@ const COLUMN_SPECS: readonly ColumnSpec[] = [
             "focus-visible:outline-2 focus-visible:outline-ring",
             // Archived: strike + mute the title as a non-contrast cue (no row-
             // wide opacity dim, so the status badges stay full strength).
+            // Nested child (sub-task): mute the title so it reads a tier below
+            // its parent, not as a peer top-level item.
             archived
               ? "text-muted-foreground line-through"
-              : "text-foreground",
+              : nested
+                ? "text-muted-foreground"
+                : "text-foreground",
           )}
           onClick={() => {
             onSelectItem(row);
@@ -1793,13 +1804,40 @@ export function WorkboardTable({
                     >
                       {column.id === "name" ? (
                         <span
-                          className="flex min-w-0 items-center gap-1.5"
+                          data-subtask={flat.depth > 0 ? "true" : undefined}
+                          className={cn(
+                            "flex min-w-0 items-center gap-1.5",
+                            // A nested child gets a subtle vertical GUIDE RAIL in
+                            // the indent gutter — a 1px border-token spine aligned
+                            // under the parent's disclosure chevron (left-2 ≈ its
+                            // centre). The negative top/bottom insets bleed past
+                            // the row's `py-1.5`, so consecutive children's rails
+                            // join into ONE continuous tree line connecting a
+                            // parent to all its sub-tasks. It's an out-of-flow
+                            // `before:` pseudo on the NAME CELL (never the row —
+                            // the row's own `before:` is the selection accent
+                            // rail), so it adds no layout shift, and `bg-border`
+                            // keeps it dark-mode safe.
+                            flat.depth > 0 &&
+                              "relative before:absolute before:left-2 before:-top-1.5 before:-bottom-1.5 before:w-px before:bg-border before:content-['']",
+                          )}
                           style={
                             flat.depth > 0
                               ? { paddingLeft: `${flat.depth * 1.25}rem` }
                               : undefined
                           }
                         >
+                          {/* A child sub-task ALWAYS gets the corner-elbow marker
+                              so it reads as nested under the parent above — kept
+                              independent of the disclosure control so it survives
+                              even if a child ever has its own sub-tasks (and thus
+                              also needs a chevron) under a deeper-nesting model. */}
+                          {flat.depth > 0 ? (
+                            <CornerDownRight
+                              aria-hidden
+                              className="size-4 shrink-0 text-muted-foreground/60"
+                            />
+                          ) : null}
                           {flat.hasChildren ? (
                             <button
                               type="button"
@@ -1836,6 +1874,7 @@ export function WorkboardTable({
                             onSelectItem,
                             onUpdateItem,
                             archived: isArchived,
+                            nested: flat.depth > 0,
                           })}
                           {isArchived ? (
                             <span
