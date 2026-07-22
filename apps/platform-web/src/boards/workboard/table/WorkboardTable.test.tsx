@@ -233,6 +233,32 @@ describe("WorkboardTable — task nesting (tasks display option)", () => {
     expect(child).toHaveAttribute("data-depth", "1");
   });
 
+  it("gives a nested child a sub-task connector treatment that a top-level row lacks", async () => {
+    const rows = await loadRows();
+    renderTable({ rows, groupBy: "none", tasks: "nested" });
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+
+    const parent = rowByTitle("Workspace auth hardening");
+    // A top-level row is NOT flagged as a sub-task (no guide-rail treatment).
+    expect(parent.querySelector('[data-subtask="true"]')).toBeNull();
+
+    // Expand to reveal the children.
+    fireEvent.click(
+      within(parent).getByRole("button", {
+        name: /show sub-tasks of Workspace auth hardening/i,
+      }),
+    );
+
+    // The child's Name cell carries the nested sub-task treatment (the guide
+    // rail is gated on `data-subtask`), so it visibly reads as nested UNDER its
+    // parent rather than as a standalone, equally-weighted work item.
+    const child = rowByTitle("Draft new intake form");
+    expect(child.querySelector('[data-subtask="true"]')).not.toBeNull();
+  });
+
   it("omits children entirely when tasks=hidden (parents only, no disclosure)", async () => {
     const rows = await loadRows();
     renderTable({ rows, groupBy: "none", tasks: "hidden" });
