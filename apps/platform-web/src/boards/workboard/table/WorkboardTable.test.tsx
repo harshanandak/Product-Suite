@@ -256,10 +256,10 @@ describe("WorkboardTable — task nesting (tasks display option)", () => {
     // rail is gated on `data-subtask`), so it visibly reads as nested UNDER its
     // parent rather than as a standalone, equally-weighted work item.
     const child = rowByTitle("Draft new intake form");
+    // The child's Name cell carries the nested sub-task treatment (the connected
+    // tree rail is drawn on `[data-subtask]`), so it visibly reads as nested under
+    // its parent rather than as a standalone, equally-weighted work item.
     expect(child.querySelector('[data-subtask="true"]')).not.toBeNull();
-    // The corner-elbow connector renders for the child independent of any
-    // disclosure control, so a nested row is always marked as a sub-task.
-    expect(child.querySelector("svg.lucide-corner-down-right")).not.toBeNull();
   });
 
   it("omits children entirely when tasks=hidden (parents only, no disclosure)", async () => {
