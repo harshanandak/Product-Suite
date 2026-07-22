@@ -1827,6 +1827,17 @@ export function WorkboardTable({
                               : undefined
                           }
                         >
+                          {/* A child sub-task ALWAYS gets the corner-elbow marker
+                              so it reads as nested under the parent above — kept
+                              independent of the disclosure control so it survives
+                              even if a child ever has its own sub-tasks (and thus
+                              also needs a chevron) under a deeper-nesting model. */}
+                          {flat.depth > 0 ? (
+                            <CornerDownRight
+                              aria-hidden
+                              className="size-4 shrink-0 text-muted-foreground/60"
+                            />
+                          ) : null}
                           {flat.hasChildren ? (
                             <button
                               type="button"
@@ -1856,15 +1867,7 @@ export function WorkboardTable({
                             // Keep childless top-level titles aligned with the
                             // chevron column so parent/leaf rows line up.
                             <span aria-hidden className="inline-block size-4 shrink-0" />
-                          ) : (
-                            // A child sub-task: a corner elbow marks it as nested
-                            // UNDER the parent row above so it reads as a sub-task,
-                            // not a standalone work item.
-                            <CornerDownRight
-                              aria-hidden
-                              className="size-4 shrink-0 text-muted-foreground/60"
-                            />
-                          )}
+                          ) : null}
                           {column.render({
                             row,
                             owners,
