@@ -93,14 +93,16 @@ describe("workboard nav (IA redesign)", () => {
     ]);
   });
 
-  it("Views is a real destination (Phase 2), Projects is still prototype-only", () => {
+  it("Views and Projects are both real destinations, not prototype toasts", () => {
     const views = workboardItems().find((item) => item.key === "views");
     expect(views?.to).toBe("/w/$workspace/workboard/views");
     expect(views?.prototypeOnly).toBeUndefined();
 
+    // Projects went live with the Projects board; it must navigate rather than
+    // raise the prototype toast it showed while the surface was unbuilt.
     const projects = workboardItems().find((item) => item.key === "projects");
-    expect(projects?.prototypeOnly).toBe(true);
-    expect(projects?.to).toBeUndefined();
+    expect(projects?.to).toBe("/w/$workspace/projects");
+    expect(projects?.prototypeOnly).toBeUndefined();
   });
 
   it("has no strategy/insights/tasks/triage/feedback/intake/graph entries", () => {

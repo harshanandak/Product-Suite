@@ -11,6 +11,7 @@ import { Button, EmptyState, ErrorState } from "@product-suite/ui";
 
 import { InboxScreen } from "./boards/inbox/InboxScreen";
 import { MemoryScreen } from "./boards/memory/MemoryScreen";
+import { ProjectsRoute } from "./boards/projects/ProjectsRoute";
 import { SettingsScreen } from "./boards/settings/SettingsScreen";
 import { WorkItemDetailScreen } from "./boards/workboard/detail/WorkItemDetailScreen";
 import {
@@ -155,6 +156,16 @@ const workboardTeamRoute = createRoute({
   component: TeamItemsScreen,
 });
 
+// Projects — the outcome containers, grouped by their own status. Projects have
+// no parent project, so this surface never nests projects; expanding a row
+// reveals that project's WORK ITEMS, and opening one lands on the existing
+// work-item detail route rather than a second, parallel detail page.
+const projectsRoute = createRoute({
+  getParentRoute: () => workspaceRoute,
+  path: "projects",
+  component: ProjectsRoute,
+});
+
 const meetingsRoute = createRoute({
   getParentRoute: () => workspaceRoute,
   path: "meetings",
@@ -220,6 +231,7 @@ const routeTree = rootRoute.addChildren([
     workboardViewsRoute,
     workboardItemRoute,
     workboardTeamRoute,
+    projectsRoute,
     meetingsRoute,
     meetingsWeekRoute,
     meetingsActionsRoute,
