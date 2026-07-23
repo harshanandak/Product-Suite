@@ -97,20 +97,36 @@ projectsRoutes.get('/', async (c) => {
 
   let rows: ProjectListRow[]
   try {
+    // The rollup is a correlated LATERAL, not a whole-table GROUP BY joined
+    // afterwards. Two reasons, both load-bearing:
+    //
+    //  1. TENANT ISOLATION. work_items.project_id references projects(id) with
+    //     no tenant equality constraint, so nothing at the database level stops
+    //     a row in another tenant from pointing at this project. Aggregating
+    //     first and joining on project_id alone would fold that foreign row into
+    //     this tenant's count. Correlating on w.tenant_id = p.tenant_id makes a
+    //     count structurally unable to span tenants.
+    //  2. COST. The grouped form aggregates every work item in the table on
+    //     every request and then discards all but the caller's projects — the
+    //     opposite of why these counts moved server-side at all. The lateral
+    //     runs per visible project and hits the (project_id) index.
+    //
+    // Kept OUT of the SQL text deliberately: a comment inside the template is
+    // transmitted to Postgres on every request.
     rows = (await sql`
       select p.id, p.name, p.kind, p.status, p.lead_id, p.target_date,
              p.created_at, p.updated_at,
              coalesce(wi.total_count, 0)::int as total_count,
              coalesce(wi.done_count, 0)::int as done_count
       from projects p
-      left join (
-        select project_id,
-               count(*) as total_count,
-               count(*) filter (where phase = 'done') as done_count
-        from work_items
-        where project_id is not null
-        group by project_id
-      ) wi on wi.project_id = p.id
+      -- correlated per project AND tenant; see the note above this query
+      left join lateral (
+        select count(*) as total_count,
+               count(*) filter (where w.phase = 'done') as done_count
+        from work_items w
+        where w.project_id = p.id
+          and w.tenant_id = p.tenant_id
+      ) wi on true
       where p.tenant_id in (
         select om.tenant_id
         from organization_memberships om

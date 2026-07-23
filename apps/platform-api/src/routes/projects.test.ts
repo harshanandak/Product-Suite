@@ -57,6 +57,28 @@ describe('GET /api/projects', () => {
     expect(params).toContain('user_clerk_1')
   })
 
+  it('correlates the count to the project OWN tenant, so a count cannot span tenants', async () => {
+    // `work_items.project_id` references projects(id) with no tenant equality
+    // constraint, so a row in another tenant CAN point at this project. The
+    // rollup must therefore be correlated on tenant, not just project_id —
+    // otherwise a foreign row inflates this tenant's count.
+    //
+    // This tier mocks `sql`, so it asserts the QUERY SHAPE that makes the leak
+    // structurally impossible; the executed-semantics guarantee belongs to the
+    // real-database contract tier.
+    const sql = vi.fn(async () => [LIST_ROW])
+    createSql.mockReturnValue(sql)
+
+    await app.request('/api/projects', { headers: { Authorization: 'Bearer token' } })
+
+    const text = (sql.mock.calls[0]?.[0] as unknown as string[]).join(' ')
+    const normalized = text.replace(/\s+/g, ' ')
+    expect(normalized).toContain('w.tenant_id = p.tenant_id')
+    expect(normalized).toContain('w.project_id = p.id')
+    // A bare group-by-then-join would reintroduce the leak.
+    expect(normalized).not.toMatch(/group by\s+project_id\s*\)/)
+  })
+
   it('reports 0/0 for a project with no work items, rather than dropping it', async () => {
     const sql = vi.fn(async () => [{ ...ROW, total_count: 0, done_count: 0 }])
     createSql.mockReturnValue(sql)
