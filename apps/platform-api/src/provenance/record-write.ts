@@ -120,7 +120,11 @@ export interface WriteSpec {
   table: string
   operation: 'insert' | 'update'
   values: Record<string, unknown>
-  /** Required for `update`: the tenant-scoped predicate (e.g. `{ id, tenant_id }`). */
+  /**
+   * Required for `update`: the tenant-scoped predicate (e.g. `{ id, tenant_id }`).
+   * A value may be an ARRAY to scope one UPDATE to several rows (`col = any($n)`),
+   * except `tenant_id`, which must stay a single value.
+   */
   match?: Record<string, unknown>
 }
 
@@ -188,6 +192,25 @@ export function buildWrite(spec: WriteSpec, actor: ActorContext): { text: string
       throw new Error(`recordWrite: "${key}" is not a match column on "${spec.table}"`)
     }
   }
+  // A match value may be an ARRAY — compiled to `"col" = any($n)` with the array
+  // bound as ONE param — so a caller can scope a single UPDATE to several rows.
+  // This must NOT become a way around the required-and-complete check above:
+  // `tenant_id` stays a single value (an array there would widen one statement
+  // across tenants), and a degenerate array is rejected rather than silently
+  // compiling a predicate that matches nothing.
+  for (const key of upd.match) {
+    const value = match[key]
+    if (!Array.isArray(value)) continue
+    if (key === 'tenant_id') {
+      throw new Error(`recordWrite: match key "tenant_id" must be a single value on "${spec.table}"`)
+    }
+    if (value.length === 0) {
+      throw new Error(`recordWrite: match key "${key}" may not be an empty array on "${spec.table}"`)
+    }
+    if (value.some((element) => element === undefined || element === null)) {
+      throw new Error(`recordWrite: match key "${key}" may not contain a null element on "${spec.table}"`)
+    }
+  }
   const setCols = Object.keys(spec.values)
   for (const col of setCols) {
     if (!upd.set.includes(col)) {
@@ -198,7 +221,9 @@ export function buildWrite(spec: WriteSpec, actor: ActorContext): { text: string
   const assignValues = [...setCols.map((c) => spec.values[c]), ...Object.values(actorColumns)]
   let p = 0
   const setClause = assignColumns.map((c) => `"${c}" = $${++p}`).join(', ')
-  const whereClause = upd.match.map((k) => `"${k}" = $${++p}`).join(' and ')
+  const whereClause = upd.match
+    .map((k) => (Array.isArray(match[k]) ? `"${k}" = any($${++p})` : `"${k}" = $${++p}`))
+    .join(' and ')
   return {
     text: `update "${spec.table}" set ${setClause}, "updated_at" = now() where ${whereClause} returning *`,
     params: [...assignValues, ...upd.match.map((k) => match[k])],
