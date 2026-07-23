@@ -4,6 +4,7 @@ import type { Project, WorkItemRow } from "../../data/work-items/types";
 
 import {
   PROJECT_GROUP_ORDER,
+  PROJECT_STATUS_VALUES,
   buildProjectGroups,
   formatTargetDate,
   rollUpProject,
@@ -112,10 +113,11 @@ describe("buildProjectGroups", () => {
   });
 
   test("every status in the contract has a place in the display order", () => {
-    // Guards against a new ProjectStatus silently vanishing from the board.
-    expect([...PROJECT_GROUP_ORDER].sort()).toEqual(
-      ["backlog", "canceled", "completed", "in_progress", "paused", "planned"].sort(),
-    );
+    // Compared against the CONTRACT's status list, not a literal copy of it: a
+    // hardcoded array would stay just as unaware of a newly added ProjectStatus
+    // as PROJECT_GROUP_ORDER does, so the assertion would keep passing while the
+    // new status silently vanished from the board — the exact bug this guards.
+    expect([...PROJECT_GROUP_ORDER].sort()).toEqual([...PROJECT_STATUS_VALUES].sort());
   });
 
   test("stays linear at scale — a board-sized set groups without re-scanning per project", () => {
