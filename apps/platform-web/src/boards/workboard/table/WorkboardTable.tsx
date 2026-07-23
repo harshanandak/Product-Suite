@@ -1,7 +1,7 @@
 import * as React from "react";
 
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
-import { ChevronDown, ChevronRight, CornerDownRight, Copy, MoreHorizontal } from "lucide-react";
+import { ChevronDown, ChevronRight, Copy, MoreHorizontal } from "lucide-react";
 
 import {
   AssigneePicker,
@@ -504,12 +504,13 @@ const COLUMN_SPECS: readonly ColumnSpec[] = [
             "focus-visible:outline-2 focus-visible:outline-ring",
             // Archived: strike + mute the title as a non-contrast cue (no row-
             // wide opacity dim, so the status badges stay full strength).
-            // Nested child (sub-task): mute the title so it reads a tier below
-            // its parent, not as a peer top-level item.
+            // Nested child (sub-task): keep the title full-contrast and simply
+            // drop the medium weight — the tree connector + indent already carry
+            // the hierarchy, so muting it too would read as disabled.
             archived
               ? "text-muted-foreground line-through"
               : nested
-                ? "text-muted-foreground"
+                ? "font-normal text-foreground"
                 : "text-foreground",
           )}
           onClick={() => {
@@ -750,6 +751,9 @@ type FlatRow =
       hasChildren: boolean;
       /** True when a parent's children are currently revealed. */
       expanded: boolean;
+      /** True for the LAST child in a parent's group — the tree rail stops here
+       *  (└) instead of continuing, and this row keeps its bottom divider. */
+      lastChild: boolean;
       /** `n/m` child rollup for a parent row; absent for leaves. */
       progress?: TaskProgress;
     };
@@ -809,10 +813,11 @@ function flattenRows(
       depth: 0,
       hasChildren,
       expanded,
+      lastChild: false,
       progress: hasChildren ? taskProgress(children) : undefined,
     });
     if (expanded) {
-      for (const child of children) {
+      children.forEach((child, i) => {
         out.push({
           kind: "item",
           row: child,
@@ -820,8 +825,9 @@ function flattenRows(
           depth: 1,
           hasChildren: false,
           expanded: false,
+          lastChild: i === children.length - 1,
         });
-      }
+      });
     }
   };
 
@@ -1730,6 +1736,15 @@ export function WorkboardTable({
                   // strength and read clearly.
                   className={cn(
                     "group",
+                    // An expanded parent and its non-last children form ONE
+                    // connected block: drop the internal horizontal dividers so the
+                    // tree rail reads as a single group. The last child keeps its
+                    // divider to close the group off from the next item.
+                    ((flat.hasChildren && flat.expanded) ||
+                      (flat.depth > 0 && !flat.lastChild)) &&
+                      "border-b-0",
+                    // Nested children are a touch more compact than top-level rows.
+                    flat.depth > 0 && "[&>td]:py-0.5",
                     isArchived && "text-muted-foreground",
                     // Selection gets a DISTINCT cue that wins over hover. The
                     // primary tint is authored as the `data-[state=selected]`
@@ -1758,6 +1773,9 @@ export function WorkboardTable({
                     style={cellStyle(SELECT_COLUMN_WIDTH)}
                   >
                     <Checkbox
+                      // Nest a child's selection box into its indent so the whole
+                      // sub-task row (not just the title) reads as nested.
+                      className={flat.depth > 0 ? "ml-3" : undefined}
                       aria-label={`Select ${row.title}`}
                       checked={isSelected}
                       onClick={(event) => {
@@ -1794,7 +1812,10 @@ export function WorkboardTable({
                       // min-w-0/truncate still drives their inner truncation, and
                       // the 8px cell padding keeps the Name focus ring unclipped.
                       className={cn(
-                        "overflow-hidden py-1.5 text-ellipsis",
+                        // `overflow-x-clip` still ellipsizes horizontally but lets
+                        // the nested-tree SVG bleed VERTICALLY past the cell so the
+                        // spine joins across rows into one smooth continuous line.
+                        "h-full overflow-x-clip py-1.5 text-ellipsis",
                         // Reduced emphasis while the row's optimistic edit saves;
                         // animated so the cue settles smoothly on success/rollback.
                         isPending && "opacity-60 transition-opacity",
@@ -1805,39 +1826,11 @@ export function WorkboardTable({
                       {column.id === "name" ? (
                         <span
                           data-subtask={flat.depth > 0 ? "true" : undefined}
-                          className={cn(
-                            "flex min-w-0 items-center gap-1.5",
-                            // A nested child gets a subtle vertical GUIDE RAIL in
-                            // the indent gutter — a 1px border-token spine aligned
-                            // under the parent's disclosure chevron (left-2 ≈ its
-                            // centre). The negative top/bottom insets bleed past
-                            // the row's `py-1.5`, so consecutive children's rails
-                            // join into ONE continuous tree line connecting a
-                            // parent to all its sub-tasks. It's an out-of-flow
-                            // `before:` pseudo on the NAME CELL (never the row —
-                            // the row's own `before:` is the selection accent
-                            // rail), so it adds no layout shift, and `bg-border`
-                            // keeps it dark-mode safe.
-                            flat.depth > 0 &&
-                              "relative before:absolute before:left-2 before:-top-1.5 before:-bottom-1.5 before:w-px before:bg-border before:content-['']",
-                          )}
-                          style={
-                            flat.depth > 0
-                              ? { paddingLeft: `${flat.depth * 1.25}rem` }
-                              : undefined
-                          }
+                          className="flex h-full min-h-7 min-w-0 items-center gap-1.5"
                         >
-                          {/* A child sub-task ALWAYS gets the corner-elbow marker
-                              so it reads as nested under the parent above — kept
-                              independent of the disclosure control so it survives
-                              even if a child ever has its own sub-tasks (and thus
-                              also needs a chevron) under a deeper-nesting model. */}
-                          {flat.depth > 0 ? (
-                            <CornerDownRight
-                              aria-hidden
-                              className="size-4 shrink-0 text-muted-foreground/60"
-                            />
-                          ) : null}
+                          {/* A child sub-task gets no leading glyph — the connected
+                              tree spine + curved branch (an inline SVG rendered in
+                              the indent gutter below) marks it as nested. */}
                           {flat.hasChildren ? (
                             <button
                               type="button"
@@ -1867,7 +1860,45 @@ export function WorkboardTable({
                             // Keep childless top-level titles aligned with the
                             // chevron column so parent/leaf rows line up.
                             <span aria-hidden className="inline-block size-4 shrink-0" />
-                          ) : null}
+                          ) : (
+                            // Linear/Huly-style curved tree connector: a rounded
+                            // elbow (╰) joins a continuous vertical spine to each
+                            // sub-task; the spine runs unbroken down the group and
+                            // the LAST child ends it at the curve. The connector's
+                            // width is the child's indent ("tab"). border tokens →
+                            // dark-mode safe; self-stretch → full row height so the
+                            // spine segments meet across rows.
+                            <span
+                              aria-hidden
+                              className="relative w-8 shrink-0 self-stretch text-border"
+                            >
+                              {/* The whole connector is ONE smooth SVG path: a single
+                                  stroke (uniform colour, the divider token), a bezier
+                                  curve (smooth, no kinks), and the vertical bleeds
+                                  ±10 past the row so the spine joins into ONE
+                                  continuous line across sibling rows. The LAST child
+                                  stops the spine at the curve (└); the others pass
+                                  through (├). Dark-mode safe (currentColor). */}
+                              <svg
+                                className="absolute inset-0 h-full w-full overflow-visible"
+                                viewBox="0 0 32 32"
+                                preserveAspectRatio="none"
+                                fill="none"
+                                aria-hidden
+                              >
+                                <path
+                                  d={
+                                    flat.lastChild
+                                      ? "M10 -10 V10 Q10 16 16 16 H34"
+                                      : "M10 -10 V42 M10 10 Q10 16 16 16 H34"
+                                  }
+                                  stroke="currentColor"
+                                  strokeWidth="1"
+                                  vectorEffect="non-scaling-stroke"
+                                />
+                              </svg>
+                            </span>
+                          )}
                           {column.render({
                             row,
                             owners,
