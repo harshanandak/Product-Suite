@@ -10,21 +10,64 @@ const scriptPath = path.join(
   "prepush-gate.mjs"
 );
 
+// Every env key the gate script reads. The harness must OWN all of them for
+// every spawn: this suite is part of the always-on `test:repo-tooling` check, so
+// it runs inside a real `PREPUSH_GATE_FAST=1 git push`. If an ambient value
+// leaked into the spawned child, the default-mode assertions below would read
+// fast-mode output and abort the push (issue #118).
+const GATE_ENV_KEYS = ["PREPUSH_GATE_FAST", "PREPUSH_GATE_DRY", "PREPUSH_GATE_TEST_FILES"];
+
+// Build the child env explicitly: inherit everything EXCEPT the gate keys, then
+// apply only the overrides this call asks for. A key absent from `overrides` is
+// genuinely deleted, not merely omitted — relying on the parent not to set it is
+// exactly the bug in #118. Case-insensitive removal because Windows env names
+// are case-insensitive (a `prepush_gate_fast` would otherwise survive).
+function gateEnv(overrides = {}) {
+  const env = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value === undefined) continue;
+    if (GATE_ENV_KEYS.includes(key.toUpperCase())) continue;
+    env[key] = value;
+  }
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value === undefined) continue;
+    env[key] = value;
+  }
+  return env;
+}
+
 function classify(files, extraEnv = {}) {
   return execFileSync(process.execPath, [scriptPath], {
     encoding: "utf8",
-    env: {
-      ...process.env,
+    env: gateEnv({
       PREPUSH_GATE_TEST_FILES: files.join(","),
       PREPUSH_GATE_DRY: "1",
       ...extraEnv,
-    },
+    }),
   }).trim();
 }
 
-// Same dry-run classification, but with the fast-mode toggle set.
+// Same dry-run classification, but with the fast-mode toggle set explicitly.
 function classifyFast(files) {
   return classify(files, { PREPUSH_GATE_FAST: "1" });
+}
+
+// Run `fn` with `vars` temporarily present in this process's env, then restore
+// the previous values (including deleting keys that were previously unset).
+function withAmbientEnv(vars, fn) {
+  const saved = new Map();
+  for (const [key, value] of Object.entries(vars)) {
+    saved.set(key, process.env[key]);
+    process.env[key] = value;
+  }
+  try {
+    fn();
+  } finally {
+    for (const [key, value] of saved) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
 }
 
 describe("prepush-gate classification", () => {
@@ -236,5 +279,51 @@ describe("prepush-gate PREPUSH_GATE_FAST (lint+typecheck-only) mode", () => {
   test("fast mode keeps the docs-only fast path (docs push runs only source-test)", () => {
     const out = classifyFast(["docs/plans/some-plan.md", "README.md"]);
     expect(out).toContain("docs-only");
+  });
+});
+
+describe("prepush-gate harness env isolation (regression for #118)", () => {
+  // `test:repo-tooling` is an always-on gate check, so this file executes during a
+  // real `PREPUSH_GATE_FAST=1 git push`. Before the fix the spawned gate inherited
+  // that ambient flag, the default-mode expectations read fast-mode output, and the
+  // push aborted — PREPUSH_GATE_FAST could never be used. These tests simulate the
+  // ambient environment directly so the leak cannot come back.
+  test("an ambient PREPUSH_GATE_FAST=1 does not leak into default-mode spawns", () => {
+    withAmbientEnv({ PREPUSH_GATE_FAST: "1" }, () => {
+      const out = classify(["apps/platform-web/src/x.tsx"]);
+      expect(out).not.toContain("mode: fast");
+      expect(out).toContain("verify:platform-web");
+    });
+  });
+
+  test("fast-mode cases still opt in explicitly even with no ambient flag set", () => {
+    withAmbientEnv({ PREPUSH_GATE_FAST: "" }, () => {
+      const out = classifyFast(["apps/platform-web/src/x.tsx"]);
+      expect(out).toContain("mode: fast");
+      expect(out).toContain("apps/platform-web:lint");
+    });
+  });
+
+  test("ambient PREPUSH_GATE_DRY / PREPUSH_GATE_TEST_FILES cannot override the harness", () => {
+    // Ambient DRY=0 must not make the gate actually execute checks, and an ambient
+    // file list must not replace the one the test passed in (package.json would
+    // otherwise force full-suite).
+    withAmbientEnv({ PREPUSH_GATE_DRY: "0", PREPUSH_GATE_TEST_FILES: "package.json" }, () => {
+      const out = classify(["apps/platform-web/src/x.tsx"]);
+      expect(out).toContain("scoped");
+      expect(out).toContain("verify:platform-web");
+      expect(out).not.toContain("full-suite");
+    });
+  });
+
+  test("gateEnv removes gate keys in any casing and keeps the rest of the env", () => {
+    const env = gateEnv({ PREPUSH_GATE_DRY: "1" });
+    for (const key of Object.keys(env)) {
+      if (key.toUpperCase() === "PREPUSH_GATE_DRY") continue;
+      expect(key.toUpperCase().startsWith("PREPUSH_GATE_")).toBe(false);
+    }
+    expect(env.PREPUSH_GATE_DRY).toBe("1");
+    // non-gate env is still inherited, so the child can find node/bun and its deps
+    expect(Object.keys(env).length).toBeGreaterThan(1);
   });
 });
