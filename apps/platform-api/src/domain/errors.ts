@@ -37,6 +37,11 @@ export type DomainErrorCode =
   // `conflict` = the target was concurrently superseded/retracted (no longer active).
   | 'change_reason_required'
   | 'conflict'
+  // A compare-and-set write (`updateWorkItem`'s `expectedValues` fence) matched no
+  // row because the row no longer holds the values the caller validated against.
+  // NOTHING was written — the caller must re-read and re-decide. Distinct from
+  // `not_found` (the row is there) and from `conflict` (a memory lifecycle race).
+  | 'guard_failed'
   | 'invalid_input'
 
 export class DomainError extends Error {
@@ -52,7 +57,9 @@ export class DomainError extends Error {
 /** The HTTP status a route should return for a given domain-invariant violation. */
 export function domainErrorStatus(code: DomainErrorCode): 400 | 404 | 409 {
   if (code === 'not_found') return 404
-  // A lost supersede/retract race (target no longer active) is a concurrency conflict.
-  if (code === 'conflict') return 409
+  // A lost supersede/retract race (target no longer active) is a concurrency conflict,
+  // as is a lost compare-and-set fence — both mean "someone else moved it", not "you
+  // sent a bad request", so neither belongs in the 400 bucket.
+  if (code === 'conflict' || code === 'guard_failed') return 409
   return 400
 }

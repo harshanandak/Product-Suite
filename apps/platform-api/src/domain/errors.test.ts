@@ -19,4 +19,11 @@ describe('domainErrorStatus', () => {
     expect(domainErrorStatus('cycle')).toBe(400)
     expect(domainErrorStatus('self_parent')).toBe(400)
   })
+
+  it('maps the concurrency codes to 409 — a lost fence is a conflict, not a bad request', () => {
+    expect(domainErrorStatus('conflict')).toBe(409)
+    // `guard_failed`: a compare-and-set update matched no row because the row moved
+    // under the caller. Nothing was written; the caller should re-read and retry.
+    expect(domainErrorStatus('guard_failed')).toBe(409)
+  })
 })

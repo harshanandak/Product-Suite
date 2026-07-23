@@ -173,16 +173,33 @@ export function conflictingFields(
   })
 }
 
-/** The target work item, scoped to the caller's tenants (null when not theirs/gone). */
+/**
+ * The target work item, scoped to the caller's tenants (null when not theirs/gone),
+ * alongside `row_json` — POSTGRES's own jsonb rendering of the same row. The fence
+ * is built from `row_json` rather than from the driver-decoded row so both sides of
+ * the containment check are formatted identically; comparing a JS `Date.toISOString()`
+ * against Postgres's `timestamptz` rendering would false-conflict on every item with
+ * a due date.
+ */
+type TargetRow = WorkItemRow & { row_json: Record<string, unknown> }
+
 async function loadTargetRow(
   sql: Sql,
   tenantIds: string[],
   id: string,
-): Promise<WorkItemRow | null> {
+): Promise<TargetRow | null> {
   const rows = (await sql`
-    select * from work_items where id = ${id} and tenant_id = any(${tenantIds})
-  `) as WorkItemRow[]
+    select *, to_jsonb(work_items) as row_json from work_items
+    where id = ${id} and tenant_id = any(${tenantIds})
+  `) as TargetRow[]
   return rows[0] ?? null
+}
+
+/** The subset of `row_json` covering `fields` — the compare-and-set fence. */
+function fenceFrom(rowJson: Record<string, unknown>, fields: string[]): Record<string, unknown> {
+  const fence: Record<string, unknown> = {}
+  for (const field of fields) fence[field] = rowJson?.[field] ?? null
+  return fence
 }
 
 /** A conflict outcome with no specific field (status/race conflicts, not value drift). */
@@ -202,8 +219,12 @@ function conflict(proposalId: string, message: string, fields: string[] = []): U
  *     and NOTHING written. A later human edit always outranks the undo.
  *  3. WRITE the pre-image back through `updateWorkItem` — the same validated domain
  *     command, stamped with the APPROVER as a `human` actor (a person reversed
- *     this; it is not the agent's write). A domain rejection classifies to
- *     `not_undoable`; anything unexpected rethrows → the route's 500.
+ *     this; it is not the agent's write) — FENCED on the exact row state step 2
+ *     read. Steps 2+3 would otherwise be a check-then-write, and a writer landing in
+ *     that gap would be clobbered; the fence moves the comparison INTO the writing
+ *     statement, so it cannot interleave. A lost fence (`guard_failed`) means
+ *     nothing was written → re-read and report the 409 precisely. Any other domain
+ *     rejection classifies to `not_undoable`; anything unexpected rethrows → 500.
  *  4. MARK LAST — one guarded UPDATE stamps `undone_at`/`undone_by` inside
  *     `applied_write`, guarded on still-`applied` AND not-yet-undone so a
  *     concurrent undo can only win once (the loser reports `conflict`). The
@@ -255,18 +276,44 @@ export async function undoProposal(
     )
   }
 
-  // (3) WRITE the pre-image back — a NEW validated write, by the HUMAN who undid it.
+  // (3) WRITE the pre-image back — a NEW validated write, by the HUMAN who undid it,
+  // FENCED on the exact row state step 2 validated against. The check above is only a
+  // fast path that produces a precise field list; this fence is the authority. Without
+  // it the pair is a check-then-write and a concurrent editor landing in the gap would
+  // be silently overwritten — the very thing the 409 exists to prevent.
   const actor: ActorContext = { actorType: 'human', actorId: ctx.approverUserId }
   let restored: WorkItemRow
   try {
     restored = await updateWorkItem(
       sql,
-      { tenantIds: [proposal.tenant_id], actor },
+      {
+        tenantIds: [proposal.tenant_id],
+        actor,
+        expectedValues: fenceFrom(current.row_json, Object.keys(envelope.applied)),
+      },
       targetId,
       envelope.pre_image as UpdateWorkItemInput,
     )
   } catch (cause) {
     if (cause instanceof DomainError) {
+      // The fence lost the race: someone wrote between our check and our write, and
+      // NOTHING was written. Re-read to say precisely what happened rather than a
+      // bare "conflict" — the item may also have been deleted outright.
+      if (cause.code === 'guard_failed') {
+        const now = await loadTargetRow(sql, ctx.tenantIds, targetId)
+        if (!now) return { status: 'not_found', proposal_id: proposalId }
+        const moved = conflictingFields(
+          envelope.applied,
+          now as unknown as Record<string, unknown>,
+        )
+        return conflict(
+          proposalId,
+          moved.length > 0
+            ? `this item changed after it was accepted (${moved.join(', ')}) — undoing would discard that change`
+            : 'this item changed while the undo was being applied — nothing was reverted',
+          moved,
+        )
+      }
       if (cause.code === 'not_found') return { status: 'not_found', proposal_id: proposalId }
       if (cause.code === 'stale' || cause.code === 'conflict') {
         return conflict(proposalId, cause.message)

@@ -54,10 +54,17 @@ export function createMockProposalRepository(
 ): ProposalRepository {
   const latencyMs = options.latencyMs ?? 0;
   const proposals: Proposal[] = createProposalFixtures();
-  // What `undo` can still reverse: the item id an accept applied, per proposal.
-  // Populated on accept and CLEARED on undo, so the mock enforces the same
-  // single-step rule as the API (a second undo reports `not_found`).
-  const undoable = new Map<string, string>();
+  // Every proposal this instance has ACCEPTED, with the state of its reversal.
+  // Accepted-ness and undoability are tracked separately on purpose: `not_found`
+  // must mean "unknown or never accepted", so an accepted proposal that is merely
+  // outside undo's scope (a create) — or one already undone — is KNOWN and reports
+  // `not_undoable` WITH the reason, instead of masquerading as missing.
+  type UndoState = "available" | "out_of_scope" | "already_undone";
+  const accepted = new Map<string, { itemId: string; undo: UndoState }>();
+  const UNDO_REFUSALS: Record<Exclude<UndoState, "available">, string> = {
+    out_of_scope: "only an applied work item update can be undone",
+    already_undone: "this change has already been undone",
+  };
 
   const settle = <T>(value: T): Promise<T> =>
     latencyMs > 0
@@ -86,9 +93,13 @@ export function createMockProposalRepository(
       const itemId = proposal.target_id ?? `wi_new_${proposal.id}`;
       // Only a work-item UPDATE is reversible — mirrors the API's undo scope so the
       // fixture surface offers Undo in exactly the cases the real backend accepts.
-      if (proposal.target_type === "work_item" && proposal.operation === "update") {
-        undoable.set(id, itemId);
-      }
+      accepted.set(id, {
+        itemId,
+        undo:
+          proposal.target_type === "work_item" && proposal.operation === "update"
+            ? "available"
+            : "out_of_scope",
+      });
       return settle<AcceptResult>({
         status: "applied",
         proposal_id: id,
@@ -103,13 +114,27 @@ export function createMockProposalRepository(
     },
 
     undo(id: string) {
-      const itemId = undoable.get(id);
-      if (itemId === undefined) {
+      const record = accepted.get(id);
+      // Never accepted here (or an id we have never seen) — genuinely unknown.
+      if (record === undefined) {
         return settle<UndoResult>({ status: "not_found", proposal_id: id });
       }
-      // Single-step: consumed, so a second undo of the same accept is not found.
-      undoable.delete(id);
-      return settle<UndoResult>({ status: "undone", proposal_id: id, item_id: itemId });
+      if (record.undo !== "available") {
+        // KNOWN, but nothing to reverse — either outside undo's scope or already
+        // undone. Say which, so the banner can explain rather than deny existence.
+        return settle<UndoResult>({
+          status: "not_undoable",
+          proposal_id: id,
+          message: UNDO_REFUSALS[record.undo],
+        });
+      }
+      // Single-step: consumed, so the same accept cannot be undone twice.
+      accepted.set(id, { itemId: record.itemId, undo: "already_undone" });
+      return settle<UndoResult>({
+        status: "undone",
+        proposal_id: id,
+        item_id: record.itemId,
+      });
     },
 
     // The mock dataset carries no run→rule attributions — provenance is a

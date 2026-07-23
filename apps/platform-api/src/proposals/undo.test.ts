@@ -75,11 +75,20 @@ function makeSql(
     current?: Record<string, unknown> | null
     /** When true the guarded mark matches no row (a concurrent undo won). */
     markLoses?: boolean
+    /** The Postgres-side `to_jsonb(work_items)` rendering (defaults to `current`). */
+    rowJson?: Record<string, unknown>
+    /**
+     * Successive answers to the target read, so a test can make the row DRIFT
+     * between the pre-check and the post-fence re-read — the concurrent-editor
+     * race the fence exists to catch. `null` entries mean the row was deleted.
+     */
+    currentSequence?: (Record<string, unknown> | null)[]
   } = {},
 ) {
   const proposal = opts.proposal === null ? null : { ...APPLIED_PROPOSAL, ...(opts.proposal ?? {}) }
   const current = opts.current === undefined ? CURRENT_ROW : opts.current
   let persistedAppliedWrite: unknown = proposal?.applied_write ?? null
+  let targetReads = 0
 
   const query = vi.fn(async (text: string, params: unknown[]) => {
     if (text.includes('set applied_write')) {
@@ -93,7 +102,16 @@ function makeSql(
   const sql = vi.fn(async (strings: TemplateStringsArray) => {
     const text = Array.isArray(strings) ? strings.join('?') : String(strings)
     if (text.includes('from proposals')) return proposal ? [proposal] : []
-    if (text.includes('from work_items')) return current ? [current] : []
+    // The target read returns the row AND its Postgres-side jsonb rendering, which
+    // is what the compare-and-set fence is built from (identical formatting on both
+    // sides of the containment check, so a timestamp can never false-conflict).
+    if (text.includes('from work_items')) {
+      if (opts.currentSequence) {
+        const row = opts.currentSequence[Math.min(targetReads++, opts.currentSequence.length - 1)]
+        return row ? [{ ...row, row_json: row }] : []
+      }
+      return current ? [{ ...current, row_json: opts.rowJson ?? current }] : []
+    }
     return []
   }) as unknown as Sql
   ;(sql as unknown as { query: typeof query }).query = query
@@ -317,5 +335,80 @@ describe('undoProposal', () => {
     const { sql } = makeSql()
     updateWorkItem.mockRejectedValue(new Error('connection reset'))
     await expect(undoProposal(sql, ctx, 'p1')).rejects.toThrow('connection reset')
+  })
+
+  /**
+   * The drift check alone is a check-then-write: a concurrent editor landing between
+   * the read and the restore would be silently clobbered — the exact harm the 409
+   * exists to prevent. So the values observed during the check are carried into the
+   * restore as a compare-and-set fence, evaluated inside the writing statement.
+   */
+  describe('atomic compare-and-set', () => {
+    it('fences the restore with the exact row state the check validated against', async () => {
+      const { sql } = makeSql()
+      await undoProposal(sql, ctx, 'p1')
+
+      const [, writeCtx] = updateWorkItem.mock.calls[0] ?? []
+      // Only the fields the accept applied are fenced — an unrelated concurrent edit
+      // (a comment, a due date the accept never touched) must not block a valid undo.
+      expect(writeCtx.expectedValues).toEqual({ title: 'B', priority: 'high' })
+    })
+
+    it('builds the fence from the DB-side jsonb rendering, not the JS row', async () => {
+      // Postgres renders a timestamptz differently from JS `toISOString()`. Fencing on
+      // the row_json the DB itself produced makes the containment check exact.
+      const { sql } = makeSql({
+        proposal: {
+          applied_write: {
+            ...CURRENT_ROW,
+            [UNDO_KEY]: {
+              pre_image: { due_date: null },
+              applied: { due_date: '2026-07-01T00:00:00.000Z' },
+            },
+          },
+        },
+        current: { ...CURRENT_ROW, due_date: new Date('2026-07-01T00:00:00.000Z') },
+        rowJson: { ...CURRENT_ROW, due_date: '2026-07-01T00:00:00+00:00' },
+      })
+      await undoProposal(sql, ctx, 'p1')
+
+      const [, writeCtx] = updateWorkItem.mock.calls[0] ?? []
+      expect(writeCtx.expectedValues).toEqual({ due_date: '2026-07-01T00:00:00+00:00' })
+    })
+
+    it('reports a conflict when the fence loses the race (guard_failed, nothing written)', async () => {
+      const { sql, query } = makeSql()
+      updateWorkItem.mockRejectedValue(
+        new DomainError('guard_failed', 'the item changed while this write was being applied'),
+      )
+      const result = await undoProposal(sql, ctx, 'p1')
+
+      expect(result.status).toBe('conflict')
+      if (result.status === 'conflict') {
+        expect(result.message).toMatch(/changed/)
+      }
+      // A lost fence wrote nothing, so the proposal is NOT marked undone — the undo
+      // stays available once the reviewer re-reads.
+      expect(query.mock.calls.filter(([text]) => text.includes('set applied_write'))).toHaveLength(0)
+    })
+
+    it('names the drifted fields on a lost fence by re-reading the target', async () => {
+      // The pre-check passed against the row we read; by the time the fenced write
+      // ran, someone had moved `title`. Re-read so the reviewer is told WHAT changed.
+      const { sql } = makeSql({
+        currentSequence: [CURRENT_ROW, { ...CURRENT_ROW, title: 'moved' }],
+      })
+      updateWorkItem.mockRejectedValue(new DomainError('guard_failed', 'lost the fence'))
+
+      const result = await undoProposal(sql, ctx, 'p1')
+      expect(result).toMatchObject({ status: 'conflict', fields: ['title'] })
+    })
+
+    it('reports not_found when the fence lost because the item was deleted', async () => {
+      const { sql } = makeSql({ currentSequence: [CURRENT_ROW, null] })
+      updateWorkItem.mockRejectedValue(new DomainError('guard_failed', 'lost the fence'))
+
+      expect((await undoProposal(sql, ctx, 'p1')).status).toBe('not_found')
+    })
   })
 })

@@ -110,8 +110,15 @@ function makeSql(
     }
     // Only the undo tests opt into a target row (`current`); every other test keeps
     // the original no-rows behaviour so the accept path's guards are unchanged.
-    if (opts.current !== undefined && text.includes('select * from work_items')) {
-      return opts.current === null ? [] : [{ ...WI_ROW, ...opts.current }]
+    // `row_json` mirrors Postgres's `to_jsonb(work_items)` — what the undo's
+    // compare-and-set fence is built from.
+    const readsWholeRow =
+      text.includes('select * from work_items') ||
+      text.includes('to_jsonb(work_items) as row_json')
+    if (opts.current !== undefined && readsWholeRow) {
+      if (opts.current === null) return []
+      const row = { ...WI_ROW, ...opts.current }
+      return [{ ...row, row_json: row }]
     }
     if (opts.current != null && text.includes('update work_items')) {
       return [{ ...WI_ROW, ...opts.current }]
