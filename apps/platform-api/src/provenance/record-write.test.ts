@@ -101,6 +101,95 @@ describe('buildWrite — update', () => {
     ).toThrow(/requires match key/)
   })
 
+  it('compiles an array match value to "col" = any($n), binding the array as ONE param', () => {
+    const { text, params } = buildWrite(
+      {
+        table: 'teams',
+        operation: 'update',
+        values: { name: 'Renamed' },
+        match: { id: ['team_1', 'team_2'], tenant_id: 't_1' },
+      },
+      human,
+    )
+    // The array key uses `= any($n)`; the scalar key keeps plain `= $n`. Both are
+    // bound params — the array is never expanded into concatenated SQL.
+    expect(text).toContain('where "id" = any($6) and "tenant_id" = $7')
+    expect(text).not.toContain('any($7)')
+    expect(params).toEqual(['Renamed', 'human', 'u_1', null, null, ['team_1', 'team_2'], 't_1'])
+  })
+
+  it('still requires tenant_id when the match uses the array form (no array-form bypass)', () => {
+    expect(() =>
+      buildWrite(
+        {
+          table: 'teams',
+          operation: 'update',
+          values: { name: 'x' },
+          match: { id: ['team_1', 'team_2'] },
+        },
+        human,
+      ),
+    ).toThrow(/requires match key "tenant_id"/)
+  })
+
+  it('rejects an array tenant_id — scoping stays a single tenant, never widened', () => {
+    expect(() =>
+      buildWrite(
+        {
+          table: 'teams',
+          operation: 'update',
+          values: { name: 'x' },
+          match: { id: 'team_1', tenant_id: ['t_1', 't_2'] },
+        },
+        human,
+      ),
+    ).toThrow(/match key "tenant_id" must be a single value/)
+  })
+
+  it('rejects an empty array match value (a degenerate, silently no-op predicate)', () => {
+    expect(() =>
+      buildWrite(
+        { table: 'teams', operation: 'update', values: { name: 'x' }, match: { id: [], tenant_id: 't_1' } },
+        human,
+      ),
+    ).toThrow(/match key "id" may not be an empty array/)
+  })
+
+  it('rejects a null/undefined element inside an array match value', () => {
+    expect(() =>
+      buildWrite(
+        {
+          table: 'teams',
+          operation: 'update',
+          values: { name: 'x' },
+          match: { id: ['team_1', null], tenant_id: 't_1' },
+        },
+        human,
+      ),
+    ).toThrow(/match key "id" may not contain a null element/)
+  })
+
+  it('rejects a SPARSE HOLE in an array match value (Array.some skips holes)', () => {
+    // eslint-disable-next-line no-sparse-arrays -- a sparse hole is precisely the input under test
+    const sparse: unknown[] = ['team_1', ,]
+    // Guard the premise: a callback-based check would NOT have caught this, which
+    // is why the validation walks indices instead.
+    expect(sparse).toHaveLength(2)
+    expect(sparse.some((element) => element === undefined || element === null)).toBe(false)
+
+    expect(() =>
+      buildWrite(
+        {
+          table: 'teams',
+          operation: 'update',
+          values: { name: 'x' },
+          match: { id: sparse, tenant_id: 't_1' },
+        },
+        human,
+      ),
+    ).toThrow(/match key "id" may not contain a null element/)
+  })
+
   it('rejects an unknown match column and a non-updatable set column', () => {
     expect(() =>
       buildWrite(
