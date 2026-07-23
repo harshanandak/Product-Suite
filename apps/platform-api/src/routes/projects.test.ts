@@ -71,8 +71,10 @@ describe('GET /api/projects', () => {
 
     await app.request('/api/projects', { headers: { Authorization: 'Bearer token' } })
 
-    const text = (sql.mock.calls[0]?.[0] as unknown as string[]).join(' ')
-    const normalized = text.replace(/\s+/g, ' ')
+    // The mock is declared with no parameters, so its recorded call types as an
+    // empty tuple; reach the tagged-template strings through an explicit cast.
+    const [strings] = (sql.mock.calls[0] ?? []) as unknown as [readonly string[]]
+    const normalized = strings.join(' ').replace(/\s+/g, ' ')
     expect(normalized).toContain('w.tenant_id = p.tenant_id')
     expect(normalized).toContain('w.project_id = p.id')
     // A bare group-by-then-join would reintroduce the leak.
