@@ -169,6 +169,27 @@ describe('buildWrite — update', () => {
     ).toThrow(/match key "id" may not contain a null element/)
   })
 
+  it('rejects a SPARSE HOLE in an array match value (Array.some skips holes)', () => {
+    // eslint-disable-next-line no-sparse-arrays -- a sparse hole is precisely the input under test
+    const sparse: unknown[] = ['team_1', ,]
+    // Guard the premise: a callback-based check would NOT have caught this, which
+    // is why the validation walks indices instead.
+    expect(sparse).toHaveLength(2)
+    expect(sparse.some((element) => element === undefined || element === null)).toBe(false)
+
+    expect(() =>
+      buildWrite(
+        {
+          table: 'teams',
+          operation: 'update',
+          values: { name: 'x' },
+          match: { id: sparse, tenant_id: 't_1' },
+        },
+        human,
+      ),
+    ).toThrow(/match key "id" may not contain a null element/)
+  })
+
   it('rejects an unknown match column and a non-updatable set column', () => {
     expect(() =>
       buildWrite(

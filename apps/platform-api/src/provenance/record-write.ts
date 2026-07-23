@@ -207,8 +207,16 @@ export function buildWrite(spec: WriteSpec, actor: ActorContext): { text: string
     if (value.length === 0) {
       throw new Error(`recordWrite: match key "${key}" may not be an empty array on "${spec.table}"`)
     }
-    if (value.some((element) => element === undefined || element === null)) {
-      throw new Error(`recordWrite: match key "${key}" may not contain a null element on "${spec.table}"`)
+    // Index-walked rather than `.some()`: `some` SKIPS sparse holes, so a value
+    // like ['team_1', ,] would slip past a callback-based check and then bind a
+    // NULL into the `any()` array — a predicate that silently matches nothing.
+    // `!(i in value)` is what distinguishes a hole from a present undefined.
+    for (let i = 0; i < value.length; i += 1) {
+      if (!(i in value) || value[i] === undefined || value[i] === null) {
+        throw new Error(
+          `recordWrite: match key "${key}" may not contain a null element on "${spec.table}"`,
+        )
+      }
     }
   }
   const setCols = Object.keys(spec.values)
