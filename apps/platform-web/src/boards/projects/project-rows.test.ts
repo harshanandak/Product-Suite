@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import type { Project, WorkItemRow } from "../../data/work-items/types";
+import type { ProjectWithCounts, WorkItemRow } from "../../data/work-items/types";
 
 import {
   PROJECT_GROUP_ORDER,
@@ -10,7 +10,7 @@ import {
   rollUpProject,
 } from "./project-rows";
 
-function project(over: Partial<Project> = {}): Project {
+function project(over: Partial<ProjectWithCounts> = {}): ProjectWithCounts {
   return {
     id: "p1",
     name: "Core product",
@@ -20,8 +20,10 @@ function project(over: Partial<Project> = {}): Project {
     target_date: null,
     created_at: "2026-01-01T00:00:00.000Z",
     updated_at: "2026-01-01T00:00:00.000Z",
+    totalCount: 0,
+    doneCount: 0,
     ...over,
-  } as Project;
+  } as ProjectWithCounts;
 }
 
 function item(over: Partial<WorkItemRow> = {}): WorkItemRow {
@@ -38,8 +40,8 @@ function item(over: Partial<WorkItemRow> = {}): WorkItemRow {
 }
 
 describe("rollUpProject", () => {
-  test("counts done items against the project's total", () => {
-    const rolled = rollUpProject(project(), [
+  test("reads doneCount/totalCount off the project record — server-computed, never counted from items", () => {
+    const rolled = rollUpProject(project({ totalCount: 3, doneCount: 1 }), [
       item({ id: "a", phase: "done" }),
       item({ id: "b", phase: "execute" }),
       item({ id: "c", phase: "plan" }),
@@ -49,15 +51,25 @@ describe("rollUpProject", () => {
     expect(rolled.totalCount).toBe(3);
   });
 
-  test("counts only the items belonging to this project", () => {
+  test("the project's counts stand even when the supplied item list disagrees with them", () => {
+    // Proves the counts are NOT derived from `items` — an empty/mismatched item
+    // list must not zero them out, since a real caller may not have loaded the
+    // work-item set at all (that's the point of moving counts server-side).
+    const rolled = rollUpProject(project({ totalCount: 5, doneCount: 2 }), []);
+    expect(rolled.doneCount).toBe(2);
+    expect(rolled.totalCount).toBe(5);
+  });
+
+  test("only items belonging to this project feed its `items` list and health", () => {
     const rolled = rollUpProject(project({ id: "p1" }), [
-      item({ id: "a", project_id: "p1", phase: "done" }),
-      item({ id: "b", project_id: "p2", phase: "done" }),
+      item({ id: "a", project_id: "p1", health: "blocked" }),
+      item({ id: "b", project_id: "p2", health: "blocked" }),
       item({ id: "c", project_id: null }),
     ]);
 
-    expect(rolled.doneCount).toBe(1);
-    expect(rolled.totalCount).toBe(1);
+    expect(rolled.items.map((i) => i.id)).toEqual(["a"]);
+    // The other project's / loose item's health must not leak into this rollup.
+    expect(rolled.health).toBe("blocked");
   });
 
   test("health rolls up to the WORST member health, not an average", () => {
@@ -82,11 +94,18 @@ describe("rollUpProject", () => {
   test("a project with no items has null health rather than a fake 'on track'", () => {
     const rolled = rollUpProject(project(), []);
     expect(rolled.health).toBeNull();
+  });
+
+  test("a project with no work items reports 0/0 rather than vanishing", () => {
+    const rolled = rollUpProject(project({ totalCount: 0, doneCount: 0 }), []);
     expect(rolled.totalCount).toBe(0);
+    expect(rolled.doneCount).toBe(0);
   });
 
   test("done items still count toward health rollup only via their own health", () => {
-    const rolled = rollUpProject(project(), [item({ id: "a", phase: "done", health: "blocked" })]);
+    const rolled = rollUpProject(project({ totalCount: 1, doneCount: 1 }), [
+      item({ id: "a", phase: "done", health: "blocked" }),
+    ]);
     expect(rolled.health).toBe("blocked");
     expect(rolled.doneCount).toBe(1);
   });
@@ -124,13 +143,13 @@ describe("buildProjectGroups", () => {
     // 400 projects x 8000 items. Quadratic grouping (filtering every item once
     // per project) is 3.2M comparisons and blows the budget; single-pass
     // bucketing is ~8400. The assertion is correctness at scale; the timing
-    // bound is what fails loudly if the linear path regresses.
+    // bound is what fails loudly if the linear path regresses. Counts are no
+    // longer derived from `items` (they come from the project record), but the
+    // items are still bucketed per project for health — so the perf shape this
+    // guards is unchanged.
     const projects = Array.from({ length: 400 }, (_, i) =>
-      project({ id: `p${i}`, name: `P${i}`, status: "in_progress" }),
+      project({ id: `p${i}`, name: `P${i}`, status: "in_progress", totalCount: 20, doneCount: 10 }),
     );
-    // Phase alternates by the item's index WITHIN its project (i / 400), not by
-    // `i` itself: 400 is even, so `i % 2` would give every item in a project the
-    // same parity and make "10 of 20 done" unreachable.
     const items = Array.from({ length: 8000 }, (_, i) =>
       item({
         id: `w${i}`,
@@ -149,18 +168,18 @@ describe("buildProjectGroups", () => {
     expect(elapsedMs).toBeLessThan(250);
   });
 
-  test("items with no project are dropped rather than counted anywhere", () => {
+  test("items with no project are dropped from a row's `items`, never shown under any project", () => {
     const groups = buildProjectGroups(
       [project({ id: "p1", status: "in_progress" })],
       [item({ project_id: null }), item({ id: "w2", project_id: "p1" })],
     );
 
-    expect(groups[0]?.rows[0]?.totalCount).toBe(1);
+    expect(groups[0]?.rows[0]?.items.map((i) => i.id)).toEqual(["w2"]);
   });
 
-  test("carries each project's rollup into its row", () => {
+  test("carries each project's server-computed rollup into its row", () => {
     const groups = buildProjectGroups(
-      [project({ id: "p1", status: "in_progress" })],
+      [project({ id: "p1", status: "in_progress", totalCount: 2, doneCount: 1 })],
       [item({ project_id: "p1", phase: "done" }), item({ id: "w2", project_id: "p1" })],
     );
 

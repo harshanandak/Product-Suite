@@ -10,7 +10,7 @@ import { useRepositoryContext } from "./RepositoryProvider";
 import {
   deriveHealth,
   type Owner,
-  type Project,
+  type ProjectWithCounts,
   type Check,
   type WorkItem,
   type WorkItemDependency,
@@ -47,8 +47,8 @@ export interface UseWorkItemsOptions {
 export interface UseWorkItemsResult {
   /** View-model rows with derived health + check counts (computed on read). */
   items: WorkItemRow[];
-  /** All projects (for the project switcher / filter). */
-  projects: Project[];
+  /** All projects (for the project switcher / filter), with server-computed rollup counts. */
+  projects: ProjectWithCounts[];
   /** All owners; views resolve a row's `assignee_id` → display via this set. */
   owners: Owner[];
   /** All dependency edges (the graph view's edge set). */
@@ -141,7 +141,7 @@ export function useWorkItems(
 
   const [workItems, setWorkItems] = useState<WorkItem[]>([]);
   const [checks, setChecks] = useState<Check[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
+  const [projects, setProjects] = useState<ProjectWithCounts[]>([]);
   const [owners, setOwners] = useState<Owner[]>([]);
   const [dependencies, setDependencies] = useState<WorkItemDependency[]>([]);
   const [loading, setLoading] = useState(true);

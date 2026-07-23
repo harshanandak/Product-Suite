@@ -19,6 +19,9 @@ const ROW = {
   updated_at: '2026-07-02T00:00:00.000Z',
 }
 
+/** {@link ROW} plus the list query's `left join` rollup columns. */
+const LIST_ROW = { ...ROW, total_count: 3, done_count: 1 }
+
 const auth = {
   headers: { Authorization: 'Bearer token', 'Content-Type': 'application/json' },
 }
@@ -32,8 +35,8 @@ describe('GET /api/projects', () => {
     verifyToken.mockResolvedValue({ sub: 'user_clerk_1', exp: 9999999999 })
   })
 
-  it('returns tenant-scoped projects mapped to the contracts shape', async () => {
-    const sql = vi.fn(async () => [ROW])
+  it('returns tenant-scoped projects mapped to the contracts shape, with rollup counts', async () => {
+    const sql = vi.fn(async () => [LIST_ROW])
     createSql.mockReturnValue(sql)
 
     const res = await app.request('/api/projects', { headers: { Authorization: 'Bearer token' } })
@@ -47,9 +50,47 @@ describe('GET /api/projects', () => {
       status: 'backlog',
       lead_id: null,
       target_date: null,
+      totalCount: 3,
+      doneCount: 1,
     })
     const params = sql.mock.calls[0]?.slice(1) ?? []
     expect(params).toContain('user_clerk_1')
+  })
+
+  it('correlates the count to the project OWN tenant, so a count cannot span tenants', async () => {
+    // `work_items.project_id` references projects(id) with no tenant equality
+    // constraint, so a row in another tenant CAN point at this project. The
+    // rollup must therefore be correlated on tenant, not just project_id —
+    // otherwise a foreign row inflates this tenant's count.
+    //
+    // This tier mocks `sql`, so it asserts the QUERY SHAPE that makes the leak
+    // structurally impossible; the executed-semantics guarantee belongs to the
+    // real-database contract tier.
+    const sql = vi.fn(async () => [LIST_ROW])
+    createSql.mockReturnValue(sql)
+
+    await app.request('/api/projects', { headers: { Authorization: 'Bearer token' } })
+
+    // The mock is declared with no parameters, so its recorded call types as an
+    // empty tuple; reach the tagged-template strings through an explicit cast.
+    const [strings] = (sql.mock.calls[0] ?? []) as unknown as [readonly string[]]
+    const normalized = strings.join(' ').replace(/\s+/g, ' ')
+    expect(normalized).toContain('w.tenant_id = p.tenant_id')
+    expect(normalized).toContain('w.project_id = p.id')
+    // A bare group-by-then-join would reintroduce the leak.
+    expect(normalized).not.toMatch(/group by\s+project_id\s*\)/)
+  })
+
+  it('reports 0/0 for a project with no work items, rather than dropping it', async () => {
+    const sql = vi.fn(async () => [{ ...ROW, total_count: 0, done_count: 0 }])
+    createSql.mockReturnValue(sql)
+
+    const res = await app.request('/api/projects', { headers: { Authorization: 'Bearer token' } })
+
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as Record<string, unknown>[]
+    expect(body).toHaveLength(1)
+    expect(body[0]).toMatchObject({ id: 'proj_1', totalCount: 0, doneCount: 0 })
   })
 
   it('returns a structured 500 when the DB query fails', async () => {
@@ -66,7 +107,7 @@ describe('GET /api/projects', () => {
   })
 
   it('returns 401 without a bearer token (no DB access)', async () => {
-    const sql = vi.fn(async () => [ROW])
+    const sql = vi.fn(async () => [LIST_ROW])
     createSql.mockReturnValue(sql)
     const res = await app.request('/api/projects')
     expect(res.status).toBe(401)

@@ -11,7 +11,7 @@ import { DEFAULT_GRAPH_DEPTH } from "./repository";
 import type {
   ActivityEvent,
   Owner,
-  Project,
+  ProjectWithCounts,
   Check,
   WorkItem,
   WorkItemDependency,
@@ -152,7 +152,7 @@ export function createNetworkWorkItemRepository(
 
   return {
     list: () => request<WorkItem[]>("GET", "/api/work-items"),
-    listProjects: () => request<Project[]>("GET", "/api/projects"),
+    listProjects: () => request<ProjectWithCounts[]>("GET", "/api/projects"),
     listOwners: () => request<Owner[]>("GET", "/api/owners"),
     listChecks: () => request<Check[]>("GET", "/api/checks"),
     listDependencies: () =>

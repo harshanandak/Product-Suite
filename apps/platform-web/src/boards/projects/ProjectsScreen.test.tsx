@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 
-import type { Project, WorkItem } from "../../data/work-items/types";
+import type { ProjectWithCounts, WorkItem } from "../../data/work-items/types";
 import {
   createMockWorkItemRepository,
   type WorkItemRepository,
@@ -9,7 +9,12 @@ import {
 
 import { ProjectsScreen } from "./ProjectsScreen";
 
-function project(over: Partial<Project> = {}): Project {
+/**
+ * `totalCount`/`doneCount` default to 0 — most tests here care about status
+ * grouping, health, or expansion, not progress, so a test only needs to set
+ * them when it is asserting the progress column.
+ */
+function project(over: Partial<ProjectWithCounts> = {}): ProjectWithCounts {
   return {
     id: "p1",
     name: "Core product",
@@ -19,15 +24,17 @@ function project(over: Partial<Project> = {}): Project {
     target_date: "2026-12-01T00:00:00.000Z",
     created_at: "2026-01-01T00:00:00.000Z",
     updated_at: "2026-01-01T00:00:00.000Z",
+    totalCount: 0,
+    doneCount: 0,
     ...over,
-  } as Project;
+  } as ProjectWithCounts;
 }
 
 /**
  * A real mock repository with the project/item sets replaced, so the screen sees
  * deterministic data while every other repository method still behaves.
  */
-function repositoryWith(projects: Project[], items: Partial<WorkItem>[]): WorkItemRepository {
+function repositoryWith(projects: ProjectWithCounts[], items: Partial<WorkItem>[]): WorkItemRepository {
   const base = createMockWorkItemRepository();
   const rows = items.map(
     (over, index) =>
@@ -70,11 +77,11 @@ describe("ProjectsScreen", () => {
     expect(screen.getByText("Platform hardening")).toBeInTheDocument();
   });
 
-  test("shows a project's progress as done-over-total WORK ITEMS", async () => {
+  test("shows a project's progress as done-over-total WORK ITEMS, from the server-computed counts", async () => {
     render(
       <ProjectsScreen
         repository={repositoryWith(
-          [project()],
+          [project({ totalCount: 3, doneCount: 1 })],
           [{ phase: "done" }, { phase: "execute" }, { phase: "plan" }],
         )}
       />,
