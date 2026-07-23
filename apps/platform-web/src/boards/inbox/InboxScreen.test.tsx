@@ -9,7 +9,7 @@ import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ProposalRepository } from "@/data/proposals";
-import type { AcceptResult, Proposal } from "@/data/proposals";
+import type { AcceptResult, Proposal, UndoResult } from "@/data/proposals";
 
 // Mutable search stub so a test can drive the `?proposal=<id>` deep-link.
 let searchMock: { proposal?: string } = {};
@@ -71,6 +71,13 @@ function repoWith(proposals: Proposal[]): ProposalRepository {
       }),
     ),
     reject: vi.fn(async () => undefined),
+    undo: vi.fn(
+      async (id: string): Promise<UndoResult> => ({
+        status: "undone",
+        proposal_id: id,
+        item_id: "wi_1",
+      }),
+    ),
     activeRules: vi.fn(async () => []),
   };
 }
@@ -333,5 +340,88 @@ describe("InboxScreen", () => {
     expect(
       screen.queryByText("Create work item “Alpha”"),
     ).not.toBeInTheDocument();
+  });
+
+  /**
+   * Undo-on-accept, end-to-end through the screen: accepting in the inbox must
+   * leave a way back, or every accept is a bet the reviewer cannot hedge.
+   */
+  describe("undo on the Applied banner", () => {
+    /** An UPDATE proposal — the only shape with a defined reversal. */
+    function updateProposal(): Proposal {
+      return { ...proposal("p1", "Alpha"), operation: "update", target_id: "wi_1" };
+    }
+
+    it("offers Undo on the Applied banner and reverses through the repository", async () => {
+      const repository = repoWith([updateProposal()]);
+      repository.accept = vi.fn(
+        async (): Promise<AcceptResult> => ({
+          status: "applied",
+          proposal_id: "p1",
+          item_id: "wi_1",
+        }),
+      );
+      render(<InboxScreen repository={repository} />);
+
+      fireEvent.click(await screen.findByRole("button", { name: "Accept" }));
+      const undoButton = await screen.findByRole("button", { name: "Undo" });
+
+      fireEvent.click(undoButton);
+      await waitFor(() =>
+        expect(
+          screen.getByText(/back to its previous values/i),
+        ).toBeInTheDocument(),
+      );
+      expect(repository.undo).toHaveBeenCalledWith("p1");
+    });
+
+    it("keeps the change applied and explains why when the item moved (409)", async () => {
+      const repository = repoWith([updateProposal()]);
+      repository.accept = vi.fn(
+        async (): Promise<AcceptResult> => ({
+          status: "applied",
+          proposal_id: "p1",
+          item_id: "wi_1",
+        }),
+      );
+      repository.undo = vi.fn(
+        async (): Promise<UndoResult> => ({
+          status: "conflict",
+          proposal_id: "p1",
+          message: "this item changed after it was accepted (title)",
+          fields: ["title"],
+        }),
+      );
+      render(<InboxScreen repository={repository} />);
+
+      fireEvent.click(await screen.findByRole("button", { name: "Accept" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+
+      await waitFor(() =>
+        expect(
+          screen.getByText(/changed after it was accepted/i),
+        ).toBeInTheDocument(),
+      );
+      // The change IS still applied — the banner must not claim otherwise.
+      expect(screen.getByText("Applied.")).toBeInTheDocument();
+    });
+
+    it("offers no Undo for a create (its inverse would be a delete)", async () => {
+      const repository = repoWith([proposal("p1", "Alpha")]);
+      repository.accept = vi.fn(
+        async (): Promise<AcceptResult> => ({
+          status: "applied",
+          proposal_id: "p1",
+          item_id: "wi_new",
+        }),
+      );
+      render(<InboxScreen repository={repository} />);
+
+      fireEvent.click(await screen.findByRole("button", { name: "Accept" }));
+      await waitFor(() =>
+        expect(screen.getByText("Applied.")).toBeInTheDocument(),
+      );
+      expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+    });
   });
 });

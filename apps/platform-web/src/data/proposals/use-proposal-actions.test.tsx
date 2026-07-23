@@ -25,6 +25,7 @@ function makeRepo(overrides: Partial<ProposalRepository> = {}): ProposalReposito
       }),
     ),
     reject: vi.fn(async () => undefined),
+    undo: vi.fn(async (id) => ({ status: "undone" as const, proposal_id: id, item_id: "wi_1" })),
     activeRules: vi.fn(async () => []),
     ...overrides,
   };

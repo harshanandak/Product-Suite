@@ -1,5 +1,5 @@
 import { createProposalFixtures } from "./fixtures";
-import type { AcceptResult, Proposal } from "./types";
+import type { AcceptResult, Proposal, UndoResult } from "./types";
 
 /**
  * Proposal review SEAM (mirrors the work-items {@link WorkItemRepository}): the
@@ -23,6 +23,16 @@ export interface ProposalRepository {
   /** Reject a proposal, with an optional human reason. */
   reject(id: string, reason?: string): Promise<void>;
   /**
+   * Undo an ACCEPTED change — write the item's previous values back through the
+   * same validated path the accept used. Scoped to `work_item` `update` proposals
+   * (a create's inverse is a delete; memory ops reverse via supersede/retract).
+   *
+   * The result is a discriminated {@link UndoResult} rather than a throw: a
+   * `conflict` (someone edited the item after the accept — nothing was written) is
+   * a normal, explainable outcome the reviewer must see, not an error.
+   */
+  undo(id: string): Promise<UndoResult>;
+  /**
    * The `kind='rule'` memories that were active during the run that authored this
    * proposal — provenance for the "Rules active when this was drafted" badge (never
    * causation). Empty when the proposal has no authoring run or no rule attributions
@@ -44,6 +54,10 @@ export function createMockProposalRepository(
 ): ProposalRepository {
   const latencyMs = options.latencyMs ?? 0;
   const proposals: Proposal[] = createProposalFixtures();
+  // What `undo` can still reverse: the item id an accept applied, per proposal.
+  // Populated on accept and CLEARED on undo, so the mock enforces the same
+  // single-step rule as the API (a second undo reports `not_found`).
+  const undoable = new Map<string, string>();
 
   const settle = <T>(value: T): Promise<T> =>
     latencyMs > 0
@@ -70,6 +84,11 @@ export function createMockProposalRepository(
       // Synthesize the applied item id so the mock's applied path has a linkable
       // target, mirroring what the real backend returns as `item_id`.
       const itemId = proposal.target_id ?? `wi_new_${proposal.id}`;
+      // Only a work-item UPDATE is reversible — mirrors the API's undo scope so the
+      // fixture surface offers Undo in exactly the cases the real backend accepts.
+      if (proposal.target_type === "work_item" && proposal.operation === "update") {
+        undoable.set(id, itemId);
+      }
       return settle<AcceptResult>({
         status: "applied",
         proposal_id: id,
@@ -81,6 +100,16 @@ export function createMockProposalRepository(
       const index = proposals.findIndex((proposal) => proposal.id === id);
       if (index !== -1) proposals.splice(index, 1);
       return settle(undefined);
+    },
+
+    undo(id: string) {
+      const itemId = undoable.get(id);
+      if (itemId === undefined) {
+        return settle<UndoResult>({ status: "not_found", proposal_id: id });
+      }
+      // Single-step: consumed, so a second undo of the same accept is not found.
+      undoable.delete(id);
+      return settle<UndoResult>({ status: "undone", proposal_id: id, item_id: itemId });
     },
 
     // The mock dataset carries no run→rule attributions — provenance is a

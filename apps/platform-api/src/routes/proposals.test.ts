@@ -65,12 +65,20 @@ function makeSql(
     rules?: { id: string; title: string }[]
     /** When true, the proposal load returns no row (not in the caller's tenants). */
     proposalMissing?: boolean
+    /** The target work item's CURRENT row (the undo path's conflict check reads it). */
+    current?: Record<string, unknown> | null
   } = {},
 ) {
   const proposal = { ...PROPOSAL, ...(opts.proposal ?? {}) }
   let status = proposal.status as string
+  // The undo record lives INSIDE applied_write (no new column). `undone` mirrors the
+  // guarded mark so a second undo in the same test finds it already stamped.
+  let appliedWrite = (proposal as Record<string, unknown>).applied_write ?? null
+  let undone = Boolean(
+    (appliedWrite as Record<string, Record<string, unknown>> | null)?.__undo?.undone_at,
+  )
 
-  const query = vi.fn(async (text: string, _params: unknown[]) => {
+  const query = vi.fn(async (text: string, params: unknown[]) => {
     if (text.includes("set status = 'applied'")) {
       if (status === 'pending') {
         status = 'applied'
@@ -78,7 +86,13 @@ function makeSql(
       }
       return []
     }
-    if (text.includes('set applied_write')) return []
+    if (text.includes('set applied_write')) {
+      // The undo mark: guarded on still-applied AND not-yet-undone (see undo.ts).
+      if (undone) return []
+      undone = true
+      appliedWrite = JSON.parse(params[0] as string)
+      return [{ id: 'p1' }]
+    }
     if (text.includes('insert into')) return [WI_ROW] // recordWriteTx build (ignored; transaction returns rows)
     return []
   })
@@ -94,7 +108,17 @@ function makeSql(
       status = 'rejected'
       return [{ ...proposal, status: 'rejected' }]
     }
-    if (text.includes('from proposals')) return opts.proposalMissing ? [] : [{ ...proposal, status }]
+    // Only the undo tests opt into a target row (`current`); every other test keeps
+    // the original no-rows behaviour so the accept path's guards are unchanged.
+    if (opts.current !== undefined && text.includes('select * from work_items')) {
+      return opts.current === null ? [] : [{ ...WI_ROW, ...opts.current }]
+    }
+    if (opts.current != null && text.includes('update work_items')) {
+      return [{ ...WI_ROW, ...opts.current }]
+    }
+    if (text.includes('from proposals')) {
+      return opts.proposalMissing ? [] : [{ ...proposal, status, applied_write: appliedWrite }]
+    }
     return []
   }) as unknown as ReturnType<typeof vi.fn>
   ;(sql as unknown as { query: typeof query }).query = query
@@ -102,7 +126,7 @@ function makeSql(
     .fn()
     .mockResolvedValue([[WI_ROW], [{}]])
 
-  return { sql, getStatus: () => status }
+  return { sql, getStatus: () => status, getAppliedWrite: () => appliedWrite }
 }
 
 describe('/api/agent/proposals', () => {
@@ -281,5 +305,114 @@ describe('/api/agent/proposals', () => {
 
     const res = await app.request('/api/agent/proposals/p1/active-rules', { headers: auth.headers })
     expect(res.status).toBe(404)
+  })
+
+  /**
+   * UNDO-ON-ACCEPT. Accepting is only safe if it can be taken back — this endpoint
+   * reverses an applied `work_item:update` by writing its pre-image back through
+   * the SAME validated write path, and refuses (409, no write) the moment the item
+   * has moved since the accept.
+   */
+  describe('POST /:id/undo', () => {
+    const TARGET = '44444444-4444-4444-8444-444444444444'
+    /** An applied update whose applied_write carries the pre-image (see proposals/undo.ts). */
+    const UNDOABLE = {
+      status: 'applied',
+      target_type: 'work_item',
+      target_id: TARGET,
+      operation: 'update',
+      payload: { title: 'After' },
+      applied_write: {
+        ...WI_ROW,
+        id: TARGET,
+        title: 'After',
+        __undo: { pre_image: { title: 'Before' }, applied: { title: 'After' } },
+      },
+    }
+
+    it('restores the pre-image and reports 200 undone', async () => {
+      const { sql } = makeSql({ proposal: UNDOABLE, current: { id: TARGET, title: 'After' } })
+      createSql.mockReturnValue(sql)
+
+      const res = await app.request('/api/agent/proposals/p1/undo', { method: 'POST', ...auth })
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ status: 'undone', proposal_id: 'p1', item_id: TARGET })
+    })
+
+    it('reverses through the validated UPDATE path, not a status rollback', async () => {
+      const { sql, getStatus, getAppliedWrite } = makeSql({
+        proposal: UNDOABLE,
+        current: { id: TARGET, title: 'After' },
+      })
+      createSql.mockReturnValue(sql)
+
+      await app.request('/api/agent/proposals/p1/undo', { method: 'POST', ...auth })
+      // A real work_items UPDATE ran…
+      const updateCall = (sql as unknown as { mock: { calls: unknown[][] } }).mock.calls.find(
+        (call) => Array.isArray(call[0]) && (call[0] as string[]).join('?').includes('update work_items'),
+      )
+      expect(updateCall).toBeDefined()
+      // …and the proposal is STILL applied — "accepted always means applied" holds.
+      expect(getStatus()).toBe('applied')
+      const undo = (getAppliedWrite() as Record<string, Record<string, unknown>>).__undo
+      expect(undo.undone_by).toBe('u_approver')
+    })
+
+    it('409s and writes NOTHING when the item changed after the accept', async () => {
+      const { sql } = makeSql({
+        proposal: UNDOABLE,
+        current: { id: TARGET, title: 'edited by someone else' },
+      })
+      createSql.mockReturnValue(sql)
+
+      const res = await app.request('/api/agent/proposals/p1/undo', { method: 'POST', ...auth })
+      expect(res.status).toBe(409)
+      const body = (await res.json()) as { status: string; fields: string[] }
+      expect(body.status).toBe('conflict')
+      expect(body.fields).toEqual(['title'])
+      // No later edit was clobbered.
+      const updateCall = (sql as unknown as { mock: { calls: unknown[][] } }).mock.calls.find(
+        (call) => Array.isArray(call[0]) && (call[0] as string[]).join('?').includes('update work_items'),
+      )
+      expect(updateCall).toBeUndefined()
+    })
+
+    it('409s on a second undo of the same proposal', async () => {
+      const { sql } = makeSql({ proposal: UNDOABLE, current: { id: TARGET, title: 'After' } })
+      createSql.mockReturnValue(sql)
+
+      expect(
+        (await app.request('/api/agent/proposals/p1/undo', { method: 'POST', ...auth })).status,
+      ).toBe(200)
+      expect(
+        (await app.request('/api/agent/proposals/p1/undo', { method: 'POST', ...auth })).status,
+      ).toBe(409)
+    })
+
+    it('422s a create (undoing a create is a delete — out of scope)', async () => {
+      const { sql } = makeSql({ current: { id: TARGET } })
+      createSql.mockReturnValue(sql)
+
+      const res = await app.request('/api/agent/proposals/p1/undo', { method: 'POST', ...auth })
+      expect(res.status).toBe(422)
+      expect((await res.json()) as { status: string }).toMatchObject({ status: 'not_undoable' })
+    })
+
+    it('404s a proposal outside the caller’s tenants', async () => {
+      const { sql } = makeSql({ proposalMissing: true, current: { id: TARGET } })
+      createSql.mockReturnValue(sql)
+
+      const res = await app.request('/api/agent/proposals/p1/undo', { method: 'POST', ...auth })
+      expect(res.status).toBe(404)
+    })
+
+    it('401s without a bearer token (no DB access)', async () => {
+      const { sql } = makeSql({ proposal: UNDOABLE, current: { id: TARGET } })
+      createSql.mockReturnValue(sql)
+
+      const res = await app.request('/api/agent/proposals/p1/undo', { method: 'POST' })
+      expect(res.status).toBe(401)
+      expect(sql).not.toHaveBeenCalled()
+    })
   })
 })

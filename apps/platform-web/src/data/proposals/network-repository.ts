@@ -1,5 +1,5 @@
 import type { ProposalRepository } from "./repository";
-import type { AcceptResult, Proposal, ProposalSource } from "./types";
+import type { AcceptResult, Proposal, ProposalSource, UndoResult } from "./types";
 
 /** The recognized proposal sources; anything else off the wire normalizes to null. */
 const PROPOSAL_SOURCES: readonly ProposalSource[] = [
@@ -231,6 +231,52 @@ export function createNetworkProposalRepository(
 
     reject: (id: string, reason?: string) =>
       request<void>("POST", `/api/agent/proposals/${id}/reject`, { reason }),
+
+    async undo(id: string): Promise<UndoResult> {
+      const response = await rawFetch("POST", `/api/agent/proposals/${id}/undo`);
+      // The undo endpoint ALWAYS carries its typed envelope in the body,
+      // discriminated on `status` — read that, not the HTTP code. Read the body
+      // ONCE (the stream is single-use).
+      const body = await readJsonBody(response);
+      const status = typeof body?.status === "string" ? body.status : null;
+      const proposalId = typeof body?.proposal_id === "string" ? body.proposal_id : id;
+
+      switch (status) {
+        case "undone":
+          return {
+            status: "undone",
+            proposal_id: proposalId,
+            item_id: typeof body?.item_id === "string" ? body.item_id : "",
+          };
+        case "conflict":
+          return {
+            status: "conflict",
+            proposal_id: proposalId,
+            message:
+              readBodyMessage(body) ??
+              "This item changed after it was accepted, so it wasn’t reverted.",
+            // A missing/malformed `fields` must never crash the banner — it only
+            // enriches the message, so an unusable value degrades to "no fields".
+            fields: Array.isArray(body?.fields)
+              ? body.fields.filter((field): field is string => typeof field === "string")
+              : [],
+          };
+        case "not_undoable":
+          return {
+            status: "not_undoable",
+            proposal_id: proposalId,
+            message: readBodyMessage(body) ?? "This change can’t be undone.",
+          };
+        case "not_found":
+          return { status: "not_found", proposal_id: proposalId };
+        default:
+          break;
+      }
+
+      // No typed envelope (a bare 5xx/401 or an unexpected body) — a genuine
+      // transport error, which THROWS rather than masquerading as a clean outcome.
+      throw new Error(readBodyMessage(body) ?? `Request failed (${response.status})`);
+    },
 
     async activeRules(id: string): Promise<{ id: string; title: string }[]> {
       const body = await request<{ rules: { id: string; title: string }[] }>(

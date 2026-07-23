@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { AcceptResult, Proposal } from "@/data/proposals";
+import type { AcceptResult, Proposal, UndoResult } from "@/data/proposals";
 import type { WorkItem } from "@/data/work-items";
 
 // The detail fetches the update target through the work-items hook; stub it with
@@ -105,21 +105,24 @@ function renderDetail(
       editedPayload?: Record<string, unknown>,
     ) => Promise<AcceptResult>;
     reject: (id: string, reason?: string) => Promise<void>;
+    undo: (id: string) => Promise<UndoResult>;
   }> = {},
 ) {
   const accept =
     handlers.accept ?? vi.fn(async (): Promise<AcceptResult> => stale());
   const reject = handlers.reject ?? vi.fn(async () => undefined);
+  const undo = handlers.undo;
   render(
     <ProposalDetail
       proposal={p}
       accept={accept}
       reject={reject}
+      undo={undo}
       isMutating={false}
       workspace="acme"
     />,
   );
-  return { accept, reject };
+  return { accept, reject, undo };
 }
 
 describe("ProposalDetail", () => {
@@ -834,5 +837,145 @@ describe("ProposalDetail", () => {
     expect(
       screen.getByText(/"title": "Ship pricing brief"/),
     ).toBeInTheDocument();
+  });
+
+  /**
+   * UNDO-ON-ACCEPT. The Applied banner is the last thing a reviewer sees; without a
+   * way back from it, accepting is a one-way door. These cases pin the affordance's
+   * SCOPE (only where a reversal is defined) and its honesty (a refused undo must
+   * never read as a successful one).
+   */
+  describe("undo on the Applied banner", () => {
+    const updateProposal = () =>
+      proposal({ operation: "update", target_id: "wi_1", payload: { title: "New" } });
+
+    function undone(): UndoResult {
+      return { status: "undone", proposal_id: "p1", item_id: "wi_1" };
+    }
+
+    /** Accept, then wait for the Applied banner. */
+    async function acceptThenApplied(handlers: Parameters<typeof renderDetail>[1]) {
+      itemsMock.items = [targetItem];
+      const rendered = renderDetail(updateProposal(), handlers);
+      fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+      await waitFor(() => expect(screen.getByText("Applied.")).toBeInTheDocument());
+      return rendered;
+    }
+
+    it("shows Undo beside the applied item link for a work-item update", async () => {
+      await acceptThenApplied({
+        accept: vi.fn(async () => applied("wi_1")),
+        undo: vi.fn(async () => undone()),
+      });
+      expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument();
+      // The applied confirmation is still the primary message.
+      expect(screen.getByRole("link", { name: "View item →" })).toBeInTheDocument();
+    });
+
+    it("reverses on click and reports the item is back to its previous values", async () => {
+      const { undo } = await acceptThenApplied({
+        accept: vi.fn(async () => applied("wi_1")),
+        undo: vi.fn(async () => undone()),
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+      await waitFor(() =>
+        expect(screen.getByText(/back to its previous values/i)).toBeInTheDocument(),
+      );
+      expect(undo).toHaveBeenCalledWith("p1");
+      // Terminal: an undone change offers no second Undo (a "redo" would be a new decision).
+      expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+    });
+
+    it("surfaces a 409 conflict and leaves the change APPLIED (nothing was reverted)", async () => {
+      await acceptThenApplied({
+        accept: vi.fn(async () => applied("wi_1")),
+        undo: vi.fn(
+          async (): Promise<UndoResult> => ({
+            status: "conflict",
+            proposal_id: "p1",
+            message: "this item changed after it was accepted (title)",
+            fields: ["title"],
+          }),
+        ),
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+      await waitFor(() =>
+        expect(
+          screen.getByText("this item changed after it was accepted (title)"),
+        ).toBeInTheDocument(),
+      );
+      // The banner must keep telling the truth: the change is still applied.
+      expect(screen.getByText("Applied.")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument();
+    });
+
+    it("surfaces a refusal for a change with no recorded previous values", async () => {
+      await acceptThenApplied({
+        accept: vi.fn(async () => applied("wi_1")),
+        undo: vi.fn(
+          async (): Promise<UndoResult> => ({
+            status: "not_undoable",
+            proposal_id: "p1",
+            message: "this change was accepted before undo was available",
+          }),
+        ),
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+      await waitFor(() =>
+        expect(
+          screen.getByText(/accepted before undo was available/i),
+        ).toBeInTheDocument(),
+      );
+      expect(screen.getByText("Applied.")).toBeInTheDocument();
+    });
+
+    it("surfaces a thrown transport error instead of failing silently", async () => {
+      await acceptThenApplied({
+        accept: vi.fn(async () => applied("wi_1")),
+        undo: vi.fn(async () => {
+          throw new Error("Network unreachable");
+        }),
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+      await waitFor(() =>
+        expect(screen.getByText("Network unreachable")).toBeInTheDocument(),
+      );
+      expect(screen.getByText("Applied.")).toBeInTheDocument();
+    });
+
+    it("a double-click undoes exactly once (shared in-flight guard)", async () => {
+      const { undo } = await acceptThenApplied({
+        accept: vi.fn(async () => applied("wi_1")),
+        undo: vi.fn(async () => undone()),
+      });
+
+      const button = screen.getByRole("button", { name: "Undo" });
+      fireEvent.click(button);
+      fireEvent.click(button);
+      await waitFor(() =>
+        expect(screen.getByText(/back to its previous values/i)).toBeInTheDocument(),
+      );
+      expect(undo).toHaveBeenCalledTimes(1);
+    });
+
+    it("offers no Undo for a create (its inverse is a delete — out of scope)", async () => {
+      itemsMock.items = [];
+      renderDetail(proposal(), {
+        accept: vi.fn(async () => applied("wi_new")),
+        undo: vi.fn(async () => undone()),
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+      await waitFor(() => expect(screen.getByText("Applied.")).toBeInTheDocument());
+      expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+    });
+
+    it("offers no Undo when the host wires no undo handler", async () => {
+      await acceptThenApplied({ accept: vi.fn(async () => applied("wi_1")) });
+      expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+    });
   });
 });

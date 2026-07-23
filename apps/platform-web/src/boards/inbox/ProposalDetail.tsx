@@ -10,6 +10,7 @@ import {
   useProposals,
   type AcceptResult,
   type Proposal,
+  type UndoResult,
 } from "@/data/proposals";
 import { useWorkItems, type WorkItem } from "@/data/work-items";
 
@@ -48,6 +49,12 @@ export interface ProposalDetailProps {
   accept: (id: string, editedPayload?: Record<string, unknown>) => Promise<AcceptResult>;
   /** Reject mutation from `useProposals`. */
   reject: (id: string, reason?: string) => Promise<void>;
+  /**
+   * Undo mutation from `useProposals` — reverses an APPLIED work-item update by
+   * writing its previous values back. Optional: when omitted the Applied banner
+   * simply has no Undo affordance, so this component still renders standalone.
+   */
+  undo?: (id: string) => Promise<UndoResult>;
   /** True while an accept/reject is in flight (disables the actions). */
   isMutating: boolean;
   /** Active workspace slug — used to link to the target/applied work item. */
@@ -70,6 +77,8 @@ export interface ProposalDetailProps {
 type DisposeStatus =
   | { kind: "idle" }
   | { kind: "applied"; itemId: string }
+  /** The accept was reversed — terminal, and deliberately not re-undoable. */
+  | { kind: "undone"; itemId: string }
   | { kind: "rejected" }
   | { kind: "stale"; message: string }
   | { kind: "invalid"; message: string; retryable: boolean }
@@ -111,6 +120,32 @@ function StatusBanner({
     <output className={cn("block rounded-md border px-3 py-2 text-sm", BANNER_TONE[tone])}>
       {children}
     </output>
+  );
+}
+
+/**
+ * The Applied banner's Undo affordance — the thing that makes accepting reversible
+ * instead of a one-way door. Rendered ONLY where a reversal is actually defined (a
+ * work-item UPDATE, matching the API's scope), so it never promises something the
+ * server would refuse. Presented as a quiet secondary action beside "View item":
+ * the accept is still the outcome; undo is the safety net, not a competing choice.
+ */
+function UndoAction({
+  available,
+  busy,
+  onUndo,
+}: Readonly<{ available: boolean; busy: boolean; onUndo: () => void }>) {
+  if (!available) return null;
+  return (
+    <Button
+      size="xs"
+      variant="outline"
+      className="ml-2 align-baseline"
+      disabled={busy}
+      onClick={onUndo}
+    >
+      Undo
+    </Button>
   );
 }
 
@@ -227,6 +262,8 @@ function DispositionBlock({
   disableAccept,
   acceptHint,
   busy,
+  canUndo,
+  onUndo,
   onAccept,
   onReject,
   onStartReject,
@@ -251,6 +288,9 @@ function DispositionBlock({
   acceptHint: string | null;
   /** True while any recovery action (retry/discard/apply-anyway/refresh) is in flight. */
   busy: boolean;
+  /** Whether this applied proposal can be reversed (a work-item update + an `undo` handler). */
+  canUndo: boolean;
+  onUndo: () => void;
   onAccept: () => void;
   onReject: () => void;
   onStartReject: () => void;
@@ -282,6 +322,23 @@ function DispositionBlock({
     return (
       <StatusBanner tone="primary">
         Applied.{" "}
+        <Link
+          to="/w/$workspace/workboard/item/$itemId"
+          params={{ workspace, itemId: status.itemId }}
+          className="font-medium text-primary hover:underline"
+        >
+          View item →
+        </Link>
+        <UndoAction available={canUndo} busy={busy} onUndo={onUndo} />
+      </StatusBanner>
+    );
+  }
+  if (status.kind === "undone") {
+    // Terminal and NOT re-undoable: the item is back where it started, and a
+    // "redo" would be a fresh decision, not a reversal.
+    return (
+      <StatusBanner tone="muted">
+        Undone — the item is back to its previous values.{" "}
         <Link
           to="/w/$workspace/workboard/item/$itemId"
           params={{ workspace, itemId: status.itemId }}
@@ -608,6 +665,7 @@ export function ProposalDetail({
   proposal,
   accept,
   reject,
+  undo,
   isMutating,
   workspace,
   onRefresh,
@@ -797,6 +855,43 @@ export function ProposalDetail({
       });
   };
 
+  // Undo an applied change — reverse it by writing the item's previous values back.
+  // Shares the ONE in-flight guard, so it can never race an accept/discard. Every
+  // refusal is SURFACED as a banner (a `conflict` means someone edited the item
+  // after the accept and nothing was written) — an undo must never fail silently,
+  // or the reviewer would believe a change was reverted when it was not.
+  const onUndo = (): void => {
+    if (!undo || inFlightRef.current) return;
+    inFlightRef.current = true;
+    setBusy(true);
+    setError(null);
+    void undo(proposal.id)
+      .then((result) => {
+        if (result.status === "undone") {
+          setStatus({ kind: "undone", itemId: result.item_id });
+          return;
+        }
+        // Refused: the Applied banner STAYS (the change is still applied) and the
+        // reason sits above it, so the reviewer sees exactly where things stand.
+        setError(
+          result.status === "not_found"
+            ? "This change is no longer available to undo."
+            : result.message,
+        );
+      })
+      .catch((err: unknown) => {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Couldn’t undo this change. Please try again.",
+        );
+      })
+      .finally(() => {
+        inFlightRef.current = false;
+        setBusy(false);
+      });
+  };
+
   // Edit = dismiss the recoverable banner back to the decision surface so the
   // reviewer can adjust (e.g. a rule's strength) and re-accept.
   const onEdit = (): void => {
@@ -886,6 +981,11 @@ export function ProposalDetail({
         disableAccept={disableAccept}
         acceptHint={acceptHint}
         busy={busy}
+        // Only a work-item UPDATE has a defined reversal (a create's inverse is a
+        // delete; memory ops reverse via supersede/retract) — mirror the API's scope
+        // so the affordance never promises what the server would refuse.
+        canUndo={undo !== undefined && !isMemory && proposal.operation === "update"}
+        onUndo={onUndo}
         onAccept={onAccept}
         onReject={onReject}
         onStartReject={() => setRejecting(true)}
