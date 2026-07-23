@@ -317,13 +317,34 @@ describe("prepush-gate harness env isolation (regression for #118)", () => {
   });
 
   test("gateEnv removes gate keys in any casing and keeps the rest of the env", () => {
-    const env = gateEnv({ PREPUSH_GATE_DRY: "1" });
-    for (const key of Object.keys(env)) {
-      if (key.toUpperCase() === "PREPUSH_GATE_DRY") continue;
-      expect(key.toUpperCase().startsWith("PREPUSH_GATE_")).toBe(false);
-    }
-    expect(env.PREPUSH_GATE_DRY).toBe("1");
-    // non-gate env is still inherited, so the child can find node/bun and its deps
-    expect(Object.keys(env).length).toBeGreaterThan(1);
+    // Inject the gate keys in lower/mixed case so the assertion actually depends
+    // on the case-insensitive filtering: on Windows these ARE the same variables,
+    // and on Linux they are distinct ones that a case-sensitive filter would leak
+    // straight into the child. Drop the `.toUpperCase()` in gateEnv and this fails.
+    // The sentinel proves unrelated ambient env survives — a length check cannot.
+    withAmbientEnv(
+      {
+        prepush_gate_fast: "1",
+        Prepush_Gate_Dry: "0",
+        PREPUSH_GATE_TEST_FILES: "package.json",
+        PREPUSH_GATE_SENTINEL_KEPT: "yes",
+      },
+      () => {
+        const env = gateEnv({ PREPUSH_GATE_DRY: "1" });
+
+        // Compare against GATE_ENV_KEYS, not a `PREPUSH_GATE_` prefix: only those
+        // three keys are owned by the harness, and the sentinel below shares the
+        // prefix precisely to prove the filter is key-scoped rather than prefix-scoped.
+        const leaked = Object.keys(env).filter(
+          (key) => GATE_ENV_KEYS.includes(key.toUpperCase()) && key !== "PREPUSH_GATE_DRY",
+        );
+        expect(leaked).toEqual([]);
+
+        expect(env.PREPUSH_GATE_DRY).toBe("1");
+        expect(env.PREPUSH_GATE_SENTINEL_KEPT).toBe("yes");
+        // non-gate env is still inherited, so the child can find node/bun and its deps
+        expect(env.PATH ?? env.Path).toBeDefined();
+      },
+    );
   });
 });
