@@ -17,7 +17,7 @@ import type {
   ActivityEventKind,
   DependencyRelationship,
   Owner,
-  Project,
+  ProjectWithCounts,
   Check,
   WorkItem,
   WorkItemDependency,
@@ -126,8 +126,11 @@ export type CreateCheckInput = { work_item_id: string; title?: string } & Partia
 export interface WorkItemRepository {
   /** All work items (no project filter — views scope/group client-side). */
   list(): Promise<WorkItem[]>;
-  /** All projects (for the project switcher / filter). */
-  listProjects(): Promise<Project[]>;
+  /**
+   * All projects (for the project switcher / filter), each carrying its
+   * server-computed work-item rollup counts ({@link ProjectWithCounts}).
+   */
+  listProjects(): Promise<ProjectWithCounts[]>;
   /** All owners (resolves a work item's `assignee_id` → display + the owner filter). */
   listOwners(): Promise<Owner[]>;
   /** All checks across all items — lets the hook derive list-level health in one read. */
@@ -210,7 +213,7 @@ export function createMockWorkItemRepository(
 ): WorkItemRepository {
   const latencyMs = options.latencyMs ?? 0;
 
-  const projects: Project[] = createProjectFixtures();
+  const projects: ProjectWithCounts[] = createProjectFixtures();
   const owners: Owner[] = createOwnerFixtures();
   const workItems: WorkItem[] = createWorkItemFixtures();
   const checks: Check[] = createCheckFixtures();

@@ -29,6 +29,11 @@ export type {
   WorkItemType,
 } from "@product-suite/ui";
 
+// A local (non-re-exported) import — `export type { Project } from ...` below
+// re-exports the name but does not bind it locally, and `ProjectWithCounts`
+// needs `Project` in scope for its `extends` clause.
+import type { Project } from "@product-suite/contracts";
+
 export type {
   ActivityEvent,
   ActivityEventKind,
@@ -45,3 +50,16 @@ export type {
 } from "@product-suite/contracts";
 
 export { deriveHealth } from "@product-suite/contracts";
+
+/**
+ * A {@link Project} plus the work-item rollup counts `GET /api/projects`
+ * computes server-side (a `group by work_items.project_id`). Kept OUT of the
+ * `Project` contract itself, same reasoning as platform-api's `toProjectWithCounts`:
+ * these counts are a list-endpoint rollup, not a property of the project entity.
+ * `WorkItemRepository.listProjects` returns this shape so the Projects board reads
+ * counts straight off the project record instead of counting `items` itself.
+ */
+export interface ProjectWithCounts extends Project {
+  readonly totalCount: number;
+  readonly doneCount: number;
+}

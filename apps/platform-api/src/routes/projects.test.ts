@@ -19,6 +19,9 @@ const ROW = {
   updated_at: '2026-07-02T00:00:00.000Z',
 }
 
+/** {@link ROW} plus the list query's `left join` rollup columns. */
+const LIST_ROW = { ...ROW, total_count: 3, done_count: 1 }
+
 const auth = {
   headers: { Authorization: 'Bearer token', 'Content-Type': 'application/json' },
 }
@@ -32,8 +35,8 @@ describe('GET /api/projects', () => {
     verifyToken.mockResolvedValue({ sub: 'user_clerk_1', exp: 9999999999 })
   })
 
-  it('returns tenant-scoped projects mapped to the contracts shape', async () => {
-    const sql = vi.fn(async () => [ROW])
+  it('returns tenant-scoped projects mapped to the contracts shape, with rollup counts', async () => {
+    const sql = vi.fn(async () => [LIST_ROW])
     createSql.mockReturnValue(sql)
 
     const res = await app.request('/api/projects', { headers: { Authorization: 'Bearer token' } })
@@ -47,9 +50,23 @@ describe('GET /api/projects', () => {
       status: 'backlog',
       lead_id: null,
       target_date: null,
+      totalCount: 3,
+      doneCount: 1,
     })
     const params = sql.mock.calls[0]?.slice(1) ?? []
     expect(params).toContain('user_clerk_1')
+  })
+
+  it('reports 0/0 for a project with no work items, rather than dropping it', async () => {
+    const sql = vi.fn(async () => [{ ...ROW, total_count: 0, done_count: 0 }])
+    createSql.mockReturnValue(sql)
+
+    const res = await app.request('/api/projects', { headers: { Authorization: 'Bearer token' } })
+
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as Record<string, unknown>[]
+    expect(body).toHaveLength(1)
+    expect(body[0]).toMatchObject({ id: 'proj_1', totalCount: 0, doneCount: 0 })
   })
 
   it('returns a structured 500 when the DB query fails', async () => {
@@ -66,7 +83,7 @@ describe('GET /api/projects', () => {
   })
 
   it('returns 401 without a bearer token (no DB access)', async () => {
-    const sql = vi.fn(async () => [ROW])
+    const sql = vi.fn(async () => [LIST_ROW])
     createSql.mockReturnValue(sql)
     const res = await app.request('/api/projects')
     expect(res.status).toBe(401)

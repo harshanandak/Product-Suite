@@ -32,6 +32,31 @@ function toProject(row: ProjectRow): Project {
   }
 }
 
+/**
+ * List-row shape: {@link ProjectRow} plus the work-item rollup counts the list
+ * query's `left join` GROUP BY adds. `total_count`/`done_count` are `::int`-cast
+ * in SQL (see `memory-impact.ts` for the same pattern), so they arrive as plain
+ * numbers, never bigint strings.
+ */
+interface ProjectListRow extends ProjectRow {
+  total_count: number
+  done_count: number
+}
+
+/**
+ * A project as the list response reports it — the {@link Project} contract shape
+ * plus server-computed counts. Kept OUT of the `Project` contract itself: counts
+ * are a list-endpoint rollup over work_items, not a property of the project
+ * entity (mirrors why `health` is never stored on a project either).
+ */
+function toProjectWithCounts(row: ProjectListRow): Project & { totalCount: number; doneCount: number } {
+  return {
+    ...toProject(row),
+    totalCount: row.total_count,
+    doneCount: row.done_count,
+  }
+}
+
 /** True when `value` is one of the closed {@link ProjectStatus} set. */
 function isProjectStatus(value: unknown): value is ProjectStatus {
   return typeof value === 'string' && (PROJECT_STATUS_VALUES as readonly string[]).includes(value)
@@ -59,18 +84,33 @@ export const projectsRoutes = new Hono<AuthedEnv>()
 
 /**
  * List the projects the caller can see — tenant-scoped through the project's
- * workspace to the tenants the caller is an active member of.
+ * workspace to the tenants the caller is an active member of. Each project
+ * carries its work-item rollup counts (`totalCount`/`doneCount`), computed
+ * server-side by a `left join` against a `group by work_items.project_id`
+ * subquery — the client no longer has to load every work item just to render
+ * the projects list. The `left join` (not an inner join) is what keeps a
+ * project with zero work items in the result, at 0/0, instead of vanishing.
  */
 projectsRoutes.get('/', async (c) => {
   const claims = c.get('claims')
   const sql = sqlFrom(c.env ?? {})
 
-  let rows: ProjectRow[]
+  let rows: ProjectListRow[]
   try {
     rows = (await sql`
       select p.id, p.name, p.kind, p.status, p.lead_id, p.target_date,
-             p.created_at, p.updated_at
+             p.created_at, p.updated_at,
+             coalesce(wi.total_count, 0)::int as total_count,
+             coalesce(wi.done_count, 0)::int as done_count
       from projects p
+      left join (
+        select project_id,
+               count(*) as total_count,
+               count(*) filter (where phase = 'done') as done_count
+        from work_items
+        where project_id is not null
+        group by project_id
+      ) wi on wi.project_id = p.id
       where p.tenant_id in (
         select om.tenant_id
         from organization_memberships om
@@ -80,13 +120,13 @@ projectsRoutes.get('/', async (c) => {
           and om.status = 'active'
       )
       order by p.name
-    `) as ProjectRow[]
+    `) as ProjectListRow[]
   } catch (cause) {
     console.error('[projects] list query failed', cause)
     return c.json({ error: 'Failed to load projects' }, 500)
   }
 
-  return c.json(rows.map(toProject))
+  return c.json(rows.map(toProjectWithCounts))
 })
 
 /**
