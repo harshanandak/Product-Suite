@@ -251,10 +251,20 @@ describe("InboxScreen", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Accept" }));
 
-    // Step 1 — accept has applied and the refetch is STILL in flight. The banner
-    // is up and the pane must stay mounted: no full skeleton flips in mid-refetch.
-    // (This file's Link mock renders an href-less anchor, so assert on the banner
-    // text rather than an implicit link role.)
+    // Step 1 — accept has applied and the refetch is STILL in flight. WAIT for
+    // that refetch to have been ISSUED before asserting on the mid-refetch
+    // window. The banner and the refetch's `list()` call are NOT ordered: the
+    // banner is a React commit, seen synchronously by waitFor's MutationObserver,
+    // while `list()` fires from a passive effect React flushes on a LATER task.
+    // So banner-time `toHaveBeenCalledTimes(2)` observed 1 call ~7% of runs —
+    // and even when it passed, `resolveRefetch` could still be its no-op default,
+    // leaving Step 2 resolving nothing. Waiting for the call both fixes the
+    // count race and guarantees `resolveRefetch` is bound to the held promise.
+    await waitFor(() => expect(repository.list).toHaveBeenCalledTimes(2));
+
+    // The banner is up and the pane must stay mounted: no full skeleton flips in
+    // mid-refetch. (This file's Link mock renders an href-less anchor, so assert
+    // on the banner text rather than an implicit link role.)
     await waitFor(() =>
       expect(screen.getAllByText(/View item/i).length).toBeGreaterThan(0),
     );
@@ -262,7 +272,6 @@ describe("InboxScreen", () => {
     expect(
       screen.queryByLabelText("Loading proposals"),
     ).not.toBeInTheDocument();
-    expect(repository.list).toHaveBeenCalledTimes(2);
 
     // Step 2 — the reload settles to an EMPTY pending list. The inbox does NOT
     // blank to the empty state; the terminal confirmation persists.
