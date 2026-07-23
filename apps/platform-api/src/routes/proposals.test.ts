@@ -354,7 +354,9 @@ describe('/api/agent/proposals', () => {
       expect(updateCall).toBeDefined()
       // …and the proposal is STILL applied — "accepted always means applied" holds.
       expect(getStatus()).toBe('applied')
-      const undo = (getAppliedWrite() as Record<string, Record<string, unknown>>).__undo
+      const undo = (getAppliedWrite() as Record<string, Record<string, unknown> | undefined>)
+        .__undo
+      if (!undo) throw new Error('applied_write is missing the undo envelope')
       expect(undo.undone_by).toBe('u_approver')
     })
 

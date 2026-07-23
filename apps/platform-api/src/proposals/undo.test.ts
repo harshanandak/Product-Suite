@@ -187,7 +187,9 @@ describe('undoProposal', () => {
     expect(result).toEqual({ status: 'undone', proposal_id: 'p1', item_id: TARGET })
     // The undo is a NEW validated write of the pre-image — never a status rollback.
     expect(updateWorkItem).toHaveBeenCalledTimes(1)
-    const [, writeCtx, id, patch] = updateWorkItem.mock.calls[0]
+    const [firstCall] = updateWorkItem.mock.calls
+    if (!firstCall) throw new Error('updateWorkItem was never called')
+    const [, writeCtx, id, patch] = firstCall
     expect(id).toBe(TARGET)
     expect(patch).toEqual({ title: 'A', priority: 'low' })
     expect(writeCtx.tenantIds).toEqual(['t_1'])
@@ -196,7 +198,9 @@ describe('undoProposal', () => {
   it('carries the approver as the HUMAN actor (a human reversed it, not the agent)', async () => {
     const { sql } = makeSql()
     await undoProposal(sql, ctx, 'p1')
-    const [, writeCtx] = updateWorkItem.mock.calls[0]
+    const [firstCall] = updateWorkItem.mock.calls
+    if (!firstCall) throw new Error('updateWorkItem was never called')
+    const [, writeCtx] = firstCall
     expect(writeCtx.actor).toEqual({ actorType: 'human', actorId: 'u_approver' })
   })
 
@@ -204,11 +208,13 @@ describe('undoProposal', () => {
     const { sql, getAppliedWrite } = makeSql()
     await undoProposal(sql, ctx, 'p1')
 
-    const persisted = getAppliedWrite() as Record<string, Record<string, unknown>>
-    expect(persisted[UNDO_KEY].undone_by).toBe('u_approver')
-    expect(typeof persisted[UNDO_KEY].undone_at).toBe('string')
+    const persisted = getAppliedWrite() as Record<string, Record<string, unknown> | undefined>
+    const undo = persisted[UNDO_KEY]
+    if (!undo) throw new Error('applied_write is missing the undo envelope')
+    expect(undo.undone_by).toBe('u_approver')
+    expect(typeof undo.undone_at).toBe('string')
     // The pre-image/applied record survives so the undo is auditable after the fact.
-    expect(persisted[UNDO_KEY].pre_image).toEqual({ title: 'A', priority: 'low' })
+    expect(undo.pre_image).toEqual({ title: 'A', priority: 'low' })
   })
 
   it('keeps the proposal `applied` — "accepted always means applied" still holds', async () => {
