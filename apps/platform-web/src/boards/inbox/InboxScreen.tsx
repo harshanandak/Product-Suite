@@ -55,7 +55,7 @@ export function InboxScreen({ repository }: Readonly<InboxScreenProps> = {}) {
   // Inbox →" target). Preselect it when present + still pending, else fall back
   // to the first row.
   const { proposal: requestedId } = useSearch({ from: "/w/$workspace/inbox" });
-  const { proposals, isLoading, error, accept, reject, isMutating, refetch } =
+  const { proposals, isLoading, error, accept, reject, undo, isMutating, refetch } =
     useProposals({ repository });
 
   // The selected proposal id (detail-pane target). Default to the deep-linked
@@ -233,6 +233,10 @@ export function InboxScreen({ repository }: Readonly<InboxScreenProps> = {}) {
                 proposal={selected}
                 accept={accept}
                 reject={reject}
+                // Undo-on-accept: the Applied banner keeps an escape hatch, so a
+                // reviewer who accepts and immediately regrets it is not stuck
+                // hand-reverting the item on the workboard.
+                undo={undo}
                 isMutating={isMutating}
                 workspace={workspace}
                 onRefresh={refetch}

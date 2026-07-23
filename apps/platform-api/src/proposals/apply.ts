@@ -22,6 +22,7 @@ import {
 } from '../domain/work-items'
 import type { ActorContext } from '../provenance/record-write'
 import { getProposalScoped, type ProposalRow } from './repository'
+import { buildUndoEnvelope, fieldSnapshot, undoableKeys } from './undo'
 
 /**
  * `applyProposal` returns the shared {@link AcceptResult} envelope (defined in
@@ -431,6 +432,27 @@ export async function applyProposal(
     }
   }
 
+  // (3b) PRE-IMAGE (undo-on-accept) — for a `work_item:update` ONLY, read the
+  // target's CURRENT values for the fields this patch will set, BEFORE the write
+  // overwrites them. Persisted inside the existing `applied_write` jsonb at the
+  // flip, this is what `POST /:id/undo` restores through the validated write path.
+  // A read failure is NEVER allowed to fail the accept: applying the human's
+  // decision matters more than the ability to reverse it, so a missing pre-image
+  // simply leaves the accept un-undoable (the endpoint declines with a clear 422).
+  let preImage: Record<string, unknown> | null = null
+  let preImageFields: string[] = []
+  if (proposal.target_type === 'work_item' && proposal.operation === 'update') {
+    preImageFields = undoableKeys(effectivePayload)
+    if (preImageFields.length > 0) {
+      const beforeRows = (await sql`
+        select * from work_items
+        where id = ${proposal.target_id} and tenant_id = ${proposal.tenant_id}
+      `) as Record<string, unknown>[]
+      const before = beforeRows[0]
+      if (before) preImage = fieldSnapshot(before, preImageFields)
+    }
+  }
+
   // Actor — the agent run acting on behalf of the approver.
   const actor: ActorContext = {
     actorType: 'agent',
@@ -467,13 +489,24 @@ export async function applyProposal(
   // the decision, the coalesced edited/snapshot payload ($3), and `applied_write` ($4).
   // Losing the `WHERE status='pending'` race → `not_pending` (a concurrent accept won;
   // our write was idempotent, so no double-row).
+  // `applied_write` keeps its meaning — the row the write produced. When a
+  // pre-image was captured it rides ALONGSIDE the row under a reserved key, so
+  // every existing reader still finds the row's fields at the top level.
+  const appliedWrite = preImage
+    ? buildUndoEnvelope(
+        result as unknown as Record<string, unknown>,
+        preImage,
+        fieldSnapshot(result as unknown as Record<string, unknown>, preImageFields),
+      )
+    : (result as unknown as Record<string, unknown>)
+
   const flipped = await sqlQuery<{ id: string }>(
     sql,
     `update proposals set status = 'applied', decided_by = $1, decided_at = now(),
        updated_at = now(), edited_payload = coalesce($3::jsonb, edited_payload),
        applied_write = $4::jsonb
      where id = $2 and status = 'pending' returning id`,
-    [approverUserId, proposalId, payloadToPersist, JSON.stringify(result)],
+    [approverUserId, proposalId, payloadToPersist, JSON.stringify(appliedWrite)],
   )
   if (flipped.length === 0) {
     // We LOST the flip: the guarded UPDATE matched no `pending` row, so the proposal was

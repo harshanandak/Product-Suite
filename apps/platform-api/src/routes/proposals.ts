@@ -7,6 +7,7 @@ import { sqlFrom } from '../db'
 import type { AuthedEnv } from '../middleware/clerk-auth'
 import { acceptHttpStatus, applyProposal } from '../proposals/apply'
 import { getProposalScoped, listPending } from '../proposals/repository'
+import { undoHttpStatus, undoProposal } from '../proposals/undo'
 
 /**
  * The agent decision inbox. A proposal is a module-agnostic, reviewable intent to
@@ -86,6 +87,46 @@ proposalsRoutes.post('/:id/accept', async (c) => {
       retryable: true,
     }
     return c.json(failure, acceptHttpStatus(failure))
+  }
+})
+
+/**
+ * Undo an accepted change: reverse an applied `work_item:update` by writing its
+ * pre-image back through the SAME validated domain command the accept used. This
+ * is what makes accepting reversible rather than a one-way door.
+ *
+ * It is a NEW validated write, never a status rollback — the proposal stays
+ * `applied` (the accept really did apply; the undo is a later fact recorded inside
+ * `applied_write`). Before reversing, the target's CURRENT values are compared to
+ * what the accept applied: any drift ⇒ 409 and nothing is written, because a human
+ * edit made after the accept must never be silently clobbered. `undoProposal` owns
+ * that logic and returns a surfaced envelope; the route maps it to HTTP and, like
+ * accept, ALWAYS emits the envelope in the body.
+ */
+proposalsRoutes.post('/:id/undo', async (c) => {
+  const claims = c.get('claims')
+  const sql = sqlFrom(c.env ?? {})
+  const id = c.req.param('id')
+
+  try {
+    const tenantIds = await callerTenantIds(sql, claims)
+    if (tenantIds.length === 0) return c.json({ status: 'not_found', proposal_id: id }, 404)
+
+    const approverUserId = await callerUserId(sql, claims)
+    if (!approverUserId) {
+      console.error('[proposals] undo: tenant resolved but no user identity for subject')
+      // Deterministic (a retry won't conjure an identity mapping) → 422, not a 5xx.
+      return c.json(
+        { status: 'not_undoable', proposal_id: id, message: 'No user identity for subject' },
+        422,
+      )
+    }
+
+    const result = await undoProposal(sql, { tenantIds, approverUserId }, id)
+    return c.json(result, undoHttpStatus(result))
+  } catch (cause) {
+    console.error('[proposals] undo failed', cause)
+    return c.json({ error: 'Failed to undo this change' }, 500)
   }
 })
 

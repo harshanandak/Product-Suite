@@ -35,6 +35,7 @@ function makeRepo(overrides: Partial<ProposalRepository> = {}): ProposalReposito
       }),
     ),
     reject: vi.fn(async () => undefined),
+    undo: vi.fn(async (id) => ({ status: "undone" as const, proposal_id: id, item_id: "wi_1" })),
     activeRules: vi.fn(async () => []),
     ...overrides,
   };
@@ -213,5 +214,40 @@ describe("useProposals", () => {
     const { result } = renderHook(() => useProposals({ repository }));
     await waitFor(() => expect(result.current.error).not.toBeNull());
     expect(result.current.error?.message).toBe("nope");
+  });
+
+  describe("undo", () => {
+    it("returns the outcome and re-lists when a change is actually reversed", async () => {
+      const repository = makeRepo();
+      const { result } = renderHook(() => useProposals({ repository }));
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      let outcome: Awaited<ReturnType<typeof result.current.undo>> | undefined;
+      await act(async () => {
+        outcome = await result.current.undo("p1");
+      });
+      expect(outcome).toEqual({ status: "undone", proposal_id: "p1", item_id: "wi_1" });
+      expect(repository.undo).toHaveBeenCalledWith("p1");
+      // A reversal changed the world, so every surface re-lists.
+      await waitFor(() => expect(repository.list).toHaveBeenCalledTimes(2));
+    });
+
+    it("does NOT re-list a refused undo (nothing was written)", async () => {
+      const repository = makeRepo({
+        undo: vi.fn(async (id: string) => ({
+          status: "conflict" as const,
+          proposal_id: id,
+          message: "changed since",
+          fields: ["title"],
+        })),
+      });
+      const { result } = renderHook(() => useProposals({ repository }));
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      await act(async () => {
+        await result.current.undo("p1");
+      });
+      expect(repository.list).toHaveBeenCalledTimes(1);
+    });
   });
 });

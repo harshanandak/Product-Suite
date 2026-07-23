@@ -112,3 +112,34 @@ export type AcceptResult =
     }
   | { readonly status: "not_found"; readonly proposal_id: string }
   | { readonly status: "not_pending"; readonly proposal_id: string };
+
+/**
+ * The result of {@link ProposalRepository.undo} — reversing an accepted change.
+ * Surfaced, not thrown, exactly like {@link AcceptResult}, because every non-success
+ * case here is something the reviewer must READ, not a crash:
+ *  - `undone`       — the previous values were written back; `item_id` links to the item.
+ *  - `conflict`     — the item moved since the accept (or the change was already
+ *                     undone). NOTHING was written; `fields` names what drifted so the
+ *                     banner can say *what* changed instead of a bare "conflict".
+ *  - `not_undoable` — structurally irreversible here (a create, a memory op, or an
+ *                     accept made before previous values were recorded).
+ *  - `not_found`    — the proposal or its target item is gone.
+ * A genuine transport/network error still throws (it is not an undo RESULT).
+ */
+export type UndoResult =
+  | { readonly status: "undone"; readonly proposal_id: string; readonly item_id: string }
+  | {
+      readonly status: "conflict";
+      readonly proposal_id: string;
+      /** A plain-language explanation of what changed (never raw error text). */
+      readonly message: string;
+      /** The fields a later edit moved; empty for a status/race conflict. */
+      readonly fields: readonly string[];
+    }
+  | {
+      readonly status: "not_undoable";
+      readonly proposal_id: string;
+      /** A plain-language reason this change cannot be reversed. */
+      readonly message: string;
+    }
+  | { readonly status: "not_found"; readonly proposal_id: string };

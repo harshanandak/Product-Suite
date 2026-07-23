@@ -258,6 +258,114 @@ describe('resolveDefaultTeamId', () => {
   })
 })
 
+/**
+ * `expectedValues` — the optional compare-and-set fence. A caller that already
+ * validated a decision against a row it read (the undo path) can assert those
+ * values INSIDE the update statement, so a concurrent writer landing between the
+ * read and the write can never be silently overwritten. It is opt-in: every
+ * existing caller omits it and is completely unaffected.
+ */
+describe('updateWorkItem — expectedValues fence', () => {
+  /** The strings + params of the Nth tagged-template call. */
+  function taggedCall(sql: ReturnType<typeof vi.fn>, index: number) {
+    const [strings, ...params] = sql.mock.calls[index] ?? []
+    return { text: (strings as string[]).join('?'), params }
+  }
+
+  it('asserts the expected values in the SAME statement that writes (no check-then-write gap)', async () => {
+    const sql = vi.fn()
+    sql
+      .mockResolvedValueOnce([WI_ROW]) // scoped select
+      .mockResolvedValueOnce([{ ...WI_ROW, title: 'restored' }]) // guarded UPDATE
+    ;(sql as unknown as { query: ReturnType<typeof vi.fn> }).query = vi.fn().mockResolvedValueOnce([{}])
+
+    await updateWorkItem(
+      sql as unknown as Sql,
+      { tenantIds: ['t_1'], actor, expectedValues: { title: 'A' } },
+      'wi_1',
+      { title: 'restored' },
+    )
+
+    const { text, params } = taggedCall(sql, 1)
+    // A jsonb containment predicate on the OLD row — evaluated atomically with the write.
+    expect(text).toContain('to_jsonb(work_items)')
+    expect(text).toContain('@>')
+    expect(params).toContain(JSON.stringify({ title: 'A' }))
+  })
+
+  it('binds NULL for a caller that supplies no fence, leaving the predicate inert', async () => {
+    const sql = vi.fn()
+    sql
+      .mockResolvedValueOnce([WI_ROW])
+      .mockResolvedValueOnce([{ ...WI_ROW, phase: 'done' }])
+    ;(sql as unknown as { query: ReturnType<typeof vi.fn> }).query = vi.fn().mockResolvedValueOnce([{}])
+
+    await updateWorkItem(sql as unknown as Sql, { tenantIds: ['t_1'], actor }, 'wi_1', {
+      phase: 'done',
+    })
+
+    const { text, params } = taggedCall(sql, 1)
+    // The predicate is still present (one statement for every caller) but short-circuits
+    // on a NULL fence, so unfenced callers behave exactly as before.
+    expect(text).toMatch(/is null\s+or\s+to_jsonb\(work_items\)/)
+    expect(params).toContain(null)
+  })
+
+  it('throws guard_failed — NOT a silent overwrite — when the fenced update matches nothing', async () => {
+    const sql = vi.fn()
+    sql
+      .mockResolvedValueOnce([WI_ROW]) // scoped select
+      .mockResolvedValueOnce([]) // the fence no longer holds: 0 rows
+    await expect(
+      updateWorkItem(
+        sql as unknown as Sql,
+        { tenantIds: ['t_1'], actor, expectedValues: { title: 'A' } },
+        'wi_1',
+        { title: 'restored' },
+      ),
+    ).rejects.toMatchObject({ code: 'guard_failed' })
+  })
+
+  it('never writes the activity event when the fence fails', async () => {
+    const sql = vi.fn()
+    sql.mockResolvedValueOnce([WI_ROW]).mockResolvedValueOnce([])
+    const query = vi.fn()
+    ;(sql as unknown as { query: typeof query }).query = query
+
+    await expect(
+      updateWorkItem(
+        sql as unknown as Sql,
+        { tenantIds: ['t_1'], actor, expectedValues: { title: 'A' } },
+        'wi_1',
+        { title: 'restored' },
+      ),
+    ).rejects.toThrow()
+    expect(query).not.toHaveBeenCalled()
+  })
+
+  it('leaves the UNFENCED zero-row classification untouched (still cycle / not_found)', async () => {
+    const cycleSql = vi.fn()
+    cycleSql
+      .mockResolvedValueOnce([WI_ROW])
+      .mockResolvedValueOnce([]) // no children
+      .mockResolvedValueOnce([{ team_id: 'team_1', parent_id: null }])
+      .mockResolvedValueOnce([]) // UPDATE blocked by the cycle guard
+    await expect(
+      updateWorkItem(cycleSql as unknown as Sql, { tenantIds: ['t_1'], actor }, 'wi_1', {
+        parent_id: 'wi_anc',
+      }),
+    ).rejects.toMatchObject({ code: 'cycle' })
+
+    const goneSql = vi.fn()
+    goneSql.mockResolvedValueOnce([WI_ROW]).mockResolvedValueOnce([])
+    await expect(
+      updateWorkItem(goneSql as unknown as Sql, { tenantIds: ['t_1'], actor }, 'wi_1', {
+        phase: 'done',
+      }),
+    ).rejects.toMatchObject({ code: 'not_found' })
+  })
+})
+
 describe('updateWorkItem', () => {
   it('throws DomainError not_found for an item outside the caller orgs', async () => {
     const sql = vi.fn(async () => []) as unknown as Sql // scoped select → []

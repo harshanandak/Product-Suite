@@ -10,7 +10,7 @@ import {
   createMockProposalRepository,
   type ProposalRepository,
 } from "./repository";
-import type { AcceptResult, Proposal } from "./types";
+import type { AcceptResult, Proposal, UndoResult } from "./types";
 
 /**
  * Shared module singleton so every caller that does not inject a repository sees
@@ -62,6 +62,12 @@ export interface UseProposalsResult {
   ) => Promise<AcceptResult>;
   /** Reject a proposal (optional reason); refetches the list on settle. */
   reject: (id: string, reason?: string) => Promise<void>;
+  /**
+   * Undo an accepted change — returns the {@link UndoResult} so the caller can
+   * message the `conflict`/`not_undoable` cases. Only a SUCCESSFUL undo re-lists
+   * (the item changed); a refused undo wrote nothing, so re-listing would be noise.
+   */
+  undo: (id: string) => Promise<UndoResult>;
   /**
    * The rules active during a proposal's authoring run (provenance for the badge).
    * A read, not a mutation — never touches the list. Empty when there are none.
@@ -195,6 +201,21 @@ export function useProposals(
     [repository],
   );
 
+  const undo = useCallback(
+    async (id: string): Promise<UndoResult> => {
+      setMutatingCount((count) => count + 1);
+      try {
+        const result = await repository.undo(id);
+        // Only a real reversal changed the world — a conflict/refusal wrote nothing.
+        if (result.status === "undone") notifyProposalMutation();
+        return result;
+      } finally {
+        if (mountedRef.current) setMutatingCount((count) => count - 1);
+      }
+    },
+    [repository],
+  );
+
   const activeRules = useCallback(
     (id: string) => repository.activeRules(id),
     [repository],
@@ -207,6 +228,7 @@ export function useProposals(
     error,
     accept,
     reject,
+    undo,
     activeRules,
     isMutating: mutatingCount > 0,
     refetch,

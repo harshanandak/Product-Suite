@@ -306,4 +306,76 @@ describe("createNetworkProposalRepository", () => {
       (callArgs().init?.headers as Record<string, string>).Authorization,
     ).toBeUndefined();
   });
+
+  /**
+   * `undo` reverses an accepted change. Every REFUSAL is a surfaced result, not a
+   * throw — a 409 "someone edited this since" is information the reviewer needs,
+   * and turning it into an exception would flatten it into a generic failure.
+   */
+  describe("undo", () => {
+    it("POSTs to the undo endpoint and returns the restored item", async () => {
+      fetchMock.mockResolvedValue(
+        jsonOk({ status: "undone", proposal_id: "p1", item_id: "wi_1" }),
+      );
+      const result = await makeRepo().undo("p1");
+
+      expect(result).toEqual({ status: "undone", proposal_id: "p1", item_id: "wi_1" });
+      const { url, init } = callArgs();
+      expect(url).toBe(`${BASE}/api/agent/proposals/p1/undo`);
+      expect(init?.method).toBe("POST");
+    });
+
+    it("surfaces a 409 conflict WITH the drifted field names", async () => {
+      fetchMock.mockResolvedValue(
+        jsonBody(false, 409, {
+          status: "conflict",
+          proposal_id: "p1",
+          message: "this item changed after it was accepted (title)",
+          fields: ["title"],
+        }),
+      );
+      expect(await makeRepo().undo("p1")).toEqual({
+        status: "conflict",
+        proposal_id: "p1",
+        message: "this item changed after it was accepted (title)",
+        fields: ["title"],
+      });
+    });
+
+    it("tolerates a conflict body with no usable `fields` (message still lands)", async () => {
+      fetchMock.mockResolvedValue(
+        jsonBody(false, 409, { status: "conflict", proposal_id: "p1", message: "already undone" }),
+      );
+      const result = await makeRepo().undo("p1");
+      expect(result).toMatchObject({ status: "conflict", message: "already undone" });
+      if (result.status === "conflict") expect(result.fields).toEqual([]);
+    });
+
+    it("surfaces a 422 not_undoable with its plain-language reason", async () => {
+      fetchMock.mockResolvedValue(
+        jsonBody(false, 422, {
+          status: "not_undoable",
+          proposal_id: "p1",
+          message: "only an applied work item update can be undone",
+        }),
+      );
+      expect(await makeRepo().undo("p1")).toEqual({
+        status: "not_undoable",
+        proposal_id: "p1",
+        message: "only an applied work item update can be undone",
+      });
+    });
+
+    it("surfaces a 404 as not_found", async () => {
+      fetchMock.mockResolvedValue(
+        jsonBody(false, 404, { status: "not_found", proposal_id: "p1" }),
+      );
+      expect(await makeRepo().undo("p1")).toEqual({ status: "not_found", proposal_id: "p1" });
+    });
+
+    it("THROWS on a transport failure (not a clean outcome)", async () => {
+      fetchMock.mockResolvedValue(jsonError(500, "Failed to undo this change"));
+      await expect(makeRepo().undo("p1")).rejects.toThrow("Failed to undo this change");
+    });
+  });
 });

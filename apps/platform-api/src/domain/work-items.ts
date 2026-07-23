@@ -310,10 +310,33 @@ export type UpdateWorkItemInput = WorkItemPatch
  * cycle guard and the array-scoped tenant match, stamping the four `actor_*`
  * columns inline. Throws `DomainError('not_found')` when not owned (or a concurrent
  * delete), `DomainError('cycle')` when the reachability guard blocks a parent-set.
+ *
+ * `ctx.expectedValues` is an OPTIONAL compare-and-set fence for callers that made a
+ * DECISION against a row they read — the undo path checks that an item still holds
+ * the values an accept applied before reversing it. Without a fence that check is a
+ * check-then-write: a concurrent editor landing in the gap is silently clobbered,
+ * which is the precise harm the check exists to prevent. v1 `work_items` has no
+ * version column (and this must not add one), so the fence is expressed as a jsonb
+ * CONTAINMENT predicate on the pre-update row INSIDE the writing statement — the
+ * comparison and the write can no longer interleave. A fenced update that matches no
+ * row throws `DomainError('guard_failed')`: nothing was written, re-read and decide
+ * again. It is strictly opt-in — omitted, the parameter binds NULL, the predicate
+ * short-circuits, and the statement behaves exactly as it did for every caller that
+ * does not pass it.
  */
 export async function updateWorkItem(
   sql: Sql,
-  ctx: { tenantIds: string[]; actor: ActorSource; expectedVersion?: number },
+  ctx: {
+    tenantIds: string[]
+    actor: ActorSource
+    expectedVersion?: number
+    /**
+     * Field/value pairs the target MUST still hold for this write to land, in the
+     * DB's own jsonb rendering (read them via `to_jsonb(work_items)` so formatting
+     * matches on both sides and a timestamp can never false-conflict).
+     */
+    expectedValues?: Record<string, unknown> | null
+  },
   id: string,
   patch: UpdateWorkItemInput,
 ): Promise<WorkItemRow> {
@@ -420,6 +443,12 @@ export async function updateWorkItem(
   const resolvedActor = await resolveActor(ctx.actor)
   const actor = actorAssignments(resolvedActor)
 
+  // The compare-and-set fence, serialized once. NULL (the default) makes the
+  // predicate `null::jsonb is null` — always true — so an unfenced update is
+  // byte-for-byte the same write it was before.
+  const fence =
+    ctx.expectedValues == null ? null : JSON.stringify(ctx.expectedValues)
+
   const rows = (await sql`
     update work_items set
       title = ${next.title},
@@ -444,6 +473,10 @@ export async function updateWorkItem(
       updated_at = now()
     where id = ${id} and tenant_id = any(${tenantIds})
       and (
+        ${fence}::jsonb is null
+        or to_jsonb(work_items) @> ${fence}::jsonb
+      )
+      and (
         ${nextParentId}::uuid is null
         or not exists (
           with recursive ancestors(id) as (
@@ -461,6 +494,19 @@ export async function updateWorkItem(
   `) as WorkItemRow[]
   const updated = rows[0]
   if (!updated) {
+    // A FENCED update that matched nothing means the row moved out from under the
+    // values the caller validated against (or was deleted) between the read and this
+    // statement — exactly the race the fence exists to catch. Report it as its own
+    // code so the caller re-reads rather than mistaking it for a bad request; the
+    // write did NOT happen, so no concurrent edit was overwritten. Checked first
+    // because a fenced caller's drift is the overwhelmingly likely cause, and it can
+    // only fire for a caller that opted in.
+    if (fence !== null) {
+      throw new DomainError(
+        'guard_failed',
+        'the item changed while this write was being applied',
+      )
+    }
     // The row exists (fetched above) — a no-match now means the reachability guard
     // blocked a parent-set that would close a cycle. Otherwise a genuine not-found
     // (e.g. a concurrent delete).

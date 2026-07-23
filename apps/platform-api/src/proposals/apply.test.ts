@@ -4,6 +4,7 @@ import type { Sql } from '@product-suite/db'
 
 import { DomainError } from '../domain/errors'
 import { acceptHttpStatus, applyProposal } from './apply'
+import { UNDO_KEY } from './undo'
 
 // The domain commands are the SHARED validated write path — here we mock them so
 // each test controls exactly what the command does (returns a row / throws a typed
@@ -91,7 +92,13 @@ const CREATE_PROPOSAL = {
  * state. Tagged templates (getProposalScoped) go through `sql(...)`; the parameterized
  * proposal mutations go through `sql.query(text, params)`.
  */
-function makeSql(opts: { proposal?: Record<string, unknown> } = {}) {
+function makeSql(
+  opts: {
+    proposal?: Record<string, unknown>
+    /** The target work item as it stands BEFORE the write — the pre-image source. */
+    targetRow?: Record<string, unknown> | null
+  } = {},
+) {
   const proposal = { ...CREATE_PROPOSAL, ...(opts.proposal ?? {}) }
   let status = proposal.status as string
 
@@ -118,6 +125,9 @@ function makeSql(opts: { proposal?: Record<string, unknown> } = {}) {
   const sql = vi.fn(async (strings: TemplateStringsArray, ..._params: unknown[]) => {
     const text = Array.isArray(strings) ? strings.join('?') : String(strings)
     if (text.includes('from proposals')) return [{ ...proposal, status }]
+    // The pre-image read (undo-on-accept): the target's CURRENT values, captured
+    // BEFORE the update writes over them.
+    if (text.includes('from work_items')) return opts.targetRow ? [opts.targetRow] : []
     return []
   }) as unknown as Sql
   ;(sql as unknown as { query: typeof query }).query = query
@@ -582,6 +592,124 @@ describe('applyProposal (write-first, flip-last)', () => {
     expect(res).toMatchObject({ status: 'invalid', proposal_id: 'p1', retryable: false })
     expect(getStatus()).toBe('failed')
     expect(supersedeMemory).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * UNDO-ON-ACCEPT pre-image capture. Accepting a `work_item:update` records the
+ * target's values BEFORE the write inside the EXISTING `applied_write` jsonb (no
+ * new column, no migration), so the accept can later be reversed through the
+ * validated write path. Every other operation is unaffected.
+ */
+describe('applyProposal — pre-image capture (undo-on-accept)', () => {
+  const TARGET_BEFORE = {
+    id: WI_TARGET,
+    title: 'Before',
+    priority: 'low',
+    department: 'Eng',
+    due_date: new Date('2026-07-01T00:00:00.000Z'),
+  }
+  const UPDATE_PROPOSAL = {
+    id: 'p1',
+    tenant_id: 't_1',
+    run_id: 'run_1',
+    target_type: 'work_item',
+    target_id: WI_TARGET,
+    operation: 'update',
+    payload: { title: 'After', priority: 'high' },
+    edited_payload: null,
+    target_version: null,
+    status: 'pending' as string,
+  }
+  const AFTER_ROW = { ...WI_ROW, id: WI_TARGET, title: 'After', priority: 'high' }
+
+  /** The `applied_write` jsonb the flip bound as `$4`. */
+  function flippedAppliedWrite(query: { mock: { calls: [string, unknown[]][] } }) {
+    const flip = query.mock.calls.find(([t]) => t.includes("set status = 'applied'"))
+    return JSON.parse(flip?.[1]?.[3] as string) as Record<string, unknown>
+  }
+
+  beforeEach(() => {
+    updateWorkItem.mockReset().mockResolvedValue(AFTER_ROW)
+  })
+
+  it('stores the target’s PRE-write values for exactly the fields the patch sets', async () => {
+    const { sql, query } = makeSql({ proposal: UPDATE_PROPOSAL, targetRow: TARGET_BEFORE })
+    expect((await applyProposal(sql, ctx, 'p1')).status).toBe('applied')
+
+    const appliedWrite = flippedAppliedWrite(query)
+    expect(appliedWrite[UNDO_KEY]).toEqual({
+      pre_image: { title: 'Before', priority: 'low' },
+      // What the accept applied — the 409 conflict check compares against THIS.
+      applied: { title: 'After', priority: 'high' },
+    })
+  })
+
+  it('keeps the applied ROW at the top level (existing applied_write readers unaffected)', async () => {
+    const { sql, query } = makeSql({ proposal: UPDATE_PROPOSAL, targetRow: TARGET_BEFORE })
+    await applyProposal(sql, ctx, 'p1')
+    expect(flippedAppliedWrite(query)).toMatchObject({ id: WI_TARGET, title: 'After' })
+  })
+
+  it('reads the pre-image BEFORE the domain command overwrites it', async () => {
+    const { sql } = makeSql({ proposal: UPDATE_PROPOSAL, targetRow: TARGET_BEFORE })
+    let readBeforeWrite = false
+    updateWorkItem.mockReset().mockImplementation(async () => {
+      readBeforeWrite = (sql as unknown as { mock: { calls: unknown[][] } }).mock.calls.some(
+        (call) => Array.isArray(call[0]) && (call[0] as string[]).join('?').includes('from work_items'),
+      )
+      return AFTER_ROW
+    })
+    await applyProposal(sql, ctx, 'p1')
+    expect(readBeforeWrite).toBe(true)
+  })
+
+  it('captures a `null` pre-image value for a field the target had unset', async () => {
+    const { sql, query } = makeSql({
+      proposal: { ...UPDATE_PROPOSAL, payload: { assignee_id: 'u_1' } },
+      targetRow: { id: WI_TARGET },
+    })
+    await applyProposal(sql, ctx, 'p1')
+    const envelope = flippedAppliedWrite(query)[UNDO_KEY] as { pre_image: Record<string, unknown> }
+    expect(envelope.pre_image).toEqual({ assignee_id: null })
+  })
+
+  it('ignores payload keys that are not restorable columns', async () => {
+    const { sql, query } = makeSql({
+      proposal: { ...UPDATE_PROPOSAL, payload: { title: 'After', not_a_column: 1 } },
+      targetRow: TARGET_BEFORE,
+    })
+    await applyProposal(sql, ctx, 'p1')
+    const envelope = flippedAppliedWrite(query)[UNDO_KEY] as { pre_image: Record<string, unknown> }
+    expect(envelope.pre_image).toEqual({ title: 'Before' })
+  })
+
+  it('records NO pre-image when the target row could not be read (undo stays refused)', async () => {
+    const { sql, query } = makeSql({ proposal: UPDATE_PROPOSAL, targetRow: null })
+    expect((await applyProposal(sql, ctx, 'p1')).status).toBe('applied')
+    expect(flippedAppliedWrite(query)[UNDO_KEY]).toBeUndefined()
+  })
+
+  it('leaves a CREATE’s applied_write as the bare row (undoing a create is out of scope)', async () => {
+    const { sql, query } = makeSql({})
+    await applyProposal(sql, ctx, 'p1')
+    const appliedWrite = flippedAppliedWrite(query)
+    expect(appliedWrite[UNDO_KEY]).toBeUndefined()
+    expect(appliedWrite).toMatchObject({ id: 'wi_new' })
+  })
+
+  it('leaves a MEMORY supersede’s applied_write as the bare row', async () => {
+    const { sql, query } = makeSql({
+      proposal: {
+        ...UPDATE_PROPOSAL,
+        target_type: 'memory',
+        target_id: MEM_TARGET,
+        operation: 'supersede',
+        payload: { title: 'x' },
+      },
+    })
+    await applyProposal(sql, ctx, 'p1')
+    expect(flippedAppliedWrite(query)[UNDO_KEY]).toBeUndefined()
   })
 })
 

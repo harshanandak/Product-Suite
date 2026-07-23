@@ -1,5 +1,5 @@
 import { createProposalFixtures } from "./fixtures";
-import type { AcceptResult, Proposal } from "./types";
+import type { AcceptResult, Proposal, UndoResult } from "./types";
 
 /**
  * Proposal review SEAM (mirrors the work-items {@link WorkItemRepository}): the
@@ -23,6 +23,16 @@ export interface ProposalRepository {
   /** Reject a proposal, with an optional human reason. */
   reject(id: string, reason?: string): Promise<void>;
   /**
+   * Undo an ACCEPTED change — write the item's previous values back through the
+   * same validated path the accept used. Scoped to `work_item` `update` proposals
+   * (a create's inverse is a delete; memory ops reverse via supersede/retract).
+   *
+   * The result is a discriminated {@link UndoResult} rather than a throw: a
+   * `conflict` (someone edited the item after the accept — nothing was written) is
+   * a normal, explainable outcome the reviewer must see, not an error.
+   */
+  undo(id: string): Promise<UndoResult>;
+  /**
    * The `kind='rule'` memories that were active during the run that authored this
    * proposal — provenance for the "Rules active when this was drafted" badge (never
    * causation). Empty when the proposal has no authoring run or no rule attributions
@@ -44,6 +54,17 @@ export function createMockProposalRepository(
 ): ProposalRepository {
   const latencyMs = options.latencyMs ?? 0;
   const proposals: Proposal[] = createProposalFixtures();
+  // Every proposal this instance has ACCEPTED, with the state of its reversal.
+  // Accepted-ness and undoability are tracked separately on purpose: `not_found`
+  // must mean "unknown or never accepted", so an accepted proposal that is merely
+  // outside undo's scope (a create) — or one already undone — is KNOWN and reports
+  // `not_undoable` WITH the reason, instead of masquerading as missing.
+  type UndoState = "available" | "out_of_scope" | "already_undone";
+  const accepted = new Map<string, { itemId: string; undo: UndoState }>();
+  const UNDO_REFUSALS: Record<Exclude<UndoState, "available">, string> = {
+    out_of_scope: "only an applied work item update can be undone",
+    already_undone: "this change has already been undone",
+  };
 
   const settle = <T>(value: T): Promise<T> =>
     latencyMs > 0
@@ -70,6 +91,15 @@ export function createMockProposalRepository(
       // Synthesize the applied item id so the mock's applied path has a linkable
       // target, mirroring what the real backend returns as `item_id`.
       const itemId = proposal.target_id ?? `wi_new_${proposal.id}`;
+      // Only a work-item UPDATE is reversible — mirrors the API's undo scope so the
+      // fixture surface offers Undo in exactly the cases the real backend accepts.
+      accepted.set(id, {
+        itemId,
+        undo:
+          proposal.target_type === "work_item" && proposal.operation === "update"
+            ? "available"
+            : "out_of_scope",
+      });
       return settle<AcceptResult>({
         status: "applied",
         proposal_id: id,
@@ -81,6 +111,30 @@ export function createMockProposalRepository(
       const index = proposals.findIndex((proposal) => proposal.id === id);
       if (index !== -1) proposals.splice(index, 1);
       return settle(undefined);
+    },
+
+    undo(id: string) {
+      const record = accepted.get(id);
+      // Never accepted here (or an id we have never seen) — genuinely unknown.
+      if (record === undefined) {
+        return settle<UndoResult>({ status: "not_found", proposal_id: id });
+      }
+      if (record.undo !== "available") {
+        // KNOWN, but nothing to reverse — either outside undo's scope or already
+        // undone. Say which, so the banner can explain rather than deny existence.
+        return settle<UndoResult>({
+          status: "not_undoable",
+          proposal_id: id,
+          message: UNDO_REFUSALS[record.undo],
+        });
+      }
+      // Single-step: consumed, so the same accept cannot be undone twice.
+      accepted.set(id, { itemId: record.itemId, undo: "already_undone" });
+      return settle<UndoResult>({
+        status: "undone",
+        proposal_id: id,
+        item_id: record.itemId,
+      });
     },
 
     // The mock dataset carries no run→rule attributions — provenance is a
