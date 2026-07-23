@@ -4,6 +4,7 @@ import type {
   DependencyRelationship,
   Owner,
   Project,
+  ProjectWithCounts,
   Check,
   WorkItem,
   WorkItemDependency,
@@ -318,9 +319,19 @@ export function createOwnerFixtures(): Owner[] {
   return RAW_OWNERS.map((owner) => ({ ...owner }));
 }
 
-/** Deep-clone factory: fresh `Project[]` per call (mutation-safe for the mock). */
-export function createProjectFixtures(): Project[] {
-  return RAW_PROJECTS.map((project) => ({ ...project }));
+/**
+ * Deep-clone factory: fresh `ProjectWithCounts[]` per call (mutation-safe for
+ * the mock). The mock stands in for the platform API, so it computes
+ * `totalCount`/`doneCount` from {@link RAW_WORK_ITEMS} the same way the real
+ * `GET /api/projects` does server-side (a count + a count of `phase === "done"`
+ * per `project_id`) — the mock and the network repository return the same shape.
+ */
+export function createProjectFixtures(): ProjectWithCounts[] {
+  return RAW_PROJECTS.map((project) => {
+    const mine = RAW_WORK_ITEMS.filter((item) => item.project_id === project.id);
+    const doneCount = mine.filter((item) => item.phase === "done").length;
+    return { ...project, totalCount: mine.length, doneCount };
+  });
 }
 
 /**

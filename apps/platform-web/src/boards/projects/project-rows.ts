@@ -12,17 +12,20 @@
  *    report" rather than a flattering "On track".
  *  - A project's PROGRESS counts its WORK ITEMS (`work_items.project_id`), never
  *    other projects: the `projects` table has no `parent_id`, so projects do not
- *    nest and a project can never contain a project.
+ *    nest and a project can never contain a project. The counts themselves are
+ *    computed SERVER-SIDE (`GET /api/projects`, a `group by project_id`) and
+ *    arrive on {@link ProjectWithCounts} — this file reads them off the project
+ *    record rather than counting `items` itself, so rendering the board never
+ *    requires loading the whole work-item set.
  */
 import {
   HEALTH_ORDER,
   PROJECT_STATUS_VALUES,
   type Health,
-  type Project,
   type ProjectStatus,
 } from "@product-suite/contracts";
 
-import type { WorkItemRow } from "../../data/work-items/types";
+import type { ProjectWithCounts, WorkItemRow } from "../../data/work-items/types";
 
 /**
  * Display order of the status groups — deliberately NOT the enum's declaration
@@ -52,10 +55,10 @@ export const PROJECT_STATUS_LABELS: Record<ProjectStatus, string> = {
 
 /** One project as the board renders it: the record plus its derived rollup. */
 export interface ProjectRow {
-  readonly project: Project;
-  /** Work items under this project whose phase is `done`. */
+  readonly project: ProjectWithCounts;
+  /** Work items under this project whose phase is `done` — server-computed, `project.doneCount`. */
   readonly doneCount: number;
-  /** All work items under this project. */
+  /** All work items under this project — server-computed, `project.totalCount`. */
   readonly totalCount: number;
   /** Worst member health, or `null` when the project has no work items. */
   readonly health: Health | null;
@@ -76,19 +79,22 @@ function worseOf(a: Health | null, b: Health): Health {
   return HEALTH_ORDER.indexOf(b) > HEALTH_ORDER.indexOf(a) ? b : a;
 }
 
-/** Fold an already-sliced item list into the counts and health a row displays. */
+/**
+ * Fold an already-sliced item list into the health a row displays. The counts
+ * are NOT derived here — they are `project.totalCount`/`project.doneCount`,
+ * computed server-side — so this only has to fold health (still a client-side
+ * derivation, per `deriveHealth`) over the project's own items.
+ */
 function foldItems(
-  project: Project,
+  project: ProjectWithCounts,
   mine: readonly WorkItemRow[],
 ): ProjectRow {
   let health: Health | null = null;
-  let doneCount = 0;
   for (const item of mine) {
-    if (item.phase === "done") doneCount += 1;
     health = worseOf(health, item.health);
   }
 
-  return { project, doneCount, totalCount: mine.length, health, items: mine };
+  return { project, doneCount: project.doneCount, totalCount: project.totalCount, health, items: mine };
 }
 
 /**
@@ -117,7 +123,7 @@ function bucketByProject(
  * for whole-board work: this convenience form is O(items) per call by design.
  */
 export function rollUpProject(
-  project: Project,
+  project: ProjectWithCounts,
   items: readonly WorkItemRow[],
 ): ProjectRow {
   return foldItems(
@@ -135,7 +141,7 @@ export function rollUpProject(
  * single pass, so the status ordering does not re-scan the project list either.
  */
 export function buildProjectGroups(
-  projects: readonly Project[],
+  projects: readonly ProjectWithCounts[],
   items: readonly WorkItemRow[],
 ): ProjectGroup[] {
   const buckets = bucketByProject(items);
