@@ -21,6 +21,7 @@ import {
   type WorkItemRow,
 } from '../domain/work-items'
 import type { ActorContext } from '../provenance/record-write'
+import { buildCaptureInput } from './capture'
 import { getProposalScoped, type ProposalRow } from './repository'
 import { buildUndoEnvelope, fieldSnapshot, undoableKeys } from './undo'
 
@@ -541,5 +542,30 @@ export async function applyProposal(
     }
     return { status: 'not_pending', proposal_id: proposalId }
   }
+
+  // CAPTURE-ON-ACCEPT. The write is committed and the flip is WON, which is the
+  // only safe moment for this:
+  //  - After the flip, exactly one drive reaches here, so capture inherits the
+  //    flip's exactly-once guarantee instead of needing its own.
+  //  - After the compensation paths above, so a flip-loser or a rejected
+  //    proposal never leaves a memory behind for them to clean up. The
+  //    interaction simply does not exist.
+  // It is best-effort ON PURPOSE: memory is enrichment, not the write. An accept
+  // that has already applied must never be reported as failed because a
+  // secondary record could not be stored. A crash in the gap loses at most one
+  // memory, which is the right trade against failing a completed accept.
+  try {
+    const capture = buildCaptureInput(proposal, result, appliedWrite, approverUserId)
+    if (capture) {
+      await createMemory(
+        sql,
+        { tenantId: proposal.tenant_id, actor: proposal.run_id ?? approverUserId },
+        capture,
+      )
+    }
+  } catch (cause) {
+    console.error(`[proposals] capture-on-accept failed for proposal ${proposalId}`, cause)
+  }
+
   return { status: 'applied', proposal_id: proposalId, item_id: result.id }
 }

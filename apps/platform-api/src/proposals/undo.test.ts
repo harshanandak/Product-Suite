@@ -21,6 +21,14 @@ import {
 const { updateWorkItem } = vi.hoisted(() => ({ updateWorkItem: vi.fn() }))
 vi.mock('../domain/work-items', () => ({ updateWorkItem }))
 
+// Capture-on-accept means an undo may have a memory to retract. Mocked so each test
+// controls whether one exists and what retracting it does.
+const { getMemoryBySourceProposalId, retractMemory } = vi.hoisted(() => ({
+  getMemoryBySourceProposalId: vi.fn(),
+  retractMemory: vi.fn(),
+}))
+vi.mock('../domain/memories', () => ({ getMemoryBySourceProposalId, retractMemory }))
+
 const TARGET = '44444444-4444-4444-8444-444444444444'
 const TEAM_ID = '11111111-1111-4111-8111-111111111111'
 
@@ -410,5 +418,61 @@ describe('undoProposal', () => {
 
       expect((await undoProposal(sql, ctx, 'p1')).status).toBe('not_found')
     })
+  })
+})
+
+/**
+ * An undo reverses a decision, so the memory that decision left behind must stop
+ * being retrieved — an active memory describing a reversed choice is worse than
+ * no memory at all.
+ */
+describe('undoProposal — the captured memory', () => {
+  beforeEach(() => {
+    updateWorkItem.mockReset().mockResolvedValue({ ...CURRENT_ROW, title: 'A', priority: 'low' })
+    getMemoryBySourceProposalId.mockReset().mockResolvedValue(null)
+    retractMemory.mockReset().mockResolvedValue({ id: 'mem_1', status: 'retracted' })
+  })
+
+  it('RETRACTS the memory the accept captured', async () => {
+    // Retract, not supersede: superseding demands a change_reason and mints a new
+    // ACTIVE row whose content is a non-decision — pollution with extra steps.
+    getMemoryBySourceProposalId.mockResolvedValue({ id: 'mem_1', status: 'active' })
+    const { sql } = makeSql()
+
+    const result = await undoProposal(sql, ctx, 'p1')
+
+    expect(result.status).toBe('undone')
+    expect(retractMemory).toHaveBeenCalledTimes(1)
+    const [, retractCtx, id] = retractMemory.mock.calls[0] ?? []
+    expect(id).toBe('mem_1')
+    expect(retractCtx.actor).toBe('u_approver')
+  })
+
+  it('leaves an already-retracted memory alone', async () => {
+    getMemoryBySourceProposalId.mockResolvedValue({ id: 'mem_1', status: 'retracted' })
+    const { sql } = makeSql()
+
+    await undoProposal(sql, ctx, 'p1')
+
+    expect(retractMemory).not.toHaveBeenCalled()
+  })
+
+  it('still reports the undo as DONE when retracting fails', async () => {
+    // The item has already been restored. Failing the undo over a secondary record
+    // would tell the reader their change was not reversed, which is false.
+    getMemoryBySourceProposalId.mockResolvedValue({ id: 'mem_1', status: 'active' })
+    retractMemory.mockRejectedValueOnce(new Error('conflict'))
+    const { sql } = makeSql()
+
+    const result = await undoProposal(sql, ctx, 'p1')
+
+    expect(result.status).toBe('undone')
+  })
+
+  it('does nothing when the accept captured no memory', async () => {
+    const { sql } = makeSql()
+    const result = await undoProposal(sql, ctx, 'p1')
+    expect(result.status).toBe('undone')
+    expect(retractMemory).not.toHaveBeenCalled()
   })
 })
