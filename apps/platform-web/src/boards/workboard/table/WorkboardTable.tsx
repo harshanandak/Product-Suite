@@ -504,8 +504,9 @@ const COLUMN_SPECS: readonly ColumnSpec[] = [
             "focus-visible:outline-2 focus-visible:outline-ring",
             // Archived: strike + mute the title as a non-contrast cue (no row-
             // wide opacity dim, so the status badges stay full strength).
-            // Nested child (sub-task): mute the title so it reads a tier below
-            // its parent, not as a peer top-level item.
+            // Nested child (sub-task): keep the title full-contrast and simply
+            // drop the medium weight — the tree connector + indent already carry
+            // the hierarchy, so muting it too would read as disabled.
             archived
               ? "text-muted-foreground line-through"
               : nested
@@ -1828,8 +1829,8 @@ export function WorkboardTable({
                           className="flex h-full min-h-7 min-w-0 items-center gap-1.5"
                         >
                           {/* A child sub-task gets no leading glyph — the connected
-                              tree rail + branch (drawn as before:/after: pseudos on
-                              this Name span) marks it as nested. */}
+                              tree spine + curved branch (an inline SVG rendered in
+                              the indent gutter below) marks it as nested. */}
                           {flat.hasChildren ? (
                             <button
                               type="button"
