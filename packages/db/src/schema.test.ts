@@ -1,6 +1,13 @@
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
+
+import { getTableConfig } from 'drizzle-orm/pg-core'
 import { describe, expect, it } from 'vitest'
 
 import * as schema from './schema'
+
+const MIGRATIONS_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'migrations')
 
 describe('workboard schema', () => {
   it('exports the workboard tables', () => {
@@ -111,6 +118,50 @@ describe('workboard schema', () => {
       expect(cols).toContain(c)
     }
     expect(schema.injectedViaEnum.enumValues).toEqual(['pinned', 'retrieved', 'tool'])
+  })
+
+  it('meeting_promotions is the dedup ledger keyed by the meeting record id', () => {
+    const cols = Object.keys(schema.meetingPromotions)
+    for (const c of ['meetingRecordId', 'tenantId', 'proposalId', 'createdAt']) {
+      expect(cols).toContain(c)
+    }
+
+    const config = getTableConfig(schema.meetingPromotions)
+    const byName = new Map(config.columns.map((c) => [c.name, c]))
+    // The ledger key holds meeting-api's content-derived id — TEXT, never a uuid.
+    expect(byName.get('meeting_record_id')?.getSQLType()).toBe('text')
+    expect(byName.get('tenant_id')?.getSQLType()).toBe('text')
+    expect(byName.get('proposal_id')?.getSQLType()).toBe('uuid')
+  })
+
+  it('meeting_promotions dedups per TENANT, not globally', () => {
+    const config = getTableConfig(schema.meetingPromotions)
+    const unique = config.indexes.filter((idx) => idx.config.unique)
+    expect(unique).toHaveLength(1)
+    // Composite, and in this order: a content-derived id that collides across
+    // tenants must not make one tenant's candidate skip the other's.
+    expect(unique[0]?.config.columns.map((c) => (c as { name: string }).name)).toEqual([
+      'tenant_id',
+      'meeting_record_id',
+    ])
+  })
+
+  it('meeting_promotions declares the FK to proposals (a ledger row without one is meaningless)', () => {
+    const config = getTableConfig(schema.meetingPromotions)
+    const fks = config.foreignKeys.map((fk) => fk.reference())
+    const toProposals = fks.find((ref) => getTableConfig(ref.foreignTable).name === 'proposals')
+    expect(toProposals).toBeDefined()
+    expect(toProposals?.columns.map((c) => c.name)).toEqual(['proposal_id'])
+    expect(toProposals?.foreignColumns.map((c) => c.name)).toEqual(['id'])
+  })
+
+  it('the meeting_promotions migration is journalled (parity)', () => {
+    const journal = JSON.parse(readFileSync(join(MIGRATIONS_DIR, 'meta', '_journal.json'), 'utf8'))
+    const entry = journal.entries.find((e: { tag: string }) => e.tag.endsWith('_meeting_promotions'))
+    expect(entry).toBeDefined()
+    const sql = readFileSync(join(MIGRATIONS_DIR, `${entry.tag}.sql`), 'utf8')
+    expect(sql).toContain('meeting_promotions')
+    expect(sql).toMatch(/create unique index[^;]*"tenant_id"\s*,\s*"meeting_record_id"/i)
   })
 
   it('mirrors the @product-suite/contracts enum values exactly', () => {
