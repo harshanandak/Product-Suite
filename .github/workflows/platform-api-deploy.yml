@@ -72,42 +72,14 @@ jobs:
 
       - name: Verify production Worker runtime secrets
         # Deploy credentials only prove we CAN deploy; these are what the Worker reads at runtime (src/db.ts, middleware/clerk-auth.ts, agent/models.ts, agent/embeddings.ts).
-        working-directory: apps/platform-api
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          REQUIRED_SECRETS: DATABASE_URL CLERK_SECRET_KEY CLERK_AUTHORIZED_PARTIES OPENROUTER_API_KEY
         run: |
-          set -uo pipefail
-          # Fail-closed: an unreadable listing is treated exactly like a missing secret.
-          if ! listing=$(bunx wrangler@4.100.0 secret list --env production 2>&1); then
-            echo "::error::Could not list the production Worker secrets (wrangler secret list --env production failed) — refusing to run migrations for a deploy whose runtime configuration cannot be confirmed. wrangler output: ${listing}"
-            exit 1
-          fi
-          SECRET_LISTING="$listing" node -e '
-            const required = process.env.REQUIRED_SECRETS.split(" ").filter(Boolean);
-            const raw = process.env.SECRET_LISTING;
-            const start = raw.indexOf("[");
-            const end = raw.lastIndexOf("]");
-            let names = null;
-            if (start !== -1 && end > start) {
-              try {
-                const parsed = JSON.parse(raw.slice(start, end + 1));
-                if (Array.isArray(parsed)) names = parsed.map((entry) => entry && entry.name);
-              } catch {}
-            }
-            if (names === null) {
-              console.log("::error::Could not parse the wrangler secret listing as JSON — refusing to run migrations for a deploy whose runtime configuration cannot be confirmed. Output: " + raw);
-              process.exit(1);
-            }
-            const missing = required.filter((name) => !names.includes(name));
-            if (missing.length > 0) {
-              console.log("::error::Production Worker is missing required runtime secrets: " + missing.join(", ") + ". Set each one with: wrangler secret put <NAME> --env production (see apps/platform-api/DEPLOY.md). Deploying now would leave the API live but unconfigured.");
-              process.exit(1);
-            }
-            console.log("All required production Worker runtime secrets are set: " + required.join(", "));
-          '
+          set -euo pipefail
+          bunx wrangler@4.100.0 secret list --format json --env production --cwd apps/platform-api \
+            | node scripts/check-worker-secrets.mjs DATABASE_URL CLERK_SECRET_KEY CLERK_AUTHORIZED_PARTIES OPENROUTER_API_KEY
 
       - name: Install dependencies
         run: bun install --frozen-lockfile --ignore-scripts
@@ -186,6 +158,17 @@ jobs:
 
       - name: Schema-parity check before applying
         run: node scripts/check-migration-parity.mjs packages/db/migrations
+
+      - name: Re-verify production Worker runtime secrets
+        # Same TOCTOU window as the staleness check below: a secret can be deleted while this job waits at the approval gate.
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          bunx wrangler@4.100.0 secret list --format json --env production --cwd apps/platform-api \
+            | node scripts/check-worker-secrets.mjs DATABASE_URL CLERK_SECRET_KEY CLERK_AUTHORIZED_PARTIES OPENROUTER_API_KEY
 
       - name: Reject a stale run before applying
         # Guards the approval-gate window: an older dispatch must not apply its migration after main has already moved past the commit it verified.
@@ -271,6 +254,18 @@ jobs:
       # would be redundant. The `guard` above stays as cheap defense-in-depth —
       # preflight already hard-fails on missing creds, so `ready` is expected
       # true whenever this job runs.
+      - name: Re-verify production Worker runtime secrets
+        # Last check before the Worker goes live: preflight ran before the migrate approval gate, so its result is already stale by here.
+        if: steps.guard.outputs.ready == 'true'
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          bunx wrangler@4.100.0 secret list --format json --env production --cwd apps/platform-api \
+            | node scripts/check-worker-secrets.mjs DATABASE_URL CLERK_SECRET_KEY CLERK_AUTHORIZED_PARTIES OPENROUTER_API_KEY
+
       - name: Deploy Worker (production)
         if: steps.guard.outputs.ready == 'true'
         working-directory: apps/platform-api
