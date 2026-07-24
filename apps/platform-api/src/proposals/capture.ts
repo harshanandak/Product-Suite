@@ -87,7 +87,10 @@ export function summarizeChange(appliedWrite: unknown): string[] {
   if (!before || !after) return []
 
   return Object.keys(after)
-    .sort()
+    // Explicit comparator: a bare .sort() orders by UTF-16 code unit, so field
+    // names would not sort reliably alphabetically. The order is persisted in the
+    // memory body, so it should be stable and readable, not implementation-defined.
+    .sort((a, b) => a.localeCompare(b))
     .map((field) => `${field}: ${display(before[field])} -> ${display(after[field])}`)
 }
 
