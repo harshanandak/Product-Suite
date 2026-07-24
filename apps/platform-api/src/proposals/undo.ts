@@ -1,6 +1,7 @@
 import type { Sql } from '@product-suite/db'
 
 import { DomainError } from '../domain/errors'
+import { getMemoryBySourceProposalId, retractMemory } from '../domain/memories'
 import { updateWorkItem, type UpdateWorkItemInput, type WorkItemRow } from '../domain/work-items'
 import type { ActorContext } from '../provenance/record-write'
 import { getProposalScoped } from './repository'
@@ -346,5 +347,30 @@ export async function undoProposal(
     // the item is correct either way — we just report that we were not the one.
     return conflict(proposalId, 'this change has already been undone')
   }
+
+  // RETRACT the memory this accept captured, if there was one.
+  //
+  // Leaving it active would inject a now-false decision into retrieval, which is
+  // worse than having captured nothing. Retraction — not supersession — is the
+  // right verb: superseding demands a change_reason and mints a NEW ACTIVE row
+  // whose content is a non-decision, so it pollutes the store with extra steps.
+  // Retracting keeps the row (history survives, and the undo envelope records the
+  // reversal) while removing it from active retrieval.
+  //
+  // Best-effort, after the mark has been won: an undo that has already restored
+  // the item must never be reported as failed because a secondary record could
+  // not be updated. `retractMemory` only matches active/deferred rows, so a
+  // memory already retracted or superseded simply throws and is ignored here.
+  try {
+    const captured = await getMemoryBySourceProposalId(sql, proposalId, ctx.tenantIds)
+    // Both states retractMemory accepts. A DEFERRED capture is parked for later
+    // review, so leaving it would resurrect a decision this undo reversed.
+    if (captured && (captured.status === 'active' || captured.status === 'deferred')) {
+      await retractMemory(sql, { tenantIds: ctx.tenantIds, actor: ctx.approverUserId }, captured.id)
+    }
+  } catch (cause) {
+    console.error(`[proposals] could not retract the memory captured for ${proposalId}`, cause)
+  }
+
   return { status: 'undone', proposal_id: proposalId, item_id: restored.id }
 }

@@ -728,3 +728,57 @@ describe('acceptHttpStatus', () => {
     expect(acceptHttpStatus({ status: 'not_pending', proposal_id: 'p1' })).toBe(409)
   })
 })
+
+/**
+ * CAPTURE-ON-ACCEPT. Accepting a work-item proposal leaves behind the decision it
+ * represents, so the loop compounds from ordinary accepted work rather than only
+ * from proposals that were themselves memories.
+ */
+describe('applyProposal — capture-on-accept', () => {
+  beforeEach(() => {
+    createWorkItem.mockReset().mockResolvedValue(WI_ROW)
+    createMemory.mockReset().mockResolvedValue(MEM_ROW)
+  })
+
+  it('captures a DECISION memory when the accept carries a rationale', async () => {
+    const { sql } = makeSql({
+      proposal: { rationale: 'Ship the smaller surface first.' },
+    })
+
+    const res = await applyProposal(sql, ctx, 'p1')
+
+    expect(res.status).toBe('applied')
+    expect(createMemory).toHaveBeenCalledTimes(1)
+    const [, memCtx, input] = createMemory.mock.calls[0] ?? []
+    expect(input.kind).toBe('decision')
+    expect(input.sourceProposalId).toBe('p1')
+    // The run authored it; a HUMAN decided it. Provenance keeps those separate.
+    expect(memCtx.actor).toBe('run_1')
+    expect(input.decidedBy).toBe('u_approver')
+  })
+
+  it('does NOT capture a bare accept — no rationale, no edit', async () => {
+    // Such a memory would only restate the proposals row, which is the landfill
+    // that makes a memory store useless later.
+    const { sql } = makeSql({})
+
+    const res = await applyProposal(sql, ctx, 'p1')
+
+    expect(res.status).toBe('applied')
+    expect(createMemory).not.toHaveBeenCalled()
+  })
+
+  it('still reports the accept as APPLIED when capture fails', async () => {
+    // Memory is enrichment, not the write. An accept that already committed must
+    // never be reported as failed because a secondary record could not be stored.
+    createMemory.mockRejectedValueOnce(new Error('memory store unavailable'))
+    const { sql, getStatus } = makeSql({
+      proposal: { rationale: 'Ship the smaller surface first.' },
+    })
+
+    const res = await applyProposal(sql, ctx, 'p1')
+
+    expect(res.status).toBe('applied')
+    expect(getStatus()).toBe('applied')
+  })
+})
