@@ -126,6 +126,43 @@ export function buildWorkboardItems(
   return items;
 }
 
+/**
+ * The home rail rows. Counts are NOT baked in here: a hardcoded literal drifts
+ * from reality (the queue showed "4" while the DB had zero pending proposals).
+ * {@link buildHomeItems} threads the live count in from the shell instead.
+ */
+const HOME_STATIC_ITEMS: SidebarItem[] = [
+  { key: "digest", label: "Digest", to: "/w/$workspace", icon: Newspaper },
+  {
+    key: "review",
+    label: "Review queue",
+    to: "/w/$workspace/review",
+    icon: Inbox,
+  },
+  {
+    key: "chat",
+    label: "Chat",
+    to: "/w/$workspace/inbox",
+    icon: MessageSquare,
+  },
+];
+
+/**
+ * Build the home rail items with a LIVE review-queue count. `pendingReviewCount`
+ * is the number of pending proposals — the same source the TopBar badge reads —
+ * threaded in from the shell rather than a stale literal. A zero count renders no
+ * badge (matching the TopBar badge, which hides at zero), so the rail never lies
+ * about an empty queue. `Chat` has no live unread source yet, so it stays
+ * count-less until one exists (a literal there would be the same lie).
+ */
+export function buildHomeItems(pendingReviewCount: number): SidebarItem[] {
+  return HOME_STATIC_ITEMS.map((item) =>
+    item.key === "review" && pendingReviewCount > 0
+      ? { ...item, count: pendingReviewCount }
+      : item,
+  );
+}
+
 export const BOARDS: BoardDef[] = [
   {
     id: "home",
@@ -133,23 +170,7 @@ export const BOARDS: BoardDef[] = [
     label: "Home",
     icon: Home,
     entry: "/w/$workspace",
-    items: [
-      { key: "digest", label: "Digest", to: "/w/$workspace", icon: Newspaper },
-      {
-        key: "review",
-        label: "Review queue",
-        to: "/w/$workspace/review",
-        icon: Inbox,
-        count: 4,
-      },
-      {
-        key: "chat",
-        label: "Chat",
-        to: "/w/$workspace/inbox",
-        icon: MessageSquare,
-        count: 2,
-      },
-    ],
+    items: [...HOME_STATIC_ITEMS],
   },
   {
     id: "workboard",

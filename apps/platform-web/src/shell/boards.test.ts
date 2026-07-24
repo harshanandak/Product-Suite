@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   BOARDS,
   type BoardId,
+  buildHomeItems,
   buildWorkboardItems,
   deriveActiveBoard,
   getBoard,
@@ -22,6 +23,31 @@ describe("BOARDS", () => {
     expect(BOARDS.some((board) => board.id === ("agents" as BoardId))).toBe(
       false,
     );
+  });
+});
+
+describe("buildHomeItems — live review-queue count", () => {
+  it("carries NO hardcoded counts in the static home board (counts are live)", () => {
+    // Regression guard: the static config once baked in `count: 4`/`count: 2`
+    // literals that lied while the queue was empty. The board must ship no
+    // count on any home row — the live value is threaded in at render.
+    const home = getBoard("home");
+    expect(home.items.every((item) => item.count === undefined)).toBe(true);
+  });
+
+  it("renders no review badge when there are zero pending proposals", () => {
+    const review = buildHomeItems(0).find((item) => item.key === "review");
+    expect(review?.count).toBeUndefined();
+  });
+
+  it("sets the review count to the live pending-proposal count", () => {
+    const review = buildHomeItems(7).find((item) => item.key === "review");
+    expect(review?.count).toBe(7);
+  });
+
+  it("never puts a count on Chat (no live unread source yet)", () => {
+    const chat = buildHomeItems(7).find((item) => item.key === "chat");
+    expect(chat?.count).toBeUndefined();
   });
 });
 

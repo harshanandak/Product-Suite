@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { renderWithRouter } from "../test/harness";
 import { Sidebar } from "./Sidebar";
-import { buildWorkboardItems, getBoard } from "./boards";
+import { buildHomeItems, buildWorkboardItems, getBoard } from "./boards";
 
 describe("Sidebar", () => {
   it("renders the board title and items, marking the active item", async () => {
@@ -136,6 +136,34 @@ describe("Sidebar", () => {
       .getAllByRole("link")
       .filter((link) => link.getAttribute("aria-current") === "page");
     expect(currentLinks).toHaveLength(1);
+  });
+
+  it("renders the live review-queue count badge on the home rail", async () => {
+    // The home board built with 3 pending proposals must show "3" on Review
+    // queue — not a hardcoded literal — and no badge on Chat.
+    const board = { ...getBoard("home"), items: buildHomeItems(3) };
+    renderWithRouter(
+      <Sidebar board={board} workspace="test-ws" pathname="/w/test-ws" />,
+      { path: "/w/test-ws" },
+    );
+
+    const review = (await screen.findByText("Review queue")).closest("a");
+    expect(review).toHaveTextContent("3");
+    const chat = screen.getByText("Chat").closest("a");
+    // Chat has no count source, so its only text content is its label.
+    expect(chat?.textContent).toBe("Chat");
+  });
+
+  it("renders no review-queue badge when the pending count is zero", async () => {
+    const board = { ...getBoard("home"), items: buildHomeItems(0) };
+    renderWithRouter(
+      <Sidebar board={board} workspace="test-ws" pathname="/w/test-ws" />,
+      { path: "/w/test-ws" },
+    );
+
+    const review = (await screen.findByText("Review queue")).closest("a");
+    // No badge → the link's text is exactly its label, no trailing number.
+    expect(review?.textContent).toBe("Review queue");
   });
 
   it("omits the collapse toggle when no onToggleCollapse handler is given", async () => {

@@ -121,7 +121,11 @@ export default defineConfig({
         command: "bun run dev --port 5173 --strictPort",
         url: BASE_URL,
         reuseExistingServer: !process.env.CI,
-        timeout: 120_000,
+        // Generous because a COLD run pre-bundles deps during boot (see
+        // `optimizeDeps.include` in vite.config.ts, which deliberately moves
+        // that work to startup). Warm boots still return in a couple of
+        // seconds; this only has to cover the first run on a clean cache.
+        timeout: 240_000,
         // Forward the client (VITE_-prefixed) vars from `.env.e2e` to the Vite
         // child so `import.meta.env` boots the app against the right Clerk
         // instance and default workspace.
