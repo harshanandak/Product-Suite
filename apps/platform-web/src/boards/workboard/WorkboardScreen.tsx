@@ -80,6 +80,9 @@ function GraphLoadingFallback() {
   );
 }
 
+/** The layout a bare `/workboard` opens; omitted from the URL. */
+const DEFAULT_LAYOUT: WorkboardLayout = defaultWorkboardFilterState().layout;
+
 /**
  * Props for {@link WorkboardScreen}.
  *
@@ -310,23 +313,29 @@ export function WorkboardScreen({
     return layoutParam ? { ...base, layout: layoutParam } : base;
   });
 
-  // Once the `?layout=` seed has been consumed into the initial state, strip it
-  // from the URL (replace — no history entry) so it doesn't linger and re-apply
-  // on later navigation (Codex #114). The guard makes this inert on routes/loads
-  // without the seed; after the strip, `layoutParam` becomes undefined so a
-  // re-run is a no-op (never a redirect loop).
+  // Keep `?layout=` in sync so a copied URL reopens this layout (#121).
+  const activeLayout = filterState.layout;
   useEffect(() => {
-    if (layoutParam === undefined) return;
+    if (teamId !== undefined) return; // the team route owns its own URL
+    const desired = activeLayout === DEFAULT_LAYOUT ? undefined : activeLayout;
+    if (desired === layoutParam) return;
     void navigate({
       to: "/w/$workspace/workboard",
       params: { workspace: workspaceSlug },
-      // Strip ONLY the consumed layout seed. `?project=` is a live scope, not a
-      // one-shot seed, so clearing the whole search would filter the board and
-      // then silently un-filter it on this cleanup pass.
-      search: projectId === undefined ? {} : { project: projectId },
+      search: {
+        ...(desired === undefined ? {} : { layout: desired }),
+        ...(projectId === undefined ? {} : { project: projectId }),
+      },
       replace: true,
     });
-  }, [layoutParam, navigate, workspaceSlug, projectId]);
+  }, [
+    activeLayout,
+    layoutParam,
+    navigate,
+    workspaceSlug,
+    projectId,
+    teamId,
+  ]);
 
   // The user's saved/named views (Rank 8b). Lazily hydrated from a SEPARATE
   // localStorage key (SAVED_VIEWS_KEY) on mount — independent of the single
