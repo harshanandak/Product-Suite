@@ -121,3 +121,49 @@ the runbook's reverse-cutover section.
 file" on an unmodified checkout — a pre-existing gap, and the reason `verify:db` is
 `typecheck && test` with no lint step. Not touched: fixing it is unrelated to this
 plan and would be scope creep.
+
+---
+
+## D8 — A.1 is `0016_meeting_schema.sql`, and ships no snapshot (Task A.1)
+
+**Numbering.** As D1 predicted: B.1 took `0015`, so the meeting schema is
+`packages/db/migrations/0016_meeting_schema.sql`, journal `idx: 16`,
+`when: 1784908800000` (one day after 0015, matching the chain's spacing).
+`bun run check:migration-parity` passes.
+
+**No snapshot — same reasoning as D2, deliberately not re-litigated.** `meta/`
+still holds snapshots for `0000`–`0011` only; `0012`–`0015` each shipped
+hand-authored SQL + a journal entry and nothing else. Generating a lone `0016`
+snapshot would attach a fabricated link to a chain that stops five migrations
+earlier — the regeneration has to be the whole run or none of it.
+
+That whole-chain regeneration is already filed as kernel issue
+**`regenerate-the-drizzle-snapshot-9d4188c6`** ("Regenerate the Drizzle snapshot
+chain (0012-0015) from a clean primary checkout"); its scope is extended to
+`0016` by a comment rather than by a second issue.
+
+---
+
+## D9 — The migration has ONE embedding column, not two (Task A.1)
+
+`tasks.md` A.1 RED test 5 reads "The migration requires the `vector` extension
+(both embedding columns depend on it)". The Supabase original
+(`20260606093937_create_meeting_schema.sql`) declares exactly one:
+`meeting.chapter_summaries.embedding extensions.vector(1536)` (line 154). No
+other `meeting.*` column is a vector type.
+
+**Decision.** The test asserts what is true — `create extension if not exists vector;`
+plus the single `vector(1536)` column — rather than inventing a second embedding
+column to satisfy the parenthetical. A.1 is a *port*: adding a column the source
+does not have would put Neon out of shape with the Supabase database that is still
+the rollback target.
+
+**Vector qualifier.** `extensions.vector(1536)` → `vector(1536)`, with
+`CREATE EXTENSION IF NOT EXISTS vector;` at the top — this repo's convention, set by
+`0013_knowledge_base.sql:12`. The `extensions` schema is Supabase-specific.
+
+**Dropped, per the GREEN scope:** the 19 `enable row level security` statements,
+the `anon`/`authenticated`/`service_role` revoke+grant block, and the
+`public.alembic_version` create/delete/insert. Kept verbatim: all 19 tables, all
+19 indexes, the 5 table comments, the schema comment (reworded from "Supabase
+migrations own hosted schema" to the Drizzle chain), and every TEXT id.
