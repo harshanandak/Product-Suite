@@ -21,10 +21,12 @@ import {
 import { resolveLinkedObject } from "@/agent-chat/linked-object";
 import { USE_FIXTURES } from "@/fixtures-mode";
 import { useTeams } from "@/data/work-items";
+import { useProposals } from "@/data/proposals";
 
 import { DEFAULT_WORKSPACE } from "../env";
 import {
   BOARDS,
+  buildHomeItems,
   buildWorkboardItems,
   deriveActiveBoard,
   getBoard,
@@ -139,10 +141,21 @@ function ShellChrome() {
   // config unchanged. (buildWorkboardItems returns just the static rows until the
   // teams load, so the rail never flashes an empty section.)
   const { teams } = useTeams();
-  const railBoard =
-    activeBoard === "workboard"
-      ? { ...board, items: buildWorkboardItems(teams) }
-      : board;
+  // Live pending-proposal count for the home rail's "Review queue" badge — the
+  // SAME source the TopBar badge reads (useProposals under the shell's
+  // ProposalRepositoryProvider). Before the first settle we show no count (no
+  // phantom "0"), matching TopBar. This replaced a hardcoded literal that lied
+  // (showed "4" while the queue was empty).
+  const { proposals, isLoading } = useProposals();
+  const pendingReviewCount = isLoading ? 0 : proposals.length;
+  // Only these two boards compute their rows at render; every other board uses
+  // its static config as-is.
+  let railBoard = board;
+  if (activeBoard === "workboard") {
+    railBoard = { ...board, items: buildWorkboardItems(teams) };
+  } else if (activeBoard === "home") {
+    railBoard = { ...board, items: buildHomeItems(pendingReviewCount) };
+  }
 
   // Visually expanded when pinned open (not collapsed) OR while the collapsed
   // rail is hover/focus-revealed. `overlay` = revealed-but-not-pinned, so it

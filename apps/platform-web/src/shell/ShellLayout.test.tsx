@@ -5,6 +5,29 @@ import { fireEvent, screen, within } from "@testing-library/react";
 import { renderWithRouter } from "../test/harness";
 import { ShellLayout } from "./ShellLayout";
 
+// Controls what the shell's `useProposals` reports, so we can prove the home
+// rail's "Review queue" badge is wired to the LIVE hook value rather than a
+// literal. Defaults to a settled empty queue; per-test overrides reassign it.
+const proposalsState: { proposals: unknown[]; isLoading: boolean } = {
+  proposals: [],
+  isLoading: false,
+};
+
+vi.mock("@/data/proposals", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/data/proposals")>();
+  return {
+    ...actual,
+    // Only the two fields the shell chrome reads; the rest of the real result
+    // is unused by the rail and the TopBar badge.
+    useProposals: () => ({
+      ...proposalsState,
+      isRefetching: false,
+      error: null,
+      isMutating: false,
+    }),
+  };
+});
+
 vi.mock("@clerk/clerk-react", () => ({
   SignedIn: ({ children }: { children: React.ReactNode }) => children,
   SignedOut: () => null,
@@ -312,5 +335,47 @@ describe("ShellLayout", () => {
 
     expect(panel.style.width).toBe("220px");
     expect(panel.className).not.toMatch(/z-50/);
+  });
+
+  describe("home rail review-queue badge", () => {
+    // Restore the settled-empty default so these cases can't leak into each other.
+    afterEach(() => {
+      proposalsState.proposals = [];
+      proposalsState.isLoading = false;
+    });
+
+    async function findReviewLink() {
+      const nav = await screen.findByRole("navigation", {
+        name: "Home navigation",
+      });
+      const link = within(nav).getByText("Review queue").closest("a");
+      if (!link) throw new Error("Review queue link not found");
+      return link;
+    }
+
+    it("shows the live pending-proposal count from the hook", async () => {
+      proposalsState.proposals = [{ id: "p1" }, { id: "p2" }, { id: "p3" }];
+      renderWithRouter(<ShellLayout />, { path: "/w/test-ws" });
+
+      // 3 comes from the hook, not from the board config — the old literal was 4.
+      expect(await findReviewLink()).toHaveTextContent("3");
+    });
+
+    it("shows no badge when the queue is empty", async () => {
+      proposalsState.proposals = [];
+      renderWithRouter(<ShellLayout />, { path: "/w/test-ws" });
+
+      // The regression this fixes: an empty queue used to still render "4".
+      expect((await findReviewLink()).textContent).toBe("Review queue");
+    });
+
+    it("shows no badge while the first load is still in flight", async () => {
+      proposalsState.proposals = [];
+      proposalsState.isLoading = true;
+      renderWithRouter(<ShellLayout />, { path: "/w/test-ws" });
+
+      // No phantom "0" before the queue has settled (matches the TopBar badge).
+      expect((await findReviewLink()).textContent).toBe("Review queue");
+    });
   });
 });
