@@ -18,11 +18,9 @@ import {
   WORKBOARD_LAYOUTS,
   type WorkboardLayout,
 } from "./boards/workboard/filter-state";
+import { WorkboardIndexRoute } from "./boards/workboard/WorkboardIndexRoute";
 import { WorkboardViewsScreen } from "./boards/workboard/views/WorkboardViewsScreen";
-import {
-  TeamItemsScreen,
-  WorkboardScreen,
-} from "./boards/workboard/WorkboardScreen";
+import { TeamItemsScreen } from "./boards/workboard/WorkboardScreen";
 import { BoardScreen } from "./shell/BoardScreen";
 import { ShellLayout } from "./shell/ShellLayout";
 import { SignInPage } from "./shell/SignInPage";
@@ -109,14 +107,22 @@ const workboardRoute = createRoute({
   // routes (incl. the workboard sub-routes) remain on the BoardScreen placeholder.
   // `?layout=` is an optional deep-link seed for the initial Layout (used by the
   // legacy /workboard/graph redirect); unknown values are dropped.
+  // `?project=<id>` scopes the surface to one project — the Projects board's link
+  // into its items. Validated to a string or dropped, exactly like `?layout=`, so
+  // a junk value degrades to the unscoped board rather than an empty screen or a
+  // crash. The two params are independent and may appear together.
   validateSearch: (
     search: Record<string, unknown>,
-  ): { layout?: WorkboardLayout } =>
-    typeof search.layout === "string" &&
+  ): { layout?: WorkboardLayout; project?: string } => ({
+    ...(typeof search.layout === "string" &&
     (WORKBOARD_LAYOUTS as readonly string[]).includes(search.layout)
       ? { layout: search.layout as WorkboardLayout }
-      : {},
-  component: WorkboardScreen,
+      : {}),
+    ...(typeof search.project === "string" && search.project.length > 0
+      ? { project: search.project }
+      : {}),
+  }),
+  component: WorkboardIndexRoute,
 });
 // Graph is now a Layout of the single work-items surface (chosen via the
 // toolbar's Layout menu), not a standalone screen. This old path stays only to
