@@ -36,7 +36,7 @@ If the Neon source contains rows and an approved data migration route exists, re
 PR20_APPROVED_DATA_MIGRATION=1
 ```
 
-Do not set `PR20_APPROVED_DATA_MIGRATION=1` just to bypass the gate. It means backup, restore or replication proof exists for the populated Meeting tables.
+Do not set `PR20_APPROVED_DATA_MIGRATION=1` just to bypass the gate. It means backup, restore or replication proof exists for the populated Meeting tables. Never set it to make a red preflight go green — record the backup evidence first. This applies in both directions.
 
 The preflight captures:
 
@@ -80,3 +80,79 @@ Only retire Neon after all of the following are true:
 - rollback proof is no longer needed by the release owner.
 
 Until then, keep Neon available until Meeting create/read smoke tests pass against Supabase.
+
+---
+
+# Reverse Cutover: Supabase → Neon
+
+The sections above describe PR20's original direction (Neon `public` source → Supabase `meeting` target). The Meeting database is now moving **back** to the shared Neon platform database, into a Neon-resident `meeting` schema. The same preflight, the same smoke and the same fail-closed gate cover this direction — nothing is forked, only re-pointed.
+
+Direction summary:
+
+| | Original (PR20) | Reverse (this cutover) |
+| --- | --- | --- |
+| Source | Neon, `public` schema | Supabase, `meeting` schema |
+| Target | Supabase, `meeting` schema | Neon, `meeting` schema |
+| Rollback target | Neon | Supabase |
+
+## Reverse Preflight
+
+`NEON_DATABASE_URL` and `SUPABASE_DATABASE_URL` name the **source** and **target** connection slots respectively — they keep their original names, so in this direction `NEON_DATABASE_URL` carries the Supabase source URL and `SUPABASE_DATABASE_URL` carries the Neon target URL. The schemas are what reverse the direction:
+
+```bash
+NEON_DATABASE_URL=<Supabase direct SOURCE URL>
+SUPABASE_DATABASE_URL=<Neon direct TARGET URL>
+MEETING_PREFLIGHT_SOURCE_SCHEMA=meeting
+MEETING_PREFLIGHT_TARGET_SCHEMA=meeting
+PR20_PREFLIGHT_OUTPUT=docs/deployment/meeting-neon-preflight.json
+```
+
+Then run the same command:
+
+```bash
+bun run preflight:meeting-cutover
+```
+
+The report records `source.schema` and `target.schema`, so an archived report always names the direction it covers. The fail-closed gate is unchanged: a populated Supabase `meeting` source fails the preflight unless `PR20_APPROVED_DATA_MIGRATION=1` asserts that backup, restore or replication proof exists. Never set it to make a red preflight go green — record the backup evidence first.
+
+## Reverse Cutover Order
+
+1. Apply the Neon `meeting` schema migration to the shared Neon platform database.
+2. Run the reverse preflight (Supabase source, Neon target) and archive the report.
+3. If Supabase source rows exist, complete and record the approved data migration route — `pg_dump --schema=meeting` from Supabase, restore into Neon — before continuing.
+4. Run the Meeting create/read smoke against the Neon target URL:
+
+   ```bash
+   MEETING_TARGET_SMOKE_DATABASE_URL=<Neon target URL>
+   MEETING_TARGET_SMOKE_DATABASE_PROVIDER=neon
+   ```
+
+   The legacy `MEETING_SUPABASE_SMOKE_DATABASE_URL` still works, so a half-migrated operator env runs the smoke rather than silently skipping it.
+5. Set hosted Meeting API `DATABASE_PROVIDER=neon` if the deployment uses the provider label operationally.
+6. Set hosted Meeting API `DATABASE_URL` to the Neon runtime URL, and redeploy.
+7. Run Meeting health checks and the create/read smoke against the hosted service.
+
+## Reverse Rollback
+
+Rollback is allowed until the Neon smoke tests pass and the Supabase retirement checklist is complete.
+
+To roll back:
+
+1. set Meeting API DATABASE_URL back to the Supabase connection string;
+2. set `DATABASE_PROVIDER=supabase` if the deployment uses the provider label operationally;
+3. redeploy Meeting API;
+4. rerun Meeting health checks and create/read smoke tests against Supabase.
+
+Do not delete Supabase projects, branches, credentials, or backup material during the reverse cutover. The rollback target stays available until the Neon target has passed preflight and create/read smoke coverage.
+
+## Supabase Retirement Criteria
+
+Only retire Supabase after all of the following are true:
+
+- reverse preflight output is archived with zero source rows, or populated source rows have approved migration evidence;
+- the Neon target has all Meeting tables and the required `vector` extension;
+- Meeting create/read smoke tests pass against Neon;
+- production runtime has used the Neon `DATABASE_URL` successfully after deployment;
+- rollback proof is no longer needed by the release owner.
+
+Until then, keep Supabase available.
