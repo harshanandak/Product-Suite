@@ -96,12 +96,22 @@ function changedFields(appliedWrite: unknown): string[] {
   return summarizeChange(appliedWrite).map((line) => line.slice(0, line.indexOf(':')))
 }
 
-/** First sentence of the rationale, bounded. Falls back to the whole string. */
+/** First sentence of the rationale. Falls back to the whole string. */
 function firstSentence(text: string): string {
   const trimmed = text.trim()
   const end = trimmed.search(/[.!?](\s|$)/)
-  const sentence = end === -1 ? trimmed : trimmed.slice(0, end + 1)
-  return sentence.length > TITLE_LIMIT ? `${sentence.slice(0, TITLE_LIMIT - 1)}…` : sentence
+  return end === -1 ? trimmed : trimmed.slice(0, end + 1)
+}
+
+/**
+ * Bound a title to {@link TITLE_LIMIT}. Applied to EVERY title, not just the
+ * rationale-derived one: a generated fallback grows with the work item's title
+ * and its changed-field list, so it can outrun the limit just as easily. Capture
+ * is best-effort, so an over-length insert would be swallowed and the memory
+ * lost silently.
+ */
+function bounded(title: string): string {
+  return title.length > TITLE_LIMIT ? `${title.slice(0, TITLE_LIMIT - 1)}…` : title
 }
 
 /**
@@ -144,7 +154,7 @@ export function buildCaptureInput(
 
   return {
     kind: 'decision',
-    title: rationale.length > 0 ? firstSentence(rationale) : fallbackTitle,
+    title: bounded(rationale.length > 0 ? firstSentence(rationale) : fallbackTitle),
     body,
     // Scope to the item the decision was about. A create has no target_id until
     // the row exists, so fall back to what we just wrote.

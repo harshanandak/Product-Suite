@@ -363,7 +363,9 @@ export async function undoProposal(
   // memory already retracted or superseded simply throws and is ignored here.
   try {
     const captured = await getMemoryBySourceProposalId(sql, proposalId, ctx.tenantIds)
-    if (captured && captured.status === 'active') {
+    // Both states retractMemory accepts. A DEFERRED capture is parked for later
+    // review, so leaving it would resurrect a decision this undo reversed.
+    if (captured && (captured.status === 'active' || captured.status === 'deferred')) {
       await retractMemory(sql, { tenantIds: ctx.tenantIds, actor: ctx.approverUserId }, captured.id)
     }
   } catch (cause) {

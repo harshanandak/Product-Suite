@@ -147,3 +147,45 @@ describe('buildCaptureInput', () => {
     ).toBeNull()
   })
 })
+
+describe('title bounding', () => {
+  const LIMIT = 160
+
+  it('bounds a long rationale-derived title', () => {
+    const input = buildCaptureInput(
+      proposal({ rationale: `${'x'.repeat(400)}.` }),
+      { id: TARGET, title: 'B' },
+      ENVELOPE,
+      'u_approver',
+    )
+    expect(input?.title.length).toBeLessThanOrEqual(LIMIT)
+  })
+
+  it('bounds the GENERATED fallback title too — it grows with the item title and field list', () => {
+    // The fallback is built from the work item's title and every changed field,
+    // so it can outrun the limit exactly like a long rationale can. Capture is
+    // best-effort, so an over-length insert would be swallowed and the memory
+    // lost with no error surfaced to anyone.
+    const manyFields = Object.fromEntries(
+      Array.from({ length: 40 }, (_, i) => [`field_${i}_with_a_long_name`, `v${i}`]),
+    )
+    const input = buildCaptureInput(
+      proposal({ rationale: null, edited_payload: { title: 'C' } }),
+      { id: TARGET, title: 'A very long work item title '.repeat(10) },
+      { [UNDO_KEY]: { pre_image: manyFields, applied: manyFields } },
+      'u_approver',
+    )
+
+    expect(input?.title.length).toBeLessThanOrEqual(LIMIT)
+  })
+
+  it('bounds a create fallback built from a very long item title', () => {
+    const input = buildCaptureInput(
+      proposal({ operation: 'create', target_id: null, rationale: null, edited_payload: { a: 1 } }),
+      { id: 'wi_new', title: 'T'.repeat(500) },
+      { id: 'wi_new' },
+      'u_approver',
+    )
+    expect(input?.title.length).toBeLessThanOrEqual(LIMIT)
+  })
+})

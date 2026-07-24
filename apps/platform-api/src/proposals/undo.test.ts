@@ -448,6 +448,19 @@ describe('undoProposal — the captured memory', () => {
     expect(retractCtx.actor).toBe('u_approver')
   })
 
+  it('RETRACTS a DEFERRED capture too — parking it would resurrect a reversed decision', async () => {
+    // retractMemory accepts status in ('active','deferred'); a guard that only
+    // fired on 'active' would leave a deferred capture parked for later review,
+    // after the decision it records has been undone.
+    getMemoryBySourceProposalId.mockResolvedValue({ id: 'mem_1', status: 'deferred' })
+    const { sql } = makeSql()
+
+    const result = await undoProposal(sql, ctx, 'p1')
+
+    expect(result.status).toBe('undone')
+    expect(retractMemory).toHaveBeenCalledTimes(1)
+  })
+
   it('leaves an already-retracted memory alone', async () => {
     getMemoryBySourceProposalId.mockResolvedValue({ id: 'mem_1', status: 'retracted' })
     const { sql } = makeSql()
