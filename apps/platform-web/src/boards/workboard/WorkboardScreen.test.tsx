@@ -1112,17 +1112,17 @@ describe("WorkboardScreen", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("clears the consumed ?layout= seed from the URL (replace, no history) — Codex #114", async () => {
+  it("KEEPS ?layout= in the URL so the view is shareable (#121, replaces Codex #114's strip)", async () => {
+    // Inverts Codex #114: the URL now syncs, so the stale-seed hazard is gone and the layout is shareable.
     searchMock.value = { layout: "graph" };
 
     render(<WorkboardScreen repository={createMockWorkItemRepository()} />);
     await screen.findByTestId("workboard-graph-frame");
 
-    // The seed is stripped via a replace-navigation to the bare workboard route,
-    // so it can't linger in the URL and re-apply on later navigation.
-    expect(navMock.fn).toHaveBeenCalledWith(
-      expect.objectContaining({ replace: true, search: {} }),
-    );
+    const stripped = (navMock.fn.mock.calls as unknown as [
+      { to?: string; search?: unknown },
+    ][]).some(([o]) => o?.to === "/w/$workspace/workboard");
+    expect(stripped).toBe(false);
   });
 
   it("never restores a stale selection — selection rehydrates empty", async () => {
@@ -1454,12 +1454,60 @@ describe("WorkboardScreen — project scope side effects", () => {
     expect(createSpy.mock.calls[0]?.[0]).toMatchObject({ project_id: "proj_v2" });
   });
 
-  it("keeps the project scope when the layout seed is consumed", async () => {
-    // `?layout=` is a one-shot seed the screen strips after reading it, but
-    // `?project=` is a live scope. Clearing the whole search would filter the
-    // board and then silently un-filter it on the cleanup pass.
+  it("keeps BOTH the layout and the project scope in the URL", async () => {
+    // Syncing the layout must never rewrite the index route away and drop `?project=`.
     searchMock.value = { layout: "board" };
     navMock.fn.mockClear();
+
+    render(
+      <WorkboardScreen
+        repository={createMockWorkItemRepository()}
+        projectId="proj_v2"
+      />,
+    );
+
+    await screen.findByRole("toolbar", { name: "Workboard controls" });
+    const rewrote = (navMock.fn.mock.calls as unknown as [
+      { to?: string },
+    ][]).some(([o]) => o?.to === "/w/$workspace/workboard");
+    expect(rewrote).toBe(false);
+
+    searchMock.value = {};
+  });
+})
+
+describe("WorkboardScreen — the layout is shareable (#121)", () => {
+  /** The navigate options for the most recent workboard-index navigation. */
+  function lastIndexNav(): { search?: unknown } | undefined {
+    const calls = navMock.fn.mock.calls as unknown as [
+      { to?: string; search?: unknown },
+    ][];
+    return calls.filter(([o]) => o?.to === "/w/$workspace/workboard").pop()?.[0];
+  }
+
+  it("reflects a non-default layout in the URL so the view can be shared", async () => {
+    searchMock.value = { layout: "graph" };
+
+    render(<WorkboardScreen repository={createMockWorkItemRepository()} />);
+    await screen.findByTestId("workboard-graph-frame");
+
+    // Nothing should have navigated the seed away: the URL already matches state.
+    expect(lastIndexNav()).toBeUndefined();
+  });
+
+  it("drops the param for the DEFAULT layout so a bare /workboard stays clean", async () => {
+    searchMock.value = { layout: "list" };
+
+    render(<WorkboardScreen repository={createMockWorkItemRepository()} />);
+
+    await waitFor(() => {
+      expect(navMock.fn).toHaveBeenCalled();
+    });
+    expect(lastIndexNav()?.search).toEqual({});
+  });
+
+  it("keeps the project scope alongside the layout", async () => {
+    searchMock.value = { layout: "list" };
 
     render(
       <WorkboardScreen
@@ -1471,14 +1519,22 @@ describe("WorkboardScreen — project scope side effects", () => {
     await waitFor(() => {
       expect(navMock.fn).toHaveBeenCalled();
     });
-    // The mock is declared with no parameters, so its recorded calls type as an
-    // empty tuple; reach the navigate options through an explicit cast.
-    const calls = navMock.fn.mock.calls as unknown as [
-      { to?: string; search?: unknown },
-    ][];
-    const strip = calls.find(([options]) => options?.to === "/w/$workspace/workboard");
-    expect(strip?.[0]?.search).toEqual({ project: "proj_v2" });
+    expect(lastIndexNav()?.search).toEqual({ project: "proj_v2" });
+  });
 
+  it("never rewrites the URL on the TEAM route, which owns a different path", async () => {
     searchMock.value = {};
+
+    render(
+      <WorkboardScreen
+        repository={createMockWorkItemRepository()}
+        teamId="team_engineering"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+    expect(lastIndexNav()).toBeUndefined();
   });
 })
