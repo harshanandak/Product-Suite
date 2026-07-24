@@ -24,6 +24,17 @@ export function analyzeMigrationParity(journal, sqlFileNames) {
   const entries = Array.isArray(journal?.entries) ? journal.entries : [];
   const sqlFiles = new Set(sqlFileNames);
 
+  // Drizzle applies entries in array order, so declaration order — not just the
+  // set of idx values — has to be ascending; the sort below would mask a swap.
+  for (let i = 1; i < entries.length; i += 1) {
+    if (!(entries[i].idx > entries[i - 1].idx)) {
+      issues.push(
+        `journal entry "${entries[i].tag}" (idx ${entries[i].idx}) is out of array order: it is declared after "${entries[i - 1].tag}" (idx ${entries[i - 1].idx})`,
+      );
+      break;
+    }
+  }
+
   const sortedIdx = entries.map((entry) => entry.idx).sort((a, b) => a - b);
   for (let expected = 0; expected < sortedIdx.length; expected += 1) {
     if (sortedIdx[expected] !== expected) {
