@@ -159,7 +159,7 @@ describe("prepush-gate classification", () => {
   test("docs riding along with app code do not widen the scope", () => {
     const out = classify(["docs/a.md", "apps/roadmap-web/src/x.ts"]);
     expect(out).toContain("scoped");
-    expect(out).toContain("verify:roadmap-web");
+    expect(out).toContain("test:roadmap-canvas-boundary");
     expect(out).not.toContain("verify:platform-web");
   });
 
@@ -188,7 +188,7 @@ describe("prepush-gate classification", () => {
   test("a per-app markdown change is scoped to that app, not full", () => {
     const out = classify(["apps/roadmap-web/CLAUDE.md"]);
     expect(out).toContain("scoped");
-    expect(out).toContain("verify:roadmap-web");
+    expect(out).toContain("test:roadmap-canvas-boundary");
   });
 
   test("the gate never runs an app BUILD — those belong to CI", () => {
@@ -347,4 +347,10 @@ describe("prepush-gate harness env isolation (regression for #118)", () => {
       },
     );
   });
+});
+
+test("roadmap-web runs what CI runs — no lint job exists for it (#137)", () => {
+  const out = classify(["apps/roadmap-web/src/components/work-items/tag-selector.tsx"]);
+  expect(out).toContain("test:roadmap-canvas-boundary");
+  expect(out).not.toContain("verify:roadmap-web");
 });

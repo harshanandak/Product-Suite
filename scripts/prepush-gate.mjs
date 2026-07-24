@@ -79,7 +79,8 @@ const SUITES = {
   "apps/platform-web": ["verify:platform-web"],
   "apps/platform-api": ["verify:platform-api"],
   "apps/meeting-web": ["verify:meeting-web"],
-  "apps/roadmap-web": ["verify:roadmap-web", "test:roadmap-canvas-boundary"],
+  // Matches CI, which has no roadmap-web lint/typecheck job. See #137.
+  "apps/roadmap-web": ["test:roadmap-canvas-boundary"],
   "apps/meeting-api": ["ci:meeting-api"],
   "packages/contracts": ["test:contracts"],
   "packages/db": ["verify:db"],
