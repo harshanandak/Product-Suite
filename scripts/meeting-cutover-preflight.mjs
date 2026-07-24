@@ -181,11 +181,24 @@ function runPsqlJson(databaseUrl, sql) {
   return JSON.parse(result.stdout.trim() || "null");
 }
 
+/**
+ * Runs the preflight in whichever direction the caller asks for. The schema
+ * names are parameters, not literals, so the same script covers the original
+ * Neon `public` → Supabase `meeting` cutover AND the reverse (Supabase
+ * `meeting` → Neon `meeting`) without a fork. The defaults reproduce the
+ * forward direction exactly, so existing callers are unaffected.
+ *
+ * `runQuery` is the psql seam — it defaults to the real `runPsqlJson` and is
+ * overridden only by tests, which have no database to talk to.
+ */
 export function runPreflight({
   neonDatabaseUrl,
   supabaseDatabaseUrl,
+  sourceSchema = "public",
+  targetSchema = "meeting",
   approvedDataMigration = false,
   outputPath,
+  runQuery = runPsqlJson,
 } = {}) {
   if (!neonDatabaseUrl) {
     throw new Error("NEON_DATABASE_URL is required for Meeting cutover preflight");
@@ -194,8 +207,8 @@ export function runPreflight({
     throw new Error("SUPABASE_DATABASE_URL is required for Meeting cutover preflight");
   }
 
-  const sourceRows = runPsqlJson(neonDatabaseUrl, buildSourceRowCountSql({ schemaName: "public" }));
-  const targetReadiness = runPsqlJson(supabaseDatabaseUrl, buildTargetReadinessSql({ schemaName: "meeting" }));
+  const sourceRows = runQuery(neonDatabaseUrl, buildSourceRowCountSql({ schemaName: sourceSchema }));
+  const targetReadiness = runQuery(supabaseDatabaseUrl, buildTargetReadinessSql({ schemaName: targetSchema }));
   const evaluation = evaluatePreflight({
     sourceRows,
     targetTables: targetReadiness.tables ?? [],
@@ -204,9 +217,12 @@ export function runPreflight({
   });
   const report = {
     generatedAt: new Date().toISOString(),
-    source: { provider: "neon", rows: sourceRows },
+    // The schemas are recorded because the report is archived as cutover
+    // evidence: without them a reader cannot tell which direction it covers.
+    source: { provider: "neon", schema: sourceSchema, rows: sourceRows },
     target: {
       provider: "supabase",
+      schema: targetSchema,
       tables: targetReadiness.tables ?? [],
       extensions: targetReadiness.extensions ?? [],
     },
@@ -225,6 +241,8 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     const report = runPreflight({
       neonDatabaseUrl: process.env.NEON_DATABASE_URL,
       supabaseDatabaseUrl: process.env.SUPABASE_DATABASE_URL,
+      sourceSchema: process.env.MEETING_PREFLIGHT_SOURCE_SCHEMA || "public",
+      targetSchema: process.env.MEETING_PREFLIGHT_TARGET_SCHEMA || "meeting",
       approvedDataMigration: process.env.PR20_APPROVED_DATA_MIGRATION === "1",
       outputPath: process.env.PR20_PREFLIGHT_OUTPUT,
     });
