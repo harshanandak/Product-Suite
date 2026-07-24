@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import {
   afterAll,
   afterEach,
@@ -185,6 +185,43 @@ describe("WorkboardScreen", () => {
         name: /show sub-tasks of Workspace auth hardening/i,
       }),
     ).toBeInTheDocument();
+  });
+
+  it("scopes rows to the given projectId", async () => {
+    render(
+      <WorkboardScreen
+        repository={createMockWorkItemRepository()}
+        projectId="proj_v2"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+    const scoped = screen.getAllByTestId("work-item-row").length;
+
+    // The unscoped board must show strictly more: the fixture set includes items
+    // in other projects and loose items with a null project_id, so a scope that
+    // changed nothing would mean the filter never ran.
+    cleanup();
+    render(<WorkboardScreen repository={createMockWorkItemRepository()} />);
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+    expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(scoped);
+  });
+
+  it("shows no rows for a project id that matches nothing, rather than every row", async () => {
+    render(
+      <WorkboardScreen
+        repository={createMockWorkItemRepository()}
+        projectId="proj_does_not_exist"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.queryAllByTestId("work-item-row")).toHaveLength(0);
+    });
   });
 
   it("scopes rows to the given teamId and hides the Team facet", async () => {

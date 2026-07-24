@@ -98,6 +98,14 @@ export interface WorkboardScreenProps {
    * `/workboard/team/$teamId` route via {@link TeamItemsScreen}.
    */
   teamId?: string;
+  /**
+   * When set, the surface is scoped to a single project: rows are pre-filtered to
+   * `project_id === projectId` BEFORE the user's search/facets apply. Drives the
+   * `/workboard?project=<id>` deep link the Projects board uses to hand a reader
+   * from a project row to that project's items. Composes with {@link teamId} —
+   * a project's items may span teams, so neither scope implies the other.
+   */
+  projectId?: string;
 }
 
 /**
@@ -245,6 +253,7 @@ function resolveUnscopedCreateDefaults(
 export function WorkboardScreen({
   repository,
   teamId,
+  projectId,
 }: Readonly<WorkboardScreenProps> = {}) {
   // Stabilize the repository for the lifetime of the screen so the hook and our
   // own check read share ONE store (the hook captures its repo once, on mount —
@@ -323,16 +332,22 @@ export function WorkboardScreen({
     parseSavedViews(readSavedViews()),
   );
 
-  // Team scope (route-level): when a teamId is set, pre-filter to that team
-  // BEFORE the user's search/facets apply, so the whole surface (rows, empty
-  // states, facet options) sees only the team's items. Unscoped → all items.
-  const scopedItems = useMemo(
-    () =>
-      teamId === undefined
-        ? items
-        : items.filter((item) => item.team_id === teamId),
-    [items, teamId],
-  );
+  // Route-level scope, applied BEFORE the user's search/facets so the whole
+  // surface (rows, empty states, facet options) sees only the scoped items.
+  //
+  // Team and project are INDEPENDENT axes and compose: a project's items can span
+  // teams, and `project_id` is nullable, so neither implies the other. Unscoped on
+  // an axis → that axis does not filter.
+  const scopedItems = useMemo(() => {
+    let scoped = items;
+    if (teamId !== undefined) {
+      scoped = scoped.filter((item) => item.team_id === teamId);
+    }
+    if (projectId !== undefined) {
+      scoped = scoped.filter((item) => item.project_id === projectId);
+    }
+    return scoped;
+  }, [items, teamId, projectId]);
 
   // The scoped team's display NAME, carried on the deprecated `department` field
   // (the only client-side name source today — see filter-state's seam notes).

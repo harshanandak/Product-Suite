@@ -23,6 +23,15 @@ export function ProjectsRoute() {
           params: { workspace, itemId },
         });
       }}
+      onOpenProject={(projectId) => {
+        // Hand the reader to the work-items surface scoped to this project,
+        // rather than growing a second detail page on the Projects board.
+        void navigate({
+          to: "/w/$workspace/workboard",
+          params: { workspace },
+          search: { project: projectId },
+        });
+      }}
     />
   );
 }
