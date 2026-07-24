@@ -170,27 +170,43 @@ migrations own hosted schema" to the Drizzle chain), and every TEXT id.
 
 ---
 
-## D10 — "Real-DB tests" resolve to the mock-`Sql` harness at this tier (Task B.2)
+## D10 — B.2 is tested at BOTH tiers: mock unit + real-DB contract (Task B.2)
 
-**Context.** B.2's RED list is prefixed "real-DB, per project convention".
+**The two tiers `apps/platform-api` actually has.**
 
-**What the convention actually is.** `apps/platform-api` has **no** real-database
-test. Every one of its 49 test files mocks `@product-suite/db` (`vi.mock`) and
-drives a mock `Sql` whose `query` dispatches on SQL text — `agent/reflection.test.ts`
-is the reference shape, and B.2's tests follow it. The real database is exercised
-one tier up, in `apps/platform-web/e2e/` (Playwright + `db-provenance.e2e.ts`
-reading Neon directly) — which is exactly Task **E.1**, and out of B.2's scope.
+1. **Mock unit** (`src/**/*.test.ts`, plain `vitest run`) — mocks
+   `@product-suite/db` and drives a mock `Sql` whose `query` dispatches on SQL
+   text. `agent/reflection.test.ts` is the reference shape; `src/meeting/*.test.ts`
+   follows it.
+2. **Real-DB contract** (`test/db-contract/**`, `vitest run --config
+   vitest.db-contract.config.ts`, its own `db-contract` CI job) — `withDbBranch()`
+   provisions an **ephemeral Neon branch**, applies the WHOLE migration journal,
+   seeds a baseline tenant/team/statuses/run, and always deletes the branch.
 
-**Consequence for RED tests 4a/4b** ("one test per predicate, so a dropped clause
-cannot hide"). A mock cannot enforce a `WHERE`. The two tests therefore assert the
-predicate is present in the emitted SQL text — which does catch a dropped clause,
-which is what the requirement is for. E.1's seed/ingest round trip is what proves
-the predicate *behaves*.
+B.2's DB-touching assertions belong in tier 2 and are there:
+`test/db-contract/meeting-ingest.test.ts` — predicate filtering, tenant scoping,
+one-run-per-call, full proposal provenance, real `work_items.source = 'meeting'`
+after accept, the ledger row, dedup, rematerialization survival, and the empty run.
+It is also the **only** place migration `0016_meeting_schema.sql` is ever executed
+against Postgres, so an unapplyable meeting schema fails there.
+
+**Honest limitation.** That file could not be RUN here: the tier is gated on
+`NEON_API_KEY`/`NEON_PROJECT_ID` (`harness.ts::hasNeonCreds`), which this machine
+does not have — `.dev.vars` carries a `DATABASE_URL` but no Neon control-plane key,
+and pointing the tier at the shared dev database instead would be Task A.4's
+[NEEDS USER GO] write. Locally it correctly self-skips and `tsc --noEmit` covers it
+(`tsconfig.json` includes `test`). **The executed RED → GREEN evidence for B.2 is
+the mock tier's; the db-contract tier is verified by CI's `db-contract` job.**
+
+**Why the mock tier still carries tests 4a/4b.** A mock cannot enforce a `WHERE`,
+so those two assert the predicate is present in the emitted SQL — which catches the
+dropped clause the requirement is aimed at, fast, on every run. The contract tier
+proves the same predicates *behave*, with one seeded row per excluded reason.
 
 **Belt and braces added rather than argued around.** `runMeetingIngest` re-checks
 every returned row against the tenant map even though the read is already
 SQL-scoped, so test 5's "another meeting tenant's row is not proposed" is a
-behavioural assertion, not only a parameter one.
+behavioural assertion at both tiers, not only a parameter one.
 
 ---
 
