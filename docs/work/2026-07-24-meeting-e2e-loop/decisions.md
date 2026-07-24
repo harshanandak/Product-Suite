@@ -167,3 +167,77 @@ the `anon`/`authenticated`/`service_role` revoke+grant block, and the
 `public.alembic_version` create/delete/insert. Kept verbatim: all 19 tables, all
 19 indexes, the 5 table comments, the schema comment (reworded from "Supabase
 migrations own hosted schema" to the Drizzle chain), and every TEXT id.
+
+---
+
+## D10 — "Real-DB tests" resolve to the mock-`Sql` harness at this tier (Task B.2)
+
+**Context.** B.2's RED list is prefixed "real-DB, per project convention".
+
+**What the convention actually is.** `apps/platform-api` has **no** real-database
+test. Every one of its 49 test files mocks `@product-suite/db` (`vi.mock`) and
+drives a mock `Sql` whose `query` dispatches on SQL text — `agent/reflection.test.ts`
+is the reference shape, and B.2's tests follow it. The real database is exercised
+one tier up, in `apps/platform-web/e2e/` (Playwright + `db-provenance.e2e.ts`
+reading Neon directly) — which is exactly Task **E.1**, and out of B.2's scope.
+
+**Consequence for RED tests 4a/4b** ("one test per predicate, so a dropped clause
+cannot hide"). A mock cannot enforce a `WHERE`. The two tests therefore assert the
+predicate is present in the emitted SQL text — which does catch a dropped clause,
+which is what the requirement is for. E.1's seed/ingest round trip is what proves
+the predicate *behaves*.
+
+**Belt and braces added rather than argued around.** `runMeetingIngest` re-checks
+every returned row against the tenant map even though the read is already
+SQL-scoped, so test 5's "another meeting tenant's row is not proposed" is a
+behavioural assertion, not only a parameter one.
+
+---
+
+## D11 — `payload.source = 'meeting'` persists; the validator needed no widening (Task B.2)
+
+RED test 11 anticipated that `createWorkItem` might drop `payload.source`, and
+instructed: keep `payload.source`, drop the persistence assertion, file an issue.
+**That branch did not fire.** Reading the path:
+
+- `apply.ts::validateAndResolveWorkItemPayload` (:181-215) spreads the payload
+  through untouched — it validates ids, it does not strip unknown keys.
+- `domain/work-items.ts::createWorkItem` (:237) writes `source: input.source ?? 'manual'`.
+- `packages/db/src/schema.ts:50` — `work_item_source` is a pg enum that **already
+  contains `'meeting'`** (`['manual', 'meeting', 'agent', 'feedback']`).
+
+So the assertion is kept, in the form this tier can prove: the test runs the real
+`applyProposal` over a meeting-shaped proposal and asserts the (mocked) domain
+command receives `source: 'meeting'`. Reading the value back out of a live
+`work_items` row is E.1's job (its RED test 6 already anticipates this outcome).
+**No validator change, no follow-up issue, no widened schema.**
+
+---
+
+## D12 — Where `skippedUnmappedTenant` comes from (Task B.2)
+
+B.3's RED test 4 requires the unmapped count to be *visible, not silently zero*.
+But the candidate read is tenant-scoped in SQL, so by construction it returns no
+unmapped rows to count.
+
+**Decision.** A second, separate query counts promoted+generated rows whose meeting
+tenant is outside the allowed set — `count(*)` only, no columns. A number leaks
+nothing across tenants, and it is the difference between "the map is fine, there is
+simply no work" and "the map is missing an entry" for whoever is debugging.
+
+The in-code re-check (D10) feeds the same counter, so a row that somehow arrives
+from an unmapped tenant is both refused and reflected in the total.
+
+**Anchoring.** `runMeetingIngest` takes ONE platform `tenantId` per call, mirroring
+`runReflection` — `agent_runs.tenant_id` is single-valued, and one run per call
+(RED test 6) forces the choice. The run is minted **unconditionally**, before any
+candidate is read, which is also how RED test 15's "zero candidates" case is pinned.
+
+---
+
+## D13 — `apps/platform-api` has no ESLint config either (observed, not changed)
+
+Same pre-existing gap as D7: `bun run --cwd apps/platform-api lint` fails with
+"ESLint couldn't find an eslint.config.js file" on an unmodified checkout, which is
+why `verify:platform-api` is `typecheck && test`. Not touched — out of scope, and
+adding a config would silently start gating unrelated files.
