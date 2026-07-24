@@ -148,12 +148,14 @@ function ShellChrome() {
   // (showed "4" while the queue was empty).
   const { proposals, isLoading } = useProposals();
   const pendingReviewCount = isLoading ? 0 : proposals.length;
-  const railBoard =
-    activeBoard === "workboard"
-      ? { ...board, items: buildWorkboardItems(teams) }
-      : activeBoard === "home"
-        ? { ...board, items: buildHomeItems(pendingReviewCount) }
-        : board;
+  // Only these two boards compute their rows at render; every other board uses
+  // its static config as-is.
+  let railBoard = board;
+  if (activeBoard === "workboard") {
+    railBoard = { ...board, items: buildWorkboardItems(teams) };
+  } else if (activeBoard === "home") {
+    railBoard = { ...board, items: buildHomeItems(pendingReviewCount) };
+  }
 
   // Visually expanded when pinned open (not collapsed) OR while the collapsed
   // rail is hover/focus-revealed. `overlay` = revealed-but-not-pinned, so it
