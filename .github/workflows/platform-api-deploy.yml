@@ -78,7 +78,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          bunx wrangler@4.100.0 secret list --format json --env production --cwd apps/platform-api \
+          bunx wrangler@4.114.0 secret list --format json --env production --cwd apps/platform-api \
             | node scripts/check-worker-secrets.mjs DATABASE_URL CLERK_SECRET_KEY CLERK_AUTHORIZED_PARTIES OPENROUTER_API_KEY
 
       - name: Install dependencies
@@ -167,7 +167,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          bunx wrangler@4.100.0 secret list --format json --env production --cwd apps/platform-api \
+          bunx wrangler@4.114.0 secret list --format json --env production --cwd apps/platform-api \
             | node scripts/check-worker-secrets.mjs DATABASE_URL CLERK_SECRET_KEY CLERK_AUTHORIZED_PARTIES OPENROUTER_API_KEY
 
       - name: Reject a stale run before applying
@@ -263,7 +263,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          bunx wrangler@4.100.0 secret list --format json --env production --cwd apps/platform-api \
+          bunx wrangler@4.114.0 secret list --format json --env production --cwd apps/platform-api \
             | node scripts/check-worker-secrets.mjs DATABASE_URL CLERK_SECRET_KEY CLERK_AUTHORIZED_PARTIES OPENROUTER_API_KEY
 
       - name: Deploy Worker (production)
@@ -279,4 +279,4 @@ jobs:
         # devDependency of its own — it reuses the exact version
         # apps/platform-web pins (^4.0.0, resolved to 4.100.0 in bun.lock),
         # pinned explicitly here so bunx never pulls an unverified "latest".
-        run: bunx wrangler@4.100.0 deploy --env production
+        run: bunx wrangler@4.114.0 deploy --env production
