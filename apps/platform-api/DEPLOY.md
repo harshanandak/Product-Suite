@@ -20,7 +20,13 @@ wrangler secret put DATABASE_URL --env production
 wrangler secret put CLERK_AUTHORIZED_PARTIES --env production
 # Paste the comma-separated list of Clerk-configured allowed origins
 # e.g., https://api.befach.dev,https://app.befach.dev
+
+wrangler secret put OPENROUTER_API_KEY --env production
+# Paste your OpenRouter key — the /api/agent/* routes and KB embeddings call it
 ```
+
+All four are verified by the deploy workflow's `preflight` job, which refuses to
+migrate or deploy while any of them is unset.
 
 ### 2. Deploy
 ```bash
