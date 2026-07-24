@@ -12,10 +12,21 @@ vi.mock("@tanstack/react-router", () => ({
 // a trigger so this test isolates the ONE thing this file owns — turning an
 // opened work item into a navigation.
 vi.mock("./ProjectsScreen", () => ({
-  ProjectsScreen: ({ onOpenItem }: { onOpenItem?: (id: string) => void }) => (
-    <button type="button" onClick={() => onOpenItem?.("w-42")}>
-      open item
-    </button>
+  ProjectsScreen: ({
+    onOpenItem,
+    onOpenProject,
+  }: {
+    onOpenItem?: (id: string) => void
+    onOpenProject?: (id: string) => void
+  }) => (
+    <>
+      <button type="button" onClick={() => onOpenItem?.("w-42")}>
+        open item
+      </button>
+      <button type="button" onClick={() => onOpenProject?.("p-7")}>
+        open project
+      </button>
+    </>
   ),
 }));
 
@@ -44,5 +55,21 @@ describe("ProjectsRoute", () => {
         params: expect.objectContaining({ workspace: "acme" }),
       }),
     );
+  });
+});
+
+describe("ProjectsRoute — opening a whole project", () => {
+  test("sends the reader to the work-items surface SCOPED to that project", () => {
+    // Not a second detail page on the Projects board: the items surface already
+    // exists, so a project's full list is that surface with a scope applied.
+    render(<ProjectsRoute />);
+
+    fireEvent.click(screen.getByRole("button", { name: "open project" }));
+
+    expect(navigate).toHaveBeenCalledWith({
+      to: "/w/$workspace/workboard",
+      params: { workspace: "acme" },
+      search: { project: "p-7" },
+    });
   });
 });

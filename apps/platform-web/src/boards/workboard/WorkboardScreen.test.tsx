@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import {
   afterAll,
   afterEach,
@@ -185,6 +185,47 @@ describe("WorkboardScreen", () => {
         name: /show sub-tasks of Workspace auth hardening/i,
       }),
     ).toBeInTheDocument();
+  });
+
+  it("scopes rows to the given projectId", async () => {
+    render(
+      <WorkboardScreen
+        repository={createMockWorkItemRepository()}
+        projectId="proj_v2"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+    const scoped = screen.getAllByTestId("work-item-row").length;
+
+    // The unscoped board must show strictly more: the fixture set includes items
+    // in other projects and loose items with a null project_id, so a scope that
+    // changed nothing would mean the filter never ran.
+    cleanup();
+    render(<WorkboardScreen repository={createMockWorkItemRepository()} />);
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+    expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(scoped);
+  });
+
+  it("shows no rows for a project id that matches nothing, rather than every row", async () => {
+    render(
+      <WorkboardScreen
+        repository={createMockWorkItemRepository()}
+        projectId="proj_does_not_exist"
+      />,
+    );
+
+    // Wait for the list to RESOLVE before asserting emptiness. Asserting zero
+    // rows immediately would also pass on the loading render, so the test would
+    // survive a regression that dropped the filter and showed every row.
+    await waitFor(() => {
+      expect(screen.queryByLabelText(/loading/i)).not.toBeInTheDocument();
+    });
+    expect(screen.queryAllByTestId("work-item-row")).toHaveLength(0);
   });
 
   it("scopes rows to the given teamId and hides the Team facet", async () => {
@@ -1389,3 +1430,55 @@ describe("WorkboardScreen repository selection", () => {
     }
   });
 });
+
+describe("WorkboardScreen — project scope side effects", () => {
+  it("creates a new item INSIDE the active project scope", async () => {
+    // Without project_id the fresh item is born outside the scope the reader is
+    // looking at, so it vanishes the instant it appears — the same failure the
+    // team scope already guards against.
+    const base = createMockWorkItemRepository();
+    const createSpy = vi.fn((input: CreateWorkItemInput) => base.create(input));
+    const repository = { ...base, create: createSpy };
+
+    render(<WorkboardScreen repository={repository} projectId="proj_v2" />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("work-item-row").length).toBeGreaterThan(0);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /new work item/i }));
+
+    await waitFor(() => {
+      expect(createSpy).toHaveBeenCalled();
+    });
+    expect(createSpy.mock.calls[0]?.[0]).toMatchObject({ project_id: "proj_v2" });
+  });
+
+  it("keeps the project scope when the layout seed is consumed", async () => {
+    // `?layout=` is a one-shot seed the screen strips after reading it, but
+    // `?project=` is a live scope. Clearing the whole search would filter the
+    // board and then silently un-filter it on the cleanup pass.
+    searchMock.value = { layout: "board" };
+    navMock.fn.mockClear();
+
+    render(
+      <WorkboardScreen
+        repository={createMockWorkItemRepository()}
+        projectId="proj_v2"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(navMock.fn).toHaveBeenCalled();
+    });
+    // The mock is declared with no parameters, so its recorded calls type as an
+    // empty tuple; reach the navigate options through an explicit cast.
+    const calls = navMock.fn.mock.calls as unknown as [
+      { to?: string; search?: unknown },
+    ][];
+    const strip = calls.find(([options]) => options?.to === "/w/$workspace/workboard");
+    expect(strip?.[0]?.search).toEqual({ project: "proj_v2" });
+
+    searchMock.value = {};
+  });
+})

@@ -167,3 +167,34 @@ describe("ProjectsScreen", () => {
     });
   });
 });
+
+describe("ProjectsScreen — opening a whole project", () => {
+  test("offers a link into the project's full item list", async () => {
+    const onOpenProject = vi.fn();
+    render(
+      <ProjectsScreen
+        repository={repositoryWith([project()], [{ title: "Ship the write path" }])}
+        onOpenProject={onOpenProject}
+      />,
+    );
+
+    expect(await screen.findByText("Core product")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /expand core product/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /view these items/i }));
+
+    expect(onOpenProject).toHaveBeenCalledWith("p1");
+  });
+
+  test("falls back to a plain count when no handler is wired", async () => {
+    // Without a destination, a link that goes nowhere is worse than a count —
+    // so the affordance only appears when something can act on it.
+    const items = Array.from({ length: 12 }, (_, i) => ({ id: `w${i}`, title: `Item ${i}` }));
+    render(<ProjectsScreen repository={repositoryWith([project()], items)} />);
+
+    expect(await screen.findByText("Core product")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /expand core product/i }));
+
+    expect(await screen.findByText(/\+4 more items/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /view all/i })).not.toBeInTheDocument();
+  });
+})

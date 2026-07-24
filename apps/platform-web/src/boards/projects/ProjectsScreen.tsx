@@ -43,11 +43,18 @@ export interface ProjectsScreenProps {
    * navigation.
    */
   readonly onOpenItem?: (itemId: string) => void;
+  /**
+   * Called with a project's id when the reader wants that project's FULL item
+   * list. The route sends them to the work-items surface scoped to that project,
+   * rather than growing a second detail page on this board.
+   */
+  readonly onOpenProject?: (projectId: string) => void;
 }
 
 export function ProjectsScreen({
   repository,
   onOpenItem,
+  onOpenProject,
 }: Readonly<ProjectsScreenProps>) {
   const { items, projects, owners, loading, error } = useWorkItems({ repository });
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
@@ -137,6 +144,7 @@ export function ProjectsScreen({
               leadName={ownerName(row.project.lead_id)}
               onToggle={() => toggle(row.project.id)}
               onOpenItem={onOpenItem}
+              onOpenProject={onOpenProject}
             />
           ))}
         </section>
@@ -151,6 +159,7 @@ interface ProjectListRowProps {
   readonly leadName: string | null;
   readonly onToggle: () => void;
   readonly onOpenItem?: (itemId: string) => void;
+  readonly onOpenProject?: (projectId: string) => void;
 }
 
 function ProjectListRow({
@@ -159,6 +168,7 @@ function ProjectListRow({
   leadName,
   onToggle,
   onOpenItem,
+  onOpenProject,
 }: Readonly<ProjectListRowProps>) {
   const { project } = row;
   const shown = row.items.slice(0, INLINE_ITEM_LIMIT);
@@ -247,7 +257,20 @@ function ProjectListRow({
                 <span />
               </div>
             ))}
-            {hidden > 0 && (
+            {onOpenProject !== undefined && (
+              <p className="py-2 pl-14 text-sm">
+                <button
+                  type="button"
+                  onClick={() => onOpenProject(project.id)}
+                  className="text-muted-foreground hover:text-foreground hover:underline"
+                >
+                  {hidden > 0
+                    ? `View all ${row.totalCount} items`
+                    : "View these items on the board"}
+                </button>
+              </p>
+            )}
+            {onOpenProject === undefined && hidden > 0 && (
               <p className="py-2 pl-14 text-sm text-muted-foreground">
                 +{hidden} more {hidden === 1 ? "item" : "items"}
               </p>
