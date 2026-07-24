@@ -69,6 +69,25 @@ describe("router", () => {
     }
   });
 
+  it("no longer registers the stub meeting routes", () => {
+    const fullPaths = collectFullPaths();
+
+    // These three resolved to a generic BoardScreen placeholder behind nav rows
+    // with invented counts. The rows are gone (see boards.test.ts), so the
+    // routes must go too rather than linger as orphaned dead ends.
+    for (const dead of [
+      "/w/$workspace/meetings/week",
+      "/w/$workspace/meetings/actions",
+      "/w/$workspace/meetings/jobs",
+    ]) {
+      expect(fullPaths).not.toContain(dead);
+    }
+
+    // The two surviving meeting surfaces still resolve.
+    expect(fullPaths).toContain("/w/$workspace/meetings");
+    expect(fullPaths).toContain("/w/$workspace/meetings/triage");
+  });
+
   it("no longer registers the deleted Agent board routes", () => {
     const fullPaths = collectFullPaths();
 

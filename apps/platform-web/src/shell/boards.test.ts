@@ -108,6 +108,38 @@ describe("resolveScreen", () => {
   });
 });
 
+describe("meeting nav (honest nav)", () => {
+  const meetingItems = () => getBoard("meetings").items;
+
+  it("declares exactly All meetings and Triage queue", () => {
+    expect(meetingItems().map((item) => item.key)).toEqual([
+      "all-meetings",
+      "triage-queue",
+    ]);
+  });
+
+  it("has no This week / Action items / Jobs rows and no Processing section", () => {
+    const keys = new Set(meetingItems().map((item) => item.key));
+    for (const stub of ["this-week", "action-items", "jobs", "processing"]) {
+      expect(keys.has(stub)).toBe(false);
+    }
+    expect(meetingItems().some((item) => item.section)).toBe(false);
+  });
+
+  it("carries NO hardcoded counts (a count comes from data or does not exist)", () => {
+    // The board once shipped `action-items: 4`, `triage-queue: 2`, `jobs: 1` —
+    // literals that lied about surfaces which held no real data at all.
+    expect(meetingItems().every((item) => item.count === undefined)).toBe(true);
+  });
+
+  it("resolveScreen still titles the surviving meeting rows", () => {
+    expect(resolveScreen("/w/x/meetings", "x").title).toBe("All meetings");
+    const triage = resolveScreen("/w/x/meetings/triage", "x");
+    expect(triage.board?.id).toBe("meetings");
+    expect(triage.title).toBe("Triage queue");
+  });
+});
+
 describe("workboard nav (IA redesign)", () => {
   const workboardItems = () => getBoard("workboard").items;
 
