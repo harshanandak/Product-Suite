@@ -320,10 +320,13 @@ export function WorkboardScreen({
     void navigate({
       to: "/w/$workspace/workboard",
       params: { workspace: workspaceSlug },
-      search: {},
+      // Strip ONLY the consumed layout seed. `?project=` is a live scope, not a
+      // one-shot seed, so clearing the whole search would filter the board and
+      // then silently un-filter it on this cleanup pass.
+      search: projectId === undefined ? {} : { project: projectId },
       replace: true,
     });
-  }, [layoutParam, navigate, workspaceSlug]);
+  }, [layoutParam, navigate, workspaceSlug, projectId]);
 
   // The user's saved/named views (Rank 8b). Lazily hydrated from a SEPARATE
   // localStorage key (SAVED_VIEWS_KEY) on mount — independent of the single
@@ -643,7 +646,7 @@ export function WorkboardScreen({
     // COMPLETED status, so sending it would BIRTH a brand-new item in a done
     // column. `resolveUnscopedCreateDefaults` picks the target team by a clear
     // precedence — visible row → pinned Team filter → create({}) — see its doc.
-    const input: CreateWorkItemInput =
+    const teamScopedInput: CreateWorkItemInput =
       teamId === undefined
         ? resolveUnscopedCreateDefaults(
             rows,
@@ -659,6 +662,14 @@ export function WorkboardScreen({
               ? {}
               : { status_id: scopedStatusId }),
           };
+    // Project scope gets the same treatment as team scope above: without
+    // `project_id` the fresh item is created OUTSIDE the scope the reader is
+    // looking at, so it vanishes from the list the moment it appears. Applied
+    // independently of `teamId` because the two scopes compose.
+    const input: CreateWorkItemInput =
+      projectId === undefined
+        ? teamScopedInput
+        : { ...teamScopedInput, project_id: projectId };
     // Fire-and-forget create + open the editor on the fresh item; the trailing
     // .catch keeps this void-returning click handler from floating a promise.
     create(input)
@@ -671,6 +682,7 @@ export function WorkboardScreen({
   }, [
     create,
     teamId,
+    projectId,
     rows,
     items,
     effectiveFilterState,
