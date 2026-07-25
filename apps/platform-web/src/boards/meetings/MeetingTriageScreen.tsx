@@ -127,8 +127,14 @@ export function MeetingTriageScreen({
   repository,
 }: Readonly<MeetingTriageScreenProps> = {}) {
   const { workspace } = useParams({ from: "/w/$workspace/meetings/triage" });
-  const { candidates, isLoading, error, sync, isSyncing, syncError, refetch } =
+  const { candidates, isLoading, error, sync, isSyncing, syncError, isRefetching, refetch } =
     useMeetingActions({ repository });
+
+  // `sync()` clears `isSyncing` the moment the ingest resolves, but the refetch it
+  // triggers is still in flight — so the button must stay busy through BOTH phases.
+  // Otherwise it reads "Sync now" over a list that is quietly reloading, inviting a
+  // second ingest against results the user cannot see yet.
+  const isBusy = isSyncing || isRefetching;
 
   if (isLoading) {
     return (
@@ -169,13 +175,14 @@ export function MeetingTriageScreen({
         <Button
           size="sm"
           variant="outline"
-          // Disabled in flight so a double-click cannot run a second ingest.
-          disabled={isSyncing}
+          // Disabled in flight so a double-click cannot run a second ingest, and
+          // through the follow-up refetch so the reload is never silent.
+          disabled={isBusy}
           onClick={() => {
             void sync();
           }}
         >
-          {isSyncing ? "Syncing…" : "Sync now"}
+          {isSyncing ? "Syncing…" : isRefetching ? "Refreshing…" : "Sync now"}
         </Button>
       </header>
 

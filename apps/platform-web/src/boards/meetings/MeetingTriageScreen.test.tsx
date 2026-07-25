@@ -333,6 +333,40 @@ describe("MeetingTriageScreen — Sync now", () => {
     expect(link).toHaveAttribute("href", "/w/acme/inbox?proposal=p_new");
   });
 
+  it("shows Refreshing… through the post-sync reload, so it is never silent", async () => {
+    // `sync()` clears its own in-flight flag as soon as the ingest resolves, but the
+    // refetch it triggers is still running. Hold the SECOND list call open to sit
+    // inside exactly that window.
+    let releaseRefetch: (() => void) | undefined;
+    let listCalls = 0;
+    const repository: MeetingActionsRepository = {
+      list: vi.fn(() => {
+        listCalls += 1;
+        if (listCalls === 1) return Promise.resolve([candidate({ text: "An action item" })]);
+        return new Promise<MeetingActionCandidate[]>((resolve) => {
+          releaseRefetch = () => resolve([candidate({ text: "An action item" })]);
+        });
+      }),
+      sync: vi.fn(async () => ({ ...EMPTY_SUMMARY, proposalsCreated: 1 })),
+    };
+    render(<MeetingTriageScreen repository={repository} />);
+
+    const button = await screen.findByRole("button", { name: "Sync now" });
+    fireEvent.click(button);
+
+    // The ingest has resolved and the reload has not: the button must still say so,
+    // and must not invite a second ingest against results not yet on screen.
+    expect(await screen.findByRole("button", { name: "Refreshing…" })).toBeDisabled();
+    fireEvent.click(button);
+    expect(repository.sync).toHaveBeenCalledTimes(1);
+
+    // The list stayed on screen throughout — a refetch is not a skeleton.
+    expect(screen.getByText("An action item")).toBeInTheDocument();
+
+    releaseRefetch?.();
+    expect(await screen.findByRole("button", { name: "Sync now" })).not.toBeDisabled();
+  });
+
   it("surfaces a sync failure without swallowing it, and leaves the list unchanged", async () => {
     const repository: MeetingActionsRepository = {
       list: vi.fn(async () => [candidate({ text: "An action item" })]),
