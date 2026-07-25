@@ -17,32 +17,89 @@ import { hasNeonCreds, query, withDbBranch } from './harness'
  * that an accepted meeting proposal lands `work_items.source = 'meeting'` in a
  * live column rather than merely reaching the domain command.
  *
- * It is also the only place migration `0016_meeting_schema.sql` is EXECUTED: the
- * harness walks the whole journal against a fresh branch, so a `meeting` schema
- * that does not apply on Postgres fails here.
- *
  * Gated on NEON_API_KEY/NEON_PROJECT_ID (see harness) so the default `vitest run`
  * stays green; the dedicated `db-contract` CI job supplies the secrets.
  */
 const DB_CONTRACT_TIMEOUT_MS = 180_000
 
-const MEETING_TENANT = 'tenant_meeting_pilot'
-const OTHER_MEETING_TENANT = 'tenant_meeting_other'
-
-/** Create the meeting-side tenant + meeting a candidate can hang off. */
-async function seedMeetingContext(sql: Sql, meetingTenantId: string): Promise<string> {
-  const meetingId = `mtg_${randomUUID()}`
+/**
+ * `meetings` and `action_items` live in the platform `public` schema but are
+ * ALEMBIC-owned, so the Drizzle journal the harness replays does not create them —
+ * exactly like `tenants` and `users`, for which the harness already installs
+ * minimal stand-ins. These two are this suite's equivalent.
+ *
+ * The `action_items` column list, types, nullability and defaults below were read
+ * from `information_schema` against the LIVE Neon database, not from the Alembic
+ * history — so a drift between them shows up as a failing seed here rather than as
+ * a surprise in production.
+ */
+async function createAlembicOwnedTables(sql: Sql): Promise<void> {
   await query(
     sql,
-    `insert into meeting.tenants (id, slug, name) values ($1, $2, $3)
-     on conflict (id) do nothing`,
-    [meetingTenantId, `${meetingTenantId}-slug`, 'Meeting Pilot Org'],
+    `create table if not exists meetings (
+       id text primary key,
+       tenant_id text references tenants(id) on delete cascade,
+       owner_user_id text references users(id) on delete cascade,
+       title text not null,
+       status text not null,
+       engine text not null,
+       visibility text not null default 'private',
+       project_name text,
+       tags text[] not null default '{}',
+       participant_labels text[] not null default '{}',
+       started_at timestamptz,
+       ended_at timestamptz,
+       primary_language text not null default 'unknown',
+       buddy_mode text not null default 'addressable',
+       duration_seconds integer not null default 0,
+       segment_count integer not null default 0,
+       created_at timestamptz not null default now(),
+       updated_at timestamptz not null default now()
+     )`,
   )
   await query(
     sql,
-    `insert into meeting.meetings (id, tenant_id, title, status, engine, created_at, updated_at)
-     values ($1, $2, 'Weekly sync', 'completed', 'test', now(), now())`,
-    [meetingId, meetingTenantId],
+    `create table if not exists action_items (
+       id text primary key,
+       tenant_id text not null references tenants(id) on delete cascade,
+       meeting_id text not null references meetings(id) on delete cascade,
+       chapter_summary_id text,
+       "text" text not null,
+       status text not null default 'open',
+       owner_user_id text references users(id) on delete set null,
+       due_at timestamptz,
+       evidence_refs jsonb not null default '[]'::jsonb,
+       record_origin text not null default 'generated',
+       review_status text not null default 'draft',
+       confidence double precision not null default 0,
+       promotion_reason text,
+       source_window_start double precision,
+       source_window_end double precision,
+       created_at timestamptz not null default now(),
+       updated_at timestamptz not null default now()
+     )`,
+  )
+}
+
+/**
+ * A second tenant, so "another tenant's promoted row is refused" is a real
+ * cross-tenant case rather than a made-up id that no FK would accept.
+ */
+async function seedExtraTenant(sql: Sql): Promise<string> {
+  // A Clerk-style org id, matching what live `public.tenants` actually holds
+  // alongside uuids — a uuid-only fixture would not exercise the real key space.
+  const tenantId = `org_${randomUUID().replaceAll('-', '')}`
+  await query(sql, `insert into tenants (id, name) values ($1, $2)`, [tenantId, 'Other Org'])
+  return tenantId
+}
+
+/** Create a meeting a candidate can hang off, for the given tenant. */
+async function seedMeeting(sql: Sql, tenantId: string): Promise<string> {
+  const meetingId = `mtg_${randomUUID()}`
+  await query(
+    sql,
+    `insert into meetings (id, tenant_id, title, status, engine) values ($1, $2, $3, $4, $5)`,
+    [meetingId, tenantId, 'Weekly sync', 'completed', 'test'],
   )
   return meetingId
 }
@@ -51,7 +108,7 @@ async function seedMeetingContext(sql: Sql, meetingTenantId: string): Promise<st
 async function seedCandidate(
   sql: Sql,
   opts: {
-    meetingTenantId: string
+    tenantId: string
     meetingId: string
     id?: string
     text?: string
@@ -64,13 +121,13 @@ async function seedCandidate(
   const id = opts.id ?? `ai_${randomUUID()}`
   await query(
     sql,
-    `insert into meeting.action_items
-       (id, tenant_id, meeting_id, text, record_origin, review_status, confidence,
+    `insert into action_items
+       (id, tenant_id, meeting_id, "text", record_origin, review_status, confidence,
         promotion_reason, evidence_refs)
      values ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)`,
     [
       id,
-      opts.meetingTenantId,
+      opts.tenantId,
       opts.meetingId,
       opts.text ?? 'Send the revised quote to Acme by Friday',
       opts.recordOrigin ?? 'generated',
@@ -83,26 +140,37 @@ async function seedCandidate(
   return id
 }
 
+/**
+ * The allowlist for a test: the seed tenant mapped to itself. Meeting rows and the
+ * board share `public.tenants`, so the configured map is identity — an allowlist of
+ * which tenants ingest, not a translation table.
+ */
+function identityMap(tenantId: string) {
+  return parseMeetingTenantMap(JSON.stringify({ [tenantId]: tenantId }))
+}
+
 describe.skipIf(!hasNeonCreds())(
   'db-contract: meeting ingest (real Neon branch)',
   { timeout: DB_CONTRACT_TIMEOUT_MS },
   () => {
     it('reads ONLY generated + promoted rows, and only for the mapped tenant', async () => {
       await withDbBranch(async ({ sql, seed }) => {
-        const tenantMap = parseMeetingTenantMap(JSON.stringify({ [MEETING_TENANT]: seed.tenantId }))
-        const meetingId = await seedMeetingContext(sql, MEETING_TENANT)
-        const otherMeetingId = await seedMeetingContext(sql, OTHER_MEETING_TENANT)
+        await createAlembicOwnedTables(sql)
+        const tenantMap = identityMap(seed.tenantId)
+        const meetingId = await seedMeeting(sql, seed.tenantId)
+        const otherTenantId = await seedExtraTenant(sql)
+        const otherMeetingId = await seedMeeting(sql, otherTenantId)
 
         const wanted = await seedCandidate(sql, {
-          meetingTenantId: MEETING_TENANT,
+          tenantId: seed.tenantId,
           meetingId,
           text: 'The one that should be proposed',
         })
         // Each excluded row differs from `wanted` in EXACTLY one respect, so a
         // dropped clause shows up as a specific extra proposal, not a vague count.
-        await seedCandidate(sql, { meetingTenantId: MEETING_TENANT, meetingId, reviewStatus: 'draft' })
-        await seedCandidate(sql, { meetingTenantId: MEETING_TENANT, meetingId, recordOrigin: 'human' })
-        await seedCandidate(sql, { meetingTenantId: OTHER_MEETING_TENANT, meetingId: otherMeetingId })
+        await seedCandidate(sql, { tenantId: seed.tenantId, meetingId, reviewStatus: 'draft' })
+        await seedCandidate(sql, { tenantId: seed.tenantId, meetingId, recordOrigin: 'human' })
+        await seedCandidate(sql, { tenantId: otherTenantId, meetingId: otherMeetingId })
 
         const result = await runMeetingIngest(sql, { tenantId: seed.tenantId, tenantMap })
 
@@ -115,18 +183,19 @@ describe.skipIf(!hasNeonCreds())(
         expect(proposals).toHaveLength(1)
         expect(proposals[0]!.context_ref).toBe(wanted)
         expect(proposals[0]!.payload.title).toBe('The one that should be proposed')
-        // The other meeting tenant's promoted row is visible to the job but refused,
-        // and the refusal is REPORTED rather than swallowed.
+        // The other tenant's promoted row is visible to the job but refused, and the
+        // refusal is REPORTED rather than swallowed.
         expect(result.skippedUnmappedTenant).toBe(1)
       })
     })
 
     it('mints exactly one run and stamps each proposal with reviewable provenance', async () => {
       await withDbBranch(async ({ sql, seed }) => {
-        const tenantMap = parseMeetingTenantMap(JSON.stringify({ [MEETING_TENANT]: seed.tenantId }))
-        const meetingId = await seedMeetingContext(sql, MEETING_TENANT)
-        await seedCandidate(sql, { meetingTenantId: MEETING_TENANT, meetingId, text: 'First' })
-        await seedCandidate(sql, { meetingTenantId: MEETING_TENANT, meetingId, text: 'Second' })
+        await createAlembicOwnedTables(sql)
+        const tenantMap = identityMap(seed.tenantId)
+        const meetingId = await seedMeeting(sql, seed.tenantId)
+        await seedCandidate(sql, { tenantId: seed.tenantId, meetingId, text: 'First' })
+        await seedCandidate(sql, { tenantId: seed.tenantId, meetingId, text: 'Second' })
 
         const result = await runMeetingIngest(sql, { tenantId: seed.tenantId, tenantMap })
         expect(result.proposalsCreated).toBe(2)
@@ -180,9 +249,10 @@ describe.skipIf(!hasNeonCreds())(
 
     it('accepting a meeting proposal persists work_items.source = meeting', async () => {
       await withDbBranch(async ({ sql, seed }) => {
-        const tenantMap = parseMeetingTenantMap(JSON.stringify({ [MEETING_TENANT]: seed.tenantId }))
-        const meetingId = await seedMeetingContext(sql, MEETING_TENANT)
-        const recordId = await seedCandidate(sql, { meetingTenantId: MEETING_TENANT, meetingId })
+        await createAlembicOwnedTables(sql)
+        const tenantMap = identityMap(seed.tenantId)
+        const meetingId = await seedMeeting(sql, seed.tenantId)
+        const recordId = await seedCandidate(sql, { tenantId: seed.tenantId, meetingId })
 
         const result = await runMeetingIngest(sql, { tenantId: seed.tenantId, tenantMap })
         const proposalId = result.proposalIds[0]!
@@ -224,9 +294,10 @@ describe.skipIf(!hasNeonCreds())(
 
     it('proposes each candidate exactly once — including across rematerialization', async () => {
       await withDbBranch(async ({ sql, seed }) => {
-        const tenantMap = parseMeetingTenantMap(JSON.stringify({ [MEETING_TENANT]: seed.tenantId }))
-        const meetingId = await seedMeetingContext(sql, MEETING_TENANT)
-        const recordId = await seedCandidate(sql, { meetingTenantId: MEETING_TENANT, meetingId })
+        await createAlembicOwnedTables(sql)
+        const tenantMap = identityMap(seed.tenantId)
+        const meetingId = await seedMeeting(sql, seed.tenantId)
+        const recordId = await seedCandidate(sql, { tenantId: seed.tenantId, meetingId })
 
         const first = await runMeetingIngest(sql, { tenantId: seed.tenantId, tenantMap })
         expect(first.proposalsCreated).toBe(1)
@@ -248,8 +319,8 @@ describe.skipIf(!hasNeonCreds())(
         // meeting-api reprocesses by DELETE + re-INSERT (server.py). The row is new;
         // its content-derived id is not — which is exactly why the ledger keys on the
         // id and not on anything row-shaped.
-        await query(sql, `delete from meeting.action_items where id = $1`, [recordId])
-        await seedCandidate(sql, { meetingTenantId: MEETING_TENANT, meetingId, id: recordId })
+        await query(sql, `delete from action_items where id = $1`, [recordId])
+        await seedCandidate(sql, { tenantId: seed.tenantId, meetingId, id: recordId })
 
         const third = await runMeetingIngest(sql, { tenantId: seed.tenantId, tenantMap })
         expect(third.proposalsCreated).toBe(0)
@@ -264,8 +335,9 @@ describe.skipIf(!hasNeonCreds())(
 
     it('a run with no candidates still mints the run and proposes nothing', async () => {
       await withDbBranch(async ({ sql, seed }) => {
-        const tenantMap = parseMeetingTenantMap(JSON.stringify({ [MEETING_TENANT]: seed.tenantId }))
-        await seedMeetingContext(sql, MEETING_TENANT)
+        await createAlembicOwnedTables(sql)
+        const tenantMap = identityMap(seed.tenantId)
+        await seedMeeting(sql, seed.tenantId)
 
         const result = await runMeetingIngest(sql, { tenantId: seed.tenantId, tenantMap })
 

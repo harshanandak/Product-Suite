@@ -66,10 +66,24 @@ comment mirrors it, and (if (c)) the stop is reported rather than worked around.
 
 ## Slice A — cut the meeting DB back to Neon
 
-### Task A.1 — Neon `meeting` schema migration (Drizzle chain, TEXT ids unchanged)
+### Task A.1 — Neon `meeting` schema migration ~~(Drizzle chain, TEXT ids unchanged)~~
 
-**Goal.** A migration that creates the full `meeting` schema in the shared Neon platform database,
-adapted from the Supabase original with the Supabase-only constructs removed.
+> **CANCELLED by Task 0's reality check.** The premise is false: the meeting tables were never
+> moved out of the shared Neon database. A read-only `information_schema` query confirms
+> `public.action_items`, `public.meetings`, `public.decisions`, `public.open_questions`,
+> `public.chapter_summaries` and `public.transcript_segments` already exist in `public`,
+> alongside `work_items` / `proposals` / `agent_runs`, with `public.tenants` already the shared
+> tenant table both sides FK into — and there is **no `meeting` schema** (schemas present:
+> `drizzle`, `neon_auth`, `public`). The Supabase project this ported from is dead and its
+> cutover never completed.
+>
+> It was implemented and committed as `83261fc`, then **reverted** (`572ffbc`). See
+> [`decisions.md`](./decisions.md) **D8**. B.2 retargets to `public.action_items` (**D14**).
+> **A.4 and A.5 are MOOT** in consequence — nothing to apply, and no live Railway meeting-api
+> to repoint.
+
+**Goal (historical).** A migration that creates the full `meeting` schema in the shared Neon
+platform database, adapted from the Supabase original with the Supabase-only constructs removed.
 
 **Files.**
 - Create `packages/db/migrations/0015_meeting_schema.sql`
@@ -165,9 +179,13 @@ operator doing Supabase → Neon.
 
 ---
 
-### Task A.4 — Apply the `meeting` schema to Neon **[NEEDS USER GO]**
+### Task A.4 — Apply the `meeting` schema to Neon ~~**[NEEDS USER GO]**~~
 
-**Goal.** The `meeting` schema exists in the shared Neon platform database.
+> **MOOT — cancelled with A.1.** The meeting tables already exist in Neon `public`; there is no
+> schema to apply and no Supabase source to copy from (that project is dead, and the source
+> table it would have read had 0 extraction rows anyway). See `decisions.md` **D8**.
+
+**Goal (historical).** The `meeting` schema exists in the shared Neon platform database.
 
 **Files.** No source changes. Produces `docs/deployment/meeting-neon-preflight.json` (the archived
 preflight report).
@@ -187,9 +205,13 @@ explicitly approved each write step. Supabase is untouched and remains the rollb
 
 ---
 
-### Task A.5 — Repoint meeting-api `DATABASE_URL` to Neon **[NEEDS USER GO]**
+### Task A.5 — Repoint meeting-api `DATABASE_URL` to Neon ~~**[NEEDS USER GO]**~~
 
-**Goal.** The hosted meeting-api reads and writes the Neon `meeting` schema.
+> **MOOT — cancelled with A.1.** There is no live Railway meeting-api to repoint, and the
+> database it would be repointed *to* is the one the tables already live in. See
+> `decisions.md` **D8**.
+
+**Goal (historical).** The hosted meeting-api reads and writes the Neon `meeting` schema.
 
 **Files.** Hosted env only (Railway). Update `docs/deployment/SERVICE_INVENTORY.md` to match.
 
@@ -241,8 +263,13 @@ keyed to survive meeting-api's delete/re-insert rematerialization.
 
 ### Task B.2 — The ingest module: read → map → dedup → mint → propose
 
+> **Retargeted:** reads **`public.action_items`**, not `meeting.action_items` — A.1 is cancelled
+> and the table already lives in the platform `public` schema (column set verified from the live
+> database; see `decisions.md` **D14**). The tenant map becomes an identity **allowlist** rather
+> than a translation table, and stays fail-closed (**D15**). Every other rule below is unchanged.
+
 **Goal.** A pure-ish module that turns promoted meeting action items into pending proposals, exactly
-once each. **Depends on A.1** (the `meeting` schema must exist to read) and **B.1** (the ledger).
+once each. ~~**Depends on A.1** (the `meeting` schema must exist to read)~~ and **B.1** (the ledger).
 
 **Files.**
 - Create `apps/platform-api/src/meeting/ingest.ts`

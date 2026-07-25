@@ -244,3 +244,56 @@ Same pre-existing gap as D7: `bun run --cwd apps/platform-api lint` fails with
 "ESLint couldn't find an eslint.config.js file" on an unmodified checkout, which is
 why `verify:platform-api` is `typecheck && test`. Not touched — out of scope, and
 adding a config would silently start gating unrelated files.
+
+---
+
+## D14 — B.2 reads `public.action_items`, verified from the live DB (Task B.2)
+
+Following D8, the ingest query is retargeted from `meeting.action_items` to the
+unqualified `action_items` in the platform `public` schema — the same schema the
+rest of the codebase reads (`from "proposals"`, `from work_items`).
+
+**The column set was verified, not assumed.** A read-only `information_schema`
+query against the live Neon database returned all 17 columns of
+`public.action_items`: `id`, `tenant_id`, `meeting_id` (all `text not null`),
+`chapter_summary_id`, `"text" text not null`, `status` (default `'open'`),
+`owner_user_id`, `due_at`, `evidence_refs jsonb not null default '[]'`,
+`record_origin` (default `'generated'`), `review_status` (default `'draft'`),
+`created_at`, `updated_at`, `confidence double precision not null default 0`,
+`promotion_reason`, `source_window_start`, `source_window_end`. This matches the
+Alembic history, so the seven columns the ingest selects are all present.
+
+**`"text"` must be quoted** in the select list and in the seed inserts — it is both
+a column name here and a Postgres type name.
+
+**Contract-tier consequence.** `meetings` and `action_items` are Alembic-owned, so
+the Drizzle journal the db-contract harness replays does not create them — exactly
+like `tenants` and `users`, for which the harness already installs stand-ins. The
+suite now creates its own stand-ins for those two, transcribed from the verified
+live shape, so a drift between them fails a seed here instead of surprising
+production.
+
+---
+
+## D15 — The tenant map is an ALLOWLIST, and neither side may be uuid-validated (Task B.2)
+
+Two changes fell out of D8, both caught by checking the live database rather than
+by reasoning from the plan.
+
+**1. Its job changed from translation to authorization.** Meeting rows and the
+board already share `public.tenants`, so the configured map is normally
+*identity* (`{"<tenant>": "<tenant>"}`). That makes it an allowlist of which
+tenants have opted into meeting ingest. It is deliberately KEPT rather than
+collapsed into a passthrough: fail-closed behaviour is the whole point (an
+unlisted tenant is refused, never defaulted), and enabling a tenant stays a config
+change rather than a code change. The test suite pins identity-plus-refusal
+explicitly so nobody later "simplifies" it into a passthrough.
+
+**2. The uuid validation was a real bug, now fixed.** `parseMeetingTenantMap`
+originally required the mapped platform id to match a uuid regex. Live
+`public.tenants` holds **`org_3GjXPnun3ZpummWvuvNS2vnXwFf`** — a Clerk org id —
+alongside two uuids, and it is one of only two tenants that has any `work_items`
+at all. The uuid check would therefore have silently refused the main tenant with
+board data: a fail-closed module failing closed on everything. Both sides are now
+validated as non-empty TEXT, which is what the columns are. A test covers the
+Clerk-org-id shape so the regex cannot come back.
