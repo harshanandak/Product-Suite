@@ -124,49 +124,36 @@ plan and would be scope creep.
 
 ---
 
-## D8 — A.1 is `0016_meeting_schema.sql`, and ships no snapshot (Task A.1)
+## D8 — Task A.1 CANCELLED: the meeting tables already live in Neon `public` (Task A.1)
 
-**Numbering.** As D1 predicted: B.1 took `0015`, so the meeting schema is
-`packages/db/migrations/0016_meeting_schema.sql`, journal `idx: 16`,
-`when: 1784908800000` (one day after 0015, matching the chain's spacing).
-`bun run check:migration-parity` passes.
+**What happened.** A.1 (`0016_meeting_schema.sql`, porting the Supabase `meeting`
+schema into the Drizzle chain) was implemented, green, and committed as `83261fc`.
+Task 0's reality check then landed and invalidated its premise. The commit is
+**reverted**, not amended around.
 
-**No snapshot — same reasoning as D2, deliberately not re-litigated.** `meta/`
-still holds snapshots for `0000`–`0011` only; `0012`–`0015` each shipped
-hand-authored SQL + a journal entry and nothing else. Generating a lone `0016`
-snapshot would attach a fabricated link to a chain that stops five migrations
-earlier — the regeneration has to be the whole run or none of it.
+**The verified reality** (read-only `information_schema` query against the live
+Neon platform DB via `.dev.vars`):
 
-That whole-chain regeneration is already filed as kernel issue
-**`regenerate-the-drizzle-snapshot-9d4188c6`** ("Regenerate the Drizzle snapshot
-chain (0012-0015) from a clean primary checkout"); its scope is extended to
-`0016` by a comment rather than by a second issue.
+- Schemas present: `drizzle`, `neon_auth`, `public`. **There is no `meeting`
+  schema and no need for one.**
+- `public.action_items`, `public.meetings`, `public.decisions`,
+  `public.open_questions`, `public.chapter_summaries`,
+  `public.transcript_segments` all already exist — alongside `work_items`,
+  `proposals`, `agent_runs`, `meeting_promotions`, `tenants`, `teams`, `users`.
+- `public.tenants` is ALREADY the shared tenant table both sides FK into.
+- Row counts: `action_items` 0, `meetings` 2 (stale test data), `tenants` 3.
 
----
+The Supabase cutover never completed and that project is dead, so the schema this
+migration was porting *from* was never the live shape.
 
-## D9 — The migration has ONE embedding column, not two (Task A.1)
+**Consequence.** A.1 is cancelled; **A.4 and A.5 are MOOT** — there is nothing to
+apply and no live Railway meeting-api to repoint. B.2 retargets from
+`meeting.action_items` to `public.action_items` (see D14).
 
-`tasks.md` A.1 RED test 5 reads "The migration requires the `vector` extension
-(both embedding columns depend on it)". The Supabase original
-(`20260606093937_create_meeting_schema.sql`) declares exactly one:
-`meeting.chapter_summaries.embedding extensions.vector(1536)` (line 154). No
-other `meeting.*` column is a vector type.
-
-**Decision.** The test asserts what is true — `create extension if not exists vector;`
-plus the single `vector(1536)` column — rather than inventing a second embedding
-column to satisfy the parenthetical. A.1 is a *port*: adding a column the source
-does not have would put Neon out of shape with the Supabase database that is still
-the rollback target.
-
-**Vector qualifier.** `extensions.vector(1536)` → `vector(1536)`, with
-`CREATE EXTENSION IF NOT EXISTS vector;` at the top — this repo's convention, set by
-`0013_knowledge_base.sql:12`. The `extensions` schema is Supabase-specific.
-
-**Dropped, per the GREEN scope:** the 19 `enable row level security` statements,
-the `anon`/`authenticated`/`service_role` revoke+grant block, and the
-`public.alembic_version` create/delete/insert. Kept verbatim: all 19 tables, all
-19 indexes, the 5 table comments, the schema comment (reworded from "Supabase
-migrations own hosted schema" to the Drizzle chain), and every TEXT id.
+**What survives the revert.** Nothing depends on the reverted migration: B.1's
+`meeting_promotions` ledger is a `public`-schema table and untouched, and A.2/A.3
+parameterised the preflight/smoke by *schema name*, which reads `public` as
+happily as `meeting`.
 
 ---
 

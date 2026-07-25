@@ -8,7 +8,15 @@ export const MEETING_INGEST_PROMPT_VERSION = 'meeting-ingest-v1'
 /** Reserved `agent_runs.triggered_by` sentinel for this job (not a user id). */
 export const MEETING_INGEST_TRIGGERED_BY = 'meeting-ingest'
 
-/** A promoted action item, as read from `meeting.action_items`. */
+/**
+ * A promoted action item, as read from `action_items`.
+ *
+ * That table lives in the platform `public` schema, NOT in a `meeting` schema:
+ * the meeting tables were never moved out of the shared Neon database, and
+ * `public.tenants` is already the tenant table both sides reference. The column
+ * list below is the live shape, read from `information_schema` rather than from
+ * the Alembic history.
+ */
 export interface MeetingCandidateRow {
   /** meeting-api's CONTENT-DERIVED id — stable across its delete/re-insert reprocess. */
   id: string
@@ -161,7 +169,8 @@ export async function runMeetingIngest(
   return result
 }
 
-/** The promoted, generated action items belonging to the given meeting tenants. */
+/** The promoted, generated action items belonging to the given meeting tenants.
+ *  `text` is quoted — it is both a column name here and a Postgres type name. */
 function readPromotedCandidates(
   sql: Sql,
   meetingTenantIds: string[],
@@ -171,8 +180,8 @@ function readPromotedCandidates(
   const placeholders = meetingTenantIds.map((_, i) => `$${i + 1}`).join(', ')
   return runQuery<MeetingCandidateRow>(
     sql,
-    `select id, tenant_id, meeting_id, text, confidence, promotion_reason, evidence_refs
-     from meeting.action_items
+    `select id, tenant_id, meeting_id, "text", confidence, promotion_reason, evidence_refs
+     from "action_items"
      where record_origin = 'generated' and review_status = 'promoted'
        and tenant_id in (${placeholders})
      order by created_at asc`,
@@ -189,7 +198,7 @@ async function countUnmappedCandidates(sql: Sql, meetingTenantIds: string[]): Pr
   const rows = await runQuery<{ n: number }>(
     sql,
     `select count(*)::int as n
-     from meeting.action_items
+     from "action_items"
      where record_origin = 'generated' and review_status = 'promoted'${exclusion}`,
     meetingTenantIds,
   )

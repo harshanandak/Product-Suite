@@ -71,7 +71,7 @@ function harness(opts: {
   const runInserts: unknown[][] = []
 
   const query = vi.fn(async (text: string, params: unknown[]) => {
-    if (/from meeting\.action_items/i.test(text)) {
+    if (/from "action_items"/i.test(text)) {
       if (/count\(/i.test(text)) return [{ n: opts.unmappedCount ?? 0 }]
       return candidates
     }
@@ -104,9 +104,9 @@ const ctx = () => ({ tenantId: PLATFORM_TENANT, tenantMap: TENANT_MAP })
 /** The text of every `sql.query` call, for the predicate-pinning tests. */
 function candidateReadSql(query: ReturnType<typeof vi.fn>): string {
   const call = (query.mock.calls as [string, unknown[]][]).find(
-    ([text]) => /from meeting\.action_items/i.test(text) && !/count\(/i.test(text),
+    ([text]) => /from "action_items"/i.test(text) && !/count\(/i.test(text),
   )
-  expect(call, 'expected a candidate read against meeting.action_items').toBeDefined()
+  expect(call, 'expected a candidate read against public.action_items').toBeDefined()
   return call![0]
 }
 
@@ -143,7 +143,7 @@ describe('runMeetingIngest', () => {
 
     // (a) the read is scoped in SQL to the meeting tenants mapped to THIS platform tenant
     const [, params] = (query.mock.calls as [string, unknown[]][]).find(
-      ([text]) => /from meeting\.action_items/i.test(text) && !/count\(/i.test(text),
+      ([text]) => /from "action_items"/i.test(text) && !/count\(/i.test(text),
     )!
     expect(params).toContain('tenant_meeting_pilot')
     expect(params).not.toContain('tenant_meeting_other')
