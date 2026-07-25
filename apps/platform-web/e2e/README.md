@@ -5,9 +5,12 @@ Proves the core moat end-to-end against a **real** backend:
 > agent proposes → Review Inbox → **accept** → validated write applies to the workboard.
 
 `moat-loop.spec.ts` drives the real UI (Clerk auth, agent chat, inbox, workboard).
-`global.setup.e2e.ts` signs a real Clerk test user in once and saves `storageState`
-so specs start authenticated. (The `.e2e.` in the name marks it as test infra for
-the repo's source/test-coupling gate — Playwright picks it up via `testMatch`.)
+`meeting-loop.spec.ts` proves the same moat from the **meeting** entry point:
+promoted meeting action item → "Sync now" → Inbox → accept → workboard, and a second
+sync proposes nothing (the dedup ledger, end-to-end). `global.setup.e2e.ts` signs a
+real Clerk test user in once and saves `storageState` so specs start authenticated.
+(The `.e2e.` in the name marks it as test infra for the repo's source/test-coupling
+gate — Playwright picks it up via `testMatch`.)
 
 ## Why it can't be "just run"
 
@@ -20,6 +23,35 @@ The loop touches three real services whose secrets are **not** in the repo:
 | `E2E_CLERK_USER` | setup | the Clerk test-mode user to sign in as (no password — token/"ticket" sign-in) |
 | `DATABASE_URL` (Neon) | platform-API + spec | the validated write persists; the spec also reads back `applied_from_proposal_id` |
 | `OPENROUTER_API_KEY` | platform-API | the agent LLM produces the proposal |
+
+### Extra env for `meeting-loop.spec.ts`
+
+The meeting loop seeds the promoted `public.action_items` row that a real transcript
+extraction would have produced (meeting-api owns that write, not the platform), so it
+needs to know **which tenant** to seed — and that tenant must be one the ingest's
+fail-closed allowlist accepts. Both sides are configured together:
+
+| Var | Set in | Purpose |
+| --- | --- | --- |
+| `E2E_MEETING_TENANT_ID` | `apps/platform-web/.env.e2e` | the tenant the spec seeds the meeting + action item for |
+| `MEETING_TENANT_MAP` | `apps/platform-api/.dev.vars` | the ingest allowlist, e.g. `{"<tenant>":"<tenant>"}` — it MUST contain `E2E_MEETING_TENANT_ID` as a key |
+
+If `E2E_MEETING_TENANT_ID` (or `DATABASE_URL`) is unset the spec **skips**: without a
+seeded row there is nothing for the loop to ingest, so running it anyway would pass
+vacuously.
+
+If the tenant is missing from `MEETING_TENANT_MAP`, the spec fails at its FIRST
+assertion — `getByRole("list", { name: "Meeting action items" })` never appears,
+because the candidates read is allowlist-gated too and the screen renders its empty
+state instead of the list. That is the fail-closed allowlist behaving correctly, not
+a UI bug: **check the map before debugging the screen.** (Verified by running the
+spec against a deliberately wrong map.)
+
+`meeting_promotions` (migration `0015`) must be applied to the target database, or
+the ingest's ledger read fails. The spec cleans up everything it created: the seeded
+meeting + action item, the proposal, its ledger row, the applied work item, and the
+ingest's `agent_runs` rows — in `afterEach`, so a mid-way failure leaves no debris in
+the shared database either.
 
 Copy `apps/platform-web/.dev.vars.example` to `apps/platform-web/.env.e2e` (the
 canonical file Playwright loads first) and fill these in; `.dev.vars` is also loaded
