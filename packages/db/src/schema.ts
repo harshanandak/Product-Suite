@@ -656,3 +656,36 @@ export const runKnowledgeAttributions = pgTable(
     byRun: index('run_knowledge_attributions_run_idx').on(t.runId),
   }),
 )
+
+/**
+ * The meeting → proposal dedup ledger: one row per meeting record that has
+ * already been turned into a proposal, so a re-run of the ingest proposes it
+ * once and only once.
+ *
+ * `meeting_record_id` is meeting-api's CONTENT-DERIVED id, not the meeting row's
+ * primary key — and that is the whole point. meeting-api rematerializes a
+ * meeting's action items by DELETING the existing rows and re-INSERTING them
+ * (see `server.py`), so a row id is reborn on every reprocess and would dedup
+ * nothing. The content-derived id survives that cycle. Do NOT "simplify" this
+ * to a row id or an FK into the meeting schema.
+ *
+ * TEXT, not uuid, for the same reason: the id comes from meeting-api's TEXT
+ * key space. The unique index is COMPOSITE on (tenant_id, meeting_record_id)
+ * because a content-derived id can legitimately collide across tenants — keyed
+ * on the id alone, one tenant's promotion would silently suppress another's.
+ */
+export const meetingPromotions = pgTable(
+  'meeting_promotions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: text('tenant_id').notNull(),
+    meetingRecordId: text('meeting_record_id').notNull(),
+    proposalId: uuid('proposal_id')
+      .notNull()
+      .references(() => proposals.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    byTenantRecord: uniqueIndex('meeting_promotions_tenant_record_uniq').on(t.tenantId, t.meetingRecordId),
+  }),
+)

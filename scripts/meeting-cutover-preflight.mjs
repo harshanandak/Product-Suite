@@ -128,14 +128,16 @@ export function evaluatePreflight({ sourceRows, targetTables, targetExtensions, 
 
   if (missingTargetTables.length > 0) {
     failures.push({
-      code: "SUPABASE_TARGET_TABLES_MISSING",
+      // Vendor-neutral like the provider labels: the target is whichever side
+      // the caller pointed at, and the archived failure must not claim another.
+      code: "TARGET_TABLES_MISSING",
       tables: missingTargetTables.map((row) => row.table_name),
     });
   }
 
   if (missingExtensions.length > 0) {
     failures.push({
-      code: "SUPABASE_EXTENSIONS_MISSING",
+      code: "TARGET_EXTENSIONS_MISSING",
       extensions: missingExtensions.map((row) => row.extension_name),
     });
   }
@@ -181,21 +183,41 @@ function runPsqlJson(databaseUrl, sql) {
   return JSON.parse(result.stdout.trim() || "null");
 }
 
+/**
+ * Runs the preflight in whichever direction the caller asks for. Both the
+ * connection slots and the schema names are parameters, not vendor literals, so
+ * the same script covers the original Neon `public` → Supabase `meeting`
+ * cutover AND the reverse (Supabase `meeting` → Neon `meeting`) without a fork.
+ *
+ * The provider labels are caller-supplied for the same reason: the report is
+ * archived as cutover evidence, so it must never name a vendor it was not told
+ * about. Unset means `unspecified`, not a guess.
+ *
+ * `runQuery` is the psql seam — it defaults to the real `runPsqlJson` and is
+ * overridden only by tests, which have no database to talk to.
+ */
+export const UNSPECIFIED_PROVIDER = "unspecified";
+
 export function runPreflight({
-  neonDatabaseUrl,
-  supabaseDatabaseUrl,
+  sourceDatabaseUrl,
+  targetDatabaseUrl,
+  sourceProvider = UNSPECIFIED_PROVIDER,
+  targetProvider = UNSPECIFIED_PROVIDER,
+  sourceSchema = "public",
+  targetSchema = "meeting",
   approvedDataMigration = false,
   outputPath,
+  runQuery = runPsqlJson,
 } = {}) {
-  if (!neonDatabaseUrl) {
-    throw new Error("NEON_DATABASE_URL is required for Meeting cutover preflight");
+  if (!sourceDatabaseUrl) {
+    throw new Error("MEETING_PREFLIGHT_SOURCE_DATABASE_URL is required for Meeting cutover preflight");
   }
-  if (!supabaseDatabaseUrl) {
-    throw new Error("SUPABASE_DATABASE_URL is required for Meeting cutover preflight");
+  if (!targetDatabaseUrl) {
+    throw new Error("MEETING_PREFLIGHT_TARGET_DATABASE_URL is required for Meeting cutover preflight");
   }
 
-  const sourceRows = runPsqlJson(neonDatabaseUrl, buildSourceRowCountSql({ schemaName: "public" }));
-  const targetReadiness = runPsqlJson(supabaseDatabaseUrl, buildTargetReadinessSql({ schemaName: "meeting" }));
+  const sourceRows = runQuery(sourceDatabaseUrl, buildSourceRowCountSql({ schemaName: sourceSchema }));
+  const targetReadiness = runQuery(targetDatabaseUrl, buildTargetReadinessSql({ schemaName: targetSchema }));
   const evaluation = evaluatePreflight({
     sourceRows,
     targetTables: targetReadiness.tables ?? [],
@@ -204,9 +226,13 @@ export function runPreflight({
   });
   const report = {
     generatedAt: new Date().toISOString(),
-    source: { provider: "neon", rows: sourceRows },
+    // The providers and schemas are recorded because the report is archived as
+    // cutover evidence: without them a reader cannot tell which direction it
+    // covers, or which vendor sat on each side.
+    source: { provider: sourceProvider, schema: sourceSchema, rows: sourceRows },
     target: {
-      provider: "supabase",
+      provider: targetProvider,
+      schema: targetSchema,
       tables: targetReadiness.tables ?? [],
       extensions: targetReadiness.extensions ?? [],
     },
@@ -223,8 +249,12 @@ export function runPreflight({
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   try {
     const report = runPreflight({
-      neonDatabaseUrl: process.env.NEON_DATABASE_URL,
-      supabaseDatabaseUrl: process.env.SUPABASE_DATABASE_URL,
+      sourceDatabaseUrl: process.env.MEETING_PREFLIGHT_SOURCE_DATABASE_URL,
+      targetDatabaseUrl: process.env.MEETING_PREFLIGHT_TARGET_DATABASE_URL,
+      sourceProvider: process.env.MEETING_PREFLIGHT_SOURCE_PROVIDER || UNSPECIFIED_PROVIDER,
+      targetProvider: process.env.MEETING_PREFLIGHT_TARGET_PROVIDER || UNSPECIFIED_PROVIDER,
+      sourceSchema: process.env.MEETING_PREFLIGHT_SOURCE_SCHEMA || "public",
+      targetSchema: process.env.MEETING_PREFLIGHT_TARGET_SCHEMA || "meeting",
       approvedDataMigration: process.env.PR20_APPROVED_DATA_MIGRATION === "1",
       outputPath: process.env.PR20_PREFLIGHT_OUTPUT,
     });

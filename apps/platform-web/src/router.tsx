@@ -177,24 +177,9 @@ const meetingsRoute = createRoute({
   path: "meetings",
   component: BoardScreen,
 });
-const meetingsWeekRoute = createRoute({
-  getParentRoute: () => workspaceRoute,
-  path: "meetings/week",
-  component: BoardScreen,
-});
-const meetingsActionsRoute = createRoute({
-  getParentRoute: () => workspaceRoute,
-  path: "meetings/actions",
-  component: BoardScreen,
-});
 const meetingsTriageRoute = createRoute({
   getParentRoute: () => workspaceRoute,
   path: "meetings/triage",
-  component: BoardScreen,
-});
-const meetingsJobsRoute = createRoute({
-  getParentRoute: () => workspaceRoute,
-  path: "meetings/jobs",
   component: BoardScreen,
 });
 
@@ -239,10 +224,7 @@ const routeTree = rootRoute.addChildren([
     workboardTeamRoute,
     projectsRoute,
     meetingsRoute,
-    meetingsWeekRoute,
-    meetingsActionsRoute,
     meetingsTriageRoute,
-    meetingsJobsRoute,
     canvasRoute,
     canvasStarredRoute,
     canvasSharedRoute,
