@@ -12,6 +12,10 @@ export type AuthedEnv = {
     // is a swappable config value (see agent/models.ts). Both optional here.
     OPENROUTER_API_KEY?: string
     AGENT_MODEL?: string
+    // Meeting ingest allowlist: JSON `{"<meeting tenant>": "<platform tenant>"}`
+    // naming which tenants may have meeting action items proposed onto their board
+    // (see meeting/tenant-map.ts). Absent ⇒ an empty map that refuses everything.
+    MEETING_TENANT_MAP?: string
   }
   Variables: {
     claims: AuthClaims

@@ -41,6 +41,11 @@ vi.mock("./data/proposals", () => ({
 vi.mock("./data/work-items/RepositoryProvider", () => ({
   RepositoryProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
+vi.mock("./data/meeting-actions", () => ({
+  MeetingActionsRepositoryProvider: ({ children }: { children: ReactNode }) => (
+    <div data-testid="meeting-actions-provider">{children}</div>
+  ),
+}));
 
 import { AppRoot } from "./AppRoot";
 
@@ -74,4 +79,19 @@ describe("AppRoot", () => {
     expect(screen.getByTestId("router")).toBeInTheDocument();
     expect(screen.queryByTestId("setup-notice")).not.toBeInTheDocument();
   });
+
+  it.each([
+    ["fixtures/preview", true],
+    ["the Clerk-gated app", false],
+  ])(
+    "provides the meeting-actions repository in %s, so triage reads through the seam",
+    (_label, fixtures) => {
+      // Without the provider the triage screen silently falls back to the module
+      // singleton — the FIXTURE store — and the shipped page would show invented
+      // meeting items instead of this org's real ones.
+      envState.fixtures = fixtures;
+      render(<AppRoot />);
+      expect(screen.getByTestId("meeting-actions-provider")).toBeInTheDocument();
+    },
+  );
 });

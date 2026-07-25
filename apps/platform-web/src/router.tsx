@@ -10,6 +10,7 @@ import {
 import { Button, EmptyState, ErrorState } from "@product-suite/ui";
 
 import { InboxScreen } from "./boards/inbox/InboxScreen";
+import { MeetingTriageScreen } from "./boards/meetings/MeetingTriageScreen";
 import { MemoryScreen } from "./boards/memory/MemoryScreen";
 import { ProjectsRoute } from "./boards/projects/ProjectsRoute";
 import { SettingsScreen } from "./boards/settings/SettingsScreen";
@@ -177,10 +178,13 @@ const meetingsRoute = createRoute({
   path: "meetings",
   component: BoardScreen,
 });
+// Meeting triage renders the REAL promoted meeting action items with their true
+// promotion state (unpromoted / proposal pending / accepted), so the nav row leads
+// somewhere honest rather than to the placeholder board.
 const meetingsTriageRoute = createRoute({
   getParentRoute: () => workspaceRoute,
   path: "meetings/triage",
-  component: BoardScreen,
+  component: MeetingTriageScreen,
 });
 
 const canvasRoute = createRoute({

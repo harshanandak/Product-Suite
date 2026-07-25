@@ -88,6 +88,19 @@ describe("router", () => {
     expect(fullPaths).toContain("/w/$workspace/meetings/triage");
   });
 
+  it("points meetings/triage at the real triage screen, not the placeholder", () => {
+    // The route must render REAL meeting candidates. Pinning the component by
+    // name catches a silent regression back to the generic BoardScreen stub,
+    // which would show invented content behind a nav row that looks live.
+    const route = (
+      router as unknown as {
+        routesById?: Record<string, { options?: { component?: { name?: string } } }>;
+      }
+    ).routesById?.["/w/$workspace/meetings/triage"];
+
+    expect(route?.options?.component?.name).toBe("MeetingTriageScreen");
+  });
+
   it("no longer registers the deleted Agent board routes", () => {
     const fullPaths = collectFullPaths();
 

@@ -297,3 +297,52 @@ at all. The uuid check would therefore have silently refused the main tenant wit
 board data: a fail-closed module failing closed on everything. Both sides are now
 validated as non-empty TEXT, which is what the columns are. A test covers the
 Clerk-org-id shape so the regex cannot come back.
+
+---
+
+## D16 — C.2 needed a new READ endpoint; the ingest summary could not back a list (Task C.2)
+
+Task C.2 left this open ("add the backing read endpoint if B.3's summary is
+insufficient"). It is insufficient: B.3 returns *counts* from a write, so a screen
+built on it could only show what the last sync did, not what exists. Added
+`GET /api/agent/meeting-candidates` (`routes/meeting-candidates.ts` +
+`meeting/candidates.ts`) as a separate route — a different verb on a different
+resource, and conflating them would put an idempotent read on a write's path.
+
+The join uses **two different tenant keys**, which is the subtle part:
+`action_items.tenant_id` is the MEETING tenant (filtered through the allowlist's
+mapped ids), while `meeting_promotions.tenant_id` / `proposals.tenant_id` /
+`work_items.tenant_id` are the PLATFORM tenant (what the ingest wrote). Under D15's
+identity allowlist these coincide; joining on the wrong one would silently report
+every candidate as unpromoted the moment they diverge.
+
+The org-anchoring logic B.3 had inline moved to `meeting/request-scope.ts` and is
+now shared by both routes. If they disagreed on which tenant a request acts for,
+the screen would list one org's candidates while "Sync now" ingested another's.
+
+## D17 — A FOURTH promotion state, `dismissed`, beyond the three the task named (Task C.2)
+
+The task named three states (unpromoted / proposal pending / accepted). The data
+has a fourth: a human who rejected the proposal. Rendering that as "proposal
+pending" would report the opposite of their decision back to them, and inviting a
+re-propose is exactly the harm. `derivePromotionState` maps the terminal proposal
+statuses (`rejected`/`superseded`/`expired`/`failed`) to `dismissed`.
+
+It also prefers what was **written** over what was intended: an existing
+`work_items` row means `accepted` whatever the proposal's status column says.
+
+Client-side, `normalizePromotionState` folds anything else to **`unknown`** —
+deliberately not `unpromoted`, because a state from a newer backend has still been
+acted on, and defaulting it to "nothing happened yet" would invite re-proposing
+handled work. An `unknown` row renders a neutral badge and NO link: we do not know
+where it points.
+
+## D18 — The triage screen needs its own provider, or the shipped page shows fixtures (Task C.2)
+
+`useMeetingActions` resolves injected prop → context → module singleton, and the
+singleton is the MOCK (mirroring `getDefaultProposalRepository`). So without a
+provider the real page would silently render invented meeting items. Added
+`MeetingActionsRepositoryProvider` (network by default, fixtures only behind the
+compile-time `USE_FIXTURES` branch) and mounted it in BOTH `AppRoot` trees, with a
+test per branch — that test is the only thing standing between a shipped page and
+fixture data.

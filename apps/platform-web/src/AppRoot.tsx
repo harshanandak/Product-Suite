@@ -1,6 +1,7 @@
 import { ClerkProvider } from "@clerk/clerk-react";
 import { RouterProvider } from "@tanstack/react-router";
 
+import { MeetingActionsRepositoryProvider } from "./data/meeting-actions";
 import { MemoriesProvider } from "./data/memories";
 import { MemoryImpactProvider } from "./data/memory-impact";
 import { ProposalRepositoryProvider } from "./data/proposals";
@@ -29,11 +30,13 @@ export function AppRoot() {
     return (
       <RepositoryProvider>
         <ProposalRepositoryProvider>
-          <MemoriesProvider>
-            <MemoryImpactProvider>
-              <RouterProvider router={router} />
-            </MemoryImpactProvider>
-          </MemoriesProvider>
+          <MeetingActionsRepositoryProvider>
+            <MemoriesProvider>
+              <MemoryImpactProvider>
+                <RouterProvider router={router} />
+              </MemoryImpactProvider>
+            </MemoriesProvider>
+          </MeetingActionsRepositoryProvider>
         </ProposalRepositoryProvider>
       </RepositoryProvider>
     );
@@ -50,11 +53,13 @@ export function AppRoot() {
     >
       <RepositoryProvider>
         <ProposalRepositoryProvider>
-          <MemoriesProvider>
-            <MemoryImpactProvider>
-              <RouterProvider router={router} />
-            </MemoryImpactProvider>
-          </MemoriesProvider>
+          <MeetingActionsRepositoryProvider>
+            <MemoriesProvider>
+              <MemoryImpactProvider>
+                <RouterProvider router={router} />
+              </MemoryImpactProvider>
+            </MemoriesProvider>
+          </MeetingActionsRepositoryProvider>
         </ProposalRepositoryProvider>
       </RepositoryProvider>
     </ClerkProvider>
