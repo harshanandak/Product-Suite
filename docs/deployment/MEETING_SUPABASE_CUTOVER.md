@@ -25,10 +25,14 @@ bun run preflight:meeting-cutover
 Required environment variables:
 
 ```bash
-NEON_DATABASE_URL=<current Neon direct source URL>
-SUPABASE_DATABASE_URL=<Supabase direct target URL>
+MEETING_PREFLIGHT_SOURCE_DATABASE_URL=<current Neon direct source URL>
+MEETING_PREFLIGHT_TARGET_DATABASE_URL=<Supabase direct target URL>
+MEETING_PREFLIGHT_SOURCE_PROVIDER=neon
+MEETING_PREFLIGHT_TARGET_PROVIDER=supabase
 PR20_PREFLIGHT_OUTPUT=docs/deployment/meeting-supabase-preflight.json
 ```
+
+The connection slots are named `SOURCE`/`TARGET`, not by vendor, so the same variables serve either direction. The provider variables are what name the vendors in the archived report; leave one unset and the report records `unspecified` rather than guessing.
 
 If the Neon source contains rows and an approved data migration route exists, rerun with:
 
@@ -85,6 +89,17 @@ Until then, keep Neon available until Meeting create/read smoke tests pass again
 
 # Reverse Cutover: Supabase → Neon
 
+> **This specific cutover is MOOT — do not execute it.** A 2026-07-24 reality check found the meeting
+> tables already resident in Neon's `public` schema, PR20's Supabase cutover never completed (legacy
+> keys disabled 2025-12-29, no Supabase connection string in any config), and both hosted meeting
+> deployments returning 404. There is no populated Supabase source to move *from* and no running
+> service to repoint. Attempting the steps below would authenticate against dead credentials.
+>
+> The section is retained because the **tooling** is direction-agnostic and reusable: the preflight
+> takes its source/target connection slots, schemas and provider labels as parameters, and the smoke
+> proves any target Postgres. Read this as the worked example for a *future* move — which needs its own
+> plan and its own approval — not as a runbook to execute today.
+
 The sections above describe PR20's original direction (Neon `public` source → Supabase `meeting` target). The Meeting database is now moving **back** to the shared Neon platform database, into a Neon-resident `meeting` schema. The same preflight, the same smoke and the same fail-closed gate cover this direction — nothing is forked, only re-pointed.
 
 Direction summary:
@@ -97,11 +112,13 @@ Direction summary:
 
 ## Reverse Preflight
 
-`NEON_DATABASE_URL` and `SUPABASE_DATABASE_URL` name the **source** and **target** connection slots respectively — they keep their original names, so in this direction `NEON_DATABASE_URL` carries the Supabase source URL and `SUPABASE_DATABASE_URL` carries the Neon target URL. The schemas are what reverse the direction:
+Nothing about the variables changes — the slots are already vendor-neutral. Point them at the reversed sides and name the vendors so the archived report is honest about which side was which:
 
 ```bash
-NEON_DATABASE_URL=<Supabase direct SOURCE URL>
-SUPABASE_DATABASE_URL=<Neon direct TARGET URL>
+MEETING_PREFLIGHT_SOURCE_DATABASE_URL=<Supabase direct SOURCE URL>
+MEETING_PREFLIGHT_TARGET_DATABASE_URL=<Neon direct TARGET URL>
+MEETING_PREFLIGHT_SOURCE_PROVIDER=supabase
+MEETING_PREFLIGHT_TARGET_PROVIDER=neon
 MEETING_PREFLIGHT_SOURCE_SCHEMA=meeting
 MEETING_PREFLIGHT_TARGET_SCHEMA=meeting
 PR20_PREFLIGHT_OUTPUT=docs/deployment/meeting-neon-preflight.json
@@ -113,7 +130,7 @@ Then run the same command:
 bun run preflight:meeting-cutover
 ```
 
-The report records `source.schema` and `target.schema`, so an archived report always names the direction it covers. The fail-closed gate is unchanged: a populated Supabase `meeting` source fails the preflight unless `PR20_APPROVED_DATA_MIGRATION=1` asserts that backup, restore or replication proof exists. Never set it to make a red preflight go green — record the backup evidence first.
+The report records `source.provider`/`target.provider` alongside `source.schema`/`target.schema`, so an archived report always names both the direction it covers and the vendor on each side. The fail-closed gate is unchanged: a populated Supabase `meeting` source fails the preflight unless `PR20_APPROVED_DATA_MIGRATION=1` asserts that backup, restore or replication proof exists. Never set it to make a red preflight go green — record the backup evidence first.
 
 ## Reverse Cutover Order
 

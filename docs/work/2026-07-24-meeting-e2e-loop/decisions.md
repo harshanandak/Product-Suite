@@ -75,26 +75,42 @@ parameter is the smallest seam that makes the specified assertions possible.
 
 ---
 
-## D5 — The preflight report records the schemas; provider labels left alone (Task A.2)
+## D5 — The preflight report names its own direction *and* its vendors (Task A.2)
 
-**Context.** `runPreflight` builds a report with `source.provider: "neon"` and
-`target.provider: "supabase"` hardcoded, and the URL parameters are named
+**Context.** `runPreflight` built a report with `source.provider: "neon"` and
+`target.provider: "supabase"` hardcoded, and the URL parameters were named
 `neonDatabaseUrl` / `supabaseDatabaseUrl`. In the reverse direction those names
 are backwards: the "neon" slot carries the Supabase source URL.
 
-**Decision.** Added `source.schema` / `target.schema` to the report (with a test).
-Did **not** rename the provider labels or the URL parameters.
+**Decision, as first shipped.** Added `source.schema` / `target.schema` to the
+report (with a test). Deferred the provider labels and the URL parameters as a
+follow-up, on the grounds that renaming them was caller-visible and outside A.2's
+stated scope.
 
-**Why the addition.** A.4 archives this report as cutover evidence. Without the
-schemas, an archived report cannot say which direction it covers — the reversal
-would otherwise make the evidence ambiguous.
+**Superseded in PR review (2026-07-25).** CodeRabbit flagged the deferral as
+shipping *wrong* archived evidence, not merely incomplete evidence — a reverse
+report would assert `neon → supabase` for a run that was `supabase → neon`. That
+is correct, and a deferral cannot make it safe. The fix landed here instead:
 
-**Why not the rename.** Renaming the parameters is a caller-visible change across
-A.4's runbook commands and the CLI env contract, outside A.2's stated scope. The
-runbook's new reverse section states plainly that `NEON_DATABASE_URL` /
-`SUPABASE_DATABASE_URL` are the **source** and **target** slots regardless of
-vendor. **The `provider` labels in the report remain forward-direction-named and
-are misleading in the reverse direction — a follow-up, not a fix smuggled in here.**
+- The URL parameters are `sourceDatabaseUrl` / `targetDatabaseUrl`, from
+  `MEETING_PREFLIGHT_SOURCE_DATABASE_URL` / `..._TARGET_DATABASE_URL`. The slots
+  are now named for their role, so nothing is inverted to reason about.
+- `sourceProvider` / `targetProvider` are caller-supplied
+  (`MEETING_PREFLIGHT_SOURCE_PROVIDER` / `..._TARGET_PROVIDER`) and default to
+  `unspecified`. **A report never guesses a vendor**: absent evidence reads as
+  absent rather than as the forward direction.
+- The two vendor-named failure codes went with them:
+  `SUPABASE_TARGET_TABLES_MISSING` → `TARGET_TABLES_MISSING`,
+  `SUPABASE_EXTENSIONS_MISSING` → `TARGET_EXTENSIONS_MISSING`. Same defect: a
+  reverse run whose Neon target is missing tables must not blame Supabase.
+
+Both runbook env blocks name the providers explicitly, and the docs test asserts
+the reverse block reverses them. The forward direction is unaffected apart from
+requiring the operator to state the vendors it used — which is the point.
+
+**Why not keep the old env names as aliases.** Nothing sets them: the Supabase
+cutover never completed and no config in the repo carries a Supabase connection
+string (Task 0.1). A back-compat path with no caller is dead code.
 
 ---
 

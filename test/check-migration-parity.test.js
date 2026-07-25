@@ -49,6 +49,30 @@ describe("check-migration-parity", () => {
     expect(issues).toContain("migrations/0001_orphan.sql exists but has no entry in meta/_journal.json");
   });
 
+  test("passes when journal entries are declared in ascending idx order", () => {
+    const issues = analyzeMigrationParity(journal(["0000_a", "0001_b", "0002_c"]), [
+      "0000_a.sql",
+      "0001_b.sql",
+      "0002_c.sql",
+    ]);
+
+    expect(issues).toEqual([]);
+  });
+
+  test("flags entries declared out of array order, naming the first one", () => {
+    // Swapped idx values still form a valid 0..N set, so the contiguity check
+    // below sees nothing — only declaration order reveals the swap.
+    const swapped = journal(["0000_a", "0001_b", "0002_c"]);
+    swapped.entries[1].idx = 2;
+    swapped.entries[2].idx = 1;
+
+    const issues = analyzeMigrationParity(swapped, ["0000_a.sql", "0001_b.sql", "0002_c.sql"]);
+
+    expect(issues).toContain(
+      'journal entry "0002_c" (idx 1) is out of array order: it is declared after "0001_b" (idx 2)',
+    );
+  });
+
   test("flags a non-contiguous idx sequence", () => {
     const badJournal = journal(["0000_a", "0001_b"]);
     badJournal.entries[1].idx = 2;

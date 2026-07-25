@@ -7,6 +7,7 @@ import {
   REQUIRED_TARGET_EXTENSIONS,
   resolvePsqlTimeoutMs,
   runPreflight,
+  UNSPECIFIED_PROVIDER,
 } from "../scripts/meeting-cutover-preflight.mjs";
 
 /**
@@ -112,8 +113,8 @@ describe("Meeting cutover preflight", () => {
     const { calls, runner } = recordingRunner();
 
     runPreflight({
-      neonDatabaseUrl: "postgres://source",
-      supabaseDatabaseUrl: "postgres://target",
+      sourceDatabaseUrl: "postgres://source",
+      targetDatabaseUrl: "postgres://target",
       sourceSchema: "meeting",
       runQuery: runner,
     });
@@ -126,8 +127,8 @@ describe("Meeting cutover preflight", () => {
     const { calls, runner } = recordingRunner();
 
     runPreflight({
-      neonDatabaseUrl: "postgres://source",
-      supabaseDatabaseUrl: "postgres://target",
+      sourceDatabaseUrl: "postgres://source",
+      targetDatabaseUrl: "postgres://target",
       targetSchema: "staging_meeting",
       runQuery: runner,
     });
@@ -142,8 +143,8 @@ describe("Meeting cutover preflight", () => {
     const { calls, runner } = recordingRunner();
 
     runPreflight({
-      neonDatabaseUrl: "postgres://source",
-      supabaseDatabaseUrl: "postgres://target",
+      sourceDatabaseUrl: "postgres://source",
+      targetDatabaseUrl: "postgres://target",
       runQuery: runner,
     });
 
@@ -180,8 +181,8 @@ describe("Meeting cutover preflight", () => {
     });
 
     const report = runPreflight({
-      neonDatabaseUrl: "postgres://source",
-      supabaseDatabaseUrl: "postgres://target",
+      sourceDatabaseUrl: "postgres://source",
+      targetDatabaseUrl: "postgres://target",
       sourceSchema: "meeting",
       runQuery: runner,
     });
@@ -197,8 +198,8 @@ describe("Meeting cutover preflight", () => {
     const { runner } = recordingRunner();
 
     const report = runPreflight({
-      neonDatabaseUrl: "postgres://source",
-      supabaseDatabaseUrl: "postgres://target",
+      sourceDatabaseUrl: "postgres://source",
+      targetDatabaseUrl: "postgres://target",
       sourceSchema: "meeting",
       targetSchema: "meeting",
       runQuery: runner,
@@ -206,6 +207,49 @@ describe("Meeting cutover preflight", () => {
 
     expect(report.source.schema).toBe("meeting");
     expect(report.target.schema).toBe("meeting");
+  });
+
+  test("records the caller's providers, so reverse evidence names Supabase → Neon", () => {
+    const { runner } = recordingRunner();
+
+    const report = runPreflight({
+      sourceDatabaseUrl: "postgres://source",
+      targetDatabaseUrl: "postgres://target",
+      sourceProvider: "supabase",
+      targetProvider: "neon",
+      sourceSchema: "meeting",
+      targetSchema: "meeting",
+      runQuery: runner,
+    });
+
+    expect(report.source.provider).toBe("supabase");
+    expect(report.target.provider).toBe("neon");
+  });
+
+  test("never guesses a vendor: unset providers are recorded as unspecified", () => {
+    const { runner } = recordingRunner();
+
+    const report = runPreflight({
+      sourceDatabaseUrl: "postgres://source",
+      targetDatabaseUrl: "postgres://target",
+      runQuery: runner,
+    });
+
+    // The old hardcoded "neon"/"supabase" labels were wrong in reverse mode.
+    // Absent evidence must read as absent, not as the forward direction.
+    expect(report.source.provider).toBe(UNSPECIFIED_PROVIDER);
+    expect(report.target.provider).toBe(UNSPECIFIED_PROVIDER);
+    expect(report.source.provider).not.toBe("neon");
+    expect(report.target.provider).not.toBe("supabase");
+  });
+
+  test("names the source and target connection slots, not vendors, when a URL is missing", () => {
+    expect(() => runPreflight({ targetDatabaseUrl: "postgres://target" })).toThrow(
+      "MEETING_PREFLIGHT_SOURCE_DATABASE_URL",
+    );
+    expect(() => runPreflight({ sourceDatabaseUrl: "postgres://source" })).toThrow(
+      "MEETING_PREFLIGHT_TARGET_DATABASE_URL",
+    );
   });
 
   test("still fails on missing target tables and a missing vector extension", () => {
@@ -218,8 +262,8 @@ describe("Meeting cutover preflight", () => {
     });
 
     const report = runPreflight({
-      neonDatabaseUrl: "postgres://source",
-      supabaseDatabaseUrl: "postgres://target",
+      sourceDatabaseUrl: "postgres://source",
+      targetDatabaseUrl: "postgres://target",
       sourceSchema: "meeting",
       targetSchema: "meeting",
       runQuery: runner,
@@ -227,8 +271,10 @@ describe("Meeting cutover preflight", () => {
 
     expect(report.evaluation.ok).toBe(false);
     const codes = report.evaluation.failures.map((failure) => failure.code);
-    expect(codes).toContain("SUPABASE_TARGET_TABLES_MISSING");
-    expect(codes).toContain("SUPABASE_EXTENSIONS_MISSING");
+    // Vendor-neutral codes: in this direction the target is Neon, so a
+    // `SUPABASE_`-prefixed failure would misname the side that failed.
+    expect(codes).toContain("TARGET_TABLES_MISSING");
+    expect(codes).toContain("TARGET_EXTENSIONS_MISSING");
   });
 
   test("bounds psql calls with a configurable positive timeout", () => {

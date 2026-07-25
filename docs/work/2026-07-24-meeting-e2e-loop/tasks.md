@@ -5,32 +5,31 @@ Design: [`plan.md`](./plan.md) · Kernel issue `end-to-end-meeting-0c1a2ac1` · 
 Each task runs the `/dev` TDD loop: **RED** (write the failing test, show it fail) → **GREEN**
 (minimal implementation, show it pass) → **REFACTOR** (clean while green), then spec + quality review.
 
-**11 tasks.** Prod-write steps are marked **[NEEDS USER GO]** — the code and tests are written
-without gating, but *executing* them against real infrastructure needs the user's explicit go-ahead.
+**11 tasks planned; 8 live.** Task 0.1's reality check **cancelled A.1** and made **A.4 and A.5
+moot** — see Task 0.1 for the evidence. With them go both **[NEEDS USER GO]** prod-write gates: no
+task below mutates hosted infrastructure.
 
 ## Dependency graph
 
-```
-0.1 ──┬─► A.1 ──┬─► A.2 ──► A.3 ──► A.4 [GO] ──► A.5 [GO] ──┐
-      │         │                                            │
-      │         └──────────────────► B.2 ──► B.3 ────────────┼─► E.1
-      │                               ▲                      │
-      └─► B.1 ───────────────────────-┘                      │
-                                                             │
-          C.1 ──► C.2 ──► C.3 ─────────────────────────────--┘
+```text
+0.1 ──┬─► A.2 ──► A.3        (A.1 CANCELLED · A.4, A.5 MOOT — Task 0.1)
+      │
+      ├─► B.1 ──► B.2 ──► B.3 ──┐
+      │                         ├─► E.1
+      └─► C.1 ──► C.2 ──► C.3 ──┘
 ```
 
 Edges that matter:
 
 - **B.1 does not wait for Slice A.** The dedup ledger is a platform-schema migration in Neon; it
-  touches nothing meeting-side. Start it in parallel with A.1.
-- **B.2 depends on A.1 (schema exists in Neon), NOT on A.4/A.5 (the cutover).** Once the `meeting`
-  schema is applied locally, B.2's real-DB tests can seed and read `meeting.action_items` without the
-  hosted service ever being repointed.
+  touches nothing meeting-side.
+- **B.2 has no Slice-A dependency left.** The meeting tables are already in Neon's `public` schema
+  (Task 0.1), so B.2's real-DB tests seed and read `public.action_items` directly. It never depended
+  on A.4/A.5 (the hosted cutover), and A.1 — the schema it was waiting for — is cancelled.
 - **C.1–C.3 are fully parallel** to A and B until C.3's "Sync now" needs B.3's endpoint to exist for
   its integration test; C.1 and C.2 have no cross-slice dependency at all.
-- **E.1 requires B.3 + C-slice routes + a Neon-resident `meeting` schema.** It does *not* require the
-  hosted Railway repoint — it runs against local + real Neon.
+- **E.1 requires B.3 + C-slice routes + the Neon-resident meeting tables** (already present in
+  `public`). It does *not* require any hosted repoint — it runs against local + real Neon.
 
 ---
 
@@ -49,78 +48,68 @@ code.
 **RED.** None — this task produces no code. (The `/dev` TDD gate is N/A; record the exemption in
 `decisions.md`.)
 
-**GREEN scope.**
-1. Read the reality-check report: Supabase `meeting.*` row counts per table, Railway meeting-api
-   liveness, confirmation that Neon has no `meeting` schema.
-2. Record the branch: **(a)** schema-apply only (zero rows) · **(b)** small copy · **(c)** real
-   migration.
-3. If **(c)** — **STOP**. A meaningful data migration needs its own plan and backup proof; report it
-   and do not improvise a copy inside A.4.
-4. If **(b)** — note the exact tables + counts; A.4 grows a `pg_dump --schema=meeting` / restore step
-   with the preflight's `approvedDataMigration` evidence recorded, not bypassed.
+**OUTCOME — done 2026-07-24.** The scout's read-only, evidence-cited verdict (TASK-0 VERDICT comment
+on kernel issue `end-to-end-meeting-0c1a2ac1`) landed *outside* the three branches this task
+anticipated, and it simplifies Slice A out of existence:
 
-**Done when.** `decisions.md` names the live branch with the row counts that justify it, a kernel
-comment mirrors it, and (if (c)) the stop is reported rather than worked around.
+1. **The meeting tables are already live in the shared Neon `public` schema** — all 11 present, with
+   `alembic_version` stamped at `0005`. Neon is not missing the schema; it never lost it.
+2. **PR20's Supabase cutover never completed.** PR20 is `Status: dev`, its smoke gate never passed,
+   the Supabase legacy keys were disabled 2025-12-29, and no Supabase connection string exists in any
+   config. There is no Supabase source to migrate *from*.
+3. **Tenancy is already physically unified.** `public.tenants` is shared by the meeting FKs and by
+   `work_items`/`projects`; `work_items.tenant_id` is TEXT. No TEXT→uuid bridge is needed.
+4. **No hosted meeting service exists.** Railway meeting-api and Vercel meeting-web both 404 — no
+   live users, nothing to repoint.
+5. **Data:** 2 stale test meetings (2026-04-14), 0 extraction rows.
+
+**Consequences, recorded on the issue and applied to the tasks below:**
+
+- **A.1 CANCELLED** — nothing to create. The `meeting`-schema migration is not written; `0015` is
+  taken by B.1's ledger (see D1 in [`decisions.md`](./decisions.md)).
+- **A.4 MOOT** — nothing to apply.
+- **A.5 MOOT** — no service to repoint. Both **[NEEDS USER GO]** gates dissolve.
+- **A.2 and A.3 still ship** — the preflight and smoke are now vendor-neutral tooling for whatever
+  target Postgres a future cutover names, not steps in a Supabase→Neon move.
+- **B.2 retargets `public.action_items`** (same database, same `sql` client). The tenant allowlist
+  stays, still fail-closed, but maps no id shapes.
+
+**Scout caveat, carried forward:** Supabase emptiness is a high-confidence inference from the
+disabled keys, not an observed row count.
+
+**Done when.** ✅ `decisions.md` and this task list record the verdict, and the kernel issue carries
+the TASK-0 VERDICT comment.
 
 ---
 
 ## Slice A — cut the meeting DB back to Neon
 
-### Task A.1 — Neon `meeting` schema migration ~~(Drizzle chain, TEXT ids unchanged)~~
+### Task A.1 — Neon `meeting` schema migration — **CANCELLED (Task 0.1)**
 
-> **CANCELLED by Task 0's reality check.** The premise is false: the meeting tables were never
-> moved out of the shared Neon database. A read-only `information_schema` query confirms
-> `public.action_items`, `public.meetings`, `public.decisions`, `public.open_questions`,
-> `public.chapter_summaries` and `public.transcript_segments` already exist in `public`,
-> alongside `work_items` / `proposals` / `agent_runs`, with `public.tenants` already the shared
-> tenant table both sides FK into — and there is **no `meeting` schema** (schemas present:
-> `drizzle`, `neon_auth`, `public`). The Supabase project this ported from is dead and its
-> cutover never completed.
->
-> It was implemented and committed as `83261fc`, then **reverted** (`572ffbc`). See
-> [`decisions.md`](./decisions.md) **D8**. B.2 retargets to `public.action_items` (**D14**).
-> **A.4 and A.5 are MOOT** in consequence — nothing to apply, and no live Railway meeting-api
-> to repoint.
+**Not implemented, and must not be.** The meeting tables are **already live in Neon's `public`
+schema** (all 11, `alembic_version` at `0005` — Task 0.1). There is no schema to create, and writing
+one now would either duplicate live tables into a second `meeting` schema or collide with them.
 
-**Goal (historical).** A migration that creates the full `meeting` schema in the shared Neon
-platform database, adapted from the Supabase original with the Supabase-only constructs removed.
+**Do not create `packages/db/migrations/0015_meeting_schema.sql`.** `0015` is taken by B.1's
+`0015_meeting_promotions.sql`; the Drizzle journal is a contiguous `0..N` sequence, so a reserved-but-
+unwritten number would keep `check-migration-parity` red (D1 in [`decisions.md`](./decisions.md)).
 
-**Files.**
-- Create `packages/db/migrations/0015_meeting_schema.sql`
-- Modify `packages/db/migrations/meta/_journal.json` (+ regenerated snapshot chain)
-- Create `test/meeting-neon-schema.test.js` (bun; add to `test:repo-tooling` in `package.json:41`)
+**What replaces it.** Nothing in this plan. Modelling the meeting tables in Drizzle is I5's job in the
+rewrite epic (`91612c3f`), and it is now an in-database refactor of tables that already sit beside
+`teams`/`work_items` — which was Slice A's whole objective.
 
-**RED — test list.**
-1. The migration declares all 19 tables from `MEETING_SOURCE_TABLES`
-   (`scripts/meeting-cutover-preflight.mjs:6`) — assert the exported list is a subset of the tables
-   the migration creates, so a table added there can never silently miss the schema.
-2. Every `id` and `tenant_id` column in the migration is `text` — no `uuid`. (Pins "no id-shape change
-   in this slice".)
-3. The migration contains **no** `enable row level security`, no `anon`/`authenticated`/`service_role`
-   grant or revoke, and no `extensions.` schema qualifier — those are Supabase-only and fail on Neon.
-4. The migration does not touch `public.alembic_version` (the platform `public` schema is Drizzle-owned).
-5. The migration requires the `vector` extension (both embedding columns depend on it).
-6. `check-migration-parity` (`scripts/check-migration-parity.mjs`) passes with the new entry — the
-   journal and the file agree.
-
-**GREEN scope.** Port the DDL from `infra/supabase/migrations/20260606093937_create_meeting_schema.sql`:
-keep `create schema meeting`, all 19 `create table` statements, all `create index` /
-`create unique index` statements, and the table comments. Drop the 19 RLS statements, the
-revoke/grant block, and the `alembic_version` seeding. Qualify `vector` per this repo's convention
-rather than Supabase's `extensions` schema.
-
-**REFACTOR.** No duplicated table lists — derive from `MEETING_SOURCE_TABLES` where the test needs a
-list.
-
-**Done when.** Tests green; the snapshot chain is regenerated **from a clean primary checkout** (a
-worktree cannot resolve `drizzle-orm`); `check-migration-parity` and `test:repo-tooling` pass.
+**Downstream.** B.2 reads `public.action_items` directly; see the dependency graph above.
 
 ---
 
-### Task A.2 — Reverse the cutover preflight (Supabase → Neon)
+### Task A.2 — Make the cutover preflight direction-agnostic
 
-**Goal.** The preflight runs in the new direction without forking the script: source schema `meeting`
-(Supabase), target schema `meeting` (Neon).
+**Goal.** The preflight runs in either direction without forking the script — source and target
+schemas, connection slots and provider labels are all parameters, no vendor is hardcoded.
+
+**Still shipped after Task 0.1.** The reverse cutover it was written for is moot, but a
+direction-agnostic preflight is the reusable half: it is the readiness check for *any* future move of
+the meeting tables, including I5's.
 
 **Files.**
 - Modify `scripts/meeting-cutover-preflight.mjs`
@@ -138,9 +127,14 @@ worktree cannot resolve `drizzle-orm`); `check-migration-parity` and `test:repo-
    `sourceRows` has data and `approvedDataMigration` is false. (Regression pin: reversing direction
    must not weaken the gate.)
 5. Missing target tables and a missing `vector` extension still fail, reading the Neon target.
+6. The archived report names the **caller's** vendors, not hardcoded ones: a reverse run records
+   `source.provider: "supabase"` / `target.provider: "neon"`, and an unset provider records
+   `unspecified` rather than defaulting to the forward pair. (Added in review — see D5.)
 
 **GREEN scope.** Parameterise both `schemaName` arguments in `runPreflight` (defaults preserving the
-current forward direction, so no existing caller changes) and thread them from env/CLI. Nothing else.
+current forward direction, so no existing caller changes) and thread them from env/CLI, together with
+the connection slots (`MEETING_PREFLIGHT_SOURCE_DATABASE_URL` / `..._TARGET_DATABASE_URL`) and the
+provider labels (`MEETING_PREFLIGHT_SOURCE_PROVIDER` / `..._TARGET_PROVIDER`). Nothing else.
 
 **REFACTOR.** No copy of the table list; `MEETING_SOURCE_TABLES` stays the single source.
 
@@ -155,8 +149,9 @@ works with default arguments.
 rollback.
 
 **Files.**
-- Modify `apps/meeting-api/tests/backend/test_supabase_create_read_smoke.py` (rename to
-  `test_target_db_create_read_smoke.py`)
+- Rename `apps/meeting-api/tests/backend/test_supabase_create_read_smoke.py` →
+  `apps/meeting-api/tests/backend/test_target_db_create_read_smoke.py` (shipped), plus its sibling
+  `test_target_db_smoke_config.py` (see D6)
 - Modify `docs/deployment/MEETING_SUPABASE_CUTOVER.md`
 - Modify `test/meeting-supabase-cutover-docs.test.js`
 
@@ -179,67 +174,43 @@ operator doing Supabase → Neon.
 
 ---
 
-### Task A.4 — Apply the `meeting` schema to Neon ~~**[NEEDS USER GO]**~~
+### Task A.4 — Apply the `meeting` schema to Neon — **MOOT (Task 0.1)**
 
-> **MOOT — cancelled with A.1.** The meeting tables already exist in Neon `public`; there is no
-> schema to apply and no Supabase source to copy from (that project is dead, and the source
-> table it would have read had 0 extraction rows anyway). See `decisions.md` **D8**.
+Nothing to apply: the meeting tables are already in Neon's `public` schema, and A.1's migration is
+cancelled. No `docs/deployment/meeting-neon-preflight.json` is produced, because there is no source
+database to preflight *from* — PR20's Supabase project was never populated and its keys are disabled.
 
-**Goal (historical).** The `meeting` schema exists in the shared Neon platform database.
-
-**Files.** No source changes. Produces `docs/deployment/meeting-neon-preflight.json` (the archived
-preflight report).
-
-**RED.** N/A (an operational step). Its correctness was tested in A.1–A.3.
-
-**GREEN scope.**
-1. **[NEEDS USER GO]** Run the A.1 migration against the Neon platform database.
-2. Run the reversed preflight (A.2) — Supabase source, Neon target. Archive the report.
-3. If Slice 0 landed on branch **(b)**: **[NEEDS USER GO]** `pg_dump --schema=meeting` from Supabase →
-   restore into Neon, with backup evidence recorded before the preflight's `approvedDataMigration`
-   flag is used. **Never** set that flag to make a red preflight go green.
-4. Run the A.3 smoke against the Neon target URL.
-
-**Done when.** Preflight report archived and passing, smoke green against Neon, and the user has
-explicitly approved each write step. Supabase is untouched and remains the rollback target.
+The **[NEEDS USER GO]** gate this task carried is withdrawn: there is no DDL write and no data copy.
+If a future move of the meeting tables is ever decided, A.2's direction-agnostic preflight and A.3's
+target-agnostic smoke are the tooling for it — and it needs its own plan and its own approval, not
+this cancelled one.
 
 ---
 
-### Task A.5 — Repoint meeting-api `DATABASE_URL` to Neon ~~**[NEEDS USER GO]**~~
+### Task A.5 — Repoint meeting-api `DATABASE_URL` to Neon — **MOOT (Task 0.1)**
 
-> **MOOT — cancelled with A.1.** There is no live Railway meeting-api to repoint, and the
-> database it would be repointed *to* is the one the tables already live in. See
-> `decisions.md` **D8**.
+No service to repoint: hosted meeting-api (Railway) and meeting-web (Vercel) both 404, and there are
+no live users. `DATABASE_URL` already points at Neon wherever meeting-api runs (locally).
 
-**Goal (historical).** The hosted meeting-api reads and writes the Neon `meeting` schema.
-
-**Files.** Hosted env only (Railway). Update `docs/deployment/SERVICE_INVENTORY.md` to match.
-
-**RED.** N/A (operational).
-
-**GREEN scope.**
-1. **[NEEDS USER GO]** Set the hosted `DATABASE_URL` to the Neon runtime URL (`config.py:125` /
-   `settings.py:56` take a generic Postgres URL — no code change) and set `DATABASE_PROVIDER`
-   accordingly if the deployment uses that label. Redeploy.
-2. Health check + create/read smoke against the hosted service.
-3. Record the rollback trigger: revert `DATABASE_URL` to Supabase and redeploy. **Do not delete
-   anything from Supabase in this task** — retirement is a separate, later decision.
-
-**Done when.** Hosted meeting-api is green on Neon, the inventory doc matches reality, and the
-rollback path is verified reachable.
+The second **[NEEDS USER GO]** gate is withdrawn with it. Hosting for the meeting service is an open
+question owned by the rewrite epic (`91612c3f`) — until it is answered, extraction runs locally only.
+`docs/deployment/SERVICE_INVENTORY.md` needs no edit from this plan.
 
 ---
 
 ## Slice B — the promote bridge
 
-### Task B.1 — `meeting_promotions` dedup ledger *(parallel with A.1)*
+### Task B.1 — `meeting_promotions` dedup ledger
 
 **Goal.** A platform-schema table that records which meeting record ids have already been proposed,
 keyed to survive meeting-api's delete/re-insert rematerialization.
 
 **Files.**
 - Modify `packages/db/src/schema.ts`
-- Create `packages/db/migrations/0016_meeting_promotions.sql` (+ journal/snapshot)
+- Create `packages/db/migrations/0015_meeting_promotions.sql` + a `_journal.json` entry at `idx: 15`.
+  **No `meta/00NN_snapshot.json`** — the snapshot chain stops at `0011` and `0012`–`0014` each shipped
+  hand-authored SQL without one; regenerating it is a filed repo-wide chore, not this task's payload
+  (D1 and D2 in [`decisions.md`](./decisions.md))
 - Modify `packages/db/src/schema.test.ts`
 
 **RED — test list.**
@@ -263,13 +234,10 @@ keyed to survive meeting-api's delete/re-insert rematerialization.
 
 ### Task B.2 — The ingest module: read → map → dedup → mint → propose
 
-> **Retargeted:** reads **`public.action_items`**, not `meeting.action_items` — A.1 is cancelled
-> and the table already lives in the platform `public` schema (column set verified from the live
-> database; see `decisions.md` **D14**). The tenant map becomes an identity **allowlist** rather
-> than a translation table, and stays fail-closed (**D15**). Every other rule below is unchanged.
-
 **Goal.** A pure-ish module that turns promoted meeting action items into pending proposals, exactly
-once each. ~~**Depends on A.1** (the `meeting` schema must exist to read)~~ and **B.1** (the ledger).
+once each. **Depends on B.1** (the ledger) only — A.1 is cancelled, so the read target is
+`public.action_items` in the shared Neon database, reached with the platform's own `sql` handle
+(Task 0.1). Every `meeting.action_items` reference below means `public.action_items`.
 
 **Files.**
 - Create `apps/platform-api/src/meeting/ingest.ts`
@@ -278,8 +246,10 @@ once each. ~~**Depends on A.1** (the `meeting` schema must exist to read)~~ and 
 
 **RED — test list.**
 
-*Tenant map (pure, unit):*
-1. A configured meeting TEXT tenant id maps to its platform uuid tenant id.
+*Tenant map (pure, unit) — after Task 0.1 this is an **allowlist**, not a translation:
+`public.tenants` is already shared by the meeting FKs and by `work_items`/`projects`, so a meeting
+`tenant_id` IS the platform tenant id. The fail-closed gate stays; only the id-shape change goes:*
+1. A configured meeting tenant id resolves to the platform tenant id it already equals.
 2. An **unmapped** meeting tenant id is refused — fail-closed. No default, no passthrough, no
    "use the only tenant" fallback.
 3. A malformed/empty configuration yields an empty map that refuses everything, rather than throwing
@@ -449,7 +419,7 @@ the plan.
 - Modify `apps/platform-web/e2e/README.md` (required env for the meeting seed)
 
 **RED — test list** (a Playwright spec; RED = it fails before B/C land, for the right reason):
-1. **Seed:** insert a `meeting.action_items` row with `record_origin='generated'`,
+1. **Seed:** insert a `public.action_items` row with `record_origin='generated'`,
    `review_status='promoted'`, a unique content-derived id and a unique title per run (the
    `Date.now()` suffix pattern `moat-loop.spec.ts` uses so re-runs stay genuine creates), for the
    mapped pilot tenant.
