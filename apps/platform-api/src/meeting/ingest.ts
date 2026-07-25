@@ -36,6 +36,11 @@ export interface RunMeetingIngestCtx {
 
 export interface MeetingIngestResult {
   proposalsCreated: number
+  /**
+   * Candidates this run did not propose because something else already had:
+   * a prior run recorded in the ledger, or a concurrent run that won the ledger's
+   * unique index (whose loser's proposal is superseded, not counted as created).
+   */
   skippedDuplicate: number
   /**
    * Candidates refused by the map re-check — CALLER-SCOPED, counted only over rows
@@ -95,6 +100,10 @@ export function buildRationale(candidate: MeetingCandidateRow): string {
  * rather than on anything row-shaped, because meeting-api rematerializes action
  * items by DELETE + re-INSERT: the row is reborn on every reprocess, its
  * content-derived id is not.
+ *
+ * The ledger read skips records a PRIOR run proposed; the ledger's unique index
+ * settles two CONCURRENT runs, and the loser supersedes its own surplus proposal
+ * (see `recordPromotion`). Either way the reviewer sees exactly one pending row.
  *
  * Nothing here writes a work item. The proposal goes through the same review queue
  * as every other agent proposal, and a human's accept is what applies it.
@@ -176,7 +185,15 @@ export async function runMeetingIngest(
         actor_id: runId,
         context_ref: candidate.id,
       })
-      await recordPromotion(sql, ctx.tenantId, candidate.id, proposal.id)
+      const reserved = await recordPromotion(sql, ctx.tenantId, candidate.id, proposal.id)
+      if (!reserved) {
+        // A concurrent ingest claimed this record between our ledger read and write.
+        // Its proposal is the one the ledger points at, so ours is surplus — latch it
+        // out of `pending` rather than leave the reviewer two identical rows.
+        await supersedeProposal(sql, proposal.id)
+        result.skippedDuplicate += 1
+        continue
+      }
       result.proposalIds.push(proposal.id)
       result.proposalsCreated += 1
     }
@@ -224,35 +241,46 @@ async function readLedger(
 }
 
 /**
- * Record that this meeting record has been proposed, so no later run repeats it.
+ * Claim this meeting record for the given proposal. Returns false when a concurrent
+ * run already claimed it — the ledger's unique index, not the caller, decides.
  *
- * KNOWN GAP — this dedups SEQUENTIAL runs, not CONCURRENT ones. The ledger write
- * happens after `createProposal`, so two simultaneous ingests both pass the ledger
- * read, both insert a proposal, and only one wins this insert: the loser's proposal
- * survives as a duplicate in the inbox (`proposals.context_ref` has no unique
- * index). The textbook fixes are both blocked here — reserving the ledger row first
- * is impossible while `meeting_promotions.proposal_id` is `NOT NULL` with an
- * immediate FK to a proposal that does not exist yet, and Neon's HTTP driver has no
- * interactive transaction to roll the proposal back in
- * (`provenance/record-write.ts:16`). Closing it needs a schema or writer change,
- * filed as its own issue rather than improvised here.
- *
- * The blast radius is bounded: the endpoint is human-triggered, the button guards
- * the double-click (D19), and the surplus row is a *pending* proposal a reviewer can
- * reject — propose-only means no work item is created either way.
+ * The ledger row cannot be reserved BEFORE the proposal exists (`proposal_id` is
+ * `NOT NULL` with an immediate FK), and Neon's HTTP driver has no interactive
+ * transaction to roll the proposal back (`provenance/record-write.ts:16`). So the
+ * winner is settled after the fact: `returning id` is empty exactly when the insert
+ * conflicted, the same "0 rows returned = lost the race" idiom the accept path uses
+ * (`proposals/apply.ts:509`). The caller supersedes its surplus proposal.
  */
 async function recordPromotion(
   sql: Sql,
   tenantId: string,
   meetingRecordId: string,
   proposalId: string,
-): Promise<void> {
-  // `on conflict do nothing` keeps the LOSER from erroring; it does not prevent the
-  // duplicate proposal that the loser already created. See the gap above.
-  await runQuery(
+): Promise<boolean> {
+  const rows = await runQuery<{ id: string }>(
     sql,
     `insert into "meeting_promotions" ("tenant_id", "meeting_record_id", "proposal_id")
-     values ($1, $2, $3) on conflict ("tenant_id", "meeting_record_id") do nothing`,
+     values ($1, $2, $3) on conflict ("tenant_id", "meeting_record_id") do nothing
+     returning id`,
     [tenantId, meetingRecordId, proposalId],
+  )
+  return rows.length > 0
+}
+
+/**
+ * Latch a surplus proposal out of the pending inbox. `where status = 'pending'`
+ * keeps this a no-op if a human somehow decided the proposal first — a decided
+ * proposal is never rewritten.
+ *
+ * Not atomic with the ledger insert: a crash in between still strands a pending
+ * duplicate, which is the residue tracked by the concurrency issue. It is strictly
+ * better than leaving every loser in the inbox.
+ */
+async function supersedeProposal(sql: Sql, proposalId: string): Promise<void> {
+  await runQuery(
+    sql,
+    `update "proposals" set status = 'superseded', updated_at = now()
+     where id = $1 and status = 'pending'`,
+    [proposalId],
   )
 }

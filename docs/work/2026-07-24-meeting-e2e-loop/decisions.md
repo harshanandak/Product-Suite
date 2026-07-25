@@ -447,26 +447,48 @@ harness now *throws* on any `count(` against that table so the leak cannot retur
 
 ---
 
-## D24 — The ingest dedups sequential runs, NOT concurrent ones (known gap, filed)
+## D24 — The concurrent loser supersedes its own surplus proposal
+
+> **Revised in the same review round.** D24 first recorded this as a known gap filed
+> for later, on the reasoning that "both textbook fixes are blocked". That reasoning
+> was right about those two fixes and wrong about the conclusion — a third path was
+> already idiomatic in this codebase. The fix ships here; the entry below is what
+> ships.
 
 CodeRabbit correctly found that `createProposal` runs before the ledger write, so two
 simultaneous ingests both pass the ledger read, both insert a proposal, and only one
-wins `meeting_promotions`' unique index — the loser's proposal survives as a duplicate
-pending row (`proposals.context_ref` has no unique index).
+wins `meeting_promotions`' unique index. `proposals.context_ref` has no unique index,
+so nothing stopped the loser's proposal from sitting in the reviewer's inbox forever.
 
-**Not fixed in this PR, and not papered over.** Both textbook fixes are blocked:
-reserving the ledger row first is impossible while `proposal_id` is `NOT NULL` with an
-immediate FK to a proposal that does not yet exist, and Neon's HTTP driver has no
-interactive transaction to roll the proposal back (`provenance/record-write.ts:16`).
-The three viable designs — a single-statement CTE, a nullable `proposal_id` with
-reclaim logic, or a partial unique index on `proposals` — each need a schema or writer
-change, which is not a thing to improvise in a review round.
+**What is genuinely blocked** is *reserving before* creating: `meeting_promotions
+.proposal_id` is `NOT NULL` with an immediate FK (`schema.ts:683`), so the ledger row
+cannot exist before its proposal, and Neon's HTTP driver has no interactive transaction
+to roll the proposal back (`provenance/record-write.ts:16`).
 
-**Filed as kernel issue `714225a1`** with the mechanism, the blocked fixes, and the
-three designs. What this PR does change is the **comment that claimed the unique index
-already decided the winner** — it did not, and a comment promising a guarantee the code
-does not provide is worse than the gap itself.
+**Decision — settle the winner after the fact instead of reserving before.**
+`recordPromotion` now adds `returning id` and returns a boolean: `on conflict do
+nothing` yields no row *exactly when* another run already claimed the record. The loser
+latches its own proposal to `status='superseded'` (guarded `where status='pending'`, so
+a human-decided proposal is never rewritten) and counts it as `skippedDuplicate`.
 
-Bounded on purpose: human-triggered endpoint, no cron, the button guards the
-double-click (D19), and the surplus row is a *pending* proposal a reviewer rejects —
-propose-only means no work item is created either way.
+Nothing here is improvised — all three pieces are existing house patterns:
+
+- **"0 rows returned = lost the race"** is how the accept path already resolves a
+  concurrent decision (`proposals/apply.ts:509`, `not_pending` at `:491`).
+- **`superseded`** is an existing `proposal_status` value, and latching a row to it
+  when another supersedes it is the pattern in `agent/kb-ingest.ts:188` and
+  `domain/memories.ts:356`.
+- **It actually clears the inbox**: `listPending` filters `status = 'pending'`
+  (`proposals/repository.ts:126-131`), and `candidates.ts:52` already counts
+  `superseded` as dismissed.
+
+No schema change, no migration, no transaction. RED test 14b in `ingest.test.ts` pins
+it, and the mock ledger now models `returning id` honestly (a win returns a row, a
+conflict returns none) rather than always returning `[]`.
+
+**Residue, honestly stated.** The latch is not atomic with the ledger insert: a crash
+between the two still strands one pending duplicate. That narrowed residue — and the
+fully atomic designs (single-statement CTE, nullable `proposal_id` + reclaim, partial
+unique index on `proposals`) — stay on kernel issue `714225a1`, which is updated rather
+than closed. Bounded as before: human-triggered endpoint, no cron, the button guards
+the double-click (D19), and propose-only means no work item is created either way.

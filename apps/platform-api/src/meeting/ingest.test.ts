@@ -63,11 +63,15 @@ function candidate(overrides: Partial<MeetingCandidateRow> = {}): MeetingCandida
 function harness(opts: {
   candidates?: MeetingCandidateRow[]
   ledger?: Set<string>
+  /** Record ids whose ledger insert loses the race — a concurrent run got there first. */
+  lostRace?: Set<string>
 } = {}) {
   const candidates = opts.candidates ?? []
   const ledger = opts.ledger ?? new Set<string>()
+  const lostRace = opts.lostRace ?? new Set<string>()
   const ledgerInserts: unknown[][] = []
   const runInserts: unknown[][] = []
+  const proposalUpdates: [string, unknown[]][] = []
 
   const query = vi.fn(async (text: string, params: unknown[]) => {
     if (/from "action_items"/i.test(text)) {
@@ -89,7 +93,16 @@ function harness(opts: {
     }
     if (/insert into "meeting_promotions"/i.test(text)) {
       ledgerInserts.push(params)
-      ledger.add(`${String(params[0])}::${String(params[1])}`)
+      const key = `${String(params[0])}::${String(params[1])}`
+      // Models `on conflict do nothing returning id`: the winner gets a row back, a
+      // conflicting insert gets NOTHING. `lostRace` forces the loser path for a
+      // record the ledger read did not yet know about — the concurrent case.
+      if (ledger.has(key) || lostRace.has(String(params[1]))) return []
+      ledger.add(key)
+      return [{ id: `mp_${String(params[1])}` }]
+    }
+    if (/update "proposals"/i.test(text)) {
+      proposalUpdates.push([text, params])
       return []
     }
     if (/update "agent_runs"/i.test(text)) return []
@@ -97,7 +110,7 @@ function harness(opts: {
   })
 
   const sql = { query } as unknown as Sql
-  return { sql, query, ledger, ledgerInserts, runInserts }
+  return { sql, query, ledger, ledgerInserts, runInserts, proposalUpdates }
 }
 
 const ctx = () => ({ tenantId: PLATFORM_TENANT, tenantMap: TENANT_MAP })
@@ -316,6 +329,30 @@ describe('runMeetingIngest', () => {
     expect(ledgerInserts).toHaveLength(2)
     expect(ledgerInserts[0]).toEqual([PLATFORM_TENANT, 'ai_a', 'prop_ai_a'])
     expect(ledgerInserts[1]).toEqual([PLATFORM_TENANT, 'ai_b', 'prop_ai_b'])
+  })
+
+  // 14b — the CONCURRENT case. Two ingests race: both pass the ledger read, both
+  // create a proposal, one loses the ledger's unique index. The loser must not leave
+  // its proposal sitting in the reviewer's pending inbox.
+  it('latches the losing proposal to superseded when a concurrent run wins the ledger', async () => {
+    const { sql, proposalUpdates } = harness({
+      candidates: [candidate({ id: 'ai_won' }), candidate({ id: 'ai_lost' })],
+      lostRace: new Set(['ai_lost']),
+    })
+
+    const result = await runMeetingIngest(sql, ctx())
+
+    // The loser's proposal is latched out of `pending`, so `listPending` cannot show it.
+    expect(proposalUpdates).toHaveLength(1)
+    const [updateText, updateParams] = proposalUpdates[0]!
+    expect(updateText).toMatch(/status\s*=\s*'superseded'/i)
+    expect(updateText).toMatch(/status\s*=\s*'pending'/i) // guarded — never re-latch a decided proposal
+    expect(updateParams).toEqual(['prop_ai_lost'])
+
+    // And the summary counts it as the duplicate it is, not as work created.
+    expect(result.proposalsCreated).toBe(1)
+    expect(result.skippedDuplicate).toBe(1)
+    expect(result.proposalIds).toEqual(['prop_ai_won'])
   })
 
   // 15
