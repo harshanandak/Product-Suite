@@ -346,3 +346,50 @@ provider the real page would silently render invented meeting items. Added
 compile-time `USE_FIXTURES` branch) and mounted it in BOTH `AppRoot` trees, with a
 test per branch — that test is the only thing standing between a shipped page and
 fixture data.
+
+## D19 — "Sync now" guards the double-click with a REF, not the disabled attribute (Task C.3)
+
+The task asks for one POST per click and a disabled button in flight. `disabled`
+alone does not deliver that: it is applied on the next React render, so two clicks
+dispatched in the same tick both pass the check and both ingest. `useMeetingActions.sync`
+therefore flips a `syncingRef` **synchronously** and returns early if it is already
+set; `isSyncing` drives the visible disabled state. The test clicks twice — once
+while in flight — and asserts `sync` was called exactly once.
+
+The ingest is idempotent server-side via the promotion ledger, so a slipped double
+click would not corrupt anything. It would still mint a second `agent_runs` row and
+waste a round trip, and "disabled in flight" is not honest if the guard is cosmetic.
+
+## D20 — A failed sync shows BESIDE the list; only a successful one refetches (Task C.3)
+
+`syncError` is separate state from `error`. The load error replaces the screen (there
+is nothing to show); a sync error must not, because the ingest wrote nothing and the
+list the user is reading is still correct. Rendering `ErrorState` there would overstate
+the damage and lose their place.
+
+For the same reason the failure path does NOT refetch — re-reading after a write that
+did nothing is pure noise. Only success bumps the reload key. A later successful sync
+clears the error, so a stale banner can never sit above a sync that worked.
+
+## D21 — Sync now renders on the EMPTY state too (Task C.3)
+
+The task lists Sync alongside the candidate list, which reads as "part of the ready
+state". Implemented across both: with zero candidates a sync is the ONLY way to get
+any, so gating the button behind a non-empty list would make the empty state a dead
+end — the exact position a first-time pilot tenant is in. The header (title, count,
+Sync) renders for empty and non-empty alike; only the body swaps between `EmptyState`
+and the list.
+
+## D22 — Client sends no `org_id`, so a MULTI-org caller gets 400 on both meeting routes
+
+Neither the read nor the sync sends an org id — scope comes from the verified Clerk
+token, and a client-supplied tenant id would be a request to be trusted about
+identity (the same stance as the proposals adapter). The consequence, inherited from
+B.3's `resolveMeetingAnchor`: a caller who belongs to **two or more** orgs gets
+`400 Ambiguous organization; specify org_id` from both endpoints, because the client
+never names one. Single-org callers — the pilot shape — are unaffected.
+
+This is a real limitation, not a defect in the anchoring logic (refusing to guess
+which org to write to is correct). Resolving it needs the screen to pass the ACTIVE
+org, which means deciding what the `$workspace` route param maps to — out of scope
+for C.3 and filed as kernel issue **`c3c60c5b`** rather than guessed at here.

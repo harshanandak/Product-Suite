@@ -2,7 +2,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { MeetingActionsRepository } from "./repository";
-import type { MeetingActionCandidate } from "./types";
+import type { MeetingActionCandidate, MeetingSyncSummary } from "./types";
 import {
   getDefaultMeetingActionsRepository,
   useMeetingActions,
@@ -22,11 +22,22 @@ function candidate(id: string, text = id): MeetingActionCandidate {
   };
 }
 
+const EMPTY_SUMMARY: MeetingSyncSummary = {
+  proposalsCreated: 0,
+  skippedDuplicate: 0,
+  skippedUnmappedTenant: 0,
+};
+
 /** A repo whose list result can be swapped between reads, to prove refetch. */
 function repoWith(pages: MeetingActionCandidate[][]): MeetingActionsRepository {
   let call = 0;
   return {
     list: vi.fn(async () => pages[Math.min(call++, pages.length - 1)]!),
+    sync: vi.fn(async () => ({
+      proposalsCreated: 0,
+      skippedDuplicate: 0,
+      skippedUnmappedTenant: 0,
+    })),
   };
 }
 
@@ -44,9 +55,10 @@ describe("useMeetingActions", () => {
 
   it("surfaces a failed read as an error rather than an empty list", async () => {
     const repository: MeetingActionsRepository = {
-      list: vi.fn(async () => {
+      list: vi.fn(async (): Promise<MeetingActionCandidate[]> => {
         throw new Error("Not a member");
       }),
+      sync: vi.fn(async () => EMPTY_SUMMARY),
     };
 
     const { result } = renderHook(() => useMeetingActions({ repository }));
@@ -67,6 +79,105 @@ describe("useMeetingActions", () => {
 
     await waitFor(() => expect(result.current.candidates).toHaveLength(2));
     expect(repository.list).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("useMeetingActions sync", () => {
+  it("refetches the list after a successful sync, so new proposals show up", async () => {
+    const repository = repoWith([
+      [candidate("a")],
+      [
+        { ...candidate("a"), promotion_state: "proposal_pending", proposal_id: "p_a" },
+      ],
+    ]);
+    const { result } = renderHook(() => useMeetingActions({ repository }));
+    await waitFor(() => expect(result.current.candidates).toHaveLength(1));
+
+    await act(async () => {
+      await result.current.sync();
+    });
+
+    await waitFor(() =>
+      expect(result.current.candidates[0]?.promotion_state).toBe("proposal_pending"),
+    );
+    expect(repository.sync).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces a sync failure and leaves the list untouched", async () => {
+    const repository: MeetingActionsRepository = {
+      list: vi.fn(async () => [candidate("a", "Still here")]),
+      sync: vi.fn(async () => {
+        throw new Error("Ingest failed");
+      }),
+    };
+    const { result } = renderHook(() => useMeetingActions({ repository }));
+    await waitFor(() => expect(result.current.candidates).toHaveLength(1));
+
+    await act(async () => {
+      await result.current.sync();
+    });
+
+    expect(result.current.syncError?.message).toBe("Ingest failed");
+    // A failed ingest wrote nothing, so re-reading would be noise — and the list
+    // the user is looking at must not be blanked by a failure.
+    expect(result.current.candidates.map((c) => c.text)).toEqual(["Still here"]);
+    expect(repository.list).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports the in-flight sync so the caller can disable the button", async () => {
+    let release: () => void = () => {};
+    const repository: MeetingActionsRepository = {
+      list: vi.fn(async () => [candidate("a")]),
+      sync: vi.fn(
+        () =>
+          new Promise<MeetingSyncSummary>((resolve) => {
+            release = () => resolve(EMPTY_SUMMARY);
+          }),
+      ),
+    };
+    const { result } = renderHook(() => useMeetingActions({ repository }));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    let pending: Promise<unknown> | undefined;
+    act(() => {
+      pending = result.current.sync();
+    });
+    await waitFor(() => expect(result.current.isSyncing).toBe(true));
+
+    await act(async () => {
+      release();
+      await pending;
+    });
+    expect(result.current.isSyncing).toBe(false);
+  });
+
+  it("clears a previous sync error when a later sync succeeds", async () => {
+    let shouldFail = true;
+    const repository: MeetingActionsRepository = {
+      list: vi.fn(async () => [candidate("a")]),
+      sync: vi.fn(async () => {
+        if (shouldFail) throw new Error("Ingest failed");
+        return {
+          proposalsCreated: 1,
+          skippedDuplicate: 0,
+          skippedUnmappedTenant: 0,
+        };
+      }),
+    };
+    const { result } = renderHook(() => useMeetingActions({ repository }));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    await act(async () => {
+      await result.current.sync();
+    });
+    expect(result.current.syncError).not.toBeNull();
+
+    shouldFail = false;
+    await act(async () => {
+      await result.current.sync();
+    });
+    // A stale error banner above a successful sync would be a lie.
+    expect(result.current.syncError).toBeNull();
   });
 });
 

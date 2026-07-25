@@ -5,7 +5,7 @@ import {
   createMockMeetingActionsRepository,
   type MeetingActionsRepository,
 } from "./repository";
-import type { MeetingActionCandidate } from "./types";
+import type { MeetingActionCandidate, MeetingSyncSummary } from "./types";
 
 /**
  * Shared module singleton so every caller that does not inject a repository sees
@@ -40,6 +40,20 @@ export interface UseMeetingActionsResult {
   isRefetching: boolean;
   /** Set if the load failed; `refetch` to retry. */
   error: Error | null;
+  /**
+   * Run the ingest, then refetch so newly-created proposals appear. Resolves to
+   * the summary on success and `null` on failure (the failure lands in
+   * {@link syncError}) — the caller is a button handler, not an error boundary.
+   */
+  sync: () => Promise<MeetingSyncSummary | null>;
+  /** True while an ingest is in flight — the signal that disables the button. */
+  isSyncing: boolean;
+  /**
+   * Set if the LAST sync failed, cleared when one succeeds. Separate from
+   * {@link error} so a failed write never replaces the list the user is reading
+   * with an error screen.
+   */
+  syncError: Error | null;
   /** Force a fresh read from the repository. */
   refetch: () => void;
 }
@@ -64,6 +78,8 @@ export function useMeetingActions(
   const [isRefetching, setIsRefetching] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncError, setSyncError] = useState<Error | null>(null);
 
   // Flips true after the FIRST successful load and never back. A failed initial
   // load leaves it false so a retry still shows the skeleton, not a bare reload.
@@ -110,5 +126,45 @@ export function useMeetingActions(
     if (mountedRef.current) setReloadKey((key) => key + 1);
   }, []);
 
-  return { candidates, isLoading, isRefetching, error, refetch };
+  // Guards against a second ingest from a double-click: the ref flips
+  // synchronously, before React has re-rendered the disabled button.
+  const syncingRef = useRef(false);
+
+  const sync = useCallback(async (): Promise<MeetingSyncSummary | null> => {
+    if (syncingRef.current) return null;
+    syncingRef.current = true;
+    setIsSyncing(true);
+    try {
+      const summary = await repository.sync();
+      if (mountedRef.current) {
+        // Only a SUCCESSFUL ingest clears the error — a stale banner above a
+        // successful sync would be a lie.
+        setSyncError(null);
+        // The ingest created proposals; re-read so they show as pending.
+        setReloadKey((key) => key + 1);
+      }
+      return summary;
+    } catch (cause: unknown) {
+      // A failed ingest wrote nothing, so we do NOT refetch — the list the user
+      // is reading stays exactly as it was, with the failure shown beside it.
+      if (mountedRef.current) {
+        setSyncError(cause instanceof Error ? cause : new Error(String(cause)));
+      }
+      return null;
+    } finally {
+      syncingRef.current = false;
+      if (mountedRef.current) setIsSyncing(false);
+    }
+  }, [repository]);
+
+  return {
+    candidates,
+    isLoading,
+    isRefetching,
+    error,
+    sync,
+    isSyncing,
+    syncError,
+    refetch,
+  };
 }

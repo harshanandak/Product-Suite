@@ -55,3 +55,16 @@ export interface MeetingActionCandidate {
   /** The work item it became once accepted — the workboard link target. */
   work_item_id: string | null;
 }
+
+/**
+ * What one ingest run did — the response of `POST /api/agent/meeting-ingest`.
+ *
+ * `skippedUnmappedTenant` is part of the contract, not a debug extra: the tenant
+ * allowlist is fail-closed, so a tenant that is silently not ingesting looks
+ * exactly like a tenant with no action items unless this count is visible.
+ */
+export interface MeetingSyncSummary {
+  proposalsCreated: number;
+  skippedDuplicate: number;
+  skippedUnmappedTenant: number;
+}

@@ -133,3 +133,73 @@ describe("createNetworkMeetingActionsRepository", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+describe("createNetworkMeetingActionsRepository.sync", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn(async () =>
+      jsonResponse({
+        proposalsCreated: 2,
+        skippedDuplicate: 1,
+        skippedUnmappedTenant: 0,
+      }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("POSTs the ingest endpoint exactly once with the bearer token", async () => {
+    await repo().sync();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://api.test/api/agent/meeting-ingest");
+    expect(init.method).toBe("POST");
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer tok");
+  });
+
+  it("sends no org/tenant parameter — the server derives scope from the token", async () => {
+    await repo().sync();
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).not.toMatch(/tenant|org_id/i);
+    // A client-supplied org id would be a request to be trusted about identity.
+    expect(init.body ?? null).toBeNull();
+  });
+
+  it("returns the ingest summary, including the unmapped-tenant count", async () => {
+    // `skippedUnmappedTenant` must stay VISIBLE — that is how a fail-closed
+    // allowlist stays debuggable when a tenant is silently not ingesting.
+    await expect(repo().sync()).resolves.toEqual({
+      proposalsCreated: 2,
+      skippedDuplicate: 1,
+      skippedUnmappedTenant: 0,
+    });
+  });
+
+  it("coerces a missing or non-numeric count to 0 rather than NaN", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ proposalsCreated: "lots" }));
+
+    await expect(repo().sync()).resolves.toEqual({
+      proposalsCreated: 0,
+      skippedDuplicate: 0,
+      skippedUnmappedTenant: 0,
+    });
+  });
+
+  it("throws the API's error message on a non-OK response", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ error: "Ambiguous organization; specify org_id" }, 400),
+    );
+    await expect(repo().sync()).rejects.toThrow("Ambiguous organization");
+  });
+
+  it("throws when signed out rather than issuing an unauthenticated write", async () => {
+    await expect(repo(async () => null).sync()).rejects.toThrow(/sign|token|auth/i);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});

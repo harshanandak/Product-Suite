@@ -9,6 +9,7 @@ export type {
   MeetingActionCandidate,
   MeetingPromotionState,
   MeetingPromotionStateName,
+  MeetingSyncSummary,
 } from "./types";
 export { MEETING_PROMOTION_STATES, normalizePromotionState } from "./types";
 

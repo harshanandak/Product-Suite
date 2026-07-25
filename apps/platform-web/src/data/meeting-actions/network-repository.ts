@@ -1,5 +1,9 @@
 import type { MeetingActionsRepository } from "./repository";
-import { normalizePromotionState, type MeetingActionCandidate } from "./types";
+import {
+  normalizePromotionState,
+  type MeetingActionCandidate,
+  type MeetingSyncSummary,
+} from "./types";
 
 /** Configuration for {@link createNetworkMeetingActionsRepository}. */
 export interface NetworkMeetingActionsRepositoryOptions {
@@ -30,6 +34,11 @@ function readNullableString(value: unknown): string | null {
 /** A nullable number field: finite numbers only, so `NaN`/`"0.8"` become `null`. */
 function readNullableNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/** A count field: finite numbers only, so a missing count reads 0, never `NaN`. */
+function readCount(value: unknown): number {
+  return readNullableNumber(value) ?? 0;
 }
 
 /**
@@ -111,6 +120,21 @@ export function createNetworkMeetingActionsRepository(
             typeof candidate === "object" && candidate !== null,
         )
         .map(readCandidate);
+    },
+
+    async sync(): Promise<MeetingSyncSummary> {
+      // No body: the ingest derives its org from the verified token, exactly as
+      // the read does. The route tolerates an absent JSON body by design.
+      const response = await authorizedFetch("POST", "/api/agent/meeting-ingest");
+      if (!response.ok) {
+        throw new Error(await errorMessage(response));
+      }
+      const body = (await response.json()) as Record<string, unknown>;
+      return {
+        proposalsCreated: readCount(body?.proposalsCreated),
+        skippedDuplicate: readCount(body?.skippedDuplicate),
+        skippedUnmappedTenant: readCount(body?.skippedUnmappedTenant),
+      };
     },
   };
 }

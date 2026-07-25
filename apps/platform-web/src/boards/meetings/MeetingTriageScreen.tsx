@@ -127,7 +127,8 @@ export function MeetingTriageScreen({
   repository,
 }: Readonly<MeetingTriageScreenProps> = {}) {
   const { workspace } = useParams({ from: "/w/$workspace/meetings/triage" });
-  const { candidates, isLoading, error, refetch } = useMeetingActions({ repository });
+  const { candidates, isLoading, error, sync, isSyncing, syncError, refetch } =
+    useMeetingActions({ repository });
 
   if (isLoading) {
     return (
@@ -153,34 +154,57 @@ export function MeetingTriageScreen({
     );
   }
 
-  if (candidates.length === 0) {
-    return (
-      <EmptyState
-        title="No meeting action items to triage"
-        description="When a meeting produces a promoted action item, it lands here on its way to the board."
-      />
-    );
-  }
-
   return (
     <section className="flex flex-col gap-4">
-      <header className="flex items-baseline gap-2">
-        <h1 className="text-lg font-semibold text-foreground">Meeting triage</h1>
-        <span className="text-sm text-muted-foreground">
-          {candidates.length} action {candidates.length === 1 ? "item" : "items"}
-        </span>
+      {/* The header — and its Sync button — render for the EMPTY list too. With no
+          candidates yet a sync is the only way to get any, so hiding the button
+          behind a non-empty list would make the empty state a dead end. */}
+      <header className="flex flex-wrap items-baseline justify-between gap-2">
+        <div className="flex items-baseline gap-2">
+          <h1 className="text-lg font-semibold text-foreground">Meeting triage</h1>
+          <span className="text-sm text-muted-foreground">
+            {candidates.length} action {candidates.length === 1 ? "item" : "items"}
+          </span>
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          // Disabled in flight so a double-click cannot run a second ingest.
+          disabled={isSyncing}
+          onClick={() => {
+            void sync();
+          }}
+        >
+          {isSyncing ? "Syncing…" : "Sync now"}
+        </Button>
       </header>
 
-      <ul
-        className="flex list-none flex-col gap-2.5 p-0"
-        aria-label="Meeting action items"
-      >
-        {candidates.map((candidate) => (
-          <li key={candidate.id}>
-            <CandidateRow candidate={candidate} workspace={workspace} />
-          </li>
-        ))}
-      </ul>
+      {/* A failed ingest is shown BESIDE the list, never instead of it: nothing was
+          written, so replacing what the user is reading with an error screen would
+          overstate the damage. */}
+      {syncError === null ? null : (
+        <p role="alert" className="text-sm text-destructive">
+          {syncError.message}
+        </p>
+      )}
+
+      {candidates.length === 0 ? (
+        <EmptyState
+          title="No meeting action items to triage"
+          description="When a meeting produces a promoted action item, it lands here on its way to the board."
+        />
+      ) : (
+        <ul
+          className="flex list-none flex-col gap-2.5 p-0"
+          aria-label="Meeting action items"
+        >
+          {candidates.map((candidate) => (
+            <li key={candidate.id}>
+              <CandidateRow candidate={candidate} workspace={workspace} />
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }
