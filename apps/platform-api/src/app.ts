@@ -8,6 +8,8 @@ import { agentReflectionRoutes } from './routes/agent-reflection'
 import { agentThreadsRoutes } from './routes/agent-threads'
 import { checksRoutes } from './routes/checks'
 import { dependenciesRoutes } from './routes/dependencies'
+import { meetingCandidatesRoutes } from './routes/meeting-candidates'
+import { meetingIngestRoutes } from './routes/meeting-ingest'
 import { memoriesRoutes } from './routes/memories'
 import { ownersRoutes } from './routes/owners'
 import { projectsRoutes } from './routes/projects'
@@ -54,6 +56,12 @@ app.route('/api/agent/reflection', agentReflectionRoutes)
 
 // KB ingestion: backfill memory embeddings + ingest completed work-items as chunks.
 app.route('/api/agent/kb', agentKbRoutes)
+
+// Meeting ingest: promoted meeting action items → proposals in the same review queue.
+app.route('/api/agent/meeting-ingest', meetingIngestRoutes)
+
+// Meeting triage read: those candidates plus their true promotion state.
+app.route('/api/agent/meeting-candidates', meetingCandidatesRoutes)
 
 // Memory-impact metric: does memory measurably reduce the human editing burden?
 app.route('/api/agent/memory-impact', agentMemoryImpactRoutes)
