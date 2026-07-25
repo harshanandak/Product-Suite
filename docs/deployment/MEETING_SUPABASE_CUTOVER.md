@@ -25,10 +25,14 @@ bun run preflight:meeting-cutover
 Required environment variables:
 
 ```bash
-NEON_DATABASE_URL=<current Neon direct source URL>
-SUPABASE_DATABASE_URL=<Supabase direct target URL>
+MEETING_PREFLIGHT_SOURCE_DATABASE_URL=<current Neon direct source URL>
+MEETING_PREFLIGHT_TARGET_DATABASE_URL=<Supabase direct target URL>
+MEETING_PREFLIGHT_SOURCE_PROVIDER=neon
+MEETING_PREFLIGHT_TARGET_PROVIDER=supabase
 PR20_PREFLIGHT_OUTPUT=docs/deployment/meeting-supabase-preflight.json
 ```
+
+The connection slots are named `SOURCE`/`TARGET`, not by vendor, so the same variables serve either direction. The provider variables are what name the vendors in the archived report; leave one unset and the report records `unspecified` rather than guessing.
 
 If the Neon source contains rows and an approved data migration route exists, rerun with:
 
@@ -97,11 +101,13 @@ Direction summary:
 
 ## Reverse Preflight
 
-`NEON_DATABASE_URL` and `SUPABASE_DATABASE_URL` name the **source** and **target** connection slots respectively — they keep their original names, so in this direction `NEON_DATABASE_URL` carries the Supabase source URL and `SUPABASE_DATABASE_URL` carries the Neon target URL. The schemas are what reverse the direction:
+Nothing about the variables changes — the slots are already vendor-neutral. Point them at the reversed sides and name the vendors so the archived report is honest about which side was which:
 
 ```bash
-NEON_DATABASE_URL=<Supabase direct SOURCE URL>
-SUPABASE_DATABASE_URL=<Neon direct TARGET URL>
+MEETING_PREFLIGHT_SOURCE_DATABASE_URL=<Supabase direct SOURCE URL>
+MEETING_PREFLIGHT_TARGET_DATABASE_URL=<Neon direct TARGET URL>
+MEETING_PREFLIGHT_SOURCE_PROVIDER=supabase
+MEETING_PREFLIGHT_TARGET_PROVIDER=neon
 MEETING_PREFLIGHT_SOURCE_SCHEMA=meeting
 MEETING_PREFLIGHT_TARGET_SCHEMA=meeting
 PR20_PREFLIGHT_OUTPUT=docs/deployment/meeting-neon-preflight.json
@@ -113,7 +119,7 @@ Then run the same command:
 bun run preflight:meeting-cutover
 ```
 
-The report records `source.schema` and `target.schema`, so an archived report always names the direction it covers. The fail-closed gate is unchanged: a populated Supabase `meeting` source fails the preflight unless `PR20_APPROVED_DATA_MIGRATION=1` asserts that backup, restore or replication proof exists. Never set it to make a red preflight go green — record the backup evidence first.
+The report records `source.provider`/`target.provider` alongside `source.schema`/`target.schema`, so an archived report always names both the direction it covers and the vendor on each side. The fail-closed gate is unchanged: a populated Supabase `meeting` source fails the preflight unless `PR20_APPROVED_DATA_MIGRATION=1` asserts that backup, restore or replication proof exists. Never set it to make a red preflight go green — record the backup evidence first.
 
 ## Reverse Cutover Order
 
