@@ -69,6 +69,10 @@ describe("Meeting Supabase cutover runbook", () => {
     const { reverse } = readRunbookSections();
 
     for (const requiredTerm of [
+      // The URL direction itself — the assertion that catches a reverse block
+      // whose slots were left pointing at the forward sides.
+      "MEETING_PREFLIGHT_SOURCE_DATABASE_URL=<Supabase direct SOURCE URL>",
+      "MEETING_PREFLIGHT_TARGET_DATABASE_URL=<Neon direct TARGET URL>",
       // The preflight command and the env vars that reverse its direction.
       "MEETING_PREFLIGHT_SOURCE_SCHEMA=meeting",
       "MEETING_PREFLIGHT_TARGET_SCHEMA=meeting",
@@ -77,6 +81,9 @@ describe("Meeting Supabase cutover runbook", () => {
       "MEETING_PREFLIGHT_SOURCE_PROVIDER=supabase",
       "MEETING_PREFLIGHT_TARGET_PROVIDER=neon",
       "MEETING_TARGET_SMOKE_DATABASE_URL",
+      // The smoke must be told the target is Neon, or its settings stub keeps
+      // claiming the Supabase provider it defaults to.
+      "MEETING_TARGET_SMOKE_DATABASE_PROVIDER=neon",
       // Cutover order, rollback, and the retirement criteria — now with
       // Supabase as the thing being retired.
       "Reverse Cutover Order",
