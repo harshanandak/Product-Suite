@@ -473,6 +473,14 @@ export const memorySourceKindEnum = pgEnum('memory_source_kind', [
 ])
 // Rule-only (P2) — present now so P2 does not re-migrate.
 export const memoryEnforcementEnum = pgEnum('memory_enforcement', ['advisory', 'hard'])
+// The OWNERSHIP axis, orthogonal to `scope_type` (see
+// docs/research/2026-07-25-personal-vs-org-memory.md §2.1). Scope answers "what is
+// this about" and CASCADES; visibility answers "who may see it". Keeping them
+// separate is what makes "my private note about project X" expressible — it keeps
+// `scope_type='project'` (so it cascades for its owner) while never reaching anyone
+// else. Two values ONLY: a third ('team') needs a group-membership resolver, which
+// is the whole foreign-permission-mirroring problem and a separate piece of work.
+export const memoryVisibilityEnum = pgEnum('memory_visibility', ['private', 'org'])
 // HOW a memory reached the run's context — the attribution rail's causal label.
 export const injectedViaEnum = pgEnum('injected_via', ['pinned', 'retrieved', 'tool'])
 
@@ -511,6 +519,16 @@ export const memories = pgTable(
     // Scope cascade.
     scopeType: memoryScopeTypeEnum('scope_type').notNull().default('org'),
     scopeId: uuid('scope_id'),
+    // Ownership axis. `DEFAULT 'org'` is deliberate: it makes the migration touch
+    // ZERO existing rows, so the org tier cannot regress. `owner_user_id` is TEXT —
+    // the same Clerk-user key space as `created_by`/`decided_by`, not a uuid — and a
+    // DB-level CHECK (authored in migration 0016) enforces the biconditional
+    // `(visibility='private') = (owner_user_id IS NOT NULL)`: a private memory with
+    // no owner is unreachable, and an org memory with one is a mislabelled private.
+    // The boundary lives in a NOT NULL indexed column + a CHECK precisely so a code
+    // path that forgets it fails CLOSED instead of leaking.
+    visibility: memoryVisibilityEnum('visibility').notNull().default('org'),
+    ownerUserId: text('owner_user_id'),
     // Topic axis (GIN-indexed).
     topics: text('topics').array().notNull().default(sql`'{}'::text[]`),
     // Provenance.
@@ -532,6 +550,20 @@ export const memories = pgTable(
   (t) => ({
     // The scope-cascade retrieval filter: an org's active memories at a scope.
     byScope: index('memories_tenant_scope_idx').on(t.tenantId, t.status, t.scopeType, t.scopeId),
+    // The DUAL-LANE retrieval filter — the predicate shape both lanes now use
+    // (`visibility` is always in the WHERE, and the private lane adds
+    // `owner_user_id = :asker`). Kept ALONGSIDE the older index rather than
+    // replacing it: other domain queries still filter on (tenant, status, scope)
+    // without a visibility term, and dropping their index is an unrelated
+    // perf change.
+    byVisibilityScope: index('memories_tenant_visibility_scope_idx').on(
+      t.tenantId,
+      t.status,
+      t.visibility,
+      t.ownerUserId,
+      t.scopeType,
+      t.scopeId,
+    ),
     // Resolve a whole supersession chain within an org.
     byRoot: index('memories_tenant_root_idx').on(t.tenantId, t.rootId),
     // At most ONE memory per source proposal — hardens the check-then-insert
@@ -566,6 +598,15 @@ export const runMemoryAttributions = pgTable(
     tokens: integer('tokens'),
     // P2 holdout: true = logged as counterfactual, not actually in the prompt.
     suppressed: boolean('suppressed').notNull().default(false),
+    // The TIER of the memory this row attributes, denormalized at write time so
+    // "which tier moved the outcome" is answerable without joining a row whose
+    // visibility may since have changed (promotion rewrites the chain, not the row).
+    // `owner_matched` records whether the memory's owner WAS the asking user, which
+    // is the difference between "personal memory helped its owner" and "an org row
+    // that happens to name someone". Both ship in the same migration as the axis
+    // itself: retrofitting attribution loses the early cohort permanently.
+    visibility: memoryVisibilityEnum('visibility').notNull().default('org'),
+    ownerMatched: boolean('owner_matched').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
