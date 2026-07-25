@@ -24,10 +24,11 @@ export const meetingIngestRoutes = new Hono<AuthedEnv>()
  * POST /api/agent/meeting-ingest — propose the promoted action items this org has
  * not already had proposed.
  *
- * The response reports the two skip reasons alongside the created count. The
- * unmapped-tenant count especially: a fail-closed tenant map that reports nothing
- * is indistinguishable from a correctly-configured one, and "why did no proposals
- * appear" has to be answerable without database access.
+ * The response reports the skip reasons alongside the created count, so "why did no
+ * proposals appear" is answerable without database access. Every figure is scoped to
+ * the CALLER: `tenantAllowlisted` is a fact about their own configuration, and
+ * `skippedUnmappedTenant` counts only rows their own scope returned. Nothing here
+ * reports how much promoted work exists in any other tenant.
  */
 meetingIngestRoutes.post('/', async (c) => {
   const claims = c.get('claims')
@@ -53,6 +54,7 @@ meetingIngestRoutes.post('/', async (c) => {
       proposalsCreated: result.proposalsCreated,
       skippedDuplicate: result.skippedDuplicate,
       skippedUnmappedTenant: result.skippedUnmappedTenant,
+      tenantAllowlisted: result.tenantAllowlisted,
     })
   } catch (cause) {
     console.error('[meeting-ingest] run failed', cause)

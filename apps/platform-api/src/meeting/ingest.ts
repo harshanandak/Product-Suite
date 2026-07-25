@@ -37,7 +37,19 @@ export interface RunMeetingIngestCtx {
 export interface MeetingIngestResult {
   proposalsCreated: number
   skippedDuplicate: number
+  /**
+   * Candidates refused by the map re-check — CALLER-SCOPED, counted only over rows
+   * this caller's own scope returned. It is not a system-wide figure: see
+   * {@link tenantAllowlisted} for the "why did nothing appear" signal.
+   */
   skippedUnmappedTenant: number
+  /**
+   * False when this caller's platform tenant is absent from the meeting tenant
+   * allowlist — the honest answer to "why did no proposals appear", and a fact
+   * about the caller's OWN configuration, so reporting it reveals nothing about
+   * anyone else.
+   */
+  tenantAllowlisted: boolean
   proposalIds: string[]
   runId: string
 }
@@ -103,24 +115,29 @@ export async function runMeetingIngest(
   )
   const runId = runRows[0]!.id
 
-  // 2. How many promoted candidates this run will NOT look at because their meeting
-  //    tenant maps nowhere this caller owns. Counted, never read: a fail-closed map
-  //    that reports 0 skips is indistinguishable from a correctly-configured one,
-  //    and an operator debugging "why did nothing appear" needs the difference.
-  const unmappedCount = await countUnmappedCandidates(sql, allowedMeetingTenantIds)
+  // 2. A fail-closed map that reports 0 skips is indistinguishable from a
+  //    correctly-configured one, so the caller still gets told when its own tenant
+  //    is not allowlisted. That is a fact about the CALLER's configuration and
+  //    costs no query — unlike counting other tenants' rows, which told the caller
+  //    how much promoted work exists outside its scope.
+  const tenantAllowlisted = allowedMeetingTenantIds.length > 0
 
   const result: MeetingIngestResult = {
     proposalsCreated: 0,
     skippedDuplicate: 0,
-    skippedUnmappedTenant: unmappedCount,
+    skippedUnmappedTenant: 0,
+    tenantAllowlisted,
     proposalIds: [],
     runId,
   }
 
-  const candidates =
-    allowedMeetingTenantIds.length === 0
-      ? []
-      : await readPromotedCandidates(sql, allowedMeetingTenantIds)
+  if (!tenantAllowlisted) {
+    console.warn(
+      `[meeting-ingest] tenant ${ctx.tenantId} is not in the meeting tenant allowlist — nothing will be proposed`,
+    )
+  }
+
+  const candidates = tenantAllowlisted ? await readPromotedCandidates(sql, allowedMeetingTenantIds) : []
 
   if (candidates.length > 0) {
     // Re-check each row against the map even though the read is already scoped —
@@ -189,22 +206,6 @@ function readPromotedCandidates(
   )
 }
 
-/** Promoted candidates outside the allowed meeting tenants — a count only, no data. */
-async function countUnmappedCandidates(sql: Sql, meetingTenantIds: string[]): Promise<number> {
-  const exclusion =
-    meetingTenantIds.length === 0
-      ? ''
-      : ` and tenant_id not in (${meetingTenantIds.map((_, i) => `$${i + 1}`).join(', ')})`
-  const rows = await runQuery<{ n: number }>(
-    sql,
-    `select count(*)::int as n
-     from "action_items"
-     where record_origin = 'generated' and review_status = 'promoted'${exclusion}`,
-    meetingTenantIds,
-  )
-  return Number(rows[0]?.n ?? 0)
-}
-
 /** The subset of these record ids already turned into a proposal for this tenant. */
 async function readLedger(
   sql: Sql,
@@ -222,15 +223,32 @@ async function readLedger(
   return new Set(rows.map((row) => row.meeting_record_id))
 }
 
-/** Record that this meeting record has been proposed, so no later run repeats it. */
+/**
+ * Record that this meeting record has been proposed, so no later run repeats it.
+ *
+ * KNOWN GAP — this dedups SEQUENTIAL runs, not CONCURRENT ones. The ledger write
+ * happens after `createProposal`, so two simultaneous ingests both pass the ledger
+ * read, both insert a proposal, and only one wins this insert: the loser's proposal
+ * survives as a duplicate in the inbox (`proposals.context_ref` has no unique
+ * index). The textbook fixes are both blocked here — reserving the ledger row first
+ * is impossible while `meeting_promotions.proposal_id` is `NOT NULL` with an
+ * immediate FK to a proposal that does not exist yet, and Neon's HTTP driver has no
+ * interactive transaction to roll the proposal back in
+ * (`provenance/record-write.ts:16`). Closing it needs a schema or writer change,
+ * filed as its own issue rather than improvised here.
+ *
+ * The blast radius is bounded: the endpoint is human-triggered, the button guards
+ * the double-click (D19), and the surplus row is a *pending* proposal a reviewer can
+ * reject — propose-only means no work item is created either way.
+ */
 async function recordPromotion(
   sql: Sql,
   tenantId: string,
   meetingRecordId: string,
   proposalId: string,
 ): Promise<void> {
-  // `on conflict do nothing`: two concurrent ingests racing the same candidate both
-  // reach here, and the unique index — not this code — decides the winner.
+  // `on conflict do nothing` keeps the LOSER from erroring; it does not prevent the
+  // duplicate proposal that the loser already created. See the gap above.
   await runQuery(
     sql,
     `insert into "meeting_promotions" ("tenant_id", "meeting_record_id", "proposal_id")

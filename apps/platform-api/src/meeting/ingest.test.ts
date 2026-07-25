@@ -62,7 +62,6 @@ function candidate(overrides: Partial<MeetingCandidateRow> = {}): MeetingCandida
  */
 function harness(opts: {
   candidates?: MeetingCandidateRow[]
-  unmappedCount?: number
   ledger?: Set<string>
 } = {}) {
   const candidates = opts.candidates ?? []
@@ -72,7 +71,9 @@ function harness(opts: {
 
   const query = vi.fn(async (text: string, params: unknown[]) => {
     if (/from "action_items"/i.test(text)) {
-      if (/count\(/i.test(text)) return [{ n: opts.unmappedCount ?? 0 }]
+      // No count(*) branch: the ingest must not aggregate over `action_items` at all.
+      // A count here was how the summary used to leak other tenants' volume.
+      if (/count\(/i.test(text)) throw new Error(`unexpected aggregate over action_items: ${text}`)
       return candidates
     }
     if (/insert into "agent_runs"/i.test(text)) {
@@ -319,14 +320,15 @@ describe('runMeetingIngest', () => {
 
   // 15
   it('a run with zero new candidates still mints the run, proposes nothing, and does not throw', async () => {
-    const { sql, query } = harness({ candidates: [], unmappedCount: 3 })
+    const { sql, query } = harness({ candidates: [] })
 
     const result = await runMeetingIngest(sql, ctx())
 
     expect(result).toEqual({
       proposalsCreated: 0,
       skippedDuplicate: 0,
-      skippedUnmappedTenant: 3,
+      skippedUnmappedTenant: 0,
+      tenantAllowlisted: true,
       proposalIds: [],
       runId: RUN_ID,
     })
@@ -338,7 +340,7 @@ describe('runMeetingIngest', () => {
   })
 
   it('refuses everything when the tenant map is empty — fail-closed, nothing proposed', async () => {
-    const { sql } = harness({ candidates: [candidate()], unmappedCount: 1 })
+    const { sql, query } = harness({ candidates: [candidate()] })
 
     const result = await runMeetingIngest(sql, {
       tenantId: PLATFORM_TENANT,
@@ -347,5 +349,18 @@ describe('runMeetingIngest', () => {
 
     expect(result.proposalsCreated).toBe(0)
     expect(createProposal).not.toHaveBeenCalled()
+
+    // The caller is TOLD its tenant is not allowlisted — that is the "why did nothing
+    // appear" signal, and it is a fact about the caller's own configuration.
+    expect(result.tenantAllowlisted).toBe(false)
+
+    // Regression pin: with no allowed meeting tenants the old code ran an unfiltered
+    // `count(*)` over `action_items` and returned it, so an unallowlisted caller could
+    // read the promoted-candidate volume of every other tenant. No `action_items`
+    // query may run at all on this path.
+    expect(
+      (query.mock.calls as [string, unknown[]][]).filter(([t]) => /from "action_items"/i.test(t)),
+    ).toHaveLength(0)
+    expect(result.skippedUnmappedTenant).toBe(0)
   })
 })

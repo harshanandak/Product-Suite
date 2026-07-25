@@ -57,6 +57,7 @@ describe('POST /api/agent/meeting-ingest', () => {
       proposalsCreated: 2,
       skippedDuplicate: 1,
       skippedUnmappedTenant: 3,
+      tenantAllowlisted: true,
       proposalIds: ['p_a', 'p_b'],
       runId: 'run_1',
     })
@@ -113,7 +114,7 @@ describe('POST /api/agent/meeting-ingest', () => {
   })
 
   // 4
-  it('returns the summary — created, skipped-duplicate, and skipped-unmapped-tenant', async () => {
+  it('returns the summary — created, skipped-duplicate, skipped-unmapped-tenant, allowlisted', async () => {
     mockSql([{ tenant_id: PLATFORM_TENANT }])
     const res = await post({})
 
@@ -121,9 +122,35 @@ describe('POST /api/agent/meeting-ingest', () => {
     expect(await res.json()).toEqual({
       proposalsCreated: 2,
       skippedDuplicate: 1,
-      // Visible, never silently zero: this number is how an operator tells "no work"
-      // apart from "the tenant map is missing an entry".
+      // Caller-scoped: rows this caller's own read returned and the map then refused.
       skippedUnmappedTenant: 3,
+      // Visible, never silently absent: this flag is how an operator tells "no work"
+      // apart from "the tenant map is missing an entry" — without the response ever
+      // reporting another tenant's volume.
+      tenantAllowlisted: true,
+    })
+  })
+
+  it('never reports another tenant\'s volume — an unallowlisted caller gets a flag, not a count', async () => {
+    mockSql([{ tenant_id: PLATFORM_TENANT }])
+    runMeetingIngest.mockResolvedValue({
+      proposalsCreated: 0,
+      skippedDuplicate: 0,
+      skippedUnmappedTenant: 0,
+      tenantAllowlisted: false,
+      proposalIds: [],
+      runId: 'run_2',
+    })
+
+    const res = await post({})
+
+    // Regression pin: the summary once carried a system-wide count of promoted rows,
+    // which let an unallowlisted org read the total volume across every other tenant.
+    expect(await res.json()).toEqual({
+      proposalsCreated: 0,
+      skippedDuplicate: 0,
+      skippedUnmappedTenant: 0,
+      tenantAllowlisted: false,
     })
   })
 

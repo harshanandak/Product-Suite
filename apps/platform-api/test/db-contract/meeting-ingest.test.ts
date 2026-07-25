@@ -183,9 +183,20 @@ describe.skipIf(!hasNeonCreds())(
         expect(proposals).toHaveLength(1)
         expect(proposals[0]!.context_ref).toBe(wanted)
         expect(proposals[0]!.payload.title).toBe('The one that should be proposed')
-        // The other tenant's promoted row is visible to the job but refused, and the
-        // refusal is REPORTED rather than swallowed.
-        expect(result.skippedUnmappedTenant).toBe(1)
+
+        // The other tenant's promoted row is never READ, so it is never proposed for
+        // anyone — the strongest form of the guarantee. And the caller learns nothing
+        // about it: `skippedUnmappedTenant` counts only rows this caller's own scope
+        // returned, so an out-of-scope row leaves it at 0 rather than disclosing that
+        // somebody else has promoted work.
+        expect(result.skippedUnmappedTenant).toBe(0)
+        expect(result.tenantAllowlisted).toBe(true)
+        const foreignProposals = await query(
+          sql,
+          `select id from proposals where tenant_id = $1`,
+          [otherTenantId],
+        )
+        expect(foreignProposals).toHaveLength(0)
       })
     })
 
