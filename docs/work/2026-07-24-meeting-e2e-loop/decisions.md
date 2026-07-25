@@ -233,7 +233,11 @@ command receives `source: 'meeting'`. Reading the value back out of a live
 
 ---
 
-## D12 — Where `skippedUnmappedTenant` comes from (Task B.2)
+## D12 — Where `skippedUnmappedTenant` comes from (Task B.2) — **SUPERSEDED by D23**
+
+> The cross-tenant count described below leaked other tenants' promoted volume and has
+> been removed. Read **D23** for what ships; this entry is kept as the record of the
+> reasoning that was wrong.
 
 B.3's RED test 4 requires the unmapped count to be *visible, not silently zero*.
 But the candidate read is tenant-scoped in SQL, so by construction it returns no
@@ -409,3 +413,60 @@ This is a real limitation, not a defect in the anchoring logic (refusing to gues
 which org to write to is correct). Resolving it needs the screen to pass the ACTIVE
 org, which means deciding what the `$workspace` route param maps to — out of scope
 for C.3 and filed as kernel issue **`c3c60c5b`** rather than guessed at here.
+
+---
+
+## D23 — D12 SUPERSEDED: the unmapped *count* leaked other tenants' volume (PR #148 review)
+
+**D12 claimed "a number leaks nothing across tenants". That was wrong**, and CodeRabbit
+was right to flag it. `countUnmappedCandidates` counted promoted+generated
+`action_items` rows *outside* the caller's allowed meeting tenants and returned the
+figure to the caller as `skippedUnmappedTenant`. Two consequences:
+
+- **The degenerate case was the bad one.** With no allowed meeting tenants the
+  exclusion clause was empty, so the query counted **every promoted row system-wide**.
+  Any org member whose tenant is simply not in the allowlist could call the endpoint
+  and read the total volume of promoted candidates across every other tenant.
+- Even when allowlisted, the count included rows belonging to *other, legitimately
+  mapped* tenants — so it both leaked their volume and misreported them as "unmapped".
+
+**Decision.** The cross-tenant query is **deleted**, not narrowed. B.3 test 4's real
+requirement — a fail-closed map must not be silent — is met by a new caller-scoped
+field, `tenantAllowlisted: boolean`, false when the caller's platform tenant has no
+entry in the map. That is a fact about the caller's OWN configuration, so reporting it
+discloses nothing, and it answers "why did no proposals appear" more directly than a
+count the caller could not act on. An operator-facing `console.warn` names the tenant.
+
+`skippedUnmappedTenant` survives with a narrower, honest meaning: the D10 in-code
+re-check only, counted over rows the caller's own scoped read returned. Structurally
+near-zero — which is the point, since it is now a defence-in-depth signal rather than
+a survey of the database.
+
+**Cheaper, too.** The ingest no longer aggregates over `action_items` at all; the unit
+harness now *throws* on any `count(` against that table so the leak cannot return.
+
+---
+
+## D24 — The ingest dedups sequential runs, NOT concurrent ones (known gap, filed)
+
+CodeRabbit correctly found that `createProposal` runs before the ledger write, so two
+simultaneous ingests both pass the ledger read, both insert a proposal, and only one
+wins `meeting_promotions`' unique index — the loser's proposal survives as a duplicate
+pending row (`proposals.context_ref` has no unique index).
+
+**Not fixed in this PR, and not papered over.** Both textbook fixes are blocked:
+reserving the ledger row first is impossible while `proposal_id` is `NOT NULL` with an
+immediate FK to a proposal that does not yet exist, and Neon's HTTP driver has no
+interactive transaction to roll the proposal back (`provenance/record-write.ts:16`).
+The three viable designs — a single-statement CTE, a nullable `proposal_id` with
+reclaim logic, or a partial unique index on `proposals` — each need a schema or writer
+change, which is not a thing to improvise in a review round.
+
+**Filed as kernel issue `714225a1`** with the mechanism, the blocked fixes, and the
+three designs. What this PR does change is the **comment that claimed the unique index
+already decided the winner** — it did not, and a comment promising a guarantee the code
+does not provide is worse than the gap itself.
+
+Bounded on purpose: human-triggered endpoint, no cron, the button guards the
+double-click (D19), and the surplus row is a *pending* proposal a reviewer rejects —
+propose-only means no work item is created either way.
