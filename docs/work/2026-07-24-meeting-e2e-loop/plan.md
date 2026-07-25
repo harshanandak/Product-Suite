@@ -7,6 +7,13 @@
 not re-decide anything; it records the decision, grounds every mechanical detail in a cited source,
 and hands `/dev` a task list.
 
+> **SUPERSEDED IN PART — Task 0's reality check (2026-07-24).** The scout's TASK-0 VERDICT on the
+> kernel issue found the meeting tables **already live in Neon's `public` schema** and PR20's Supabase
+> cutover **never completed**. Slice A therefore has nothing to move: **A.1 is cancelled, A.4 and A.5
+> are moot**, and both prod-write gates in §9 dissolve. Slice B reads `public.action_items` in the
+> shared database. §3, §4 and §9 below are annotated accordingly; the goal, the brief alignment
+> (§2), and Slices B/C are unaffected — they got *easier*, which was Slice A's whole point.
+
 ---
 
 ## 1. Goal
@@ -18,7 +25,7 @@ The loop reuses the moat loop verified green on 2026-07-24 (`apps/platform-web/e
 end-to-end — propose → Review Inbox → accept → validated write. Nothing in this plan writes a work
 item directly. **Propose-only.**
 
-```
+```text
 meeting-api extraction          platform-api ingest              EXISTING (unchanged)
 ─────────────────────────       ─────────────────────────        ────────────────────────
 chapter_summary.py              read meeting.action_items        proposals row (pending)
@@ -62,18 +69,31 @@ Run in parallel by another agent. Its report answers three questions and **sizes
 2. Railway meeting-api liveness — is the service actually serving?
 3. Neon has no `meeting` schema (expected; confirm).
 
-Outcome routes Slice A to one of:
+Outcome was expected to route Slice A to one of:
 - **(a) schema-apply only** — zero rows. Apply the schema to Neon, repoint, done. Expected case.
 - **(b) small copy** — a handful of rows. `pg_dump --schema=meeting` → restore, inside the same task.
 - **(c) real migration** — meaningful data. Slice A grows a data-movement task with its own backup
   proof; **stop and re-plan** rather than improvising a copy.
 
-Task 0.1 consumes the report and records which branch is live. No code.
+**Actual outcome (2026-07-24): none of the three — Slice A dissolves.** Question 3's premise was
+false. The meeting tables are **already in Neon's `public` schema** (all 11, `alembic_version` at
+`0005`); PR20's Supabase cutover never completed (`Status: dev`, smoke gate unpassed, legacy keys
+disabled 2025-12-29, no Supabase connection string in any config); both hosted meeting deployments
+404; and the data is 2 stale test meetings with 0 extraction rows. Tenancy is already physically
+unified on `public.tenants`. **A.1 cancelled, A.4/A.5 moot.** Full verdict and consequences: Task 0.1
+in [`tasks.md`](./tasks.md), from the TASK-0 VERDICT comment on the kernel issue.
 
-## 4. Slice A — cut the meeting DB back to Neon
+## 4. Slice A — cut the meeting DB back to Neon *(mostly cancelled by Task 0)*
 
-**What.** Create the `meeting` schema inside the **shared Neon platform database** and point
-meeting-api's `DATABASE_URL` at it. Supabase becomes rollback-only, then dead.
+> **What actually happened.** Slice A's objective — meeting tables in the shared Neon database — was
+> **already true** before the slice started (§3). The schema work (A.1) is cancelled and the
+> operational steps (A.4, A.5) are moot. What ships from this slice is the **tooling**: A.2's
+> direction-agnostic preflight and A.3's target-agnostic smoke, both now vendor-neutral and reusable
+> by whatever future move I5 decides. §4's schema analysis below is retained as the record of what was
+> designed, and as the input to I5 — not as work to do.
+
+**What was intended.** Create the `meeting` schema inside the **shared Neon platform database** and
+point meeting-api's `DATABASE_URL` at it. Supabase becomes rollback-only, then dead.
 
 **Schema source.** `infra/supabase/migrations/20260606093937_create_meeting_schema.sql` — adapted:
 
@@ -94,13 +114,25 @@ meeting-api's `DATABASE_URL` at it. Supabase becomes rollback-only, then dead.
   version row it must live in the `meeting` schema, not `public`.
 
 **Where the migration lives.** `packages/db/migrations/` is Drizzle's journal-ordered chain (0000 →
-0014) and `packages/db/src/schema.ts` is its source of truth. The meeting tables are **not** Drizzle-
-modelled in this slice (that is I5). Two options; the task list picks **A**: hand-authored SQL in the
-Drizzle chain as `0015_meeting_schema.sql` with a matching journal entry, and the meta snapshot chain
-regenerated from a clean checkout (a known trap — worktrees cannot resolve `drizzle-orm`; see the
-`check-migration-parity` gate at `scripts/check-migration-parity.mjs`). This keeps ONE migration
-runner for the Neon database. The alternative (a separate meeting-only runner) is rejected: two
-runners against one database is exactly the drift this slice exists to remove.
+0014 at planning time) and `packages/db/src/schema.ts` is its source of truth. The meeting tables are
+**not** Drizzle-modelled in this slice (that is I5). Two options; hand-authored SQL in the Drizzle
+chain wins over a separate meeting-only runner — two runners against one database is exactly the drift
+this slice exists to remove.
+
+**As built, after Task 0 cancelled A.1** — the numbering and the snapshot question resolved as
+follows (D1 and D2 in [`decisions.md`](./decisions.md)):
+
+- **`0015` is `0015_meeting_promotions.sql`** — B.1's dedup ledger, the only migration this plan
+  ships. It took the next free number because the journal must be a contiguous `0..N` sequence;
+  reserving `0015` for A.1's unwritten migration would have kept `check-migration-parity`
+  (`scripts/check-migration-parity.mjs`) red.
+- **`0016` is reserved for a future meeting schema** if I5 ever needs one. It is not written here.
+- **Snapshot regeneration is deferred, not done.** `packages/db/migrations/meta/` holds snapshots for
+  `0000`–`0011` only; `0012`–`0014` each shipped hand-authored SQL and a journal entry with no
+  snapshot. The parity gate compares the journal against the `.sql` files and never reads snapshots.
+  Adding a lone `0015` snapshot on top of a chain that stops at `0011` would be a fabricated link, so
+  regenerating `0012`–`0015` from a clean primary checkout (a worktree cannot resolve `drizzle-orm`)
+  is filed as a repo-wide chore instead.
 
 **Preflight/smoke, reversed.** PR20 shipped real tooling; reuse it rather than writing new:
 
@@ -109,16 +141,20 @@ runners against one database is exactly the drift this slice exists to remove.
   `buildTargetReadinessSql({schemaName})` (77), `evaluatePreflight({sourceRows, targetTables,
   targetExtensions, approvedDataMigration})` (116), `runPreflight()` (184). Run via
   `bun run preflight:meeting-cutover` (`package.json:27`).
-  **The reversal is one change**: `runPreflight` currently hardcodes source `schemaName: "public"`
-  (Neon) and target `schemaName: "meeting"` (Supabase) at lines 197–198. Both sides must become
-  parameterised, because the new direction is source `meeting` (Supabase) → target `meeting` (Neon).
-  The fail-closed gate (`approvedDataMigration`) and the row-count/extension checks are direction-
-  agnostic and stay exactly as they are.
+  **The reversal was one change**: `runPreflight` hardcoded source `schemaName: "public"` (Neon) and
+  target `schemaName: "meeting"` (Supabase). Both sides are now parameterised — and, after review, so
+  are the connection slots (`MEETING_PREFLIGHT_SOURCE_DATABASE_URL` / `..._TARGET_DATABASE_URL`) and
+  the provider labels recorded in the archived report (`MEETING_PREFLIGHT_SOURCE_PROVIDER` /
+  `..._TARGET_PROVIDER`, `unspecified` when unset). No vendor name is hardcoded anywhere, so archived
+  evidence can no longer misname the side it describes. The fail-closed gate
+  (`approvedDataMigration`) and the row-count/extension checks are direction-agnostic and unchanged.
 - `test/meeting-cutover-preflight.test.js` and `test/meeting-supabase-cutover-docs.test.js` — the
   existing unit + docs tests; both are in the `test:repo-tooling` suite (`package.json:41`).
-- `apps/meeting-api/tests/backend/test_supabase_create_read_smoke.py` — a real create/read against a
-  live Postgres, gated on `MEETING_SUPABASE_SMOKE_DATABASE_URL`. Generalise the gate env var so the
-  same smoke proves the **Neon** target.
+- `apps/meeting-api/tests/backend/test_target_db_create_read_smoke.py` (renamed from
+  `test_supabase_create_read_smoke.py`) — a real create/read against a live Postgres, now gated on
+  `MEETING_TARGET_SMOKE_DATABASE_URL` with the Supabase-specific variable still honoured, so the same
+  smoke proves **any** target Postgres. Its no-database assertions live in the sibling
+  `test_target_db_smoke_config.py` (D6).
 - `docs/deployment/MEETING_SUPABASE_CUTOVER.md` — the runbook (preflight → cutover order → rollback →
   retirement criteria). Gets a reverse-direction section; the docs test enforces it stays honest.
 
@@ -135,9 +171,12 @@ A new ingest module in `apps/platform-api`. Five parts, all inside the existing 
 ```sql
 select id, tenant_id, meeting_id, text, evidence_refs, confidence, promotion_reason,
        chapter_summary_id, created_at
-from meeting.action_items
+from public.action_items
 where record_origin = 'generated' and review_status = 'promoted' and tenant_id = $1
 ```
+
+**`public`, not `meeting`** — per Task 0 the tables were never moved out of Neon's `public` schema, so
+Slice A's schema qualifier is the one thing about Slice B that changed. Everything else below stands.
 
 Column shapes verified against the migration: `id text primary key`, `tenant_id text not null`,
 `text text not null`, `evidence_refs jsonb default '[]'`, `record_origin text default 'generated'`,
@@ -175,9 +214,9 @@ not a row rowid, not a timestamp — the only stable dedup key.
 
 New table in the platform (Neon) schema:
 
-```
+```text
 meeting_promotions
-  meeting_record_id  text     -- the content-derived meeting.action_items.id
+  meeting_record_id  text     -- the content-derived public.action_items.id
   tenant_id          text     -- PLATFORM tenant uuid (post-map)
   proposal_id        uuid     -- → proposals.id
   created_at         timestamptz
@@ -298,27 +337,35 @@ The spec proves the loop, not the UI: it is the definition of done for this whol
 - No meeting UI rewrite; `apps/meeting-web` untouched.
 - No SEARCH edge.
 
-## 9. Prod-write gates — [NEEDS USER GO]
+## 9. Prod-write gates — **all withdrawn (Task 0)**
 
-Every step below mutates real infrastructure and **requires the user's explicit go-ahead at execution
-time**. Writing the code and tests for them does not.
+Both gates below existed to guard Slice A's infrastructure writes. Task 0 established there is nothing
+to write: the schema already exists in Neon `public`, and no hosted meeting service is running. **This
+plan now contains no step that mutates real infrastructure**, so it needs no execution-time go-ahead.
 
-1. **A.4 — apply the `meeting` schema to the shared Neon database.** A real DDL write to the
-   production platform DB.
-2. **A.4 — data copy** (only if Slice 0 lands on branch (b)/(c)). Requires backup proof; the
-   preflight's `approvedDataMigration` gate is fail-closed by design and must not be flipped to pass.
-3. **A.5 — repoint meeting-api's `DATABASE_URL` on Railway** and redeploy. This is the cutover.
-4. **A.5 — Supabase retirement** (a later, separate decision). Not in this plan; Supabase stays as
-   the rollback target.
+1. ~~**A.4 — apply the `meeting` schema to the shared Neon database.**~~ **MOOT** — already present.
+2. ~~**A.4 — data copy.**~~ **MOOT** — no populated source; PR20's Supabase project was never
+   populated and its keys are disabled. The preflight's `approvedDataMigration` gate stays fail-closed
+   by design for any future move, and must never be flipped just to pass.
+3. ~~**A.5 — repoint meeting-api's `DATABASE_URL` on Railway** and redeploy.~~ **MOOT** — the hosted
+   service 404s; there is nothing to repoint.
+4. ~~**A.5 — Supabase retirement.**~~ Out of scope, as before, and now trivially so: nothing depends
+   on the Supabase project.
+
+**If a future cutover is ever decided**, it re-earns its own gates and its own plan. Nothing here
+pre-approves it.
 
 ## 10. Sources
 
 - Kernel issue `end-to-end-meeting-0c1a2ac1`, DESIGN DECIDED comment 2026-07-24 — the decision record.
+- Kernel issue `end-to-end-meeting-0c1a2ac1`, **TASK-0 VERDICT** comment 2026-07-24 — the reality
+  check that cancelled A.1 and mooted A.4/A.5.
 - `docs/design/2026-07-10-meeting-module-rewrite-and-integration.md` — §I2, §3 stop-list, §4 sequencing.
 - `infra/supabase/migrations/20260606093937_create_meeting_schema.sql` — the schema to adapt.
 - `scripts/meeting-cutover-preflight.mjs`, `test/meeting-cutover-preflight.test.js`,
   `test/meeting-supabase-cutover-docs.test.js`, `docs/deployment/MEETING_SUPABASE_CUTOVER.md`,
-  `apps/meeting-api/tests/backend/test_supabase_create_read_smoke.py` — PR20's preflight/smoke machinery.
+  `apps/meeting-api/tests/backend/test_target_db_create_read_smoke.py` (+ `test_target_db_smoke_config.py`)
+  — PR20's preflight/smoke machinery, generalised by A.2/A.3.
 - `apps/meeting-api/backend/server.py` ~2156-2215 — the delete/re-insert rematerialization.
 - `apps/meeting-api/backend/config.py:125`, `backend/settings.py:56` — generic Postgres `DATABASE_URL`.
 - `apps/platform-api/src/agent/reflection.ts:106-112` — the run-minting + `createProposal` model.
