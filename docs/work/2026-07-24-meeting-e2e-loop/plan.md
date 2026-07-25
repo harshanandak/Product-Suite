@@ -28,10 +28,10 @@ item directly. **Propose-only.**
 ```text
 meeting-api extraction          platform-api ingest              EXISTING (unchanged)
 ─────────────────────────       ─────────────────────────        ────────────────────────
-chapter_summary.py              read meeting.action_items        proposals row (pending)
+chapter_summary.py              read public.action_items         proposals row (pending)
 extract_generated_records  ───► where record_origin='generated'  ──► Review Inbox
   ↳ content-derived ids             and review_status='promoted'     ↳ human Accept
-  ↳ confidence                  ↳ tenant map (TEXT → uuid)          ↳ applyProposal()
+  ↳ confidence                  ↳ tenant allowlist (fail-closed)    ↳ applyProposal()
   ↳ review_status               ↳ dedup ledger (skip seen)          ↳ createWorkItem
                                 ↳ mint agent_run + createProposal   ↳ workboard
 ```
@@ -57,9 +57,10 @@ until 2026-06-03, and the brief's own endgame is Drizzle-owned tables on Neon an
 meeting DB back to the shared Neon instance dissolves the cross-DB transfer, service-auth, and
 tenant-id-shape risks **at the root** rather than engineering around them.
 
-**I1 / I5 / the full rewrite stay a separate filed epic** (`91612c3f`) and get *easier*: after Slice A
-the meeting tables are already in the same Postgres as `teams`/`work_items`, so I5's Drizzle adoption
-and I1's `tenant_id` FK become in-database refactors instead of cross-service migrations.
+**I1 / I5 / the full rewrite stay a separate filed epic** (`91612c3f`) and get *easier*: the meeting
+tables are already in the same Postgres as `teams`/`work_items` — Slice A was meant to put them there,
+and Task 0 found them already there — so I5's Drizzle adoption and I1's `tenant_id` FK become
+in-database refactors instead of cross-service migrations.
 
 ## 3. Slice 0 — reality check (input, not work)
 
@@ -158,9 +159,15 @@ follows (D1 and D2 in [`decisions.md`](./decisions.md)):
 - `docs/deployment/MEETING_SUPABASE_CUTOVER.md` — the runbook (preflight → cutover order → rollback →
   retirement criteria). Gets a reverse-direction section; the docs test enforces it stays honest.
 
-**Rollback.** Supabase stays intact and reachable until the Neon smoke passes. Rollback = set
-`DATABASE_URL` back to the Supabase runtime URL and redeploy — the same shape the PR20 runbook already
-documents. Nothing is dropped from Supabase in this slice.
+**Rollback — historical; moot after Task 0.** As designed: Supabase stays intact and reachable until
+the Neon smoke passes, and rollback = set `DATABASE_URL` back to the Supabase runtime URL and redeploy,
+the same shape the PR20 runbook documents.
+
+**There is nothing to roll back to.** Task 0 found PR20's Supabase project unpopulated with its legacy
+keys disabled (2025-12-29) and no Supabase connection string in any config, and the cutover this
+rollback guarded (A.5) is moot. Do not treat Supabase as a live fallback: an operator who tried would
+be repointing a running service at credentials that no longer work. The retirement question is
+likewise moot — nothing depends on the project.
 
 ## 5. Slice B — the promote bridge (platform-api, same DB)
 
@@ -184,18 +191,25 @@ Column shapes verified against the migration: `id text primary key`, `tenant_id 
 text`, `source_window_start/end double precision`.
 
 Same-database read via the platform's own `sql` handle — no HTTP, no service token, no cross-DB
-transfer. This is the whole point of doing Slice A first.
+transfer. This was the whole point of doing Slice A first; Task 0 found it was already true, which is
+why Slice A dissolved rather than being skipped.
 
-### 5.2 Explicit tenant map — fail-closed
+### 5.2 Explicit tenant allowlist — fail-closed
 
-Meeting ids are TEXT (`meeting.tenants.id text primary key`); platform `tenant_id` is a Clerk-bridged
-uuid-shaped TEXT (`proposals.tenantId: text('tenant_id')`, `packages/db/src/schema.ts`). There is no
-derivation between them and inventing one is how cross-tenant leaks happen.
+**As planned**, this was a TEXT→uuid *map*: meeting ids were assumed to live in a separate
+`meeting.tenants` table with no derivation to the platform's `tenant_id`, and inventing one is how
+cross-tenant leaks happen.
 
-**Decision: an explicit map, pilot tenant only, fail-closed.** An unmapped meeting `tenant_id` is
-**skipped and reported**, never guessed, never defaulted. The task list implements it as config
-(env-driven, one pair) so it needs no migration and no UI; a table is the natural upgrade when a
-second tenant arrives.
+**Task 0 removed the id-shape problem, not the gate.** Tenancy is already physically unified:
+`public.tenants` is shared by the meeting FKs *and* by `work_items`/`projects`, and
+`work_items.tenant_id` is TEXT. A meeting `tenant_id` **is** the platform tenant id — there is nothing
+to translate.
+
+**Decision: an explicit allowlist, pilot tenant only, fail-closed.** The gate stays exactly as
+designed, because "no translation needed" is not "any tenant may ingest": a tenant id absent from the
+allowlist is **skipped and reported**, never guessed, never defaulted, never widened to "the only
+tenant". The task list implements it as config (env-driven) so it needs no migration and no UI; a
+table is the natural upgrade when a second tenant arrives.
 
 ### 5.3 Dedup ledger — keyed to survive rematerialization
 
@@ -316,7 +330,7 @@ Extend the harness in `apps/platform-web/e2e/` with `meeting-loop.spec.ts`, mode
 persisted-provenance assertion. Local mode, real Neon, Clerk testing token via
 `setupClerkTestingToken` in `beforeEach`.
 
-Shape: **seed** a `meeting.action_items` row (`record_origin='generated'`,
+Shape: **seed** a `public.action_items` row (`record_origin='generated'`,
 `review_status='promoted'`, unique content-derived id per run — `moat-loop.spec.ts` uses a
 `Date.now()` suffix for exactly this reason) → **trigger** ingest → the proposal appears in the
 Review Inbox pending list (`getByRole("list", { name: "Pending proposals" })`) → **accept**
@@ -333,7 +347,8 @@ The spec proves the loop, not the UI: it is the definition of done for this whol
 - No auth unification; meeting-api keeps HMAC/Neon-JWKS — I1, and its callers need a machine-
   credential answer first (the brief's open question 1).
 - No cron / autonomous ingest.
-- No bidirectional sync; nothing writes into `meeting.*`.
+- No bidirectional sync; nothing writes into the meeting-owned tables (`public.action_items` and its
+  siblings). The ledger is one-way and platform-owned.
 - No meeting UI rewrite; `apps/meeting-web` untouched.
 - No SEARCH edge.
 

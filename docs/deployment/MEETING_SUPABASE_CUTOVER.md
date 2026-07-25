@@ -89,6 +89,17 @@ Until then, keep Neon available until Meeting create/read smoke tests pass again
 
 # Reverse Cutover: Supabase → Neon
 
+> **This specific cutover is MOOT — do not execute it.** A 2026-07-24 reality check found the meeting
+> tables already resident in Neon's `public` schema, PR20's Supabase cutover never completed (legacy
+> keys disabled 2025-12-29, no Supabase connection string in any config), and both hosted meeting
+> deployments returning 404. There is no populated Supabase source to move *from* and no running
+> service to repoint. Attempting the steps below would authenticate against dead credentials.
+>
+> The section is retained because the **tooling** is direction-agnostic and reusable: the preflight
+> takes its source/target connection slots, schemas and provider labels as parameters, and the smoke
+> proves any target Postgres. Read this as the worked example for a *future* move — which needs its own
+> plan and its own approval — not as a runbook to execute today.
+
 The sections above describe PR20's original direction (Neon `public` source → Supabase `meeting` target). The Meeting database is now moving **back** to the shared Neon platform database, into a Neon-resident `meeting` schema. The same preflight, the same smoke and the same fail-closed gate cover this direction — nothing is forked, only re-pointed.
 
 Direction summary:
