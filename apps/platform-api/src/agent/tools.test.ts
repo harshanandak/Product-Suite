@@ -110,20 +110,29 @@ describe('buildTools (ToolRegistry)', () => {
     const memHits = [
       { id: 'mem_1', kind: 'decision', title: 'Use PG', status: 'active', topics: ['db'], root_id: 'mem_1' },
     ]
+    // Two lanes now: the ORG lane answers, the caller's private lane finds nothing.
     const query = vi.fn(async (text: string, _params: unknown[]) =>
-      /from "memories"/i.test(text) ? memHits : [],
+      /from "memories"/i.test(text) && !/visibility = 'private'/.test(text) ? memHits : [],
     )
     const sql = vi.fn() as unknown as Sql
     ;(sql as unknown as { query: typeof query }).query = query
     const tools = buildTools(sql, { tenantId: 't_1', userId: 'u_1', runId: 'run_1', modelId: 'm/1' })
 
     const result = await tools.search_memory?.execute?.({ query: 'pg' }, opts)
-    expect(result).toEqual({ hits: memHits })
-    // The moat rail: one attribution per returned memory, stamped injected_via='tool'.
+    // Each hit is labelled with the tier that answered it.
+    expect(result).toEqual({ hits: memHits.map((h) => ({ ...h, visibility: 'org' })) })
+    // The moat rail: one attribution per returned memory, stamped injected_via='tool'
+    // and carrying the tier (9 bound params per row).
     const attr = query.mock.calls.find(([t]) => /run_memory_attributions/i.test(String(t)))
     expect(attr).toBeDefined()
     const params = (attr?.[1] ?? []) as unknown[]
     expect(params.slice(0, 4)).toEqual(['run_1', 'mem_1', 't_1', 'tool'])
+    expect(params.slice(7, 9)).toEqual(['org', false])
+    // The private lane is bound to the CALLER — the tool searches with the asking
+    // human's reach, not the agent's.
+    const privLane = query.mock.calls.find(([t]) => /visibility = 'private'/.test(String(t)))
+    expect(privLane).toBeDefined()
+    expect(privLane?.[1] as unknown[]).toContain('u_1')
   })
 
   it('omits search_memory entirely when ctx.holdout=true (no tool path into memory); keeps it when false/omitted', async () => {

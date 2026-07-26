@@ -338,6 +338,101 @@ describe('runAgentChat (request-free runtime + agent_runs lifecycle)', () => {
     expect(params).toContain('mem_2')
   })
 
+  it('threads the RUN OWNER through as the asker, so both private lanes are bound to them', async () => {
+    streamText.mockImplementation(() => fakeStreamResult())
+    const query = vi.fn(async (text: string, _params: unknown[]) => {
+      if (/insert into "agent_runs"/i.test(text)) return [{ id: 'run_1' }]
+      return []
+    })
+    const sql = vi.fn() as unknown as Sql
+    ;(sql as unknown as { query: typeof query }).query = query
+
+    await runAgentChat(
+      sql,
+      { tenantId: 't_1', userId: 'u_alice', model: fakeModel, threadId: 'th_holdout_probe_out_0' },
+      [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }] as unknown as UIMessage[],
+    )
+
+    // Both legs run a private lane, and each is bound to the run's own user — never a
+    // wildcard and never the agent's own reach.
+    const privateLanes = query.mock.calls.filter(([t]) => /visibility = 'private'/.test(String(t)))
+    expect(privateLanes).toHaveLength(2)
+    expect(privateLanes.some(([t]) => /kind = 'rule'/.test(String(t)))).toBe(true)
+    for (const [, params] of privateLanes) {
+      expect(params as unknown[]).toContain('u_alice')
+    }
+  })
+
+  it('renders the personal fences LAST, after both org fences', async () => {
+    streamText.mockImplementation(() => fakeStreamResult())
+    const query = vi.fn(async (text: string, _params: unknown[]) => {
+      if (/insert into "agent_runs"/i.test(text)) return [{ id: 'run_1' }]
+      if (/visibility = 'private'/.test(text)) {
+        return /kind = 'rule'/.test(text)
+          ? [{ id: 'pr_1', title: 'MYRULE', body: '', attrs: null, pinned: false, priority: 0, scope_type: 'org' }]
+          : [{ id: 'pm_1', kind: 'fact', title: 'MYNOTE', body: '', scope_type: 'org' }]
+      }
+      if (/kind = 'rule'/.test(text)) {
+        return [{ id: 'r_1', title: 'ORGRULE', body: '', attrs: null, pinned: false, priority: 0, scope_type: 'org' }]
+      }
+      if (/from "memories"/i.test(text)) return [{ id: 'm_1', kind: 'decision', title: 'ORGDEC', body: '', scope_type: 'org' }]
+      return []
+    })
+    const sql = vi.fn() as unknown as Sql
+    ;(sql as unknown as { query: typeof query }).query = query
+
+    await runAgentChat(
+      sql,
+      { tenantId: 't_1', userId: 'u_alice', model: fakeModel, threadId: 'th_holdout_probe_out_0' },
+      [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }] as unknown as UIMessage[],
+    )
+
+    const { system } = streamText.mock.calls[0]?.[0] as { system: string }
+    // Org policy occupies the stable header positions; personal content is the tail,
+    // so a truncated prompt degrades the least load-bearing lane first.
+    const orgMem = system.indexOf('<org_memory')
+    const teamRules = system.indexOf('<team_rules')
+    const yourCtx = system.indexOf('<your_context')
+    const yourRules = system.indexOf('<your_rules')
+    for (const i of [orgMem, teamRules, yourCtx, yourRules]) expect(i).toBeGreaterThan(-1)
+    expect(yourCtx).toBeGreaterThan(teamRules)
+    expect(yourRules).toBeGreaterThan(teamRules)
+    expect(orgMem).toBeLessThan(teamRules)
+    // And personal content is never inside an org fence.
+    expect(system.slice(orgMem, teamRules)).not.toContain('MYNOTE')
+    expect(system.slice(teamRules, Math.min(yourCtx, yourRules))).not.toContain('MYRULE')
+  })
+
+  it('injects NO personal fence on a holdout run, but still attributes the private counterfactual', async () => {
+    streamText.mockImplementation(() => fakeStreamResult())
+    const query = vi.fn(async (text: string, _params: unknown[]) => {
+      if (/insert into "agent_runs"/i.test(text)) return [{ id: 'run_1', memory_holdout: true }]
+      if (/visibility = 'private'/.test(text) && !/kind = 'rule'/.test(text)) {
+        return [{ id: 'pm_1', kind: 'fact', title: 'MYNOTE', body: '', scope_type: 'org' }]
+      }
+      return []
+    })
+    const sql = vi.fn() as unknown as Sql
+    ;(sql as unknown as { query: typeof query }).query = query
+
+    await runAgentChat(
+      sql,
+      // hashUnitInterval('th_holdout_probe_100') ≈ 0.049 < 0.10 → holdout true.
+      { tenantId: 't_1', userId: 'u_alice', model: fakeModel, threadId: 'th_holdout_probe_100' },
+      [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }] as unknown as UIMessage[],
+    )
+
+    const { system } = streamText.mock.calls[0]?.[0] as { system: string }
+    expect(system).not.toContain('<your_context')
+    expect(system).not.toContain('MYNOTE')
+    // The counterfactual is still logged with its tier — that is the whole point of
+    // the holdout arm, and per-tier measurement needs the private rows recorded.
+    const attr = query.mock.calls.find(([t]) => /insert into "run_memory_attributions"/i.test(String(t)))
+    const params = (attr?.[1] ?? []) as unknown[]
+    expect(params).toContain('private')
+    expect(params).toContain(true)
+  })
+
   it('appends the Team-rules fence and attributes pinned + retrieved rules in ONE atomic insert', async () => {
     streamText.mockImplementation(() => fakeStreamResult())
     const ruleRows = [
@@ -369,8 +464,11 @@ describe('runAgentChat (request-free runtime + agent_runs lifecycle)', () => {
     const attrCalls = query.mock.calls.filter(([t]) => /insert into "run_memory_attributions"/i.test(String(t)))
     expect(attrCalls).toHaveLength(1)
     const params = (attrCalls[0]?.[1] ?? []) as unknown[]
+    // 9 bound params per row (the two tier columns are the last pair of each tuple).
     expect(params.slice(0, 4)).toEqual(['run_1', 'rule_pin', 't_1', 'pinned'])
-    expect(params.slice(7, 11)).toEqual(['run_1', 'rule_ret', 't_1', 'retrieved'])
+    expect(params.slice(7, 9)).toEqual(['org', false])
+    expect(params.slice(9, 13)).toEqual(['run_1', 'rule_ret', 't_1', 'retrieved'])
+    expect(params.slice(16, 18)).toEqual(['org', false])
   })
 
   it('keeps the decisions/facts fence + attribution when the RULES leg throws (isolated legs)', async () => {

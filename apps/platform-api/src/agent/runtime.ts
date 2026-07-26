@@ -283,9 +283,20 @@ export async function runAgentChat(
   // decisions/facts durably attributed but NOT injected (or vice-versa) would corrupt
   // the moat rail (attributed-but-not-injected). So each leg's fence is only appended
   // once THAT leg fully succeeds; a throw zeroes only its own fence.
+  //
+  // The PERSONAL lanes are bound to `ctx.userId` — the authenticated human this run
+  // acts for, resolved by the route from the caller's own claims. The agent retrieves
+  // with the CALLER's reach, never its own. Their fences are collected separately and
+  // appended LAST (after both org fences), so org policy holds the stable header
+  // positions and a truncated prompt degrades the least load-bearing lane first.
   let memoryFence = ''
+  let personalFence = ''
   try {
-    const memory = await retrieveForContext(sql, { tenantId: ctx.tenantId, scope: ctx.scope })
+    const memory = await retrieveForContext(sql, {
+      tenantId: ctx.tenantId,
+      scope: ctx.scope,
+      askerUserId: ctx.userId,
+    })
     // Attribution FIRST — inject ONLY once the moat rail is recorded. If the
     // attribution write fails we do NOT inject: memory silently influencing the run
     // with no evidence would corrupt the holdout signal (the whole point of the rail).
@@ -294,14 +305,23 @@ export async function runAgentChat(
       await insertAttributions(
         sql,
         { runId, tenantId: ctx.tenantId, via: 'retrieved', suppressed: holdout },
-        memory.injected.map((m) => ({ memoryId: m.memoryId, rank: m.rank, tokens: m.tokens })),
+        memory.injected.map((m) => ({
+          memoryId: m.memoryId,
+          rank: m.rank,
+          tokens: m.tokens,
+          visibility: m.visibility,
+          ownerMatched: m.ownerMatched,
+        })),
       )
     }
     // Holdout: attribute (the counterfactual is logged) but never fence — the model
-    // sees nothing.
+    // sees nothing. That applies to the personal lane identically: per-tier
+    // measurement needs the private rows RECORDED on a holdout run, and shown on none.
     memoryFence = holdout ? '' : memory.fenced
+    personalFence = holdout ? '' : memory.privateFenced
   } catch (cause) {
     memoryFence = ''
+    personalFence = ''
     console.error('[agent-runtime] memory injection failed', { runId, cause })
   }
   // Team rules (P2a) — a SEPARATE leg: the full active in-scope set, own sub-budget,
@@ -309,7 +329,11 @@ export async function runAgentChat(
   // split by how each rule entered: pinned rules are attributed 'pinned', the rest
   // 'retrieved'. A failure here leaves the decisions/facts fence above untouched.
   try {
-    const rules = await retrieveRulesForContext(sql, { tenantId: ctx.tenantId, scope: ctx.scope })
+    const rules = await retrieveRulesForContext(sql, {
+      tenantId: ctx.tenantId,
+      scope: ctx.scope,
+      askerUserId: ctx.userId,
+    })
     if (rules.injected.length > 0) {
       // ONE atomic insert — a per-row `via` means pinned + retrieved rules are recorded
       // together, so there is no partial-commit window that could leave a rule
@@ -317,14 +341,28 @@ export async function runAgentChat(
       await insertAttributions(
         sql,
         { runId, tenantId: ctx.tenantId, via: 'retrieved', suppressed: holdout },
-        rules.injected.map((m) => ({ memoryId: m.memoryId, rank: m.rank, tokens: m.tokens, via: m.via })),
+        rules.injected.map((m) => ({
+          memoryId: m.memoryId,
+          rank: m.rank,
+          tokens: m.tokens,
+          via: m.via,
+          visibility: m.visibility,
+          ownerMatched: m.ownerMatched,
+        })),
       )
     }
     // Holdout: same discipline — attribute the counterfactual, append no fence.
-    if (!holdout) memoryFence += rules.fenced
+    if (!holdout) {
+      memoryFence += rules.fenced
+      personalFence += rules.privateFenced
+    }
   } catch (cause) {
     console.error('[agent-runtime] rule injection failed', { runId, cause })
   }
+  // Personal content goes last, AFTER both org fences. It is a separate string right
+  // up to this point so a personal note can never land inside a fence the model reads
+  // as the organization's position.
+  memoryFence += personalFence
   // Step count is captured here (streamText.onFinish) and read when the UI stream
   // settles, so the persisted delta records how many tool/reasoning steps it took.
   let stepCount = 0

@@ -297,14 +297,26 @@ export function buildTools(sql: Sql, ctx: ToolContext): ToolSet {
       }),
       execute: async ({ query, limit, include_chain }) => {
         if (!ctx.tenantId) return { hits: [] }
-        const hits = await searchMemories(sql, ctx.tenantId, query, limit ?? 8)
+        // Bound to the CALLER's identity: the tool searches with the asking human's
+        // reach, so it can never read a private memory that a permission-scoped list
+        // query for that same user wouldn't return.
+        const hits = await searchMemories(sql, ctx.tenantId, query, limit ?? 8, ctx.userId)
         // Every returned memory logs an attribution (injected_via='tool') — the moat
         // rail. Best-effort: a logging failure must not fail the tool result.
         if (hits.length > 0) {
           await insertAttributions(
             sql,
             { runId: ctx.runId, tenantId: ctx.tenantId, via: 'tool' },
-            hits.map((h, i) => ({ memoryId: h.id, rank: i, tokens: null })),
+            // A private hit is owner-matched by construction: the private lane
+            // filtered on `owner_user_id = :asker` in SQL, and the DB CHECK forbids an
+            // org row from carrying an owner at all.
+            hits.map((h, i) => ({
+              memoryId: h.id,
+              rank: i,
+              tokens: null,
+              visibility: h.visibility,
+              ownerMatched: h.visibility === 'private',
+            })),
           ).catch((cause) => console.error('[search_memory] attribution failed', cause))
         }
         if (include_chain && hits.length > 0) {

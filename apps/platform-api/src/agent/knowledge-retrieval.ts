@@ -160,6 +160,17 @@ interface LaneSpec {
 }
 
 /**
+ * The KB's memory lanes are ORG-KNOWLEDGE ONLY. `searchKnowledge` takes no asking
+ * user, so it can never establish that a caller is entitled to a private memory —
+ * which means the only correct predicate is to exclude the private tier outright.
+ * Constrained explicitly rather than left off on the grounds that nothing writes
+ * private rows yet: an absent predicate becomes a leak the day one is written, and
+ * this seam is meant to fail closed. Giving the KB a real private lane needs the
+ * asker threaded through `search_knowledge` and is separate work.
+ */
+const ORG_VISIBILITY_ONLY = `visibility = 'org'`
+
+/**
  * Build ONE lane query (text + bound params). All four lanes share this so the
  * `, id asc` tie-break — appended to EVERY ORDER BY so equal distance/rank never
  * returns in arbitrary DB order — is a single source of truth. kNN orders by cosine
@@ -305,7 +316,7 @@ export async function searchKnowledge(sql: Sql, ctx: SearchKnowledgeCtx): Promis
       table: 'memories',
       columns: MEMORY_COLS,
       mode: 'knn',
-      extraWhere: ' and embedding is not null',
+      extraWhere: ` and ${ORG_VISIBILITY_ONLY} and embedding is not null`,
     })
     collect((await runQuery<MemoryRow>(sql, text, params)).map(memoryMeta))
   }
@@ -318,7 +329,13 @@ export async function searchKnowledge(sql: Sql, ctx: SearchKnowledgeCtx): Promis
 
   // 3b. FTS memories (skipped on holdout).
   if (!holdout) {
-    const { text, params } = buildLaneQuery({ ...laneBase, table: 'memories', columns: MEMORY_COLS, mode: 'fts' })
+    const { text, params } = buildLaneQuery({
+      ...laneBase,
+      table: 'memories',
+      columns: MEMORY_COLS,
+      mode: 'fts',
+      extraWhere: ` and ${ORG_VISIBILITY_ONLY}`,
+    })
     collect((await runQuery<MemoryRow>(sql, text, params)).map(memoryMeta))
   }
 
