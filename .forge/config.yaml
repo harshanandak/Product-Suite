@@ -56,3 +56,10 @@ layer1Rails:
     - schema_integrity
   toggleableRails:
     - tdd_intent
+merge:
+  auto:
+    enabled: true
+    rules:
+      - checks_green
+      - threads_resolved
+      - settle_min: 10
