@@ -585,7 +585,12 @@ this is a field-level restoration and not an exact one:
 
 Every other field was restored to its original value (`Seed item (pre-existing)`,
 feature/plan/medium, `source='manual'`, team + status unchanged,
-`applied_from_proposal_id=null`), and the row kept its original id. Nothing referenced
-the row (0 dependencies, 0 checks), so the approximation has no downstream reader other
-than `created_at` ordering. Two stray memories created from proposal rationale (F7) were
+`applied_from_proposal_id=null`), and the row kept its original id. **At the database
+level** nothing referenced it — 0 dependencies, 0 checks; application-level readers were
+not separately audited, so that is a schema-scope observation and not proof that no code
+reads the row by id or title. What bounds the risk is the restoration itself rather than
+the reference count: the row kept its original id and every field above, so any reader
+finding it by id or title sees the correct row. The exposure is confined to the two
+columns listed above — a reader that sorts or reasons about `created_at`, or one that
+branches on `actor_type`. Two stray memories created from proposal rationale (F7) were
 also removed.
