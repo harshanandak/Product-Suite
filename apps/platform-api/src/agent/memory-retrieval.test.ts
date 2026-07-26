@@ -8,7 +8,9 @@ import {
   fenceMemories,
   insertAttributions,
   MAX_PRIVATE_MEMORY_TOKEN_BUDGET,
+  MAX_PRIVATE_RULES_TOKEN_BUDGET,
   privateMemoryBudget,
+  privateRulesBudget,
   resolveChain,
   retrieveForContext,
   retrieveRulesForContext,
@@ -210,6 +212,69 @@ describe('retrieveRulesForContext (active rules, pinned-first, own fence)', () =
     expect(res.injected[0]!.memoryId).toBe('r_pin')
     expect(res.injected[0]!.via).toBe('pinned')
     expect(res.injected[1]!.via).toBe('retrieved')
+  })
+})
+
+describe('retrieveRulesForContext — the PRIVATE rules lane (a private rule reaches ONLY its owner)', () => {
+  const ruleRows = (owned: boolean) => [
+    {
+      id: owned ? 'r_priv' : 'r_org',
+      kind: 'rule',
+      title: owned ? 'MYRULE keep my diffs terse' : 'ORGRULE never pause design tasks',
+      body: '',
+      attrs: null,
+      pinned: false,
+      priority: 0,
+      scope_type: 'org',
+    },
+  ]
+  const rulesSql = () =>
+    mockSql((text) => (/visibility = 'private'/.test(text) ? ruleRows(true) : ruleRows(false)))
+
+  it('constrains the org rules lane to visibility=org and skips the private lane with no asker', async () => {
+    const { sql, query } = rulesSql()
+    const res = await retrieveRulesForContext(sql, { tenantId: 't_1' })
+    expect(query).toHaveBeenCalledTimes(1)
+    expect(String(query.mock.calls[0]![0])).toMatch(/visibility = 'org'/)
+    expect(res.privateFenced).toBe('')
+    expect(res.injected.every((r) => r.visibility === 'org')).toBe(true)
+  })
+
+  it('a blank asker still gets NO private rules (fail-closed)', async () => {
+    const { sql, query } = rulesSql()
+    const res = await retrieveRulesForContext(sql, { tenantId: 't_1', askerUserId: '   ' })
+    expect(query).toHaveBeenCalledTimes(1)
+    expect(res.privateFenced).toBe('')
+  })
+
+  it("retrieves the asker's own private rules, bound to owner_user_id, tagged private", async () => {
+    const { sql, query } = rulesSql()
+    const res = await retrieveRulesForContext(sql, { tenantId: 't_1', askerUserId: 'u_alice' })
+    expect(query).toHaveBeenCalledTimes(2)
+    const [text, params] = query.mock.calls.find(([t]) => /visibility = 'private'/.test(String(t)))!
+    expect(String(text)).toMatch(/kind = 'rule'/)
+    expect(String(text)).toMatch(/owner_user_id = \$\d+/)
+    expect(params).toContain('u_alice')
+    const priv = res.injected.find((r) => r.memoryId === 'r_priv')!
+    expect(priv.visibility).toBe('private')
+    expect(priv.ownerMatched).toBe(true)
+  })
+
+  it('a private rule is NEVER rendered inside <team_rules> — it cannot pose as team policy', async () => {
+    const { sql } = rulesSql()
+    const res = await retrieveRulesForContext(sql, { tenantId: 't_1', askerUserId: 'u_alice' })
+    expect(res.fenced).toContain('ORGRULE')
+    expect(res.fenced).not.toContain('MYRULE')
+    expect(res.privateFenced).toContain('<your_rules')
+    expect(res.privateFenced).toContain('MYRULE')
+    // The label has to tell the model these are personal and do not override policy,
+    // or the model averages the two tiers instead of resolving them.
+    expect(res.privateFenced).toMatch(/do NOT override/i)
+  })
+
+  it('the private rules budget is a hard-capped share of the rules budget', () => {
+    expect(privateRulesBudget(400)).toBe(Math.min(60, MAX_PRIVATE_RULES_TOKEN_BUDGET))
+    expect(privateRulesBudget(100_000)).toBe(MAX_PRIVATE_RULES_TOKEN_BUDGET)
   })
 })
 

@@ -182,6 +182,14 @@ interface CandidateRow {
 /** Separate, smaller budget for rules so they never starve decisions/facts. */
 export const DEFAULT_RULES_TOKEN_BUDGET = 400
 
+/** The personal rules lane's ceiling — same floor-and-ceiling logic as the memory lane. */
+export const MAX_PRIVATE_RULES_TOKEN_BUDGET = 60
+
+/** The personal rules budget: a share of the org rules budget, hard-capped. */
+export function privateRulesBudget(rulesBudget: number): number {
+  return Math.min(Math.floor(rulesBudget * PRIVATE_MEMORY_BUDGET_RATIO), MAX_PRIVATE_RULES_TOKEN_BUDGET)
+}
+
 interface RuleRow {
   id: string
   title: string
@@ -213,18 +221,65 @@ export function fenceRules(lines: string[]): string {
 }
 
 /**
- * Retrieve the org's scope-cascade ACTIVE rules (`kind='rule'`), token-budget them
- * under their own {@link DEFAULT_RULES_TOKEN_BUDGET} so they never starve the
- * decisions/facts block, and return the fenced block + the injected list (each tagged
- * `via: 'pinned' | 'retrieved'` for the moat rail). Ordered pinned-first, then priority,
- * then recency. Each line renders `directive — applies when: <attrs.applies_when>`.
+ * Wrap the asking user's OWN private rules in their own fence. Deliberately NOT
+ * merged into `<team_rules>`: research §2.2 requires org to win on `kind='rule'`,
+ * because a private rule silently overriding org policy is privilege laundering in
+ * the other direction — a user quietly weakening a gate for their own runs. Until
+ * divergence surfacing exists (rec #4), the honest v1 position is that a private rule
+ * reaches only its owner and is labelled as personal, never as ratified team policy.
+ */
+export function fencePrivateRules(lines: string[]): string {
+  if (lines.length === 0) return ''
+  return (
+    '\n\n<your_rules note="YOUR OWN private working preferences, visible to nobody else. ' +
+    'Prefer them for style and personal workflow, but they do NOT override the team rules above; ' +
+    'where they conflict, team policy wins.">\n' +
+    lines.join('\n') +
+    '\n</your_rules>'
+  )
+}
+
+/**
+ * Retrieve the ACTIVE in-scope rules (`kind='rule'`), token-budget them under their
+ * own {@link DEFAULT_RULES_TOKEN_BUDGET} so they never starve the decisions/facts
+ * block, and return the org fence + the asking user's own private-rules fence + the
+ * injected list (each tagged `via` and its tier for the moat rail). Ordered
+ * pinned-first, then priority, then recency. Each line renders
+ * `directive — applies when: <attrs.applies_when>`.
+ *
+ * Two lanes, same fail-closed discipline as {@link retrieveForContext}: an unknown
+ * asker gets NO private-rules query at all.
  */
 export async function retrieveRulesForContext(
   sql: Sql,
-  ctx: { tenantId: string; scope?: MemoryScopeInput; budget?: number },
-): Promise<{ fenced: string; injected: InjectedRule[] }> {
+  ctx: { tenantId: string; scope?: MemoryScopeInput; budget?: number; askerUserId?: string | null },
+): Promise<{ fenced: string; privateFenced: string; injected: InjectedRule[] }> {
   const cascade = buildScopeCascade(ctx.scope)
-  const params: unknown[] = [ctx.tenantId]
+  const budget = ctx.budget ?? DEFAULT_RULES_TOKEN_BUDGET
+
+  const orgRows = await runQuery<RuleRow>(sql, ...ruleQuery(ctx.tenantId, cascade, null))
+  const org = renderRules(orgRows, budget, 'org')
+
+  let priv = { lines: [] as string[], injected: [] as InjectedRule[] }
+  if (hasKnownAsker(ctx.askerUserId)) {
+    const privRows = await runQuery<RuleRow>(sql, ...ruleQuery(ctx.tenantId, cascade, ctx.askerUserId))
+    priv = renderRules(privRows, privateRulesBudget(budget), 'private')
+  }
+
+  return {
+    fenced: fenceRules(org.lines),
+    privateFenced: fencePrivateRules(priv.lines),
+    injected: [...org.injected, ...priv.injected],
+  }
+}
+
+/** One rules lane's query. `owner` null ⇒ org lane; non-null ⇒ that owner's private rules. */
+function ruleQuery(
+  tenantId: string,
+  cascade: { scopeType: MemoryScopeType; scopeId: string | null }[],
+  owner: string | null,
+): [string, unknown[]] {
+  const params: unknown[] = [tenantId]
   const clauses: string[] = []
   for (const c of cascade) {
     if (c.scopeType === 'org') {
@@ -237,16 +292,27 @@ export async function retrieveRulesForContext(
       clauses.push(`(scope_type = $${a} and scope_id = $${b})`)
     }
   }
+  let visibility = `visibility = 'org'`
+  if (owner !== null) {
+    params.push(owner)
+    visibility = `visibility = 'private' and owner_user_id = $${params.length}`
+  }
   const text = `
     select id, title, body, attrs, pinned, scope_type
     from "memories"
-    where tenant_id = $1 and status = 'active' and kind = 'rule' and (${clauses.join(' or ')})
+    where tenant_id = $1 and status = 'active' and kind = 'rule' and ${visibility} and (${clauses.join(' or ')})
     order by pinned desc, priority desc, valid_from desc, created_at desc
     limit ${MAX_CANDIDATES}
   `
-  const rows = await runQuery<RuleRow>(sql, text, params)
+  return [text, params]
+}
 
-  const budget = ctx.budget ?? DEFAULT_RULES_TOKEN_BUDGET
+/** Render one rules lane into fence lines + attribution entries under its own budget. */
+function renderRules(
+  rows: RuleRow[],
+  budget: number,
+  visibility: MemoryVisibility,
+): { lines: string[]; injected: InjectedRule[] } {
   const injected: InjectedRule[] = []
   const lines: string[] = []
   let used = 0
@@ -265,12 +331,12 @@ export async function retrieveRulesForContext(
       rank: injected.length,
       tokens: t,
       via: r.pinned ? 'pinned' : 'retrieved',
-      visibility: 'org',
-      ownerMatched: false,
+      visibility,
+      ownerMatched: visibility === 'private',
     })
     lines.push(line)
   }
-  return { fenced: fenceRules(lines), injected }
+  return { lines, injected }
 }
 
 /**
