@@ -18,10 +18,12 @@ import { retrieveForContext, retrieveRulesForContext, searchMemories } from './m
  * constrain visibility therefore gets the whole corpus back and the test fails, which
  * is precisely the fail-open regression these invariants exist to catch.
  *
- * This is not a substitute for exercising the real CHECK constraint against Postgres
- * — no test in this repo connects to a database (see the decisions log). It verifies
- * the predicates the application sends; the constraint that backstops them is
- * verified by asserting the migration SQL in packages/db/src/schema.test.ts.
+ * This suite verifies the predicates the application SENDS, and runs everywhere.
+ * The database's own behaviour — the biconditional CHECK, the `'org'` default, the
+ * index, and these same invariants against real rows — is exercised for real in
+ * test/db-contract/memory-tier.test.ts, which only runs in CI (it needs an ephemeral
+ * Neon branch). Keep both: this one fails fast on every push, that one proves
+ * Postgres agrees.
  */
 
 interface Row {

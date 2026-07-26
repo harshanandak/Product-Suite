@@ -139,16 +139,25 @@ That property was verified by mutation, not assumed. Removing `owner_user_id = $
 private lanes fails 5 of 7; replacing the org lanes' `visibility = 'org'` with a tautology fails
 6 of 7. Both mutations were reverted.
 
-## D12 — real-DB execution of the CHECK is NOT possible in this repo
+## D12 — the CHECK is executed for real, in the db-contract tier (CI only)
 
-The brief asked for db-contract-tier tests. **There is no such tier in this repo.** No test in
-`apps/platform-api` or `packages/db` connects to Postgres: `packages/db/src/schema.test.ts`
-asserts Drizzle table config and reads the migration `.sql` text, and every
-`apps/platform-api/src/**` test dispatches against a mocked `sql.query`
-(`process.env.DATABASE_URL` is set to a dummy string where a route needs one to exist).
+I initially recorded that this repo had no real-DB test tier and that the CHECK was therefore
+unverifiable. **That was wrong.** The tier exists:
+`apps/platform-api/test/db-contract/` with `harness.ts` (`withDbBranch` → create an ephemeral
+Neon branch, apply the whole migration chain, seed, tear down), a dedicated
+`vitest.db-contract.config.ts`, and the `.github/workflows/db-contract.yml` job. My first search
+missed it because the files are named `baseline.test.ts` / `accept-path.test.ts` under a
+`db-contract/` directory rather than `*.db-contract.test.ts`, and because the tier is invoked by
+config path rather than a `package.json` script.
 
-So the CHECK constraint is verified by asserting its exact SQL in the migration file, and the
-retrieval invariants are verified by asserting the emitted SQL text and bound parameters. The
-constraint's runtime rejection of `private` without an owner (and `org` with one) is **not**
-executed anywhere — not in CI either. This is a genuine verification gap and is reported as such
-rather than described as green.
+So `apps/platform-api/test/db-contract/memory-tier.test.ts` now exercises the real thing against
+real Postgres: the CHECK rejecting `private` with a NULL owner AND `org` with a non-NULL owner,
+`visibility` defaulting to `'org'` when the insert omits the column (the zero-touch guarantee),
+the retrieval index existing with the expected column order, invariant (a) against real rows on
+all three paths, and attribution rows persisting the tier.
+
+**Honest limitation:** the suite is `describe.skipIf(!hasNeonCreds())`, so those five tests
+execute **only in CI**, where the `db-contract` job supplies `NEON_API_KEY`/`NEON_PROJECT_ID`.
+Locally they self-skip (verified: 5 skipped). The job's path filters cover both
+`apps/platform-api/**` and `packages/db/**`, so it does trigger for this change. I have not seen
+them pass — only that they compile and skip cleanly.
