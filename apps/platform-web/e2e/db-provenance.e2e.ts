@@ -87,25 +87,36 @@ export async function seedMeetingCandidate(input: {
   const meetingId = `e2e-meeting-${stamp}`;
   const recordId = `e2e-meeting-loop-${stamp}`;
 
-  // `meetings.created_at`/`updated_at` are NOT NULL with NO default, so they are
-  // supplied explicitly rather than left to the server clock.
-  await sql`
-    insert into meetings (id, tenant_id, title, status, engine, created_at, updated_at)
-    values (${meetingId}, ${input.tenantId}, ${"E2E meeting loop " + String(stamp)},
-            'idle', 'whisper', now(), now())
-  `;
-
-  // record_origin/review_status are spelled out even though one matches its column
-  // default: these two predicates are the whole reason the ingest reads this row,
-  // so the seed must state them rather than inherit them.
-  await sql`
-    insert into action_items
-      (id, tenant_id, meeting_id, "text", evidence_refs, record_origin, review_status,
-       confidence, promotion_reason)
-    values (${recordId}, ${input.tenantId}, ${meetingId}, ${input.text}, '[]'::jsonb,
-            'generated', 'promoted', 0.91,
-            'Committed to in the E2E meeting-loop transcript.')
-  `;
+  // ONE atomic batch, not two awaits. The caller can only clean up what the seed
+  // RETURNS, so a seed that half-succeeded would strand the `meetings` row with no
+  // id to delete it by — debris in a shared database, and a hole in the "a mid-way
+  // failure leaves no debris" guarantee in this directory's README.
+  //
+  // `sql.transaction([...])` is the Neon HTTP driver's atomic batch, the same
+  // primitive `recordWriteTx` uses (`platform-api/src/provenance/record-write.ts`).
+  // It requires that no statement read another's output — true here: both ids are
+  // generated client-side above, so the second insert needs nothing back from the
+  // first. Either both rows land or neither does.
+  await sql.transaction([
+    // `meetings.created_at`/`updated_at` are NOT NULL with NO default, so they are
+    // supplied explicitly rather than left to the server clock.
+    sql`
+      insert into meetings (id, tenant_id, title, status, engine, created_at, updated_at)
+      values (${meetingId}, ${input.tenantId}, ${"E2E meeting loop " + String(stamp)},
+              'idle', 'whisper', now(), now())
+    `,
+    // record_origin/review_status are spelled out even though one matches its column
+    // default: these two predicates are the whole reason the ingest reads this row,
+    // so the seed must state them rather than inherit them.
+    sql`
+      insert into action_items
+        (id, tenant_id, meeting_id, "text", evidence_refs, record_origin, review_status,
+         confidence, promotion_reason)
+      values (${recordId}, ${input.tenantId}, ${meetingId}, ${input.text}, '[]'::jsonb,
+              'generated', 'promoted', 0.91,
+              'Committed to in the E2E meeting-loop transcript.')
+    `,
+  ]);
 
   return { meetingId, recordId };
 }

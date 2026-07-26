@@ -51,7 +51,9 @@ spec against a deliberately wrong map.)
 the ingest's ledger read fails. The spec cleans up everything it created: the seeded
 meeting + action item, the proposal, its ledger row, the applied work item, and the
 ingest's `agent_runs` rows — in `afterEach`, so a mid-way failure leaves no debris in
-the shared database either.
+the shared database either. That holds during the seed too: `seedMeetingCandidate`
+writes its `meetings` + `action_items` rows in ONE `sql.transaction([...])` batch, so a
+seed that fails half-way leaves nothing for `afterEach` to have to know about.
 
 Copy `apps/platform-web/.dev.vars.example` to `apps/platform-web/.env.e2e` (the
 canonical file Playwright loads first) and fill these in; `.dev.vars` is also loaded
