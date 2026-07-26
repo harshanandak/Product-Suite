@@ -343,10 +343,11 @@ export async function updateWorkItem(
   const { tenantIds } = ctx
   // `expectedVersion` is a forward-seam for optimistic concurrency (design §14's
   // fencing token). v1 `work_items` has NO version column, so the check is a
-  // deliberate no-op here — the proposal-apply claim-flip is the sole concurrency
-  // gate in v1. It is threaded through so the apply path and its callers already
-  // pass it; when the column lands, condition the UPDATE on it and throw
-  // `DomainError('stale')` on a version mismatch. (No column is invented now.)
+  // deliberate no-op here — concurrency is gated by `expectedValues` (the jsonb
+  // containment fence below, which the proposal accept and undo both use) plus the
+  // proposal-apply claim-flip. It is threaded through so the apply path and its
+  // callers already pass it; when a version column lands, condition the UPDATE on it
+  // and throw `DomainError('stale')` on a mismatch. (No column is invented now.)
   void ctx.expectedVersion
 
   const existing = (await sql`

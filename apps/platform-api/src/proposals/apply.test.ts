@@ -330,6 +330,78 @@ describe('applyProposal (write-first, flip-last)', () => {
     expect(createWorkItem).not.toHaveBeenCalled()
   })
 
+  // F5(b): `target_version: 999` against a live item APPLIED anyway — the Inbox's
+  // "this item changed" branch was unreachable and two proposals touching one item
+  // silently overwrote each other. The authored-against snapshot (0017) is both the
+  // diff baseline and the compare-and-set fence, so staleness is now DETECTED.
+  describe('staleness — the authored-against snapshot fences the write', () => {
+    const SNAPSHOT = { title: 'Seed item (pre-existing)', phase: 'plan' }
+
+    function updateProposal(snapshot: Record<string, unknown> | null) {
+      return {
+        operation: 'update',
+        target_id: WI_TARGET,
+        payload: { title: 'Renamed', phase: 'done' },
+        target_snapshot: snapshot,
+      }
+    }
+
+    /** A target row whose jsonb rendering is `rowJson` (what the fence compares to). */
+    function targetRow(rowJson: Record<string, unknown>) {
+      return { id: WI_TARGET, ...rowJson, row_json: { id: WI_TARGET, ...rowJson } }
+    }
+
+    it('passes the snapshot as the compare-and-set fence when the baseline still holds', async () => {
+      const { sql } = makeSql({
+        proposal: updateProposal(SNAPSHOT),
+        targetRow: targetRow(SNAPSHOT),
+      })
+      const res = await applyProposal(sql, ctx, 'p1')
+      expect(res).toMatchObject({ status: 'applied' })
+      expect(updateWorkItem).toHaveBeenCalledTimes(1)
+      // The fence moves the comparison INSIDE the writing statement, so a writer
+      // landing between our check and our write cannot be clobbered.
+      expect(updateWorkItem.mock.calls[0]?.[1]).toMatchObject({ expectedValues: SNAPSHOT })
+    })
+
+    it('DECLINES a drifted baseline as stale — no write, still pending, names what moved', async () => {
+      const { sql, getStatus } = makeSql({
+        proposal: updateProposal(SNAPSHOT),
+        // Someone renamed the item after the agent drafted the proposal.
+        targetRow: targetRow({ title: 'UXAUDIT-TMP stale-probe', phase: 'plan' }),
+      })
+      const res = await applyProposal(sql, ctx, 'p1')
+      expect(res).toMatchObject({ status: 'stale', proposal_id: 'p1', item_id: WI_TARGET })
+      expect((res as { message: string }).message).toContain('title')
+      // The write never ran, and the proposal stays reviewable.
+      expect(updateWorkItem).not.toHaveBeenCalled()
+      expect(getStatus()).toBe('pending')
+    })
+
+    it('reports a fence lost in the race (guard_failed) as stale, not as a bad payload', async () => {
+      updateWorkItem
+        .mockReset()
+        .mockRejectedValue(new DomainError('guard_failed', 'the item changed while this write was being applied'))
+      const { sql, getStatus } = makeSql({
+        proposal: updateProposal(SNAPSHOT),
+        targetRow: targetRow(SNAPSHOT),
+      })
+      const res = await applyProposal(sql, ctx, 'p1')
+      expect(res).toMatchObject({ status: 'stale', proposal_id: 'p1', item_id: WI_TARGET })
+      expect(getStatus()).toBe('pending')
+    })
+
+    it('applies UNFENCED when there is no snapshot (a pre-0017 proposal is unchanged)', async () => {
+      const { sql } = makeSql({
+        proposal: updateProposal(null),
+        targetRow: targetRow({ title: 'anything', phase: 'plan' }),
+      })
+      const res = await applyProposal(sql, ctx, 'p1')
+      expect(res).toMatchObject({ status: 'applied' })
+      expect(updateWorkItem.mock.calls[0]?.[1]).not.toHaveProperty('expectedValues', expect.anything())
+    })
+  })
+
   it('returns not_found for a proposal outside the caller tenants (no write)', async () => {
     const sql = vi.fn(async () => []) as unknown as Sql // getProposalScoped → null
     const res = await applyProposal(sql, ctx, 'p_ghost')

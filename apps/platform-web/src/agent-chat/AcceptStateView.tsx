@@ -177,10 +177,13 @@ function NeedsAttentionView({
 }
 
 /**
- * "This item changed" — the reactive graceful-staleness surface (never a silent
- * clobber). Refresh re-bases; Apply-anyway is a best-effort override, NOT a
- * promise: for the memory conflict that fires this today the server can still
- * decline it, so the copy says "try to apply", never "will apply".
+ * "This item changed" — the graceful-staleness surface (never a silent clobber).
+ * Reached whenever the accept is declined because the target drifted from the state
+ * the proposal was authored against; `message` names the drifted fields, which is the
+ * reviewer's only view of current state (the diff deliberately shows the
+ * authored-against state, never live state — see `field-diff.ts`). Refresh re-checks;
+ * Apply-anyway is a best-effort override, NOT a promise: the fence re-runs inside the
+ * write, so the copy says "try to apply", never "will apply".
  */
 function ItemChangedView({
   message,
@@ -211,8 +214,9 @@ function ItemChangedView({
         </Button>
       </div>
       <p className="mt-2 text-xs text-muted-foreground">
-        Refresh to see the current item first. Apply anyway will try to apply the agent’s
-        original — the server may still decline it if the conflict stands.
+        Refresh re-checks the item — the message above names what changed. Apply anyway
+        will try to apply the agent’s original — the server may still decline it if the
+        conflict stands.
       </p>
     </Banner>
   );

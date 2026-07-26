@@ -120,6 +120,13 @@
       "when": 1784908800000,
       "tag": "0016_memory_ownership_axis",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1784995200000,
+      "tag": "0017_proposal_target_snapshot",
+      "breakpoints": true
     }
   ]
 }

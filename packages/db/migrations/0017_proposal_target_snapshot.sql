@@ -1,0 +1,17 @@
+-- The target's values for the fields a proposal's payload touches, AS THEY WERE when
+-- the proposal was drafted (Postgres's own `to_jsonb(work_items)` rendering, so it can
+-- be compared byte-identically at accept time).
+--
+-- It serves the two halves of audit F5:
+--   (a) the Review Inbox's accept-time diff renders its "before" side from THIS, not
+--       from the live target, so the "what will change" preview can no longer re-base
+--       as the target moves — the reviewer sees what the agent actually proposed.
+--   (b) the accept passes it as the compare-and-set fence on `updateWorkItem`
+--       (`to_jsonb(work_items) @> target_snapshot`), so an update whose baseline
+--       drifted is DECLINED as `stale` instead of silently clobbering the later edit.
+--
+-- Additive + nullable: NULL means the before-state is unknown (a create, a memory op,
+-- or a proposal drafted before this column), which renders as unknown and applies
+-- unfenced exactly as it did before. Hand-authored (drizzle-kit generate unavailable
+-- in the worktree), matching 0012–0016.
+ALTER TABLE "proposals" ADD COLUMN IF NOT EXISTS "target_snapshot" jsonb;

@@ -47,6 +47,10 @@ const RAW_PROPOSALS: ReadonlyArray<Proposal> = [
     target_id: "wi_auth",
     operation: "update",
     payload: { priority: "critical", phase: "review" },
+    // The state the proposal was AUTHORED against — the diff's before-side comes from
+    // here, never from the live item (see `field-diff.ts`), mirroring the real
+    // `target_snapshot` column the API captures at draft time.
+    target_snapshot: { priority: "high", phase: "execute" },
     rationale:
       "The Q2 security review re-opened a token-verifier gap overnight; raising priority and moving to review reflects the new urgency.",
     confidence: 0.64,
@@ -67,6 +71,10 @@ const RAW_PROPOSALS: ReadonlyArray<Proposal> = [
     payload: {
       title: "Realtime transport seam (spike DO first)",
       priority: "high",
+    },
+    target_snapshot: {
+      title: "Realtime transport seam",
+      priority: "critical",
     },
     rationale:
       "The Durable Objects spike is the real blocker; renaming to lead with it and easing priority matches how the team is sequencing v2.0.",

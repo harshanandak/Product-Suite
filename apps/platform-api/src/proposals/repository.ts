@@ -1,5 +1,7 @@
 import type { Sql } from '@product-suite/db'
 
+import { undoableKeys } from './work-item-fields'
+
 /**
  * A proposal row (snake_case DB columns, matching migration 0007). A module-
  * agnostic reviewable intent to change something — applied through the SAME
@@ -31,6 +33,13 @@ export interface ProposalRow {
   rejection_reason: string | null
   applied_write: unknown
   target_version: number | null
+  /**
+   * The target's values for the payload's fields AS THEY WERE when this proposal was
+   * drafted (Postgres's `to_jsonb` rendering). The Inbox diff's "before" side and the
+   * accept-time compare-and-set fence both read it, so the reviewer's preview cannot
+   * re-base and a drifted baseline is declined instead of clobbered. Null = unknown.
+   */
+  target_snapshot: Record<string, unknown> | null
   model_id: string | null
   prompt_version: string | null
   context_ref: string | null
@@ -64,7 +73,7 @@ export interface CreateProposalInput {
 }
 
 /** Columns that are jsonb in the schema — stringified + cast so a JS object binds. */
-const JSONB_COLUMNS = new Set(['payload'])
+const JSONB_COLUMNS = new Set(['payload', 'target_snapshot'])
 
 /** Insertable columns, in a fixed allowlist (never derived from caller keys). */
 const INSERT_COLUMNS = [
@@ -74,6 +83,7 @@ const INSERT_COLUMNS = [
   'target_id',
   'operation',
   'payload',
+  'target_snapshot',
   'rationale',
   'confidence',
   'risk_level',
@@ -91,11 +101,54 @@ function runQuery<Row>(sql: Sql, text: string, params: unknown[]): Promise<Row[]
 }
 
 /**
+ * The BEFORE-IMAGE a `work_item:update` proposal is authored against: the target's
+ * current values for exactly the fields this payload will set, read through Postgres's
+ * OWN `to_jsonb` rendering so it compares byte-identically against
+ * `to_jsonb(work_items)` in the accept-time fence (a driver-decoded `Date` would
+ * false-conflict on every item with a due date).
+ *
+ * Captured HERE, inside the single insert every creation path shares, rather than at
+ * each call site: a caller that forgets it would silently re-introduce the re-basing
+ * diff (audit F5). Returns null when there is nothing honest to capture — a create, a
+ * memory op, no patchable field, a vanished target, or a failed read. Drafting the
+ * proposal matters more than diffing it perfectly, so a read failure is swallowed: a
+ * null snapshot renders as an UNKNOWN before-state and applies unfenced, exactly as
+ * every pre-0017 proposal does.
+ */
+async function captureTargetSnapshot(
+  sql: Sql,
+  input: CreateProposalInput,
+): Promise<Record<string, unknown> | null> {
+  if (input.target_type !== 'work_item' || input.operation !== 'update') return null
+  if (!input.target_id) return null
+  const fields = undoableKeys(input.payload)
+  if (fields.length === 0) return null
+  try {
+    const rows = (await sql`
+      select to_jsonb(work_items) as row_json from work_items
+      where id = ${input.target_id} and tenant_id = ${input.tenant_id}
+    `) as { row_json: Record<string, unknown> | null }[]
+    const rowJson = rows[0]?.row_json
+    if (!rowJson) return null
+    const snapshot: Record<string, unknown> = {}
+    for (const field of fields) snapshot[field] = rowJson[field] ?? null
+    return snapshot
+  } catch (cause) {
+    console.error('[proposals] could not snapshot the proposal target', cause)
+    return null
+  }
+}
+
+/**
  * Insert a proposal (status defaults to 'pending') and return the created row.
  * Identifiers come only from the static allowlist; every value is a bound param.
  */
 export async function createProposal(sql: Sql, input: CreateProposalInput): Promise<ProposalRow> {
-  const values = input as unknown as Record<string, unknown>
+  const snapshot = await captureTargetSnapshot(sql, input)
+  const values: Record<string, unknown> = { ...(input as unknown as Record<string, unknown>) }
+  // Server-captured, never caller-supplied: this side of the diff is not up for
+  // negotiation (and `CreateProposalInput` deliberately has no such field).
+  if (snapshot !== null) values.target_snapshot = snapshot
   const cols: string[] = []
   const params: unknown[] = []
   const placeholders: string[] = []
