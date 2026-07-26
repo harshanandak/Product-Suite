@@ -196,9 +196,52 @@ explainable read: a reviewer can be shown which words matched.
 never disables a control, and a failed fetch renders nothing.
 
 **Why.** No new visual vocabulary was invented because the Inbox already has a settled
+
 one for "context about this proposal". More importantly: the panel must not be able to
 gate the human. Wiring it to `disabled` would convert a heuristic into an authority —
 the exact rubber-stamp-in-reverse failure — and a fetch failure would silently become a
 block. Rendering nothing on failure is the fail-safe direction here, the opposite of
 retrieval's fail-closed, because the risk being managed is different: an unavailable
 hint must not stop a human from deciding.
+
+---
+
+## D11 — `edited_payload` wins over `payload` when reading the candidate
+
+**Decision.** `readCandidate` uses `edited_payload` when it is a plain object, else
+`payload`.
+
+**Why.** This is what `applyProposal` does, so the verdict describes the memory that
+would ACTUALLY land rather than the one the agent originally drafted. A curator that
+judged a superseded draft would be quietly answering a different question than the one
+the reviewer is about to decide.
+
+---
+
+## D12 — No candidate title ⇒ `not_applicable`, not a quality finding
+
+**Decision.** A payload with no usable `title` returns `outcome: 'not_applicable'` and
+issues no query at all — even though `checkQuality` has a `title_missing` code for
+exactly that.
+
+**Why.** Without a title there is nothing to build an FTS probe from, so the relation
+pass cannot run. Returning `title_missing` beside an empty collision list would read as
+"we diffed this against memory and found nothing", which is a claim we would not have
+earned. `title_missing` still fires for a candidate whose title is blank but which has
+other content to probe with — it just cannot be the only thing we say.
+
+---
+
+## D13 — Two test fixtures were wrong, not the code (recorded so it is not re-litigated)
+
+Two first-draft assertions failed and the FIXTURES were at fault:
+
+1. A body reading "The growth lead signs off **before** a pricing page goes live" was
+   asserted to have no applicability. It does — "before …" is exactly the condition
+   `APPLICABILITY_RE` looks for. The fixture was changed to a body with no condition.
+2. A conflict-outranks-duplicate test placed the conflicting memory behind a probe the
+   candidate was not similar to, so nothing collided and the test proved nothing about
+   ranking. Rewritten to return both memories from one probe with the duplicate FIRST,
+   so only the sort can put the contradiction at the top.
+
+Recorded because both look like heuristic bugs on a quick read and are not.
