@@ -12,7 +12,8 @@ Driven against the **real running app**: Vite dev server on `:5173`, `wrangler d
 platform-API on `:8787`, real Clerk test session (the `global.setup.e2e.ts` testing-token
 pattern), real Neon database, real OpenRouter agent.
 
-- **45 screenshots** in `docs/research/ux-audit-shots/` (untracked).
+- **45 screenshots** in `docs/research/ux-audit-shots/` (untracked) — 47 files in total,
+  the 45 `.png` captures plus the two `.json` capture reports named below.
 - Two capture passes: `_phase-a-report.json` (every routed surface in its natural
   state, plus forced loading/error states via `page.route` interception) and
   `_phase-b-report.json` (five **seeded pending proposals** driving the populated
@@ -401,6 +402,31 @@ inference from it.
 Each item is scoped to become a kernel issue. **Group A unifies the pipelines;
 Group B polishes one surface.** Ranks interleave the groups by ratio.
 
+**Kernel issues (filed; the Kernel is authoritative, this list is a pointer).** Parent
+epic **`ux-truth-one-disposal-eadf80c6`** — "UX truth + one disposal experience (from the
+2026-07-26 live audit)". Its children cover the **S0 set (F1–F7)**:
+
+| Finding | Kernel issue | Rank |
+|---|---|---|
+| F1 | `pending-badge-decorates-a-e9163399` | Rank 1 |
+| F2 | `agent-created-work-items-163c617a` | Rank 2 |
+| F3, F4 | `79d83744-b175-44cf-bd01-1427da2cc670` | Rank 14 |
+| F5 (a+b) | `the-accept-time-diff-2ef40a29` | Rank 5 |
+| F6 | `accept-can-apply-a-496d0f55` | Rank 10 |
+| F7 | `accepting-a-work-item-8e5a6c49` | Rank 2 |
+
+Related pre-existing issues the plan feeds rather than duplicates:
+`proposal-staleness-conflict-semantics-a41345b4` (Rank 5's staleness half),
+`memory-supersede-diff-re-3877095b` (F5a's class, memory side),
+`workboard-redesign-phase-1-00ae7951` and `workboard-ui-restructure-simplify-cf55c464`
+(the nav/IA work Ranks 1 and 13 land inside).
+
+**S1–S3 (F8–F27) are deliberately not filed individually.** They stay in this report as
+the backlog the epic points at; they become issues when a rank item is scheduled, so the
+Kernel does not carry 20 unscheduled polish tickets. `79d83744` was filed on 2026-07-26
+to close a real gap — F3 and F4 are S0 but had been missed by the epic's original child
+set.
+
 ### Rank 1 — [A] Point the nav at the queue it counts *(hours)* — fixes F1
 Make one row the review queue: label it **"Review queue"**, route it to `/inbox`,
 keep the live count badge on it, and delete the `/review` placeholder route (or
@@ -538,15 +564,28 @@ chip row on work-item detail or drop the PROPERTIES duplicates; make
 
 ## 7. Database hygiene
 
-The shared Neon database is **back to its pre-audit state**: 5 work items (same
-ids, titles, priorities), 5 proposals (all `applied`, 0 pending), 2 active memories.
+The shared Neon database is **logically restored, field by field — not byte-for-byte**:
+5 work items (same ids, titles, priorities), 5 proposals (all `applied`, 0 pending),
+2 active memories. Two columns on the one re-inserted row are knowingly different from
+their pre-audit values; both are enumerated below.
 
 One incident, disclosed: my seeded `target_version: 999` update **applied** (F5) and
 renamed the pre-existing item `1a2bf0d4-…` to `UXAUDIT-TMP stale-probe`; my
 marker-based cleanup then deleted it by title. I re-inserted the row with its
 original id and field values (`Seed item (pre-existing)`, feature/plan/medium,
 `source='manual'`, team + status unchanged, `applied_from_proposal_id=null`).
-**`created_at` is an approximation** — set to `2026-07-19T18:39:00Z` to preserve its
-original first position in `created_at` order; `actor_type` was set to the column
-default `'system'`. Nothing referenced the row (0 dependencies, 0 checks). Two stray
-memories created from proposal rationale (F7) were also removed.
+**Known differences from the pre-audit row** — the two values I could not recover, so
+this is a field-level restoration and not an exact one:
+
+1. **`created_at` is an approximation** — set to `2026-07-19T18:39:00Z`, chosen to
+   preserve the row's original first position in `created_at` order. The original
+   timestamp was not captured before the delete.
+2. **`actor_type` was set to the column default `'system'`** — the original value is
+   unknown, so the default was used rather than a guess.
+
+Every other field was restored to its original value (`Seed item (pre-existing)`,
+feature/plan/medium, `source='manual'`, team + status unchanged,
+`applied_from_proposal_id=null`), and the row kept its original id. Nothing referenced
+the row (0 dependencies, 0 checks), so the approximation has no downstream reader other
+than `created_at` ordering. Two stray memories created from proposal rationale (F7) were
+also removed.
