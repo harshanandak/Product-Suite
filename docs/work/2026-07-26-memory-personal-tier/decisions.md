@@ -161,3 +161,88 @@ execute **only in CI**, where the `db-contract` job supplies `NEON_API_KEY`/`NEO
 Locally they self-skip (verified: 5 skipped). The job's path filters cover both
 `apps/platform-api/**` and `packages/db/**`, so it does trigger for this change. I have not seen
 them pass — only that they compile and skip cleanly.
+
+---
+
+## D13 — the first real db-contract run failed, and it was the TEST, not a leak
+
+The `db-contract` job's first real execution of the suite above failed INVARIANT (a):
+
+```
+> INVARIANT (a), for real: a non-owner retrieves ZERO private rows on every path
+AssertionError: expected [ …(2) ] to deeply equal [ Array(1) ]
++   "d406d433-fc71-485b-95ea-d4e10fec7b8d"
+    "716d6a70-5633-401a-9850-6bf10a63e4be"
+```
+
+**Verdict: test bug. No memory leaked.** Three independent things settle it:
+
+1. **The anonymous path issues exactly ONE query, and it is tier-constrained.** The
+   generated SQL, printed from the real code path:
+
+   ```sql
+   -- retrieveForContext(sql, { tenantId }) with no asker — 1 query total
+   where tenant_id = $1 and status = 'active' and visibility = 'org'
+     and (scope_type = 'org' or (scope_type = $2 and scope_id = $3))
+   ```
+
+   `hasKnownAsker(undefined)` is false, so the private lane is never *issued*. A row that
+   never left the database cannot appear in the result, whatever the assertion says.
+
+2. **The surplus id is an ORG row, not a private one.** The seed inserts FOUR rows, of
+   which TWO are `visibility='org'`: the decision (`orgId`) and the rule (`orgRuleId`).
+   `candidateQuery` has no `kind` predicate, so the decisions/facts lane returns rules
+   too — the surplus is `orgRuleId`. The ordering corroborates it: both org rows share
+   the `scope_type='org'` bucket, so they order by `created_at desc`, and the rule was
+   inserted second — which is exactly why the surplus id came back FIRST and the expected
+   `orgId` second.
+
+3. **It is not a regression.** `git show origin/main:…/memory-retrieval.ts` has the same
+   unfiltered `where tenant_id = $1 and status = 'active' and (…)`. This PR only added
+   `and ${visibility}`, correctly AND-bound outside the parenthesised OR-group.
+
+Precedence was the prime suspect and was checked on every lane — the four in
+`memory-retrieval.ts` and the two `memories` lanes in `knowledge-retrieval.ts`
+(`ORG_VISIBILITY_ONLY` arrives via `extraWhere`, AND-ed, with the cascade parenthesised).
+All six are correct; the OR-group is always in parens.
+
+**Why the mocked tier could not have caught this.** The failure mode was not a wrong
+predicate — it was a *missing* one, and a mock cannot see a missing predicate. The fake
+`sql` never evaluates the WHERE; it regex-dispatches on the query text and returns rows
+the test author hand-wrote. So the fixture, not the predicate, decides the result set: a
+lane that would also return rules is never handed a rule row to return. Against real
+Postgres the result set is *every row that satisfies the WHERE*, which is why the org
+rule appeared the moment the query ran for real. That is the structural blind spot — the
+mock tier proves what SQL we send, the contract tier proves what Postgres does with it.
+
+**Fixes made, all in tests; the SQL is unchanged.**
+
+- The unknown-asker case now asserts the exact org SET `{orgId, orgRuleId}`, order-independently
+  (both rows can share a `created_at`, so pinning the tie-break would assert a coincidence),
+  plus explicit absence of both private ids, plus `visibility === 'org'` on every reachable
+  row. Lines 173–174, which never executed before because 172 threw first, now run:
+  `searchMemories` and `privateFenced` are verified for the anonymous case.
+- New unit guard, `every lane AND-binds its visibility predicate`: it strips balanced
+  parenthesised groups from each lane's WHERE and asserts no bare `or` survives at the top
+  level, on all six lane/tier combinations. This is the test that WOULD have caught the
+  precedence bug we suspected — asserting that `visibility = 'org'` is *present* proves
+  nothing about whether it *binds*, and both the safe and the leaking form match that regex.
+  Proven RED by mutation: flipping `and (${clauses…})` to `or (${clauses…})` fails it.
+
+**Filed, not fixed here:** kernel issue `d1c5f2d3-2f18-4756-98a2-513aaf846c63` — the absent
+`kind` filter means org rules inject twice (once into `<org_memory>`, once into `<team_rules>`),
+burning budget in both blocks. Pre-existing on main; narrowing the org lane is a behavioural
+change to the org path and does not belong in a visibility PR.
+
+## D14 — a vacuous cap assertion is worse than a missing one
+
+CodeRabbit was right that `expect(text).toMatch(/…|limit \$/)` proved nothing: the
+`limit \$` alternative matches any parameterised limit, so the assertion held even if the
+private lane forwarded the caller's limit. Its suggested `expect(params).toContain(PRIVATE_SEARCH_LIMIT)`
+is stronger but still indirect — it proves the number is bound *somewhere*, not that it is
+the number the LIMIT applies. So the assertion now resolves the placeholder: `boundLimit()`
+reads the trailing `limit $n`, looks up `params[n-1]`, and the test asserts the private lane
+caps at `PRIVATE_SEARCH_LIMIT` while the org lane binds the caller's `8` — proving the two
+are different values, not merely both present. Also proven RED by mutation (binding `limit`
+instead of `PRIVATE_SEARCH_LIMIT` fails it; the old assertion passed under that mutation).
+As a bonus this drops the dynamic `new RegExp` that ast-grep flagged for ReDoS.

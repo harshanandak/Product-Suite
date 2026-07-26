@@ -167,11 +167,30 @@ describe.skipIf(!hasNeonCreds())(
         expect(aliceRules.privateFenced).toContain('alice private rule')
 
         // --- Unknown asker: org only, never unfiltered ---
+        // BOTH org rows answer here, the decision AND the rule: neither
+        // `retrieveForContext` nor `searchMemories` filters on `kind` (only
+        // `retrieveRulesForContext` does), so the org tier of this seed is
+        // {orgId, orgRuleId}. Asserting that exact SET is what makes the check
+        // non-vacuous in both directions — a private row may not appear, and an org
+        // row may not go missing.
+        //
+        // Order is deliberately NOT pinned: both org rows land in the same scope
+        // bucket, so the tie-break falls to `created_at`, which two inserts can share.
+        // Depending on that would be asserting a coincidence, not the invariant.
+        const sorted = (xs: string[]) => [...xs].sort()
         const anonMem = await retrieveForContext(sql, { tenantId: t })
         const anonHits = await searchMemories(sql, t, 'zephyrpolicy', 25)
-        expect(anonMem.injected.map((m) => m.memoryId)).toEqual([orgId])
-        expect(anonHits.map((h) => h.id)).toEqual([orgId])
+        expect(sorted(anonMem.injected.map((m) => m.memoryId))).toEqual(sorted([orgId, orgRuleId]))
+        expect(sorted(anonHits.map((h) => h.id))).toEqual(sorted([orgId, orgRuleId]))
+        // The invariant restated as itself, so a failure names the leak directly.
+        const anonReach = new Set([...anonMem.injected.map((m) => m.memoryId), ...anonHits.map((h) => h.id)])
+        expect(anonReach.has(aliceNote)).toBe(false)
+        expect(anonReach.has(aliceRule)).toBe(false)
+        // Every row an unknown asker can reach is stamped as the org tier.
+        expect(anonMem.injected.every((m) => m.visibility === 'org' && !m.ownerMatched)).toBe(true)
+        expect(anonHits.every((h) => h.visibility === 'org')).toBe(true)
         expect(anonMem.privateFenced).toBe('')
+        expect(anonMem.fenced).not.toContain('alice private')
       })
     })
 

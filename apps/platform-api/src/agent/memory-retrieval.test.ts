@@ -24,6 +24,35 @@ function mockSql(dispatch: (text: string, params: unknown[]) => unknown[]) {
   return { sql, query }
 }
 
+/**
+ * The limit a query will ACTUALLY apply: the literal, or the value bound to the
+ * placeholder that `limit $n` names. Resolving the placeholder is the whole point —
+ * matching `limit \$` only proves that some limit is parameterised, never what it caps
+ * at, so it passes just as happily when a lane forwards the caller's limit.
+ */
+function boundLimit(text: string, params: unknown[]): unknown {
+  const m = /limit\s+(?:\$(\d+)|(\d+))\s*$/.exec(text.trim())
+  if (!m) throw new Error(`no trailing limit clause in query: ${text}`)
+  return m[1] ? params[Number(m[1]) - 1] : Number(m[2])
+}
+
+/** The text between `where` and the `order by` that follows it. */
+function whereClause(text: string): string {
+  const m = /\bwhere\b([\s\S]*?)\border\s+by\b/i.exec(text)
+  if (!m) throw new Error(`no where…order by in query: ${text}`)
+  return m[1]!
+}
+
+/** Remove balanced parenthesised groups, innermost first, leaving only the TOP level. */
+function stripParenGroups(s: string): string {
+  let out = s
+  for (;;) {
+    const next = out.replace(/\([^()]*\)/g, ' ')
+    if (next === out) return out
+    out = next
+  }
+}
+
 describe('buildScopeCascade (pure)', () => {
   it('is org-only with no scoped object', () => {
     expect(buildScopeCascade()).toEqual([{ scopeType: 'org', scopeId: null }])
@@ -388,8 +417,12 @@ describe('searchMemories / resolveChain (tenant-scoped)', () => {
     expect(String(text)).toMatch(/owner_user_id = \$\d+/)
     expect(params).toContain('u_alice')
     // The private lane has its own hard cap so a user's own notes can never swamp
-    // the org hits the tool exists to surface.
-    expect(String(text)).toMatch(new RegExp(`limit \\$?\\d*\\s*${PRIVATE_SEARCH_LIMIT}|limit \\$`))
+    // the org hits the tool exists to surface. Assert the value BOUND to the limit
+    // placeholder, and assert the org lane binds the caller's limit instead, so the
+    // two are proven to be different numbers rather than merely both present.
+    expect(boundLimit(String(text), params)).toBe(PRIVATE_SEARCH_LIMIT)
+    const [orgText, orgParams] = query.mock.calls.find(([t]) => !/visibility = 'private'/.test(String(t)))!
+    expect(boundLimit(String(orgText), orgParams)).toBe(8)
     // Every hit is labelled with its tier — the tool result and the attribution row
     // both need to know which tier answered.
     expect(hits.map((h) => [h.id, h.visibility])).toEqual([
@@ -411,5 +444,71 @@ describe('searchMemories / resolveChain (tenant-scoped)', () => {
     const [text, params] = query.mock.calls[0]!
     expect(String(text)).toMatch(/root_id = \$2/)
     expect(params).toEqual(['t_1', 'root_1'])
+  })
+})
+
+/**
+ * SQL BOOLEAN PRECEDENCE — the one way this seam can leak while every existing
+ * string-level assertion still passes.
+ *
+ * The scope cascade is assembled as an OR-group and AND-ed next to the visibility /
+ * owner predicate. `and visibility = 'org' and (A or B)` is a fence; `and visibility =
+ * 'org' or (A or B)` is not, because `or` binds LOOSER than `and` — the second form
+ * returns every in-scope row of every tier, private rows included. Both forms still
+ * match `/visibility = 'org'/`, so asserting that the predicate is PRESENT proves
+ * nothing about whether it BINDS.
+ *
+ * So this asserts precedence structurally rather than by string shape: strip the
+ * balanced parenthesised groups out of the WHERE, and nothing containing a bare `or`
+ * may remain. Every OR this module generates belongs to a group; an OR that escapes
+ * its group is the bug. Checked on all six lanes, each with a scoped cascade (which is
+ * what puts a second, nested OR term in play at all).
+ */
+describe('every lane AND-binds its visibility predicate (no OR escapes its group)', () => {
+  const scope = { workspace: 'w', object: { type: 'work_item', id: 'wi_1', title: 'x' } }
+
+  async function laneTexts(): Promise<{ label: string; text: string }[]> {
+    const out: { label: string; text: string }[] = []
+    for (const [label, run] of [
+      ['retrieveForContext', (sql: Sql) => retrieveForContext(sql, { tenantId: 't_1', scope, askerUserId: 'u_a' })],
+      [
+        'retrieveRulesForContext',
+        (sql: Sql) => retrieveRulesForContext(sql, { tenantId: 't_1', scope, askerUserId: 'u_a' }),
+      ],
+      ['searchMemories', (sql: Sql) => searchMemories(sql, 't_1', 'postgres', 8, 'u_a')],
+    ] as const) {
+      const { sql, query } = mockSql(() => [])
+      await run(sql)
+      // Two lanes per entry (org + private) — both must hold, not just the org one.
+      expect(query.mock.calls).toHaveLength(2)
+      for (const [text] of query.mock.calls) {
+        out.push({ label: `${label} (${/private/.test(String(text)) ? 'private' : 'org'})`, text: String(text) })
+      }
+    }
+    return out
+  }
+
+  it('leaves no top-level OR in any lane WHERE, on either tier', async () => {
+    const lanes = await laneTexts()
+    expect(lanes).toHaveLength(6)
+    for (const { label, text } of lanes) {
+      const top = stripParenGroups(whereClause(text))
+      expect(top, `${label}: an OR escaped its parenthesised group — this leaks`).not.toMatch(/\bor\b/i)
+      // Non-vacuous: the tier predicate really is at that top level, AND-bound.
+      expect(top, `${label}: no visibility predicate at the top level`).toMatch(/visibility = '(org|private)'/)
+      expect(top, `${label}: tenant scoping must also be AND-bound`).toMatch(/tenant_id = \$1/)
+    }
+  })
+
+  it('the private lanes AND their owner predicate at the top level too', async () => {
+    const lanes = await laneTexts()
+    const priv = lanes.filter((l) => l.label.includes('private'))
+    expect(priv).toHaveLength(3)
+    for (const { label, text } of priv) {
+      const top = stripParenGroups(whereClause(text))
+      expect(top, `${label}: owner predicate must be AND-bound, not inside the OR-group`).toMatch(
+        /visibility = 'private'\s+and\s+owner_user_id = \$\d+/,
+      )
+    }
   })
 })
