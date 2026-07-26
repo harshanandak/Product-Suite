@@ -540,6 +540,15 @@ export interface MemorySearchHit {
    * with what the database was asked for.
    */
   visibility: MemoryVisibility
+  /**
+   * Where the hit binds. Selected so a consumer that needs to reason about scope —
+   * the curator reports the scope a colliding memory binds at — does not have to open
+   * a SECOND query against `memories`. Every extra path to that table is another place
+   * the ownership filter has to be got right, so the fix is to carry the column rather
+   * than to fetch it again.
+   */
+  scope_type: MemoryScopeType
+  scope_id: string | null
 }
 
 /**
@@ -567,7 +576,7 @@ export async function searchMemories(
   askerUserId?: string | null,
 ): Promise<MemorySearchHit[]> {
   const orgText = `
-    select id, kind, title, body, status, topics, root_id
+    select id, kind, title, body, status, topics, root_id, scope_type, scope_id
     from "memories"
     where tenant_id = $1 and status = 'active' and visibility = 'org'
       and fts @@ plainto_tsquery('english', $2)
@@ -580,7 +589,7 @@ export async function searchMemories(
   if (!hasKnownAsker(askerUserId)) return hits
 
   const privText = `
-    select id, kind, title, body, status, topics, root_id
+    select id, kind, title, body, status, topics, root_id, scope_type, scope_id
     from "memories"
     where tenant_id = $1 and status = 'active' and visibility = 'private' and owner_user_id = $4
       and fts @@ plainto_tsquery('english', $2)
