@@ -297,7 +297,10 @@ export function buildTools(sql: Sql, ctx: ToolContext): ToolSet {
       }),
       execute: async ({ query, limit, include_chain }) => {
         if (!ctx.tenantId) return { hits: [] }
-        const hits = await searchMemories(sql, ctx.tenantId, query, limit ?? 8)
+        // Bound to the CALLER's identity: the tool searches with the asking human's
+        // reach, so it can never read a private memory that a permission-scoped list
+        // query for that same user wouldn't return.
+        const hits = await searchMemories(sql, ctx.tenantId, query, limit ?? 8, ctx.userId)
         // Every returned memory logs an attribution (injected_via='tool') — the moat
         // rail. Best-effort: a logging failure must not fail the tool result.
         if (hits.length > 0) {

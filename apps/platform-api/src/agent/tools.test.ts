@@ -110,8 +110,9 @@ describe('buildTools (ToolRegistry)', () => {
     const memHits = [
       { id: 'mem_1', kind: 'decision', title: 'Use PG', status: 'active', topics: ['db'], root_id: 'mem_1' },
     ]
+    // Two lanes now: the ORG lane answers, the caller's private lane finds nothing.
     const query = vi.fn(async (text: string, _params: unknown[]) =>
-      /from "memories"/i.test(text) ? memHits : [],
+      /from "memories"/i.test(text) && !/visibility = 'private'/.test(text) ? memHits : [],
     )
     const sql = vi.fn() as unknown as Sql
     ;(sql as unknown as { query: typeof query }).query = query
@@ -127,6 +128,11 @@ describe('buildTools (ToolRegistry)', () => {
     const params = (attr?.[1] ?? []) as unknown[]
     expect(params.slice(0, 4)).toEqual(['run_1', 'mem_1', 't_1', 'tool'])
     expect(params.slice(7, 9)).toEqual(['org', false])
+    // The private lane is bound to the CALLER — the tool searches with the asking
+    // human's reach, not the agent's.
+    const privLane = query.mock.calls.find(([t]) => /visibility = 'private'/.test(String(t)))
+    expect(privLane).toBeDefined()
+    expect(privLane?.[1] as unknown[]).toContain('u_1')
   })
 
   it('omits search_memory entirely when ctx.holdout=true (no tool path into memory); keeps it when false/omitted', async () => {
