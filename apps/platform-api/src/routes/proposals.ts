@@ -5,7 +5,7 @@ import type { AcceptResult } from '@product-suite/contracts'
 import { callerTenantIds, callerUserId } from '../auth/tenant-scope'
 import { sqlFrom } from '../db'
 import type { AuthedEnv } from '../middleware/clerk-auth'
-import { acceptHttpStatus, applyProposal } from '../proposals/apply'
+import { acceptHttpStatus, applyProposal, isUuid } from '../proposals/apply'
 import { getProposalScoped, listPending } from '../proposals/repository'
 import { undoHttpStatus, undoProposal } from '../proposals/undo'
 
@@ -32,6 +32,34 @@ proposalsRoutes.get('/', async (c) => {
   } catch (cause) {
     console.error('[proposals] inbox query failed', cause)
     return c.json({ error: 'Failed to load proposals' }, 500)
+  }
+})
+
+/**
+ * ONE proposal by id, in ANY status (tenant-scoped; 404 when it isn't the caller's or
+ * does not exist). The inbox list returns only PENDING proposals, so a `?proposal=<id>`
+ * deep-link whose target has been disposed of is indistinguishable from a bogus id
+ * without this — and the Review Inbox must never respond to a dead link by putting a
+ * DIFFERENT pending change under the reviewer's Accept button. This is the read that
+ * lets it say "already accepted" / "already rejected" instead.
+ */
+proposalsRoutes.get('/:id', async (c) => {
+  const claims = c.get('claims')
+  const sql = sqlFrom(c.env ?? {})
+  const id = c.req.param('id')
+
+  try {
+    // A hand-edited/junk id would `22P02` against the `uuid` column and surface as a
+    // 500; it is simply not found.
+    if (!isUuid(id)) return c.json({ error: 'Not found' }, 404)
+    const tenantIds = await callerTenantIds(sql, claims)
+    if (tenantIds.length === 0) return c.json({ error: 'Not found' }, 404)
+    const proposal = await getProposalScoped(sql, id, tenantIds)
+    if (!proposal) return c.json({ error: 'Not found' }, 404)
+    return c.json(proposal)
+  } catch (cause) {
+    console.error('[proposals] lookup failed', cause)
+    return c.json({ error: 'Failed to load this proposal' }, 500)
   }
 })
 

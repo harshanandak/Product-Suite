@@ -44,6 +44,27 @@ describe("createNetworkProposalRepository", () => {
     vi.unstubAllGlobals();
   });
 
+  describe("get", () => {
+    it("GETs one proposal by id and normalizes its source", async () => {
+      fetchMock.mockResolvedValueOnce(jsonOk({ id: "p1", status: "applied" }));
+      const result = await makeRepo().get("p1");
+      expect(result).toEqual({ id: "p1", status: "applied", source: null });
+      const { url, init } = callArgs();
+      expect(url).toBe(`${BASE}/api/agent/proposals/p1`);
+      expect(init?.method).toBe("GET");
+    });
+
+    it("resolves null on 404 — 'no such proposal' is an ANSWER, not a failure", async () => {
+      fetchMock.mockResolvedValueOnce(jsonError(404, "Not found"));
+      await expect(makeRepo().get("nope")).resolves.toBeNull();
+    });
+
+    it("throws on a 500 so a server fault is never read as 'not found'", async () => {
+      fetchMock.mockResolvedValueOnce(jsonError(500, "boom"));
+      await expect(makeRepo().get("p1")).rejects.toThrow("boom");
+    });
+  });
+
   it("list GETs /api/agent/proposals with a bearer token + abort signal", async () => {
     fetchMock.mockResolvedValueOnce(jsonOk([{ id: "p1" }]));
     const result = await makeRepo().list();

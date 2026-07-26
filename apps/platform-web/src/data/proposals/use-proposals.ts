@@ -73,6 +73,12 @@ export interface UseProposalsResult {
    * A read, not a mutation — never touches the list. Empty when there are none.
    */
   activeRules: (id: string) => Promise<{ id: string; title: string }[]>;
+  /**
+   * Look up one proposal by id in ANY status (`null` when there is no such proposal),
+   * so a deep-link to something absent from the pending list can say WHY. A read, not
+   * a mutation — never touches the list.
+   */
+  getProposal: (id: string) => Promise<Proposal | null>;
   /** True while any accept/reject mutation is in flight. */
   isMutating: boolean;
   /** Force a fresh read from the repository. */
@@ -221,6 +227,11 @@ export function useProposals(
     [repository],
   );
 
+  const getProposal = useCallback(
+    (id: string) => repository.get(id),
+    [repository],
+  );
+
   return {
     proposals,
     isLoading,
@@ -230,6 +241,7 @@ export function useProposals(
     reject,
     undo,
     activeRules,
+    getProposal,
     isMutating: mutatingCount > 0,
     refetch,
   };

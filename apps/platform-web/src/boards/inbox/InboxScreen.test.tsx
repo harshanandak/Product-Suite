@@ -79,6 +79,9 @@ function repoWith(proposals: Proposal[]): ProposalRepository {
       }),
     ),
     activeRules: vi.fn(async () => []),
+    // A deep-linked id that is not pending is looked up through `get`; the default
+    // double knows nothing beyond the pending list, so it resolves to null.
+    get: vi.fn(async () => null),
   };
 }
 
@@ -156,13 +159,69 @@ describe("InboxScreen", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("falls back to the first proposal when the deep-linked id is not pending", async () => {
+  // F6 (P0 consent): a dead deep-link used to render the FIRST pending proposal
+  // with its Accept button live, so following a stale "Review in Inbox →" link put
+  // a DIFFERENT change under the reviewer's Accept. An unresolvable id must say so
+  // and select NOTHING.
+  it("shows a not-found notice and selects NOTHING when the deep-linked id is unknown", async () => {
+    searchMock = { proposal: "gone" };
+    const repository = repoWith([proposal("p1", "Alpha"), proposal("p2", "Beta")]);
+    render(<InboxScreen repository={repository} />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("That proposal doesn’t exist"),
+      ).toBeInTheDocument(),
+    );
+    // No proposal is under the reviewer's Accept button — no pane, no Accept.
+    expect(
+      screen.queryByText("Create work item “Alpha”"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Create work item “Beta”"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Accept" })).not.toBeInTheDocument();
+    // ...and no row is marked selected either.
+    for (const row of screen.getAllByRole("button", { pressed: false })) {
+      expect(row).toHaveAttribute("aria-pressed", "false");
+    }
+    expect(repository.get).toHaveBeenCalledWith("gone");
+  });
+
+  it("says a deep-linked proposal was already disposed of, distinctly from unknown", async () => {
+    searchMock = { proposal: "p9" };
+    const repository = repoWith([proposal("p1", "Alpha")]);
+    repository.get = vi.fn(async () => ({
+      ...proposal("p9", "Gamma"),
+      status: "applied",
+      target_id: "wi_9",
+    }));
+    render(<InboxScreen repository={repository} />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("That proposal was already accepted"),
+      ).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByText("That proposal doesn’t exist"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Accept" })).not.toBeInTheDocument();
+  });
+
+  it("selects the first pending row only when the reviewer explicitly asks", async () => {
     searchMock = { proposal: "gone" };
     render(
       <InboxScreen
         repository={repoWith([proposal("p1", "Alpha"), proposal("p2", "Beta")])}
       />,
     );
+    await waitFor(() =>
+      expect(screen.getByText("That proposal doesn’t exist")).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Show pending proposals" }));
+
     await waitFor(() =>
       expect(screen.getByText("Create work item “Alpha”")).toBeInTheDocument(),
     );
