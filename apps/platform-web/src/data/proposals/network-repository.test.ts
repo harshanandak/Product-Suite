@@ -299,6 +299,50 @@ describe("createNetworkProposalRepository", () => {
     await expect(makeRepo().activeRules("p1")).rejects.toThrow("boom");
   });
 
+  it("curatorVerdict GETs /:id/curator and unwraps the { verdict } envelope", async () => {
+    const verdict = {
+      outcome: "duplicate",
+      summary: "This duplicates an org memory: “Pricing ships through growth” (m_1).",
+      quality: [],
+      collisions: [
+        {
+          relation: "duplicate",
+          memory_id: "m_1",
+          title: "Pricing ships through growth",
+          visibility: "org",
+          scope_type: "org",
+          similarity: 0.91,
+          reason: "This says essentially what “Pricing ships through growth” (m_1) already says.",
+        },
+      ],
+      private_lane_skipped: false,
+      advisory: true,
+    };
+    fetchMock.mockResolvedValueOnce(jsonOk({ verdict }));
+    const result = await makeRepo().curatorVerdict("p1");
+
+    // The verdict is unwrapped from `{ verdict }`, not returned as the envelope.
+    expect(result).toEqual(verdict);
+    const { url, init } = callArgs();
+    expect(url).toBe(`${BASE}/api/agent/proposals/p1/curator`);
+    expect(init?.method).toBe("GET");
+    expect((init?.headers as Record<string, string>).Authorization).toBe(
+      "Bearer tok_123",
+    );
+  });
+
+  it("curatorVerdict returns null for an envelope with no verdict, rather than a fake clean one", async () => {
+    // Inventing `outcome: "clean"` would tell the reviewer we checked and found nothing
+    // when we had in fact learned nothing.
+    fetchMock.mockResolvedValueOnce(jsonOk({}));
+    await expect(makeRepo().curatorVerdict("p1")).resolves.toBeNull();
+  });
+
+  it("curatorVerdict propagates a transport error (the caller renders no panel)", async () => {
+    fetchMock.mockResolvedValueOnce(jsonError(500, "boom"));
+    await expect(makeRepo().curatorVerdict("p1")).rejects.toThrow("boom");
+  });
+
   it("omits the Authorization header when signed out", async () => {
     fetchMock.mockResolvedValueOnce(jsonOk([]));
     await makeRepo(async () => null).list();
