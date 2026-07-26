@@ -9,6 +9,11 @@ name: DB Contract
 # they are absent (e.g. a fork PR that can't read secrets) the suite self-skips via
 # `describe.skipIf`, so the job stays green without ever touching a database.
 
+# The tier costs ~17 min (serial ephemeral Neon branches), so both triggers carry the
+# same paths filter and DB-irrelevant PRs skip it entirely. Safe because `db-contract`
+# is NOT a required status check on `main` — a skipped run reports no conclusion, which
+# would leave PRs unmergeable if it ever became required. Keep the two lists identical
+# (enforced by test/repo-tooling.test.js) and err toward running.
 on:
   push:
     branches:
@@ -20,6 +25,12 @@ on:
       - "bun.lock"
       - ".github/workflows/db-contract.yml"
   pull_request:
+    paths:
+      - "apps/platform-api/**"
+      - "packages/db/**"
+      - "package.json"
+      - "bun.lock"
+      - ".github/workflows/db-contract.yml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
