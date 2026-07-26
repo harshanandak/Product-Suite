@@ -252,6 +252,28 @@ describe('runMeetingIngest', () => {
     expect(buildRationale(candidate())).toBe(rationale)
   })
 
+  // 10b — UX audit F4: "Confidence 0.91 from 0 transcript reference(s)" is a
+  // precise number asserted from nothing. The rationale is rendered verbatim on
+  // the memory card, so the figure must not be written when no evidence backs it.
+  it('omits the confidence figure entirely when the candidate has no evidence refs', () => {
+    for (const evidence_refs of [[], null] as const) {
+      const rationale = buildRationale(candidate({ evidence_refs }))
+      expect(rationale).not.toMatch(/confidence/i)
+      expect(rationale).not.toContain('0.82')
+      expect(rationale).not.toMatch(/0 transcript reference/i)
+      // The rest of the rationale still explains itself.
+      expect(rationale).toContain('mtg_1')
+      expect(rationale).toContain('Explicit commitment with a named owner and a date')
+    }
+  })
+
+  it('states the confidence with its evidence count when evidence exists', () => {
+    const rationale = buildRationale(
+      candidate({ evidence_refs: [{ segment_id: 'seg_1' }, { segment_id: 'seg_2' }] }),
+    )
+    expect(rationale).toContain('Confidence 0.82 from 2 transcript reference(s).')
+  })
+
   // 11
   it("sets payload.source='meeting', and accepting such a proposal carries it into the work item", async () => {
     const { sql } = harness({ candidates: [candidate()] })
