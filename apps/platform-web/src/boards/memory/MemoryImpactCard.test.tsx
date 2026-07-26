@@ -51,6 +51,65 @@ describe("MemoryImpactCard", () => {
     expect(screen.queryByText(/~\s*\d+\s*edits/i)).toBeNull();
   });
 
+  // UX audit F3: with a zero-length arm there is no comparison and nothing is
+  // being measured, so the card must not say it is comparing or measuring.
+  it("empty holdout arm — says measurement hasn't started, no 'comparing' copy", () => {
+    setImpact({
+      verdict: "insufficient",
+      holdout: { applied: 0, edited: 0, editRate: 0, rejected: 0, rejectRate: 0, threads: 0 },
+      treated: { applied: 5, edited: 2, editRate: 0.4, rejected: 0, rejectRate: 0, threads: 5 },
+      savedEdits: 0,
+      window_days: 30,
+    });
+    render(<MemoryImpactCard />);
+
+    expect(screen.queryByText(/Comparing/i)).toBeNull();
+    expect(screen.queryByText(/Measuring how much memory helps/i)).toBeNull();
+    expect(
+      screen.getByText(/measurement hasn't started/i),
+    ).toBeInTheDocument();
+    // The real arm counts, stated as counts — not framed as a comparison.
+    expect(
+      screen.getByText(/5 proposals? with memory, 0 without/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/saved you/i)).toBeNull();
+  });
+
+  it("empty treated arm — same not-started copy with the real counts", () => {
+    setImpact({
+      verdict: "insufficient",
+      holdout: { applied: 4, edited: 1, editRate: 0.25, rejected: 0, rejectRate: 0, threads: 4 },
+      treated: { applied: 0, edited: 0, editRate: 0, rejected: 0, rejectRate: 0, threads: 0 },
+      savedEdits: 0,
+      window_days: 30,
+    });
+    render(<MemoryImpactCard />);
+
+    expect(screen.queryByText(/Comparing/i)).toBeNull();
+    expect(screen.getByText(/measurement hasn't started/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/0 proposals with memory, 4 without/i),
+    ).toBeInTheDocument();
+  });
+
+  it("empty arm outranks a helps/hurts verdict (a claim its inputs can't support)", () => {
+    // Defensive: a verdict that cannot be true with an empty control arm must not
+    // put a headline number on screen just because the server said so.
+    for (const verdict of ["helps", "hurts"] as const) {
+      setImpact({
+        verdict,
+        savedEdits: 9,
+        window_days: 30,
+        holdout: { applied: 0, edited: 0, editRate: 0, rejected: 0, rejectRate: 0, threads: 0 },
+        treated: { applied: 6, edited: 1, editRate: 0.167, rejected: 0, rejectRate: 0, threads: 6 },
+      });
+      const { unmount } = render(<MemoryImpactCard />);
+      expect(screen.queryByText(/saved you/i)).toBeNull();
+      expect(screen.getByText(/measurement hasn't started/i)).toBeInTheDocument();
+      unmount();
+    }
+  });
+
   it("helps — headline saved-edits + comparison with both rates and edited/applied counts", () => {
     setImpact({
       verdict: "helps",

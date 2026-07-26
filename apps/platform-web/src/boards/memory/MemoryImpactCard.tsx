@@ -12,8 +12,12 @@ function pct(rate: number): string {
  * the org's memory) against a TREATED cohort (WITH it) and branches on the
  * server's `verdict`, honest by construction:
  *
- *  - `insufficient` — not enough data for a confident call: muted "measuring"
- *    copy + the small cohort counts, and NO headline number.
+ *  - EITHER COHORT EMPTY — there is no comparison at all yet, so the card says
+ *    measurement hasn't started and reports the raw arm counts. This branch is
+ *    checked BEFORE `verdict`: a comparison needs two arms, so an empty arm can
+ *    only ever mean not-started, whatever the server called it (UX audit F3).
+ *  - `insufficient` — both arms have runs but not enough for a confident call:
+ *    muted "measuring" copy + the small cohort counts, and NO headline number.
  *  - `helps` — memory measurably lowered the edit burden: the saved-edits
  *    headline (the `~` stays — it is an estimate) + a comparison line carrying
  *    BOTH cohorts' edit rates and counts, plus a one-line holdout disclosure.
@@ -42,12 +46,44 @@ export function MemoryImpactCard() {
 
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-border bg-card px-4 py-3.5">
-      {impact.verdict === "helps"
-        ? renderHelps(impact)
-        : impact.verdict === "hurts"
-          ? renderHurts(impact)
-          : renderInsufficient(impact)}
+      {hasEmptyArm(impact)
+        ? renderNotStarted(impact)
+        : impact.verdict === "helps"
+          ? renderHelps(impact)
+          : impact.verdict === "hurts"
+            ? renderHurts(impact)
+            : renderInsufficient(impact)}
     </div>
+  );
+}
+
+/**
+ * True when either arm has no runs. A holdout comparison needs BOTH a treated and
+ * a control arm; with one of them empty nothing has been compared, so no verdict —
+ * `insufficient` included — describes the state honestly.
+ */
+function hasEmptyArm(impact: MemoryImpact): boolean {
+  return impact.holdout.applied === 0 || impact.treated.applied === 0;
+}
+
+/**
+ * EITHER ARM EMPTY — no comparison exists. States that plainly and reports the
+ * real counts, so the reader can see which arm is missing rather than being told
+ * a measurement is under way.
+ */
+function renderNotStarted(impact: MemoryImpact) {
+  const { holdout, treated } = impact;
+  const proposalWord = treated.applied === 1 ? "proposal" : "proposals";
+  return (
+    <>
+      <p className="text-sm text-muted-foreground">
+        Memory&apos;s impact measurement hasn&apos;t started — it needs runs both
+        with and without memory.
+      </p>
+      <p className="text-xs text-muted-foreground">
+        {`So far: ${treated.applied} ${proposalWord} with memory, ${holdout.applied} without.`}
+      </p>
+    </>
   );
 }
 
