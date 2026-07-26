@@ -171,7 +171,8 @@ function notApplicable(summary: string): CuratorVerdict {
 function summarise(collisions: CuratorCollision[], quality: CuratorQualityFinding[]): string {
   const worst = collisions[0]
   if (worst) {
-    const others = collisions.length > 1 ? ` (and ${collisions.length - 1} other related memory${collisions.length > 2 ? 'ies' : ''})` : ''
+    const rest = collisions.length - 1
+    const others = rest > 0 ? ` (and ${rest} other related memor${rest > 1 ? 'ies' : 'y'})` : ''
     const tier = worst.visibility === 'private' ? 'your own private note' : 'an org memory'
     const verb =
       worst.relation === 'conflict'
@@ -242,7 +243,6 @@ export async function curateProposal(
       id: hit.id,
       title: hit.title,
       body: hit.body,
-      kind: hit.kind,
       visibility: hit.visibility,
       scope_type: hit.scope_type,
       scope_id: hit.scope_id,

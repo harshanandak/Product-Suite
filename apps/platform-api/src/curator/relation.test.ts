@@ -36,7 +36,6 @@ function existing(over: Partial<ExistingMemory> = {}): ExistingMemory {
     id: 'm_existing',
     title: 'Pricing pages ship through the growth review',
     body: 'The growth lead signs off before any pricing page goes live.',
-    kind: 'fact',
     visibility: 'org',
     scope_type: 'org',
     scope_id: null,

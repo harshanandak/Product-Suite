@@ -32,7 +32,6 @@ export interface ExistingMemory {
   id: string
   title: string
   body: string
-  kind: string
   visibility: MemoryVisibility
   scope_type: MemoryScopeType
   scope_id: string | null

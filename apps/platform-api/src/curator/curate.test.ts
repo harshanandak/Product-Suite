@@ -375,6 +375,27 @@ describe('curateProposal — bounded and deduplicated', () => {
     }
   })
 
+  it('counts the other collisions in plain English', async () => {
+    const { sql } = mockSql((text) =>
+      isPrivateLane(text)
+        ? []
+        : [row({ id: 'm_a' }), row({ id: 'm_b' }), row({ id: 'm_c' })],
+    )
+    const verdict = await curateProposal(sql, proposal(), { tenantId: 't_1', reviewerUserId: 'u_rev' })
+
+    expect(verdict.collisions).toHaveLength(3)
+    expect(verdict.summary).toContain('2 other related memories')
+  })
+
+  it('says “memory”, singular, when there is exactly one other', async () => {
+    const { sql } = mockSql((text) =>
+      isPrivateLane(text) ? [] : [row({ id: 'm_a' }), row({ id: 'm_b' })],
+    )
+    const verdict = await curateProposal(sql, proposal(), { tenantId: 't_1', reviewerUserId: 'u_rev' })
+    expect(verdict.summary).toContain('1 other related memory')
+    expect(verdict.summary).not.toContain('memories')
+  })
+
   it('reports each colliding memory once, however many probes found it', async () => {
     const { sql } = mockSql((text) => (isPrivateLane(text) ? [] : [row()]))
     const verdict = await curateProposal(
