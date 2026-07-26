@@ -80,10 +80,12 @@ describe("prepush-gate classification", () => {
     // present: the always-on tooling check + the platform-api owner
     expect(out).toContain("test:repo-tooling");
     expect(out).toContain("verify:platform-api");
-    // absent: every unrelated app/package suite
+    // absent: every unrelated app/package suite. Each name below is a suite the
+    // classifier can actually emit (see SUITES) — naming roadmap-web's suite as
+    // `verify:roadmap-web` would assert the absence of a string nothing produces.
     expect(out).not.toContain("verify:platform-web");
     expect(out).not.toContain("verify:meeting-web");
-    expect(out).not.toContain("verify:roadmap-web");
+    expect(out).not.toContain("test:roadmap-canvas-boundary");
     expect(out).not.toContain("verify:db");
   });
 
@@ -107,8 +109,9 @@ describe("prepush-gate classification", () => {
     const out = classify(["apps/platform-web/src/x.tsx"]);
     expect(out).toContain("scoped");
     expect(out).toContain("verify:platform-web");
-    // a platform-web-only change must NOT drag in the other apps' suites
-    expect(out).not.toContain("verify:roadmap-web");
+    // a platform-web-only change must NOT drag in the other apps' suites, named as
+    // the classifier actually maps them (roadmap-web = test:roadmap-canvas-boundary)
+    expect(out).not.toContain("test:roadmap-canvas-boundary");
     expect(out).not.toContain("verify:meeting-web");
   });
 
