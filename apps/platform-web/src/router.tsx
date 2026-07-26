@@ -72,13 +72,11 @@ const homeIndexRoute = createRoute({
   path: "/",
   component: BoardScreen,
 });
-const homeReviewRoute = createRoute({
-  getParentRoute: () => workspaceRoute,
-  path: "review",
-  component: BoardScreen,
-});
 // The review inbox renders the live proposals screen (list + detail pane); all
-// other home board routes remain on the BoardScreen placeholder.
+// other home board routes remain on the BoardScreen placeholder. There is no
+// `/review` route: it was a BoardScreen placeholder that the badge-bearing rail
+// row pointed at ("Review queue 5" → "coming soon"), so it was deleted rather
+// than left to catch navigation that belongs here (UX audit F1).
 const homeInboxRoute = createRoute({
   getParentRoute: () => workspaceRoute,
   path: "inbox",
@@ -218,7 +216,6 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   workspaceRoute.addChildren([
     homeIndexRoute,
-    homeReviewRoute,
     homeInboxRoute,
     memoryRoute,
     workboardRoute,

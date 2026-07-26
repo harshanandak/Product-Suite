@@ -44,10 +44,18 @@ describe("TopBar", () => {
 
     const badge = await screen.findByLabelText("3 pending proposals");
     expect(badge).toHaveTextContent("3");
-    // The button itself stays labeled "Ask agent" (badge is a sibling, not a child).
-    expect(
+    // F1: the count must sit on the affordance that NAVIGATES to the queue it
+    // counts — the Review inbox link — not on "Ask agent", which opens chat.
+    const queueLink = screen.getByRole("link", { name: "Review inbox" });
+    expect(queueLink).toHaveAttribute("href", "/w/test-ws/inbox");
+    // The badge is positioned against the queue link's own wrapper, and that
+    // wrapper holds no other affordance — so the count decorates the thing that
+    // navigates to the queue, and nothing else.
+    const badgeWrapper = badge.parentElement;
+    expect(badgeWrapper).toContainElement(queueLink);
+    expect(badgeWrapper).not.toContainElement(
       screen.getByRole("button", { name: "Ask agent" }),
-    ).toBeInTheDocument();
+    );
   });
 
   it("caps the badge at 9+ when more than nine are pending", async () => {
