@@ -125,6 +125,20 @@ becomes a leak on the day the first one is written.
 Giving the KB a real private lane needs the asker threaded through `search_knowledge` and
 `searchKnowledge`, and is filed as follow-up work rather than widened into this slice.
 
+## D15 — the invariant suite uses a DB-like fake, and is mutation-verified
+
+`apps/platform-api/src/agent/memory-tier-invariants.test.ts` asserts the two day-one
+guarantees across all three retrieval paths at once. Asserting them against a mock that
+returns a canned list would prove nothing — it would pass even if a query dropped its
+visibility predicate entirely. So the fake behaves like the database: it holds one corpus and
+applies whatever visibility/owner predicate the SQL actually asks for, leaving unconstrained
+rows unfiltered. A path that forgets to constrain visibility therefore gets the whole corpus
+back and the suite fails.
+
+That property was verified by mutation, not assumed. Removing `owner_user_id = $n` from the
+private lanes fails 5 of 7; replacing the org lanes' `visibility = 'org'` with a tautology fails
+6 of 7. Both mutations were reverted.
+
 ## D12 — real-DB execution of the CHECK is NOT possible in this repo
 
 The brief asked for db-contract-tier tests. **There is no such tier in this repo.** No test in
