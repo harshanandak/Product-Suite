@@ -6,6 +6,41 @@
 
 ---
 
+## Implementation status (added 2026-07-26 — read this before the recommendations)
+
+This report was written **as design input, before implementation**. Its competitive
+teardowns, citations, rankings and analysis below are preserved exactly as researched
+and are **not** revised in hindsight. Only status markers were added, so the document
+no longer proposes in the future tense what has since shipped.
+
+| Recommendation | Status |
+|---|---|
+| **#1** Two-column ownership axis + fail-closed dual-lane retrieval | **Shipped** — PR #151 (merged), migration `0016_memory_ownership_axis` |
+| **#2** Tier-aware attribution, same migration | **Shipped** — PR #151 (merged) |
+| **#3** Global Curator pass on the Review Inbox | **In flight** — PR #154 (open) |
+| **#4**–**#8** | Not started |
+
+**What #151 actually built** (verified in-repo, not from the recommendation text):
+
+- `memories.visibility` — enum `memory_visibility` (`private` | `org`), `NOT NULL DEFAULT 'org'` (`packages/db/src/schema.ts:530`).
+- `memories.owner_user_id` — nullable `text` (`schema.ts:531`).
+- CHECK `memories_private_requires_owner` — the biconditional `(visibility = 'private') = (owner_user_id IS NOT NULL)`, authored in the migration.
+- Index `memories_tenant_visibility_scope_idx` on `(tenant_id, status, visibility, owner_user_id, scope_type, scope_id)`.
+- `run_memory_attributions.visibility` (same enum, `NOT NULL DEFAULT 'org'`) and `run_memory_attributions.owner_matched` (`boolean NOT NULL DEFAULT false`).
+- Dual-lane retrieval in `apps/platform-api/src/agent/memory-retrieval.ts`: `retrieveForContext`, `retrieveRulesForContext` and `searchMemories` each issue an org lane (`visibility = 'org'`) and — only for a known asker (`hasKnownAsker`) — a second private lane (`visibility = 'private' and owner_user_id = $n`). The asker is threaded from the runtime.
+- `search_knowledge` is restricted org-only (`ORG_VISIBILITY_ONLY` in `knowledge-retrieval.ts`): the tool takes no asker, so it can never establish entitlement to a private row.
+- Personal content renders last, in its own hard-capped budget, behind the fences `<your_context>` (decisions/facts) and `<your_rules>` (rules), distinct from `<org_memory>` and `<team_rules>`.
+
+**Where the build diverged from what this report recommended** — kept as information,
+not edited away:
+
+1. **§2.1 said "the retrieval index extended to …"; the build *added* a second index** rather than replacing `memories_tenant_scope_idx`. Column order is exactly as recommended. Rationale recorded in the schema: other domain queries still filter `(tenant, status, scope)` with no visibility term, so dropping their index would be an unrelated perf change.
+2. **§2.4 point 5 asked for an explicit `ON DELETE` on the owner reference. It was not built.** `owner_user_id` is plain `text` in the Clerk-user key space (the same as `created_by`/`decided_by`) with **no foreign key** — so there is no FK on which to hang a cascade, and owner-deletion handling for private memories remains unbuilt. The fail-open risk §2.4 names (a private memory outliving its owner) is therefore still open.
+3. **§2.5 recommended the personal lane take "10–20% *of* the memory budget"; the build made it additive.** `PRIVATE_MEMORY_BUDGET_RATIO = 0.15` with ceilings `MAX_PRIVATE_MEMORY_TOKEN_BUDGET = 120` / `MAX_PRIVATE_RULES_TOKEN_BUDGET = 60`, computed *on top of* the org budget rather than carved out of it — so personal memory cannot reduce policy visibility at all, which is stronger than the ceiling §2.5 asked for. There is no separate floor constant; the additive allocation serves that purpose.
+4. **The rules lane got a private fence this report did not name.** §2.5 named only `<your_context>`; the build also fences private rules separately as `<your_rules>`.
+
+---
+
 ## 0. Verdict on the thesis
 
 The thesis holds, but not for the reason it looks like. Almost every system in the market has **exactly one** tier and treats the other as out of scope:
@@ -161,10 +196,12 @@ Also: merging a personal account into a Business workspace migrates all conversa
 
 ### 2.1 Schema: how to represent tier
 
-Our current `memories` table (`packages/db/src/schema.ts:488`) `[verified]` has:
+The `memories` table **as it stood when this was written** (pre-#151) `[verified]` had:
 `tenant_id`, `kind`, `title`, `body`, `attrs`, `root_id`/`supersedes_id`/`superseded_by_id`/`change_reason`, `valid_from`, `status`, `scope_type` (`org|project|work_item_type|work_item`), `scope_id`, `topics[]`, `source_kind`, `source_run_id`, `source_proposal_id`, `source_quote`, `created_by`, `decided_by`, `pinned`, `priority`, `enforcement`, `embed_model`.
 
-Note precisely what's absent: **no owner column and no visibility column.** `created_by`/`decided_by` are *audit* text fields, and the index `memories_tenant_scope_idx` is `(tenant_id, status, scope_type, scope_id)` — every active memory at a scope is returned to every asker in that tenant.
+Note precisely what was absent: **no owner column and no visibility column.** `created_by`/`decided_by` are *audit* text fields, and the index `memories_tenant_scope_idx` is `(tenant_id, status, scope_type, scope_id)` — every active memory at a scope was returned to every asker in that tenant.
+
+> **Status:** no longer the case. #151 added `visibility` and `owner_user_id` (option (c) below) plus `memories_tenant_visibility_scope_idx`; `memories_tenant_scope_idx` is still present for the queries that don't filter on visibility. The table now begins at `packages/db/src/schema.ts:496`.
 
 Three candidate representations:
 
@@ -172,8 +209,8 @@ Three candidate representations:
 
 **(b) New `scope_type = 'user'` + `scope_id = user_id`.** Tempting because it costs one enum value and zero new columns. **Rejected as the primary mechanism.** `[reasoning]` It conflates two orthogonal axes. Scope answers *"what is this about"* (org / project / work item) and cascades; tier answers *"who may see it."* Collapsing them makes "my personal note about project X" unrepresentable — you must choose between `scope=project:X` (loses privacy) and `scope=user:me` (loses the project cascade). Mem0's flat null-defaulting columns are the cautionary tale: because scope keys double as filter keys, the documented common failure is *silently retrieving nothing*.
 
-**(c) Recommended — orthogonal ownership axis, two nullable columns:**
-```
+**(c) Recommended — orthogonal ownership axis, two nullable columns:** — **shipped in #151 as written**, except that the index was *added* alongside the existing one rather than extending it (see Implementation status, divergence 1).
+```sql
 visibility     memory_visibility NOT NULL DEFAULT 'org'   -- enum: 'private' | 'org'
 owner_user_id  text NULL                                   -- NOT NULL iff visibility='private'
 ```
@@ -199,11 +236,11 @@ Ordering: **personal-first for preference/style, org-first for policy/authority.
 | `fact` | **most recent valid wins**, tie → org | Facts are time-truthed; this is Zep's fact-invalidation model `[verified]` and our `valid_from`/supersession chain already implements it. |
 | preference/style (today: `fact` with a preference topic) | **personal wins** | Nobody's org has an opinion on whether Alice wants terse diffs. |
 
-Blend mechanics, borrowing Collaborative Memory's separate-top-k `[verified]`: run **two retrievals** (private-owned, org) rather than one query over a union. Reasons: `[reasoning]` (i) a single blended similarity ranking lets a chatty private note starve a load-bearing org rule; (ii) separate lanes make the token split a policy knob instead of an emergent property of embeddings; (iii) it makes the fail-closed test trivial — assert the private lane returns zero rows for a non-owner.
+Blend mechanics, borrowing Collaborative Memory's separate-top-k `[verified]`: run **two retrievals** (private-owned, org) rather than one query over a union. **Shipped in #151** across `retrieveForContext`, `retrieveRulesForContext` and `searchMemories`. Reasons: `[reasoning]` (i) a single blended similarity ranking lets a chatty private note starve a load-bearing org rule; (ii) separate lanes make the token split a policy knob instead of an emergent property of embeddings; (iii) it makes the fail-closed test trivial — assert the private lane returns zero rows for a non-owner.
 
 Conflict must be **surfaced, not silently resolved.** `[reasoning]` When a retrieved private memory contradicts a retrieved org memory on the same subject, the correct behavior is to inject both with an explicit marker (`[your note diverges from org policy: …]`) and log the divergence as a promotion/supersession candidate. Silent resolution destroys the signal that org memory is stale — which, per SAP's R3/R7 `[verified]`, is the main thing you want memory to tell you. This is also our cheapest source of high-quality promotion candidates: *a private note that repeatedly contradicts org memory is either a policy bug or an unpromoted improvement.*
 
-Attribution: our `run_memory_attributions` rail (`injected_via` ∈ `pinned|retrieved|tool`, plus `suppressed` for holdout) `[verified]` needs the tier recorded per injected row so we can answer "which tier moved the outcome" — see 2.6.
+Attribution: our `run_memory_attributions` rail (`injected_via` ∈ `pinned|retrieved|tool`, plus `suppressed` for holdout) `[verified]` needs the tier recorded per injected row so we can answer "which tier moved the outcome" — see 2.6. **Shipped in #151** as `visibility` + `owner_matched`.
 
 ### 2.3 Promotion and demotion flows
 
@@ -229,9 +266,10 @@ Attribution: our `run_memory_attributions` rail (`injected_via` ∈ `pinned|retr
 Non-negotiable invariants, adapted from Glean and Slack `[verified]`/`[claim]`:
 1. **No new permission model for memory.** Memory retrieval resolves the *same* authority as the rest of the product. Corollary (Glean's own words: MCP "introduces no new permission model") `[verified]`: the memory tool surface must not be able to read anything a scoped list query couldn't.
 2. **Slack's invariant, restated for us:** *memory retrieval must never surface what a permission-scoped query wouldn't.* This is a property test, not a doc sentence — assert it for retrieval, for the `search_memory` tool, and for injection rendering.
-3. **Trim before the model, never after.** `[claim]`/`[reasoning]` The private lane is filtered in SQL by `owner_user_id = :asker`, so unauthorized text never reaches the context builder. Filtering an already-generated answer is not a boundary.
-4. **Fail closed on unknown asker.** No asker identity → **org lane only, private lane empty**. Never "no filter."
+3. **Trim before the model, never after.** `[claim]`/`[reasoning]` The private lane is filtered in SQL by `owner_user_id = :asker`, so unauthorized text never reaches the context builder. Filtering an already-generated answer is not a boundary. **Shipped in #151** — both lanes carry a `visibility` predicate in SQL, and `search_knowledge`, which has no asker, is constrained org-only.
+4. **Fail closed on unknown asker.** No asker identity → **org lane only, private lane empty**. Never "no filter." **Shipped in #151** as `hasKnownAsker` — an absent, null, or whitespace-only asker id issues no private query at all.
 5. **Inherit, don't invent, for storage.** `[reasoning]` Copilot's mailbox colocation `[verified]` is the ideal we approximate: personal memories should be governed by the same retention/export/deletion the user's own data is. Concretely: user deletion must cascade or force-resolve `owner_user_id` — a private memory outliving its owner with a dangling owner id is a fail-open bug, so make it `ON DELETE` explicit rather than incidental.
+   > **Status: NOT built by #151.** `owner_user_id` shipped as plain `text` in the Clerk-user key space with **no foreign key**, so there is no `ON DELETE` to declare and owner-deletion handling is still open. This invariant remains outstanding work, not a shipped guarantee.
 6. **Meeting-derived content is the sharp edge.** `[reasoning]` A meeting has *multiple* participants, so a "personal" extraction from a meeting is not the extractor's private property — the other speakers' words are in it. Rule: meeting-sourced memories default to the **visibility of the meeting's participant set**, i.e. `visibility='org'` scoped to the project when the meeting is a project meeting, and `private` only when the content is the owner's own commitment/preference. Attributed quotes from other participants must never be promoted into org memory without the `source_quote` provenance we already store — that field is what makes the review defensible. Our existing `meeting_promotions` table (content-derived `meeting_record_id`, composite-unique per tenant) `[verified]` already establishes promote-once semantics for meeting content; the personal tier must reuse that idempotency, not invent a parallel one.
 7. **Oversharing is a product risk, not just a config risk.** `[verified]` Microsoft dedicates a blueprint pillar to remediating it. `[reasoning]` Our equivalent: a promotion audit view (what got widened, by whom, when, and what it influenced) shipped *with* the promotion feature, not after.
 
@@ -244,6 +282,8 @@ Recommendation `[reasoning]`: add a **third lane** rather than sharing a pool.
 - **Org decisions/facts** — unchanged.
 - **Personal** — its own small floor-and-ceiling: roughly **10–20% of the memory budget**, hard-capped, own fenced block (`<your_context>` distinct from `<team_rules>`).
 
+> **Status:** shipped in #151 with one deliberate change — the personal share is **additive** to the org budget rather than carved out of it (`PRIVATE_MEMORY_BUDGET_RATIO = 0.15`, ceilings 120 tokens for decisions/facts and 60 for rules), so personal memory cannot shrink policy visibility at all. No separate floor constant; the additive allocation does that job. Private rules also got their own fence, `<your_rules>`, which this section did not anticipate.
+
 Rationale for a *floor and a ceiling*: `[reasoning]` a floor guarantees the personal tier is actually felt (otherwise it measures as worthless and gets cut); a ceiling guarantees it can never crowd out org policy. Letta's blocks make the cost model explicit — `chars_limit` per block, visible to the model `[verified]` — which is the right instinct: budget is per-lane and legible, not global and emergent.
 
 Sequencing inside the prompt: org rules → org decisions/facts → personal, with personal last. `[reasoning]` Recency-in-context favors the tail for *preferences* (tone, format), while rules benefit from the stable header position; this also means a personal block that gets truncated degrades the least important lane first. SAP's warning applies to both lanes: dumping all potentially relevant knowledge "increases latency, introduces irrelevant information, and may distract the agent" `[verified]`.
@@ -255,7 +295,7 @@ Also: label the tier **in the rendered block**. `[reasoning]` The model should k
 Our rail: one `run_memory_attributions` row per injected memory, written deterministically post-retrieval (no model in the loop → causal), with `suppressed` recording what *would* have injected under holdout `[verified]`.
 
 Extension `[reasoning]`:
-1. **Record tier per attribution row** (`visibility` + whether `owner_user_id` matched the asker). Without this, the personal tier's effect is unrecoverable from existing data — do this in the same migration as the schema change, even if the personal tier ships later, because retrofitting attribution loses the early cohort.
+1. **Record tier per attribution row** (`visibility` + whether `owner_user_id` matched the asker). Without this, the personal tier's effect is unrecoverable from existing data — do this in the same migration as the schema change, even if the personal tier ships later, because retrofitting attribution loses the early cohort. **Shipped in #151, in the same migration as advised** — `run_memory_attributions.visibility` + `run_memory_attributions.owner_matched`.
 2. **Three-arm holdout, not two.** Independent suppression: `{org on, personal on}`, `{org on, personal off}`, `{org off, personal on}`, `{both off}` — a 2×2 factorial at 10% each rather than one 10% arm. This is the only way to detect **interaction**: the plausible outcome is that personal memory helps *most* where org memory is thin and adds noise where org memory is strong, and a single-arm holdout averages that to zero. `[reasoning]`
 3. **Promotion as its own measured object.** Per promoted memory, track: runs influenced before promotion (owner only) vs after (all users), and outcome deltas. `[reasoning]` "Promotion lift" is a metric no competitor can compute, and it's the number that sells the moat: *this org's agents got N% better because one person's private lesson became policy.*
 4. **Divergence rate as a leading indicator.** Count private-vs-org conflicts per org per week. `[reasoning]` Rising divergence = stale org memory. This is a *health metric for the org tier derived from the personal tier* — the clearest possible articulation of why the balance is the moat, and a natural dashboard/inbox feed.
@@ -265,17 +305,18 @@ Extension `[reasoning]`:
 
 ## Part 3 — Ranked recommendations
 
-Ranked by moat value ÷ build cost, on top of what exists today.
+Ranked by moat value ÷ build cost, on top of what exists today. Ranking and rationale
+are as researched on 2026-07-25; status markers were added 2026-07-26.
 
-**1. Two-column ownership axis + fail-closed dual-lane retrieval.** Add `visibility` (`private|org`, default `org`) + `owner_user_id` with the biconditional CHECK; extend the retrieval index; split retrieval into two lanes with the private lane filtered by `owner_user_id = :asker` and **empty when asker is unknown**. Migration is a no-op for existing rows.
+**1. Two-column ownership axis + fail-closed dual-lane retrieval.** — **SHIPPED (PR #151, merged).** Add `visibility` (`private|org`, default `org`) + `owner_user_id` with the biconditional CHECK; extend the retrieval index; split retrieval into two lanes with the private lane filtered by `owner_user_id = :asker` and **empty when asker is unknown**. Migration is a no-op for existing rows.
 *Exploits:* Mem0's absent tier concept and its null-scoping footgun `[verified]`; Zep's `group_id`-as-partition-not-permission `[reasoning]`; Claude's forced choice between isolation and sharing `[verified]`.
 *Why first:* every other item depends on it, and it is the P1 access-authority work rather than a detour from it — the private lane is the strictest case of "retrieval scoped to the asking user's visibility."
 
-**2. Tier-aware attribution (same migration).** Record tier + owner-match on every `run_memory_attributions` row.
+**2. Tier-aware attribution (same migration).** — **SHIPPED (PR #151, merged).** Record tier + owner-match on every `run_memory_attributions` row.
 *Exploits:* nobody publishes per-tier causal attribution; ChatGPT shows *which* memory was used but not tiered effect `[verified]`.
 *Why this high:* it costs a column and is unrecoverable if skipped. Ship it with #1 even if the personal tier is dark.
 
-**3. The Global Curator pass on the Review Inbox.** Before a proposal reaches a human, diff it against existing memory: quality checks in isolation (single rule, clear applicability, meaningful name) + relation checks (duplicate / overlap / conflict, naming the specific colliding memory). Present the verdict inline.
+**3. The Global Curator pass on the Review Inbox.** — **IN FLIGHT (PR #154, open).** Before a proposal reaches a human, diff it against existing memory: quality checks in isolation (single rule, clear applicability, meaningful name) + relation checks (duplicate / overlap / conflict, naming the specific colliding memory). Present the verdict inline.
 *Exploits:* SAP's architecture, published but unshipped in any product `[verified]`; Mem0's open conflict-resolution gap `[claim]`.
 *Why:* this is the only item that pays off **even if the personal tier slips**, and without it promotion volume turns our review gate into a rubber stamp — which would forfeit the propose-only moat we already have.
 
@@ -299,9 +340,13 @@ Ranked by moat value ÷ build cost, on top of what exists today.
 *Exploits:* Copilot's oversharing remediation is a separate blueprint bolted on after the fact `[verified]`; Collaborative Memory has provenance for retrospective checks but no product surface `[verified]`.
 *Why last:* it needs promotion volume to measure. But the audit view must ship **with** #5, not after — a widening feature without a widening ledger is the Copilot mistake.
 
-### The cheapest v1 slice (ship this first)
+### The cheapest v1 slice (ship this first) — shipped as PR #151
 
 **`visibility` + `owner_user_id` + the CHECK + the extended index + dual-lane retrieval with a fail-closed empty private lane + tier recorded on attribution rows.** No UI, no promotion, no redaction, no curator.
+
+> **Status:** this is exactly the slice #151 shipped, with the divergences listed at the
+> top of this document. The migration is `packages/db/migrations/0016_memory_ownership_axis.sql`;
+> retrieval is `apps/platform-api/src/agent/memory-retrieval.ts`.
 
 Why this is the right cut `[reasoning]`:
 - It is a strict subset of the already-filed P1 access-authority work, not competing scope — the private lane is simply the strictest visibility case, and building it forces the fail-closed retrieval path to be correct for a case where the blast radius of a bug is obvious.
@@ -333,5 +378,11 @@ Why this is the right cut `[reasoning]`:
 - [mem0ai/mem0 issue #4896 — ADD-only architecture doesn't implement conflict resolution](https://github.com/mem0ai/mem0/issues/4896)
 
 **Our own code (verified in-repo)**
-- `packages/db/src/schema.ts:488` — `memories` table; `run_memory_attributions`; `meeting_promotions` (content-derived id, composite-unique per tenant); enums `memory_kind`, `memory_status`, `memory_scope_type`, `memory_source_kind`, `memory_enforcement`, `injected_via`
+- `packages/db/src/schema.ts` — `memories` table (at `:488` when this was written, `:496` after #151); `run_memory_attributions`; `meeting_promotions` (content-derived id, composite-unique per tenant); enums `memory_kind`, `memory_status`, `memory_scope_type`, `memory_source_kind`, `memory_enforcement`, `injected_via`
 - `retrieveRulesForContext` — scope cascade + separate `DEFAULT_RULES_TOKEN_BUDGET` rules lane, ordered `pinned desc, priority desc, valid_from desc, created_at desc`
+
+**Shipped implementation of recs #1/#2 (added 2026-07-26, verified in-repo)**
+- `packages/db/migrations/0016_memory_ownership_axis.sql` — `memory_visibility` enum, `memories.visibility`/`owner_user_id`, CHECK `memories_private_requires_owner`, index `memories_tenant_visibility_scope_idx`, `run_memory_attributions.visibility`/`owner_matched`
+- `packages/db/src/schema.ts:483` (`memoryVisibilityEnum`), `:530`–`:531` (columns), `:559` (index), `:608`–`:609` (attribution columns)
+- `apps/platform-api/src/agent/memory-retrieval.ts` — `hasKnownAsker`, `privateMemoryBudget`/`privateRulesBudget`, `fencePrivateMemories`/`fencePrivateRules`, dual-lane `retrieveForContext`/`retrieveRulesForContext`/`searchMemories`
+- `apps/platform-api/src/agent/knowledge-retrieval.ts` — `ORG_VISIBILITY_ONLY`, the org-only constraint on `search_knowledge`

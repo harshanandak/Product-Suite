@@ -62,7 +62,7 @@ placeholder.
 
 ### 1b. The proposal state machine (as the user meets it)
 
-```
+```text
                     ┌──────────────────────────────────────────┐
    agent chat ──────┤  proposal (status='pending')              │
    (Ask agent)      │  DB: proposals.status                     │
