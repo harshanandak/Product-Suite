@@ -304,7 +304,16 @@ export function buildTools(sql: Sql, ctx: ToolContext): ToolSet {
           await insertAttributions(
             sql,
             { runId: ctx.runId, tenantId: ctx.tenantId, via: 'tool' },
-            hits.map((h, i) => ({ memoryId: h.id, rank: i, tokens: null })),
+            // A private hit is owner-matched by construction: the private lane
+            // filtered on `owner_user_id = :asker` in SQL, and the DB CHECK forbids an
+            // org row from carrying an owner at all.
+            hits.map((h, i) => ({
+              memoryId: h.id,
+              rank: i,
+              tokens: null,
+              visibility: h.visibility,
+              ownerMatched: h.visibility === 'private',
+            })),
           ).catch((cause) => console.error('[search_memory] attribution failed', cause))
         }
         if (include_chain && hits.length > 0) {

@@ -294,7 +294,13 @@ export async function runAgentChat(
       await insertAttributions(
         sql,
         { runId, tenantId: ctx.tenantId, via: 'retrieved', suppressed: holdout },
-        memory.injected.map((m) => ({ memoryId: m.memoryId, rank: m.rank, tokens: m.tokens })),
+        memory.injected.map((m) => ({
+          memoryId: m.memoryId,
+          rank: m.rank,
+          tokens: m.tokens,
+          visibility: m.visibility,
+          ownerMatched: m.ownerMatched,
+        })),
       )
     }
     // Holdout: attribute (the counterfactual is logged) but never fence — the model
@@ -317,7 +323,14 @@ export async function runAgentChat(
       await insertAttributions(
         sql,
         { runId, tenantId: ctx.tenantId, via: 'retrieved', suppressed: holdout },
-        rules.injected.map((m) => ({ memoryId: m.memoryId, rank: m.rank, tokens: m.tokens, via: m.via })),
+        rules.injected.map((m) => ({
+          memoryId: m.memoryId,
+          rank: m.rank,
+          tokens: m.tokens,
+          via: m.via,
+          visibility: m.visibility,
+          ownerMatched: m.ownerMatched,
+        })),
       )
     }
     // Holdout: same discipline — attribute the counterfactual, append no fence.

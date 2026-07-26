@@ -280,18 +280,38 @@ describe('retrieveRulesForContext — the PRIVATE rules lane (a private rule rea
 })
 
 describe('insertAttributions (the moat rail)', () => {
+  const org = { visibility: 'org' as const, ownerMatched: false }
+  const priv = { visibility: 'private' as const, ownerMatched: true }
+
   it('writes ONE row per injected memory in a single bound-param insert', async () => {
     const { sql, query } = mockSql(() => [])
     await insertAttributions(sql, { runId: 'run_1', tenantId: 't_1', via: 'retrieved' }, [
-      { memoryId: 'm1', rank: 0, tokens: 5 },
-      { memoryId: 'm2', rank: 1, tokens: 7 },
+      { memoryId: 'm1', rank: 0, tokens: 5, ...org },
+      { memoryId: 'm2', rank: 1, tokens: 7, ...org },
     ])
     const [text, params] = query.mock.calls[0]!
     expect(String(text)).toMatch(/insert into "run_memory_attributions"/i)
-    // 2 rows × 7 columns = 14 bound params; via + run + tenant + suppressed stamped per row.
-    expect(params).toHaveLength(14)
-    expect(params.slice(0, 7)).toEqual(['run_1', 'm1', 't_1', 'retrieved', 0, 5, false])
-    expect(params.slice(7)).toEqual(['run_1', 'm2', 't_1', 'retrieved', 1, 7, false])
+    // 2 rows × 9 columns = 18 bound params; via + run + tenant + suppressed + the two
+    // tier columns stamped per row.
+    expect(params).toHaveLength(18)
+    expect(params.slice(0, 9)).toEqual(['run_1', 'm1', 't_1', 'retrieved', 0, 5, false, 'org', false])
+    expect(params.slice(9)).toEqual(['run_1', 'm2', 't_1', 'retrieved', 1, 7, false, 'org', false])
+  })
+
+  it('records the TIER per row — org and private in the SAME insert', async () => {
+    const { sql, query } = mockSql(() => [])
+    await insertAttributions(sql, { runId: 'run_1', tenantId: 't_1', via: 'retrieved' }, [
+      { memoryId: 'm_org', rank: 0, tokens: 5, ...org },
+      { memoryId: 'm_priv', rank: 1, tokens: 7, ...priv },
+    ])
+    // ONE insert for both tiers — no window where the org lane is attributed and the
+    // private lane is not (or vice versa), which would corrupt the per-tier signal.
+    expect(query).toHaveBeenCalledTimes(1)
+    const [text, params] = query.mock.calls[0]!
+    expect(String(text)).toMatch(/"visibility"/)
+    expect(String(text)).toMatch(/"owner_matched"/)
+    expect(params.slice(7, 9)).toEqual(['org', false])
+    expect(params.slice(16, 18)).toEqual(['private', true])
   })
 
   it('is a no-op when nothing was injected (no query)', async () => {
@@ -303,36 +323,36 @@ describe('insertAttributions (the moat rail)', () => {
   it('uses a per-row via when an entry carries one, falling back to ctx.via otherwise — ONE insert', async () => {
     const { sql, query } = mockSql(() => [])
     await insertAttributions(sql, { runId: 'run_1', tenantId: 't_1', via: 'retrieved' }, [
-      { memoryId: 'm_pin', rank: 0, tokens: 5, via: 'pinned' },
-      { memoryId: 'm_ret', rank: 1, tokens: 7, via: 'retrieved' },
-      { memoryId: 'm_default', rank: 2, tokens: 3 },
+      { memoryId: 'm_pin', rank: 0, tokens: 5, via: 'pinned', ...org },
+      { memoryId: 'm_ret', rank: 1, tokens: 7, via: 'retrieved', ...org },
+      { memoryId: 'm_default', rank: 2, tokens: 3, ...org },
     ])
     // Exactly ONE insert for all rows — no partial-commit window between them.
     expect(query).toHaveBeenCalledTimes(1)
     const [text, params] = query.mock.calls[0]!
     expect(String(text)).toMatch(/insert into "run_memory_attributions"/i)
-    expect(params).toHaveLength(21)
-    expect(params.slice(0, 7)).toEqual(['run_1', 'm_pin', 't_1', 'pinned', 0, 5, false])
-    expect(params.slice(7, 14)).toEqual(['run_1', 'm_ret', 't_1', 'retrieved', 1, 7, false])
+    expect(params).toHaveLength(27)
+    expect(params.slice(0, 9)).toEqual(['run_1', 'm_pin', 't_1', 'pinned', 0, 5, false, 'org', false])
+    expect(params.slice(9, 18)).toEqual(['run_1', 'm_ret', 't_1', 'retrieved', 1, 7, false, 'org', false])
     // No per-row via ⇒ falls back to ctx.via ('retrieved').
-    expect(params.slice(14, 21)).toEqual(['run_1', 'm_default', 't_1', 'retrieved', 2, 3, false])
+    expect(params.slice(18, 27)).toEqual(['run_1', 'm_default', 't_1', 'retrieved', 2, 3, false, 'org', false])
   })
 
   it('binds suppressed=true when ctx.suppressed is set (holdout counterfactual), false when omitted', async () => {
     const { sql, query } = mockSql(() => [])
     await insertAttributions(sql, { runId: 'run_1', tenantId: 't_1', via: 'retrieved', suppressed: true }, [
-      { memoryId: 'm1', rank: 0, tokens: 5 },
+      { memoryId: 'm1', rank: 0, tokens: 5, ...org },
     ])
     const [text, params] = query.mock.calls[0]!
     expect(String(text)).toMatch(/"suppressed"/)
-    expect(params).toEqual(['run_1', 'm1', 't_1', 'retrieved', 0, 5, true])
+    expect(params).toEqual(['run_1', 'm1', 't_1', 'retrieved', 0, 5, true, 'org', false])
 
     query.mockClear()
     await insertAttributions(sql, { runId: 'run_1', tenantId: 't_1', via: 'retrieved' }, [
-      { memoryId: 'm2', rank: 0, tokens: 5 },
+      { memoryId: 'm2', rank: 0, tokens: 5, ...org },
     ])
     const [, params2] = query.mock.calls[0]!
-    expect(params2).toEqual(['run_1', 'm2', 't_1', 'retrieved', 0, 5, false])
+    expect(params2).toEqual(['run_1', 'm2', 't_1', 'retrieved', 0, 5, false, 'org', false])
   })
 })
 

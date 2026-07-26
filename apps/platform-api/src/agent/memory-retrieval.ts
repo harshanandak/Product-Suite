@@ -483,6 +483,14 @@ export async function insertAttributions(
     tokens: number | null
     /** Per-row override; falls back to `ctx.via` when absent (existing callers unchanged). */
     via?: 'pinned' | 'retrieved' | 'tool'
+    /**
+     * The TIER this memory came from, and whether its owner was the asking user.
+     * REQUIRED, not defaulted: silently stamping 'org' on a row whose tier the caller
+     * did not know would make the per-tier signal quietly wrong rather than obviously
+     * missing, and every caller has the tier available from retrieval.
+     */
+    visibility: MemoryVisibility
+    ownerMatched: boolean
   }[],
 ): Promise<void> {
   if (entries.length === 0) return
@@ -498,14 +506,19 @@ export async function insertAttributions(
       e.rank ?? null,
       e.tokens ?? null,
       ctx.suppressed ?? false,
+      e.visibility,
+      e.ownerMatched,
     )
-    tuples.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7})`)
+    tuples.push(
+      `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9})`,
+    )
   }
   // ON CONFLICT DO NOTHING so a retried run / repeated search never double-counts a
   // (run, memory, via) pair — the attribution stats stay a clean causal signal.
   const text = `
     insert into "run_memory_attributions"
-      ("run_id", "memory_id", "tenant_id", "injected_via", "rank", "tokens", "suppressed")
+      ("run_id", "memory_id", "tenant_id", "injected_via", "rank", "tokens", "suppressed",
+       "visibility", "owner_matched")
     values ${tuples.join(', ')}
     on conflict ("run_id", "memory_id", "injected_via") do nothing
   `

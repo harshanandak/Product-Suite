@@ -369,8 +369,11 @@ describe('runAgentChat (request-free runtime + agent_runs lifecycle)', () => {
     const attrCalls = query.mock.calls.filter(([t]) => /insert into "run_memory_attributions"/i.test(String(t)))
     expect(attrCalls).toHaveLength(1)
     const params = (attrCalls[0]?.[1] ?? []) as unknown[]
+    // 9 bound params per row (the two tier columns are the last pair of each tuple).
     expect(params.slice(0, 4)).toEqual(['run_1', 'rule_pin', 't_1', 'pinned'])
-    expect(params.slice(7, 11)).toEqual(['run_1', 'rule_ret', 't_1', 'retrieved'])
+    expect(params.slice(7, 9)).toEqual(['org', false])
+    expect(params.slice(9, 13)).toEqual(['run_1', 'rule_ret', 't_1', 'retrieved'])
+    expect(params.slice(16, 18)).toEqual(['org', false])
   })
 
   it('keeps the decisions/facts fence + attribution when the RULES leg throws (isolated legs)', async () => {
