@@ -245,3 +245,49 @@ Two first-draft assertions failed and the FIXTURES were at fault:
    so only the sort can put the contradiction at the top.
 
 Recorded because both look like heuristic bugs on a quick read and are not.
+
+---
+
+## D14 — The db-contract tier is the ONLY place the ownership boundary is really proven
+
+**Decision.** `test/db-contract/memory-curator.test.ts` seeds Alice's private memory
+and Bob's org memory in a real Postgres branch and asserts a verdict computed for Bob
+names nothing of Alice's — checking the serialised verdict for her title text, not just
+the collision ids, because the summary is a rendered sentence that could carry a title
+the list does not.
+
+**Why a second tier at all.** The mocked suite can only prove what SQL we SEND. With a
+mock, a curator that names another user's private row and one that does not are
+indistinguishable, because the boundary lives in the lane's WHERE. The mocked tier's job
+is therefore the structural one — every query carries a visibility predicate, the private
+one binds the reviewer, an unknown reviewer produces no private query — and this tier's
+job is what Postgres actually returns.
+
+**Honest limitation.** `hasNeonCreds()` is false locally, so these three tests were
+**skipped, not run** (`1 skipped (1) / 3 skipped (3)`). They execute only in the
+`db-contract` CI job.
+
+---
+
+## D15 — Migration 0016 is NOT applied to the live DB (found, filed, NOT worked around)
+
+While de-risking D4, a read-only check against the live Neon platform DB (via the
+sibling worktree's `.dev.vars`, never copied into this worktree, never written to) found:
+
+- `drizzle.__drizzle_migrations` has **16** rows (0000–0015); **0016 is pending**.
+- `memories` has no `visibility` and no `owner_user_id`; `run_memory_attributions` has
+  no `visibility` / `owner_matched`; `memories_tenant_visibility_scope_idx` is absent.
+- The exact org-lane SELECT `searchMemories` issues returns **42703 "column visibility
+  does not exist"**.
+
+So #151's already-merged retrieval code is currently broken against the deployed
+database, and the curator inherits that by design (it reads memories only through
+`searchMemories` — one fix, not two).
+
+**Deliberately not worked around.** A fallback that tolerated a missing `visibility`
+column would return untiered rows, reintroducing the exact leak #151 closed — and it
+would do so in the surface that PRINTS TITLES. Filed as kernel issue `7d54921f`
+(P1, bug) against #151's deployment rather than patched here.
+
+**What this DID verify positively:** `scope_type` and `scope_id` exist, and the org-lane
+SELECT with those two columns added (D4) executes cleanly against the real table.
