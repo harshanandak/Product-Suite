@@ -521,27 +521,68 @@ export interface MemorySearchHit {
   status: string
   topics: string[] | null
   root_id: string
+  /**
+   * Which tier answered. Stamped from the LANE, not read from the row: the lane's
+   * WHERE is what actually guarantees the tier, so trusting the lane cannot disagree
+   * with what the database was asked for.
+   */
+  visibility: MemoryVisibility
 }
+
+/**
+ * How many of the asking user's own private memories the search tool may return, on
+ * top of the org hits. A flat hard cap rather than a share of `limit`: the tool exists
+ * to surface what the ORG decided, and personal notes must never swamp that.
+ */
+export const PRIVATE_SEARCH_LIMIT = 3
 
 /**
  * Tenant-scoped FTS over ACTIVE memories (the resolved-to-current versions), ranked by
  * relevance then recency. A foreign tenant's memory is never in the WHERE.
+ *
+ * Same dual-lane, fail-closed discipline as the injection legs: the org lane is
+ * constrained to `visibility='org'`, and the asking user's own private memories are a
+ * SECOND bounded query that is never issued at all when the asker is unknown. This is
+ * the invariant restated for the on-demand tool surface — the memory tool must not be
+ * able to read anything a permission-scoped list query couldn't.
  */
 export async function searchMemories(
   sql: Sql,
   tenantId: string,
   query: string,
   limit: number,
+  askerUserId?: string | null,
 ): Promise<MemorySearchHit[]> {
-  const text = `
+  const orgText = `
     select id, kind, title, body, status, topics, root_id
     from "memories"
-    where tenant_id = $1 and status = 'active'
+    where tenant_id = $1 and status = 'active' and visibility = 'org'
       and fts @@ plainto_tsquery('english', $2)
     order by ts_rank(fts, plainto_tsquery('english', $2)) desc, created_at desc
     limit $3
   `
-  return runQuery<MemorySearchHit>(sql, text, [tenantId, query, limit])
+  const orgHits = await runQuery<MemorySearchHit>(sql, orgText, [tenantId, query, limit])
+  const hits: MemorySearchHit[] = orgHits.map((h) => ({ ...h, visibility: 'org' }))
+
+  if (!hasKnownAsker(askerUserId)) return hits
+
+  const privText = `
+    select id, kind, title, body, status, topics, root_id
+    from "memories"
+    where tenant_id = $1 and status = 'active' and visibility = 'private' and owner_user_id = $4
+      and fts @@ plainto_tsquery('english', $2)
+    order by ts_rank(fts, plainto_tsquery('english', $2)) desc, created_at desc
+    limit $3
+  `
+  const privHits = await runQuery<MemorySearchHit>(sql, privText, [
+    tenantId,
+    query,
+    PRIVATE_SEARCH_LIMIT,
+    askerUserId,
+  ])
+  // Org first: the tool's answer leads with what the organization decided, and the
+  // caller's own notes are additive context after it.
+  return [...hits, ...privHits.map((h) => ({ ...h, visibility: 'private' as const }))]
 }
 
 /** A supersession-chain entry — the "why did this flip?" trail (tenant-scoped). */

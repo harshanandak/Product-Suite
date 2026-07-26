@@ -132,6 +132,19 @@ describe('searchKnowledge', () => {
     expect(out[0]!.score).toBeGreaterThan(out[1]!.score)
   })
 
+  it('EVERY memory lane excludes private rows — the KB is org knowledge only', async () => {
+    const { sql, texts } = mockSql({ knnMem: [memRow()], ftsMem: [memRow()] })
+    await searchKnowledge(sql, { tenantId: 't1', query: 'x', k: 10, embed: okEmbed })
+    const memoryLanes = texts.filter((t) => t.includes('from "memories"'))
+    expect(memoryLanes.length).toBeGreaterThan(0)
+    // search_knowledge takes no asker, so it can never establish entitlement to a
+    // private row. Fail closed: constrain visibility rather than leave the predicate
+    // off and rely on nobody writing private rows yet.
+    for (const lane of memoryLanes) {
+      expect(lane).toMatch(/visibility = 'org'/)
+    }
+  })
+
   it('embed failure → FTS-only mode (no throw, still returns, no kNN issued)', async () => {
     const failEmbed: EmbedFn = async () => {
       throw new Error('provider down')

@@ -9,6 +9,7 @@ import {
   insertAttributions,
   MAX_PRIVATE_MEMORY_TOKEN_BUDGET,
   MAX_PRIVATE_RULES_TOKEN_BUDGET,
+  PRIVATE_SEARCH_LIMIT,
   privateMemoryBudget,
   privateRulesBudget,
   resolveChain,
@@ -345,6 +346,43 @@ describe('searchMemories / resolveChain (tenant-scoped)', () => {
     expect(String(text)).toMatch(/status = 'active'/)
     expect(String(text)).toMatch(/plainto_tsquery/)
     expect(params).toEqual(['t_1', 'postgres', 8])
+  })
+
+  it('searchMemories constrains visibility=org and runs NO private query without an asker', async () => {
+    const { sql, query } = mockSql(() => [])
+    const hits = await searchMemories(sql, 't_1', 'postgres', 8)
+    expect(query).toHaveBeenCalledTimes(1)
+    expect(String(query.mock.calls[0]![0])).toMatch(/visibility = 'org'/)
+    expect(String(query.mock.calls[0]![0])).not.toMatch(/owner_user_id/)
+    expect(hits).toEqual([])
+  })
+
+  it('searchMemories with an asker adds a private FTS lane bound to that owner, capped', async () => {
+    const hit = (id: string) => ({ id, kind: 'fact', title: id, body: '', status: 'active', topics: [], root_id: id })
+    const { sql, query } = mockSql((text) =>
+      /visibility = 'private'/.test(text) ? [hit('p1'), hit('p2')] : [hit('o1')],
+    )
+    const hits = await searchMemories(sql, 't_1', 'postgres', 8, 'u_alice')
+    expect(query).toHaveBeenCalledTimes(2)
+    const [text, params] = query.mock.calls.find(([t]) => /visibility = 'private'/.test(String(t)))!
+    expect(String(text)).toMatch(/owner_user_id = \$\d+/)
+    expect(params).toContain('u_alice')
+    // The private lane has its own hard cap so a user's own notes can never swamp
+    // the org hits the tool exists to surface.
+    expect(String(text)).toMatch(new RegExp(`limit \\$?\\d*\\s*${PRIVATE_SEARCH_LIMIT}|limit \\$`))
+    // Every hit is labelled with its tier — the tool result and the attribution row
+    // both need to know which tier answered.
+    expect(hits.map((h) => [h.id, h.visibility])).toEqual([
+      ['o1', 'org'],
+      ['p1', 'private'],
+      ['p2', 'private'],
+    ])
+  })
+
+  it('searchMemories treats a blank asker as unknown (no private lane)', async () => {
+    const { sql, query } = mockSql(() => [])
+    await searchMemories(sql, 't_1', 'postgres', 8, '  ')
+    expect(query).toHaveBeenCalledTimes(1)
   })
 
   it('resolveChain reads the whole chain by root, scoped to the tenant', async () => {

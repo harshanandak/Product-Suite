@@ -98,6 +98,33 @@ divergence to be surfaced rather than silently resolved. Surfacing divergence is
 scope here; keeping private rules in a separately-labelled fence is the honest v1 position,
 because it means a private rule can never be read by the model as ratified team policy.
 
+## D13 — private rules get a second personal fence, not one merged personal block
+
+Research §2.5 says "personal — own fenced block", singular. This slice ships two:
+`<your_context>` (personal decisions/facts) and `<your_rules>` (personal rules), each with its
+own hard-capped budget. That mirrors the shape already in the code — the org tier is two lanes
+with two fences (`<org_memory>`, `<team_rules>`) and two budgets — so the personal tier is
+symmetric with it and required no restructuring of either org fence. Merging both personal kinds
+into one fence would mean retrieval returned raw lines instead of a rendered block and the two
+lanes shared one ceiling; that is a defensible alternative, not a better one.
+
+## D14 — `search_knowledge`'s memory lanes exclude the private tier (not in the brief's list)
+
+The brief named `retrieveForContext`, `retrieveRulesForContext` and `searchMemories`. There is a
+fourth path that reads `memories`: `searchKnowledge` in `agent/knowledge-retrieval.ts` runs a kNN
+lane and an FTS lane against the `memories` table (lanes 2b and 3b), reachable from the model via
+the `search_knowledge` tool.
+
+Leaving it alone would have shipped invariant (b) — "retrieval surfaces nothing a
+permission-scoped list query wouldn't" — with a hole in it. `searchKnowledge` takes no asking user
+and so can never establish entitlement to a private row, which makes exclusion (`visibility='org'`
+on both memory lanes) the only correct predicate rather than a choice. Constrained explicitly
+rather than left implicit on the grounds that nothing writes private rows yet: an absent predicate
+becomes a leak on the day the first one is written.
+
+Giving the KB a real private lane needs the asker threaded through `search_knowledge` and
+`searchKnowledge`, and is filed as follow-up work rather than widened into this slice.
+
 ## D12 — real-DB execution of the CHECK is NOT possible in this repo
 
 The brief asked for db-contract-tier tests. **There is no such tier in this repo.** No test in
