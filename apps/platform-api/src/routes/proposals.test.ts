@@ -65,6 +65,10 @@ function makeSql(
     rules?: { id: string; title: string }[]
     /** When true, the proposal load returns no row (not in the caller's tenants). */
     proposalMissing?: boolean
+    /** Rows the curator's `searchMemories` probes return (FTS over `memories`). */
+    memories?: Record<string, unknown>[]
+    /** When true, no user identity maps to the subject (the fail-closed asker case). */
+    noUserIdentity?: boolean
     /** The target work item's CURRENT row (the undo path's conflict check reads it). */
     current?: Record<string, unknown> | null
   } = {},
@@ -94,13 +98,18 @@ function makeSql(
       return [{ id: 'p1' }]
     }
     if (text.includes('insert into')) return [WI_ROW] // recordWriteTx build (ignored; transaction returns rows)
+    // The curator's FTS probes. Routed on the table + the tsquery so a lane the curator
+    // should NOT have issued still lands here and stays visible to assertions.
+    if (text.includes('from "memories"') && text.includes('plainto_tsquery')) {
+      return opts.memories ?? []
+    }
     return []
   })
 
   const sql = vi.fn(async (strings: TemplateStringsArray, ..._params: unknown[]) => {
     const text = Array.isArray(strings) ? strings.join('?') : String(strings)
     if (text.includes('organization_memberships')) return [{ tenant_id: 't_1' }]
-    if (text.includes('user_auth_identities')) return [{ user_id: 'u_approver' }]
+    if (text.includes('user_auth_identities')) return opts.noUserIdentity ? [] : [{ user_id: 'u_approver' }]
     if (text.includes('from teams')) return [{ n: 1 }]
     if (text.includes('from statuses')) return [{ n: 1 }]
     if (text.includes('run_memory_attributions')) return opts.rules ?? []
@@ -133,7 +142,31 @@ function makeSql(
     .fn()
     .mockResolvedValue([[WI_ROW], [{}]])
 
-  return { sql, getStatus: () => status, getAppliedWrite: () => appliedWrite }
+  return { sql, query, getStatus: () => status, getAppliedWrite: () => appliedWrite }
+}
+
+/** A memory proposal the curator will curate, and a row for its probes to return. */
+const MEMORY_PROPOSAL = {
+  target_type: 'memory',
+  target_id: null,
+  operation: 'create',
+  payload: {
+    kind: 'fact',
+    title: 'Pricing pages ship through the growth review',
+    body: 'The growth lead signs off before a pricing page goes live.',
+  },
+}
+
+const MEMORY_HIT = {
+  id: 'm_existing',
+  kind: 'fact',
+  title: 'Pricing pages ship through the growth review',
+  body: 'The growth lead signs off before any pricing page goes live.',
+  status: 'active',
+  topics: [],
+  root_id: 'm_existing',
+  scope_type: 'org',
+  scope_id: null,
 }
 
 describe('/api/agent/proposals', () => {
@@ -312,6 +345,94 @@ describe('/api/agent/proposals', () => {
 
     const res = await app.request('/api/agent/proposals/p1/active-rules', { headers: auth.headers })
     expect(res.status).toBe(404)
+  })
+
+  /**
+   * THE CURATOR PASS (research rec #3). A read-only, advisory verdict a reviewer sees
+   * BEFORE deciding: is this candidate well-formed, and does it duplicate / overlap
+   * with / contradict something already in memory? Scoped exactly like active-rules.
+   */
+  it('GET /:id/curator returns a verdict naming the memory this candidate duplicates', async () => {
+    const { sql } = makeSql({ proposal: MEMORY_PROPOSAL, memories: [MEMORY_HIT] })
+    createSql.mockReturnValue(sql)
+
+    const res = await app.request('/api/agent/proposals/p1/curator', { headers: auth.headers })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      verdict: {
+        outcome: string
+        advisory: boolean
+        collisions: { memory_id: string; title: string; relation: string }[]
+      }
+    }
+    expect(body.verdict.outcome).toBe('duplicate')
+    expect(body.verdict.advisory).toBe(true)
+    expect(body.verdict.collisions[0]).toMatchObject({
+      memory_id: 'm_existing',
+      title: 'Pricing pages ship through the growth review',
+      relation: 'duplicate',
+    })
+  })
+
+  it('GET /:id/curator binds the private lane to the CALLER’s own user id', async () => {
+    // The reviewer reading the Inbox is the only identity that may open the personal
+    // lane. Binding anyone else's would print a title this viewer is not entitled to.
+    const { sql, query } = makeSql({ proposal: MEMORY_PROPOSAL })
+    createSql.mockReturnValue(sql)
+
+    await app.request('/api/agent/proposals/p1/curator', { headers: auth.headers })
+
+    const privateCalls = query.mock.calls.filter(([text]) =>
+      /visibility = 'private'/.test(String(text)),
+    )
+    expect(privateCalls.length).toBeGreaterThan(0)
+    for (const [, params] of privateCalls) expect(params).toContain('u_approver')
+  })
+
+  it('GET /:id/curator falls back to an org-only verdict when no user identity resolves', async () => {
+    // An identity gap must degrade the hint, never 500 and never widen the lane.
+    const { sql, query } = makeSql({ proposal: MEMORY_PROPOSAL, noUserIdentity: true })
+    createSql.mockReturnValue(sql)
+
+    const res = await app.request('/api/agent/proposals/p1/curator', { headers: auth.headers })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { verdict: { private_lane_skipped: boolean } }
+    expect(body.verdict.private_lane_skipped).toBe(true)
+    expect(query.mock.calls.some(([text]) => /owner_user_id/.test(String(text)))).toBe(false)
+  })
+
+  it('GET /:id/curator is not_applicable for a work-item proposal, and probes nothing', async () => {
+    const { sql, query } = makeSql({ memories: [MEMORY_HIT] })
+    createSql.mockReturnValue(sql)
+
+    const res = await app.request('/api/agent/proposals/p1/curator', { headers: auth.headers })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { verdict: { outcome: string } }
+    expect(body.verdict.outcome).toBe('not_applicable')
+    expect(query.mock.calls.some(([text]) => /plainto_tsquery/.test(String(text)))).toBe(false)
+  })
+
+  it('GET /:id/curator returns 404 when the proposal is not the caller’s', async () => {
+    const { sql } = makeSql({ proposalMissing: true })
+    createSql.mockReturnValue(sql)
+
+    const res = await app.request('/api/agent/proposals/p1/curator', { headers: auth.headers })
+    expect(res.status).toBe(404)
+  })
+
+  it('accepting never consults the curator — a verdict cannot gate a decision', async () => {
+    // ADVISORY, structurally. Memory rows are staged so a bad verdict WOULD be
+    // available, and the accept path still neither asks for one nor is slowed by one.
+    const { sql, query, getStatus } = makeSql({ memories: [MEMORY_HIT] })
+    createSql.mockReturnValue(sql)
+
+    const res = await app.request('/api/agent/proposals/p1/accept', {
+      method: 'POST',
+      headers: auth.headers,
+    })
+    expect(res.status).toBe(200)
+    expect(getStatus()).toBe('applied')
+    expect(query.mock.calls.some(([text]) => /plainto_tsquery/.test(String(text)))).toBe(false)
   })
 
   /**
