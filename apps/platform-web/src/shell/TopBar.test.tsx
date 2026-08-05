@@ -42,11 +42,18 @@ describe("TopBar", () => {
       { path: "/w/test-ws/workboard" },
     );
 
-    const badge = await screen.findByLabelText("3 pending proposals");
+    const queueLink = await screen.findByRole("link", { name: "Review inbox" });
+    const descriptionId = queueLink.getAttribute("aria-describedby");
+    expect(descriptionId).toBeTruthy();
+    expect(document.getElementById(descriptionId!)).toHaveTextContent(
+      "3 pending proposals",
+    );
+
+    const badge = screen.getByText("3");
     expect(badge).toHaveTextContent("3");
+    expect(badge).toHaveAttribute("aria-hidden", "true");
     // F1: the count must sit on the affordance that NAVIGATES to the queue it
     // counts — the Review inbox link — not on "Ask agent", which opens chat.
-    const queueLink = screen.getByRole("link", { name: "Review inbox" });
     expect(queueLink).toHaveAttribute("href", "/w/test-ws/inbox");
     // The badge is positioned against the queue link's own wrapper, and that
     // wrapper holds no other affordance — so the count decorates the thing that
@@ -69,8 +76,9 @@ describe("TopBar", () => {
       { path: "/w/test-ws/workboard" },
     );
 
-    const badge = await screen.findByLabelText("12 pending proposals");
+    const badge = await screen.findByText("9+");
     expect(badge).toHaveTextContent("9+");
+    expect(badge).toHaveAttribute("aria-hidden", "true");
   });
 
   it("renders an Ask agent button", async () => {

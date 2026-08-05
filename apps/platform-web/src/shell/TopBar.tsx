@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { Link } from "@tanstack/react-router";
 import { Bell, Search, Sparkles } from "lucide-react";
 
@@ -30,6 +31,9 @@ export function TopBar({
   // the count only appears once real pending proposals have settled.
   const { proposals, isLoading } = useProposals();
   const pendingCount = isLoading ? 0 : proposals.length;
+  const pendingDescriptionId = `${useId()}-pending-proposals`;
+  const pendingDescription =
+    `${pendingCount} pending proposal${pendingCount === 1 ? "" : "s"}`;
 
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border bg-background px-4">
@@ -51,21 +55,29 @@ export function TopBar({
       {/* Relative wrapper so the unread-style count badge can float in the
           link's top-right corner without disturbing its layout. The badge is a
           SIBLING of the link (not a child), so the link's accessible name stays
-          "Review inbox" while the badge carries its own label. The count lives
+          "Review inbox" while its description exposes the pending count. The
+          count lives
           HERE — on the affordance that navigates to the queue it counts — not on
           "Ask agent", which opens the chat panel (UX audit F1). */}
       <div className="relative">
         <Link
           to={href("/w/$workspace/inbox", workspace)}
           aria-label="Review inbox"
+          aria-describedby={pendingCount > 0 ? pendingDescriptionId : undefined}
           title="Review inbox"
           className="flex size-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
         >
           <Bell className="size-4" />
         </Link>
         {pendingCount > 0 && (
+          <span id={pendingDescriptionId} className="sr-only">
+            {pendingDescription}
+          </span>
+        )}
+
+        {pendingCount > 0 && (
           <span
-            aria-label={`${pendingCount} pending proposal${pendingCount === 1 ? "" : "s"}`}
+            aria-hidden="true"
             className={cn(
               "pointer-events-none absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[0.625rem] font-semibold leading-none text-primary-foreground",
             )}

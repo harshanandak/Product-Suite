@@ -92,6 +92,21 @@ describe("MemoryImpactCard", () => {
     ).toBeInTheDocument();
   });
 
+  it("singular treated proposal uses '1 proposal with memory'", () => {
+    setImpact({
+      verdict: "insufficient",
+      holdout: { applied: 0, edited: 0, editRate: 0, rejected: 0, rejectRate: 0, threads: 0 },
+      treated: { applied: 1, edited: 0, editRate: 0, rejected: 0, rejectRate: 0, threads: 1 },
+      savedEdits: 0,
+      window_days: 30,
+    });
+    render(<MemoryImpactCard />);
+
+    expect(
+      screen.getByText(/1 proposal with memory, 0 without/i),
+    ).toBeInTheDocument();
+  });
+
   it("empty arm outranks a helps/hurts verdict (a claim its inputs can't support)", () => {
     // Defensive: a verdict that cannot be true with an empty control arm must not
     // put a headline number on screen just because the server said so.

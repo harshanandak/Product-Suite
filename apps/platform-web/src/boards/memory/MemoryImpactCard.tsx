@@ -46,13 +46,7 @@ export function MemoryImpactCard() {
 
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-border bg-card px-4 py-3.5">
-      {hasEmptyArm(impact)
-        ? renderNotStarted(impact)
-        : impact.verdict === "helps"
-          ? renderHelps(impact)
-          : impact.verdict === "hurts"
-            ? renderHurts(impact)
-            : renderInsufficient(impact)}
+      {renderImpact(impact)}
     </div>
   );
 }
@@ -64,6 +58,13 @@ export function MemoryImpactCard() {
  */
 function hasEmptyArm(impact: MemoryImpact): boolean {
   return impact.holdout.applied === 0 || impact.treated.applied === 0;
+}
+
+function renderImpact(impact: MemoryImpact) {
+  if (hasEmptyArm(impact)) return renderNotStarted(impact);
+  if (impact.verdict === "helps") return renderHelps(impact);
+  if (impact.verdict === "hurts") return renderHurts(impact);
+  return renderInsufficient(impact);
 }
 
 /**
