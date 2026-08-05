@@ -196,7 +196,6 @@ explainable read: a reviewer can be shown which words matched.
 never disables a control, and a failed fetch renders nothing.
 
 **Why.** No new visual vocabulary was invented because the Inbox already has a settled
-
 one for "context about this proposal". More importantly: the panel must not be able to
 gate the human. Wiring it to `disabled` would convert a heuristic into an authority —
 the exact rubber-stamp-in-reverse failure — and a fetch failure would silently become a

@@ -44,6 +44,28 @@ describe("createNetworkProposalRepository", () => {
     vi.unstubAllGlobals();
   });
 
+
+  it("rejects an HTTP base URL before resolving auth or fetching", () => {
+    const getToken = vi.fn(async () => "tok_123");
+
+    expect(() =>
+      createNetworkProposalRepository({ baseUrl: "http://api.test", getToken }),
+    ).toThrow("Proposal API baseUrl must use HTTPS");
+    expect(getToken).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps an empty base URL same-origin", async () => {
+    fetchMock.mockResolvedValueOnce(jsonOk([]));
+    const repo = createNetworkProposalRepository({
+      baseUrl: "",
+      getToken: async () => null,
+    });
+
+    await repo.list();
+    expect(callArgs().url).toBe("/api/agent/proposals");
+  });
+
   it("list GETs /api/agent/proposals with a bearer token + abort signal", async () => {
     fetchMock.mockResolvedValueOnce(jsonOk([{ id: "p1" }]));
     const result = await makeRepo().list();
