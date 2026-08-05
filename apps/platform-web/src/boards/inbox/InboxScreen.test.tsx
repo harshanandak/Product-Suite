@@ -79,6 +79,7 @@ function repoWith(proposals: Proposal[]): ProposalRepository {
       }),
     ),
     activeRules: vi.fn(async () => []),
+    curatorVerdict: vi.fn(async () => null),
   };
 }
 
