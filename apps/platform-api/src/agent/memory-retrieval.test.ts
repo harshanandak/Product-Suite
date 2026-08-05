@@ -438,6 +438,23 @@ describe('searchMemories / resolveChain (tenant-scoped)', () => {
     expect(query).toHaveBeenCalledTimes(1)
   })
 
+  it('searchMemories selects the scope of every hit, on BOTH lanes', async () => {
+    // The curator reports which scope a colliding memory binds at, and it reads
+    // memories through this function and nothing else. A hit that does not carry its
+    // scope would force a second query against `memories` — the exact extra path the
+    // ownership boundary must not grow.
+    const { sql, query } = mockSql(() => [])
+    await searchMemories(sql, 't_1', 'postgres', 8, 'u_alice')
+    expect(query).toHaveBeenCalledTimes(2)
+    for (const [text] of query.mock.calls) {
+      expect(String(text)).toMatch(/scope_type/)
+      expect(String(text)).toMatch(/scope_id/)
+    }
+    // The lanes' bound parameters are untouched — this adds columns to the SELECT,
+    // never a predicate, so every ownership assertion above still governs.
+    expect(query.mock.calls[0]![1]).toEqual(['t_1', 'postgres', 8])
+  })
+
   it('resolveChain reads the whole chain by root, scoped to the tenant', async () => {
     const { sql, query } = mockSql(() => [])
     await resolveChain(sql, 't_1', 'root_1')

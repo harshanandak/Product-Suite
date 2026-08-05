@@ -6,6 +6,12 @@
  * (mock vs network) swaps for the real backend without touching callers.
  */
 export type { AcceptResult, Proposal, UndoResult } from "./types";
+export type {
+  CuratorCollision,
+  CuratorQualityFinding,
+  CuratorRelation,
+  CuratorVerdict,
+} from "./types";
 
 export type { ProposalRepository } from "./repository";
 export { createMockProposalRepository } from "./repository";

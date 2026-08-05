@@ -17,6 +17,13 @@ describe("createMockProposalRepository", () => {
     expect(create?.target_id).toBeNull();
   });
 
+  it("curatorVerdict returns null in fixture mode — no memory store to diff against", async () => {
+    // The mock dataset holds no memories, so there is nothing to curate against.
+    // Returning null (render no panel) rather than a synthetic `clean` verdict, which
+    // would claim we diffed the candidate against memory and found nothing.
+    await expect(createMockProposalRepository().curatorVerdict("p1")).resolves.toBeNull();
+  });
+
   it("accept applies and removes the proposal, returning the item", async () => {
     const repo = createMockProposalRepository();
     const [first] = await repo.list();
