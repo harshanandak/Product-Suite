@@ -3,7 +3,7 @@
 Plan: `docs/work/2026-08-06-agentic-canvas-foundation/plan.md`
 Architecture: `docs/architecture/agentic-workspace-platform.md`
 Forge issue: `9a77ebc8-1b20-4634-8e93-5bcd920eac31`
-Status: revised proposal; `/dev` has not started
+Status: active `/dev` - rejection evidence captured; implementation not started
 
 ## Execution rules
 
@@ -13,6 +13,8 @@ Status: revised proposal; `/dev` has not started
 - Agents never write raw Yjs state or application tables.
 - BlockSuite is conditional. A failed core gate switches the remaining editor tasks to the
   documented BlockNote + React Flow fallback without changing Product contracts.
+- Every dependency decision must record license, direct price, integration effort, recurring
+  operations, retention/egress exposure, upgrade burden, and replacement cost.
 - Stop after the vertical slice. Chat, meetings, workflows, and cloud-agent adapters are
   separate issues.
 
@@ -21,16 +23,20 @@ Status: revised proposal; `/dev` has not started
 ### Task 0: Freeze evidence fixtures and budgets
 
 Create current BlockSuite `0.19.5` golden documents, a representative large document,
-keyboard/accessibility scenarios, and explicit timing/bundle budgets. Tests must prove the
-fixtures open in the current integration before they are used to judge an upgrade.
+keyboard/accessibility scenarios, and explicit timing/bundle budgets. First preserve the live
+probe that proves normal block edits update `Doc.spaceDoc` while the current provider observes
+only `collection.doc`; this is the RED fixture for the persistence/synchronization seam.
 
 Expected evidence: reproducible fixtures and a gate matrix covering all ten plan gates.
 
-### Task 1: Define the provider-neutral run/event contract
+### Task 1: Define actor, conversation, and provider-neutral run/event contracts
 
-Add the minimum `AgentDefinitionVersion`, `AgentRun`, `RunEvent`, `CapabilityGrant`,
-`ApprovalRef`, and `ArtifactRef` schemas. Provider session data must stay opaque. Add an
-adapter conformance suite for ordered cursors, cancellation, incomplete/error states,
+Add the minimum `Actor`, `Conversation`, `Membership`, and append-only `ConversationEvent`
+schemas, with `actorId`, security `principalId`, and `delegationRef` kept distinct. Then add
+`AgentDefinitionVersion`, `AgentRun`, `RunEvent`, `CapabilityGrant`, `ApprovalRef`, and
+`ArtifactRef`. Runs, approvals, schedules, and artifacts remain authoritative in their owning
+domains; conversation events hold typed references. Provider session data stays opaque. Add
+an adapter conformance suite for ordered cursors, cancellation, incomplete/error states,
 parent/child runs, approvals, and artifact emission.
 
 Expected evidence: current runtime data can round-trip without losing existing provenance;
@@ -57,9 +63,10 @@ and cross-kind operations fail.
 
 ### Task 4: Prove BlockSuite identity, hosting, and headless operations
 
-Using the fixtures from Task 0, mount PageEditor and EdgelessEditor on one document, connect
-two clients through the authorized Hocuspocus boundary, and apply server-side semantic block
-operations in Bun using public APIs. Editing must wait for canonical synchronization.
+Start with a test that reproduces the current `collection.doc` versus `Doc.spaceDoc` update
+loss. Then, using the fixtures from Task 0, mount PageEditor and EdgelessEditor on one document,
+connect two clients through the authorized Hocuspocus boundary, and apply server-side semantic
+block operations in Bun using public APIs. Editing must wait for canonical synchronization.
 
 Required gates: plan gates 1-4 and 10. Any failure records NO-GO and activates fallback.
 
@@ -81,10 +88,12 @@ Required gates: plan gates 4, 8, and 9. Any core failure records NO-GO and activ
 
 ### Task 7: Record the editor GO/NO-GO
 
-Write one decision entry with measurements and evidence for every gate. On GO, pin the proven
-BlockSuite release and remove obsolete error suppression/timers from the production seam. On
-NO-GO, implement only the smallest BlockNote Core + React Flow proof needed to show the same
-Product contracts remain valid; import no XL packages.
+Write one decision entry with measurements and evidence for every gate. On GO, exact-pin every
+proven `@blocksuite/*` package to one release, import it as an upstream dependency, and remove
+obsolete error suppression/timers from the production seam. Do not fork BlockSuite. On NO-GO,
+implement only the smallest BlockNote Core + React Flow proof needed to show the same Product
+contracts remain valid; import no XL packages. Do not add Excalidraw for MVP: BlockSuite
+edgeless plus Mermaid must first prove insufficient against a real user requirement.
 
 Expected evidence: one falsifiable editor decision, not an opinion or vendor claim.
 

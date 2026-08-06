@@ -2,11 +2,12 @@
 
 Feature: `agentic-canvas-foundation`
 Date: 2026-08-06
-Status: revised proposal for user approval
+Status: active dev - rejection evidence and contract sequencing
 Forge issue: `9a77ebc8-1b20-4634-8e93-5bcd920eac31`
 Classification: Critical - new artifact and agent-runtime architecture
 
 Architecture record: [agentic-workspace-platform.md](../../architecture/agentic-workspace-platform.md)
+Dependency economics: [agentic-workspace-dependency-economics.md](../../architecture/agentic-workspace-dependency-economics.md)
 
 ## Outcome
 
@@ -22,18 +23,20 @@ must not be pulled into this implementation stage.
 ## Decisions
 
 1. Product-Suite owns the canonical run/event/approval and artifact envelopes.
-2. The current AI SDK 6 runtime becomes the first adapter; it is not the protocol.
-3. AG-UI compatibility guides UI events; MCP handles tools; ACP handles local coding agents;
+2. Product-Suite first defines Actor/principal/delegation and ordered ConversationEvent
+   contracts; agents are first-class UX actors but never inherit human security authority.
+3. The current AI SDK 6 runtime becomes the first adapter; it is not the protocol.
+4. AG-UI compatibility guides UI events; MCP handles tools; ACP handles local coding agents;
    A2A is deferred to independent remote agents.
-4. Tool catalogs use tenant-filtered `search -> describe -> execute`; schemas are never
+5. Tool catalogs use tenant-filtered `search -> describe -> execute`; schemas are never
    loaded eagerly at large scale.
-5. BlockSuite Store + PageEditor + EdgelessEditor is the conditional document engine because
+6. BlockSuite Store + PageEditor + EdgelessEditor is the conditional document engine because
    it can keep page and spatial editing on one Yjs block tree.
-6. BlockSuite is rejected if any core spike gate fails. The fallback is a Product-owned
+7. BlockSuite is rejected if any core spike gate fails. The fallback is a Product-owned
    artifact model with BlockNote Core for documents and React Flow for spatial projections.
-7. Product-Suite owns ACLs, accepted business revisions, comments, provenance, exports,
+8. Product-Suite owns ACLs, accepted business revisions, comments, provenance, exports,
    and artifact payloads. The editor owns only its native collaborative document state.
-8. Existing React Flow, Mermaid, Recharts, PDF.js, Yjs/Hocuspocus, proposal, and Review Inbox
+9. Existing React Flow, Mermaid, Recharts, PDF.js, Yjs/Hocuspocus, proposal, and Review Inbox
    foundations are reused. No Excalidraw, workflow engine, sandbox fabric, or agent OS is
    added in this slice.
 
@@ -49,6 +52,11 @@ must not be pulled into this implementation stage.
   mutation and deterministic export gates.
 - Product-Suite owns `BlockExportV1`, HTML, and Markdown escape paths. Raw Yjs state is a
   recovery artifact, not the only export.
+- BlockSuite is exact-pinned for the spike and is not forked. Forking is rejected unless
+  upstream is abandoned and Product-Suite explicitly funds permanent editor ownership.
+- BlockSuite plus Mermaid covers the MVP spatial/diagram scope. Excalidraw remains excluded
+  unless scene interoperability, rough styling, asset libraries, or editable Mermaid
+  conversion becomes an explicit requirement.
 
 ## Canonical artifact boundary
 
@@ -84,6 +92,13 @@ operations are idempotent and stale proposals are rejected rather than blindly r
 
 ## Required spikes
 
+### Actor and conversation authority proof
+
+Freeze `Actor`, authenticated principal/delegation, `Conversation`, `Membership`, and
+ordered `ConversationEvent` envelopes before surface integrations. Prove that messages can
+link runs, approvals, meetings, schedules, and artifacts without making conversation state
+authoritative for those domains.
+
 ### Run protocol proof
 
 Map the existing AI SDK run into a small Product-Suite envelope without replacing current
@@ -94,6 +109,11 @@ opaque provider metadata. Write conformance tests that a future ACP/cloud adapte
 
 Use one representative document containing nested text, lists, a Product artifact block,
 spatial placement, and connectors. The proof must establish:
+
+The first live probe already rejects the current persistence seam: ordinary BlockSuite
+block edits update `Doc.spaceDoc`, while `SimpleCanvas` observes `collection.doc`.
+The first coded RED test must reproduce that failure; the minimal GREEN change must bind
+and persist the correct subdocument topology without private upstream APIs.
 
 1. page/edgeless identity and convergence with two clients;
 2. headless Bun load and semantic mutation through public APIs;
@@ -111,23 +131,28 @@ explicit wrapper remediation attempt; if upstream internals must be patched, rej
 
 ## Success criteria
 
-1. One versioned run/event contract is implemented by the current agent runtime adapter and
+1. One Actor/principal/delegation and ConversationEvent contract preserves human/agent
+   authorship while keeping owning-domain authority outside chat.
+2. One versioned run/event contract is implemented by the current agent runtime adapter and
    can represent approvals, artifacts, cancellation, incomplete runs, and parent/child runs.
-2. One engine-neutral artifact contract supports document, graph, diagram, chart, and PDF
+3. One engine-neutral artifact contract supports document, graph, diagram, chart, and PDF
    without forcing them into a universal content schema.
-3. The editor spike produces a recorded GO/NO-GO against every named rejection gate.
-4. A backend Bun process and two browser clients converge through the existing authorized
+4. The editor spike produces a recorded GO/NO-GO against every named rejection gate.
+5. A backend Bun process and two browser clients converge through the existing authorized
    Yjs/Hocuspocus boundary using only public editor APIs.
-5. An agent can read a materialized semantic view and propose a typed block operation; only
+6. An agent can read a materialized semantic view and propose a typed block operation; only
    accepted, current-revision proposals mutate the document exactly once.
-6. Canvas and agent chat render the same artifact reference through one lazy registry.
-7. Deterministic Product-owned export makes editor replacement possible.
-8. No new workflow, chat, meeting, sandbox, or external-agent platform is introduced.
+7. Canvas and agent chat render the same artifact reference through one lazy registry.
+8. Deterministic Product-owned export makes editor replacement possible.
+9. No new workflow, chat, meeting, sandbox, or external-agent platform is introduced.
 
 ## Out of scope
 
 - Durable human chat implementation, app-shell chat bar, presence, and push delivery.
 - Hosted Product-Suite calls, meeting-room provider integration, and talkback agents.
+- External-meeting adapters. Their selected boundary is Local Capture plus optional Recall,
+  Zoom RTMS next, LiveKit for Product-hosted rooms, and Pipecat for talkback; implementation
+  remains in the meeting issues.
 - Autonomous cron/workflow execution or a workflow visual editor.
 - Cloudflare Agents/Workflows/Code Mode, Vercel Eve, Claude Managed Agents, Cursor Cloud
   Agents, OpenAI Agents SDK, Temporal, Trigger.dev, Inngest, or n8n adoption.
@@ -157,5 +182,7 @@ explicit wrapper remediation attempt; if upstream internals must be patched, rej
 
 ## Human checkpoint
 
-Approval of this plan authorizes the contract and spike tasks in `tasks.md`. It does not
-authorize chat, meetings, autonomous workflows, hosted sandboxes, or external agent adapters.
+The user authorized rejection-gate testing. The active dev slice is limited to evidence
+fixtures, the foundational contracts, and the BlockSuite kill-or-continue spike in
+`tasks.md`. It does not authorize full chat, meetings, autonomous workflows, hosted
+sandboxes, or external agent adapters.

@@ -21,6 +21,12 @@ or meeting stack. It will prove the smallest seams that prevent future lock-in:
 
 This is a calculated commitment to boundaries, not to one vendor's full platform.
 
+Current evidence status (2026-08-06): BlockSuite is not accepted for production yet.
+The live integration fails persistence/loading, export/escape, and dependency-hygiene
+gates. The decision is an exact-pinned upstream dependency behind a 2–3 engineer-week
+kill-or-continue spike—not a fork. Detailed dependency and operating economics are in
+[agentic-workspace-dependency-economics.md](./agentic-workspace-dependency-economics.md).
+
 ## Product invariants
 
 - Postgres remains authoritative for workspaces, actors, permissions, conversations,
@@ -107,7 +113,7 @@ Sources: [Cloudflare Code Mode](https://developers.cloudflare.com/agents/tools/c
 
 ## Canvas and document decision
 
-### Conditional choice
+### Conditional choice and dependency policy
 
 Use BlockSuite Store + PageEditor + EdgelessEditor for the canonical rich block
 document only if the architecture spike passes every rejection gate. Page and
@@ -117,6 +123,14 @@ which directly satisfies the Notion-like page plus Figma-like spatial requiremen
 BlockSuite is MPL-2.0 and can be self-hosted. Product-Suite must still own ACLs,
 business revisions, comments, export formats, and artifact payloads. Custom blocks
 store immutable Product artifact references, not duplicated domain payloads.
+
+Import BlockSuite as an exact-pinned upstream dependency. Do not use a caret range,
+canary build, or Product-Suite fork. A small patch is acceptable only with an upstream
+issue, focused regression test, named owner, and removal criterion. Reject patches to
+Store/Yjs semantics, schema migration, selection, or editor lifecycle: those are
+fork-sized responsibilities. Forking becomes an option only if upstream is effectively
+abandoned and Product-Suite deliberately accepts permanent ownership of editor internals,
+migrations, accessibility, browser compatibility, and security.
 
 BlockNote is the fallback document editor, paired with React Flow for spatial graphs,
 if BlockSuite fails. Its core is MPL-2.0; `@blocknote/xl-*` is GPL-3.0/commercial and
@@ -130,8 +144,14 @@ identity, storage, permissions, and migrations that Product-Suite already owns.
 
 React Flow remains the MIT-licensed engine for structured graphs and dependencies.
 Mermaid remains the source-based diagram engine. Recharts remains the chart engine.
-PDF.js preserves and renders immutable originals. Excalidraw is deferred until real
-freehand demand exists; it can later be an artifact type without changing the model.
+PDF.js preserves and renders immutable originals.
+
+Do not import Excalidraw for MVP. BlockSuite Edgeless covers freeform notes, shapes,
+connectors, drawing, media, frames, and spatial composition; Mermaid covers deterministic
+agent-authored diagrams. Excalidraw is justified only by an explicit requirement for
+`.excalidraw` interoperability, its rough hand-drawn visual language, community element
+libraries, or conversion of Mermaid into individually editable scene elements. Without
+one of those requirements it creates a second spatial authority.
 
 Sources: [BlockSuite repository and license](https://github.com/toeverything/blocksuite),
 [BlockSuite Store](https://blocksuite.io/guide/store),
@@ -139,6 +159,31 @@ Sources: [BlockSuite repository and license](https://github.com/toeverything/blo
 [BlockNote licensing](https://github.com/TypeCellOS/BlockNote),
 [React Flow licensing](https://github.com/xyflow/xyflow),
 [Excalidraw](https://github.com/excalidraw/excalidraw).
+
+### Current live gate evidence
+
+The existing green suites are not acceptance evidence for the editor topology. A Bun
+probe showed that ordinary `doc.updateBlock(...)` changes the page's `Doc.spaceDoc`
+but produces no update on `collection.doc`. `SimpleCanvas` currently gives
+`HybridProvider` the collection root, so normal block edits are not marked dirty,
+persisted, or sent through its fallback broadcast path.
+
+| Gate | Current result | Meaning |
+| --- | --- | --- |
+| 1. Page/Edgeless identity | Partial | wrappers share a doc, but no structural identity/convergence test |
+| 2. Headless operations | Partial pass | Bun preserves IDs only when root and `spaceDoc` are handled |
+| 3. Authoritative loading/persistence | **Fail** | wrong Y.Doc is observed; background loading permits editing after failure |
+| 4. Revision/migration | Unproven/readiness fail | no golden migration or business revision fence |
+| 5. Product artifact block | Unproven | no reference-only custom BlockSpec lifecycle proof |
+| 6. Accessibility | Unproven | no NVDA, spatial keyboard, focus, or axe acceptance suite |
+| 7. Performance | Unproven | no representative load/input/pan/zoom/memory budgets |
+| 8. Export/escape | **Fail** | no Product-owned normalized export and round-trip |
+| 9. Permissions/comments | Partial | room/read-only checks exist; forged updates and durable anchors do not |
+| 10. Dependency hygiene | **Fail** | global suppression, timers, broad transpilation, and a package patch remain |
+
+This rejects the current Product-Suite integration, not BlockSuite itself. The first
+spike task must correct and test the subdocument persistence topology; if that requires
+private BlockSuite internals, BlockSuite is rejected immediately.
 
 ### BlockSuite rejection gates
 
@@ -162,15 +207,26 @@ Reject BlockSuite and use the fallback if any core gate fails:
 10. The selected release can be pinned, route-lazy, upgraded through public APIs, and hosted
     on the existing Yjs/Hocuspocus boundary.
 
-## Collaboration surface decision
+## Unified human and agent conversation foundation
 
-Build a small Product-owned collaboration model:
+This contract must precede Canvas, meeting, and Agent Board projections. Build four
+Product-owned collaboration aggregates:
 
-- `Actor(kind: human | agent | service)`;
-- `Conversation(scope: workspace | channel | dm | meeting | artifact)`;
-- membership, `Message`, `Thread`, receipt, and retention records;
-- typed `ArtifactRef` and `RunRef` attachments;
-- agent authorship, capability, approval, and audit links.
+- `Actor(kind: human | agent | service)` for stable UX identity;
+- `Conversation` anchored optionally to a workspace, meeting, artifact, or issue;
+- `Membership` for access and conversational role;
+- ordered immutable `ConversationEvent`; messages are one event type.
+
+An agent may look like a user in channels, DMs, meetings, and artifacts, but `Actor`
+is not a security principal. Every agent event retains the authenticated workload
+principal, delegating actor, capability-grant version, provider/runtime, and parent run.
+Runs, approvals, schedules, meetings, and artifacts remain authoritative in their owning
+domains and appear through typed, versioned resource references.
+
+Presence, typing, streaming tokens, and transient tool progress remain ephemeral. Durable
+conversation events project authoritative state; they never infer an approval, schedule,
+or completed run from prose. UI controls send explicit commands to the owning domain,
+which emits a receipt/outbox event back into the conversation.
 
 Postgres is canonical. A `CollaborationRealtimeAdapter` provides delivery, presence,
 typing, and reconnect cursors. Cloudflare Durable Objects are the first custom transport
@@ -198,10 +254,14 @@ Sources: [Buzz architecture](https://github.com/block/buzz/blob/main/ARCHITECTUR
 
 ## Meeting and talkback decision
 
-Meeting rooms and voice agents are separate replaceable capabilities:
+Meeting rooms, external meeting access, and voice agents are three separate replaceable
+capabilities:
 
 - `RoomProvider`: room/token lifecycle, participants, media tracks, chat import,
   recording/export, webhooks, and consent signals.
+- `ExternalMeetingConnector`: join or ingest an arbitrary Meet, Teams, Zoom, or other
+  supported meeting URL; emit canonical media/transcript/chat/consent/degradation events;
+  optionally send chat/audio only when capability negotiation permits it.
 - `RealtimeAgentAdapter`: join/leave, listen, turn detection, speak, interrupt,
   tools, handoff, transcript events, and cost/latency telemetry.
 
@@ -215,15 +275,24 @@ combines open/self-hosted realtime media with production voice-agent primitives.
 Pipecat is the vendor-neutral talkback benchmark. A provider can implement both
 interfaces, but Product-Suite must not couple them.
 
-MVP meeting scope remains botless capture and durable summary/artifact handoff. Hosted
-calls and talkback are separate spikes. Meeting chat is projected into Product
-conversations; provider chat is never the app-wide canonical chat.
+MVP meeting scope remains Product-owned local/botless capture and durable
+summary/artifact handoff. Add Recall.ai as the first optional managed cross-provider
+connector, with explicit zero/short retention and canonical events. Add Zoom RTMS next
+for direct botless Zoom ingestion. Google Meet REST is useful for native post-meeting
+artifacts; its Media API remains preview-limited. Native Teams media bots, Zoom Meeting
+SDK bots, and self-hosted browser-bot fleets are deferred until enterprise/talkback demand
+justifies their cost. Hosted calls and talkback remain separate spikes. Meeting chat is
+projected into Product conversations; provider chat is never canonical.
 
 Sources: [RealtimeKit](https://developers.cloudflare.com/realtime/realtimekit/),
 [RealtimeKit pricing](https://developers.cloudflare.com/realtime/realtimekit/pricing/),
 [LiveKit Agents](https://docs.livekit.io/agents/),
 [LiveKit self-hosting](https://docs.livekit.io/transport/self-hosting/),
 [Daily/Pipecat pricing](https://www.daily.co/pricing/video-sdk/).
+
+Detailed licenses, prices, implementation estimates, recurring operations, retention,
+and exit costs are recorded in
+[agentic-workspace-dependency-economics.md](./agentic-workspace-dependency-economics.md).
 
 ## Runtime and workflow evaluation
 
@@ -252,6 +321,18 @@ process/deploy failure or wait beyond the existing request lifecycle. Evaluate C
 Workflows first, Trigger.dev when portability matters more, and Temporal only for
 compliance-grade or very high-scale durability.
 
+Experimental components are allowed behind capability-tested adapters:
+
+- `stable`: schedules and delegated writes may be enabled under normal policy;
+- `preview`: tenant opt-in, stricter approvals, budgets, and fallback;
+- `experimental`: per-run opt-in, no durable schedules or destructive/credential tools,
+  short-lived grants, hard timeout, spend cap, kill switch, and mandatory fallback.
+
+Promotion requires conformance evidence for cancellation, event ordering, idempotency,
+approval interruption, artifact delivery, delegation, observability, and recovery after
+process loss. “AI is experimental” permits controlled experiments; it does not permit an
+experimental provider to become Product-Suite authority.
+
 Sources: [Cloudflare Agents](https://developers.cloudflare.com/agents/),
 [Cloudflare Workflows](https://developers.cloudflare.com/workflows/),
 [Vercel Eve](https://vercel.com/blog/introducing-eve),
@@ -266,7 +347,7 @@ Sources: [Cloudflare Agents](https://developers.cloudflare.com/agents/),
 
 | Phase | Outcome | Expected effort | Dependency created |
 | --- | --- | --- | --- |
-| 0 | run/event and artifact contracts; adapter conformance tests | 1-2 weeks | Product-owned schemas only |
+| 0 | actor/principal/delegation, conversation-event, run/event, and artifact contracts | 1-2 weeks | Product-owned schemas only |
 | 1 | BlockSuite rejection spike and deterministic escape export | 1-2 weeks | pinned BlockSuite only if gates pass |
 | 2 | agent-editable document vertical slice through Review Inbox | 2-4 weeks | existing Yjs/Hocuspocus and AI SDK |
 | 3 | durable chat model and app-shell bar; DO or Stream delivery spike | 3-5 weeks | replaceable delivery adapter |
