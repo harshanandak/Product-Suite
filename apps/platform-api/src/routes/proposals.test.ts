@@ -193,6 +193,46 @@ describe('/api/agent/proposals', () => {
     expect(membershipCall?.slice(1)).toContain('user_clerk_1')
   })
 
+  // The inbox list returns ONLY pending proposals, so a `?proposal=<id>` deep-link
+  // whose target was already disposed of is indistinguishable from a bogus id without
+  // this lookup — and the inbox must never answer a dead link by putting a DIFFERENT
+  // pending proposal under the reviewer's Accept button.
+  describe('GET /:id (deep-link resolution)', () => {
+    const PROPOSAL_UUID = '33333333-3333-4333-8333-333333333333'
+
+    it('returns a DISPOSED proposal (not just pending ones), tenant-scoped', async () => {
+      const { sql } = makeSql({ proposal: { id: PROPOSAL_UUID, status: 'applied' } })
+      createSql.mockReturnValue(sql)
+
+      const res = await app.request(`/api/agent/proposals/${PROPOSAL_UUID}`, {
+        headers: auth.headers,
+      })
+      expect(res.status).toBe(200)
+      expect(await res.json()).toMatchObject({ id: PROPOSAL_UUID, status: 'applied' })
+    })
+
+    it('404s a proposal that is not the caller’s', async () => {
+      const { sql } = makeSql({ proposalMissing: true })
+      createSql.mockReturnValue(sql)
+
+      const res = await app.request(`/api/agent/proposals/${PROPOSAL_UUID}`, {
+        headers: auth.headers,
+      })
+      expect(res.status).toBe(404)
+    })
+
+    it('404s a malformed id without querying (a slug would 22P02 into a 500)', async () => {
+      const { sql } = makeSql({})
+      createSql.mockReturnValue(sql)
+
+      const res = await app.request('/api/agent/proposals/not-a-uuid', {
+        headers: auth.headers,
+      })
+      expect(res.status).toBe(404)
+      expect(sql).not.toHaveBeenCalled()
+    })
+  })
+
   it('GET returns 401 without a bearer token (no DB access)', async () => {
     const { sql } = makeSql({})
     createSql.mockReturnValue(sql)

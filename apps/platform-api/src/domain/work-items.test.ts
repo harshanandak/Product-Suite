@@ -287,10 +287,33 @@ describe('updateWorkItem — expectedValues fence', () => {
     )
 
     const { text, params } = taggedCall(sql, 1)
-    // A jsonb containment predicate on the OLD row — evaluated atomically with the write.
+    // Per-field JSONB equality on the OLD row — evaluated atomically with the write.
     expect(text).toContain('to_jsonb(work_items)')
-    expect(text).toContain('@>')
+    expect(text).toContain('jsonb_each')
+    expect(text).toContain('is distinct from')
     expect(params).toContain(JSON.stringify({ title: 'A' }))
+  })
+
+  it('does not let a tags superset satisfy an exact expectedValues fence', async () => {
+    const sql = vi.fn()
+    sql
+      .mockResolvedValueOnce([{ ...WI_ROW, tags: ['a', 'b'] }])
+      .mockResolvedValueOnce([])
+
+    await expect(
+      updateWorkItem(
+        sql as unknown as Sql,
+        { tenantIds: ['t_1'], actor, expectedValues: { tags: ['a'] } },
+        'wi_1',
+        { title: 'restored' },
+      ),
+    ).rejects.toMatchObject({ code: 'guard_failed' })
+
+    const { text, params } = taggedCall(sql, 1)
+    expect(text).not.toContain('@>')
+    expect(text).toContain('jsonb_each')
+    expect(text).toContain('is distinct from')
+    expect(params).toContain(JSON.stringify({ tags: ['a'] }))
   })
 
   it('binds NULL for a caller that supplies no fence, leaving the predicate inert', async () => {
@@ -307,7 +330,7 @@ describe('updateWorkItem — expectedValues fence', () => {
     const { text, params } = taggedCall(sql, 1)
     // The predicate is still present (one statement for every caller) but short-circuits
     // on a NULL fence, so unfenced callers behave exactly as before.
-    expect(text).toMatch(/is null\s+or\s+to_jsonb\(work_items\)/)
+    expect(text).toMatch(/is null\s+or\s+not exists/)
     expect(params).toContain(null)
   })
 

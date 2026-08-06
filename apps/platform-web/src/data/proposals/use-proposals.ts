@@ -74,6 +74,12 @@ export interface UseProposalsResult {
    */
   activeRules: (id: string) => Promise<{ id: string; title: string }[]>;
   /**
+   * Look up one proposal by id in ANY status (`null` when there is no such proposal),
+   * so a deep-link to something absent from the pending list can say WHY. A read, not
+   * a mutation — never touches the list.
+   */
+  getProposal: (id: string) => Promise<Proposal | null>;
+  /**
    * The curator's verdict on a memory proposal (duplicate / overlap / conflict + quality),
    * for the panel a reviewer reads before deciding. A read, not a mutation — never touches
    * the list, and never gates a decision. `null` when no verdict is available.
@@ -227,6 +233,11 @@ export function useProposals(
     [repository],
   );
 
+  const getProposal = useCallback(
+    (id: string) => repository.get(id),
+    [repository],
+  );
+
   const curatorVerdict = useCallback(
     (id: string) => repository.curatorVerdict(id),
     [repository],
@@ -241,6 +252,7 @@ export function useProposals(
     reject,
     undo,
     activeRules,
+    getProposal,
     curatorVerdict,
     isMutating: mutatingCount > 0,
     refetch,

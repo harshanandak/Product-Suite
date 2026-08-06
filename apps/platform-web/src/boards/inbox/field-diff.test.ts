@@ -56,7 +56,6 @@ describe("buildFieldRows — create", () => {
   it("lists every provided payload field as field | value", () => {
     const rows = buildFieldRows(
       proposal({ operation: "create", payload: { title: "New", priority: "low" } }),
-      undefined,
     );
     expect(rows).toEqual([
       { field: "title", proposed: "New" },
@@ -74,23 +73,51 @@ describe("buildFieldRows — update", () => {
         target_id: "wi_1",
         // priority changes (high→critical); phase is UNCHANGED (plan→plan).
         payload: { priority: "critical", phase: "plan" },
+        target_snapshot: { priority: "high", phase: "plan" },
       }),
-      target,
     );
     expect(rows).toEqual([
       { field: "priority", current: "high", proposed: "critical" },
     ]);
   });
 
+  it("reads the before-side from the AUTHORED-AGAINST snapshot, never from live state", () => {
+    // The snapshot is the only before-state the diff may claim: it is what the agent
+    // saw. Live state can have moved (F5) — a preview that re-bases is a lie.
+    const rows = buildFieldRows(
+      proposal({
+        operation: "update",
+        target_id: "wi_1",
+        payload: { title: "Rename the seed item" },
+        target_snapshot: { title: "Seed item (pre-existing)" },
+      }),
+    );
+    expect(rows).toEqual([
+      {
+        field: "title",
+        current: "Seed item (pre-existing)",
+        proposed: "Rename the seed item",
+      },
+    ]);
+  });
+
   it("treats array reordering/content faithfully (changed vs unchanged)", () => {
     const unchanged = buildFieldRows(
-      proposal({ operation: "update", target_id: "wi_1", payload: { tags: ["a", "b"] } }),
-      target,
+      proposal({
+        operation: "update",
+        target_id: "wi_1",
+        payload: { tags: ["a", "b"] },
+        target_snapshot: { tags: ["a", "b"] },
+      }),
     );
     expect(unchanged).toEqual([]);
     const changed = buildFieldRows(
-      proposal({ operation: "update", target_id: "wi_1", payload: { tags: ["a", "c"] } }),
-      target,
+      proposal({
+        operation: "update",
+        target_id: "wi_1",
+        payload: { tags: ["a", "c"] },
+        target_snapshot: { tags: ["a", "b"] },
+      }),
     );
     expect(changed).toEqual([
       { field: "tags", current: "a, b", proposed: "a, c" },
@@ -98,10 +125,13 @@ describe("buildFieldRows — update", () => {
   });
 
   it("shows an empty-to-null change as a REAL change (not — → —)", () => {
-    const emptyTarget = { id: "wi_1", note: "" } as unknown as WorkItem;
     const rows = buildFieldRows(
-      proposal({ operation: "update", target_id: "wi_1", payload: { note: null } }),
-      emptyTarget,
+      proposal({
+        operation: "update",
+        target_id: "wi_1",
+        payload: { note: null },
+        target_snapshot: { note: "" },
+      }),
     );
     expect(rows).toEqual([
       { field: "note", current: "(empty)", proposed: "null" },
@@ -109,26 +139,21 @@ describe("buildFieldRows — update", () => {
   });
 
   it("treats a reordered-but-equal object as UNCHANGED (key-order-insensitive)", () => {
-    const objTarget = {
-      id: "wi_1",
-      meta: { a: 1, b: 2 },
-    } as unknown as WorkItem;
     const unchanged = buildFieldRows(
       proposal({
         operation: "update",
         target_id: "wi_1",
         // Same object, keys in a different order — must NOT show as a change.
         payload: { meta: { b: 2, a: 1 } },
+        target_snapshot: { meta: { a: 1, b: 2 } },
       }),
-      objTarget,
     );
     expect(unchanged).toEqual([]);
   });
 
-  it("shows all payload fields when the target is unknown (never a silent empty diff)", () => {
+  it("shows all payload fields when there is NO snapshot (never a silent empty diff)", () => {
     const rows = buildFieldRows(
       proposal({ operation: "update", target_id: "wi_x", payload: { priority: "low" } }),
-      undefined,
     );
     expect(rows).toEqual([
       { field: "priority", current: "—", proposed: "low" },
@@ -158,6 +183,23 @@ describe("describeOperation", () => {
         2,
       ),
     ).toBe("Update Payments revamp: 2 fields");
+  });
+
+  it("names the item as the proposal saw it when the proposal RENAMES it", () => {
+    // The header must not silently re-title itself from live state either: when the
+    // payload touches `title`, the snapshot holds the name the agent was looking at.
+    expect(
+      describeOperation(
+        proposal({
+          operation: "update",
+          target_id: "wi_1",
+          payload: { title: "Renamed" },
+          target_snapshot: { title: "Seed item (pre-existing)" },
+        }),
+        target,
+        1,
+      ),
+    ).toBe("Update Seed item (pre-existing): 1 field");
   });
 });
 

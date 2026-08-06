@@ -17,6 +17,26 @@ describe("createMockProposalRepository", () => {
     expect(create?.target_id).toBeNull();
   });
 
+  describe("get", () => {
+    it("returns a pending proposal, and null for an id it has never seen", async () => {
+      const repo = createMockProposalRepository();
+      const [first] = await repo.list();
+      expect((await repo.get(first.id))?.id).toBe(first.id);
+      expect(await repo.get("p_unknown")).toBeNull();
+    });
+
+    it("still finds a DISPOSED proposal, stamped with how it was decided", async () => {
+      const repo = createMockProposalRepository();
+      const [accepted, rejected] = await repo.list();
+      await repo.accept(accepted.id);
+      await repo.reject(rejected.id);
+      // Gone from `list` (only pending) but still knowable — the distinction a dead
+      // deep-link needs to say "already accepted" instead of "doesn't exist".
+      expect((await repo.get(accepted.id))?.status).toBe("applied");
+      expect((await repo.get(rejected.id))?.status).toBe("rejected");
+    });
+  });
+
   it("curatorVerdict returns null in fixture mode — no memory store to diff against", async () => {
     // The mock dataset holds no memories, so there is nothing to curate against.
     // Returning null (render no panel) rather than a synthetic `clean` verdict, which

@@ -77,18 +77,32 @@ function sameValue(a: unknown, b: unknown): boolean {
 }
 
 /**
+ * The state the proposal was AUTHORED against — the only before-state the diff may
+ * claim. `target_snapshot` is captured server-side when the proposal is drafted;
+ * `undefined` means we genuinely do not know (a create, a memory op, or a proposal
+ * drafted before before-images were captured).
+ *
+ * It deliberately does NOT fall back to the target's live values. Reading live state
+ * makes the "what will change" preview re-base as the target moves, so the reviewer
+ * approves a diff the agent never proposed (audit F5) — the one unforgivable bug on
+ * this surface. An unknown before-state renders as unknown.
+ */
+function authoredAgainst(proposal: Proposal): Record<string, unknown> | undefined {
+  const snapshot = proposal.target_snapshot;
+  return snapshot && typeof snapshot === "object" ? snapshot : undefined;
+}
+
+/**
  * The field rows for a proposal — the faithful representation of what `accept`
  * applies:
  *  - `create`: every provided payload field as `field | value`.
  *  - `update`: `field | current → proposed` for the payload fields that actually
- *    CHANGE. When `target` is not yet known (still loading / not found) every
- *    payload field is shown with an em-dash current, so the reviewer never sees a
- *    silently empty diff.
+ *    CHANGE, where `current` is the value the proposal was AUTHORED against. With no
+ *    snapshot, every payload field is shown with an em-dash current, so the reviewer
+ *    sees "we don't know the before-state" rather than a silently empty — or silently
+ *    re-based — diff.
  */
-export function buildFieldRows(
-  proposal: Proposal,
-  target: WorkItem | undefined,
-): FieldRow[] {
+export function buildFieldRows(proposal: Proposal): FieldRow[] {
   const entries = Object.entries(proposal.payload);
 
   if (proposal.operation === "create") {
@@ -99,12 +113,12 @@ export function buildFieldRows(
   }
 
   // update
-  const targetRecord = target as Record<string, unknown> | undefined;
+  const before = authoredAgainst(proposal);
   const rows: FieldRow[] = [];
   for (const [field, proposed] of entries) {
-    const current = targetRecord?.[field];
-    // With a known target, hide fields the update does not actually change.
-    if (targetRecord !== undefined && sameValue(current, proposed)) continue;
+    const current = before?.[field];
+    // With a known before-state, hide fields the update does not actually change.
+    if (before !== undefined && sameValue(current, proposed)) continue;
     rows.push({
       field,
       current: formatValue(current),
@@ -118,6 +132,12 @@ export function buildFieldRows(
  * The top-line operation sentence:
  *  - `create` → `Create work item "<title>"`.
  *  - `update` → `Update <target title>: <n> field(s)` (n = changed row count).
+ *
+ * For an update the item is named as the PROPOSAL saw it when the payload touches
+ * `title` (from the authored-against snapshot), so a rename proposal's header cannot
+ * silently re-title itself from live state. Where the proposal makes no claim about
+ * the title, the target's current title is the only name available and asserts
+ * nothing about the change.
  */
 export function describeOperation(
   proposal: Proposal,
@@ -132,8 +152,14 @@ export function describeOperation(
         : "Untitled work item";
     return `Create work item “${name}”`;
   }
+  const authoredTitle = authoredAgainst(proposal)?.title;
   const targetName =
-    target?.title ?? proposal.target_id ?? "work item";
+    (typeof authoredTitle === "string" && authoredTitle.length > 0
+      ? authoredTitle
+      : undefined) ??
+    target?.title ??
+    proposal.target_id ??
+    "work item";
   const unit = changedCount === 1 ? "field" : "fields";
   return `Update ${targetName}: ${changedCount} ${unit}`;
 }

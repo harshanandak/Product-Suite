@@ -10,6 +10,14 @@ export interface ProposalRepository {
   /** All PENDING proposals (tenant-scoped). */
   list(): Promise<Proposal[]>;
   /**
+   * Look up ONE proposal by id REGARDLESS of status (tenant-scoped), or `null` when
+   * no such proposal exists for the caller. {@link list} only returns pending ones,
+   * so this is the only way to tell "that proposal never existed" from "someone
+   * already accepted/rejected it" — the distinction a dead `?proposal=<id>`
+   * deep-link has to make instead of quietly selecting a different proposal.
+   */
+  get(id: string): Promise<Proposal | null>;
+  /**
    * Accept a proposal — the backend applies it (creates/updates the target work
    * item). The result is a discriminated {@link AcceptResult}: `applied` carries
    * the resulting item, while `stale`/`invalid` surface the 409/404 and 422
@@ -86,9 +94,27 @@ export function createMockProposalRepository(
     payload: { ...proposal.payload },
   });
 
+  // Every proposal this instance has ever held, keyed by id — the pending ones plus
+  // the ones a disposal removed from `proposals`. `get` reads from here (with the
+  // disposed status stamped on) so a deep-link to a just-handled proposal can be
+  // told apart from a deep-link to nothing, exactly as the real API does.
+  const known = new Map<string, Proposal>(
+    proposals.map((proposal) => [proposal.id, clone(proposal)]),
+  );
+  const disposedStatus = new Map<string, string>();
+
   return {
     list() {
       return settle(proposals.map(clone));
+    },
+
+    get(id: string) {
+      const proposal = known.get(id);
+      if (proposal === undefined) return settle<Proposal | null>(null);
+      const status = disposedStatus.get(id);
+      return settle<Proposal | null>(
+        status === undefined ? clone(proposal) : { ...clone(proposal), status },
+      );
     },
 
     accept(id: string) {
@@ -98,6 +124,7 @@ export function createMockProposalRepository(
         return settle<AcceptResult>({ status: "not_pending", proposal_id: id });
       }
       const [proposal] = proposals.splice(index, 1);
+      disposedStatus.set(id, "applied");
       // Synthesize the applied item id so the mock's applied path has a linkable
       // target, mirroring what the real backend returns as `item_id`.
       const itemId = proposal.target_id ?? `wi_new_${proposal.id}`;
@@ -119,7 +146,10 @@ export function createMockProposalRepository(
 
     reject(id: string) {
       const index = proposals.findIndex((proposal) => proposal.id === id);
-      if (index !== -1) proposals.splice(index, 1);
+      if (index !== -1) {
+        proposals.splice(index, 1);
+        disposedStatus.set(id, "rejected");
+      }
       return settle(undefined);
     },
 

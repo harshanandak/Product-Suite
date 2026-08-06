@@ -42,6 +42,18 @@ export interface Proposal {
    * exact key set, and the detail view renders whatever is present as rows.
    */
   readonly payload: Record<string, unknown>;
+  /**
+   * The target's values for the fields this payload touches, as they were when the
+   * proposal was AUTHORED (captured server-side at proposal time; see migration
+   * 0017). This is the "before" side of the accept-time diff — reading the live
+   * target instead makes the preview silently re-base as the target changes, so the
+   * reviewer approves a diff the agent never proposed.
+   *
+   * `null`/absent for a `create` (nothing existed yet), for memory proposals, and
+   * for proposals drafted before the column existed. Absent ⇒ the before-state is
+   * UNKNOWN and renders as such — never substituted with current state.
+   */
+  readonly target_snapshot?: Record<string, unknown> | null;
   /** The agent's reasoning for this proposal; `null` when it gave none. */
   readonly rationale: string | null;
   /** Model self-confidence in `[0,1]`; `null` when unscored. */

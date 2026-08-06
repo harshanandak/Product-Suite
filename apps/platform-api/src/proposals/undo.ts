@@ -5,6 +5,16 @@ import { getMemoryBySourceProposalId, retractMemory } from '../domain/memories'
 import { updateWorkItem, type UpdateWorkItemInput, type WorkItemRow } from '../domain/work-items'
 import type { ActorContext } from '../provenance/record-write'
 import { getProposalScoped } from './repository'
+// The shared field vocabulary lives in a leaf module so the DRAFT-time snapshot
+// (repository.ts) and the accept-time fence (apply.ts) use the SAME normalization
+// as the undo — re-exported here because this module's callers already import them.
+export {
+  UNDOABLE_FIELDS,
+  conflictingFields,
+  fieldSnapshot,
+  undoableKeys,
+} from './work-item-fields'
+import { conflictingFields } from './work-item-fields'
 
 /**
  * UNDO-ON-ACCEPT — reversing an applied `work_item:update`.
@@ -30,29 +40,6 @@ import { getProposalScoped } from './repository'
  *     are compared against the values the accept applied. Any drift ⇒ 409 and NO
  *     write — someone edited the item since, and their edit outranks our reversal.
  */
-
-/**
- * The work-item columns an accept can set and an undo can therefore restore —
- * `WorkItemPatch`'s key set (see `@product-suite/contracts`). `depth` is excluded
- * deliberately: it is SERVER-derived from `parent_id`, never a caller patch, so
- * restoring `parent_id` restores it implicitly.
- */
-export const UNDOABLE_FIELDS = [
-  'title',
-  'description',
-  'phase',
-  'type',
-  'priority',
-  'tags',
-  'project_id',
-  'team_id',
-  'status_id',
-  'parent_id',
-  'department',
-  'assignee_id',
-  'due_date',
-  'archived',
-] as const
 
 /**
  * The reserved key the undo record lives under inside `applied_write`. Double-
@@ -106,37 +93,6 @@ function sqlQuery<Row = Record<string, unknown>>(
 }
 
 /**
- * Normalize a column value for STRUCTURAL comparison and for jsonb storage. A
- * `timestamptz` comes back as a `Date` from a live read but as an ISO string once
- * it has round-tripped through jsonb, so both sides collapse to the ISO string —
- * otherwise every undo of an item with a due date would false-conflict. `undefined`
- * becomes `null` because jsonb DROPS undefined keys, which would silently shrink
- * the pre-image.
- */
-function normalizeFieldValue(value: unknown): unknown {
-  if (value === undefined) return null
-  if (value instanceof Date) return value.toISOString()
-  if (Array.isArray(value)) return value.map(normalizeFieldValue)
-  return value
-}
-
-/** The patch keys that are real, restorable columns (everything else is ignored). */
-export function undoableKeys(payload: Record<string, unknown>): string[] {
-  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return []
-  return UNDOABLE_FIELDS.filter((field) => field in payload)
-}
-
-/** Read exactly `fields` off a row, normalized — an absent column records as `null`. */
-export function fieldSnapshot(
-  row: Record<string, unknown>,
-  fields: readonly string[],
-): Record<string, unknown> {
-  const snapshot: Record<string, unknown> = {}
-  for (const field of fields) snapshot[field] = normalizeFieldValue(row[field])
-  return snapshot
-}
-
-/**
  * The `applied_write` value to persist for an undoable accept: the applied ROW
  * (unchanged, so existing readers are unaffected) plus the undo record beside it.
  */
@@ -156,22 +112,6 @@ export function readUndoEnvelope(appliedWrite: unknown): UndoEnvelope | null {
   const envelope = record as Partial<UndoEnvelope>
   if (typeof envelope.pre_image !== 'object' || envelope.pre_image === null) return null
   return { ...envelope, pre_image: envelope.pre_image, applied: envelope.applied ?? {} }
-}
-
-/**
- * The fields where the target's CURRENT value no longer matches what the accept
- * applied — i.e. what somebody changed since. A non-empty list means the undo must
- * refuse: reversing would silently discard that later edit.
- */
-export function conflictingFields(
-  applied: Record<string, unknown>,
-  current: Record<string, unknown>,
-): string[] {
-  return Object.keys(applied).filter((field) => {
-    const before = JSON.stringify(normalizeFieldValue(applied[field]) ?? null)
-    const now = JSON.stringify(normalizeFieldValue(current[field]) ?? null)
-    return before !== now
-  })
 }
 
 /**

@@ -23,7 +23,8 @@ import {
 import type { ActorContext } from '../provenance/record-write'
 import { buildCaptureInput } from './capture'
 import { getProposalScoped, type ProposalRow } from './repository'
-import { buildUndoEnvelope, fieldSnapshot, undoableKeys } from './undo'
+import { buildUndoEnvelope } from './undo'
+import { conflictingFields, fieldSnapshot, undoableKeys } from './work-item-fields'
 
 /**
  * `applyProposal` returns the shared {@link AcceptResult} envelope (defined in
@@ -145,7 +146,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 /** True when a value is a well-formed UUID string — safe to bind to a `uuid` column
  *  without risking a Postgres `22P02` cast error. A non-string / blank / slug is not. */
-function isUuid(value: unknown): value is string {
+export function isUuid(value: unknown): value is string {
   return typeof value === 'string' && UUID_RE.test(value.trim())
 }
 
@@ -215,6 +216,26 @@ async function validateAndResolveWorkItemPayload(
 }
 
 /**
+ * The compare-and-set fence for a `work_item:update`: the target's authored-against
+ * values (`target_snapshot`, captured when the proposal was drafted). Null when there
+ * is nothing to fence on — a create, a memory op, or a proposal drafted before the
+ * snapshot existed, all of which apply exactly as they did before.
+ */
+function staleFence(proposal: ProposalRow): Record<string, unknown> | null {
+  if (proposal.target_type !== 'work_item' || proposal.operation !== 'update') return null
+  const snapshot = proposal.target_snapshot
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return null
+  return Object.keys(snapshot).length > 0 ? (snapshot as Record<string, unknown>) : null
+}
+
+/** The plain-language `stale` reason, naming what moved (never raw error text). */
+function driftMessage(fields: string[]): string {
+  return fields.length > 0
+    ? `someone changed ${fields.join(', ')} since this was proposed — accepting would overwrite that`
+    : 'this item changed since this was proposed'
+}
+
+/**
  * Classify a write failure into a decision outcome WITHOUT touching the proposal. The
  * write ran while the proposal was still `pending` (we flip only AFTER success), so
  * every classified failure leaves it re-acceptable — the "applied-without-a-row" ghost
@@ -227,7 +248,10 @@ async function validateAndResolveWorkItemPayload(
 function classifyWriteFailure(cause: unknown, proposal: ProposalRow): AcceptResult {
   const proposalId = proposal.id
   if (cause instanceof DomainError) {
-    if (cause.code === 'stale' || cause.code === 'conflict') {
+    // `guard_failed` = the compare-and-set fence lost the race: the target moved
+    // between our staleness check and the writing statement, and NOTHING was written.
+    // That is staleness, not a bad payload — the proposal stays reviewable.
+    if (cause.code === 'stale' || cause.code === 'conflict' || cause.code === 'guard_failed') {
       return { status: 'stale', proposal_id: proposalId, item_id: proposal.target_id, message: cause.message }
     }
     // A domain-invariant violation is a RECOVERABLE decline — the write never flipped, so
@@ -361,19 +385,23 @@ async function applyMemoryCommand(
  *     door. Folds 6055d30e: resolve the sole team when `team_id` is omitted and snapshot it.
  *  4. WRITE FIRST — dispatch the domain command while the proposal is still `pending`, so
  *     ANY failure leaves it re-acceptable. Create is idempotent (unique index on
- *     `applied_from_proposal_id` → a re-drive returns the existing row). Update has NO
- *     version guard today — `expectedVersion` is threaded through but is a deliberate
- *     no-op (v1 `work_items` has no version column; see `updateWorkItem`), so an update
- *     applies last-writer-wins; proactive staleness detection is deferred to the staleness
- *     epic (kernel a41345b4). A failure is CLASSIFIED without touching the proposal
- *     (`stale`/`conflict` → reviewable; other/data error → `invalid`; unexpected → rethrow→500).
+ *     `applied_from_proposal_id` → a re-drive returns the existing row). An update is
+ *     FENCED on `target_snapshot` — the state the proposal was authored against — so a
+ *     drifted target is declined as `stale` (step 3b's fast path names the drifted
+ *     fields; the fence inside the statement is the authority) instead of applying
+ *     last-writer-wins over somebody's later edit. An update with no complete snapshot
+ *     is declined for refresh. `expectedVersion` remains a
+ *     threaded no-op — v1 `work_items` has no version column; the snapshot fence, not a
+ *     version number, is how staleness is detected. A failure is CLASSIFIED without
+ *     touching the proposal (`stale`/`conflict`/`guard_failed` → reviewable;
+ *     other/data error → `invalid`; unexpected → rethrow→500).
  *  5. FLIP LAST — only on write success, ONE guarded `UPDATE … WHERE status='pending'`
  *     stamps `decided_by/at`, the (coalesced) edited/snapshot payload, and `applied_write`.
  *     It is the single exactly-once winner-gate: concurrent accepts both run the idempotent
  *     write, but only one flip matches `pending` (the rest → `not_pending`, harmless — the
  *     write deduped to one row). Exactly-once now rests on the unique index (create) +
- *     the naturally-idempotent last-writer-wins update + this guarded flip, NOT on a
- *     claim-before-write (no `target_version` gate exists yet — deferred to a41345b4).
+ *     the naturally-idempotent (and now fenced) update + this guarded flip, NOT on a
+ *     claim-before-write.
  */
 export async function applyProposal(
   sql: Sql,
@@ -433,24 +461,67 @@ export async function applyProposal(
     }
   }
 
-  // (3b) PRE-IMAGE (undo-on-accept) — for a `work_item:update` ONLY, read the
-  // target's CURRENT values for the fields this patch will set, BEFORE the write
-  // overwrites them. Persisted inside the existing `applied_write` jsonb at the
-  // flip, this is what `POST /:id/undo` restores through the validated write path.
-  // A read failure is NEVER allowed to fail the accept: applying the human's
-  // decision matters more than the ability to reverse it, so a missing pre-image
-  // simply leaves the accept un-undoable (the endpoint declines with a clear 422).
+  // (3b) PRE-IMAGE (undo-on-accept) + STALENESS CHECK — for a `work_item:update`
+  // ONLY, read the target's CURRENT values once and use them twice.
+  //
+  // PRE-IMAGE: the values this patch will overwrite, persisted inside the existing
+  // `applied_write` jsonb at the flip — what `POST /:id/undo` restores through the
+  // validated write path. A read failure is NEVER allowed to fail the accept:
+  // applying the human's decision matters more than the ability to reverse it, so a
+  // missing pre-image simply leaves the accept un-undoable (a clear 422 there).
+  //
+  // STALENESS: compare that same read against `target_snapshot` — the state the
+  // proposal was AUTHORED against, and the same state the Inbox showed as the diff's
+  // "before" side. Any drift means accepting would silently overwrite an edit made
+  // after the agent proposed, so we DECLINE as `stale` and name the drifted fields
+  // (the reviewer needs to know what moved, since the diff deliberately shows the
+  // authored-against state, not current state). This is the fast path: it produces
+  // the precise field list. The fence passed to `updateWorkItem` below is the
+  // authority — without it this pair is a check-then-write, and a writer landing in
+  // the gap would be clobbered by the very accept that just refused to clobber.
   let preImage: Record<string, unknown> | null = null
   let preImageFields: string[] = []
+  const fence = staleFence(proposal)
   if (proposal.target_type === 'work_item' && proposal.operation === 'update') {
     preImageFields = undoableKeys(effectivePayload)
-    if (preImageFields.length > 0) {
+    if (fence === null) {
+      return {
+        status: 'stale',
+        proposal_id: proposalId,
+        item_id: proposal.target_id as string,
+        message: 'the proposal has no authored baseline; refresh it before accepting',
+      }
+    }
+    const unfencedFields = preImageFields.filter((field) => !(field in fence))
+    if (unfencedFields.length > 0) {
+      return {
+        status: 'stale',
+        proposal_id: proposalId,
+        item_id: proposal.target_id as string,
+        message: `the proposal has no authored baseline for ${unfencedFields.join(', ')}; refresh it before accepting`,
+      }
+    }
+    try {
       const beforeRows = (await sql`
-        select * from work_items
+        select *, to_jsonb(work_items) as row_json from work_items
         where id = ${proposal.target_id} and tenant_id = ${proposal.tenant_id}
       `) as Record<string, unknown>[]
       const before = beforeRows[0]
-      if (before) preImage = fieldSnapshot(before, preImageFields)
+      if (before) {
+        const rowJson = (before.row_json as Record<string, unknown> | undefined) ?? before
+        const drifted = conflictingFields(fence, rowJson)
+        if (drifted.length > 0) {
+          return {
+            status: 'stale',
+            proposal_id: proposalId,
+            item_id: proposal.target_id as string,
+            message: driftMessage(drifted),
+          }
+        }
+        if (preImageFields.length > 0) preImage = fieldSnapshot(before, preImageFields)
+      }
+    } catch {
+      // Best-effort preview/undo read; updateWorkItem's expectedValues fence is authoritative.
     }
   }
 
@@ -477,7 +548,14 @@ export async function applyProposal(
     } else {
       result = await updateWorkItem(
         sql,
-        { tenantIds: [proposal.tenant_id], actor, expectedVersion: proposal.target_version ?? undefined },
+        {
+          tenantIds: [proposal.tenant_id],
+          actor,
+          expectedVersion: proposal.target_version ?? undefined,
+          // The authority for staleness: the write lands only while the target still
+          // holds the values this proposal was authored against (null ⇒ unfenced).
+          ...(fence === null ? {} : { expectedValues: fence }),
+        },
         proposal.target_id as string,
         effectivePayload as UpdateWorkItemInput,
       )

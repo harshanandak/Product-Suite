@@ -430,6 +430,13 @@ export const proposals = pgTable(
     appliedWrite: jsonb('applied_write'),
     // Optimistic concurrency: the target's version at propose time (see design §14).
     targetVersion: bigint('target_version', { mode: 'number' }),
+    // The target's values for the fields this payload touches, as they were when the
+    // proposal was DRAFTED (Postgres's `to_jsonb(work_items)` rendering). Two uses,
+    // one column: it is the "before" side of the Inbox diff (so the preview cannot
+    // re-base as the target moves) AND the compare-and-set fence at accept time (so a
+    // drifted baseline is declined as stale instead of clobbering a later edit).
+    // NULL = unknown before-state (a create, a memory op, or a pre-0017 proposal).
+    targetSnapshot: jsonb('target_snapshot'),
     // Generation metadata — so a model/prompt swap is measurable, not vibes.
     modelId: text('model_id'),
     promptVersion: text('prompt_version'),

@@ -130,6 +130,20 @@ export function createNetworkProposalRepository(
       }));
     },
 
+    async get(id: string): Promise<Proposal | null> {
+      // A 404 is a normal ANSWER here ("no such proposal for you"), not a transport
+      // failure, so it resolves to null instead of throwing. Any other non-OK status
+      // is a genuine failure and throws, so a 500 is never mistaken for "not found".
+      const response = await rawFetch(
+        "GET",
+        `/api/agent/proposals/${encodeURIComponent(id)}`,
+      );
+      if (response.status === 404) return null;
+      if (!response.ok) throw new Error(await errorMessage(response));
+      const proposal = (await response.json()) as Proposal;
+      return { ...proposal, source: normalizeSource(proposal.source) };
+    },
+
     async accept(
       id: string,
       editedPayload?: Record<string, unknown>,

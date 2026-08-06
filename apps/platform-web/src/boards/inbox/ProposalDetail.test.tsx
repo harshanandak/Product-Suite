@@ -181,6 +181,49 @@ describe("ProposalDetail", () => {
     expect(screen.queryByText("→")).not.toBeInTheDocument();
   });
 
+  // F5(a) (P0 consent): the diff's "before" side used to be read LIVE from the
+  // target, so the preview silently re-based as the target changed — the reviewer was
+  // shown a "what will change" that is not what the agent proposed. It must render the
+  // state the proposal was AUTHORED against.
+  it("(update) renders the AUTHORED-AGAINST before-state even after the target changed underneath", () => {
+    // The target has been renamed since the proposal was drafted (the audit's exact
+    // scenario: a first proposal applied, moving the second proposal's baseline).
+    itemsMock.items = [
+      { id: "wi_1", title: "UXAUDIT-TMP stale-probe" } as unknown as WorkItem,
+    ];
+    renderDetail(
+      proposal({
+        operation: "update",
+        target_id: "wi_1",
+        payload: { title: "Rename the seed item" },
+        target_snapshot: { title: "Seed item (pre-existing)" },
+        rationale: "Escalated overnight.",
+      }),
+    );
+    const row = screen.getByText("title").closest("div");
+    // The before-value the agent actually saw...
+    expect(row).toHaveTextContent("Seed item (pre-existing)");
+    expect(row).toHaveTextContent("Rename the seed item");
+    // ...and NOT the current one it drifted to.
+    expect(row).not.toHaveTextContent("UXAUDIT-TMP stale-probe");
+  });
+
+  it("(update) treats an absent snapshot as an UNKNOWN before-state, never live state", () => {
+    itemsMock.items = [targetItem]; // priority: "high" LIVE
+    renderDetail(
+      proposal({
+        operation: "update",
+        target_id: "wi_1",
+        payload: { priority: "critical" },
+        // Drafted before before-images were captured: we do not know the before-state.
+      }),
+    );
+    const row = screen.getByText("priority").closest("div");
+    expect(row).toHaveTextContent("—");
+    expect(row).toHaveTextContent("critical");
+    expect(row).not.toHaveTextContent("high");
+  });
+
   it("(update) renders current → proposed for ONLY the changed fields", () => {
     itemsMock.items = [targetItem];
     renderDetail(
@@ -189,6 +232,7 @@ describe("ProposalDetail", () => {
         target_id: "wi_1",
         // priority changes high→critical; phase is unchanged (plan→plan).
         payload: { priority: "critical", phase: "plan" },
+        target_snapshot: { priority: "high", phase: "plan" },
         rationale: "Escalated overnight.",
       }),
     );

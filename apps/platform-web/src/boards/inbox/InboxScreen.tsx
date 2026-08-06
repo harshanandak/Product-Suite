@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import { useParams, useSearch } from "@tanstack/react-router";
+import { Link, useParams, useSearch } from "@tanstack/react-router";
 
 import { Button, EmptyState, ErrorState } from "@product-suite/ui";
 
@@ -43,6 +43,117 @@ const SOURCE_FACETS = [
 type SourceFilter = (typeof SOURCE_FACETS)[number]["value"];
 
 /**
+ * The fate of a `?proposal=<id>` deep-link that is NOT in the pending list. Every
+ * non-`idle` state means NOTHING is selected: the reviewer asked for a specific
+ * proposal, so the inbox must say what happened to it rather than quietly promoting
+ * a different pending change into the pane — where an Accept click would approve
+ * something the reviewer never asked to see.
+ */
+type DeepLinkState =
+  | { kind: "idle" }
+  /** The lookup is in flight (we do not yet know which of the two it is). */
+  | { kind: "checking" }
+  /** No such proposal exists for this caller. */
+  | { kind: "missing" }
+  | { kind: "error"; message: string }
+  /** It exists but has been decided already — `status` is its lifecycle status. */
+  | {
+      kind: "disposed";
+      status: string;
+      targetId: string | null;
+      targetType: Proposal["target_type"];
+    };
+
+/**
+ * The notice copy for a resolved dead deep-link. A disposed proposal is the COMMON
+ * real case (a teammate handled it, or a second tab did) and reads as an outcome;
+ * a genuinely unknown id reads as a bad link.
+ */
+function deepLinkNotice(state: DeepLinkState): { title: string; description: string } {
+  if (state.kind === "error") {
+    return {
+      title: "Couldn't check that proposal",
+      description: state.message,
+    };
+  }
+  if (state.kind === "disposed") {
+    if (state.status === "applied") {
+      return {
+        title: "That proposal was already accepted",
+        description: "Its change has been applied, so there is nothing left to review.",
+      };
+    }
+    if (state.status === "rejected") {
+      return {
+        title: "That proposal was already rejected",
+        description: "Someone declined it, so it is no longer waiting on you.",
+      };
+    }
+    return {
+      title: "That proposal is no longer pending",
+      description: `It was already handled (${state.status}), so there is nothing left to review.`,
+    };
+  }
+  return {
+    title: "That proposal doesn’t exist",
+    description:
+      "The link may be mistyped or out of date. Nothing has been selected for you.",
+  };
+}
+
+/**
+ * What the pane shows INSTEAD of a proposal when the deep-link is dead: the outcome,
+ * a path onward (the applied item, when there is one), and an EXPLICIT way to review
+ * the pending queue instead. Nothing here can approve anything.
+ */
+function DeadDeepLinkNotice({
+  state,
+  workspace,
+  onShowPending,
+  onRetry,
+}: Readonly<{
+  state: DeepLinkState;
+  workspace: string;
+  onShowPending: () => void;
+  onRetry: () => void;
+}>) {
+  const { title, description } = deepLinkNotice(state);
+  const appliedItemId =
+    state.kind === "disposed" &&
+    state.status === "applied" &&
+    state.targetType === "work_item"
+      ? state.targetId
+      : null;
+  return (
+    <EmptyState
+      title={title}
+      description={description}
+      action={
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          {appliedItemId ? (
+            <Link
+              to="/w/$workspace/workboard/item/$itemId"
+              params={{ workspace, itemId: appliedItemId }}
+              className="text-sm font-medium text-primary hover:underline"
+            >
+              View item →
+            </Link>
+          ) : null}
+          {state.kind === "error" ? (
+            <Button size="sm" variant="outline" onClick={onRetry}>
+              Try again
+            </Button>
+          ) : null}
+          <Button size="sm" variant="outline" onClick={onShowPending}>
+            Show pending proposals
+          </Button>
+        </div>
+      }
+    />
+  );
+}
+
+/**
  * Review inbox SCREEN — the surface where humans dispose of what agents propose.
  * A pending-proposals list (navigation) beside a selected-proposal detail pane
  * (the product: *what will actually change*). Mirrors {@link WorkboardScreen}'s
@@ -55,8 +166,17 @@ export function InboxScreen({ repository }: Readonly<InboxScreenProps> = {}) {
   // Inbox →" target). Preselect it when present + still pending, else fall back
   // to the first row.
   const { proposal: requestedId } = useSearch({ from: "/w/$workspace/inbox" });
-  const { proposals, isLoading, error, accept, reject, undo, isMutating, refetch } =
-    useProposals({ repository });
+  const {
+    proposals,
+    isLoading,
+    error,
+    accept,
+    reject,
+    undo,
+    isMutating,
+    refetch,
+    getProposal,
+  } = useProposals({ repository });
 
   // The selected proposal id (detail-pane target). Default to the deep-linked
   // proposal (when it exists), else the first proposal once the list arrives —
@@ -70,20 +190,85 @@ export function InboxScreen({ repository }: Readonly<InboxScreenProps> = {}) {
   // open with a different proposal selected — so we react to the id CHANGING,
   // not just to an empty selection.
   const appliedRequestRef = useRef<string | undefined>(undefined);
+  const [deepLink, setDeepLink] = useState<DeepLinkState>({ kind: "idle" });
+  const [lookupAttempt, setLookupAttempt] = useState(0);
+  // The SAME fact as `deepLink.kind !== "idle"`, held in a ref because the effects
+  // below run in one commit: a `setDeepLink` from the resolution effect is invisible
+  // to the default-selection effect's closure, which would then select the first row
+  // anyway — the exact substitution this fix exists to prevent.
+  const deepLinkPendingRef = useRef(false);
+  const clearDeepLink = (): void => {
+    deepLinkPendingRef.current = false;
+    setDeepLink({ kind: "idle" });
+  };
+
+  // Deep-link RESOLUTION. A requested id that IS pending is selected. One that is
+  // NOT pending resolves to an explicit notice — never to the first row: substituting
+  // a different proposal is the F6 consent bug, because the substitute arrives with a
+  // live Accept button and no indication that it isn't what the link asked for.
+  // Gated on `isLoading` so the not-yet-loaded empty list is never read as "absent".
   useEffect(() => {
-    if (
-      requestedId &&
-      requestedId !== appliedRequestRef.current &&
-      proposals.some((p) => p.id === requestedId)
-    ) {
-      appliedRequestRef.current = requestedId;
+    if (isLoading) return;
+    if (!requestedId) {
+      appliedRequestRef.current = undefined;
+      deepLinkPendingRef.current = false;
+      setDeepLink({ kind: "idle" });
+      return;
+    }
+    if (requestedId === appliedRequestRef.current) return;
+    appliedRequestRef.current = requestedId;
+    if (proposals.some((p) => p.id === requestedId)) {
+      clearDeepLink();
       setSelectedId(requestedId);
       return;
     }
-    // Otherwise default a still-empty selection to the first row once loaded;
-    // never auto-jump an existing selection (keeps a terminal banner visible).
+    // Absent from the pending list: hold the pane EMPTY and ask what became of it,
+    // so the reviewer is told "already accepted" rather than shown a stranger.
+    setSelectedId(null);
+    deepLinkPendingRef.current = true;
+    setDeepLink({ kind: "checking" });
+    let cancelled = false;
+    void getProposal(requestedId)
+      .then((found) => {
+        if (cancelled) return;
+        setDeepLink(
+          found
+            ? {
+                kind: "disposed",
+                status: found.status,
+                targetId: found.target_id,
+                targetType: found.target_type,
+              }
+            : { kind: "missing" },
+        );
+      })
+      .catch((cause: unknown) => {
+        if (cancelled) return;
+        setDeepLink({
+          kind: "error",
+          message: cause instanceof Error ? cause.message : String(cause),
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [proposals, requestedId, isLoading, getProposal, lookupAttempt]);
+
+  const retryDeepLink = (): void => {
+    appliedRequestRef.current = undefined;
+    deepLinkPendingRef.current = true;
+    setSelectedId(null);
+    setDeepLink({ kind: "checking" });
+    setLookupAttempt((attempt) => attempt + 1);
+  };
+
+  // Default selection — the first row, ONLY when no deep-link is waiting on an
+  // answer or reporting a dead one. Never auto-jumps an existing selection (that is
+  // what keeps a terminal banner visible after a disposal).
+  useEffect(() => {
+    if (isLoading || deepLinkPendingRef.current) return;
     setSelectedId((current) => current ?? proposals[0]?.id ?? null);
-  }, [proposals, requestedId]);
+  }, [proposals, isLoading, deepLink]);
 
   // Cache every proposal we've shown so the detail pane can keep rendering a
   // just-disposed proposal (dropped from the refetched list) with its terminal
@@ -124,8 +309,13 @@ export function InboxScreen({ repository }: Readonly<InboxScreenProps> = {}) {
   // Ignore row selection while an accept/reject is in flight, so the detail pane
   // can't be yanked to a different proposal mid-mutation — the disposition (and
   // its eventual Applied/Rejected/Stale/Error banner) stays with the item acted on.
+  // Picking a row also clears a dead-deep-link notice: THIS is the consenting choice
+  // of a different proposal that the auto-fallback used to make on the reviewer's behalf.
   const selectProposal = (id: string): void => {
-    if (!isMutating) setSelectedId(id);
+    if (!isMutating) {
+      clearDeepLink();
+      setSelectedId(id);
+    }
   };
 
   // The full skeleton shows ONLY on the initial load (no data yet). A refetch
@@ -163,7 +353,9 @@ export function InboxScreen({ repository }: Readonly<InboxScreenProps> = {}) {
   // and render the detail pane so its terminal "Applied → View item" / stale
   // banner stays visible instead of blanking. Without the `selected === null`
   // guard, accepting the LAST pending proposal silently loses that confirmation.
-  if (proposals.length === 0 && selected === null) {
+  // A dead deep-link keeps the inbox on screen (the list IS the way onward), so its
+  // notice outranks the teaching empty state even when nothing is pending.
+  if (proposals.length === 0 && selected === null && deepLink.kind === "idle") {
     return (
       <EmptyState
         title="No proposals to review"
@@ -242,6 +434,15 @@ export function InboxScreen({ repository }: Readonly<InboxScreenProps> = {}) {
                 onRefresh={refetch}
               />
             </div>
+          ) : deepLink.kind === "missing" ||
+            deepLink.kind === "disposed" ||
+            deepLink.kind === "error" ? (
+            <DeadDeepLinkNotice
+              state={deepLink}
+              workspace={workspace}
+              onShowPending={clearDeepLink}
+              onRetry={retryDeepLink}
+            />
           ) : null}
         </div>
       </div>

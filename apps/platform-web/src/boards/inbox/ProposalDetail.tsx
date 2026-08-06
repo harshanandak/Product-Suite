@@ -439,7 +439,10 @@ function WorkItemSurface({
   target,
   workspace,
 }: Readonly<{ proposal: Proposal; target: WorkItem | undefined; workspace: string }>) {
-  const rows = buildFieldRows(proposal, target);
+  // The diff reads the AUTHORED-AGAINST snapshot off the proposal — never the live
+  // `target`, which is here only to NAME the item (and only where the proposal makes
+  // no claim about its title).
+  const rows = buildFieldRows(proposal);
   const sentence = describeOperation(proposal, target, rows.length);
   const confidence = formatConfidence(proposal.confidence);
   const isUpdate = proposal.operation === "update";
@@ -925,18 +928,18 @@ export function ProposalDetail({
     setStatus({ kind: "idle" });
   };
 
-  // Refresh a stale proposal = re-base against the current item: ask the inbox to
-  // refetch, then return the pane to its live action state.
-  // TODO(lane-A-rebase): the FULL field-granular staleness engine (epic
-  // a41345b4) shows a live current-vs-proposed diff here; this reactive slice
-  // re-pulls the list so the reviewer sees current state, never a silent clobber.
+  // Refresh a stale proposal = RE-CHECK it, then return the pane to its live action
+  // state. Deliberately NOT a re-base of the diff: the diff's before-side is the
+  // state the proposal was authored against (an immutable server-side snapshot), and
+  // re-basing it onto current state is precisely the bug F5 reported. What the
+  // reviewer learns about current state comes from the stale message's field list and
+  // the target link; a re-check is worth offering because the drift may already have
+  // been resolved (or the proposal disposed of elsewhere).
   const onRefreshAction = (): void => {
     setError(null);
     setStatus({ kind: "idle" });
-    // Re-base against the TARGET's current state, not just the proposals list: the
-    // staleness is about the item the proposal edits, and the diff reads from it.
-    // Re-fetch the work-item list AND the named memory target (bump the reload key),
-    // then re-pull the pending list so the reviewer re-decides against current state.
+    // Re-read the TARGET as well as the proposals list: the header/target link and a
+    // named memory target read live state, so a stale one must not linger.
     refetchWorkItems();
     setTargetReloadKey((key) => key + 1);
     onRefresh?.();
@@ -944,8 +947,12 @@ export function ProposalDetail({
 
   // Apply anyway = re-attempt accept EXPLICITLY despite the staleness (never the
   // default). Same guarded path as Accept.
-  // TODO(lane-A-rebase): a true force-apply needs Lane A's force/target_version
-  // param on accept; today this re-attempts and the backend re-checks.
+  // This RE-ATTEMPTS; it does not force. The accept is fenced on the proposal's
+  // authored-against snapshot, so a re-attempt lands only if the drift has been
+  // resolved and is declined again otherwise — which is exactly what the banner's copy
+  // promises ("will TRY to apply … the server may still decline it"). A genuine
+  // override (deliberately overwriting a known later edit) is a separate product
+  // decision, not something this button should do by accident.
   const onApplyAnyway = runAccept;
 
   const onReject = (): void => {
