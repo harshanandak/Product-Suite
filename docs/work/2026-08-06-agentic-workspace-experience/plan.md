@@ -45,6 +45,55 @@ It is one object-centered collaboration system with several views.
 7. **Recovery by default:** stale state, partial completion, offline gaps, and provider failure
    have explicit recovery paths.
 
+## Human-convenience operating model
+
+Convenience means reducing attention, navigation, memory, repetition, and recovery work without
+hiding agency or consequence. It is not the fewest clicks at any cost. The interface adds
+friction only when the action's blast radius, irreversibility, privacy impact, or cost requires
+it.
+
+### Convenience budgets
+
+| Budget | Product rule |
+| --- | --- |
+| Attention | Interrupt only for a decision, blocked work, failure, or material completion. |
+| Memory | Keep scope, ownership, state, and the next action visible; never require transcript recall. |
+| Navigation | Let users act where the object already is and return them to the same focus and scroll position. |
+| Repetition | Reuse authorized context and preferences, but show what will be reused before acting. |
+| Recovery | Preserve drafts and evidence; every failure offers a safe next action instead of a dead end. |
+
+### Risk-proportional friction
+
+| Action class | Default experience | Required control |
+| --- | --- | --- |
+| Read, search, summarize | Start immediately in pinned scope | stop and source inspection |
+| Draft or private exploration | Edit inline without a modal | discard, revise, promote explicitly |
+| Reversible internal change | Show an in-context preview | one-action approval, provenance, and one-batch undo |
+| Shared mutation | Show exact target and before/after change | revision-bound approval |
+| External, destructive, financial, permission, or privacy change | Pause before execution | consequence, scope, approver, step-up control where needed |
+
+Do not use generic confirmation dialogs. Confirmation language names the object, action,
+audience, material cost, and reversibility. A low-risk action must not inherit the ceremony of a
+high-risk action merely because both use an agent.
+
+### UI execution rules
+
+1. Present one primary action for the current state; keep alternatives nearby but visually
+   secondary.
+2. Keep object title, pinned scope, human owner, acting agent, and Run state in stable locations.
+3. Use outcome verbs such as `Draft`, `Propose`, `Approve and apply`, `Stop`, and `Undo`; avoid
+   generic `Continue`, unexplained status codes, or agent implementation terminology.
+4. Start common work inline. Open a full Run, settings, or audit view only when the user asks
+   for detail or the situation requires intervention.
+5. Preserve composer text, selection, focus, filters, scroll position, and unsent input across
+   navigation, reconnect, and temporary panels.
+6. Use inline state for lasting outcomes; toasts may acknowledge but never be the only record
+   of success, failure, approval, or recovery.
+7. Offer equivalent pointer, keyboard, touch, and structured-list paths. Spatial manipulation
+   is an enhancement, not the only way to complete work.
+8. Let advanced users batch, filter, use the command palette, and stay on the keyboard without
+   exposing that complexity to a first-time user.
+
 ## Six product primitives
 
 | Primitive | User meaning | Canonical authority |
@@ -224,6 +273,34 @@ future effects and reports what already occurred. Useful partial output ends
 `waiting_human` contains one exact question, why work cannot continue, evidence, two or
 three safe choices, effect/cost, deadline/default, owner, and Answer/Transfer/Cancel controls.
 
+## Human-convenience validation battery
+
+The five core journeys must be exercised through the following situations. These are not
+personas or separate feature variants; they are conditions the same product model must handle.
+
+| Case | Human situation | Convenience target | Expected UI and agent behavior |
+| --- | --- | --- | --- |
+| First useful minute | A new user arrives with no knowledge of the object model | reach one useful outcome without setup study | show recent/owned work, one clear Ask action, and examples tied to the current object |
+| Quick capture | A thought, task, or decision must be saved in seconds | do not force classification before capture | accept plain language immediately, preserve it as a draft, and suggest destination afterward |
+| Return after interruption | The user resumes hours or days later | understand what changed and what needs action without rereading chat | show a compact `Since you left` summary with exact objects, decisions, failures, and resume action |
+| Cross-surface continuation | Work starts in a meeting and continues in chat, Canvas, or Work | avoid re-explaining context or creating copies | carry canonical references and offer a visible context change before starting a new thread |
+| Focused deep work | The user wants help without losing editor or Canvas focus | keep creation in the center, automation peripheral | use inline selection actions and a collapsible rail; restore focus after agent interaction |
+| Power-user throughput | A frequent user triages many items | reduce repeated opening and mouse travel | support keyboard navigation, batch review of compatible items, saved filters, and command palette actions |
+| Mobile and one-handed use | The user checks progress or approves away from a desk | finish urgent non-spatial tasks without desktop layout | prioritize Inbox, reply, stop, approve, and undo; use structured artifact/Canvas views and large targets |
+| Assistive technology | The user relies on keyboard, screen reader, zoom, voice, or reduced motion | provide the same outcome and state understanding | expose semantic headings, concise announcements, non-drag controls, logical focus, and reduced-motion progress |
+| Team handoff | One person transfers a blocked decision or responsibility | preserve accountability and context | transfer the human owner explicitly while keeping initiator, agent, evidence, and prior decisions intact |
+| Meeting participation | The user is speaking, listening, or presenting | avoid demanding visual attention during capture | keep capture/consent/stop persistent, defer non-urgent prompts, and surface cited follow-up after the meeting |
+| Background work | A user delegates and continues other work | avoid babysitting or losing trust | keep a quiet persistent Run, notify only on material completion or intervention, and support stop/steer from anywhere |
+| Noisy workspace | Many agents, meetings, and teammates generate events | find real obligations without notification fatigue | group by object/Run, deduplicate, rank decisions and failures first, and keep no-change runs silent |
+| Weak or changing connectivity | The user moves offline, reconnects, or changes devices | preserve input and avoid duplicate work | buffer safe drafts, show transport state, restore durable Runs, and reconcile idempotently with explicit gaps |
+| High-risk approval | An action affects external people, money, access, privacy, or deletion | understand consequence without reading raw logs | show target, audience, diff/effect, evidence, cost, reversibility, and the exact approving action |
+| Agent uncertainty or failure | The agent lacks evidence, permission, capability, or provider availability | recover without interpreting backend errors | state what is known, what failed, what was preserved, and offer retry, narrower scope, fallback, or human handoff |
+| Cost-sensitive work | The user has limited time or budget | choose value before spend and avoid surprise | show estimates only when material, enforce caps, disclose actual usage, and offer lower-cost scope or provider options |
+| Private-to-shared transition | Personal thinking becomes team-visible work | prevent accidental disclosure | preview audience and included sources, exclude unauthorized material, and require explicit promotion/sharing |
+
+The battery fails if a case needs a new canonical object, a separate agent, or a special runtime.
+The same primitives, Run protocol, and attention model must absorb it.
+
 ## Attention and approvals
 
 One Inbox has five classes only:
@@ -312,7 +389,7 @@ Ship:
 
 | Gate | Outcome | Estimate | Exit condition |
 | --- | --- | ---: | --- |
-| 0 | low-fidelity interaction prototype and usability/red-team validation | 1-2 weeks | users correctly explain ownership, state, attention, recovery |
+| 0 | low-fidelity interaction prototype and human-convenience/red-team validation | 1-2 weeks | core journeys pass the convenience battery and users correctly explain ownership, state, attention, recovery |
 | 1 | trust repairs and vocabulary/deep-link consistency | 1-2 weeks | no wrong-object navigation or false completion copy |
 | 2 | Actor/Conversation/Run/Artifact contracts and conformance tests | 2-3 weeks | all surfaces consume one provider-neutral model |
 | 3 | shell conversation, run/activity, Inbox attention loop | 4-6 weeks | durable reload/reconnect/handoff loop |
@@ -328,11 +405,16 @@ tracked separately. Do not parallel-build Gates 3-6 before Gates 0-2 settle the 
 Before production implementation:
 
 1. Prototype five journeys: ask, delegate, artifact proposal, meeting recap, handoff/failure.
-2. Test with at least five representative users across individual and team work.
-3. Include stale proposal, offline recovery, missing permission, partial transcript, and budget
-   exhaustion—not only happy paths.
-4. Test keyboard and 320px structured views.
-5. Record vocabulary failures and update contracts before writing migrations.
+2. Run every human-convenience battery case against at least one journey; test first use,
+   returning use, team work, mobile, and assistive-technology conditions rather than treating
+   one desktop power user as representative.
+3. Test with at least five representative users across individual and team work, including at
+   least one keyboard-only session and one narrow-screen session.
+4. Include stale proposal, offline recovery, missing permission, partial transcript, noisy
+   Inbox, privacy transition, agent uncertainty, and budget exhaustion—not only happy paths.
+5. Measure time to first useful outcome, resume time after interruption, context switches,
+   approval comprehension, recovery success, and unnecessary interruptions.
+6. Record vocabulary and convenience failures and update contracts before writing migrations.
 
 ## Measurable acceptance
 
@@ -352,10 +434,26 @@ Before production implementation:
     within two seconds; gaps propagate to all derived output.
 11. No new billable step starts after a cap; actual usage appears in the final receipt.
 12. All MVP journeys are keyboard operable and non-spatial views reflow at 320px.
+13. At least 80% of first-time prototype participants, with a minimum cohort of five, complete
+    one grounded Ask and locate its source or object without instruction.
+14. A returning participant identifies the current owner, last material change, required
+    decision, and resume action within 15 seconds without rereading the full thread.
+15. Low-risk read and draft journeys introduce no confirmation modal; every high-risk journey
+    identifies target, audience, consequence, reversibility, and approving action before execution.
+16. Round-trip navigation, reconnect, and temporary panels preserve unsent composer text, selection,
+    focus target, filters, and recoverable drafts.
+17. Every user-facing failure names what was preserved and offers at least one safe next action;
+    raw provider or backend errors are never required to recover.
+18. Repeated events for one object/Run produce one grouped attention item, and a successful
+    no-change background run produces no interruptive notification.
+
 
 ## Product metrics
 
 - task success and time-to-understand for the five prototype journeys;
+- time to first useful outcome, interruption-resume time, and avoidable context switches;
+- unnecessary confirmation rate, approval comprehension, and interruptions per material outcome;
+
 - proposal acceptance, edit, stale, reject, and undo rates;
 - wrong-context and wrong-deep-link incidents;
 - runs needing human attention, time waiting, recovery success, duplicate rate;
