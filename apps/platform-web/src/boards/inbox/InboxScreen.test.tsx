@@ -280,9 +280,9 @@ describe("InboxScreen", () => {
     searchMock = {};
     rerender(<InboxScreen repository={repository} />);
 
-    await waitFor(() =>
-      expect(screen.getByText("Create work item “Alpha”")).toBeInTheDocument(),
-    );
+    expect(
+      await screen.findByText("Create work item “Alpha”"),
+    ).toBeInTheDocument();
     expect(screen.queryByText("That proposal doesn’t exist")).not.toBeInTheDocument();
   });
 
