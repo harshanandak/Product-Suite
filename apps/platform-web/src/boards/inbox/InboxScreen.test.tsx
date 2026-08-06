@@ -204,9 +204,7 @@ describe("InboxScreen", () => {
       );
     render(<InboxScreen repository={repository} />);
 
-    await waitFor(() =>
-      expect(screen.getByText("Couldn't check that proposal")).toBeInTheDocument(),
-    );
+    expect(await screen.findByText("Couldn't check that proposal")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
 
     await waitFor(() => expect(repository.get).toHaveBeenCalledTimes(2));
@@ -214,9 +212,7 @@ describe("InboxScreen", () => {
     expect(screen.queryByText(/Create work item.*Alpha/)).not.toBeInTheDocument();
 
     resolveRetry(null);
-    await waitFor(() =>
-      expect(screen.getByText("That proposal doesn’t exist")).toBeInTheDocument(),
-    );
+    expect(await screen.findByText("That proposal doesn’t exist")).toBeInTheDocument();
   });
 
   it("says a deep-linked proposal was already disposed of, distinctly from unknown", async () => {
@@ -251,9 +247,9 @@ describe("InboxScreen", () => {
     }));
     render(<InboxScreen repository={repository} />);
 
-    await waitFor(() =>
-      expect(screen.getByText("That proposal was already accepted")).toBeInTheDocument(),
-    );
+    expect(
+      await screen.findByText("That proposal was already accepted"),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/View item/)).not.toBeInTheDocument();
   });
 
@@ -273,6 +269,21 @@ describe("InboxScreen", () => {
     await waitFor(() =>
       expect(screen.getByText("Create work item “Alpha”")).toBeInTheDocument(),
     );
+  });
+
+  it("clears a dead deep-link and resumes default selection when the query is removed", async () => {
+    searchMock = { proposal: "gone" };
+    const repository = repoWith([proposal("p1", "Alpha")]);
+    const { rerender } = render(<InboxScreen repository={repository} />);
+    expect(await screen.findByText("That proposal doesn’t exist")).toBeInTheDocument();
+
+    searchMock = {};
+    rerender(<InboxScreen repository={repository} />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Create work item “Alpha”")).toBeInTheDocument(),
+    );
+    expect(screen.queryByText("That proposal doesn’t exist")).not.toBeInTheDocument();
   });
 
   it("retargets the pane when a new ?proposal deep-link arrives while already open", async () => {

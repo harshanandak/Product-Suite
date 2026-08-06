@@ -209,7 +209,13 @@ export function InboxScreen({ repository }: Readonly<InboxScreenProps> = {}) {
   // Gated on `isLoading` so the not-yet-loaded empty list is never read as "absent".
   useEffect(() => {
     if (isLoading) return;
-    if (!requestedId || requestedId === appliedRequestRef.current) return;
+    if (!requestedId) {
+      appliedRequestRef.current = undefined;
+      deepLinkPendingRef.current = false;
+      setDeepLink({ kind: "idle" });
+      return;
+    }
+    if (requestedId === appliedRequestRef.current) return;
     appliedRequestRef.current = requestedId;
     if (proposals.some((p) => p.id === requestedId)) {
       clearDeepLink();
