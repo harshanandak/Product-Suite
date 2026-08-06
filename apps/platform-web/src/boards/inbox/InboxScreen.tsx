@@ -55,8 +55,14 @@ type DeepLinkState =
   | { kind: "checking" }
   /** No such proposal exists for this caller. */
   | { kind: "missing" }
+  | { kind: "error"; message: string }
   /** It exists but has been decided already — `status` is its lifecycle status. */
-  | { kind: "disposed"; status: string; targetId: string | null };
+  | {
+      kind: "disposed";
+      status: string;
+      targetId: string | null;
+      targetType: Proposal["target_type"];
+    };
 
 /**
  * The notice copy for a resolved dead deep-link. A disposed proposal is the COMMON
@@ -64,6 +70,12 @@ type DeepLinkState =
  * a genuinely unknown id reads as a bad link.
  */
 function deepLinkNotice(state: DeepLinkState): { title: string; description: string } {
+  if (state.kind === "error") {
+    return {
+      title: "Couldn't check that proposal",
+      description: state.message,
+    };
+  }
   if (state.kind === "disposed") {
     if (state.status === "applied") {
       return {
@@ -98,14 +110,20 @@ function DeadDeepLinkNotice({
   state,
   workspace,
   onShowPending,
+  onRetry,
 }: Readonly<{
   state: DeepLinkState;
   workspace: string;
   onShowPending: () => void;
+  onRetry: () => void;
 }>) {
   const { title, description } = deepLinkNotice(state);
   const appliedItemId =
-    state.kind === "disposed" && state.status === "applied" ? state.targetId : null;
+    state.kind === "disposed" &&
+    state.status === "applied" &&
+    state.targetType === "work_item"
+      ? state.targetId
+      : null;
   return (
     <EmptyState
       title={title}
@@ -120,6 +138,11 @@ function DeadDeepLinkNotice({
             >
               View item →
             </Link>
+          ) : null}
+          {state.kind === "error" ? (
+            <Button size="sm" variant="outline" onClick={onRetry}>
+              Try again
+            </Button>
           ) : null}
           <Button size="sm" variant="outline" onClick={onShowPending}>
             Show pending proposals
@@ -168,6 +191,7 @@ export function InboxScreen({ repository }: Readonly<InboxScreenProps> = {}) {
   // not just to an empty selection.
   const appliedRequestRef = useRef<string | undefined>(undefined);
   const [deepLink, setDeepLink] = useState<DeepLinkState>({ kind: "idle" });
+  const [lookupAttempt, setLookupAttempt] = useState(0);
   // The SAME fact as `deepLink.kind !== "idle"`, held in a ref because the effects
   // below run in one commit: a `setDeepLink` from the resolution effect is invisible
   // to the default-selection effect's closure, which would then select the first row
@@ -203,19 +227,34 @@ export function InboxScreen({ repository }: Readonly<InboxScreenProps> = {}) {
         if (cancelled) return;
         setDeepLink(
           found
-            ? { kind: "disposed", status: found.status, targetId: found.target_id }
+            ? {
+                kind: "disposed",
+                status: found.status,
+                targetId: found.target_id,
+                targetType: found.target_type,
+              }
             : { kind: "missing" },
         );
       })
-      .catch(() => {
-        // The lookup itself failed, so we cannot claim it was disposed of. Report the
-        // weaker, honest answer — still WITHOUT selecting anything.
-        if (!cancelled) setDeepLink({ kind: "missing" });
+      .catch((cause: unknown) => {
+        if (cancelled) return;
+        setDeepLink({
+          kind: "error",
+          message: cause instanceof Error ? cause.message : String(cause),
+        });
       });
     return () => {
       cancelled = true;
     };
-  }, [proposals, requestedId, isLoading, getProposal]);
+  }, [proposals, requestedId, isLoading, getProposal, lookupAttempt]);
+
+  const retryDeepLink = (): void => {
+    appliedRequestRef.current = undefined;
+    deepLinkPendingRef.current = true;
+    setSelectedId(null);
+    setDeepLink({ kind: "checking" });
+    setLookupAttempt((attempt) => attempt + 1);
+  };
 
   // Default selection — the first row, ONLY when no deep-link is waiting on an
   // answer or reporting a dead one. Never auto-jumps an existing selection (that is
@@ -389,11 +428,14 @@ export function InboxScreen({ repository }: Readonly<InboxScreenProps> = {}) {
                 onRefresh={refetch}
               />
             </div>
-          ) : deepLink.kind === "missing" || deepLink.kind === "disposed" ? (
+          ) : deepLink.kind === "missing" ||
+            deepLink.kind === "disposed" ||
+            deepLink.kind === "error" ? (
             <DeadDeepLinkNotice
               state={deepLink}
               workspace={workspace}
               onShowPending={clearDeepLink}
+              onRetry={retryDeepLink}
             />
           ) : null}
         </div>

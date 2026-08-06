@@ -112,8 +112,7 @@ function runQuery<Row>(sql: Sql, text: string, params: unknown[]): Promise<Row[]
  * diff (audit F5). Returns null when there is nothing honest to capture — a create, a
  * memory op, no patchable field, a vanished target, or a failed read. Drafting the
  * proposal matters more than diffing it perfectly, so a read failure is swallowed: a
- * null snapshot renders as an UNKNOWN before-state and applies unfenced, exactly as
- * every pre-0017 proposal does.
+ * null snapshot renders as an UNKNOWN before-state and must be refreshed before accept.
  */
 async function captureTargetSnapshot(
   sql: Sql,
@@ -148,6 +147,7 @@ export async function createProposal(sql: Sql, input: CreateProposalInput): Prom
   const values: Record<string, unknown> = { ...(input as unknown as Record<string, unknown>) }
   // Server-captured, never caller-supplied: this side of the diff is not up for
   // negotiation (and `CreateProposalInput` deliberately has no such field).
+  delete values.target_snapshot
   if (snapshot !== null) values.target_snapshot = snapshot
   const cols: string[] = []
   const params: unknown[] = []

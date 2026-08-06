@@ -84,7 +84,7 @@ proposal leaves the banner intact instead of replacing it with "already accepted
 
 RED (`InboxScreen.test.tsx`, 3 new/rewritten specs — 3 failed | 13 passed):
 
-```
+```text
 Tests  3 failed | 13 passed (16)
  ❯ shows a not-found notice and selects NOTHING when the deep-linked id is unknown
  ❯ says a deep-linked proposal was already disposed of, distinctly from unknown
@@ -207,7 +207,7 @@ structural rather than coincidental.
 
 RED — web (`field-diff.test.ts` + `ProposalDetail.test.tsx`), 8 failed | 51 passed:
 
-```
+```text
  × (update) renders the AUTHORED-AGAINST before-state even after the target changed underneath
  × (update) treats an absent snapshot as an UNKNOWN before-state, never live state
  × reads the before-side from the AUTHORED-AGAINST snapshot, never from live state
@@ -220,7 +220,7 @@ live item renamed to `UXAUDIT-TMP stale-probe` — the audit's exact scenario.
 
 RED — api (`apply.test.ts` + `repository.test.ts`), 4 failed | 45 passed:
 
-```
+```text
  × captures the target’s CURRENT values for the payload fields on a work_item update
  × passes the snapshot as the compare-and-set fence when the baseline still holds
  × DECLINES a drifted baseline as stale — no write, still pending, names what moved

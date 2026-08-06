@@ -54,6 +54,12 @@ describe("createNetworkProposalRepository", () => {
       expect(init?.method).toBe("GET");
     });
 
+    it("encodes an id before placing it in the request path", async () => {
+      fetchMock.mockResolvedValueOnce(jsonOk({ id: "team/proposal", status: "pending" }));
+      await makeRepo().get("team/proposal");
+      expect(callArgs().url).toBe(`${BASE}/api/agent/proposals/team%2Fproposal`);
+    });
+
     it("resolves null on 404 — 'no such proposal' is an ANSWER, not a failure", async () => {
       fetchMock.mockResolvedValueOnce(jsonError(404, "Not found"));
       await expect(makeRepo().get("nope")).resolves.toBeNull();

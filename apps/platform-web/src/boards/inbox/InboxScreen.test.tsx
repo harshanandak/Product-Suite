@@ -189,6 +189,36 @@ describe("InboxScreen", () => {
     expect(repository.get).toHaveBeenCalledWith("gone");
   });
 
+  it("shows a retryable lookup error and keeps the pane unselected while retrying", async () => {
+    searchMock = { proposal: "gone" };
+    const repository = repoWith([proposal("p1", "Alpha")]);
+    let resolveRetry: (value: Proposal | null) => void = () => {};
+    repository.get = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("lookup failed"))
+      .mockImplementationOnce(
+        () =>
+          new Promise<Proposal | null>((resolve) => {
+            resolveRetry = resolve;
+          }),
+      );
+    render(<InboxScreen repository={repository} />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Couldn't check that proposal")).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    await waitFor(() => expect(repository.get).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole("button", { name: "Accept" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Create work item.*Alpha/)).not.toBeInTheDocument();
+
+    resolveRetry(null);
+    await waitFor(() =>
+      expect(screen.getByText("That proposal doesn’t exist")).toBeInTheDocument(),
+    );
+  });
+
   it("says a deep-linked proposal was already disposed of, distinctly from unknown", async () => {
     searchMock = { proposal: "p9" };
     const repository = repoWith([proposal("p1", "Alpha")]);
@@ -208,6 +238,23 @@ describe("InboxScreen", () => {
       screen.queryByText("That proposal doesn’t exist"),
     ).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Accept" })).not.toBeInTheDocument();
+  });
+
+  it("does not link an applied memory proposal to the workboard", async () => {
+    searchMock = { proposal: "p9" };
+    const repository = repoWith([proposal("p1", "Alpha")]);
+    repository.get = vi.fn(async (): Promise<Proposal> => ({
+      ...proposal("p9", "Remember this"),
+      target_type: "memory",
+      status: "applied",
+      target_id: "mem_9",
+    }));
+    render(<InboxScreen repository={repository} />);
+
+    await waitFor(() =>
+      expect(screen.getByText("That proposal was already accepted")).toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/View item/)).not.toBeInTheDocument();
   });
 
   it("selects the first pending row only when the reviewer explicitly asks", async () => {

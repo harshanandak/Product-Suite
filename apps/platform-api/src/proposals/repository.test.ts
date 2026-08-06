@@ -150,5 +150,28 @@ describe('createProposal', () => {
         }),
       ).resolves.toMatchObject({ id: 'p1' })
     })
+
+    it('never trusts a caller-supplied target_snapshot when server capture fails', async () => {
+      const query = vi.fn(async () => [{ id: 'p1', status: 'pending' }])
+      const read = vi.fn(async () => {
+        throw new Error('read timeout')
+      })
+      const sql = read as unknown as Sql
+      ;(sql as unknown as { query: typeof query }).query = query
+      const input = {
+        tenant_id: 't_1',
+        target_type: 'work_item',
+        target_id: TARGET,
+        operation: 'update',
+        payload: { title: 'Renamed' },
+        target_snapshot: { title: 'caller-controlled' },
+      } as const
+
+      await createProposal(sql, input)
+
+      const [text, params] = (query.mock.calls[0] ?? []) as unknown as [string, unknown[]]
+      expect(text).not.toContain('"target_snapshot"')
+      expect(params).not.toContain(JSON.stringify(input.target_snapshot))
+    })
   })
 })

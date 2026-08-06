@@ -97,6 +97,7 @@ function makeSql(
     proposal?: Record<string, unknown>
     /** The target work item as it stands BEFORE the write — the pre-image source. */
     targetRow?: Record<string, unknown> | null
+    targetReadError?: Error
   } = {},
 ) {
   const proposal = { ...CREATE_PROPOSAL, ...(opts.proposal ?? {}) }
@@ -127,7 +128,10 @@ function makeSql(
     if (text.includes('from proposals')) return [{ ...proposal, status }]
     // The pre-image read (undo-on-accept): the target's CURRENT values, captured
     // BEFORE the update writes over them.
-    if (text.includes('from work_items')) return opts.targetRow ? [opts.targetRow] : []
+    if (text.includes('from work_items')) {
+      if (opts.targetReadError) throw opts.targetReadError
+      return opts.targetRow ? [opts.targetRow] : []
+    }
     return []
   }) as unknown as Sql
   ;(sql as unknown as { query: typeof query }).query = query
@@ -320,7 +324,13 @@ describe('applyProposal (write-first, flip-last)', () => {
   it('stale: the update command throws DomainError(stale) → stale envelope, proposal stays pending', async () => {
     updateWorkItem.mockReset().mockRejectedValue(new DomainError('stale', 'target changed'))
     const { sql, getStatus } = makeSql({
-      proposal: { operation: 'update', target_id: WI_TARGET, target_version: 3, payload: { phase: 'done' } },
+      proposal: {
+        operation: 'update',
+        target_id: WI_TARGET,
+        target_version: 3,
+        payload: { phase: 'done' },
+        target_snapshot: { phase: 'todo' },
+      },
     })
     const res = await applyProposal(sql, ctx, 'p1')
     // The stale envelope carries the moved item + a plain-language reason.
@@ -391,14 +401,37 @@ describe('applyProposal (write-first, flip-last)', () => {
       expect(getStatus()).toBe('pending')
     })
 
-    it('applies UNFENCED when there is no snapshot (a pre-0017 proposal is unchanged)', async () => {
+    it('still attempts the authoritative fenced write when the advisory pre-read fails', async () => {
+      const { sql } = makeSql({
+        proposal: updateProposal(SNAPSHOT),
+        targetReadError: new Error('read timeout'),
+      })
+      const res = await applyProposal(sql, ctx, 'p1')
+      expect(res).toMatchObject({ status: 'applied' })
+      expect(updateWorkItem).toHaveBeenCalledTimes(1)
+      expect(updateWorkItem.mock.calls[0]?.[1]).toMatchObject({ expectedValues: SNAPSHOT })
+    })
+
+    it('declines an edited payload that adds fields outside the authored snapshot', async () => {
+      const { sql, getStatus } = makeSql({
+        proposal: updateProposal({ title: 'Seed item' }),
+        targetRow: targetRow({ title: 'Seed item', priority: 'low' }),
+      })
+      const res = await applyProposal(sql, ctx, 'p1', { title: 'Renamed', priority: 'high' })
+      expect(res).toMatchObject({ status: 'stale', proposal_id: 'p1', item_id: WI_TARGET })
+      expect((res as { message: string }).message).toContain('priority')
+      expect(updateWorkItem).not.toHaveBeenCalled()
+      expect(getStatus()).toBe('pending')
+    })
+
+    it('declines a pre-0017 update with no authored snapshot instead of applying unfenced', async () => {
       const { sql } = makeSql({
         proposal: updateProposal(null),
         targetRow: targetRow({ title: 'anything', phase: 'plan' }),
       })
       const res = await applyProposal(sql, ctx, 'p1')
-      expect(res).toMatchObject({ status: 'applied' })
-      expect(updateWorkItem.mock.calls[0]?.[1]).not.toHaveProperty('expectedValues', expect.anything())
+      expect(res).toMatchObject({ status: 'stale', proposal_id: 'p1', item_id: WI_TARGET })
+      expect(updateWorkItem).not.toHaveBeenCalled()
     })
   })
 
@@ -689,6 +722,7 @@ describe('applyProposal — pre-image capture (undo-on-accept)', () => {
     target_id: WI_TARGET,
     operation: 'update',
     payload: { title: 'After', priority: 'high' },
+    target_snapshot: { title: 'Before', priority: 'low' },
     edited_payload: null,
     target_version: null,
     status: 'pending' as string,
@@ -738,7 +772,11 @@ describe('applyProposal — pre-image capture (undo-on-accept)', () => {
 
   it('captures a `null` pre-image value for a field the target had unset', async () => {
     const { sql, query } = makeSql({
-      proposal: { ...UPDATE_PROPOSAL, payload: { assignee_id: 'u_1' } },
+      proposal: {
+        ...UPDATE_PROPOSAL,
+        payload: { assignee_id: 'u_1' },
+        target_snapshot: { assignee_id: null },
+      },
       targetRow: { id: WI_TARGET },
     })
     await applyProposal(sql, ctx, 'p1')
@@ -748,7 +786,11 @@ describe('applyProposal — pre-image capture (undo-on-accept)', () => {
 
   it('ignores payload keys that are not restorable columns', async () => {
     const { sql, query } = makeSql({
-      proposal: { ...UPDATE_PROPOSAL, payload: { title: 'After', not_a_column: 1 } },
+      proposal: {
+        ...UPDATE_PROPOSAL,
+        payload: { title: 'After', not_a_column: 1 },
+        target_snapshot: { title: 'Before' },
+      },
       targetRow: TARGET_BEFORE,
     })
     await applyProposal(sql, ctx, 'p1')

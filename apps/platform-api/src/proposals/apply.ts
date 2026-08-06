@@ -389,8 +389,8 @@ async function applyMemoryCommand(
  *     FENCED on `target_snapshot` — the state the proposal was authored against — so a
  *     drifted target is declined as `stale` (step 3b's fast path names the drifted
  *     fields; the fence inside the statement is the authority) instead of applying
- *     last-writer-wins over somebody's later edit. A proposal with no snapshot
- *     (pre-0017) is unfenced and behaves exactly as before. `expectedVersion` remains a
+ *     last-writer-wins over somebody's later edit. An update with no complete snapshot
+ *     is declined for refresh. `expectedVersion` remains a
  *     threaded no-op — v1 `work_items` has no version column; the snapshot fence, not a
  *     version number, is how staleness is detected. A failure is CLASSIFIED without
  *     touching the proposal (`stale`/`conflict`/`guard_failed` → reviewable;
@@ -484,27 +484,44 @@ export async function applyProposal(
   const fence = staleFence(proposal)
   if (proposal.target_type === 'work_item' && proposal.operation === 'update') {
     preImageFields = undoableKeys(effectivePayload)
-    if (preImageFields.length > 0 || fence !== null) {
+    if (fence === null) {
+      return {
+        status: 'stale',
+        proposal_id: proposalId,
+        item_id: proposal.target_id as string,
+        message: 'the proposal has no authored baseline; refresh it before accepting',
+      }
+    }
+    const unfencedFields = preImageFields.filter((field) => !(field in fence))
+    if (unfencedFields.length > 0) {
+      return {
+        status: 'stale',
+        proposal_id: proposalId,
+        item_id: proposal.target_id as string,
+        message: `the proposal has no authored baseline for ${unfencedFields.join(', ')}; refresh it before accepting`,
+      }
+    }
+    try {
       const beforeRows = (await sql`
         select *, to_jsonb(work_items) as row_json from work_items
         where id = ${proposal.target_id} and tenant_id = ${proposal.tenant_id}
       `) as Record<string, unknown>[]
       const before = beforeRows[0]
       if (before) {
-        if (fence !== null) {
-          const rowJson = (before.row_json as Record<string, unknown> | undefined) ?? before
-          const drifted = conflictingFields(fence, rowJson)
-          if (drifted.length > 0) {
-            return {
-              status: 'stale',
-              proposal_id: proposalId,
-              item_id: proposal.target_id as string,
-              message: driftMessage(drifted),
-            }
+        const rowJson = (before.row_json as Record<string, unknown> | undefined) ?? before
+        const drifted = conflictingFields(fence, rowJson)
+        if (drifted.length > 0) {
+          return {
+            status: 'stale',
+            proposal_id: proposalId,
+            item_id: proposal.target_id as string,
+            message: driftMessage(drifted),
           }
         }
         if (preImageFields.length > 0) preImage = fieldSnapshot(before, preImageFields)
       }
+    } catch {
+      // Best-effort preview/undo read; updateWorkItem's expectedValues fence is authoritative.
     }
   }
 

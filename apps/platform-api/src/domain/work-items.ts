@@ -317,7 +317,8 @@ export type UpdateWorkItemInput = WorkItemPatch
  * check-then-write: a concurrent editor landing in the gap is silently clobbered,
  * which is the precise harm the check exists to prevent. v1 `work_items` has no
  * version column (and this must not add one), so the fence is expressed as a jsonb
- * CONTAINMENT predicate on the pre-update row INSIDE the writing statement — the
+ * per-field JSONB equality predicate on the pre-update row INSIDE the writing
+ * statement — the
  * comparison and the write can no longer interleave. A fenced update that matches no
  * row throws `DomainError('guard_failed')`: nothing was written, re-read and decide
  * again. It is strictly opt-in — omitted, the parameter binds NULL, the predicate
@@ -344,7 +345,7 @@ export async function updateWorkItem(
   // `expectedVersion` is a forward-seam for optimistic concurrency (design §14's
   // fencing token). v1 `work_items` has NO version column, so the check is a
   // deliberate no-op here — concurrency is gated by `expectedValues` (the jsonb
-  // containment fence below, which the proposal accept and undo both use) plus the
+  // exact-value fence below, which the proposal accept and undo both use) plus the
   // proposal-apply claim-flip. It is threaded through so the apply path and its
   // callers already pass it; when a version column lands, condition the UPDATE on it
   // and throw `DomainError('stale')` on a mismatch. (No column is invented now.)
@@ -475,7 +476,11 @@ export async function updateWorkItem(
     where id = ${id} and tenant_id = any(${tenantIds})
       and (
         ${fence}::jsonb is null
-        or to_jsonb(work_items) @> ${fence}::jsonb
+        or not exists (
+          select 1
+          from jsonb_each(${fence}::jsonb) as fenced(field, expected_value)
+          where to_jsonb(work_items) -> fenced.field is distinct from fenced.expected_value
+        )
       )
       and (
         ${nextParentId}::uuid is null
