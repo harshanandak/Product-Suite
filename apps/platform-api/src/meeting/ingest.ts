@@ -81,14 +81,24 @@ export function buildProposalPayload(candidate: MeetingCandidateRow): Record<str
   return { title: candidate.text, source: 'meeting' }
 }
 
-/** A human-readable "why was this proposed", derived from the candidate's own signals. */
+/**
+ * A human-readable "why was this proposed", derived from the candidate's own signals.
+ *
+ * The confidence sentence is written ONLY when the candidate actually cites
+ * transcript evidence. With no refs the old copy read "Confidence 0.91 from 0
+ * transcript reference(s)" — a precise number asserted from nothing — and this
+ * rationale is rendered verbatim to reviewers and on the memory card, so the
+ * figure is dropped rather than shown next to a zero (UX audit F4).
+ */
 export function buildRationale(candidate: MeetingCandidateRow): string {
   const parts = [`Promoted action item from meeting ${candidate.meeting_id}.`]
   if (candidate.promotion_reason && candidate.promotion_reason.trim() !== '') {
     parts.push(candidate.promotion_reason.trim())
   }
   const evidenceCount = Array.isArray(candidate.evidence_refs) ? candidate.evidence_refs.length : 0
-  parts.push(`Confidence ${(candidate.confidence ?? 0).toFixed(2)} from ${evidenceCount} transcript reference(s).`)
+  if (evidenceCount > 0) {
+    parts.push(`Confidence ${(candidate.confidence ?? 0).toFixed(2)} from ${evidenceCount} transcript reference(s).`)
+  }
   return parts.join(' ')
 }
 

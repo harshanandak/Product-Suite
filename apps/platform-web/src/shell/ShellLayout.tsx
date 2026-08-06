@@ -141,7 +141,7 @@ function ShellChrome() {
   // config unchanged. (buildWorkboardItems returns just the static rows until the
   // teams load, so the rail never flashes an empty section.)
   const { teams } = useTeams();
-  // Live pending-proposal count for the home rail's "Review queue" badge — the
+  // Live pending-proposal count for the home rail's "Review inbox" badge — the
   // SAME source the TopBar badge reads (useProposals under the shell's
   // ProposalRepositoryProvider). Before the first settle we show no count (no
   // phantom "0"), matching TopBar. This replaced a hardcoded literal that lied

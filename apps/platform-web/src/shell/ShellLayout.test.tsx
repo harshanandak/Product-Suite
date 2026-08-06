@@ -6,7 +6,7 @@ import { renderWithRouter } from "../test/harness";
 import { ShellLayout } from "./ShellLayout";
 
 // Controls what the shell's `useProposals` reports, so we can prove the home
-// rail's "Review queue" badge is wired to the LIVE hook value rather than a
+// rail's "Review inbox" badge is wired to the LIVE hook value rather than a
 // literal. Defaults to a settled empty queue; per-test overrides reassign it.
 const proposalsState: { proposals: unknown[]; isLoading: boolean } = {
   proposals: [],
@@ -348,8 +348,8 @@ describe("ShellLayout", () => {
       const nav = await screen.findByRole("navigation", {
         name: "Home navigation",
       });
-      const link = within(nav).getByText("Review queue").closest("a");
-      if (!link) throw new Error("Review queue link not found");
+      const link = within(nav).getByText("Review inbox").closest("a");
+      if (!link) throw new Error("Review inbox link not found");
       return link;
     }
 
@@ -366,7 +366,7 @@ describe("ShellLayout", () => {
       renderWithRouter(<ShellLayout />, { path: "/w/test-ws" });
 
       // The regression this fixes: an empty queue used to still render "4".
-      expect((await findReviewLink()).textContent).toBe("Review queue");
+      expect((await findReviewLink()).textContent).toBe("Review inbox");
     });
 
     it("shows no badge while the first load is still in flight", async () => {
@@ -375,7 +375,7 @@ describe("ShellLayout", () => {
       renderWithRouter(<ShellLayout />, { path: "/w/test-ws" });
 
       // No phantom "0" before the queue has settled (matches the TopBar badge).
-      expect((await findReviewLink()).textContent).toBe("Review queue");
+      expect((await findReviewLink()).textContent).toBe("Review inbox");
     });
   });
 });

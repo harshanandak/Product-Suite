@@ -139,19 +139,18 @@ describe("Sidebar", () => {
   });
 
   it("renders the live review-queue count badge on the home rail", async () => {
-    // The home board built with 3 pending proposals must show "3" on Review
-    // queue — not a hardcoded literal — and no badge on Chat.
+    // The home board built with 3 pending proposals must show "3" on the Review
+    // inbox row — not a hardcoded literal — and that row must link to the queue
+    // screen itself (F1: the badge used to decorate a "coming soon" route).
     const board = { ...getBoard("home"), items: buildHomeItems(3) };
     renderWithRouter(
       <Sidebar board={board} workspace="test-ws" pathname="/w/test-ws" />,
       { path: "/w/test-ws" },
     );
 
-    const review = (await screen.findByText("Review queue")).closest("a");
+    const review = (await screen.findByText("Review inbox")).closest("a");
     expect(review).toHaveTextContent("3");
-    const chat = screen.getByText("Chat").closest("a");
-    // Chat has no count source, so its only text content is its label.
-    expect(chat?.textContent).toBe("Chat");
+    expect(review).toHaveAttribute("href", "/w/test-ws/inbox");
   });
 
   it("renders no review-queue badge when the pending count is zero", async () => {
@@ -161,9 +160,9 @@ describe("Sidebar", () => {
       { path: "/w/test-ws" },
     );
 
-    const review = (await screen.findByText("Review queue")).closest("a");
+    const review = (await screen.findByText("Review inbox")).closest("a");
     // No badge → the link's text is exactly its label, no trailing number.
-    expect(review?.textContent).toBe("Review queue");
+    expect(review?.textContent).toBe("Review inbox");
   });
 
   it("omits the collapse toggle when no onToggleCollapse handler is given", async () => {

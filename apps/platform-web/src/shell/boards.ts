@@ -4,7 +4,6 @@ import {
   Inbox,
   LayoutGrid,
   ListChecks,
-  MessageSquare,
   Newspaper,
   Star,
   Target,
@@ -128,20 +127,22 @@ export function buildWorkboardItems(
  * The home rail rows. Counts are NOT baked in here: a hardcoded literal drifts
  * from reality (the queue showed "4" while the DB had zero pending proposals).
  * {@link buildHomeItems} threads the live count in from the shell instead.
+ *
+ * ONE row owns the review queue and it points at the screen that renders it
+ * (`/inbox` → `InboxScreen`). The rail previously carried two rows for the same
+ * thing: a badge-bearing "Review queue" aimed at the `/review` placeholder, and
+ * a "Chat" row aimed at the real queue. `Review inbox` is the destination
+ * screen's own heading, so the row, the TopBar affordance, and the screen title
+ * now say the same word. The chat panel is a TopBar affordance, not a board
+ * screen, so it has no rail row.
  */
 const HOME_STATIC_ITEMS: SidebarItem[] = [
   { key: "digest", label: "Digest", to: "/w/$workspace", icon: Newspaper },
   {
     key: "review",
-    label: "Review queue",
-    to: "/w/$workspace/review",
-    icon: Inbox,
-  },
-  {
-    key: "chat",
-    label: "Chat",
+    label: "Review inbox",
     to: "/w/$workspace/inbox",
-    icon: MessageSquare,
+    icon: Inbox,
   },
 ];
 
@@ -150,8 +151,8 @@ const HOME_STATIC_ITEMS: SidebarItem[] = [
  * is the number of pending proposals — the same source the TopBar badge reads —
  * threaded in from the shell rather than a stale literal. A zero count renders no
  * badge (matching the TopBar badge, which hides at zero), so the rail never lies
- * about an empty queue. `Chat` has no live unread source yet, so it stays
- * count-less until one exists (a literal there would be the same lie).
+ * about an empty queue. The count lands on the row that NAVIGATES to the queue,
+ * so the number and its destination can never diverge again.
  */
 export function buildHomeItems(pendingReviewCount: number): SidebarItem[] {
   return HOME_STATIC_ITEMS.map((item) =>
@@ -289,7 +290,6 @@ export function deriveActiveBoard(
   const segment = rest.split("/")[0] ?? "";
   switch (segment) {
     case "":
-    case "review":
     case "inbox":
       return "home";
     case "workboard":
