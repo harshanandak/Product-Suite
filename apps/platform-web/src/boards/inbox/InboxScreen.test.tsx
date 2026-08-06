@@ -82,6 +82,7 @@ function repoWith(proposals: Proposal[]): ProposalRepository {
     // A deep-linked id that is not pending is looked up through `get`; the default
     // double knows nothing beyond the pending list, so it resolves to null.
     get: vi.fn(async () => null),
+    curatorVerdict: vi.fn(async () => null),
   };
 }
 

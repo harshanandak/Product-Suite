@@ -3,6 +3,7 @@ import { Hono } from 'hono'
 import type { AcceptResult } from '@product-suite/contracts'
 
 import { callerTenantIds, callerUserId } from '../auth/tenant-scope'
+import { curateProposal } from '../curator/curate'
 import { sqlFrom } from '../db'
 import type { AuthedEnv } from '../middleware/clerk-auth'
 import { acceptHttpStatus, applyProposal, isUuid } from '../proposals/apply'
@@ -196,6 +197,46 @@ proposalsRoutes.get('/:id/active-rules', async (c) => {
   } catch (cause) {
     console.error('[proposals] active-rules query failed', cause)
     return c.json({ error: 'Failed to load active rules' }, 500)
+  }
+})
+
+/**
+ * The CURATOR VERDICT for a memory proposal — SAP's Global Memory Curator run before a
+ * human decides (research rec #3, arXiv 2607.03228 §5.2). Two classes of check: is the
+ * candidate well-formed on its own, and does it duplicate / overlap with / contradict a
+ * memory already in this tenant — naming the specific colliding memory.
+ *
+ * ADVISORY. A GET that writes nothing and is not reachable from the accept path, so it
+ * cannot auto-accept, auto-reject, or block. Its job is to stop the review gate becoming
+ * a rubber stamp; a gate that decides for the human would not be a gate at all.
+ *
+ * Scoped exactly like active-rules: load the proposal in the caller's tenants first (404
+ * when not theirs), then curate against THAT tenant. The reviewer's own user id opens the
+ * personal lane, so the verdict can only ever name a memory this reviewer may already
+ * read; an unresolvable identity degrades to an org-only verdict (`private_lane_skipped`)
+ * rather than a 500 or a widened lane.
+ */
+proposalsRoutes.get('/:id/curator', async (c) => {
+  const claims = c.get('claims')
+  const sql = sqlFrom(c.env ?? {})
+  const id = c.req.param('id')
+
+  try {
+    const tenantIds = await callerTenantIds(sql, claims)
+    if (tenantIds.length === 0) return c.json({ error: 'Not found' }, 404)
+
+    const proposal = await getProposalScoped(sql, id, tenantIds)
+    if (!proposal) return c.json({ error: 'Not found' }, 404)
+
+    const reviewerUserId = await callerUserId(sql, claims)
+    const verdict = await curateProposal(sql, proposal, {
+      tenantId: proposal.tenant_id,
+      reviewerUserId,
+    })
+    return c.json({ verdict })
+  } catch (cause) {
+    console.error('[proposals] curator verdict failed', cause)
+    return c.json({ error: 'Failed to load the curator verdict' }, 500)
   }
 })
 

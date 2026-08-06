@@ -1,5 +1,11 @@
 import type { ProposalRepository } from "./repository";
-import type { AcceptResult, Proposal, ProposalSource, UndoResult } from "./types";
+import type {
+  AcceptResult,
+  CuratorVerdict,
+  Proposal,
+  ProposalSource,
+  UndoResult,
+} from "./types";
 
 /** The recognized proposal sources; anything else off the wire normalizes to null. */
 const PROPOSAL_SOURCES: readonly ProposalSource[] = [
@@ -73,6 +79,9 @@ export function createNetworkProposalRepository(
   options: NetworkProposalRepositoryOptions,
 ): ProposalRepository {
   const { baseUrl, getToken } = options;
+  if (baseUrl && new URL(baseUrl).protocol !== "https:") {
+    throw new Error("Proposal API baseUrl must use HTTPS");
+  }
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   /** The raw fetch primitive — attaches headers + abort timeout, returns the Response. */
@@ -295,6 +304,16 @@ export function createNetworkProposalRepository(
         `/api/agent/proposals/${id}/active-rules`,
       );
       return body.rules;
+    },
+
+    async curatorVerdict(id: string): Promise<CuratorVerdict | null> {
+      const body = await request<{ verdict?: CuratorVerdict }>(
+        "GET",
+        `/api/agent/proposals/${id}/curator`,
+      );
+      // An envelope with no verdict yields null, never a manufactured `clean` one: the
+      // panel saying "nothing collides" must mean the server actually looked.
+      return body?.verdict ?? null;
     },
   };
 }

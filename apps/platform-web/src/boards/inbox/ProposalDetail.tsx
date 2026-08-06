@@ -9,11 +9,13 @@ import { useMemories, type MemoryRow } from "@/data/memories";
 import {
   useProposals,
   type AcceptResult,
+  type CuratorVerdict,
   type Proposal,
   type UndoResult,
 } from "@/data/proposals";
 import { useWorkItems, type WorkItem } from "@/data/work-items";
 
+import { CuratorVerdictPanel } from "./CuratorVerdictPanel";
 import {
   buildFieldRows,
   describeOperation,
@@ -749,7 +751,7 @@ export function ProposalDetail({
   // "Rules active when this was drafted" badge (only a work-item proposal shows it). Fetched
   // via a small cancellable effect, mirroring the memory-target fetch above; a failed
   // provenance read is non-blocking (the badge simply stays empty).
-  const { activeRules } = useProposals();
+  const { activeRules, curatorVerdict } = useProposals();
   const [ruleTitles, setRuleTitles] = useState<readonly string[]>([]);
   useEffect(() => {
     if (isMemory) {
@@ -773,6 +775,30 @@ export function ProposalDetail({
       cancelled = true;
     };
   }, [isMemory, proposal.id, activeRules]);
+
+  // The CURATOR VERDICT for a memory proposal — does this candidate duplicate, overlap
+  // with, or contradict something already in memory, and is it well-formed on its own
+  // (research rec #3). Fetched exactly like the provenance read above, and equally
+  // non-blocking: a failed read leaves the verdict null and the panel renders nothing.
+  // It must never stand between the reviewer and Accept.
+  const [verdict, setVerdict] = useState<CuratorVerdict | null>(null);
+  useEffect(() => {
+    // Drop the previous proposal's verdict IMMEDIATELY, so a collision found for
+    // another candidate can never linger beside this one while its read is in flight.
+    setVerdict(null);
+    if (!isMemory) return;
+    let cancelled = false;
+    void curatorVerdict(proposal.id)
+      .then((result) => {
+        if (!cancelled) setVerdict(result);
+      })
+      .catch(() => {
+        if (!cancelled) setVerdict(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isMemory, proposal.id, curatorVerdict]);
 
   const [status, setStatus] = useState<DisposeStatus>({ kind: "idle" });
   const [rejecting, setRejecting] = useState(false);
@@ -965,6 +991,12 @@ export function ProposalDetail({
           <RuleAttributionBadge ruleTitles={ruleTitles} />
         </>
       )}
+
+      {/* The curator's verdict on a memory candidate — read BEFORE deciding, so review
+          volume cannot turn the gate into a rubber stamp. Outside the branch above
+          because it accompanies EVERY memory proposal, rule or not. Advisory: it never
+          disables a control, and renders nothing when there is no verdict. */}
+      <CuratorVerdictPanel verdict={verdict} />
 
       {/* Transport-error banner — a failed accept/reject is NEVER silent. */}
       {error ? (

@@ -80,6 +80,13 @@ const repoToolingWorkflow = readFileSync(
   join(rootDir, ".github", "workflows", "repo-tooling-ci.yml"),
   "utf8",
 );
+const dbContractWorkflowPath = join(
+  rootDir,
+  ".github",
+  "workflows",
+  "db-contract.yml",
+);
+const dbContractWorkflow = readFileSync(dbContractWorkflowPath, "utf8");
 const lefthookConfig = readFileSync(join(rootDir, "lefthook.yml"), "utf8");
 
 describe("repo tooling", () => {
@@ -497,6 +504,23 @@ describe("repo tooling", () => {
     expect(repoToolingWorkflow).toContain("bun run test:hocuspocus");
     expect(repoToolingWorkflow).toContain("bun run test:roadmap-canvas-boundary");
     expect(repoToolingWorkflow).toContain("bun run test:repo-tooling");
+  });
+
+  test("db-contract filters pull requests by the same paths as pushes", () => {
+    // The tier costs ~17 min per run, so an unfiltered pull_request trigger makes every
+    // PR — docs-only included — pay it. Both triggers must carry the same paths list, or
+    // the filter silently stops covering PRs again.
+    const triggers = Bun.YAML.parse(dbContractWorkflow).on;
+
+    expect(Array.isArray(triggers.push?.paths)).toBe(true);
+    expect(triggers.push.paths).toContain("apps/platform-api/**");
+    expect(triggers.push.paths).toContain("packages/db/**");
+    expect(triggers.push.paths).toContain("package.json");
+    expect(triggers.push.paths).toContain("bun.lock");
+    expect(triggers.push.paths).toContain(".github/workflows/db-contract.yml");
+    expect(triggers.pull_request?.paths).toEqual(triggers.push.paths);
+    // paths-ignore would invert the filter and let unrelated PRs back in.
+    expect(triggers.pull_request["paths-ignore"]).toBeUndefined();
   });
 
   test("shared root dependency changes trigger the web and backend CI workflows", () => {

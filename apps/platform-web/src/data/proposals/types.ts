@@ -155,3 +155,65 @@ export type UndoResult =
       readonly message: string;
     }
   | { readonly status: "not_found"; readonly proposal_id: string };
+
+/**
+ * How a candidate memory relates to one that already exists (most severe first).
+ * `conflict` outranks `duplicate` because a negated near-copy is a near-duplicate on
+ * wording — reporting it as the benign case would bury the dangerous one.
+ */
+export type CuratorRelation = "conflict" | "duplicate" | "overlap";
+
+/**
+ * One NAMED collision the curator found. The id and title are the point: "this overlaps
+ * with something" is not reviewable, "this overlaps with <title> (<id>)" is.
+ *
+ * `visibility` says which tier the collider came from — `private` means the REVIEWER'S
+ * OWN note (the API can only ever name a memory this viewer may already read), and the
+ * panel must label it so a personal note is never read as the organization's position.
+ */
+export interface CuratorCollision {
+  readonly relation: CuratorRelation;
+  readonly memory_id: string;
+  readonly title: string;
+  readonly visibility: "private" | "org";
+  readonly scope_type: "org" | "project" | "work_item_type" | "work_item";
+  readonly similarity: number;
+  /** Why this fired, in words. Never a bare score. */
+  readonly reason: string;
+}
+
+/** One thing wrong with the candidate judged on its own, with its evidence in `reason`. */
+export interface CuratorQualityFinding {
+  readonly code: string;
+  readonly reason: string;
+}
+
+/**
+ * The curator's verdict on a `target_type='memory'` proposal — SAP's Global Memory
+ * Curator run before a human decides (`GET /api/agent/proposals/:id/curator`).
+ *
+ * ADVISORY, always. It informs the reviewer and must never gate Accept or Reject: a
+ * heuristic that can block a human is no longer a hint, and an unavailable hint must not
+ * stop a decision. `advisory` is on the wire as a standing reminder of that.
+ */
+export interface CuratorVerdict {
+  readonly outcome:
+    | "not_applicable"
+    | "conflict"
+    | "duplicate"
+    | "overlap"
+    | "quality_only"
+    | "clean";
+  /** The headline sentence, naming what was found. */
+  readonly summary: string;
+  readonly quality: readonly CuratorQualityFinding[];
+  readonly collisions: readonly CuratorCollision[];
+  /**
+   * True when the reviewer's identity could not be resolved, so their personal lane was
+   * not queried at all. Surfaced rather than hidden: an org-only verdict is a weaker
+   * statement than one computed over both tiers, and saying so beats implying a
+   * completeness we did not have.
+   */
+  readonly private_lane_skipped: boolean;
+  readonly advisory: boolean;
+}

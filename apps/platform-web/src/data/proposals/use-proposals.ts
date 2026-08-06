@@ -10,7 +10,7 @@ import {
   createMockProposalRepository,
   type ProposalRepository,
 } from "./repository";
-import type { AcceptResult, Proposal, UndoResult } from "./types";
+import type { AcceptResult, CuratorVerdict, Proposal, UndoResult } from "./types";
 
 /**
  * Shared module singleton so every caller that does not inject a repository sees
@@ -79,6 +79,12 @@ export interface UseProposalsResult {
    * a mutation — never touches the list.
    */
   getProposal: (id: string) => Promise<Proposal | null>;
+  /**
+   * The curator's verdict on a memory proposal (duplicate / overlap / conflict + quality),
+   * for the panel a reviewer reads before deciding. A read, not a mutation — never touches
+   * the list, and never gates a decision. `null` when no verdict is available.
+   */
+  curatorVerdict: (id: string) => Promise<CuratorVerdict | null>;
   /** True while any accept/reject mutation is in flight. */
   isMutating: boolean;
   /** Force a fresh read from the repository. */
@@ -232,6 +238,11 @@ export function useProposals(
     [repository],
   );
 
+  const curatorVerdict = useCallback(
+    (id: string) => repository.curatorVerdict(id),
+    [repository],
+  );
+
   return {
     proposals,
     isLoading,
@@ -242,6 +253,7 @@ export function useProposals(
     undo,
     activeRules,
     getProposal,
+    curatorVerdict,
     isMutating: mutatingCount > 0,
     refetch,
   };

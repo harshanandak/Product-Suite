@@ -1,5 +1,5 @@
 import { createProposalFixtures } from "./fixtures";
-import type { AcceptResult, Proposal, UndoResult } from "./types";
+import type { AcceptResult, CuratorVerdict, Proposal, UndoResult } from "./types";
 
 /**
  * Proposal review SEAM (mirrors the work-items {@link WorkItemRepository}): the
@@ -47,6 +47,16 @@ export interface ProposalRepository {
    * (a holdout run suppressed them). Only meaningful for work-item proposals.
    */
   activeRules(id: string): Promise<{ id: string; title: string }[]>;
+  /**
+   * The curator's verdict on a `memory` proposal — is this candidate well-formed, and
+   * does it duplicate / overlap with / contradict a memory already stored? Read BEFORE
+   * the human decides, so the review gate does not degrade into a rubber stamp.
+   *
+   * ADVISORY: the caller renders it and must never gate Accept/Reject on it. `null`
+   * means "no verdict available" (fixture mode) — deliberately not a synthetic `clean`
+   * verdict, which would claim we diffed against memory when we had not.
+   */
+  curatorVerdict(id: string): Promise<CuratorVerdict | null>;
 }
 
 /**
@@ -171,6 +181,13 @@ export function createMockProposalRepository(
     // network-only concern, so the fixtures surface renders no badge.
     activeRules() {
       return settle<{ id: string; title: string }[]>([]);
+    },
+
+    // Likewise there is no fixture memory store, so there is nothing to diff a
+    // candidate against. `null` (no panel) rather than a synthetic `clean` verdict:
+    // claiming we checked memory and found nothing would be a fabrication.
+    curatorVerdict() {
+      return settle<CuratorVerdict | null>(null);
     },
   };
 }

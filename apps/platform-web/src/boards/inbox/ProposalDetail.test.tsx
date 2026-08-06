@@ -25,9 +25,15 @@ vi.mock("@/data/memories", () => ({
 // `activeRules` so the provenance badge is deterministic (default: none).
 const proposalsMock = vi.hoisted(() => ({
   activeRules: vi.fn(async (_id: string) => [] as { id: string; title: string }[]),
+  // The curator verdict for a memory proposal. Default: none, so every existing
+  // assertion sees the pane exactly as it was before the panel existed.
+  curatorVerdict: vi.fn(async (_id: string) => null as unknown),
 }));
 vi.mock("@/data/proposals", () => ({
-  useProposals: () => ({ activeRules: proposalsMock.activeRules }),
+  useProposals: () => ({
+    activeRules: proposalsMock.activeRules,
+    curatorVerdict: proposalsMock.curatorVerdict,
+  }),
 }));
 
 // Render TanStack Link as a plain anchor so the detail can render without a router.
@@ -96,6 +102,36 @@ const targetItem = {
   priority: "high",
   phase: "plan",
 } as unknown as WorkItem;
+
+/** A `memory:create` proposal — the shape the curator panel accompanies. */
+function memoryProposal(overrides: Partial<Proposal> = {}): Proposal {
+  return proposal({
+    target_type: "memory",
+    operation: "create",
+    payload: { kind: "fact", title: "Pricing pages ship through growth" },
+    ...overrides,
+  });
+}
+
+/** A conflict verdict naming one colliding memory. */
+const CONFLICT_VERDICT = {
+  outcome: "conflict",
+  summary: "This contradicts an org memory: “Friday releases are not allowed” (m_88).",
+  quality: [],
+  collisions: [
+    {
+      relation: "conflict",
+      memory_id: "m_88",
+      title: "Friday releases are not allowed",
+      visibility: "org",
+      scope_type: "org",
+      similarity: 0.61,
+      reason: "These two are about the same thing but take opposite positions.",
+    },
+  ],
+  private_lane_skipped: false,
+  advisory: true,
+};
 
 function renderDetail(
   p: Proposal,
@@ -1020,6 +1056,59 @@ describe("ProposalDetail", () => {
     it("offers no Undo when the host wires no undo handler", async () => {
       await acceptThenApplied({ accept: vi.fn(async () => applied("wi_1")) });
       expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+    });
+  });
+
+  /**
+   * THE CURATOR PASS (research rec #3) — the verdict a reviewer reads BEFORE deciding.
+   * Advisory: it informs the decision and must never gate it.
+   */
+  describe("curator verdict", () => {
+    it("shows the verdict inline on a memory proposal, naming the colliding memory", async () => {
+      proposalsMock.curatorVerdict.mockResolvedValueOnce(CONFLICT_VERDICT);
+      renderDetail(memoryProposal());
+
+      await waitFor(() =>
+        expect(screen.getByText("Curator check")).toBeInTheDocument(),
+      );
+      expect(screen.getByText("Contradicts existing memory")).toBeInTheDocument();
+      expect(screen.getAllByText(/Friday releases are not allowed/).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/m_88/).length).toBeGreaterThan(0);
+    });
+
+    it("does NOT block Accept on a conflict verdict — accept still applies", async () => {
+      // The load-bearing property: a heuristic that can stop a human is no longer a
+      // hint. A conflict is the worst verdict there is, and Accept still works.
+      proposalsMock.curatorVerdict.mockResolvedValueOnce(CONFLICT_VERDICT);
+      const accept = vi.fn(async () => applied("m_new"));
+      renderDetail(memoryProposal(), { accept });
+
+      await waitFor(() =>
+        expect(screen.getByText("Curator check")).toBeInTheDocument(),
+      );
+      const button = screen.getByRole("button", { name: "Accept" });
+      expect(button).not.toBeDisabled();
+      fireEvent.click(button);
+      await waitFor(() => expect(accept).toHaveBeenCalledTimes(1));
+    });
+
+    it("asks for no verdict on a work-item proposal", async () => {
+      proposalsMock.curatorVerdict.mockClear();
+      renderDetail(proposal());
+      await waitFor(() => expect(screen.getByText("Accept")).toBeInTheDocument());
+      expect(proposalsMock.curatorVerdict).not.toHaveBeenCalled();
+      expect(screen.queryByText("Curator check")).toBeNull();
+    });
+
+    it("renders no panel when the verdict read fails — a lost hint never blocks", async () => {
+      proposalsMock.curatorVerdict.mockRejectedValueOnce(new Error("boom"));
+      const accept = vi.fn(async () => applied("m_new"));
+      renderDetail(memoryProposal(), { accept });
+
+      await waitFor(() => expect(screen.getByText("Accept")).toBeInTheDocument());
+      expect(screen.queryByText("Curator check")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+      await waitFor(() => expect(accept).toHaveBeenCalledTimes(1));
     });
   });
 });

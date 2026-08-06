@@ -45,9 +45,26 @@ describe("buildHomeItems — live review-queue count", () => {
     expect(review?.count).toBe(7);
   });
 
-  it("never puts a count on Chat (no live unread source yet)", () => {
-    const chat = buildHomeItems(7).find((item) => item.key === "chat");
-    expect(chat?.count).toBeUndefined();
+  it("puts the count on the row that navigates to the queue it counts", () => {
+    // F1: the badge used to decorate `/review` — a BoardScreen placeholder that
+    // said "coming soon" — while the real queue sat on a row labelled "Chat".
+    // The counted affordance must target the live queue screen itself.
+    const counted = buildHomeItems(7).filter((item) => item.count !== undefined);
+    expect(counted).toHaveLength(1);
+    expect(counted[0].to).toBe("/w/$workspace/inbox");
+    expect(counted[0].label).toBe("Review inbox");
+  });
+
+  it("keeps no home row pointing at the deleted /review placeholder", () => {
+    const targets = buildHomeItems(7).map((item) => item.to);
+    expect(targets).not.toContain("/w/$workspace/review");
+    expect(getBoard("home").items.map((item) => item.to)).not.toContain(
+      "/w/$workspace/review",
+    );
+  });
+
+  it("has no separate Chat row (the chat panel is a TopBar affordance)", () => {
+    expect(buildHomeItems(7).some((item) => item.key === "chat")).toBe(false);
   });
 });
 
@@ -61,13 +78,19 @@ describe("deriveActiveBoard — deleted Agent board", () => {
 describe("deriveActiveBoard", () => {
   it("maps a board root and content screens to the owning board", () => {
     expect(deriveActiveBoard("/w/x", "x")).toBe("home");
-    expect(deriveActiveBoard("/w/x/review", "x")).toBe("home");
+    expect(deriveActiveBoard("/w/x/inbox", "x")).toBe("home");
     expect(deriveActiveBoard("/w/x/workboard/strategy", "x")).toBe("workboard");
   });
 
   it("returns null for non-board surfaces and foreign paths", () => {
     expect(deriveActiveBoard("/w/x/settings", "x")).toBeNull();
     expect(deriveActiveBoard("/other", "x")).toBeNull();
+  });
+
+  it("returns null for the deleted /review placeholder path", () => {
+    // The route is gone, so the path must fall through to notFound rather than
+    // resolving to a board and rendering a rail around nothing.
+    expect(deriveActiveBoard("/w/x/review", "x")).toBeNull();
   });
 });
 
