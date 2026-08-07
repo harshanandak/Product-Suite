@@ -47,9 +47,9 @@ function unionMembers(typeName: string): string[] {
 function interfaceFields(name: string): string[] {
   // The core interfaces contain no nested object braces, so the first line that
   // is just `}` closes the body.
-  const match = new RegExp(`export interface ${name}[^{]*\\{([\\s\\S]*?)\\n\\}`).exec(
-    dtsText,
-  );
+  const match = new RegExp(
+    `export interface ${name}\\s*(?:extends[^\\{]+)?\\{([\\s\\S]*?)\\n\\}`,
+  ).exec(dtsText);
   if (!match) {
     throw new Error(`Interface '${name}' not found in index.d.ts`);
   }
@@ -146,13 +146,46 @@ describe("@product-suite/contracts work-items core — drift guard", () => {
     }
     // `source` (provenance) is deliberately NOT editable.
     expect(workItemsCore.workItemPatchFields as string[]).not.toContain("source");
+    expect(workItemsCore.workItemPatchFields as string[]).not.toContain("provenance");
+  });
+
+  test("WorkItem exposes an optional read-only provenance projection", () => {
+    expect(dtsText).toMatch(/^\s*readonly provenance\?: WorkItemProvenance;$/m);
+
+    const match = /export interface WorkItemProvenance \{([\s\S]*?)\n\}/.exec(dtsText);
+    expect(match).not.toBeNull();
+    const body = match?.[1] ?? "";
+    const fields = [...body.matchAll(/^\s*readonly ([A-Za-z_]\w*):/gm)].map(
+      (field) => field[1],
+    );
+
+    expect(fields).toEqual([
+      "applied_from_proposal_id",
+      "actor_type",
+      "actor_id",
+      "on_behalf_of",
+      "run_id",
+      "run_summary",
+      "approver_id",
+      "approver_name",
+      "approved_at",
+    ]);
+    expect(body).toMatch(
+      /^\s*readonly actor_type: "human" \| "agent" \| "system" \| "import";$/m,
+    );
+    for (const field of fields.filter((field) => field !== "actor_type")) {
+      expect(body).toMatch(new RegExp(`^\\s*readonly ${field}: string \\| null;$`, "m"));
+    }
   });
 
   test.each(
     Object.keys(workItemsCore.objects) as Array<keyof typeof workItemsCore.objects>,
   )("%s: JSON field set equals the .d.ts interface field set", (name) => {
     const jsonFields = Object.keys(workItemsCore.objects[name].fields);
-    const tsFields = interfaceFields(name);
+    // Provenance is a read-only API projection, not persisted core vocabulary.
+    const tsFields = interfaceFields(name).filter(
+      (field) => name !== "WorkItem" || field !== "provenance",
+    );
     expect(sorted(jsonFields)).toEqual(sorted(tsFields));
   });
 

@@ -1,6 +1,12 @@
 import { Hono } from 'hono'
 
-import type { ActivityEvent, AuthClaims, WorkItem, WorkItemPatch } from '@product-suite/contracts'
+import type {
+  ActivityEvent,
+  AuthClaims,
+  WorkItem,
+  WorkItemPatch,
+  WorkItemProvenance,
+} from '@product-suite/contracts'
 
 import type { Sql } from '@product-suite/db'
 
@@ -51,6 +57,46 @@ function toWorkItem(row: WorkItemRow): WorkItem {
   }
 }
 
+interface WorkItemListRow extends WorkItemRow {
+  applied_from_proposal_id: string | null
+  actor_type: WorkItemProvenance['actor_type']
+  actor_id: string | null
+  on_behalf_of: string | null
+  run_id: string | null
+  run_summary: string | null
+  approver_id: string | null
+  approver_name: string | null
+  approved_at: string | Date | null
+}
+
+function toListWorkItem(row: WorkItemListRow): WorkItem {
+  const item = toWorkItem(row)
+  const hasProvenance =
+    row.applied_from_proposal_id !== null ||
+    row.actor_id !== null ||
+    row.on_behalf_of !== null ||
+    row.run_id !== null ||
+    row.approver_id !== null ||
+    row.approved_at !== null
+
+  if (!hasProvenance) return item
+
+  return {
+    ...item,
+    provenance: {
+      applied_from_proposal_id: row.applied_from_proposal_id,
+      actor_type: row.actor_type,
+      actor_id: row.actor_id,
+      on_behalf_of: row.on_behalf_of,
+      run_id: row.run_id,
+      run_summary: row.run_summary,
+      approver_id: row.approver_id,
+      approver_name: row.approver_name,
+      approved_at: row.approved_at === null ? null : String(row.approved_at),
+    },
+  }
+}
+
 /** Row shape from the activity_events query (snake_case DB columns). */
 interface ActivityRow {
   id: string
@@ -86,14 +132,28 @@ workItemsRoutes.get('/', async (c) => {
   const claims = c.get('claims')
   const sql = sqlFrom(c.env ?? {})
 
-  let rows: WorkItemRow[]
+  let rows: WorkItemListRow[]
   try {
     rows = (await sql`
       select wi.id, wi.title, wi.description, wi.phase, wi.type, wi.priority, wi.tags,
              wi.source, wi.project_id, wi.team_id, wi.status_id, wi.parent_id, wi.depth,
              wi.department, wi.assignee_id,
-             wi.due_date, wi.archived, wi.created_at, wi.updated_at
+             wi.due_date, wi.archived, wi.created_at, wi.updated_at,
+             wi.applied_from_proposal_id,
+             wi.actor_type, wi.actor_id, wi.on_behalf_of,
+             wi.run_id, ar.summary as run_summary,
+             p.decided_by as approver_id,
+             coalesce(approver.name, approver.email) as approver_name,
+             p.decided_at as approved_at
       from work_items wi
+      left join proposals p
+        on p.id = wi.applied_from_proposal_id and p.tenant_id = wi.tenant_id
+      left join agent_runs ar
+        on ar.id = wi.run_id and ar.tenant_id = wi.tenant_id
+      left join organization_memberships approver_membership
+        on approver_membership.user_id = p.decided_by
+       and approver_membership.tenant_id = wi.tenant_id
+      left join users approver on approver.id = approver_membership.user_id
       where wi.tenant_id in (
         select om.tenant_id
         from organization_memberships om
@@ -103,13 +163,13 @@ workItemsRoutes.get('/', async (c) => {
           and om.status = 'active'
       )
       order by wi.updated_at desc
-    `) as WorkItemRow[]
+    `) as WorkItemListRow[]
   } catch (cause) {
     console.error('[work-items] list query failed', cause)
     return c.json({ error: 'Failed to load work items' }, 500)
   }
 
-  return c.json(rows.map(toWorkItem))
+  return c.json(rows.map(toListWorkItem))
 })
 
 /**
