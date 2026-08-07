@@ -12,7 +12,7 @@
     "migrate": "drizzle-kit migrate",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "lint": "eslint src drizzle.config.ts"
+    "lint": "eslint --max-warnings 0 src drizzle.config.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
