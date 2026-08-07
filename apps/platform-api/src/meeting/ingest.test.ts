@@ -299,12 +299,21 @@ describe('runMeetingIngest', () => {
       if (text.includes('from proposals')) return [proposal]
       return []
     }) as unknown as Sql
-    ;(applySql as unknown as { query: ReturnType<typeof vi.fn> }).query = vi.fn(async () => [])
+    const applyQuery = vi.fn(async (text: string) =>
+      text.includes('from meeting_promotions') ? [{ id: 'promotion_1' }] : [],
+    )
+    ;(applySql as unknown as { query: typeof applyQuery }).query = applyQuery
 
-    await applyProposal(applySql, { tenantIds: [PLATFORM_TENANT], approverUserId: 'u_1' }, 'p_meeting')
+    await applyProposal(
+      applySql,
+      { tenantIds: [PLATFORM_TENANT], approverUserId: 'u_1' },
+      'p_meeting',
+      { ...buildProposalPayload(candidate()), source: 'manual' },
+    )
 
     expect(createWorkItem).toHaveBeenCalledTimes(1)
     const [, , createInput] = createWorkItem.mock.calls[0]!
+    expect(applyQuery.mock.calls.some(([text]) => text.includes('from meeting_promotions'))).toBe(true)
     expect(createInput.source).toBe('meeting')
   })
 
