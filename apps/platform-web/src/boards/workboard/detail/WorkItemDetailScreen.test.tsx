@@ -119,6 +119,34 @@ describe("WorkItemDetailScreen", () => {
     expect(approvalTime).not.toHaveTextContent(approvedAt);
   });
 
+  it("renders a malformed approval timestamp as unavailable", async () => {
+    const { repo, item } = await repoWithFirstItem({
+      source: "agent",
+      provenance: {
+        applied_from_proposal_id: "proposal_bad_timestamp",
+        actor_type: "agent",
+        actor_id: "agent_42",
+        on_behalf_of: "user_authorizer_7",
+        run_id: "run_42",
+        run_summary: "Prepared the launch work",
+        approver_id: "user_approver_9",
+        approver_name: "Ada Lovelace",
+        approved_at: "not-an-iso-date",
+      },
+    });
+    routerMock.params = { workspace: "acme", itemId: item.id };
+
+    render(<WorkItemDetailScreen repository={repo} />);
+
+    const provenance = await screen.findByRole("region", {
+      name: "Provenance",
+    });
+    const approvedRow = within(provenance).getByText("Approved").parentElement;
+    expect(approvedRow).not.toBeNull();
+    expect(within(approvedRow!).getByText("Unavailable")).toBeInTheDocument();
+    expect(approvedRow!.querySelector("time")).toBeNull();
+  });
+
   it("renders unavailable actor and run context without inventing identities", async () => {
     const { repo, item } = await repoWithFirstItem({
       source: "agent",

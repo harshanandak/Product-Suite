@@ -62,9 +62,11 @@ function formatDate(iso: string | null): string {
   });
 }
 
-/** Human-readable approval timestamp while preserving the ISO value on <time>. */
-function formatDateTime(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
+/** Human-readable approval timestamp, or null for malformed input. */
+function formatDateTime(iso: string): string | null {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleString(undefined, {
     dateStyle: "medium",
     timeStyle: "short",
   });
@@ -114,6 +116,9 @@ function OverviewTab({
 }: Readonly<{ row: WorkItemRow; workspace: string }>) {
   const hasDescription = Boolean(row.description && row.description.trim() !== "");
   const provenance = row.provenance;
+  const approvedAtLabel = provenance?.approved_at
+    ? formatDateTime(provenance.approved_at)
+    : null;
   return (
     <section className="space-y-5">
       {hasDescription ? (
@@ -255,9 +260,9 @@ function OverviewTab({
                 <div className="contents">
                   <dt className="text-muted-foreground">Approved</dt>
                   <dd className="min-w-0 break-words">
-                    {provenance.approved_at ? (
+                    {provenance.approved_at && approvedAtLabel ? (
                       <time dateTime={provenance.approved_at}>
-                        {formatDateTime(provenance.approved_at)}
+                        {approvedAtLabel}
                       </time>
                     ) : (
                       <span className="text-muted-foreground">Unavailable</span>
