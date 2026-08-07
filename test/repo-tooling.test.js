@@ -23,6 +23,10 @@ const isPatchedSerovalVersion = (version) => {
 const rootReadme = readFileSync(join(rootDir, "README.md"), "utf8");
 const validationDocPath = join(rootDir, "docs", "VALIDATION.md");
 const validationDoc = readFileSync(validationDocPath, "utf8");
+const p2bMemoryImpactDesign = readFileSync(
+  join(rootDir, "docs", "design", "2026-07-16-memory-brain-p2b.md"),
+  "utf8",
+);
 const servicesReadme = readFileSync(join(rootDir, "services", "README.md"), "utf8");
 const buildingBlocksPlan = readFileSync(
   join(rootDir, "docs", "plans", "building-blocks-transformation-pr-plan.md"),
@@ -104,6 +108,22 @@ const dbContractWorkflow = readFileSync(dbContractWorkflowPath, "utf8");
 const lefthookConfig = readFileSync(join(rootDir, "lefthook.yml"), "utf8");
 
 describe("repo tooling", () => {
+  test("memory-value analysis unions attribution rails at the run-memory unit", () => {
+    const contract = p2bMemoryImpactDesign.toLowerCase();
+
+    expect(contract).toContain("with memory_exposure as");
+    expect(contract).toMatch(
+      /run_memory_attributions[\s\S]*union all[\s\S]*run_knowledge_attributions/,
+    );
+    expect(contract).toContain("kind = 'memory'");
+    expect(contract).toContain("memory_id is not null");
+    expect(contract).toContain("group by run_id, memory_id");
+    expect(contract).toContain("bool_or(suppressed)");
+    expect(contract).toContain("where r.kind = 'chat'");
+    expect(contract).toContain("suppressed rows are retained");
+    expect(contract).toContain("repeated runs remain separate");
+  });
+
   test("all locked seroval versions include the security patch", () => {
     expect(isPatchedSerovalVersion(["1", "4", "1003"])).toBe(false);
 
