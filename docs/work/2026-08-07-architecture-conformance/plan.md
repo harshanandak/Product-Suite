@@ -3,7 +3,7 @@
 **Status:** Proposed - implementation requires user approval
 **Classification:** Critical - architecture, authorization, data, and release controls
 **Forge issue:** `db5ad299-2988-4ff2-958b-4a37d35dffe7`
-**Base:** `origin/main@a88f97b397942561628c6b0f47dfff71c7af9342`
+**Base:** `origin/main@fff1c814d40cdef9cc5c80e4d63d24511752f437`
 
 ## Decision
 
@@ -66,14 +66,24 @@ type ConformanceContractV1 = {
   authority: string;
   invariant: string[];
   paths: string[];
-  checks: { local: string[]; pullRequest: string[]; release: string[] };
+  severity: "BLOCK" | "REVIEW" | "WARN";
+  waiver: "never" | "human-expiring";
+  checks: {
+    intent: string[];
+    local: string[];
+    pullRequest: string[];
+    release: string[];
+    drift: string[];
+  };
   owner: string;
   decision: string;
 };
 ```
 
 The first implementation must not add a general expression language. Paths and named package scripts
-are sufficient. Complicated conditions remain normal tested code in existing scripts.
+are sufficient. Complicated conditions remain normal tested code in existing scripts. The validator
+requires all five check-level arrays, enforces `severity` and `waiver` consistently, and rejects
+`human-expiring` for the never-waivable `BLOCK` classes below.
 
 Each feature issue or approved plan records:
 
@@ -93,7 +103,7 @@ inference always remains authoritative.
 | L0 intent       | Plan/issue transition  |                        under 2 s | Contract IDs, decision links, dependency and migration declarations                                          | Block unknown IDs or unresolved authority conflicts      |
 | L1 local        | Commit/push            | under 15 s before affected tests | Schema validation, dependency/import boundaries, source-test coupling, migration parity                      | Block deterministic violations                           |
 | L2 pull request | Changed contracts only |              target under 12 min | Affected package, contract, a11y, visual, permission, migration, and adapter tests                           | PASS, FAIL, or INCOMPLETE; incomplete never passes       |
-| L3 release      | Once per candidate SHA |              target under 30 min | Full integration, exact-SHA provenance, production migration preflight, license/SBOM and performance budgets | Block release; never duplicate a successful same-SHA run |
+| L3 release      | Once per candidate SHA and immutable input fingerprint | target under 30 min | Full integration, exact-SHA provenance, production migration preflight, license/SBOM and performance budgets | Block release; reuse PASS only when SHA and fingerprint match |
 | L4 drift        | Scheduled or requested |                off critical path | Undeclared paths, stale decisions, expired waivers, rules without executable evidence                        | File or update Forge issues; do not spam unrelated PRs   |
 
 `forge push --quick` remains valid: lint and types can be local while CI owns tests, except packages
@@ -110,8 +120,8 @@ force the full suite.
 - **WARN:** a bounded future capability is intentionally deferred and has a Forge issue, owner, and
   trigger for reconsideration.
 
-Warnings cannot be used for security, privacy, authorization, durability, or destructive migration
-failures.
+Security, privacy, tenant isolation, authorization, durability, secret exposure, data loss, and
+destructive migration failures are never-waivable `BLOCK` failures.
 
 ## Domain contract matrix
 
@@ -247,6 +257,9 @@ A blocker can be waived only by a human Forge gate event containing:
 ```yaml
 contract: block.v1
 check: block-accessibility
+event_id: durable Forge gate event ID
+approver: human identity
+status: approved
 scope: one release or path
 reason: why compliance is temporarily impossible
 risk: concrete user or operating impact
@@ -256,19 +269,36 @@ expires_at: date or release
 removal_test: evidence that closes the waiver
 ```
 
-Expired, widened, ownerless, or issue-less waivers fail. Security, tenant isolation, destructive data
-loss, secret exposure, and forged authorization are never waivable release warnings.
+Expired, widened, ownerless, or issue-less waivers fail. The never-waivable `BLOCK` classes defined
+above cannot be waived. The target waiver contract requires a versioned, per-issue Forge read model
+with event identity, approver, contract, check, scope, approval status, and expiry. The current Forge
+gate-event view does not expose those fields, so waiver enforcement cannot claim PASS yet.
+Forge issue `0d4b064f-0b8e-4c38-baf8-4bbaaf543926` owns that prerequisite.
+
+Until that read model exists, any requested waiver is `INCOMPLETE` and blocks the applicable gate;
+implementations must not infer missing fields. Once available, the receipt stores `event_id`, loads
+exactly one event by that ID, and requires exact field matches plus an unexpired `expires_at`.
+Missing, ambiguous, revoked, expired, or mismatched events fail.
 
 ## Conformance receipt
 
-Each architecture-affecting PR should publish a compact generated receipt:
+For every architecture-affecting PR, the applicable gate must generate and publish a compact receipt:
 
 - head SHA and base SHA;
+- an immutable input fingerprint covering runner image, toolchain versions, contract revision,
+  external-configuration hashes, database-fixture revision, and performance baseline/workload revision;
 - declared, path-inferred, and final contract set;
 - checks run with PASS/FAIL/INCOMPLETE and evidence links;
 - decision records and active waivers;
 - dependency, migration, permission, and persisted-contract changes;
 - exact-SHA release result when applicable.
+
+The fingerprint records hashes or revisions, never secrets. A missing or malformed receipt is
+`INCOMPLETE` and blocks the applicable gate.
+
+Latency evidence pins the runner image and hardware class, cache state, workload fixture, measurement
+boundaries, and repetition count. Budgets compare the median of at least three measured runs after one
+warm-up; changing any of those inputs invalidates the fingerprint.
 
 The receipt is generated evidence, not another hand-maintained checklist. CodeRabbit and human review
 remain useful challenge layers; neither substitutes for executable contract proof.
@@ -301,11 +331,13 @@ The first implementation is accepted only when tests prove:
 6. a material dependency or irreversible migration reaches an explicit human decision gate;
 7. an expired or malformed waiver blocks and a valid waiver is limited to its scope;
 8. a missing, timed-out, or non-reconstructable result is INCOMPLETE, never PASS;
-9. the receipt identifies the exact SHA and all evidence used;
-10. the same successful exact-SHA release suite is not run twice;
-11. normal feature PR latency stays within the L1/L2 budgets;
-12. every matrix row has an owner, decision source, trigger paths, and at least one executable check or
-    a Forge issue naming the missing evidence.
+9. the receipt identifies the exact SHA, immutable input fingerprint, and all evidence used;
+10. a successful release result is reused only when both exact SHA and input fingerprint match;
+11. normal feature PR latency stays within the L1/L2 budgets against the pinned runner baseline and
+    workload fixture recorded in the fingerprint;
+12. every matrix row has an owner, decision source, and trigger paths; every `BLOCK` row has at least
+    one executable check, while issue-only evidence is allowed only for an explicitly deferred `WARN`
+    capability with an owner and reconsideration trigger.
 
 ## Approval checkpoint
 
@@ -317,13 +349,9 @@ code, or production migration. Those remain separate decisions behind the contra
 
 - Agentic workspace platform: Forge issue `9a77ebc8-1b20-4634-8e93-5bcd920eac31`.
 - Detailed agentic workspace, canvas, collaboration, runtime, tool-option, licensing, hosting, and
-  cost research: `feat/agentic-canvas-foundation@32a6859` and
-  `feat/agentic-workspace-experience@ee6661d`, especially
-  `docs/architecture/agentic-workspace-platform.md` and
-  `docs/architecture/agentic-workspace-dependency-economics.md`.
-- Custom Mode plan: `feat/custom-mode-platform@98d38c04a8573d163d701ebeb3b16d825ec7257c`.
-- Custom Mode research: `feat/custom-mode-platform@98d38c04`,
-  `docs/research/custom-mode-platform.md`.
+  cost research: [platform architecture](https://github.com/harshanandak/Product-Suite/blob/ee6661d9d8c2b111a1686423a6a80881f154a79a/docs/architecture/agentic-workspace-platform.md)
+  and [dependency economics](https://github.com/harshanandak/Product-Suite/blob/ee6661d9d8c2b111a1686423a6a80881f154a79a/docs/architecture/agentic-workspace-dependency-economics.md).
+- Custom Mode plan and research: [pinned research](https://github.com/harshanandak/Product-Suite/blob/98d38c04a8573d163d701ebeb3b16d825ec7257c/docs/research/custom-mode-platform.md).
 - Workflow Automation boundary: Forge issue `ce69295d-0dcd-4650-8ad6-7c9dd7060b3a`.
 - Product UX: Forge issue `b07480ea-f990-424f-b848-2b659a6dba18`.
 - Live UX findings: `docs/research/2026-07-26-ux-audit-and-simplification.md`.

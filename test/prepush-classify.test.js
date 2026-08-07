@@ -18,7 +18,7 @@ const classifyFast = (files) => describeClassification(classifyFiles(files), { f
 describe("prepush-gate classification", () => {
   test("docs-only pushes are classified docs-only", () => {
     expect(
-      classify(["docs/plans/some-plan.md", "DESIGN.md", ".sonarcloud.properties"])
+      classify(["docs/work/example/plan.md", "DESIGN.md", ".sonarcloud.properties"])
     ).toContain("docs-only");
   });
 
@@ -236,7 +236,7 @@ describe("prepush-gate PREPUSH_GATE_FAST (lint+typecheck-only) mode", () => {
   });
 
   test("fast mode keeps the docs-only fast path (docs push runs only source-test)", () => {
-    const out = classifyFast(["docs/plans/some-plan.md", "README.md"]);
+    const out = classifyFast(["docs/work/example/plan.md", "README.md"]);
     expect(out).toContain("docs-only");
   });
 });
