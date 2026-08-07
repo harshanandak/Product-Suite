@@ -35,17 +35,17 @@ const AGENT_PROMPT = `Create a work item titled '${ITEM_TITLE}' in this team`;
 // A real agent + LLM round-trip is slow; give the propose/apply steps headroom.
 const AGENT_TIMEOUT = 90_000;
 
-const LIVE_PREREQUISITES = [
-  "DATABASE_URL",
-  "CLERK_SECRET_KEY",
-  "VITE_CLERK_PUBLISHABLE_KEY",
-  "E2E_CLERK_USER",
-  "OPENROUTER_API_KEY",
-  "E2E_BASE_URL",
-] as const;
-const missingLivePrerequisites = LIVE_PREREQUISITES.filter(
-  (name) => !process.env[name]?.trim(),
-);
+const clerkPublishableKey =
+  process.env.VITE_CLERK_PUBLISHABLE_KEY?.trim() ||
+  process.env.CLERK_PUBLISHABLE_KEY?.trim();
+const missingLivePrerequisites = [
+  process.env.CLERK_SECRET_KEY?.trim() ? null : "CLERK_SECRET_KEY",
+  clerkPublishableKey
+    ? null
+    : "publishable key (VITE_CLERK_PUBLISHABLE_KEY || CLERK_PUBLISHABLE_KEY)",
+  process.env.E2E_CLERK_USER?.trim() ? null : "E2E_CLERK_USER",
+  process.env.DATABASE_URL?.trim() ? null : "DATABASE_URL",
+].filter((name): name is string => name !== null);
 
 test.skip(
   missingLivePrerequisites.length > 0,
