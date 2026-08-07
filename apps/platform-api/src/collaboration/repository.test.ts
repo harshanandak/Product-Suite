@@ -199,6 +199,15 @@ it.each([
     },
   )
 
+
+it('requires admin authorization for membership events', async () => {
+    const sql = transactionalSql({ outcome: 'forbidden' })
+    await expect(appendConversationEvent(sql as never, {
+      ...appendInput,
+      kind: 'membership.added',
+    })).resolves.toEqual({ ok: false, reason: 'forbidden' })
+    expect(String(sql.query.mock.calls[1]?.[0])).toMatch(/membership\.added[\s\S]*a\.role\s*=\s*'admin'/i)
+  })
   it('sends edit, delete, and reply links through same-conversation validation', async () => {
     const sql = transactionalSql({ outcome: 'invalid_reference' })
     await appendConversationEvent(sql as never, {

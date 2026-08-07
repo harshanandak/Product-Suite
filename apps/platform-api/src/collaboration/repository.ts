@@ -287,7 +287,11 @@ export async function appendConversationEvent(
        set next_sequence = c.next_sequence + 1, updated_at = now()
        from authorization a, valid_links v
        where c.tenant_id = $1 and c.id = $2 and c.status = 'active'
-         and a.role in ('writer', 'admin') and v.links_valid
+         and case
+           when $5::text in ('membership.added', 'membership.changed', 'membership.removed') then a.role = 'admin'
+           else a.role in ('writer', 'admin')
+         end
+         and v.links_valid
          and not exists (select 1 from existing)
        returning c.next_sequence - 1 as sequence
      ), inserted as materialized (
@@ -303,7 +307,10 @@ export async function appendConversationEvent(
      select
        case
          when a.actor_id is null then 'not_found'
-         when a.role not in ('writer', 'admin') then 'forbidden'
+         when not case
+           when $5::text in ('membership.added', 'membership.changed', 'membership.removed') then a.role = 'admin'
+           else a.role in ('writer', 'admin')
+         end then 'forbidden'
          when a.conversation_status = 'archived' then 'archived'
          when e.id is not null then 'existing'
          when not v.links_valid then 'invalid_reference'
