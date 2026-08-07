@@ -245,4 +245,40 @@ describe('workboard schema', () => {
       'dependency_removed',
     ])
   })
+  it('defines the tenant-safe collaboration authority tables', () => {
+    expect(schema.collaborationActorKindEnum.enumValues).toEqual(['human', 'agent', 'service'])
+    expect(schema.conversationMembershipRoleEnum.enumValues).toEqual(['reader', 'writer', 'admin'])
+    expect(schema.conversationEventKindEnum.enumValues).toEqual([
+      'message.created',
+      'message.edited',
+      'message.deleted',
+      'membership.added',
+      'membership.changed',
+      'membership.removed',
+    ])
+    for (const table of ['collaborationActors', 'conversations', 'conversationMemberships', 'conversationEvents'] as const) {
+      expect(schema[table]).toBeDefined()
+      expect(Object.keys(schema[table])).toContain('tenantId')
+    }
+    expect(Object.keys(schema.agentRuns)).toContain('conversationId')
+  })
+
+  it('enforces collaboration sequence, idempotency, and tenant constraints in migration 0018', () => {
+    const journal = JSON.parse(readFileSync(join(MIGRATIONS_DIR, 'meta', '_journal.json'), 'utf8'))
+    const entry = journal.entries.find((e: { tag: string }) => e.tag.endsWith('_collaboration_fabric'))
+    expect(entry).toBeDefined()
+    const migration = readFileSync(join(MIGRATIONS_DIR, `${entry.tag}.sql`), 'utf8')
+    expect(migration).toContain('conversation_events_tenant_conversation_sequence_uniq')
+    expect(migration).toContain('conversation_events_tenant_conversation_idempotency_uniq')
+    expect(migration).toContain('conversation_memberships_tenant_conversation_actor_uniq')
+    expect(migration).toContain('conversation_events_immutable')
+    expect(migration).toMatch(/foreign key \("tenant_id","conversation_id"\)/i)
+    expect(migration).toMatch(/foreign key \("tenant_id","actor_id"\)/i)
+    expect(migration).toMatch(/foreign key \("tenant_id","conversation_id","reply_to_event_id"\)/i)
+    expect(migration).toMatch(/foreign key \("tenant_id","conversation_id","target_event_id"\)/i)
+    expect(migration).toContain('conversation_events_payload_size_check')
+    expect(migration).toContain('conversation_events_references_size_check')
+    expect(migration).toMatch(/alter table "agent_runs" add column if not exists "conversation_id" uuid/i)
+    expect(migration).not.toMatch(/drop table|drop column/i)
+  })
 })

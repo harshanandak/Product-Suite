@@ -2,6 +2,8 @@ import { sql } from 'drizzle-orm'
 import {
   bigint,
   boolean,
+  check,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -83,6 +85,153 @@ const timestamps = {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }
 
+export const collaborationActorKindEnum = pgEnum('collaboration_actor_kind', ['human', 'agent', 'service'])
+export const conversationStatusEnum = pgEnum('conversation_status', ['active', 'archived'])
+export const conversationMembershipRoleEnum = pgEnum('conversation_membership_role', ['reader', 'writer', 'admin'])
+export const conversationMembershipStatusEnum = pgEnum('conversation_membership_status', ['active', 'removed'])
+export const conversationEventKindEnum = pgEnum('conversation_event_kind', [
+  'message.created',
+  'message.edited',
+  'message.deleted',
+  'membership.added',
+  'membership.changed',
+  'membership.removed',
+])
+
+export const collaborationActors = pgTable(
+  'collaboration_actors',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: text('tenant_id').notNull(),
+    kind: collaborationActorKindEnum('kind').notNull(),
+    owningDomain: text('owning_domain').notNull(),
+    owningId: text('owning_id').notNull(),
+    disabledAt: timestamp('disabled_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => ({
+    tenantIdentity: unique('collaboration_actors_tenant_id_uniq').on(t.tenantId, t.id),
+    owningReference: uniqueIndex('collaboration_actors_tenant_owner_uniq').on(t.tenantId, t.owningDomain, t.owningId),
+  }),
+)
+
+export const conversations = pgTable(
+  'conversations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: text('tenant_id').notNull(),
+    title: text('title').notNull().default(''),
+    status: conversationStatusEnum('status').notNull().default('active'),
+    subjectRef: jsonb('subject_ref'),
+    createdByActorId: uuid('created_by_actor_id').notNull(),
+    nextSequence: bigint('next_sequence', { mode: 'number' }).notNull().default(1),
+    legacySource: text('legacy_source'),
+    legacyId: text('legacy_id'),
+    ...timestamps,
+  },
+  (t) => ({
+    tenantIdentity: unique('conversations_tenant_id_uniq').on(t.tenantId, t.id),
+    legacyReference: uniqueIndex('conversations_tenant_legacy_uniq').on(t.tenantId, t.legacySource, t.legacyId),
+    createdByActor: foreignKey({
+      columns: [t.tenantId, t.createdByActorId],
+      foreignColumns: [collaborationActors.tenantId, collaborationActors.id],
+      name: 'conversations_tenant_created_by_actor_fk',
+    }),
+    byTenantUpdated: index('conversations_tenant_updated_idx').on(t.tenantId, t.updatedAt),
+  }),
+)
+
+export const conversationMemberships = pgTable(
+  'conversation_memberships',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: text('tenant_id').notNull(),
+    conversationId: uuid('conversation_id').notNull(),
+    actorId: uuid('actor_id').notNull(),
+    role: conversationMembershipRoleEnum('role').notNull(),
+    status: conversationMembershipStatusEnum('status').notNull().default('active'),
+    createdByActorId: uuid('created_by_actor_id').notNull(),
+    ...timestamps,
+  },
+  (t) => ({
+    membership: uniqueIndex('conversation_memberships_tenant_conversation_actor_uniq').on(
+      t.tenantId,
+      t.conversationId,
+      t.actorId,
+    ),
+    conversation: foreignKey({
+      columns: [t.tenantId, t.conversationId],
+      foreignColumns: [conversations.tenantId, conversations.id],
+      name: 'conversation_memberships_tenant_conversation_fk',
+    }),
+    actor: foreignKey({
+      columns: [t.tenantId, t.actorId],
+      foreignColumns: [collaborationActors.tenantId, collaborationActors.id],
+      name: 'conversation_memberships_tenant_actor_fk',
+    }),
+    createdByActor: foreignKey({
+      columns: [t.tenantId, t.createdByActorId],
+      foreignColumns: [collaborationActors.tenantId, collaborationActors.id],
+      name: 'conversation_memberships_tenant_created_by_actor_fk',
+    }),
+  }),
+)
+
+export const conversationEvents = pgTable(
+  'conversation_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: text('tenant_id').notNull(),
+    conversationId: uuid('conversation_id').notNull(),
+    actorId: uuid('actor_id').notNull(),
+    sequence: bigint('sequence', { mode: 'number' }).notNull(),
+    idempotencyKey: text('idempotency_key').notNull(),
+    kind: conversationEventKindEnum('kind').notNull(),
+    payload: jsonb('payload').notNull().default({}),
+    replyToEventId: uuid('reply_to_event_id'),
+    targetEventId: uuid('target_event_id'),
+    references: jsonb('references').notNull().default([]),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    tenantIdentity: unique('conversation_events_tenant_conversation_id_uniq').on(t.tenantId, t.conversationId, t.id),
+    sequenceUnique: uniqueIndex('conversation_events_tenant_conversation_sequence_uniq').on(
+      t.tenantId,
+      t.conversationId,
+      t.sequence,
+    ),
+    idempotencyUnique: uniqueIndex('conversation_events_tenant_conversation_idempotency_uniq').on(
+      t.tenantId,
+      t.conversationId,
+      t.idempotencyKey,
+    ),
+    conversation: foreignKey({
+      columns: [t.tenantId, t.conversationId],
+      foreignColumns: [conversations.tenantId, conversations.id],
+      name: 'conversation_events_tenant_conversation_fk',
+    }),
+    actor: foreignKey({
+      columns: [t.tenantId, t.actorId],
+      foreignColumns: [collaborationActors.tenantId, collaborationActors.id],
+      name: 'conversation_events_tenant_actor_fk',
+    }),
+    reply: foreignKey({
+      columns: [t.tenantId, t.replyToEventId],
+      foreignColumns: [t.tenantId, t.id],
+      name: 'conversation_events_tenant_reply_fk',
+    }),
+    target: foreignKey({
+      columns: [t.tenantId, t.targetEventId],
+      foreignColumns: [t.tenantId, t.id],
+      name: 'conversation_events_tenant_target_fk',
+    }),
+    payloadSize: check('conversation_events_payload_size_check', sql`octet_length(${t.payload}::text) <= 262144`),
+    referencesSize: check(
+      'conversation_events_references_size_check',
+      sql`jsonb_typeof(${t.references}) = 'array' and octet_length(${t.references}::text) <= 65536`,
+    ),
+  }),
+)
 /**
  * A durable agent chat thread — the group that a sequence of chat runs belongs to
  * (see docs/design/2026-07-15-thread-persistence.md). It owns NO transcript of its
@@ -136,6 +285,7 @@ export const agentRuns = pgTable(
     // The durable thread this chat run belongs to (nullable: legacy/autonomous runs
     // stay unlinked). SET NULL on thread delete so a run's work outlives its thread.
     threadId: uuid('thread_id').references(() => chatThreads.id, { onDelete: 'set null' }),
+    conversationId: uuid('conversation_id').references(() => conversations.id, { onDelete: 'set null' }),
     // Memory Brain P2 holdout flag: assigned at run start (always false in P1). When
     // true, retrieval logs what WOULD have injected (suppressed attributions) without
     // adding it to the prompt, so the edit/reject-rate delta measures the moat.
