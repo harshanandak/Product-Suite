@@ -13,4 +13,5 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Schema and domain ownership inventory for roadmap and meeting surfaces, including canonical ownership boundaries, overlap rules, and guarded discoverability links (PR #3, product-suite-waq)
 
 ### Fixed
+- Agent-created work items now preserve trusted proposal provenance and expose tenant-safe proposal, run, actor, and approval context on item details (PR #162, 163c617a-2ec7-4ffc-8575-eea4085f8e4f)
 - Review Inbox deep links no longer select a different proposal; draft-time target snapshots now stabilize proposal previews, while accept-time staleness fencing protects writes instead of silently rebasing (PR #156, 496d0f55-3cad-447c-b901-93c666dd65a5, 2ef40a29-794e-4839-a64b-16f35d30d16c)
