@@ -6,6 +6,10 @@ const rootDir = join(import.meta.dir, "..");
 const packageJson = JSON.parse(
   readFileSync(join(rootDir, "package.json"), "utf8"),
 );
+const dependencyLockPaths = [
+  join(rootDir, "bun.lock"),
+  join(rootDir, "apps", "roadmap-web", "bun.lock"),
+];
 const rootReadme = readFileSync(join(rootDir, "README.md"), "utf8");
 const validationDocPath = join(rootDir, "docs", "VALIDATION.md");
 const validationDoc = readFileSync(validationDocPath, "utf8");
@@ -90,6 +94,20 @@ const dbContractWorkflow = readFileSync(dbContractWorkflowPath, "utf8");
 const lefthookConfig = readFileSync(join(rootDir, "lefthook.yml"), "utf8");
 
 describe("repo tooling", () => {
+  test("all locked seroval versions include the security patch", () => {
+    for (const lockPath of dependencyLockPaths) {
+      const versions = [...readFileSync(lockPath, "utf8").matchAll(
+        /"[^"\n]*seroval": \["seroval@(\d+)\.(\d+)\.(\d+)"/g,
+      )];
+      expect(versions.length).toBeGreaterThan(0);
+      expect(
+        versions.every(([, major, minor, patch]) =>
+          Number(major) * 1_000_000 + Number(minor) * 1_000 + Number(patch) >= 1_005_003,
+        ),
+      ).toBe(true);
+    }
+  });
+
   test("root workspace and scripts acknowledge shared packages", () => {
     expect(packageJson.workspaces).toContain("packages/contracts");
     expect(packageJson.workspaces).toContain("packages/sdk");
