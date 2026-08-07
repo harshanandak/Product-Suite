@@ -12,25 +12,40 @@ import { createSql } from "../../../packages/db/src/index";
  * was applied from — the same linkage the API's idempotent re-drive relies on. The
  * UI banner alone can't prove that, so this reads it straight from Neon.
  *
- * Returns:
- *  - `undefined` when `DATABASE_URL` is unset — the caller SOFT-SKIPS the check so
- *    the spec still runs UI-only (e.g. deployed mode without DB access).
- *  - the created work item's `{ id, title }` when a row is linked to `proposalId`.
- *  - `null` when no work item is linked to `proposalId` (a real provenance failure).
+ * The proposal join repeats the work item's tenant boundary. A dangling or foreign
+ * proposal can never supply decision attribution even when the stored pointer exists.
  */
+interface AppliedWorkItemProvenance {
+  id: string;
+  title: string;
+  applied_from_proposal_id: string;
+  source: string;
+  actor_type: string;
+  actor_id: string | null;
+  on_behalf_of: string | null;
+  run_id: string | null;
+  decided_by: string | null;
+  decided_at: string | null;
+}
+
 export async function readWorkItemAppliedFrom(
   proposalId: string,
-): Promise<{ id: string; title: string } | null | undefined> {
+): Promise<AppliedWorkItemProvenance | null | undefined> {
   const url = process.env.DATABASE_URL;
   if (!url) return undefined;
 
   const sql = createSql(url);
   const rows = (await sql`
-    select id, title
-    from work_items
-    where applied_from_proposal_id = ${proposalId}
+    select wi.id, wi.title, wi.applied_from_proposal_id, wi.source,
+           wi.actor_type, wi.actor_id, wi.on_behalf_of, wi.run_id,
+           p.decided_by, p.decided_at
+    from work_items wi
+    left join proposals p
+      on p.id = wi.applied_from_proposal_id
+     and p.tenant_id = wi.tenant_id
+    where wi.applied_from_proposal_id = ${proposalId}
     limit 1
-  `) as { id: string; title: string }[];
+  `) as AppliedWorkItemProvenance[];
 
   return rows[0] ?? null;
 }
