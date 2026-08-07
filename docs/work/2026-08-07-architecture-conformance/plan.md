@@ -68,6 +68,10 @@ type ConformanceContractV1 = {
   paths: string[];
   severity: "BLOCK" | "REVIEW" | "WARN";
   waiver: "never" | "human-expiring";
+  deferred?: {
+    issue: string;
+    reconsiderationTrigger: string;
+  };
   checks: {
     intent: string[];
     local: string[];
@@ -83,7 +87,9 @@ type ConformanceContractV1 = {
 The first implementation must not add a general expression language. Paths and named package scripts
 are sufficient. Complicated conditions remain normal tested code in existing scripts. The validator
 requires all five check-level arrays, enforces `severity` and `waiver` consistently, and rejects
-`human-expiring` for the never-waivable `BLOCK` classes below.
+`human-expiring` for the never-waivable `BLOCK` classes below. A `WARN` contract must provide a
+`deferred` record whose `issue` is a Forge issue ID and whose `reconsiderationTrigger` is non-empty;
+the validator rejects missing WARN tracking and rejects `deferred` on non-WARN contracts.
 
 Each feature issue or approved plan records:
 
@@ -252,21 +258,22 @@ review is required only for copyleft, source-available, ambiguous, or competitiv
 
 ## Waivers and decisions
 
-A blocker can be waived only by a human Forge gate event containing:
+A blocker can be waived only by a human Forge gate event matching this parameterized shape; every
+angle-bracket value is required:
 
 ```yaml
-contract: block.v1
-check: block-accessibility
-event_id: durable Forge gate event ID
-approver: human identity
+contract: <target contract ID>
+check: <target check ID>
+event_id: <durable Forge gate event ID>
+approver: <human identity>
 status: approved
-scope: one release or path
-reason: why compliance is temporarily impossible
-risk: concrete user or operating impact
-owner: accountable person
-issue: removal work
-expires_at: date or release
-removal_test: evidence that closes the waiver
+scope: <one release or path>
+reason: <why compliance is temporarily impossible>
+risk: <concrete user or operating impact>
+owner: <accountable person>
+issue: <Forge removal issue ID>
+expires_at: <date or release>
+removal_test: <evidence that closes the waiver>
 ```
 
 Expired, widened, ownerless, or issue-less waivers fail. The never-waivable `BLOCK` classes defined
