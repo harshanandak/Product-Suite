@@ -1,6 +1,6 @@
-import { describe, expect, test } from "bun:test";
 import { AffineSchemas } from "@blocksuite/blocks/schemas";
 import { DocCollection, Schema, Text } from "@blocksuite/store";
+import { describe, expect, test } from "vitest";
 
 import manifest from "../../package.json";
 

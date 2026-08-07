@@ -1,14 +1,22 @@
-import { describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
-import fixtureMetadata from "./fixtures/affine-0.19.5-space-doc.json";
-import { hashFixture, restoreFixture, semanticSnapshot } from "./fixture";
+import { describe, expect, test } from "vitest";
 
 describe("BlockSuite 0.19.5 spaceDoc persistence", () => {
-  test("restores the frozen public-API fixture with stable semantics", async () => {
-    const restored = await restoreFixture();
+  test("keeps the public Bun restore rejection reproducible", () => {
+    const probe = fileURLToPath(new URL("./persistence-rejection.bun.js", import.meta.url));
+    const repositoryRoot = fileURLToPath(new URL("../../../..", import.meta.url));
+    const result = spawnSync("bun", ["test", probe], {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+    });
+    const output = `${result.stdout}${result.stderr}`;
 
-    expect(await hashFixture()).toBe(fixtureMetadata.sha256);
-    expect(restored.id).toBe(fixtureMetadata.documentId);
-    expect(semanticSnapshot(restored)).toEqual(fixtureMetadata.snapshot);
+    expect(result.status).toBe(1);
+    expect(output).toContain("BlockSuiteError: block children is not found when creating model");
+    expect(output).toContain("code: 4");
+    expect(output).toContain("Received  + 1");
+    expect(output).toContain("+ []");
   });
 });

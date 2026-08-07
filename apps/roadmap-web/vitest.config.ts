@@ -14,10 +14,12 @@ export default defineConfig({
     },
   },
   test: {
-    include: ["src/**/*.test.{ts,tsx,js,jsx}"],
+    include: [
+      "src/**/*.test.{ts,tsx,js,jsx}",
+      "tests/blocksuite-spike/*.test.ts",
+    ],
     exclude: [
       "e2e/**",
-      "tests/**",
       "playwright.config.ts",
       "node_modules/**",
       ".next/**",

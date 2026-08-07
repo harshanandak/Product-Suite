@@ -1,6 +1,6 @@
 # Tasks: BlockSuite spaceDoc persistence and convergence rejection spike
 
-Status: proposed; task-list approval pending
+Status: stopped at Task 2 with exact-version NO-GO; decision regression complete
 Issue: `8dfbe355-366a-4518-b377-9f3eccf2745d`
 
 ## Wave 1
@@ -166,4 +166,5 @@ disjoint files. Later waves may read earlier fixtures/helpers but do not modify 
 
 ## Task-list gate
 
-Not approved by this plan-stage worker. The main agent/user must confirm this list before `/dev`.
+Approved by the main agent for implementation. Tasks 3-5 were intentionally not attempted after the
+Task 2 core rejection; Task 6 records the fail-closed decision and validation evidence.

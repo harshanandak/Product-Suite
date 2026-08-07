@@ -2,7 +2,7 @@
 
 **Feature:** `blocksuite-spacedoc-persistence-and-convergence-spike`
 **Date:** 2026-08-07
-**Status:** Proposed; intent approved, task-list approval pending
+**Status:** Decided NO-GO on exact BlockSuite `0.19.5`
 **Classification:** Critical spike / Standard-tier lane
 **Forge issue:** `8dfbe355-366a-4518-b377-9f3eccf2745d`
 
@@ -118,5 +118,6 @@ No other file is authorized without a new user decision and Forge scope update.
 
 ## Approval checkpoint
 
-Intent is approved. This plan stage does not approve the task-list/final-lock gate and does not
-authorize `/dev`. Implementation begins only after the main agent/user confirms the task list.
+Intent and implementation were approved by the main agent. The public `spaceDoc` persistence gate
+failed at Task 2, so the fail-closed policy stopped Tasks 3-5. The exact rejection and next bounded
+alternative-editor slice are recorded in `decisions.md`.

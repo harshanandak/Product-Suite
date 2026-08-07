@@ -82,3 +82,58 @@ Yjs during the headless run. These warnings were retained as evidence, not suppr
   ownership remained proven.
 - First failing invariant: public `Doc.spaceDoc` encode/apply-before-load does not restore stable
   BlockSuite models; `Doc.load()` leaves `semanticSnapshot()` empty after code-4 model errors.
+
+## D8 - Green rejection regression
+
+The repository's installed test framework is Vitest, whose Roadmap configuration originally excluded
+`tests/**`. The decision regression now runs through Vitest and invokes the original public-API Bun
+probe as a subprocess. The subprocess must fail with all of this exact evidence:
+
+- exit status `1`;
+- `BlockSuiteError: block children is not found when creating model`;
+- error code `4`;
+- the semantic diff reports `Received + 1` and `+ []` rather than the four-block fixture.
+
+`bun run --cwd apps/roadmap-web test tests/blocksuite-spike` now passes `2` files and `3` tests, while
+`bun run --cwd apps/roadmap-web typecheck` passes. Green means the rejection remains reproducible; it
+does not reclassify BlockSuite as viable.
+
+## D9 - Dependency, license, and hosting boundary
+
+The installed manifests for all five direct packages identify exact version `0.19.5`, repository
+`toeverything/blocksuite`, and license `MPL-2.0`. MPL review, SBOM/license scanning, security history,
+and distribution obligations remain adoption gates; this spike grants no license or security waiver.
+The production boundary would remain product-hosted Yjs/Hocuspocus persistence and collaboration.
+No BlockSuite managed service, provider identity, or server authority is accepted by this decision,
+and this headless rejection spike does not claim to validate production hosting cost or scale.
+
+## D10 - Product-owned artifact envelope
+
+Any replacement must keep the durable artifact outside the editor. The minimum product-owned
+envelope carries artifact identity, schema version, revision, ordered blocks with immutable IDs,
+namespaced kinds, parent/child relationships, typed content, bindings, and references, plus
+deterministic migration and structured fallback behavior. Product-owned JSON is canonical; HTML and
+Markdown are lossless export targets for IDs, nesting, and references. Editor objects, provider IDs,
+React elements, and raw editor/Yjs state may be adapter payloads or caches but never the sole durable
+record, authorization source, or command surface.
+
+## D11 - Rejection criteria
+
+BlockSuite `0.19.5` is rejected as the canonical document/editor dependency because the supported
+same-ID `spaceDoc` apply-before-load path cannot reconstruct the frozen semantic tree. Reconsideration
+requires a separately pinned public release to pass the same fixture unchanged, then pass headless
+semantic mutation, two-client convergence, canonical-load locking, reconnect safety, accessibility,
+performance, export, authorization, comment-anchor, license, security, hosting, and removal gates.
+Private imports, patches, forks, global suppression, timers, or alternate ordering cannot satisfy the
+rejection criterion.
+
+## D12 - Next bounded alternative-editor slice
+
+Compare the architecture's minimum composition, not another all-in-one authority: one focused text
+editor adapter over the product-owned envelope, with the existing React Flow/perfect-freehand spatial
+surface remaining separate. Use one synthetic four-block artifact and prove
+JSON -> text edit -> JSON -> HTML/Markdown preserves IDs, order, nesting, text, bindings, and
+references through public APIs. Reject the candidate if editor-native state leaks into the envelope,
+headless block-ID edits are unavailable, exports lose structure, or basic use requires a private API,
+fork, or hosted service. Exclude collaboration, provider work, custom blocks, production routes, and
+dependency adoption from that slice.
