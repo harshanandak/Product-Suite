@@ -13,6 +13,13 @@ describe("BlockSuite 0.19.5 spaceDoc persistence", () => {
     });
     const output = `${result.stdout}${result.stderr}`;
 
+    if (process.platform !== "win32") {
+      expect(result.status).toBe(0);
+      expect(output).toContain("1 pass");
+      expect(output).not.toContain("BlockSuiteError");
+      return;
+    }
+
     expect(result.status).toBe(1);
     expect(output).toContain("BlockSuiteError: block children is not found when creating model");
     expect(output).toContain("code: 4");

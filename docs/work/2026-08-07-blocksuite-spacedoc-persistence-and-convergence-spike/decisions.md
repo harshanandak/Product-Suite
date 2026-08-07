@@ -44,8 +44,9 @@ the implementation under actor `codex-wave1-blocksuite-20260807`. `forge issue o
 ## D7 - NO-GO: public spaceDoc bytes do not reconstruct semantic blocks
 
 The exact `0.19.5` public imports and fresh semantic document creation pass. The frozen synthetic
-fixture also hashes correctly. The core persistence invariant fails when a same-ID fresh document
-receives `Y.applyUpdate(doc.spaceDoc, bytes)` before `Doc.load()`: BlockSuite emits
+fixture also hashes correctly. On the supported Windows/Bun repository execution, the core
+persistence invariant fails when a same-ID fresh document receives
+`Y.applyUpdate(doc.spaceDoc, bytes)` before `Doc.load()`: BlockSuite emits
 `BlockSuiteError` code 4, `block children is not found when creating model`, for the restored
 blocks, and the resulting public semantic snapshot is empty instead of the four-block tree.
 
@@ -89,12 +90,16 @@ Yjs during the headless run. These warnings were retained as evidence, not suppr
 
 The repository's installed test framework is Vitest, whose Roadmap configuration originally excluded
 `tests/**`. The decision regression now runs through Vitest and invokes the original public-API Bun
-probe as a subprocess. The subprocess must fail with all of this exact evidence:
+probe as a subprocess. On Windows, the subprocess must fail with all of this exact evidence:
 
 - exit status `1`;
 - `BlockSuiteError: block children is not found when creating model`;
 - error code `4`;
 - the semantic diff reports `Received + 1` and `+ []` rather than the four-block fixture.
+
+Linux CI reconstructs the same fixture and must pass. That platform difference is itself fail-closed
+evidence: a canonical format cannot be selected when the supported Windows runtime loses semantics,
+even if Linux reconstructs them.
 
 `bun run --cwd apps/roadmap-web test tests/blocksuite-spike` now passes `2` files and `3` tests, while
 `bun run --cwd apps/roadmap-web typecheck` passes. Green means the rejection remains reproducible; it
@@ -124,7 +129,8 @@ record, authorization source, or command surface.
 ## D11 - Rejection criteria
 
 BlockSuite `0.19.5` is rejected as the canonical document/editor dependency because the supported
-same-ID `spaceDoc` apply-before-load path cannot reconstruct the frozen semantic tree. Reconsideration
+Windows same-ID `spaceDoc` apply-before-load path cannot reconstruct the frozen semantic tree, while
+Linux does. Reconsideration
 requires a separately pinned public release to pass the same fixture unchanged, then pass headless
 semantic mutation, two-client convergence, canonical-load locking, reconnect safety, accessibility,
 performance, export, authorization, comment-anchor, license, security, hosting, and removal gates.
