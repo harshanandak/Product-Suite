@@ -35,9 +35,21 @@ const AGENT_PROMPT = `Create a work item titled '${ITEM_TITLE}' in this team`;
 // A real agent + LLM round-trip is slow; give the propose/apply steps headroom.
 const AGENT_TIMEOUT = 90_000;
 
+const LIVE_PREREQUISITES = [
+  "DATABASE_URL",
+  "CLERK_SECRET_KEY",
+  "VITE_CLERK_PUBLISHABLE_KEY",
+  "E2E_CLERK_USER",
+  "OPENROUTER_API_KEY",
+  "E2E_BASE_URL",
+] as const;
+const missingLivePrerequisites = LIVE_PREREQUISITES.filter(
+  (name) => !process.env[name]?.trim(),
+);
+
 test.skip(
-  !process.env.DATABASE_URL,
-  "INCOMPLETE: DATABASE_URL is required for the persisted provenance proof.",
+  missingLivePrerequisites.length > 0,
+  `INCOMPLETE: missing live prerequisites: ${missingLivePrerequisites.join(", ")}`,
 );
 
 test.beforeEach(async ({ page }) => {
@@ -142,5 +154,7 @@ test("agent proposes a create → accept in inbox → provenance appears on item
   const proposalHref = await proposalLink.getAttribute("href");
   expect(proposalHref, "detail proposal link must have an href").toBeTruthy();
   if (!proposalHref) return;
-  expect(new URL(proposalHref, page.url()).searchParams.get("proposal")).toBe(proposalId);
+  const proposalUrl = new URL(proposalHref, page.url());
+  expect(proposalUrl.pathname).toBe(`/w/${WORKSPACE}/inbox`);
+  expect(proposalUrl.searchParams.get("proposal")).toBe(proposalId);
 });
