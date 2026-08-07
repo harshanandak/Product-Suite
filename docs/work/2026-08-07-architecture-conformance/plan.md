@@ -316,9 +316,24 @@ code, or production migration. Those remain separate decisions behind the contra
 ## Related decisions and work
 
 - Agentic workspace platform: Forge issue `9a77ebc8-1b20-4634-8e93-5bcd920eac31`.
+- Detailed agentic workspace, canvas, collaboration, runtime, tool-option, licensing, hosting, and
+  cost research: `feat/agentic-canvas-foundation@32a6859` and
+  `feat/agentic-workspace-experience@ee6661d`, especially
+  `docs/architecture/agentic-workspace-platform.md` and
+  `docs/architecture/agentic-workspace-dependency-economics.md`.
 - Custom Mode plan: `feat/custom-mode-platform@98d38c04a8573d163d701ebeb3b16d825ec7257c`.
+- Custom Mode research: `feat/custom-mode-platform@98d38c04`,
+  `docs/research/custom-mode-platform.md`.
 - Workflow Automation boundary: Forge issue `ce69295d-0dcd-4650-8ad6-7c9dd7060b3a`.
 - Product UX: Forge issue `b07480ea-f990-424f-b848-2b659a6dba18`.
+- Live UX findings: `docs/research/2026-07-26-ux-audit-and-simplification.md`.
+- Component reuse and UI sourcing: `docs/design/component-sourcing-matrix-2026-06-17.md`
+  and `docs/design/component-sourcing-addendum-2026-06-18.md`.
 - Meeting roadmap: `docs/design/2026-07-25-meeting-product-roadmap.md`.
+- Meeting provider, capture, bot economics, and talkback research:
+  `docs/research/2026-07-25-meeting-experience-and-livekit.md`,
+  `docs/research/2026-07-10-meeting-bot-economics-and-alternatives.md`, and
+  `docs/research/2026-07-10-meeting-web-capture-and-stt.md`.
+- Cloudflare runtime research: `docs/research/2026-07-12-cloudflare-workers-for-platforms-eval.md`.
 - Existing classifier: `scripts/prepush-classify.mjs`.
 - Current production migration gate: `.github/workflows/platform-api-deploy.yml`.
