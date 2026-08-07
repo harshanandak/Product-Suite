@@ -176,6 +176,23 @@ export async function reconstructThreadMessages(
   threadId: string,
   tenantId: string,
 ): Promise<UIMessage[]> {
+  const mapped = await runQuery<{ id: string }>(
+    sql,
+    `select id from "conversations"
+     where tenant_id = $1 and legacy_source = 'platform.chat_threads' and legacy_id = $2
+     limit 1`,
+    [tenantId, threadId],
+  )
+  if (mapped[0]) {
+    const events = await runQuery<{ message: UIMessage }>(
+      sql,
+      `select payload->'message' as message from "conversation_events"
+       where tenant_id = $1 and conversation_id = $2 and kind = 'message.created'
+       order by sequence asc`,
+      [tenantId, mapped[0].id],
+    )
+    return events.map((event) => event.message).filter((message) => message && typeof message === 'object')
+  }
   const rows = await runQuery<{ transcript: unknown }>(
     sql,
     `select transcript from "agent_runs"
@@ -183,5 +200,5 @@ export async function reconstructThreadMessages(
      order by created_at`,
     [threadId, tenantId],
   )
-  return concatDeltas(rows.map((r) => r.transcript))
+  return concatDeltas(rows.map((row) => row.transcript))
 }

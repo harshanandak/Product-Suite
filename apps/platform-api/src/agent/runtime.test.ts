@@ -117,6 +117,7 @@ describe('runAgentChat (request-free runtime + agent_runs lifecycle)', () => {
     // client-generated UUID and holdout a computed boolean, so assert shape not value.
     const mint = query.mock.calls.find(([t]) => /insert into "agent_runs"/i.test(String(t)))
     const mintParams = (mint?.[1] ?? []) as unknown[]
+    expect(String(mint?.[0])).toMatch(/conversation_id/i)
     expect(mintParams).toHaveLength(5)
     expect(mintParams[0]).toEqual(expect.any(String))
     expect(mintParams.slice(1)).toEqual(['t_1', 'u_1', null, expect.any(Boolean)])
@@ -159,6 +160,7 @@ describe('runAgentChat (request-free runtime + agent_runs lifecycle)', () => {
     )
     const mint = query.mock.calls.find(([t]) => /insert into "agent_runs"/i.test(String(t)))
     const mintParams = (mint?.[1] ?? []) as unknown[]
+    expect(String(mint?.[0])).toMatch(/conversation_id/i)
     expect(mintParams).toHaveLength(5)
     expect(mintParams[0]).toEqual(expect.any(String))
     expect(mintParams.slice(1)).toEqual(['t_1', 'u_1', 'th_1', expect.any(Boolean)])
@@ -526,6 +528,7 @@ describe('runAgentChat (request-free runtime + agent_runs lifecycle)', () => {
     expect(String(mint?.[0])).toMatch(/\$5/)
     expect(String(mint?.[0])).not.toMatch(/,\s*false\)/i)
     const mintParams = (mint?.[1] ?? []) as unknown[]
+    expect(String(mint?.[0])).toMatch(/conversation_id/i)
     expect(mintParams).toHaveLength(5)
     expect(mintParams[0]).toEqual(expect.any(String)) // client-generated run id
     expect(typeof mintParams[4]).toBe('boolean')
