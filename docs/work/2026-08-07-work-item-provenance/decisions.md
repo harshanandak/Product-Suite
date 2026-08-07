@@ -43,3 +43,35 @@ Focused unit/integration tests are required. The live E2E is PASS only when its 
 **Choice made:** Use the existing `meeting_promotions` row as the tenant-scoped trusted meeting-origin discriminator. Preserve `meeting` only when the same tenant and proposal are present in that ledger; derive `agent` for every other accepted work-item proposal. Task 1 ownership expanded to `apps/platform-api/src/meeting/ingest.test.ts` for its regression fixture and later to `apps/platform-api/src/meeting/ingest.ts` to publish the proposal and ledger row atomically after quality review exposed a visible-pending race. Never trust `payload.source`.
 
 **Status:** RESOLVED
+
+## Decision gate 2 - Provenance contract field names
+
+**Date:** 2026-08-07
+
+**Task:** Task 2 - Project existing provenance through the tenant-safe read model
+
+**Gap:** The plan defined the facts but not their public contract property names.
+
+**Score:** 6/14; public export 2, shared module 2, data-exposure semantics 1, reversal cost 1.
+
+**Route:** SPEC-REVIEWER
+
+**Choice made:** Add optional readonly `WorkItem.provenance` using exact durable authority names `applied_from_proposal_id`, `actor_type`, `actor_id`, `on_behalf_of`, `run_id`, and `run_summary`. Keep proposal-decision facts distinct as `approver_id`, `approver_name`, and `approved_at`. `actor_type` is non-null; relationship and joined context fields are nullable.
+
+**Status:** RESOLVED
+
+## Decision gate 3 - Read projections versus the provenance stamp tripwire
+
+**Date:** 2026-08-07
+
+**Task:** Task 2 - Project existing provenance through the tenant-safe read model
+
+**Gap:** The provenance completeness test counted column tokens across entire files, so a SELECT/read projection looked like an inline write and failed despite adding no write path.
+
+**Score:** 5/14; files beyond task 2, shared safety test, and security-gate semantics required spec review.
+
+**Route:** SPEC-REVIEWER
+
+**Choice made:** Expand Task 2 ownership only to `apps/platform-api/src/provenance/stamp-completeness.test.ts`. Extract tagged SQL INSERT/UPDATE bodies globally, assert their total equals the expected Tier-2 write count, and require every extracted write to contain all four provenance columns. Ignore SELECT/type/mapper occurrences; add no file exemption and do not inflate the expected count. The same review confirmed durable IDs come from `wi.applied_from_proposal_id` and `wi.run_id`, while tenant-safe joins supply proposal decision, run summary, and approver display context.
+
+**Status:** RESOLVED
