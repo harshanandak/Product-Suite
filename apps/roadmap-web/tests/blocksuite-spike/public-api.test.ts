@@ -28,17 +28,28 @@ describe("BlockSuite 0.19.5 public headless surface", () => {
     const doc = collection.createDoc({ id: "spike-document" });
 
     let pageId = "";
+    let paragraphId = "";
     await doc.load(() => {
       pageId = doc.addBlock("affine:page", { title: new Text("Spike") });
       const noteId = doc.addBlock("affine:note", {}, pageId);
-      doc.addBlock("affine:paragraph", { text: new Text("Public API") }, noteId);
+      paragraphId = doc.addBlock(
+        "affine:paragraph",
+        { text: new Text("Public API") },
+        noteId,
+      );
     });
+
+    const page = doc.getBlock(pageId);
+    if (!page) throw new Error("page block was not created");
+    doc.updateBlock(page.model, { title: new Text("Updated Spike") });
 
     expect(doc.id).toBe("spike-document");
     expect(doc.spaceDoc).toBeDefined();
-    expect(doc.getBlock(pageId)?.id).toBe(pageId);
-    expect(typeof doc.addBlock).toBe("function");
-    expect(typeof doc.updateBlock).toBe("function");
-    expect(typeof doc.getBlocksByFlavour).toBe("function");
+    expect(
+      (page.model as typeof page.model & { title: Text }).title.toString(),
+    ).toBe("Updated Spike");
+    expect(doc.getBlocksByFlavour("affine:paragraph").map((block) => block.id)).toEqual([
+      paragraphId,
+    ]);
   });
 });

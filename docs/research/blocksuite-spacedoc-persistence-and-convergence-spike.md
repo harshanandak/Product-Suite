@@ -13,9 +13,9 @@ canonical-load locking, or reconnect overwrite safety produces **NO-GO**.
 
 ## Exact dependency state
 
-- `apps/roadmap-web/package.json:31-35` declares five BlockSuite packages as
+- Pre-pin baseline: `apps/roadmap-web/package.json:31-35` declared five BlockSuite packages as
   `^0.19.5`, so the manifest does not guarantee the evaluated release.
-- `bun.lock:564-612` and `apps/roadmap-web/bun.lock:242-272` currently resolve the
+- At that baseline, `bun.lock:564-612` and `apps/roadmap-web/bun.lock:242-272` resolved the
   BlockSuite graph to `0.19.5`, including `@blocksuite/store@0.19.5` with integrity
   `sha512-PK+4wQtwk0U4Y...Y3ZjbPUxo0vLw==`.
 - The published `@blocksuite/store@0.19.5` tarball has SHA-1
@@ -110,7 +110,7 @@ core failure and records NO-GO. Missing or timed-out evidence is INCOMPLETE and 
 | A01 Broken Access Control | No authority change | No API, tenant, auth, or viewer path is touched. |
 | A02 Cryptographic Failures | No | Fixtures contain synthetic text only; no secrets or user data. |
 | A03 Injection | Low | No HTML/editor effects are loaded; assertions use fixed synthetic strings. |
-| A04 Insecure Design | Yes | Edit capability stays locked until canonical load; reconnect is merge-tested and fail-closed. |
+| A04 Insecure Design | Blocked | Canonical-load locking, convergence, and reconnect remained unverified after the Task 2 hard stop. |
 | A05 Security Misconfiguration | Yes | Exact pins and public export guards prevent silent version drift. |
 | A06 Vulnerable Components | Advisory | Existing dependency only; release/security scanning remains a later adoption gate. |
 | A07 Identification/Auth Failures | No | No identity surface is changed. |

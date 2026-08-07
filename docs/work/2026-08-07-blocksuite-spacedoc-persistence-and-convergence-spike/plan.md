@@ -110,9 +110,12 @@ Key findings:
 
 - `apps/roadmap-web/package.json`
 - `apps/roadmap-web/bun.lock`
+- `apps/roadmap-web/vitest.config.ts`
 - `bun.lock`
 - `apps/roadmap-web/tests/blocksuite-spike/**`
-- this work folder's `decisions.md`
+- `docs/research/blocksuite-spacedoc-persistence-and-convergence-spike.md`
+- this work folder's `plan.md`, `tasks.md`, and `decisions.md`
+- `CHANGELOG.md` for the required PR handoff entry
 
 No other file is authorized without a new user decision and Forge scope update.
 

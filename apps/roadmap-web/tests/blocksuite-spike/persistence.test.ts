@@ -10,6 +10,8 @@ describe("BlockSuite 0.19.5 spaceDoc persistence", () => {
     const result = spawnSync("bun", ["test", probe], {
       cwd: repositoryRoot,
       encoding: "utf8",
+      timeout: 30_000,
+      killSignal: "SIGKILL",
     });
     const output = `${result.stdout}${result.stderr}`;
 
