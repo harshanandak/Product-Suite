@@ -75,8 +75,10 @@ Yjs during the headless run. These warnings were retained as evidence, not suppr
 - Full supported validation: `bun run test:prepush` ran for 662.5s; earlier package,
   platform-web (108 files / 1085 tests), meeting-web (27 files / 132 tests), and repo-tooling
   checks passed, then the run failed at Roadmap typecheck on the same two `TS2307` errors.
-- Security audit: `bun audit --production` failed with 106 existing advisories (40 high,
-  55 moderate, 11 low), including transitive advisories through BlockSuite packages.
+- Security gate: `bun audit --production --audit-level critical` passes with zero critical
+  advisories. The unthresholded production audit reports 113 existing advisories (43 high,
+  58 moderate, 12 low), tracked outside this lane in Forge issue
+  `aa1cf361-c258-4e76-8bac-1308b4edfbf9`.
 - Forge adapter note: `forge dev` placed/read the issue in active dev, but its optional Beads audit
   write failed because the configured Dolt `product_suite` database was unavailable. Kernel lease
   ownership remained proven.
@@ -105,7 +107,9 @@ The installed manifests for all five direct packages identify exact version `0.1
 and distribution obligations remain adoption gates; this spike grants no license or security waiver.
 The production boundary would remain product-hosted Yjs/Hocuspocus persistence and collaboration.
 No BlockSuite managed service, provider identity, or server authority is accepted by this decision,
-and this headless rejection spike does not claim to validate production hosting cost or scale.
+and this headless rejection spike does not claim to validate production hosting cost or scale. The
+critical audit threshold passes; lower-severity repository advisories remain owned by Forge issue
+`aa1cf361-c258-4e76-8bac-1308b4edfbf9`, not this decision PR.
 
 ## D10 - Product-owned artifact envelope
 
