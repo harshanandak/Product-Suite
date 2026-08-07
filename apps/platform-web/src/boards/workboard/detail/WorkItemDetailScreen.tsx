@@ -62,6 +62,19 @@ function formatDate(iso: string | null): string {
   });
 }
 
+/** Human-readable approval timestamp while preserving the ISO value on <time>. */
+function formatDateTime(iso: string): string {
+  return new Date(iso).toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
+/** Stable compact fallback for durable IDs when joined display context is gone. */
+function shortId(id: string): string {
+  return id.length <= 18 ? id : id.slice(0, 8) + "…" + id.slice(-6);
+}
+
 /** Two-char initials for an owner avatar, from stored initials or the name. */
 function ownerInitials(owner: Owner): string {
   if (owner.initials && owner.initials.trim() !== "") return owner.initials;
@@ -94,9 +107,13 @@ function EmptyTab({
   );
 }
 
-/** Overview narrative block — the description brief and tags. */
-function OverviewTab({ row }: Readonly<{ row: WorkItemRow }>) {
+/** Overview narrative block — the description brief, tags, and provenance. */
+function OverviewTab({
+  row,
+  workspace,
+}: Readonly<{ row: WorkItemRow; workspace: string }>) {
   const hasDescription = Boolean(row.description && row.description.trim() !== "");
+  const provenance = row.provenance;
   return (
     <section className="space-y-5">
       {hasDescription ? (
@@ -117,6 +134,140 @@ function OverviewTab({ row }: Readonly<{ row: WorkItemRow }>) {
             </Badge>
           ))}
         </div>
+      ) : null}
+
+      {provenance ? (
+        <section
+          aria-labelledby="work-item-provenance-heading"
+          className="space-y-3 rounded-lg border border-border bg-card p-4"
+        >
+          <h2 id="work-item-provenance-heading" className="text-sm font-medium">
+            Provenance
+          </h2>
+          <dl className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
+            <div className="contents">
+              <dt className="text-muted-foreground">Source</dt>
+              <dd className="min-w-0">
+                <ProvenanceChip source={row.source} />
+              </dd>
+            </div>
+
+            {provenance.applied_from_proposal_id ? (
+              <div className="contents">
+                <dt className="text-muted-foreground">Proposal</dt>
+                <dd className="min-w-0">
+                  <Link
+                    to="/w/$workspace/inbox"
+                    params={{ workspace }}
+                    search={{
+                      proposal: provenance.applied_from_proposal_id,
+                    }}
+                    aria-label={
+                      "Review proposal " +
+                      provenance.applied_from_proposal_id +
+                      " in Inbox"
+                    }
+                    className="inline-flex max-w-full flex-wrap items-baseline gap-x-2 text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <span>Review in Inbox</span>
+                    <span className="break-all font-mono text-xs">
+                      {provenance.applied_from_proposal_id}
+                    </span>
+                  </Link>
+                </dd>
+              </div>
+            ) : null}
+
+            <div className="contents">
+              <dt className="text-muted-foreground">Actor</dt>
+              <dd className="min-w-0 break-words">
+                {provenance.actor_id ? (
+                  <span className="inline-flex max-w-full flex-wrap gap-x-1">
+                    <span className="capitalize">{provenance.actor_type}</span>
+                    <span aria-hidden>·</span>
+                    <span
+                      className="break-all font-mono text-xs"
+                      title={provenance.actor_id}
+                    >
+                      {shortId(provenance.actor_id)}
+                    </span>
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">Unavailable</span>
+                )}
+              </dd>
+            </div>
+
+            <div className="contents">
+              <dt className="text-muted-foreground">On behalf of</dt>
+              <dd className="min-w-0 break-words">
+                {provenance.on_behalf_of ? (
+                  <span
+                    className="break-all font-mono text-xs"
+                    title={provenance.on_behalf_of}
+                  >
+                    {shortId(provenance.on_behalf_of)}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">Unavailable</span>
+                )}
+              </dd>
+            </div>
+
+            <div className="contents">
+              <dt className="text-muted-foreground">Run</dt>
+              <dd className="min-w-0 break-words">
+                {provenance.run_summary ? (
+                  provenance.run_summary
+                ) : provenance.run_id ? (
+                  <span
+                    className="break-all font-mono text-xs"
+                    title={provenance.run_id}
+                  >
+                    {shortId(provenance.run_id)}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">Unavailable</span>
+                )}
+              </dd>
+            </div>
+
+            {provenance.applied_from_proposal_id ? (
+              <>
+                <div className="contents">
+                  <dt className="text-muted-foreground">Approver</dt>
+                  <dd className="min-w-0 break-words">
+                    {provenance.approver_name ? (
+                      provenance.approver_name
+                    ) : provenance.approver_id ? (
+                      <span
+                        className="break-all font-mono text-xs"
+                        title={provenance.approver_id}
+                      >
+                        {shortId(provenance.approver_id)}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">Unavailable</span>
+                    )}
+                  </dd>
+                </div>
+
+                <div className="contents">
+                  <dt className="text-muted-foreground">Approved</dt>
+                  <dd className="min-w-0 break-words">
+                    {provenance.approved_at ? (
+                      <time dateTime={provenance.approved_at}>
+                        {formatDateTime(provenance.approved_at)}
+                      </time>
+                    ) : (
+                      <span className="text-muted-foreground">Unavailable</span>
+                    )}
+                  </dd>
+                </div>
+              </>
+            ) : null}
+          </dl>
+        </section>
       ) : null}
     </section>
   );
@@ -784,7 +935,7 @@ export function WorkItemDetailScreen({
 
             <TabsContent value="overview" className="space-y-8 pt-5">
               {/* §C module order: description → Checks → Tasks. */}
-              <OverviewTab row={row} />
+              <OverviewTab row={row} workspace={workspace} />
               <ChecksModule
                 checks={checks}
                 completed={completed}

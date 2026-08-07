@@ -10,7 +10,7 @@ import {
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { createMockWorkItemRepository } from "@/data/work-items/repository";
-import type { WorkItemRepository } from "@/data/work-items";
+import type { WorkItem, WorkItemRepository } from "@/data/work-items";
 
 // Drive the route param and neutralize <Link> so the screen can be exercised
 // without spinning up a full RouterProvider. A hoisted holder lets each test set
@@ -20,7 +20,29 @@ const routerMock = vi.hoisted(() => ({
 }));
 vi.mock("@tanstack/react-router", () => ({
   useParams: () => routerMock.params,
-  Link: ({ children }: { children: ReactNode }) => <a href="#">{children}</a>,
+  Link: ({
+    children,
+    to,
+    params,
+    search,
+    ...rest
+  }: {
+    children: ReactNode;
+    to: string;
+    params?: Record<string, string>;
+    search?: Record<string, string>;
+  } & Record<string, unknown>) => {
+    let href = to;
+    for (const [key, value] of Object.entries(params ?? {})) {
+      href = href.replace("$" + key, value);
+    }
+    const query = new URLSearchParams(search ?? {}).toString();
+    return (
+      <a href={query ? href + "?" + query : href} {...rest}>
+        {children}
+      </a>
+    );
+  },
 }));
 
 import { WorkItemDetailScreen } from "./WorkItemDetailScreen";
@@ -34,7 +56,146 @@ beforeAll(() => {
   Element.prototype.scrollIntoView ??= () => {};
 });
 
+async function repoWithFirstItem(
+  overrides: Partial<WorkItem>,
+): Promise<{ repo: WorkItemRepository; item: WorkItem }> {
+  const repo = createMockWorkItemRepository();
+  const items = await repo.list();
+  const item: WorkItem = { ...items[0]!, ...overrides };
+  vi.spyOn(repo, "list").mockResolvedValue([item, ...items.slice(1)]);
+  return { repo, item };
+}
+
 describe("WorkItemDetailScreen", () => {
+  it("renders complete provenance with an accessible proposal deep link", async () => {
+    const proposalId = "proposal_complete_0123456789abcdef";
+    const approvedAt = "2026-07-02T09:30:00.000Z";
+    const { repo, item } = await repoWithFirstItem({
+      source: "agent",
+      provenance: {
+        applied_from_proposal_id: proposalId,
+        actor_type: "agent",
+        actor_id: "agent_42",
+        on_behalf_of: "user_authorizer_7",
+        run_id: "run_42",
+        run_summary: "Prepared the launch work",
+        approver_id: "user_approver_9",
+        approver_name: "Ada Lovelace",
+        approved_at: approvedAt,
+      },
+    });
+    routerMock.params = { workspace: "acme", itemId: item.id };
+
+    render(<WorkItemDetailScreen repository={repo} />);
+
+    const provenance = await screen.findByRole("region", {
+      name: "Provenance",
+    });
+    expect(within(provenance).getByText("Source")).toBeInTheDocument();
+    expect(within(provenance).getByText("Agent")).toBeInTheDocument();
+    expect(within(provenance).getByText("agent_42")).toBeInTheDocument();
+    expect(
+      within(provenance).getByText("user_authorizer_7"),
+    ).toBeInTheDocument();
+    expect(
+      within(provenance).getByText("Prepared the launch work"),
+    ).toBeInTheDocument();
+    expect(within(provenance).getByText("Ada Lovelace")).toBeInTheDocument();
+
+    const proposalLink = within(provenance).getByRole("link", {
+      name: "Review proposal " + proposalId + " in Inbox",
+    });
+    expect(proposalLink).toHaveAttribute(
+      "href",
+      "/w/acme/inbox?proposal=" + proposalId,
+    );
+    expect(within(proposalLink).getByText(proposalId)).toHaveClass("break-all");
+    expect(within(proposalLink).getByText(proposalId)).not.toHaveClass(
+      "truncate",
+    );
+
+    const approvalTime = provenance.querySelector("time");
+    expect(approvalTime).toHaveAttribute("datetime", approvedAt);
+    expect(approvalTime).not.toHaveTextContent(approvedAt);
+  });
+
+  it("renders unavailable actor and run context without inventing identities", async () => {
+    const { repo, item } = await repoWithFirstItem({
+      source: "agent",
+      provenance: {
+        applied_from_proposal_id: "proposal_partial",
+        actor_type: "agent",
+        actor_id: null,
+        on_behalf_of: null,
+        run_id: null,
+        run_summary: null,
+        approver_id: "user_deleted_17",
+        approver_name: null,
+        approved_at: "2026-07-02T09:30:00.000Z",
+      },
+    });
+    routerMock.params = { workspace: "acme", itemId: item.id };
+
+    render(<WorkItemDetailScreen repository={repo} />);
+
+    const provenance = await screen.findByRole("region", {
+      name: "Provenance",
+    });
+    expect(within(provenance).getByText("Actor")).toBeInTheDocument();
+    expect(within(provenance).getByText("Run")).toBeInTheDocument();
+    expect(within(provenance).getAllByText("Unavailable")).toHaveLength(3);
+    expect(within(provenance).getByText("user_deleted_17")).toBeInTheDocument();
+  });
+
+  it("keeps stable ID fallbacks when joined run and approver context is unavailable", async () => {
+    const runId = "run_0123456789abcdef";
+    const approverId = "user_0123456789abcdef";
+    const { repo, item } = await repoWithFirstItem({
+      source: "agent",
+      provenance: {
+        applied_from_proposal_id: "proposal_dangling_context",
+        actor_type: "agent",
+        actor_id: "agent_42",
+        on_behalf_of: "user_authorizer_7",
+        run_id: runId,
+        run_summary: null,
+        approver_id: approverId,
+        approver_name: null,
+        approved_at: "2026-07-02T09:30:00.000Z",
+      },
+    });
+    routerMock.params = { workspace: "acme", itemId: item.id };
+
+    render(<WorkItemDetailScreen repository={repo} />);
+
+    const provenance = await screen.findByRole("region", {
+      name: "Provenance",
+    });
+    const runFallback = within(provenance).getByText("run_0123…abcdef");
+    const approverFallback = within(provenance).getByText("user_012…abcdef");
+    expect(runFallback).toHaveAttribute("title", runId);
+    expect(approverFallback).toHaveAttribute("title", approverId);
+    expect(runFallback).toHaveClass("break-all");
+    expect(approverFallback).not.toHaveClass("truncate");
+    expect(within(provenance).queryByText("Unavailable")).toBeNull();
+  });
+
+  it("omits provenance for a legacy manual item while retaining Source and Activity", async () => {
+    const { repo, item } = await repoWithFirstItem({
+      source: "manual",
+      provenance: undefined,
+    });
+    routerMock.params = { workspace: "acme", itemId: item.id };
+
+    render(<WorkItemDetailScreen repository={repo} />);
+
+    await screen.findByRole("heading", { level: 1, name: item.title });
+    expect(screen.queryByRole("region", { name: "Provenance" })).toBeNull();
+    expect(screen.getByText("Source")).toBeInTheDocument();
+    expect(screen.getByText("Manual")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Activity" })).toBeInTheDocument();
+  });
+
   it("renders a work item's header, tab set and properties from real data", async () => {
     const repo: WorkItemRepository = createMockWorkItemRepository();
     const items = await repo.list();
