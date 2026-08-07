@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Cross-platform architecture conformance plan with tiered contract checks, dependency and editor rejection gates, and research traceability for canvas, agents, meetings, Custom Mode, workflow, UI, and data decisions (PR #157, db5ad299-2988-4ff2-958b-4a37d35dffe7)
 - Advisory memory-curator verdict in Review Inbox, gated by review and scoped to privacy-safe context (PR #154, b0d3975f-1704-4ca1-a552-317a36e540b4)
 - Root validation baseline across `roadmap-web`, `meeting-web`, and `meeting-api`, including shared root commands, Meeting API validation helpers, and CI alignment (PR #2, product-suite-84m)
 - Schema and domain ownership inventory for roadmap and meeting surfaces, including canonical ownership boundaries, overlap rules, and guarded discoverability links (PR #3, product-suite-waq)
