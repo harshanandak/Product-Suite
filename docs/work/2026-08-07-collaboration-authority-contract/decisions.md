@@ -39,3 +39,12 @@ CloudEvents informs stable event identity and a metadata/data split, but Product
 ## D10 - PLAN exits at human approval
 
 This branch contains design and TDD artifacts only. Production code, migrations, UI projections, vendor integration, merge, and `gate.plan-approval` mutation are explicitly deferred to authorized later stages.
+## DEV Decision 1
+
+**Date**: 2026-08-07
+**Task**: Task 1 - Extend the canonical conversation contract and fixtures
+**Gap**: The plan assigned assertions to `index.test.ts`, but the source-test hook requires a co-located `conversation.test.ts` for `conversation.js`.
+**Score**: 2/14 (one additional test file; possibly touches the shared contract test layout)
+**Route**: PROCEED
+**Choice made**: Move the same RED/GREEN contract assertions to `conversation.test.ts`; no production/API behavior changes.
+**Status**: RESOLVED
