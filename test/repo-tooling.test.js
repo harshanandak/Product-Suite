@@ -6,6 +6,20 @@ const rootDir = join(import.meta.dir, "..");
 const packageJson = JSON.parse(
   readFileSync(join(rootDir, "package.json"), "utf8"),
 );
+const dependencyLockPaths = [
+  join(rootDir, "bun.lock"),
+  join(rootDir, "apps", "roadmap-web", "bun.lock"),
+];
+const isPatchedSerovalVersion = (version) => {
+  const minimumVersion = [1, 5, 3];
+
+  for (let index = 0; index < minimumVersion.length; index++) {
+    const difference = Number(version[index]) - minimumVersion[index];
+    if (difference !== 0) return difference > 0;
+  }
+
+  return true;
+};
 const rootReadme = readFileSync(join(rootDir, "README.md"), "utf8");
 const validationDocPath = join(rootDir, "docs", "VALIDATION.md");
 const validationDoc = readFileSync(validationDocPath, "utf8");
@@ -90,6 +104,18 @@ const dbContractWorkflow = readFileSync(dbContractWorkflowPath, "utf8");
 const lefthookConfig = readFileSync(join(rootDir, "lefthook.yml"), "utf8");
 
 describe("repo tooling", () => {
+  test("all locked seroval versions include the security patch", () => {
+    expect(isPatchedSerovalVersion(["1", "4", "1003"])).toBe(false);
+
+    for (const lockPath of dependencyLockPaths) {
+      const versions = [...readFileSync(lockPath, "utf8").matchAll(
+        /"[^"\n]*seroval": \["seroval@(\d+)\.(\d+)\.(\d+)"/g,
+      )];
+      expect(versions.length).toBeGreaterThan(0);
+      expect(versions.every(([, ...version]) => isPatchedSerovalVersion(version))).toBe(true);
+    }
+  });
+
   test("root workspace and scripts acknowledge shared packages", () => {
     expect(packageJson.workspaces).toContain("packages/contracts");
     expect(packageJson.workspaces).toContain("packages/sdk");
