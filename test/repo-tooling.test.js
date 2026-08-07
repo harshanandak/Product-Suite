@@ -23,6 +23,10 @@ const isPatchedSerovalVersion = (version) => {
 const rootReadme = readFileSync(join(rootDir, "README.md"), "utf8");
 const validationDocPath = join(rootDir, "docs", "VALIDATION.md");
 const validationDoc = readFileSync(validationDocPath, "utf8");
+const p2bMemoryImpactDesign = readFileSync(
+  join(rootDir, "docs", "design", "2026-07-16-memory-brain-p2b.md"),
+  "utf8",
+);
 const servicesReadme = readFileSync(join(rootDir, "services", "README.md"), "utf8");
 const buildingBlocksPlan = readFileSync(
   join(rootDir, "docs", "plans", "building-blocks-transformation-pr-plan.md"),
@@ -104,6 +108,36 @@ const dbContractWorkflow = readFileSync(dbContractWorkflowPath, "utf8");
 const lefthookConfig = readFileSync(join(rootDir, "lefthook.yml"), "utf8");
 
 describe("repo tooling", () => {
+  test("memory-value analysis unions attribution rails at the run-memory unit", () => {
+    const attributionSection = p2bMemoryImpactDesign.match(
+      /#### Attribution basis for memory-value \/ holdout analysis[\s\S]*?(?=\n### |\n## |\s*$)/i,
+    );
+    expect(attributionSection).not.toBeNull();
+    const section = attributionSection[0].toLowerCase();
+    const sqlMatch = section.match(/```sql\s+([\s\S]*?)```/i);
+    expect(sqlMatch).not.toBeNull();
+    const contract = sqlMatch[1];
+
+    expect(contract).toContain("with memory_exposure as");
+    expect(contract).toMatch(
+      /select a\.run_id,\s*a\.memory_id,\s*a\.suppressed\s+from "run_memory_attributions" a\s+where a\.memory_id\s+is\s+not\s+null/,
+    );
+    expect(contract).toMatch(
+      /select a\.run_id,\s*a\.memory_id,\s*a\.suppressed\s+from "run_knowledge_attributions" a\s+where a\.kind\s*=\s*'memory'\s+and a\.memory_id\s+is\s+not\s+null/,
+    );
+    expect(contract).toMatch(
+      /run_memory_attributions[\s\S]*union all[\s\S]*run_knowledge_attributions/,
+    );
+    expect(contract).toMatch(
+      /select e\.run_id,\s*e\.memory_id,\s*bool_or\(suppressed\)\s+as\s+suppressed[\s\S]*group by run_id,\s*memory_id/,
+    );
+    expect(contract).toMatch(
+      /select e\.run_id,\s*e\.memory_id,\s*e\.suppressed,\s*r\.memory_holdout[\s\S]*join "agent_runs" r\s+on r\.id\s*=\s*e\.run_id[\s\S]*where r\.kind\s*=\s*'chat'/,
+    );
+    expect(section).toContain("suppressed rows are retained");
+    expect(section).toContain("repeated runs remain separate");
+  });
+
   test("all locked seroval versions include the security patch", () => {
     expect(isPatchedSerovalVersion(["1", "4", "1003"])).toBe(false);
 

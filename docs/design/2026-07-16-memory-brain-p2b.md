@@ -53,6 +53,40 @@ Attribution-before-injection discipline is preserved: on a treated run we still 
 - **Clustering guard (`MIN_THREADS`, interim):** the Newcombe CI treats proposals as INDEPENDENT, but holdout assignment — and the correlation between a thread's proposals — is per-THREAD. With many proposals concentrated in few threads, the proposal-level CI is anti-conservative (falsely narrow) and could unlock the `helps`/`hurts` headline on little real independent evidence. Until a thread-clustered/bootstrap CI lands (§6 deferred), `decideVerdict` additionally requires **≥ `MIN_THREADS` (default 5) distinct applied threads in EACH cohort**; below that it returns `insufficient` regardless of proposal counts. This is an honest INTERIM conservatism, not the final estimator — it only ever ADDS a gate, never loosens one.
 - Shape: `{ window_days, holdout:{applied,edited,editRate,rejected,rejectRate,threads}, treated:{…}, delta, savedEdits, ciLow, ciHigh, verdict }`.
 
+#### Attribution basis for memory-value / holdout analysis
+
+The P2b proposal-cohort metric above remains proposal-based. Any later
+memory-value or holdout report that joins attribution rows to those outcomes
+must start from one canonical, run-scoped memory exposure set:
+
+```sql
+with memory_exposure as (
+  select e.run_id, e.memory_id, bool_or(suppressed) as suppressed
+  from (
+    select a.run_id, a.memory_id, a.suppressed
+    from "run_memory_attributions" a
+    where a.memory_id is not null
+    union all
+    select a.run_id, a.memory_id, a.suppressed
+    from "run_knowledge_attributions" a
+    where a.kind = 'memory' and a.memory_id is not null
+  ) e
+  group by run_id, memory_id
+)
+select e.run_id, e.memory_id, e.suppressed, r.memory_holdout
+from memory_exposure e
+join "agent_runs" r on r.id = e.run_id
+where r.kind = 'chat';
+```
+
+The `UNION ALL` keeps the two rails visible before the grouping step; grouping
+by `(run_id, memory_id)` counts the same memory once when both rails reach it,
+while repeated runs remain separate analysis units. `kind='memory'` and the
+non-null `memory_id` guard exclude chunk rows. Suppressed rows are retained and
+their `bool_or` value preserves the holdout counterfactual when duplicate rails
+disagree. The run's `memory_holdout` flag, rather than suppression alone, is the
+cohort authority.
+
 The causal unit is the drafting chat run's holdout flag (memory present-or-not when the agent drew the proposal). NULL `run_id` proposals are excluded by the inner join (and apply.ts terminally fails run-less proposals anyway). Known limitation (honestly bounded): proposals cluster within thread/run, so the proposal-level CI is an APPROXIMATION that alone would be mildly optimistic; the `MIN_THREADS` gate is the interim conservatism that keeps the claimed guarantee true, and a thread-clustered/bootstrap CI (§6 deferred) is the tracked refinement that will replace it.
 
 ### D. Metric API route
