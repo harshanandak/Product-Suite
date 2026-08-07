@@ -1,6 +1,5 @@
 import type { Sql } from '@product-suite/db'
 
-import { createProposal } from '../proposals/repository'
 import { meetingTenantIdsFor, resolvePlatformTenantId, type MeetingTenantMap } from './tenant-map'
 
 /** The provenance stamped on meeting-authored proposals. */
@@ -39,7 +38,7 @@ export interface MeetingIngestResult {
   /**
    * Candidates this run did not propose because something else already had:
    * a prior run recorded in the ledger, or a concurrent run that won the ledger's
-   * unique index (whose loser's proposal is superseded, not counted as created).
+   * unique index (whose losing transaction is rolled back, not counted as created).
    */
   skippedDuplicate: number
   /**
@@ -111,9 +110,9 @@ export function buildRationale(candidate: MeetingCandidateRow): string {
  * items by DELETE + re-INSERT: the row is reborn on every reprocess, its
  * content-derived id is not.
  *
- * The ledger read skips records a PRIOR run proposed; the ledger's unique index
- * settles two CONCURRENT runs, and the loser supersedes its own surplus proposal
- * (see `recordPromotion`). Either way the reviewer sees exactly one pending row.
+ * The ledger read skips records a PRIOR run proposed. A proposal and its ledger row
+ * publish in one transaction, so the ledger's unique index settles two concurrent
+ * runs and rolls the losing proposal back. The reviewer sees exactly one pending row.
  *
  * Nothing here writes a work item. The proposal goes through the same review queue
  * as every other agent proposal, and a human's accept is what applies it.
@@ -182,29 +181,44 @@ export async function runMeetingIngest(
         result.skippedDuplicate += 1
         continue
       }
-      const proposal = await createProposal(sql, {
-        tenant_id: ctx.tenantId,
-        run_id: runId,
-        target_type: 'work_item',
-        operation: 'create',
-        payload: buildProposalPayload(candidate),
-        rationale: buildRationale(candidate),
-        confidence: candidate.confidence,
-        prompt_version: MEETING_INGEST_PROMPT_VERSION,
-        actor_type: 'agent',
-        actor_id: runId,
-        context_ref: candidate.id,
-      })
-      const reserved = await recordPromotion(sql, ctx.tenantId, candidate.id, proposal.id)
-      if (!reserved) {
-        // A concurrent ingest claimed this record between our ledger read and write.
-        // Its proposal is the one the ledger points at, so ours is surplus — latch it
-        // out of `pending` rather than leave the reviewer two identical rows.
-        await supersedeProposal(sql, proposal.id)
+      const proposalId = crypto.randomUUID()
+      try {
+        await sql.transaction((transaction) => [
+          transaction.query(
+            `insert into proposals
+               (id, tenant_id, run_id, target_type, operation, payload, rationale,
+                confidence, prompt_version, actor_type, actor_id, context_ref)
+             values ($1, $2, $3, 'work_item', 'create', $4::jsonb, $5, $6, $7, 'agent', $3, $8)
+             returning id`,
+            [
+              proposalId,
+              ctx.tenantId,
+              runId,
+              JSON.stringify(buildProposalPayload(candidate)),
+              buildRationale(candidate),
+              candidate.confidence,
+              MEETING_INGEST_PROMPT_VERSION,
+              candidate.id,
+            ],
+          ),
+          transaction.query(
+            `insert into meeting_promotions (tenant_id, meeting_record_id, proposal_id)
+             values ($1, $2, $3)
+             returning id`,
+            [ctx.tenantId, candidate.id, proposalId],
+          ),
+        ])
+      } catch (cause) {
+        const error = cause as { code?: unknown; constraint?: unknown; message?: unknown }
+        const isLedgerConflict =
+          error.code === '23505' &&
+          (error.constraint === 'meeting_promotions_tenant_record_uniq' ||
+            String(error.message).includes('meeting_promotions_tenant_record_uniq'))
+        if (!isLedgerConflict) throw cause
         result.skippedDuplicate += 1
         continue
       }
-      result.proposalIds.push(proposal.id)
+      result.proposalIds.push(proposalId)
       result.proposalsCreated += 1
     }
   }
@@ -248,49 +262,4 @@ async function readLedger(
     [tenantId, ...recordIds],
   )
   return new Set(rows.map((row) => row.meeting_record_id))
-}
-
-/**
- * Claim this meeting record for the given proposal. Returns false when a concurrent
- * run already claimed it — the ledger's unique index, not the caller, decides.
- *
- * The ledger row cannot be reserved BEFORE the proposal exists (`proposal_id` is
- * `NOT NULL` with an immediate FK), and Neon's HTTP driver has no interactive
- * transaction to roll the proposal back (`provenance/record-write.ts:16`). So the
- * winner is settled after the fact: `returning id` is empty exactly when the insert
- * conflicted, the same "0 rows returned = lost the race" idiom the accept path uses
- * (`proposals/apply.ts:509`). The caller supersedes its surplus proposal.
- */
-async function recordPromotion(
-  sql: Sql,
-  tenantId: string,
-  meetingRecordId: string,
-  proposalId: string,
-): Promise<boolean> {
-  const rows = await runQuery<{ id: string }>(
-    sql,
-    `insert into "meeting_promotions" ("tenant_id", "meeting_record_id", "proposal_id")
-     values ($1, $2, $3) on conflict ("tenant_id", "meeting_record_id") do nothing
-     returning id`,
-    [tenantId, meetingRecordId, proposalId],
-  )
-  return rows.length > 0
-}
-
-/**
- * Latch a surplus proposal out of the pending inbox. `where status = 'pending'`
- * keeps this a no-op if a human somehow decided the proposal first — a decided
- * proposal is never rewritten.
- *
- * Not atomic with the ledger insert: a crash in between still strands a pending
- * duplicate, which is the residue tracked by the concurrency issue. It is strictly
- * better than leaving every loser in the inbox.
- */
-async function supersedeProposal(sql: Sql, proposalId: string): Promise<void> {
-  await runQuery(
-    sql,
-    `update "proposals" set status = 'superseded', updated_at = now()
-     where id = $1 and status = 'pending'`,
-    [proposalId],
-  )
 }
