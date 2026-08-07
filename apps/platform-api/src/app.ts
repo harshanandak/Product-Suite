@@ -7,6 +7,7 @@ import { agentMemoryImpactRoutes } from './routes/agent-memory-impact'
 import { agentReflectionRoutes } from './routes/agent-reflection'
 import { agentThreadsRoutes } from './routes/agent-threads'
 import { checksRoutes } from './routes/checks'
+import { conversationsRoutes } from './routes/conversations'
 import { dependenciesRoutes } from './routes/dependencies'
 import { meetingCandidatesRoutes } from './routes/meeting-candidates'
 import { meetingIngestRoutes } from './routes/meeting-ingest'
@@ -34,6 +35,7 @@ app.use('/api/*', clerkAuth())
 app.get('/api/me', (c) => c.json({ claims: c.get('claims') }))
 
 // Workboard: tenant-scoped reads backed by the real Neon schema.
+app.route('/api/conversations', conversationsRoutes)
 app.route('/api/work-items', workItemsRoutes)
 app.route('/api/checks', checksRoutes)
 app.route('/api/dependencies', dependenciesRoutes)
