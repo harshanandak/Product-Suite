@@ -1,7 +1,6 @@
 import type { Sql } from '@product-suite/db'
 
 import {
-  ANNOTATE_SIM_THRESHOLD,
   annotateByAuthority,
   compareByAuthority,
   resolveTier,

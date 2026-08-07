@@ -236,6 +236,14 @@ describe("repo tooling", () => {
     );
   });
 
+  test("server workspace lint gates keep their shared config", () => {
+    expect(existsSync(join(rootDir, "eslint.config.mjs"))).toBe(true);
+    expect(packageJson.scripts["verify:platform-api"]).toContain(
+      "--cwd apps/platform-api lint",
+    );
+    expect(packageJson.scripts["verify:db"]).toContain("--cwd packages/db lint");
+  });
+
   test("meeting-api validation scripts point at the Python backend", () => {
     expect(packageJson.scripts["install:meeting-api"]).toContain(
       "apps/meeting-api/backend/requirements.txt",

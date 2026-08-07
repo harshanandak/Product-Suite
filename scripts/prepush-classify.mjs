@@ -216,7 +216,6 @@ export function classify(files) {
 // Which gate steps a workspace's MAPPED suite actually runs. This is read from the
 // effective `verify:*`/`test:*` scripts (not the raw package.json), because a
 // workspace can declare a `lint` script that its bundled verify deliberately omits
-// (e.g. platform-api/db declare `lint` but `verify:*` runs only typecheck+test).
 // The effective gate is the honest signal for "is lint part of this workspace's
 // local safety net". Detected by looking for `--cwd <dir> <step>` in the resolved
 // root script strings.
@@ -226,12 +225,9 @@ function suiteSteps(dir, rootScripts) {
   return { lint: runs("lint"), typecheck: runs("typecheck"), test: runs("test") };
 }
 
-// FAST mode (mirrors `forge push --quick`): lint + typecheck locally, tests deferred
-// to CI — but ONLY for workspaces whose gate includes lint. A workspace with NO lint
-// step (its tests are the ONLY local safety net — platform-api, db, and every
-// test-only package/service) still runs its full suite incl. test, so fast mode can
-// never green-light a broken API/DB/logic change locally; it just drops the (already
-// CI-covered) test step for lint-gated workspaces. Returns ordered { label, argv }
+// FAST mode (mirrors `forge push --quick`): lint + typecheck locally, with the
+// CI-covered test step deferred. Workspaces without lint keep their full suite
+// because tests are their only local safety net. Returns ordered { label, argv }
 // descriptors (argv passed after `bun`). Always-on cheap checks come first, exactly
 // as the full path prefixes them; branch protection (a separate push-hook step) is
 // untouched.
