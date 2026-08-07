@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { callerTenantIds, callerUserId } from './tenant-scope'
+import { callerTenantIds, callerUserId, resolveHumanActorContext } from './tenant-scope'
 import type { AuthClaims } from '@product-suite/contracts'
 
 const claims = { provider: 'clerk', subject: 'user_clerk_1' } as AuthClaims
@@ -32,5 +32,35 @@ describe('callerUserId', () => {
   it('returns null when the subject maps to no internal user (unprovisioned identity)', async () => {
     const sql = vi.fn(async () => [])
     expect(await callerUserId(sql as never, claims)).toBeNull()
+  })
+})
+
+describe('resolveHumanActorContext', () => {
+  it('returns the stable owning reference only for an active requested tenant', async () => {
+    const sql = vi.fn()
+      .mockResolvedValueOnce([{ tenant_id: 'tenant_1' }])
+      .mockResolvedValueOnce([{ user_id: 'user_1' }])
+    expect(await resolveHumanActorContext(sql as never, claims, 'tenant_1')).toEqual({
+      tenantId: 'tenant_1',
+      kind: 'human',
+      owningDomain: 'identity.user',
+      owningId: 'user_1',
+    })
+  })
+
+  it('selects an explicitly requested active tenant when membership is otherwise ambiguous', async () => {
+    const sql = vi.fn()
+      .mockResolvedValueOnce([{ tenant_id: 'tenant_1' }, { tenant_id: 'tenant_2' }])
+      .mockResolvedValueOnce([{ user_id: 'user_1' }])
+    expect(await resolveHumanActorContext(sql as never, claims, 'tenant_2')).toMatchObject({ tenantId: 'tenant_2' })
+  })
+  it('fails closed for a foreign tenant or missing internal user', async () => {
+    const foreign = vi.fn().mockResolvedValueOnce([{ tenant_id: 'tenant_2' }])
+    expect(await resolveHumanActorContext(foreign as never, claims, 'tenant_1')).toBeNull()
+
+    const missing = vi.fn()
+      .mockResolvedValueOnce([{ tenant_id: 'tenant_1' }])
+      .mockResolvedValueOnce([])
+    expect(await resolveHumanActorContext(missing as never, claims, 'tenant_1')).toBeNull()
   })
 })
