@@ -19,6 +19,10 @@ describe('database authority', () => {
     expect(validateDatabaseAuthority({ environment: 'staging', databaseUrl: pooled, migrationDatabaseUrl: direct, historyVariant: 'repaired-bootstrap' }).ok).toBe(true)
   })
 
+  test('rejects an unknown URL purpose', () => {
+    expect(() => parseNeonUrl(direct, 'other')).toThrow('DATABASE_PURPOSE_INVALID')
+  })
+
   test.each([
     ['Supabase', 'postgresql://u:p@db.example.supabase.co:5432/neondb?sslmode=require'],
     ['lookalike', 'postgresql://u:p@ep-cool-fire-123456.neon.tech.evil.example/neondb?sslmode=require'],

@@ -10,6 +10,7 @@ function failure(code) {
 
 export function parseNeonUrl(value, purpose) {
   if (typeof value !== 'string' || !value) throw new Error('DATABASE_URL_INVALID')
+  if (!['runtime', 'migration'].includes(purpose)) throw new Error('DATABASE_PURPOSE_INVALID')
 
   let url
   try {
