@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Authorization-scoped, memory-only TanStack Query orchestration for `platform-web` memory-impact reads, preserving repository, API, realtime, and run authority (PR #164, 5a03773c-b0df-4b96-9215-b2a0c9cd4031)
 - Canonical collaboration authority for stable actors, conversations, memberships, immutable ordered events, tenant-bound API access, and additive legacy-thread compatibility (PR #163, 2086343b-db19-4b13-a50f-c5e36c213b20)
 - BlockSuite 0.19.5 canonical-persistence NO-GO decision with an exact public-API rejection regression and bounded alternative-editor handoff (PR #161, 8dfbe355-366a-4518-b377-9f3eccf2745d)
 - Cross-platform architecture conformance plan with tiered contract checks, dependency and editor rejection gates, and research traceability for canvas, agents, meetings, Custom Mode, workflow, UI, and data decisions (PR #157, db5ad299-2988-4ff2-958b-4a37d35dffe7)

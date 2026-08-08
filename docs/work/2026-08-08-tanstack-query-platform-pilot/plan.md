@@ -4,7 +4,7 @@
 
 - Slug: `tanstack-query-platform-pilot`
 - Date: 2026-08-08
-- Status: approved design; ready for `/dev` after plan review
+- Status: SHIP-complete; awaiting review on PR #164
 - Forge issue: `5a03773c-b0df-4b96-9215-b2a0c9cd4031`
 
 ## Purpose
@@ -146,3 +146,13 @@ Extend `MemoryImpactAdapter.get` to accept an optional caller `AbortSignal`. Com
 ## VALIDATE-stage handoff checklist
 
 After Tasks 1–4 complete and receive independent spec/quality review, the separate `/validate` stage owns workspace evidence. On the final DEV head it must run the focused provider/adapter/hook/AppRoot tests, `platform-web` lint, typecheck, full tests, and production build; inspect the diff for token-bearing keys or persistence/offline plugins; and report unrelated failures without folding them into this DEV scope.
+
+## Validation evidence
+
+- Validated head: `870c8e78383ad46044b11d7f86a7c27b25a52a3b`, clean and zero commits behind `origin/main` at `42e30d88bc516dc6472c9f1bb837bd694844aa47`.
+- Focused pilot suite: 9 files and 46 tests passed.
+- Full `platform-web` suite: 113 files and 1,122 tests passed.
+- `platform-web` typecheck, strict ESLint with zero warnings, and production Vite build passed.
+- Source-test coupling covered all 23 changed files with zero missing tests; `git diff --check` passed.
+- `bun audit --audit-level=critical` passed. The root audit reported 113 existing non-critical advisories (43 high, 58 moderate, 12 low).
+- OWASP/manual diff review found no credential-bearing query key, persistence/offline cache integration, or change to repository, realtime, API tenant, database, or run-protocol authority.
