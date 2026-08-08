@@ -1,8 +1,11 @@
 # Reconstructed RED evidence
 
-This file records **RECONSTRUCTED** RED evidence for Tasks 1–4. These runs were
-performed after implementation because the original RED command output was not
-persisted. They are not represented as historical output.
+This file records **RECONSTRUCTED** counterfactual RED evidence for Tasks 1–4.
+These runs were performed after implementation because the original RED command
+output was not persisted. They demonstrate that each test delta fails without
+its implementation delta, but they do not prove test-first chronology and must
+not be used as TDD gate evidence. The missing original RED transcripts are an
+irrecoverable evidence gap; these runs are not represented as historical output.
 
 Each run used a disposable detached worktree at the task's parent commit. Only
 that task's test delta was checked out from its implementation commit; the

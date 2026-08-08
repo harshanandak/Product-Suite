@@ -94,9 +94,11 @@ export function createMemoryImpactAdapter(
   }
 
   return {
-    get: (windowDays = DEFAULT_WINDOW_DAYS, signal) => {
+    get: (windowDays, signal) => {
       const orgId = options.getOrgId?.() ?? null;
-      const params = new URLSearchParams({ window: String(windowDays) });
+      const params = new URLSearchParams({
+        window: String(windowDays ?? DEFAULT_WINDOW_DAYS),
+      });
       if (orgId) params.set("org_id", orgId);
       return request<MemoryImpact>(
         "GET",

@@ -8,7 +8,7 @@ Only `useMemoryImpact` migrates. The four implementation tasks are sequential wa
 ## Task 1: Add the authorization-scoped server-state boundary
 
 Wave: 1
-OWNS: `apps/platform-web/package.json`, `bun.lock`, `apps/platform-web/src/data/server-state/ServerStateProvider.tsx`, `apps/platform-web/src/data/server-state/ServerStateProvider.test.tsx`, `apps/platform-web/src/data/server-state/index.ts`
+OWNS: `apps/platform-web/package.json`, `bun.lock`, `apps/platform-web/src/data/server-state/ServerStateProvider.tsx`, `apps/platform-web/src/data/server-state/ServerStateProvider.test.tsx`, `apps/platform-web/src/data/server-state/index.ts`, `apps/platform-web/src/data/server-state/index.test.ts`
 
 What to implement: Declare `@tanstack/react-query` in `platform-web` using the canonical root resolution. Add the smallest server-state module that constructs QueryClient instances, exposes the current non-secret authorization scope, allocates stable primitive adapter ids with a module-local `WeakMap<object, number>`, and defines the bounded retry predicate. Fixture mode must never invoke Clerk. Authenticated mode derives scope from Clerk `userId` and active `orgId`; a change to either synchronously selects a fresh QueryClient. Configure memory-only caching only—no persistence/broadcast/offline plugin. The retry predicate is structural and generic: it may inspect only standard error shape/name/status, never import a Task 2 adapter error class.
 
