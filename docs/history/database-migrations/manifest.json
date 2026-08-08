@@ -1,0 +1,741 @@
+{
+  "schemaVersion": 1,
+  "policy": {
+    "historicalRoots": [
+      "infra/supabase/migrations",
+      "apps/roadmap-web/supabase/migrations",
+      "apps/meeting-api/backend/alembic/versions",
+      "apps/meeting-api/backend/migrations"
+    ],
+    "lineEndings": "LF",
+    "drizzleImmutable": [
+      "0001_dear_the_enforcers.sql",
+      "0002_polite_orphan.sql",
+      "0003_tranquil_tattoo.sql",
+      "0005_rename_tasks_to_checks.sql",
+      "0006_provenance_foundation.sql",
+      "0007_proposals.sql",
+      "0008_agent_transcript.sql",
+      "0009_chat_threads.sql",
+      "0010_memory_brain.sql",
+      "0011_memory_source_proposal_uniq.sql",
+      "0012_proposals_reflected_at.sql",
+      "0013_knowledge_base.sql",
+      "0014_work_item_applied_from_proposal_partial.sql",
+      "0015_meeting_promotions.sql",
+      "0016_memory_ownership_axis.sql",
+      "0017_proposal_target_snapshot.sql",
+      "0018_collaboration_fabric.sql"
+    ],
+    "historyVariants": [
+      "original-production",
+      "repaired-bootstrap"
+    ],
+    "manifestRole": "validation-only"
+  },
+  "historicalRoots": {
+    "infra/supabase/migrations": {
+      "authority": "historical_non_authoritative",
+      "files": [
+        {
+          "path": "infra/supabase/migrations/20250101000000_initial_schema.sql",
+          "lfSha256": "cbb5c0287480ff4b11a5aab597ea671de48b35989ce0692a132a0b055a67f1ec",
+          "observedCrlfSha256": "afd5029f5a14a284f7975a48660d2fba4446996f4d4836f324745fe2e2d21f1d"
+        },
+        {
+          "path": "infra/supabase/migrations/20250101000001_disable_rls_for_anon.sql",
+          "lfSha256": "2dd7bb127bd2d53fc085b8c18b2dd76cf6cfd979c39b95db5f2d7f1960fd7be5",
+          "observedCrlfSha256": "872f33e762b92926d6bdafd270931bf518473dfa783c28f8c16583f8e0eb4674"
+        },
+        {
+          "path": "infra/supabase/migrations/20250101000002_fix_anonymous_access.sql",
+          "lfSha256": "e66c6ced954cf4cf7d296fda20991c7aa6aa099417f89d7a6e9ca7c7f31e8655",
+          "observedCrlfSha256": "19f1ff9566a61dde3ab8adba04448b212d77a67ae2d52252b3dfae617fa12519"
+        },
+        {
+          "path": "infra/supabase/migrations/20250101000003_change_ids_to_text.sql",
+          "lfSha256": "455f1041d6be767825ec7181348bb68b03c15066a4392a94ead64aa304057429",
+          "observedCrlfSha256": "484bf4d7b1f13edf75cd63a78a65c09823d1a0ccc573f621c1a52247db8e5b5e"
+        },
+        {
+          "path": "infra/supabase/migrations/20250101000004_remove_type_constraints.sql",
+          "lfSha256": "4907b1ec5aba0ee2c0dec496ee91b5f198e66f8ac667d84d3ee0135fbe0d9e0c",
+          "observedCrlfSha256": "510205dc15d18239164d3ec3bcda6114fb0abd89255d2f45aac49da12137e473"
+        },
+        {
+          "path": "infra/supabase/migrations/20250101000005_auto_generate_linked_item_ids.sql",
+          "lfSha256": "c834f7ca37680a2396e7f02c0402f35fcb3078e33daba714fa270b2ac4bcb07f",
+          "observedCrlfSha256": "d6fbb7dec316f6813f628f93acf82d216e94785f789c02b1e5b5f184a4c21e1d"
+        },
+        {
+          "path": "infra/supabase/migrations/20250101000006_remove_user_isolation.sql",
+          "lfSha256": "a99f6079e4211eace264bd453baa6f6f504d50ea9625efb2e66ba90c9085a81b",
+          "observedCrlfSha256": "794634f105e816aec076048dcc1652dc4f7cfdc60cce595ecb3d959dbafabcff"
+        },
+        {
+          "path": "infra/supabase/migrations/20250101000007_add_workspaces.sql",
+          "lfSha256": "6a72857a43e41acb6b8227e88d26e0e6a3ed92e75558215d58e2ec8072bffb90",
+          "observedCrlfSha256": "1c666da998ee595d9176b7fd55027bc04c78aba30c7a163206438ef8b72f3bbb"
+        },
+        {
+          "path": "infra/supabase/migrations/20250101000008_migrate_existing_data.sql",
+          "lfSha256": "1fae18dae5a86f117ec11990c4cdf1d9398354da779181bebe1b9d4c838b2db6",
+          "observedCrlfSha256": "6d8357721dcd7e72024eac29a7c9643849798899f5552162bdf3e7c20a407de1"
+        },
+        {
+          "path": "infra/supabase/migrations/20250111000001_add_execution_steps_table.sql",
+          "lfSha256": "a35c176044ba442aae03e6e4be89f528adfc707612d7c2cff8fc3a8e6122d230",
+          "observedCrlfSha256": "b6d7630bbc467025fb372298fa7ee5c332e0ce97897c347674529022e3f48c61"
+        },
+        {
+          "path": "infra/supabase/migrations/20250111000002_add_feature_resources_table.sql",
+          "lfSha256": "1da1a54ff7e40d755719ac504ae396ba89e089f630b9df683a51cbe853140a38",
+          "observedCrlfSha256": "d20d34e364eb193544995cdcaf6109936c1463db1cd8a679ae03c7cb8ebc644a"
+        },
+        {
+          "path": "infra/supabase/migrations/20250111000003_add_feature_planning_tables.sql",
+          "lfSha256": "f2c6aa1ffc96b255fcdfe9d27f270fd9fb892bf2ac1dc96c9e92bb178191da5a",
+          "observedCrlfSha256": "dcf99b954df6053e52c3e5d5138a67312df99d4d7b8b0bdf6f4b93a29a80a378"
+        },
+        {
+          "path": "infra/supabase/migrations/20250111000004_add_inspiration_items_table.sql",
+          "lfSha256": "90064e0624d572e50cc9cd454a3a63b8f6e7bf8d701af5344cef80562147cd17",
+          "observedCrlfSha256": "231faa6c58526bd22f28597c47dea74fb437bd51f1d574c9cb4615a401373f48"
+        },
+        {
+          "path": "infra/supabase/migrations/20250111000005_add_features_tracking_columns.sql",
+          "lfSha256": "f91bfbb21525fa4d610d51eefc83aa8b466fb44ff6da6f8306ad5116bc6356e6",
+          "observedCrlfSha256": "8714c55d29fad2ce8638c9b83900fe935c083a824e7262fb18206633d449e9ee"
+        },
+        {
+          "path": "infra/supabase/migrations/20250112000001_add_workflow_stages.sql",
+          "lfSha256": "c875492bbd33e00e0f90e06fff0fb811f593145b2b2ec7c6edee3436e33095c7",
+          "observedCrlfSha256": "3d7a52348fba1197d783ca0681daeac03f7bbb168417fd5dd8d0a120701a958c"
+        },
+        {
+          "path": "infra/supabase/migrations/20250112115417_create_tags_table.sql",
+          "lfSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "observedCrlfSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "path": "infra/supabase/migrations/20250113000001_add_feature_connections_table.sql",
+          "lfSha256": "21e10c08f2289428d0ab048c2ad98d1de19b14bbf713fa1a9174728b42a1156d",
+          "observedCrlfSha256": "e075df8005c41d8f305dac69eecdc45d72978a91d87935c8f2ed040f34f2cc65"
+        },
+        {
+          "path": "infra/supabase/migrations/20250113000002_add_feature_importance_scores_table.sql",
+          "lfSha256": "d9bff854964d1349b359fc325c173a8f15b6288b6bd215cdcdd163eac919e406",
+          "observedCrlfSha256": "0d066cf76e58484328e71ff473a6e08d83982cb3aaf9d0e2117586807f829c05"
+        },
+        {
+          "path": "infra/supabase/migrations/20250113000003_add_feature_correlations_table.sql",
+          "lfSha256": "099b9930f8722496199adc36afe5e2485ce35e6c60f720157b0e64b3a667c421",
+          "observedCrlfSha256": "014a5d00d494e5c27b35715fc7c37e490b3df123d13d03b240a07bc5596fbb3c"
+        },
+        {
+          "path": "infra/supabase/migrations/20250113000004_add_connection_insights_table.sql",
+          "lfSha256": "ca4320ea355b43f4790a51520884dcb65809ea308805d476a24afd57fd4debd4",
+          "observedCrlfSha256": "2170fe639fccf7471bdac8ec932e86ae632929aefc3f1b6149674fae0921d8e4"
+        },
+        {
+          "path": "infra/supabase/migrations/20250113000006_improve_timeline_dependencies.sql",
+          "lfSha256": "2bf83408aa95f42e4a3adba9a6109274a63721da7bcc5f928e465c72f435e0e7",
+          "observedCrlfSha256": "24f20362c471a3683afcd867e4741341a963b1030719da158660d78a365f07be"
+        },
+        {
+          "path": "infra/supabase/migrations/20250113000007_rename_features_to_work_items.sql",
+          "lfSha256": "4e5b6be87956e3d859b8a637abb2084f2613140b6e9049ed8a1d654564a4ca3e",
+          "observedCrlfSha256": "7470302202713f03f36e8a98019d1c05ab5d260d885af29e1a605bea75edc3e1"
+        },
+        {
+          "path": "infra/supabase/migrations/20250113000008_add_conversion_tracking.sql",
+          "lfSha256": "f1f56030bbc67fc6873b0255cbc092c7cd424cd8cdd34b05fd20e6a07fe16d83",
+          "observedCrlfSha256": "6ec9ffbd1633080c9d01dbe534b973f6e0aa8f28646d17d4c61c956d185a4a8d"
+        },
+        {
+          "path": "infra/supabase/migrations/20250113000009_create_mind_maps_tables.sql",
+          "lfSha256": "daf58da1c1b04491cf842515b4f74fc964ad6886077bbe8fbc4e271bdd19316c",
+          "observedCrlfSha256": "b2d2de04b135992fa3305de9e58b0bbfd522015ca8f37d4fdcda7dd65c3f83e3"
+        },
+        {
+          "path": "infra/supabase/migrations/20250115000001_re_enable_rls_security.sql",
+          "lfSha256": "6f1e04c05b2fb05798cd31fce3adf52c7adabff23adf20e29bc59cfad8af93b9",
+          "observedCrlfSha256": "0d154c960c7dd9c1126bd1d8524bc6d84ca3bac44f8eaa6c7532f59e3048275b"
+        },
+        {
+          "path": "infra/supabase/migrations/20250115000002_upgrade_harsha_to_pro.sql",
+          "lfSha256": "75d0bf4a023c06392798c5a37dab1ed843ef79fe52016616f7b5a3c1087d573b",
+          "observedCrlfSha256": "a1af1a28a08edd74f8638b58aaf730e3b4b399dcdf0e424f83a2a3ea264d7ec9"
+        },
+        {
+          "path": "infra/supabase/migrations/20250115143000_enable_rls_critical_tables.sql",
+          "lfSha256": "eb093ee16313cf741dd2a95d0d6a3433113f73da336d701bdf83fe82018809da",
+          "observedCrlfSha256": "e8f5705e5a54e48205aea4b8194347825b13befa5d732b14304b6294ecfdd6fa"
+        },
+        {
+          "path": "infra/supabase/migrations/20250115143100_enable_rls_public_tables.sql",
+          "lfSha256": "de0e4fe84efe5bb17147d26f4dbafa48f3dc2686b5358622895607a382bebc8e",
+          "observedCrlfSha256": "2daa664247ac9f7bdd667fe5611c2f2ec475792780d8f5d979c8822203ecf46d"
+        },
+        {
+          "path": "infra/supabase/migrations/20250115143200_add_subscriptions_rls_policies.sql",
+          "lfSha256": "c4dbbfe3cd7e8b21509b06244f7790e6fe3618deac3368ff8495cc2618b3ac85",
+          "observedCrlfSha256": "a20cea149dd946aa54e7d81452f84b9dedaeaa084107eab58f0baf2b9de72525"
+        },
+        {
+          "path": "infra/supabase/migrations/20250115143300_fix_function_search_path.sql",
+          "lfSha256": "88af06751e4e3e9abb066ad6f05b2e068ef3de4e291bc1ef81a9373a2cfbb0cc",
+          "observedCrlfSha256": "39062d43072de984a5ad58c60a2a1b135d76f44374f7e68039a7fff0d0be1db3"
+        },
+        {
+          "path": "infra/supabase/migrations/20250117000001_create_phase_assignments.sql",
+          "lfSha256": "1abc89e379268b804a47050e3ca9370d0efd6d240e82aca0fceda378a71218d8",
+          "observedCrlfSha256": "b82a386770c52ad6061ca6a7ab1895e3a030913ed9d0d4c10c8ed080766e43ce"
+        },
+        {
+          "path": "infra/supabase/migrations/20250117000002_add_phase_assignments_to_invitations.sql",
+          "lfSha256": "67eb97f7674e7b4b0a0d32765723d6facd8f58a7c641979766f9b247d5645b80",
+          "observedCrlfSha256": "1f7418a18b2ec75310d499e95658deb9509e228d09ee44cd984c784940f75c80"
+        },
+        {
+          "path": "infra/supabase/migrations/20250117000003_fix_user_id_data_types.sql",
+          "lfSha256": "6d0a1557a1897e3be789db524f07e332f12ffb3e7a6cd29fb66aab5fdbb062c1",
+          "observedCrlfSha256": "fb4aa2a0a60fb540646e1eb1c77e4ad753a0dec86f02f088786074bf2c533493"
+        },
+        {
+          "path": "infra/supabase/migrations/20250117000004_add_phase_lead_role.sql",
+          "lfSha256": "49bc984b3c9db6ad3680bae9b44bc27e66aab786a20304edc5cbd38eb806eac1",
+          "observedCrlfSha256": "5cdc222b7255006e83649328ee7e1455c8e27ea907179a5a2e2101f0627749fe"
+        },
+        {
+          "path": "infra/supabase/migrations/20250117000005_create_public_users_table.sql",
+          "lfSha256": "8887bbacc6bcfaf19bb01dc9e56ece92c8780aa93bb067269efd8ae304ed5cd9",
+          "observedCrlfSha256": "52ce68144dcac36c09fd5c8984f2535f746c8a33d17b141d0fcc12aad6751142"
+        },
+        {
+          "path": "infra/supabase/migrations/20250117000010_test_rls_phase_permissions.sql",
+          "lfSha256": "29733f0676a87936011f855da49b88e6af2120c741540337ea25b901340e4c47",
+          "observedCrlfSha256": "43ad0a85cf33f96097be6fe50cc319b9dd5455c84ae34f8d906288b6b0a9851b"
+        },
+        {
+          "path": "infra/supabase/migrations/20250119000001_add_teams_team_members_rls.sql",
+          "lfSha256": "c61bcbf0ebe04fff388b91a35bc3d1e189afb98fff588d32548a2c3d442b9d9c",
+          "observedCrlfSha256": "3044c2d88735acabeec7f5458419389a07baef991e2028b96e75229accfc02ad"
+        },
+        {
+          "path": "infra/supabase/migrations/20250120000001_add_unified_canvas_support.sql",
+          "lfSha256": "4c1f858ccd885a6d9496d46c037e97f190068ea95b259ddb074fd4747fbc313d",
+          "observedCrlfSha256": "47a3ddd06eb724ed14b993bab600c06cc8d7c6964bfe45580300a7d102b530d1"
+        },
+        {
+          "path": "infra/supabase/migrations/20250121000001_extend_mind_maps_for_two_canvas_system.sql",
+          "lfSha256": "91497b09611d6b35f82ac16c0a57748032a8b43b52e241462ee23182fc5d529f",
+          "observedCrlfSha256": "b3c317be0e492a03deb560961e75cfe9aa2708c245649b11663de50c3dd38c48"
+        },
+        {
+          "path": "infra/supabase/migrations/20250124000001_consolidate_work_item_types.sql",
+          "lfSha256": "d5d6eabca6200c6bd264d9700dd062793bb71a6d0f56e30729a4d244124066bf",
+          "observedCrlfSha256": "74220e069906907d349c26543871edaac93432e05b77f55e7a35d16249618085"
+        },
+        {
+          "path": "infra/supabase/migrations/20250124000002_create_feedback_module.sql",
+          "lfSha256": "ab1d5d858abae0acf3c71b80cb28b8d9226124140043d808a03f5ce549e2345c",
+          "observedCrlfSha256": "4301efb3159c9fdef3e228d167f348fb9fb51a5e3d1548595c352e576dd40f64"
+        },
+        {
+          "path": "infra/supabase/migrations/20250124000003_add_work_items_hierarchy.sql",
+          "lfSha256": "51147a92a0d23a094b65ef48e061501919d426d14af8d9f90cd0edb6690fc95e",
+          "observedCrlfSha256": "1822b7ba38f654ddc2c2e143980c3fa6c37dc235e6861c914c46c09eb4db3331"
+        },
+        {
+          "path": "infra/supabase/migrations/20250124000004_extend_timeline_items_execution.sql",
+          "lfSha256": "1eec5fd90155693f818cc02061d8d52e34355a38c227b82915af20f6dac5255b",
+          "observedCrlfSha256": "e207e9f704177536e2a2a066ad3a31360c2128263966ca1e1c5079c82501b820"
+        },
+        {
+          "path": "infra/supabase/migrations/20251115133000_add_timeline_dates.sql",
+          "lfSha256": "029d4b74bcce34e6a7a156ac918d0662a98c3709625ecdbf710e19a4da17eaa6",
+          "observedCrlfSha256": "0ea98d44b2ba458c73627adbe21d03b35cf9e51d7c66eb6d28ca686591f4bdaf"
+        },
+        {
+          "path": "infra/supabase/migrations/20251117175229_comprehensive_phase_system.sql",
+          "lfSha256": "ddb345e0beb4385dc42d92339cb4729efe023173552bcd5fa9999f24f1b5d86f",
+          "observedCrlfSha256": "578afacac02bcbff9c9f6b8086a0b2a075b947abbb192319eac63e786aadcc98"
+        },
+        {
+          "path": "infra/supabase/migrations/20251125000001_create_product_tasks_table.sql",
+          "lfSha256": "c18cd592200d962d8ccd76834fb0bef3d2e7fc3351dd077fc987dc430cf67e30",
+          "observedCrlfSha256": "8a9de7559d1e53e17baabfd5d3758bfb6b00a3bbc7b47220dbd08190040304a6"
+        },
+        {
+          "path": "infra/supabase/migrations/20251126000001_fix_work_items_duplicate_parent.sql",
+          "lfSha256": "0dcba6a9c4e6bc067c6b5ddb22fbcfe7b6ad107f2c1e48c55d668847870670aa",
+          "observedCrlfSha256": "3a33449647628e6ca1fd73c5a611f827e7bbf9bcee5fae42cbcad85f5a174ecc"
+        },
+        {
+          "path": "infra/supabase/migrations/20251126000002_add_timeline_item_to_product_tasks.sql",
+          "lfSha256": "aeb4ead6fc6a11ccb131c925ef2608613788b39ca93e0507fbfb49f20a3a991f",
+          "observedCrlfSha256": "4381c5bc8006fdbb68d3207be5da07a0bf15193218cf95ae4949980c9b59c5c5"
+        },
+        {
+          "path": "infra/supabase/migrations/20251126000003_add_phase_to_timeline_items.sql",
+          "lfSha256": "c46631876f383d2f9af865751538b9b3a2fc239588b736c17b8e841af2e83d23",
+          "observedCrlfSha256": "d5a0de75b77798f7586f64428304110e780d24b88f46d2cf524a4175529f1daa"
+        },
+        {
+          "path": "infra/supabase/migrations/20251126000004_add_unique_timeline_constraint.sql",
+          "lfSha256": "0a26f20032d0950c72a84c56ab39af5b4659b7a51cd9a7b7148762e6a0a52519",
+          "observedCrlfSha256": "2b3a8b7a85260a551c06f67e26cedebfd1c78e0a99c409d06103a1e068326f64"
+        },
+        {
+          "path": "infra/supabase/migrations/20251128000001_rename_feature_connections.sql",
+          "lfSha256": "7bf6fb27e1285f00511991c052da9f29f28ffee385c40e3029100db664e16e6f",
+          "observedCrlfSha256": "9037d22dd55b8e2fa1e2a8409d86bbb0d04f62140ee2b60763f317ac83ce1fb9"
+        },
+        {
+          "path": "infra/supabase/migrations/20251128100002_remove_simple_date_fields.sql",
+          "lfSha256": "7983eff9201ff412891896106b35a2c618af3f7ad88eac40faca9a689212d4bf",
+          "observedCrlfSha256": "20b6b6b1f5b39785e3696d61f746cbbd48fdb214eb6ecf12ea5bea1ab28a4a3e"
+        },
+        {
+          "path": "infra/supabase/migrations/20251130000001_create_resources_module.sql",
+          "lfSha256": "26e423f89484e5aec8c1ce93d900c1044ce084301f964b688a1124263169ee3d",
+          "observedCrlfSha256": "76464920636bf4aa94e1d92802d6168e8b3312b8bcd34920ee13279d37f2ab8d"
+        },
+        {
+          "path": "infra/supabase/migrations/20251130000002_schedule_resource_purge_job.sql",
+          "lfSha256": "8836d4b6aa88c71588181df1ef1b1b5cd767fd07e705286c71277d6d5972c42f",
+          "observedCrlfSha256": "740d6bf44d439fdb513bf1eb4a9b183349aa022e17937bfb8b9f3fe05be7fbb8"
+        },
+        {
+          "path": "infra/supabase/migrations/20251130110700_add_work_items_workspace_fk.sql",
+          "lfSha256": "5c35a21daef2584173bcf4d4bb2e47b2b03d061454eb4f6b93cd169a58088d90",
+          "observedCrlfSha256": "cace1ae0db91fed3c4a5162ec5669d233d515585314dc01bc3221a236a230a36"
+        },
+        {
+          "path": "infra/supabase/migrations/20251201000001_optimize_rls_auth_initplan.sql",
+          "lfSha256": "e5301e85479e47c0254405e38755bbeb1fdb1286d3e74b023ca1eb0f67c69d0a",
+          "observedCrlfSha256": "9894706e0ac65a29c1cf6bba65d2510fb43934859ba76461bfde6ab92653e375"
+        },
+        {
+          "path": "infra/supabase/migrations/20251201000002_consolidate_duplicate_rls_policies.sql",
+          "lfSha256": "29d586c8a151f36989bbcc7788023bba816465d45d2c68fa3f1bd1caa7d3c21f",
+          "observedCrlfSha256": "f1dfa9bd6cdee5567104ca0d595ce51ee3a0fb1aa0056444618bf1b4da4cf43e"
+        },
+        {
+          "path": "infra/supabase/migrations/20251201000003_drop_duplicate_indexes.sql",
+          "lfSha256": "96e8f583e02238162834853c2193b83a301431cf0713ebee4484e94dff2e9d6d",
+          "observedCrlfSha256": "b5de3e5dee4fbe70f1a3413f53e69edc569f81bf3cc36d9745dd17594a3c0857"
+        },
+        {
+          "path": "infra/supabase/migrations/20251201120000_create_customer_insights.sql",
+          "lfSha256": "51bd9822f39098b720e5ea70ab5998c04729512aeeeed4ba92f75366819fa586",
+          "observedCrlfSha256": "16caa52ee6812001b61d5312ed13bb9b476755a05aa2034510469ceeae0bfffd"
+        },
+        {
+          "path": "infra/supabase/migrations/20251201120001_create_departments_table.sql",
+          "lfSha256": "aff669e7842aa658016e77261052e5b29df52a3936c4426ed1ce23c9b89a51ca",
+          "observedCrlfSha256": "77b6f2682b413d05154aed722fb7e859030712c1fda32aeb6c1f9720e38ceffb"
+        },
+        {
+          "path": "infra/supabase/migrations/20251201120002_add_workspace_mode.sql",
+          "lfSha256": "216d6f74f7ff5290900a92a99cf3cb880e348eb3a98b79f49e49f7ab59ab7e0a",
+          "observedCrlfSha256": "be14299573d5ada445c083253f0c35970c7f1dda3b8396b7e5f4952d8f15f1a3"
+        },
+        {
+          "path": "infra/supabase/migrations/20251201130000_create_product_strategies.sql",
+          "lfSha256": "deff69352bf609d77cc929aeaad237e30968e8542f8a81356bbb03cb94dbd7c7",
+          "observedCrlfSha256": "dfcdf0d5206d9dbbe9d3ce5573dff9db0765bbfc549a3628d9e3b081bf42e203"
+        },
+        {
+          "path": "infra/supabase/migrations/20251202120000_add_public_feedback_settings.sql",
+          "lfSha256": "cc11b6e7ecdc928e83ac9612a2ff2c16e4179dd9c57af62ee2664bfde09aa543",
+          "observedCrlfSha256": "f237c6e9344e477cc6de8f9384cb9da9fc47c6436447c75f70153cfd0f5d19d6"
+        },
+        {
+          "path": "infra/supabase/migrations/20251202125328_create_workspace_templates.sql",
+          "lfSha256": "bf9812a3ea9e29cd614cf6e51dad9f360bbb43f44fa3bd3e97f5ba5384c63e78",
+          "observedCrlfSha256": "8a51d2db866633509c1f339179a2de81d07760e924b0e079d8571a432553155b"
+        },
+        {
+          "path": "infra/supabase/migrations/20251202150000_fix_remaining_function_search_paths.sql",
+          "lfSha256": "c0ccc64fceffdf5aba07cbfcd14a138a327de60daad19dc343b666d41becbab0",
+          "observedCrlfSha256": "15600bd58665a63bdf279c4f5dc725ec76bd77c15000b068e1d2b60a8743fa93"
+        },
+        {
+          "path": "infra/supabase/migrations/20251202160000_fix_departments_insight_votes_rls.sql",
+          "lfSha256": "71c80461c06b0430dca4b64f29f6437322539d8c01ff02ff4a36a9cb1abfe05a",
+          "observedCrlfSha256": "f61091c14f740f732e6c10874d5a40df1a8a0bc33d659993239bca34f05f1ed5"
+        },
+        {
+          "path": "infra/supabase/migrations/20251202162950_add_strategy_reorder_function.sql",
+          "lfSha256": "1bce7a9dd85e9dc47ad82414b09dbc7a363f34c2de338cee7d02ef5fa613849c",
+          "observedCrlfSha256": "94f1212e3859fbf67e6a18b249e2f8a30f9e291ff35eb04cee4030af4915a78b"
+        },
+        {
+          "path": "infra/supabase/migrations/20251202170000_fix_security_definer_view.sql",
+          "lfSha256": "9d3b3557f21f8254adb53e23cc47bf780a762d4472ea71da8c3cdf295cdd04d7",
+          "observedCrlfSha256": "e45db83daa2835f0aba364b5ba9703edef3094faff9e2c1d25d80f8a40a04848"
+        },
+        {
+          "path": "infra/supabase/migrations/20251202180000_fix_workspace_templates_rls_and_add_fk_indexes.sql",
+          "lfSha256": "2e0ccc533e4181fef7c62e1191aefb97b468563727ded9c3f3d2693d1c19d234",
+          "observedCrlfSha256": "bb38403ea78a0d5c02fb8b95cee25239f23481b410307a5e87d987833e67d72b"
+        },
+        {
+          "path": "infra/supabase/migrations/20251202190000_consolidate_workspace_templates_select_policies.sql",
+          "lfSha256": "3aec92555cd75d4a78fa555f6a7f0e0f2186353a3e2ffa804e4a97f57d3e2480",
+          "observedCrlfSha256": "791772d0455fc2bd47a14a6297833dbf512d60b1984e8ebfe0010616ff9e32e2"
+        },
+        {
+          "path": "infra/supabase/migrations/20251202200000_fix_workspace_templates_trigger_search_path.sql",
+          "lfSha256": "a93800d713cdfa45794954617ec476947ef09042a85290c56e1bf7489b12272c",
+          "observedCrlfSha256": "a57c0397e01da0d46075421ad3065ddf3e9668b1861a1e20c475e116beed7f45"
+        },
+        {
+          "path": "infra/supabase/migrations/20251202210000_create_ai_action_history.sql",
+          "lfSha256": "fc50bf63190d93de649e2a34da4f7b52a4ddc35a05876b2d9d413902a055d5d5",
+          "observedCrlfSha256": "910a151e8b88bda33a6719f2c04938a4e2aaddefd98573e275fc631ad598157c"
+        },
+        {
+          "path": "infra/supabase/migrations/20251203100000_create_mcp_gateway_integrations.sql",
+          "lfSha256": "f16238912088891aa24151302bc53da9b10a53e309f58ae4299b07ff14b76a82",
+          "observedCrlfSha256": "df9badb4cf28c8825655b6e356e1716f8f35303f22d02dfb57e508f0fa1b3e44"
+        },
+        {
+          "path": "infra/supabase/migrations/20251203120000_create_knowledge_base.sql",
+          "lfSha256": "cdd3b59d3f0c956603a7383f20fc342acb39f75949a7326e4cb6be610c506b37",
+          "observedCrlfSha256": "53dda0ca91f874190557cde7bbade15055bfe1db6ea19b5d3a1f511e4e8a428a"
+        },
+        {
+          "path": "infra/supabase/migrations/20251203130000_create_collective_intelligence.sql",
+          "lfSha256": "6e22154e2a12fd5093413a7a1e8fb314dc3f9a08adc4142cd089027accdcabde",
+          "observedCrlfSha256": "b9687ea94011b155799c4b869d59a1cffcab3dc22e0f2e033df57c72cbc5a424"
+        },
+        {
+          "path": "infra/supabase/migrations/20251208100000_create_chat_threads_tables.sql",
+          "lfSha256": "328da45242d999f383ef0c6a9d0a998e0dc5f1a29e05c3c5933a4456f72bd4d3",
+          "observedCrlfSha256": "fdaa1762dc51fd1d7802765aaf04e90db6d4e382e91d1ce371a488ab16077429"
+        },
+        {
+          "path": "infra/supabase/migrations/20251209120000_fix_chat_threads_rls_nested.sql",
+          "lfSha256": "040c631abe1a59026243366ef774d882f23d11cda78254700e43b8e7a3de66af",
+          "observedCrlfSha256": "10045b9f7ba78e76715de926da92c201982de1c4cb8b13d00fbef8940209fc10"
+        },
+        {
+          "path": "infra/supabase/migrations/20251213100000_migrate_to_4_phase_system.sql",
+          "lfSha256": "71d35dc1fe60d1ef35e9bc3e659581a434a7236c942ba828438868f1b1ca454d",
+          "observedCrlfSha256": "1a92244a258a17e5c296cb84ae3322ade7f9d2f2acbbc3071e2807ba3cdea54c"
+        },
+        {
+          "path": "infra/supabase/migrations/20251214165151_add_strategy_customization_fields.sql",
+          "lfSha256": "4258a9cb3814c68c5c4afd0707dd5efd91f6a02a8973bb2c3c47fc70fa668c0d",
+          "observedCrlfSha256": "f330dec8d919019ad37b58c6c6b1bcc4da8325c0a7776502e71cd0966c6928e0"
+        },
+        {
+          "path": "infra/supabase/migrations/20251216190751_add_type_specific_phases.sql",
+          "lfSha256": "117a6a6a4787d4fac3efed2dc78baa72ee5faf2b7cbc08e2943a78ce781906ee",
+          "observedCrlfSha256": "3da6589ba17f23b86cfc693be3e2c724a152e5e563edb7eb24c1d46d96a641fd"
+        },
+        {
+          "path": "infra/supabase/migrations/20251222120000_add_missing_phase_columns.sql",
+          "lfSha256": "051da23ccd008c100c8fc57fa90aadd6f92569c4b3df28ebfd40c4a460bc0b6c",
+          "observedCrlfSha256": "954567573c469f9f5271038bef33fef1c669d44204ab4d4fe77bcd571d0cd8e1"
+        },
+        {
+          "path": "infra/supabase/migrations/20251223000000_add_concept_workflow_fields.sql",
+          "lfSha256": "f921b5e71781e9655e2e602363f3f519f2788cdc068130a1a3fcccf425c60226",
+          "observedCrlfSha256": "3af4ea50912de49386575cc48ed33c7fe1f0cdd63b2a378753b3b79a7c6a5847"
+        },
+        {
+          "path": "infra/supabase/migrations/20251223000001_fix_enhancement_architecture_v2.sql",
+          "lfSha256": "8aa0cc653e6461ac19fb7a1d0169448562c73c43bafa11d4dbf523c3464f94f3",
+          "observedCrlfSha256": "931d1617e53026d5b93c042c3189a0917125e8d486a09a4a2209de1e71749daf"
+        },
+        {
+          "path": "infra/supabase/migrations/20251229114142_add_archived_rejection_columns.sql",
+          "lfSha256": "b86e6df6baee6228094b840ff5f37a4f1d910042efce596c0da085194ff62a98",
+          "observedCrlfSha256": "0a8e82e0a78735cda720f6e3620bbb549cfb03aa3bac3d33507b23ad6d452598"
+        },
+        {
+          "path": "infra/supabase/migrations/20251229180000_enforce_phase_only_status.sql",
+          "lfSha256": "28add84d17937a101c27a6f8653f308ddd7ac661f493c9a985b3c1ba4138acbe",
+          "observedCrlfSha256": "f91e36826ad9a86000e5abad9593027a253fcca27a087ef64de64b9d7ed8ad7e"
+        },
+        {
+          "path": "infra/supabase/migrations/20251229190000_fix_function_search_paths_batch3.sql",
+          "lfSha256": "e42feafc219f30ca8e748d093b562b2f21448303575e361353935f85f33be9e3",
+          "observedCrlfSha256": "a9b8d12d818243d0bc8f5cc1befde5cb30f8b3c61de45f5b966b21292417ab00"
+        },
+        {
+          "path": "infra/supabase/migrations/20251229190001_fix_function_search_paths_batch3_addendum.sql",
+          "lfSha256": "7830159fa1d48d571ca851de39aa132c69fcdac09cd3a432d692a22aa468e158",
+          "observedCrlfSha256": "f94149aeb12e9baa1b7f9a61fb0c20639386addf94626cb20a7999f2ec7eb38d"
+        },
+        {
+          "path": "infra/supabase/migrations/20260106100000_add_blocksuite_migration_columns.sql",
+          "lfSha256": "dc63dee02cc4ceb45f977d3ec30b6ea01feec283c8a8cf8e155cef8f83189e66",
+          "observedCrlfSha256": "9f1b8dd1da69995903b6e840b67e748eb3c65afd11e40f2134fd0136872652b7"
+        },
+        {
+          "path": "infra/supabase/migrations/20260107110000_create_blocksuite_documents.sql",
+          "lfSha256": "860e5a97759e5c75491dfa359fc491f23e8d51eebe34cfd7eeada4ec1bd54b8c",
+          "observedCrlfSha256": "83684ae56d191139757ba1797ce1016cc9a98e683c390b8faff025874eee8fd5"
+        },
+        {
+          "path": "infra/supabase/migrations/20260107110001_create_blocksuite_storage_bucket.sql",
+          "lfSha256": "c62b8a1d00af2d1e8c3b19375fcce22356cc571490f602763f7235a0ca302f3e",
+          "observedCrlfSha256": "69b2dce0d9e3db1b885f011764526364ec17522614deb65c4bbba5e2e66f1c03"
+        },
+        {
+          "path": "infra/supabase/migrations/20260107120000_add_mindmap_embedding.sql",
+          "lfSha256": "840299c49ac8d333d201eb091e2067463b95de91947f2576561d14884cf85765",
+          "observedCrlfSha256": "a0be1e5d815f851de00d66597743321257760928ad4aa2e54d8973d7847df7ea"
+        },
+        {
+          "path": "infra/supabase/migrations/20260123100000_simplify_blocksuite_standalone.sql",
+          "lfSha256": "b1f815d98860d4d1035056484eb1944eb28867685d75d66543b69cbc0dec2f1e",
+          "observedCrlfSha256": "84456cb1e57172452c645ec12780dfad371fcc3cdc051620a7b3933d5cefcbdf"
+        },
+        {
+          "path": "infra/supabase/migrations/20260403130000_harden_membership_and_public_lookup.sql",
+          "lfSha256": "eaa7c65bf007ca349f9654c8ced67cd6c5d51b15f7f1207fecb9f4457e406bf8",
+          "observedCrlfSha256": "4be1599ad88c4fcd3a9f1475ff6bd226685c9df109d5c1fcbdbac2dbc1c8cf1f"
+        },
+        {
+          "path": "infra/supabase/migrations/20260602120000_create_platform_schema.sql",
+          "lfSha256": "a607e94082635aee6dc9ac3ffdbfd1d24b6419a363c7025290b2a8fb63ed72e9",
+          "observedCrlfSha256": "804c1f696ecc691f819a168df5f3547ca5b746aec128c5ab0a99e9eaf70fc723"
+        },
+        {
+          "path": "infra/supabase/migrations/20260606093937_create_meeting_schema.sql",
+          "lfSha256": "816d8faab52c41ad8e52a7ff37d3917ab9dd0275bc8de9658c1edc766d202e05",
+          "observedCrlfSha256": "b1c3fd68bfd8023eceee7c6e6b8528b1ed9e927b5c571894ca836154619f37ca"
+        }
+      ]
+    },
+    "apps/roadmap-web/supabase/migrations": {
+      "authority": "historical_non_authoritative",
+      "files": [
+        {
+          "path": "apps/roadmap-web/supabase/migrations/20250110000001_initial_multitenant_schema.sql",
+          "lfSha256": "e0eaa2dec8ec40291a53badf45cbd505773c0905a1b6fc82697eef00383f2923",
+          "observedCrlfSha256": "07a52a46a56d1a779483ce25274f391f48ee0a0c18e0734347f0ea87792246b9"
+        },
+        {
+          "path": "apps/roadmap-web/supabase/migrations/20250111000001_allow_public_invitation_lookup.sql",
+          "lfSha256": "dfad779f4288992402449b6bc81921bb13b715b571d21dca1a8e25375ab43362",
+          "observedCrlfSha256": "b9e9898bf6f91cd5095a6328e3c961f33aa41bc581344205d3cb27dc85a8a0de"
+        },
+        {
+          "path": "apps/roadmap-web/supabase/migrations/20250111000002_fix_team_members_rls.sql",
+          "lfSha256": "94761836db2822a61dbff77e8833434ffe94372be33864da36d5dffce4f30eb7",
+          "observedCrlfSha256": "b6beaa4c6e00418009beef97eea369de0ef558aec2cfca399c59700a77ce8940"
+        },
+        {
+          "path": "apps/roadmap-web/supabase/migrations/20250113000001_add_conversion_tracking.sql",
+          "lfSha256": "5760781ead65c0aec3602d18a6d67fc21a00dea810eabf3c541552e807e4f5f0",
+          "observedCrlfSha256": "20bb5fce85992c08b05148c72d21192e1afb474f0673a851b72b8e6323b83fa6"
+        },
+        {
+          "path": "apps/roadmap-web/supabase/migrations/20250114000000_add_ai_model_tracking.sql",
+          "lfSha256": "bbe3ed441b3cccb4b45ded6afbf365f1cf48998d916d7dbee5f31662c9e0ba55",
+          "observedCrlfSha256": "a760cc7b105b1212eeb436c7bb2ada14ba7cb47008d23b93ea5e02ff15fff860"
+        },
+        {
+          "path": "apps/roadmap-web/supabase/migrations/20251112115417_create_tags_table.sql",
+          "lfSha256": "1f2843a961ad102f8ffc1e97118d3a9dd2da266638a9502bee41baeb887d46cd",
+          "observedCrlfSha256": "fad8e42f39e37caa53ba90c9751fc199ec472a2209dccd508fb3e2b25457e626"
+        }
+      ]
+    },
+    "apps/meeting-api/backend/alembic/versions": {
+      "authority": "historical_non_authoritative",
+      "files": [
+        {
+          "path": "apps/meeting-api/backend/alembic/versions/0001_multi_user_jobs.py",
+          "lfSha256": "b215c292a3d7c58b784b89bc9b4456045ff627c5a164cea5f05b78f22b87fff3",
+          "observedCrlfSha256": "fa4f89a224bd8179599abcd7d2ece39990b571b3214b222471da6193759bf26b"
+        },
+        {
+          "path": "apps/meeting-api/backend/alembic/versions/0002_summary_first_memory.py",
+          "lfSha256": "96f7b34e712b6443562850d03ecdfc65b7838a30fe676eefc8a42c93da6c61e3",
+          "observedCrlfSha256": "571291a3dc8b48a5a749d1217cd8db09143015675d978ca9db7478620297c863"
+        },
+        {
+          "path": "apps/meeting-api/backend/alembic/versions/0003_meeting_intelligence_hardening.py",
+          "lfSha256": "d6eb97267015a6da606f94fac3d16481c9c9cf61ab883c38e69042bbeb46aafa",
+          "observedCrlfSha256": "4950a53fc8d3f5b825aafd90368d4aecf94f50737ff2e391c2a0bbcac70e3841"
+        },
+        {
+          "path": "apps/meeting-api/backend/alembic/versions/0004_auth_provider_redesign.py",
+          "lfSha256": "cb92f62507bb4a2ceb9341628fc279fafafdafada360617881f411986f179201",
+          "observedCrlfSha256": "02fe37e1fcec892a6def1a7e31cdf7f3c18669d5935a12a9fea5c85a8a3bd729"
+        },
+        {
+          "path": "apps/meeting-api/backend/alembic/versions/0005_remove_workos_session_id.py",
+          "lfSha256": "964769f757661d78a13b9aca997b359b516e4c097efae8a4853023b36c6c762a",
+          "observedCrlfSha256": "2a1904ef31aa3727ed6c1702fd2c0b3d8d64e14146ed3510d5df97273efed90d"
+        }
+      ]
+    },
+    "apps/meeting-api/backend/migrations": {
+      "authority": "historical_non_authoritative",
+      "files": [
+        {
+          "path": "apps/meeting-api/backend/migrations/0001_initial.sql",
+          "lfSha256": "36214d5ef7f74accada6485d24f177472c48246dcb6d1af5779336fda2c47492",
+          "observedCrlfSha256": "382fddbd2342e9377cd55a33a8c9d8913e88f8ade011a6669ad811cbade6a5e5"
+        },
+        {
+          "path": "apps/meeting-api/backend/migrations/0002_users_and_ownership.sql",
+          "lfSha256": "1edd0c0edf2c8aaff47cdef265a11947663fc1217c2b49c48236c6c1b6ced52c",
+          "observedCrlfSha256": "529e0e4088f6d1ec70f3e1fd9c359f400efde352ab7e8d2f54634d5f8d58fd64"
+        }
+      ]
+    }
+  },
+  "drizzle": {
+    "immutable": [
+      {
+        "path": "0001_dear_the_enforcers.sql",
+        "lfSha256": "bf8ddf8eef97e16c45c3256b157372da4576a053faea1b632a7d101c35e36599"
+      },
+      {
+        "path": "0002_polite_orphan.sql",
+        "lfSha256": "5188c35f2b6011c637dc3a896e73efaa6ea28693d288c31087242f6bf2a293d0"
+      },
+      {
+        "path": "0003_tranquil_tattoo.sql",
+        "lfSha256": "2d803bf90f99352c95c766251fcd9fa802713b77db70c49e0b63d1c117204cd7"
+      },
+      {
+        "path": "0005_rename_tasks_to_checks.sql",
+        "lfSha256": "36f3f3288d7e1ba162690de8181d566a977931366f5a146cd3fdd249bb7dc954"
+      },
+      {
+        "path": "0006_provenance_foundation.sql",
+        "lfSha256": "82ce1c1f4e3eb31682269c1a8dcd43c19cde8ea1cdddde318154138d62b1a962"
+      },
+      {
+        "path": "0007_proposals.sql",
+        "lfSha256": "a040bf4e373a8f75e29a92259282bc9f92cd29cee397b7e6096fb62f8fed6665"
+      },
+      {
+        "path": "0008_agent_transcript.sql",
+        "lfSha256": "c4982411e24bcf1f5d21281720caec5a23988ab0de7b48bb898a4c63657e1134"
+      },
+      {
+        "path": "0009_chat_threads.sql",
+        "lfSha256": "cafdf78e37ddd26d49f932f61d83f73e27d1c42f7b2ce2a1cfd1a7c52f65602a"
+      },
+      {
+        "path": "0010_memory_brain.sql",
+        "lfSha256": "5285498d45432bc9d964474991e6fe222d25d506035311a052e48bb35a9c2154"
+      },
+      {
+        "path": "0011_memory_source_proposal_uniq.sql",
+        "lfSha256": "05be903039ff4a45f897c4a3c820beb2f04b9291864b0745ada611d604bec59c"
+      },
+      {
+        "path": "0012_proposals_reflected_at.sql",
+        "lfSha256": "f0d599d88fcfd40edc754bf103522cb228c9b78baa6b8e93f14d062b46da74e7"
+      },
+      {
+        "path": "0013_knowledge_base.sql",
+        "lfSha256": "c4f593927a2d5ae98f6005edd7e7646e3da6d5c5b8cc508c87b47b6fc4c7a8cd"
+      },
+      {
+        "path": "0014_work_item_applied_from_proposal_partial.sql",
+        "lfSha256": "f9907ac8062bea98649b86b77a8f326fdb2f8be3f88da7dd77f4af8513ace90b"
+      },
+      {
+        "path": "0015_meeting_promotions.sql",
+        "lfSha256": "66729743a827ab36d706c3fcd2c93466b9e366b744156d6dee31e67d0a7981f5"
+      },
+      {
+        "path": "0016_memory_ownership_axis.sql",
+        "lfSha256": "3d6ba2d644f921669b34c9ebd5865abbe7186fe424fce3fa75cc4d1e857c38cf"
+      },
+      {
+        "path": "0017_proposal_target_snapshot.sql",
+        "lfSha256": "503f779a56bb4a8ee1124904109efd15e2221ceae6f8ebc7de92e13452d41c36"
+      },
+      {
+        "path": "0018_collaboration_fabric.sql",
+        "lfSha256": "16dea596277e361b5a86d29b54966dc370f9bd504810be9143ad0cb7b2aad16b"
+      }
+    ],
+    "repairs": [
+      {
+        "path": "0000_stale_jamie_braddock.sql",
+        "constraints": [
+          "projects_tenant_id_tenants_id_fk",
+          "work_items_tenant_id_tenants_id_fk",
+          "work_item_dependencies_tenant_id_tenants_id_fk",
+          "work_items_assignee_id_users_id_fk"
+        ],
+        "original": {
+          "lfSha256": "ae1f9c05b03200827d197bb57488fa719510b52acaa7cdc934d94f20e68cbfef",
+          "crlfSha256": "da63f59c785b78d0896d21880821f12d0cf306f5b6f6ce5e890d525de269d507"
+        },
+        "repaired": {
+          "lfSha256": "d3ac8d18d56871931ad7eeabbbd3468a1237e89647e85fb05be822da5f548cd2",
+          "sha256": "d3ac8d18d56871931ad7eeabbbd3468a1237e89647e85fb05be822da5f548cd2"
+        }
+      },
+      {
+        "path": "0004_minor_lockheed.sql",
+        "constraints": [
+          "projects_lead_id_users_id_fk"
+        ],
+        "original": {
+          "lfSha256": "e860ea0270dc76137e3ca229ffdfc6a95a6db2514a44d5992cdf5630a5ad6feb",
+          "crlfSha256": "1d73a91952aa4f1b1ce184777ae39484fb876d2bad72d21bc3a428bba6d60ac7"
+        },
+        "repaired": {
+          "lfSha256": "444f24951876c1cc3250d97e7663faa63bc36c777614159508d495328337cff7",
+          "sha256": "444f24951876c1cc3250d97e7663faa63bc36c777614159508d495328337cff7"
+        }
+      }
+    ]
+  },
+  "snapshots": {
+    "packages/db/migrations/meta/0000_snapshot.json": {
+      "sha256": "432f7cc1e209c3d885b7d9aed2a69bd9dd17034f7f57d4e6518b2b3c61bb2981"
+    },
+    "packages/db/migrations/meta/0001_snapshot.json": {
+      "sha256": "fec402d187e986079ed92623c96ecf872ba3cb994d0683989d7dd7388b3bc23a"
+    },
+    "packages/db/migrations/meta/0002_snapshot.json": {
+      "sha256": "175cf4c247be3c0c7c88cade032230222ace003e1276e6853e7ff3fa4a73c3ad"
+    },
+    "packages/db/migrations/meta/0003_snapshot.json": {
+      "sha256": "625ecbb7c162b0a0bab8b03ab546691c31c10b88bfd7f6ef2b2efa7b273c8cf1"
+    },
+    "packages/db/migrations/meta/0004_snapshot.json": {
+      "sha256": "a3deed9ce7865bc4bad11f6fdb5a41e71f741cc53ee7054a715bb86ba85f93c5"
+    },
+    "packages/db/migrations/meta/0005_snapshot.json": {
+      "sha256": "d634071989338478f67ed13eb2abd2e2b9c54b64078adfa4f7aa8487526b8add"
+    },
+    "packages/db/migrations/meta/0006_snapshot.json": {
+      "sha256": "d3d5e6a4498dbd40f64a028a54e11a8ca90c78c9637202491d6e0b0ba8a0b263"
+    },
+    "packages/db/migrations/meta/0007_snapshot.json": {
+      "sha256": "b206e43e5097fa9da84881da290ab6e8a86db993f3dc98701541e0100f31500e"
+    },
+    "packages/db/migrations/meta/0008_snapshot.json": {
+      "sha256": "e7bd8a4fe142ee908afea283ff111083d751d08859f5dff120d355d8cade41c1"
+    },
+    "packages/db/migrations/meta/0009_snapshot.json": {
+      "sha256": "c63fe16629847dd20bc3486a9bd38489e7cfd6801121c851266b928a01062fe7"
+    },
+    "packages/db/migrations/meta/0010_snapshot.json": {
+      "sha256": "6dc2bfb4ce29fe1fc0db19ee3862ad3d5738986b018bb2cd12674e81f3cdd725"
+    },
+    "packages/db/migrations/meta/0011_snapshot.json": {
+      "sha256": "f09f72427df2d245a565a0d04dfb2a0bc6a1d560ee7ae329d59ccfe2a4bf448a"
+    }
+  }
+}

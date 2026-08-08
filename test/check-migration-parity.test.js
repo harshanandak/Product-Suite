@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { describe, expect, test } from "bun:test";
 
-import { analyzeMigrationParity } from "../scripts/check-migration-parity.mjs";
+import { analyzeMigrationParity, validateMigrationHistory } from "../scripts/check-migration-parity.mjs";
 
 const SCRIPT_PATH = join(import.meta.dir, "..", "scripts", "check-migration-parity.mjs");
 const REAL_MIGRATIONS_DIR = join(import.meta.dir, "..", "packages", "db", "migrations");
@@ -125,6 +125,37 @@ describe("check-migration-parity", () => {
 
       expect(status).not.toBe(0);
       expect(stderr).toContain("outside the expected migrations tree");
+    });
+  });
+
+  describe("history variants", () => {
+    const base = {
+      journal: journal(["0000_stale_jamie_braddock", "0001_dear_the_enforcers", "0002_polite_orphan", "0003_tranquil_tattoo", "0004_minor_lockheed"]),
+      hashes: {
+        "0000_stale_jamie_braddock.sql": "original-0000",
+        "0001_dear_the_enforcers.sql": "immutable-0001",
+        "0002_polite_orphan.sql": "immutable-0002",
+        "0003_tranquil_tattoo.sql": "immutable-0003",
+        "0004_minor_lockheed.sql": "original-0004",
+      },
+    };
+
+    test("accepts original-production and repaired-bootstrap as complete variants", () => {
+      expect(validateMigrationHistory({ ...base, historyVariant: "original-production" }).ok).toBe(true);
+      expect(validateMigrationHistory({
+        ...base,
+        historyVariant: "repaired-bootstrap",
+        hashes: { ...base.hashes, "0000_stale_jamie_braddock.sql": "repaired-0000", "0004_minor_lockheed.sql": "repaired-0004" },
+      }).ok).toBe(true);
+    });
+
+    test("rejects mixed and unknown hash variants", () => {
+      expect(validateMigrationHistory({ ...base, historyVariant: "original-production", hashes: { ...base.hashes, "0004_minor_lockheed.sql": "repaired-0004" } })).toMatchObject({ ok: false, code: "HISTORY_VARIANT_MIXED" });
+      expect(validateMigrationHistory({ ...base, historyVariant: "original-production", hashes: { ...base.hashes, "0000_stale_jamie_braddock.sql": "fabricated" } })).toMatchObject({ ok: false, code: "HISTORY_HASH_UNKNOWN" });
+    });
+
+    test("rejects fabricated snapshot hashes instead of treating them as a prefix", () => {
+      expect(validateMigrationHistory({ ...base, historyVariant: "original-production", snapshotHashes: { "0011_snapshot.json": "fabricated" } })).toMatchObject({ ok: false, code: "SNAPSHOT_HASH_UNKNOWN" });
     });
   });
 });

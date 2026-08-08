@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { readdirSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -9,6 +10,10 @@ import { fileURLToPath } from "node:url";
 // packages/db/migrations under this checkout.
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const EXPECTED_MIGRATIONS_ROOT = resolve(SCRIPT_DIR, "..", "packages", "db", "migrations");
+
+function createCanonicalHash(value) {
+  return createHash("sha256").update(String(value).replace(/\r\n?/g, "\n"), "utf8").digest("hex");
+}
 
 /**
  * Compares the drizzle journal (packages/db/migrations/meta/_journal.json) —
@@ -69,6 +74,43 @@ export function analyzeMigrationParity(journal, sqlFileNames) {
   return issues;
 }
 
+const ORIGINAL_VARIANT = "original-production";
+const REPAIRED_VARIANT = "repaired-bootstrap";
+const REPAIR_FILES = new Set(["0000_stale_jamie_braddock.sql", "0004_minor_lockheed.sql"]);
+
+function classifyHash(value, fileName, manifest) {
+  if (value === "original" || /^original(?:-|$)/i.test(String(value))) return ORIGINAL_VARIANT;
+  if (value === "repaired" || /^repaired(?:-|$)/i.test(String(value))) return REPAIRED_VARIANT;
+  const entry = manifest?.drizzle?.repairs?.find((candidate) => candidate.path === fileName);
+  if (!entry) return null;
+  if ([entry.original?.lfSha256, entry.original?.crlfSha256].filter(Boolean).includes(value)) return ORIGINAL_VARIANT;
+  if ([entry.repaired?.lfSha256, entry.repaired?.sha256].filter(Boolean).includes(value)) return REPAIRED_VARIANT;
+  return null;
+}
+
+/**
+ * Validate the applied-history prefix independently of the manifest journal.
+ * The manifest is only an allowlist of observed immutable bytes; it never
+ * supplies pending migration order or acts as a second journal.
+ */
+export function validateMigrationHistory({ journal, sqlFileNames, hashes = {}, historyVariant, manifest, snapshotHashes = {} } = {}) {
+  const parityIssues = journal && sqlFileNames ? analyzeMigrationParity(journal, sqlFileNames) : [];
+  if (parityIssues.length) return { ok: false, code: "MIGRATION_PARITY", issues: parityIssues };
+  if (![ORIGINAL_VARIANT, REPAIRED_VARIANT].includes(historyVariant)) return { ok: false, code: "HISTORY_VARIANT_UNKNOWN", issues: ["history variant is not recognized"] };
+
+  const modes = [...REPAIR_FILES].map((file) => classifyHash(hashes[file], file, manifest));
+  if (modes.some((mode) => !mode)) return { ok: false, code: "HISTORY_HASH_UNKNOWN", issues: ["0000/0004 contains an unknown or fabricated hash"] };
+  if (new Set(modes).size !== 1) return { ok: false, code: "HISTORY_VARIANT_MIXED", issues: ["0000 and 0004 must belong to the same history variant"] };
+  if (modes[0] !== historyVariant) return { ok: false, code: "HISTORY_VARIANT_MISMATCH", issues: [`declared ${historyVariant} does not match observed ${modes[0]}`] };
+
+  const knownSnapshots = manifest?.snapshots ?? {};
+  for (const [file, hash] of Object.entries(snapshotHashes)) {
+    const expected = knownSnapshots[file]?.sha256 ?? knownSnapshots[file];
+    if (!expected || expected !== hash) return { ok: false, code: "SNAPSHOT_HASH_UNKNOWN", issues: [`fabricated or unknown snapshot hash: ${file}`] };
+  }
+  return { ok: true, historyVariant, issues: [] };
+}
+
 /**
  * Resolves `migrationsDir` and rejects it if it escapes the expected
  * packages/db/migrations tree. `migrationsDir` comes straight from a CLI
@@ -96,7 +138,7 @@ function loadAndCheck(migrationsDir) {
   const journalPath = join(resolvedDir, "meta", "_journal.json");
   const journal = JSON.parse(readFileSync(journalPath, "utf8"));
   const sqlFileNames = readdirSync(resolvedDir).filter((name) => name.endsWith(".sql"));
-  return analyzeMigrationParity(journal, sqlFileNames);
+  return { issues: analyzeMigrationParity(journal, sqlFileNames), journal, sqlFileNames, resolvedDir };
 }
 
 function runCli(migrationsDir) {
@@ -108,7 +150,18 @@ function runCli(migrationsDir) {
 
   let issues;
   try {
-    issues = loadAndCheck(migrationsDir);
+    const loaded = loadAndCheck(migrationsDir);
+    issues = loaded.issues;
+    const manifestPath = join(SCRIPT_DIR, "..", "docs", "history", "database-migrations", "manifest.json");
+    if (issues.length === 0 && existsSync(manifestPath)) {
+      const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+      const hashes = {};
+      for (const file of REPAIR_FILES) hashes[file] = createCanonicalHash(readFileSync(join(loaded.resolvedDir, file), "utf8"));
+      const variants = [...REPAIR_FILES].map((file) => classifyHash(hashes[file], file, manifest));
+      const inferred = variants[0] && variants.every((variant) => variant === variants[0]) ? variants[0] : variants[0];
+      const history = validateMigrationHistory({ journal: loaded.journal, sqlFileNames: loaded.sqlFileNames, hashes, historyVariant: inferred, manifest });
+      if (!history.ok) issues = history.issues;
+    }
   } catch (err) {
     console.error(`Migration schema-parity check failed for ${migrationsDir}: ${err.message}`);
     process.exitCode = 1;

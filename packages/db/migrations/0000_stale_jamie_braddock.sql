@@ -99,22 +99,30 @@ CREATE INDEX IF NOT EXISTS "work_items_tenant_idx" ON "work_items" USING btree (
 -- Cross-tool FKs to the Alembic-owned tenancy tables (not Drizzle table objects).
 -- The org (= workspace = tenant) each workboard row belongs to, and the optional assignee.
 DO $$ BEGIN
- ALTER TABLE "projects" ADD CONSTRAINT "projects_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE cascade ON UPDATE no action;
+ IF to_regclass('public.tenants') IS NOT NULL THEN
+  ALTER TABLE "projects" ADD CONSTRAINT "projects_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE cascade ON UPDATE no action;
+ END IF;
 EXCEPTION
  WHEN duplicate_object THEN null;
 END $$;--> statement-breakpoint
 DO $$ BEGIN
- ALTER TABLE "work_items" ADD CONSTRAINT "work_items_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE cascade ON UPDATE no action;
+ IF to_regclass('public.tenants') IS NOT NULL THEN
+  ALTER TABLE "work_items" ADD CONSTRAINT "work_items_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE cascade ON UPDATE no action;
+ END IF;
 EXCEPTION
  WHEN duplicate_object THEN null;
 END $$;--> statement-breakpoint
 DO $$ BEGIN
- ALTER TABLE "work_item_dependencies" ADD CONSTRAINT "work_item_dependencies_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE cascade ON UPDATE no action;
+ IF to_regclass('public.tenants') IS NOT NULL THEN
+  ALTER TABLE "work_item_dependencies" ADD CONSTRAINT "work_item_dependencies_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE cascade ON UPDATE no action;
+ END IF;
 EXCEPTION
  WHEN duplicate_object THEN null;
 END $$;--> statement-breakpoint
 DO $$ BEGIN
- ALTER TABLE "work_items" ADD CONSTRAINT "work_items_assignee_id_users_id_fk" FOREIGN KEY ("assignee_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;
+ IF to_regclass('public.users') IS NOT NULL THEN
+  ALTER TABLE "work_items" ADD CONSTRAINT "work_items_assignee_id_users_id_fk" FOREIGN KEY ("assignee_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;
+ END IF;
 EXCEPTION
  WHEN duplicate_object THEN null;
 END $$;

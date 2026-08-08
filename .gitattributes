@@ -1,0 +1,3 @@
+# Database migration/control artifacts are canonically stored with LF endings.
+*.sql text eol=lf
+*.json text eol=lf
