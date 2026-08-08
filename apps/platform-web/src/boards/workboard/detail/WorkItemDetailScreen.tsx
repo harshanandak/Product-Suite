@@ -157,6 +157,27 @@ function ApprovedAtValue({ provenance }: Readonly<{ provenance: WorkItemProvenan
   return <time dateTime={provenance.approved_at}>{label}</time>;
 }
 
+function ProposalValue({
+  provenance,
+  workspace,
+}: Readonly<{ provenance: WorkItemProvenance; workspace: string }>) {
+  const proposalId = provenance.applied_from_proposal_id;
+  if (!proposalId) return null;
+  if (!provenance.proposal_available) return <IdentifierValue id={proposalId} />;
+  return (
+    <Link
+      to="/w/$workspace/inbox"
+      params={{ workspace }}
+      search={{ proposal: proposalId }}
+      aria-label={`Review proposal ${proposalId} in Inbox`}
+      className="inline-flex max-w-full flex-wrap items-baseline gap-x-2 text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <span>Review in Inbox</span>
+      <span className="break-all font-mono text-xs">{proposalId}</span>
+    </Link>
+  );
+}
+
 /** Overview narrative block — the description brief, tags, and provenance. */
 function OverviewTab({
   row,
@@ -206,24 +227,7 @@ function OverviewTab({
               <div className="contents">
                 <dt className="text-muted-foreground">Proposal</dt>
                 <dd className="min-w-0">
-                  <Link
-                    to="/w/$workspace/inbox"
-                    params={{ workspace }}
-                    search={{
-                      proposal: provenance.applied_from_proposal_id,
-                    }}
-                    aria-label={
-                      "Review proposal " +
-                      provenance.applied_from_proposal_id +
-                      " in Inbox"
-                    }
-                    className="inline-flex max-w-full flex-wrap items-baseline gap-x-2 text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    <span>Review in Inbox</span>
-                    <span className="break-all font-mono text-xs">
-                      {provenance.applied_from_proposal_id}
-                    </span>
-                  </Link>
+                  <ProposalValue provenance={provenance} workspace={workspace} />
                 </dd>
               </div>
             ) : null}

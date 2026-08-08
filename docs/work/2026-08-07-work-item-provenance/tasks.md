@@ -15,14 +15,19 @@ Each task has one owner and must be completed RED -> GREEN -> REFACTOR. Do not b
 - `apps/platform-api/src/proposals/apply.test.ts`
 - `apps/platform-api/src/domain/work-items.ts`
 - `apps/platform-api/src/domain/work-items.test.ts`
+- `apps/platform-api/src/meeting/ingest.ts`
+- `apps/platform-api/src/meeting/ingest.test.ts`
 
 **RED:**
 
 1. Add proposal-apply tests proving an agent create persists `source = 'agent'` alongside the existing proposal id and actor/run attribution.
 2. Add an update-domain test proving a trusted server provenance override changes source to agent while stamping the real run and authorizing human.
 3. Add regression tests proving ordinary human create/update preserve manual/meeting source and a client patch cannot set source.
+4. Add meeting-ingest tests proving a same-tenant promotion publishes the proposal and `meeting_promotions` ledger row atomically, while invalid tenant bindings and duplicate ledger races cannot leave a published proposal without its ledger.
 
-**GREEN:** Pass an explicit trusted `agent` source from `applyProposal`; use a narrow server-only update context override that defaults to preserving the current source. Do not add `source` to `WorkItemPatch`.
+**GREEN:** Pass an explicit trusted `agent` source from `applyProposal`; use a narrow server-only update context override that defaults to preserving the current source. Do not add `source` to `WorkItemPatch`. Keep meeting proposal publication and ledger insertion inside the existing transaction so trusted meeting provenance is committed as one unit.
+
+**REFACTOR:** Keep source derivation at the existing command and meeting-ingest boundaries; reuse the current transaction and test helpers without introducing a second provenance abstraction.
 
 **Expected output:** Agent-applied creates and updates report `agent`; existing manual and meeting writers are unchanged.
 
@@ -91,7 +96,7 @@ Each task has one owner and must be completed RED -> GREEN -> REFACTOR. Do not b
 
 **OWNS:** No implementation files; validation and Forge evidence only.
 
-1. Review each task's RED/GREEN evidence and diff against its ownership list.
+1. Review each task's RED/GREEN/REFACTOR evidence and diff against its ownership list.
 2. Run focused tests, affected lint/type checks, then the repository-prescribed `/validate` stage.
 3. Treat timeout, missing live credentials, skipped DB checks, or non-reconstructable output as INCOMPLETE.
 4. Re-prove the Forge lease before any stage transition and record `summary`, `decisions`, `artifacts`, and `next` on the issue.

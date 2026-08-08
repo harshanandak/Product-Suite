@@ -161,6 +161,7 @@ describe("@product-suite/contracts work-items core — drift guard", () => {
 
     expect(fields).toEqual([
       "applied_from_proposal_id",
+      "proposal_available",
       "actor_type",
       "actor_id",
       "on_behalf_of",
@@ -173,7 +174,10 @@ describe("@product-suite/contracts work-items core — drift guard", () => {
     expect(body).toMatch(
       /^\s*readonly actor_type: "human" \| "agent" \| "system" \| "import";$/m,
     );
-    for (const field of fields.filter((field) => field !== "actor_type")) {
+    expect(body).toMatch(/^\s*readonly proposal_available: boolean;$/m);
+    for (const field of fields.filter(
+      (field) => field !== "actor_type" && field !== "proposal_available",
+    )) {
       expect(body).toMatch(new RegExp(`^\\s*readonly ${field}: string \\| null;$`, "m"));
     }
   });

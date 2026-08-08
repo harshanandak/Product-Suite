@@ -32,6 +32,7 @@ const COMPLETE_PROVENANCE_ROW = {
   ...ROW,
   source: 'agent',
   applied_from_proposal_id: 'proposal_1',
+  proposal_available: true,
   actor_type: 'agent',
   actor_id: 'run_1',
   on_behalf_of: 'user_approver',
@@ -89,6 +90,7 @@ describe('GET /api/work-items', () => {
     const body = (await res.json()) as Array<Record<string, unknown>>
     expect(body[0]?.provenance).toEqual({
       applied_from_proposal_id: 'proposal_1',
+      proposal_available: true,
       actor_type: 'agent',
       actor_id: 'run_1',
       on_behalf_of: 'user_approver',
@@ -106,6 +108,7 @@ describe('GET /api/work-items', () => {
         ...COMPLETE_PROVENANCE_ROW,
         id: 'wi_cross_proposal',
         applied_from_proposal_id: 'proposal_foreign_reference',
+        proposal_available: false,
         approver_id: null,
         approver_name: null,
         approved_at: null,
@@ -134,6 +137,7 @@ describe('GET /api/work-items', () => {
     const body = (await res.json()) as Array<{ provenance?: Record<string, unknown> }>
     expect(body[0]?.provenance).toMatchObject({
       applied_from_proposal_id: 'proposal_foreign_reference',
+      proposal_available: false,
       approver_id: null,
       approver_name: null,
       approved_at: null,
@@ -166,7 +170,9 @@ describe('GET /api/work-items', () => {
     expect(query).toMatch(
       /left join users approver on approver\.id = approver_membership\.user_id/,
     )
-    expect(query).toMatch(/wi\.applied_from_proposal_id, wi\.actor_type/)
+    expect(query).toMatch(
+      /wi\.applied_from_proposal_id, p\.id is not null as proposal_available, wi\.actor_type/,
+    )
     expect(query).toMatch(/wi\.run_id, ar\.summary as run_summary/)
     expect(query).toMatch(/p\.decided_by as approver_id/)
     expect(query).not.toMatch(/approver_membership\.status = 'active'/)

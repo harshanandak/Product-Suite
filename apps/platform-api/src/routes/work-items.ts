@@ -59,6 +59,7 @@ function toWorkItem(row: WorkItemRow): WorkItem {
 
 interface WorkItemListRow extends WorkItemRow {
   applied_from_proposal_id: string | null
+  proposal_available: boolean
   actor_type: WorkItemProvenance['actor_type']
   actor_id: string | null
   on_behalf_of: string | null
@@ -85,6 +86,7 @@ function toListWorkItem(row: WorkItemListRow): WorkItem {
     ...item,
     provenance: {
       applied_from_proposal_id: row.applied_from_proposal_id,
+      proposal_available: row.proposal_available,
       actor_type: row.actor_type,
       actor_id: row.actor_id,
       on_behalf_of: row.on_behalf_of,
@@ -140,6 +142,7 @@ workItemsRoutes.get('/', async (c) => {
              wi.department, wi.assignee_id,
              wi.due_date, wi.archived, wi.created_at, wi.updated_at,
              wi.applied_from_proposal_id,
+             p.id is not null as proposal_available,
              wi.actor_type, wi.actor_id, wi.on_behalf_of,
              wi.run_id, ar.summary as run_summary,
              p.decided_by as approver_id,

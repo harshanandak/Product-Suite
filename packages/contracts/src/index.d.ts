@@ -595,6 +595,7 @@ export interface Owner {
 /** Tenant-safe read projection for the stored facts behind a work item. */
 export interface WorkItemProvenance {
   readonly applied_from_proposal_id: string | null;
+  readonly proposal_available: boolean;
   readonly actor_type: "human" | "agent" | "system" | "import";
   readonly actor_id: string | null;
   readonly on_behalf_of: string | null;

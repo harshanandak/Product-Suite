@@ -74,6 +74,7 @@ describe("WorkItemDetailScreen", () => {
       source: "agent",
       provenance: {
         applied_from_proposal_id: proposalId,
+        proposal_available: true,
         actor_type: "agent",
         actor_id: "agent_42",
         on_behalf_of: "user_authorizer_7",
@@ -119,11 +120,42 @@ describe("WorkItemDetailScreen", () => {
     expect(approvalTime).not.toHaveTextContent(approvedAt);
   });
 
+  it("renders a durable proposal ID without a link when the proposal is unavailable", async () => {
+    const proposalId = "proposal_deleted_0123456789abcdef";
+    const { repo, item } = await repoWithFirstItem({
+      source: "agent",
+      provenance: {
+        applied_from_proposal_id: proposalId,
+        proposal_available: false,
+        actor_type: "agent",
+        actor_id: "agent_42",
+        on_behalf_of: "user_authorizer_7",
+        run_id: "run_42",
+        run_summary: null,
+        approver_id: null,
+        approver_name: null,
+        approved_at: null,
+      },
+    });
+    routerMock.params = { workspace: "acme", itemId: item.id };
+
+    render(<WorkItemDetailScreen repository={repo} />);
+
+    const provenance = await screen.findByRole("region", { name: "Provenance" });
+    const proposalRow = within(provenance).getByText("Proposal").parentElement;
+    expect(proposalRow).not.toBeNull();
+    expect(within(proposalRow!).queryByRole("link")).toBeNull();
+    expect(within(proposalRow!).getByTitle(proposalId)).toHaveTextContent(
+      "proposal…abcdef",
+    );
+  });
+
   it("renders a malformed approval timestamp as unavailable", async () => {
     const { repo, item } = await repoWithFirstItem({
       source: "agent",
       provenance: {
         applied_from_proposal_id: "proposal_bad_timestamp",
+        proposal_available: true,
         actor_type: "agent",
         actor_id: "agent_42",
         on_behalf_of: "user_authorizer_7",
@@ -152,6 +184,7 @@ describe("WorkItemDetailScreen", () => {
       source: "agent",
       provenance: {
         applied_from_proposal_id: "proposal_partial",
+        proposal_available: true,
         actor_type: "agent",
         actor_id: null,
         on_behalf_of: null,
@@ -182,6 +215,7 @@ describe("WorkItemDetailScreen", () => {
       source: "agent",
       provenance: {
         applied_from_proposal_id: "proposal_dangling_context",
+        proposal_available: true,
         actor_type: "agent",
         actor_id: "agent_42",
         on_behalf_of: "user_authorizer_7",

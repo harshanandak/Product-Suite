@@ -26,11 +26,12 @@ In scope:
 - Tenant-scoped joins in the existing work-items API list read.
 - A small provenance block in `WorkItemDetailScreen` and focused tests.
 - Reuse and extend the current `moat-loop.spec.ts` DB probe.
+- Preserve the meeting-origin path by publishing each meeting proposal and its `meeting_promotions` ledger row atomically in the existing transaction.
 
 Out of scope:
 
 - Schema or migration changes.
-- Collaboration schema, event bus, workflow automation, workboard redesign, meeting behavior, canvas work, or dependency changes.
+- Collaboration schema, event bus, workflow automation, workboard redesign, unrelated meeting behavior, canvas work, or dependency changes.
 - A new proposal/run/approval authority, service, endpoint, or activity-event type.
 - Backfilling historical rows or relabeling meeting/manual records by inference.
 
@@ -60,7 +61,7 @@ The apply path already constructs an agent `ActorContext` from `proposal.run_id`
 
 ### 2. Add an optional tenant-safe read projection
 
-Add an optional `provenance` object to the shared `WorkItem` contract. It is read-only and contains only the fields the detail UI needs: applied proposal id, actor type/id, authorizing-human id, run id/summary, approver id/name, and approval time. All nullable historical relationships stay nullable.
+Add an optional `provenance` object to the shared `WorkItem` contract. It is read-only and contains only the fields the detail UI needs: applied proposal id, proposal availability, actor type/id, authorizing-human id, run id/summary, approver id/name, and approval time. All nullable historical relationships stay nullable. `proposal_available` is derived from the tenant-scoped proposal join, while the durable proposal id remains available for audit fallback.
 
 The existing work-items list query remains the sole read request. It selects the work item's stored provenance and uses `LEFT JOIN`s constrained by the work item's tenant:
 
@@ -76,7 +77,8 @@ Keep the existing Source property and add a compact Provenance section to the Ov
 
 Rendering rules:
 
-- proposal id present: link to `/w/$workspace/inbox?proposal=<id>`;
+- proposal id present and tenant-scoped proposal available: link to `/w/$workspace/inbox?proposal=<id>`;
+- proposal id present but unavailable: show the durable short id without a link;
 - run present: show summary when available and a short stable id fallback otherwise;
 - approver present: show tenant-resolved name, otherwise a short stable id;
 - referenced user/run deleted or tenant-invalid: show `Unavailable` without a link or fabricated name;
@@ -110,10 +112,11 @@ The useful mechanism already exists unchanged on this branch: `readWorkItemAppli
 
 ## Verification plan
 
-Implementation must show RED then GREEN evidence for each task in `tasks.md`. Focused gates:
+Implementation must show RED, GREEN, and REFACTOR evidence for each task in `tasks.md`. Focused gates:
 
 ```powershell
 bun test apps/platform-api/src/proposals/apply.test.ts apps/platform-api/src/domain/work-items.test.ts
+bun run --cwd apps/platform-api test -- src/meeting/ingest.test.ts
 bun test apps/platform-api/src/routes/work-items.test.ts packages/contracts/src/work-items.test.ts
 bun test apps/platform-web/src/boards/workboard/detail/WorkItemDetailScreen.test.tsx
 bun run --cwd apps/platform-web typecheck
