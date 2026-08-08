@@ -340,7 +340,10 @@ export function scanMigrationSql(source: string): MigrationFirewallFinding[] {
     const token = source.slice(index).match(/^[A-Za-z_][A-Za-z0-9_$]*/)?.[0]
     if (token) {
       const upper = token.toUpperCase()
-      const grantStatement = statementMode === 'GRANT' || statementMode === 'ALTER_DEFAULT_PRIVILEGES'
+      // DML words are only legal in privilege lists after an actual GRANT.
+      // Do not treat every ALTER statement as ALTER DEFAULT PRIVILEGES: that
+      // would let destructive `ALTER TABLE ... DROP ...` bypass the firewall.
+      const grantStatement = statementMode === 'GRANT'
       // `ON DELETE/UPDATE ...` are referential actions, and privilege lists
       // after GRANT contain the same words as DML. Keep those legal while
       // blocking standalone data-modifying statements.
@@ -353,7 +356,9 @@ export function scanMigrationSql(source: string): MigrationFirewallFinding[] {
       }
       if (previousToken === 'CREATE' && upper === 'SCHEMA') findings.push({ token: 'CREATE SCHEMA', offset: index })
       if (upper === 'GRANT') statementMode = 'GRANT'
-      if (upper === 'ALTER') statementMode = 'ALTER_DEFAULT_PRIVILEGES'
+      else if (upper === 'ALTER') statementMode = 'ALTER'
+      else if (statementMode === 'ALTER' && upper === 'DEFAULT') statementMode = 'ALTER_DEFAULT_PRIVILEGES'
+      else if (statementMode === 'ALTER') statementMode = null
       previousToken = upper
       index += token.length
       continue

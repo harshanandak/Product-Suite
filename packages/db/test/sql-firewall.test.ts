@@ -23,6 +23,16 @@ describe('authored migration SQL firewall', () => {
     }
   })
 
+  it('rejects destructive ALTER statements instead of treating every ALTER as privilege syntax', () => {
+    for (const statement of [
+      'ALTER TABLE x DROP COLUMN y',
+      'ALTER TABLE x DROP CONSTRAINT y',
+      'ALTER TABLE x DROP TABLE y',
+    ]) {
+      expect(() => assertMigrationSqlSafe(statement)).toThrowError(/DROP/i)
+    }
+  })
+
   it('accepts the authored repair/checkpoint SQL, including grants and FK actions', () => {
     const migration = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'migrations', '0019_neon_authority_reconciliation.sql'), 'utf8')
     expect(() => assertMigrationSqlSafe(migration)).not.toThrow()
