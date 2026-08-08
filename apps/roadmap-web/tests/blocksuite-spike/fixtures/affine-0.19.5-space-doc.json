@@ -1,0 +1,48 @@
+{
+    "version":  "0.19.5",
+    "sha256":  "cca5a2c3e648f27174bb75a80da1a90a91ae93bafdbcd75c44804d0272a02cef",
+    "documentId":  "blocksuite-0.19.5-space-doc",
+    "snapshot":  [
+                     {
+                         "id":  "o9TRVE7TN5",
+                         "flavour":  "affine:page",
+                         "parentId":  null,
+                         "children":  [
+                                          "vS3FQoaR4j",
+                                          "Wl0jc37-sW"
+                                      ],
+                         "text":  null,
+                         "title":  "Synthetic meeting plan"
+                     },
+                     {
+                         "id":  "v5sm__UPxU",
+                         "flavour":  "affine:paragraph",
+                         "parentId":  "Wl0jc37-sW",
+                         "children":  [
+
+                                      ],
+                         "text":  "Decide the next deterministic step.",
+                         "title":  null
+                     },
+                     {
+                         "id":  "vS3FQoaR4j",
+                         "flavour":  "affine:surface",
+                         "parentId":  "o9TRVE7TN5",
+                         "children":  [
+
+                                      ],
+                         "text":  null,
+                         "title":  null
+                     },
+                     {
+                         "id":  "Wl0jc37-sW",
+                         "flavour":  "affine:note",
+                         "parentId":  "o9TRVE7TN5",
+                         "children":  [
+                                          "v5sm__UPxU"
+                                      ],
+                         "text":  null,
+                         "title":  null
+                     }
+                 ]
+}
