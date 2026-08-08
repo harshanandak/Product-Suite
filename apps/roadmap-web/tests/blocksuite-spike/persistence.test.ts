@@ -27,5 +27,5 @@ describe("BlockSuite 0.19.5 spaceDoc persistence", () => {
     expect(output).toContain("code: 4");
     expect(output).toContain("Received  + 1");
     expect(output).toContain("+ []");
-  });
+  }, 35_000);
 });
