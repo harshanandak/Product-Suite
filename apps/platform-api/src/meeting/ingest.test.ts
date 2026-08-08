@@ -402,6 +402,8 @@ describe('runMeetingIngest', () => {
     expect(transactionBatches).toHaveLength(1)
     const [proposalWrite, ledgerWrite] = transactionBatches[0]!
     expect(proposalWrite?.text).toMatch(/insert into .*proposals/i)
+    expect(proposalWrite?.text).toContain('$3::uuid')
+    expect(proposalWrite?.text).toContain('$3::uuid::text')
     expect(ledgerWrite?.text).toMatch(/insert into .*meeting_promotions/i)
     expect(ledgerWrite?.params.slice(0, 2)).toEqual([PLATFORM_TENANT, 'ai_content_hash_1'])
     expect(ledgerWrite?.params[2]).toBe(proposalWrite?.params[0])

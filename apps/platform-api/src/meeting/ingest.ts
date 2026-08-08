@@ -188,7 +188,7 @@ export async function runMeetingIngest(
             `insert into proposals
                (id, tenant_id, run_id, target_type, operation, payload, rationale,
                 confidence, prompt_version, actor_type, actor_id, context_ref)
-             values ($1, $2, $3, 'work_item', 'create', $4::jsonb, $5, $6, $7, 'agent', $3, $8)
+             values ($1, $2, $3::uuid, 'work_item', 'create', $4::jsonb, $5, $6, $7, 'agent', $3::uuid::text, $8)
              returning id`,
             [
               proposalId,
