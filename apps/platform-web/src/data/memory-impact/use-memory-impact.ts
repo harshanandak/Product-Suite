@@ -47,10 +47,10 @@ function normalizeError(error: unknown): Error {
 }
 
 /**
- * `useMemoryImpact` — React-19 hook over the {@link MemoryImpactAdapter},
- * mirroring `useMemories`' plain-state load loop (the app has no react-query
- * infra). Read-only: it loads the impact for `windowDays` once and resolves the
- * injected → context → default adapter in that precedence.
+ * `useMemoryImpact` — Query-backed hook over the {@link MemoryImpactAdapter}.
+ * Read-only: it orchestrates impact loads through the authorization-scoped
+ * server-state QueryClient, keyed by scope, window, and adapter identity, while
+ * resolving the injected → context → default adapter in that precedence.
  */
 export function useMemoryImpact(
   options: UseMemoryImpactOptions = {},

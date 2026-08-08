@@ -66,10 +66,12 @@ export function MemoryImpactProvider({
 }
 
 /**
- * The real, Clerk-backed provider. Built ONCE (`useMemo` with a stable dep) so it
- * never remounts; its per-request token AND active-org resolvers always read the
- * latest Clerk values via refs. Mount INSIDE `ClerkProvider` and ABOVE the
- * router, mirroring `NetworkMemoriesProvider`.
+ * The real, Clerk-backed provider. Its adapter remains stable for each provider
+ * mount, and its per-request token AND active-org resolvers read the latest Clerk
+ * values via refs. The keyed authorization boundary above it remounts this
+ * subtree when the user/org scope changes while preserving that adapter-provider
+ * behavior within each scope. Mount INSIDE `ClerkProvider` and ABOVE the router,
+ * mirroring `NetworkMemoriesProvider`.
  */
 function NetworkMemoryImpactProvider({
   children,
