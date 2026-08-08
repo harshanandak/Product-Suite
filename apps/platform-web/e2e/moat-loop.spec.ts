@@ -47,6 +47,7 @@ const missingLivePrerequisites = [
   process.env.DATABASE_URL?.trim() ? null : "DATABASE_URL",
 ].filter((name): name is string => name !== null);
 
+// Missing live authority is reported as INCOMPLETE instead of a false PASS or FAIL.
 test.skip(
   missingLivePrerequisites.length > 0,
   `INCOMPLETE: missing live prerequisites: ${missingLivePrerequisites.join(", ")}`,
