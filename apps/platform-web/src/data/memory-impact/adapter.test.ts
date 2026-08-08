@@ -4,7 +4,9 @@ import { createMemoryImpactAdapter } from "./adapter";
 
 const BASE = "https://api.test";
 
-function mockFetch(impl: (url: string, init?: RequestInit) => Response) {
+function mockFetch(
+  impl: (url: string, init?: RequestInit) => Response | Promise<Response>,
+) {
   const spy = vi.fn(async (url: string | URL | Request, init?: RequestInit) =>
     impl(String(url), init),
   );
@@ -61,6 +63,83 @@ describe("createMemoryImpactAdapter", () => {
       apiBase: BASE,
       getToken: async () => null,
     });
-    await expect(adapter.get()).rejects.toThrow("Unauthorized");
+    const error = await adapter.get().catch((cause: unknown) => cause);
+    expect(error).toMatchObject({ message: "Unauthorized", status: 401 });
+  });
+
+  it("composes caller cancellation with the request timeout", async () => {
+    let requestSignal: AbortSignal | undefined;
+    mockFetch((_url, init) => {
+      requestSignal = init?.signal as AbortSignal;
+      return new Response(JSON.stringify({ verdict: "helps" }), { status: 200 });
+    });
+    const adapter = createMemoryImpactAdapter({
+      apiBase: BASE,
+      getToken: async () => "tok",
+      timeoutMs: 100,
+    });
+    const caller = new AbortController();
+
+    await adapter.get(30, caller.signal);
+    expect(requestSignal).toBeDefined();
+    expect(requestSignal).not.toBe(caller.signal);
+    expect(requestSignal?.aborted).toBe(false);
+
+    caller.abort();
+    expect(requestSignal?.aborted).toBe(true);
+  });
+
+  it("rejects an in-flight request when the caller aborts", async () => {
+    mockFetch((_url, init) =>
+      new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal;
+        if (signal?.aborted) reject(signal.reason);
+        else signal?.addEventListener("abort", () => reject(signal.reason));
+      }),
+    );
+    const adapter = createMemoryImpactAdapter({
+      apiBase: BASE,
+      getToken: async () => "tok",
+      timeoutMs: 100,
+    });
+    const caller = new AbortController();
+    const request = adapter.get(30, caller.signal);
+
+    caller.abort();
+    await expect(request).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  it("retains the timeout when a caller signal is present", async () => {
+    let requestSignal: AbortSignal | undefined;
+    mockFetch((_url, init) => {
+      requestSignal = init?.signal as AbortSignal;
+      return new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal;
+        if (signal?.aborted) reject(signal.reason);
+        else signal?.addEventListener("abort", () => reject(signal.reason));
+      });
+    });
+    const adapter = createMemoryImpactAdapter({
+      apiBase: BASE,
+      getToken: async () => "tok",
+      timeoutMs: 5,
+    });
+    const request = adapter.get(30, new AbortController().signal);
+
+    await expect(request).rejects.toMatchObject({ name: "TimeoutError" });
+    expect(requestSignal?.aborted).toBe(true);
+  });
+
+  it("exposes 5xx status without changing the API error message", async () => {
+    mockFetch(
+      () => new Response(JSON.stringify({ error: "Try again" }), { status: 503 }),
+    );
+    const adapter = createMemoryImpactAdapter({
+      apiBase: BASE,
+      getToken: async () => "tok",
+    });
+
+    const error = await adapter.get().catch((cause: unknown) => cause);
+    expect(error).toMatchObject({ message: "Try again", status: 503 });
   });
 });

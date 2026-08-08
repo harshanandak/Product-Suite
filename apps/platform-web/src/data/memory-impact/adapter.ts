@@ -25,13 +25,24 @@ export interface CreateMemoryImpactAdapterOptions {
 /** The memory-impact adapter surface the "Saved N edits" card consumes. */
 export interface MemoryImpactAdapter {
   /** The measured impact of memory over the last `windowDays` days (default 30). */
-  get: (windowDays?: number) => Promise<MemoryImpact>;
+  get: (windowDays?: number, signal?: AbortSignal) => Promise<MemoryImpact>;
 }
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
 /** The default rolling window (days) — matches the API's own default. */
 export const DEFAULT_WINDOW_DAYS = 30;
+
+/** Status-bearing HTTP failure used without coupling generic retry policy to this class. */
+export class MemoryImpactRequestError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "MemoryImpactRequestError";
+    this.status = status;
+  }
+}
 
 /** Extract the API's `{ error }` message from a non-OK response, else a status fallback. */
 async function errorMessage(response: Response): Promise<string> {
@@ -56,27 +67,41 @@ export function createMemoryImpactAdapter(
   const baseUrl = options.apiBase ?? API_BASE_URL;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
-  async function request<T>(method: string, path: string): Promise<T> {
+  async function request<T>(
+    method: string,
+    path: string,
+    callerSignal?: AbortSignal,
+  ): Promise<T> {
     const token = await options.getToken();
     const headers: Record<string, string> = {};
     if (token) headers.Authorization = `Bearer ${token}`;
+    const timeoutSignal = AbortSignal.timeout(timeoutMs);
+    const signal = callerSignal
+      ? AbortSignal.any([callerSignal, timeoutSignal])
+      : timeoutSignal;
     const response = await fetch(`${baseUrl}${path}`, {
       method,
       headers,
-      signal: AbortSignal.timeout(timeoutMs),
+      signal,
     });
-    if (!response.ok) throw new Error(await errorMessage(response));
+    if (!response.ok) {
+      throw new MemoryImpactRequestError(
+        await errorMessage(response),
+        response.status,
+      );
+    }
     return (await response.json()) as T;
   }
 
   return {
-    get: (windowDays = DEFAULT_WINDOW_DAYS) => {
+    get: (windowDays = DEFAULT_WINDOW_DAYS, signal) => {
       const orgId = options.getOrgId?.() ?? null;
       const params = new URLSearchParams({ window: String(windowDays) });
       if (orgId) params.set("org_id", orgId);
       return request<MemoryImpact>(
         "GET",
         `/api/agent/memory-impact?${params.toString()}`,
+        signal,
       );
     },
   };
