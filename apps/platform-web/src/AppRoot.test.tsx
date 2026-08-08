@@ -46,6 +46,11 @@ vi.mock("./data/meeting-actions", () => ({
     <div data-testid="meeting-actions-provider">{children}</div>
   ),
 }));
+vi.mock("./data/server-state", () => ({
+  ServerStateProvider: ({ children }: { children: ReactNode }) => (
+    <div data-testid="server-state-provider">{children}</div>
+  ),
+}));
 
 import { AppRoot } from "./AppRoot";
 
@@ -61,6 +66,9 @@ describe("AppRoot", () => {
     expect(screen.getByTestId("router")).toBeInTheDocument();
     expect(screen.queryByTestId("clerk")).not.toBeInTheDocument();
     expect(screen.queryByTestId("setup-notice")).not.toBeInTheDocument();
+    expect(screen.getByTestId("server-state-provider")).toContainElement(
+      screen.getByTestId("router"),
+    );
   });
 
   it("no Clerk key configured → renders the setup notice (not the app)", () => {
@@ -69,6 +77,7 @@ describe("AppRoot", () => {
     render(<AppRoot />);
     expect(screen.getByTestId("setup-notice")).toBeInTheDocument();
     expect(screen.queryByTestId("router")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("server-state-provider")).not.toBeInTheDocument();
   });
 
   it("Clerk key present → renders the Clerk-gated app tree", () => {
@@ -78,6 +87,12 @@ describe("AppRoot", () => {
     expect(screen.getByTestId("clerk")).toBeInTheDocument();
     expect(screen.getByTestId("router")).toBeInTheDocument();
     expect(screen.queryByTestId("setup-notice")).not.toBeInTheDocument();
+    expect(screen.getByTestId("clerk")).toContainElement(
+      screen.getByTestId("server-state-provider"),
+    );
+    expect(screen.getByTestId("server-state-provider")).toContainElement(
+      screen.getByTestId("router"),
+    );
   });
 
   it.each([
