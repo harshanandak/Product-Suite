@@ -7,6 +7,7 @@ import { ServerStateProvider } from "@/data/server-state";
 
 import type { MemoryImpactAdapter } from "./adapter";
 import { createMemoryImpactFixture, createMockMemoryImpactAdapter } from "./mock";
+import type { MemoryImpact } from "./types";
 import { useMemoryImpact } from "./use-memory-impact";
 
 describe("useMemoryImpact", () => {
@@ -88,7 +89,7 @@ describe("useMemoryImpact", () => {
     const adapter: MemoryImpactAdapter = {
       get: vi.fn((_windowDays, signal) => {
         observedSignal = signal;
-        return new Promise((_resolve, reject) => {
+        return new Promise<MemoryImpact>((_resolve, reject) => {
           signal?.addEventListener("abort", () => reject(signal.reason));
         });
       }),
