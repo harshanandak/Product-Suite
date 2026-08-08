@@ -1,6 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
 
-import type { MemoryImpactAdapter } from "./adapter";
+import { getAdapterIdentity, useServerState } from "@/data/server-state";
+
+import {
+  DEFAULT_WINDOW_DAYS,
+  type MemoryImpactAdapter,
+} from "./adapter";
 import { useMemoryImpactContext } from "./MemoryImpactProvider";
 import { createMockMemoryImpactAdapter } from "./mock";
 import type { MemoryImpact } from "./types";
@@ -55,44 +61,20 @@ export function useMemoryImpact(
     () => options.adapter ?? contextAdapter ?? getDefaultMemoryImpactAdapter(),
     [options.adapter, contextAdapter],
   );
-  const windowDays = options.windowDays;
+  const windowDays = options.windowDays ?? DEFAULT_WINDOW_DAYS;
+  const adapterIdentity = getAdapterIdentity(adapter);
+  const { queryClient, scope } = useServerState();
+  const query = useQuery<MemoryImpact, Error>(
+    {
+      queryKey: ["memory-impact", scope.key, windowDays, adapterIdentity],
+      queryFn: ({ signal }) => adapter.get(windowDays, signal),
+    },
+    queryClient,
+  );
 
-  const [impact, setImpact] = useState<MemoryImpact | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
-
-  const mountedRef = useRef(true);
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-
-    adapter
-      .get(windowDays)
-      .then((loaded) => {
-        if (cancelled || !mountedRef.current) return;
-        setImpact(loaded);
-      })
-      .catch((cause: unknown) => {
-        if (cancelled || !mountedRef.current) return;
-        setError(cause instanceof Error ? cause : new Error(String(cause)));
-      })
-      .finally(() => {
-        if (cancelled || !mountedRef.current) return;
-        setLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [adapter, windowDays]);
-
-  return { impact, loading, error };
+  return {
+    impact: query.data ?? null,
+    loading: query.isPending,
+    error: query.error,
+  };
 }
