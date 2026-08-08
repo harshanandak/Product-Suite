@@ -107,6 +107,20 @@ describe('conversation membership authorization', () => {
     }, ['writer', 'admin'], { allowArchived: false })
     expect(result).toEqual({ ok: false, reason: 'archived' })
   })
+
+  it('fails closed for archived conversations when allowArchived is omitted', async () => {
+    const result = await authorizeConversation(sqlReturning([{ ...allowedRow, conversation_status: 'archived' }]) as never, {
+      tenantId: 'tenant_1', conversationId: 'conversation_1', actorId: actorRow.id,
+    }, ['writer', 'admin'])
+    expect(result).toEqual({ ok: false, reason: 'archived' })
+  })
+
+  it('allows archived conversations only when explicitly requested', async () => {
+    const result = await authorizeConversation(sqlReturning([{ ...allowedRow, conversation_status: 'archived' }]) as never, {
+      tenantId: 'tenant_1', conversationId: 'conversation_1', actorId: actorRow.id,
+    }, ['writer', 'admin'], { allowArchived: true })
+    expect(result).toMatchObject({ ok: true, conversationStatus: 'archived' })
+  })
 })
 
 const eventRow = {
@@ -152,6 +166,10 @@ describe('conversation event append', () => {
       duplicate: true,
       event: eventRow,
     })
+    const statement = String(sql.query.mock.calls[1]?.[0])
+    expect(statement.indexOf("when e.id is not null then 'existing'")).toBeLessThan(
+      statement.indexOf("when a.conversation_status = 'archived' then 'archived'"),
+    )
   })
 
   it('rejects reuse of an idempotency key with changed semantic content', async () => {
@@ -174,7 +192,7 @@ it.each([
       reason: 'idempotency_conflict',
     })
   })
-  it('serializes sequence allocation inside one transaction', async () => {
+  it('issues the row lock and sequence increment in one transaction', async () => {
     const first = transactionalSql({ outcome: 'inserted', ...eventRow, sequence: 7 })
     const second = transactionalSql({ outcome: 'inserted', ...eventRow, id: '44444444-4444-4444-8444-444444444444', sequence: 8 })
     const [a, b] = await Promise.all([
@@ -191,7 +209,7 @@ it.each([
   })
 
   it.each(['not_found', 'forbidden', 'archived', 'invalid_reference'] as const)(
-    'returns %s without an event mutation',
+    'maps the %s outcome to its reason',
     async (outcome) => {
       const sql = transactionalSql({ outcome })
       await expect(appendConversationEvent(sql as never, appendInput)).resolves.toEqual({ ok: false, reason: outcome })

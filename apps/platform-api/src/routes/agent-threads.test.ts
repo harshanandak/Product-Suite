@@ -98,8 +98,8 @@ describe('agent threads routes (tenant-scoped)', () => {
   })
 
 
-it('keeps the legacy messages response while reading a mapped canonical conversation', async () => {
-    mockSql({
+  it('keeps the legacy messages response while reading a tenant-scoped canonical conversation', async () => {
+    const { query } = mockSql({
       tenants: [{ tenant_id: 't_1' }],
       query: (text) => {
         if (/from "chat_threads"/i.test(text)) {
@@ -115,6 +115,10 @@ it('keeps the legacy messages response while reading a mapped canonical conversa
     const res = await app.request('/api/agent/threads/th_1/messages', auth)
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ messages: delta(1).messages })
+    const conversationRead = query.mock.calls.find(([text]) => /from "conversations"/i.test(String(text)))
+    const eventRead = query.mock.calls.find(([text]) => /from "conversation_events"/i.test(String(text)))
+    expect(conversationRead?.[1]).toContain('t_1')
+    expect(eventRead?.[1]).toContain('t_1')
   })
   it('GET /threads/:id/messages is 404 for a thread the caller does not own (no leak)', async () => {
     mockSql({

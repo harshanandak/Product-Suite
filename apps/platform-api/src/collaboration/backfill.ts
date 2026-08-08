@@ -12,6 +12,7 @@ export interface LegacyBackfillEvent {
 interface SourceThread {
   id: string
   tenant_id: string
+  created_at: string
   title: string
   archived?: boolean
   linked_object?: unknown
@@ -24,12 +25,28 @@ interface SourceRun {
   transcript: unknown
 }
 
+export interface CollaborationBackfillCursor {
+  tenantId: string
+  createdAt: string
+  id: string
+}
+
 export interface CollaborationBackfillReport {
   applied: boolean
   threads: number
   events: number
   unresolvedUsers: string[]
+  lastSuccessfulCursor: CollaborationBackfillCursor | null
 }
+
+interface CollaborationBackfillOptions {
+  apply: boolean
+  cursor?: CollaborationBackfillCursor | null
+  pageSize?: number
+}
+
+const DEFAULT_PAGE_SIZE = 100
+const MAX_PAGE_SIZE = 1000
 
 function runQuery<Row>(sql: Sql, text: string, params: unknown[] = []): Promise<Row[]> {
   return (sql as unknown as { query: (query: string, params: unknown[]) => Promise<Row[]> }).query(text, params)
@@ -40,18 +57,46 @@ export function legacyEventsForRun(runId: string, transcript: unknown, startSequ
   const record = transcript as { version?: unknown; messages?: unknown }
   if (record.version !== 1 || !Array.isArray(record.messages)) return []
   return record.messages.map((message, index) => {
-    const messageId = typeof (message as { id?: unknown })?.id === 'string'
-      ? (message as { id: string }).id
-      : String(index)
+    const messageKey = typeof (message as { id?: unknown })?.id === 'string'
+      ? `id:${(message as { id: string }).id}`
+      : `index:${index}`
     return {
       sequence: startSequence + index,
-      idempotencyKey: `legacy:agent_run:${runId}:message:${messageId}`,
+      idempotencyKey: `legacy:agent_run:${runId}:message:${messageKey}`,
       runId,
       userId: null,
       message,
       references: [{ kind: 'agent_run', id: runId }],
     }
   })
+}
+
+async function provisionActors(sql: Sql, tenantId: string, resolvedUsers: string[]) {
+  const serviceActors = await runQuery<{ id: string; disabled_at: unknown }>(
+    sql,
+    `with service_actor as materialized (
+       insert into "collaboration_actors" (tenant_id, kind, owning_domain, owning_id)
+       values ($1, 'service', 'platform.migration', 'chat_threads')
+       on conflict (tenant_id, owning_domain, owning_id) do update
+       set updated_at = "collaboration_actors".updated_at
+       returning id, disabled_at
+     ), user_rows as materialized (
+       select user_id from jsonb_to_recordset($2::jsonb) as users(user_id text)
+     ), human_actors as materialized (
+       insert into "collaboration_actors" (tenant_id, kind, owning_domain, owning_id)
+       select $1, 'human', 'identity.user', user_id from user_rows
+       on conflict (tenant_id, owning_domain, owning_id) do nothing
+       returning id
+     )
+     select service_actor.id, service_actor.disabled_at,
+       (select count(*) from human_actors) as provisioned_human_actors
+     from service_actor`,
+    [tenantId, JSON.stringify(resolvedUsers.map((user_id) => ({ user_id })))],
+  )
+  const serviceActor = serviceActors[0]
+  if (!serviceActor || serviceActor.disabled_at !== null) {
+    throw new Error(`Collaboration backfill service actor is disabled for tenant ${tenantId}`)
+  }
 }
 
 async function applyThread(sql: Sql, thread: SourceThread, runs: SourceRun[], events: LegacyBackfillEvent[]) {
@@ -64,21 +109,15 @@ async function applyThread(sql: Sql, thread: SourceThread, runs: SourceRun[], ev
     message: event.message,
     references: event.references,
   }))
-  await runQuery(
+  await provisionActors(sql, thread.tenant_id, resolvedUsers)
+  const conversations = await runQuery<{ id: string }>(
     sql,
     `with service_actor as materialized (
-       insert into "collaboration_actors" (tenant_id, kind, owning_domain, owning_id)
-       values ($1, 'service', 'platform.migration', 'chat_threads')
-       on conflict (tenant_id, owning_domain, owning_id) do update
-       set updated_at = "collaboration_actors".updated_at
-       returning id, disabled_at
+       select id, disabled_at from "collaboration_actors"
+       where tenant_id = $1 and kind = 'service'
+         and owning_domain = 'platform.migration' and owning_id = 'chat_threads'
      ), user_rows as materialized (
        select user_id from jsonb_to_recordset($5::jsonb) as users(user_id text)
-     ), human_actors as materialized (
-       insert into "collaboration_actors" (tenant_id, kind, owning_domain, owning_id)
-       select $1, 'human', 'identity.user', user_id from user_rows
-       on conflict (tenant_id, owning_domain, owning_id) do nothing
-       returning id
      ), conversation_write as materialized (
        insert into "conversations" (
          id, tenant_id, title, status, subject_ref, created_by_actor_id, legacy_source, legacy_id
@@ -94,7 +133,9 @@ async function applyThread(sql: Sql, thread: SourceThread, runs: SourceRun[], ev
          tenant_id, conversation_id, actor_id, role, status, created_by_actor_id
        )
        select $1, conversation_write.id, actor.id, 'admin', 'active', service_actor.id
-       from conversation_write, service_actor, user_rows
+       from conversation_write
+       cross join service_actor
+       cross join user_rows
        join "collaboration_actors" actor
          on actor.tenant_id = $1 and actor.kind = 'human'
         and actor.owning_domain = 'identity.user' and actor.owning_id = user_rows.user_id
@@ -149,42 +190,70 @@ async function applyThread(sql: Sql, thread: SourceThread, runs: SourceRun[], ev
       events.length + 1,
     ],
   )
+  if (conversations.length === 0) {
+    throw new Error(`Collaboration backfill could not write conversation ${thread.id}`)
+  }
 }
 
 export async function runCollaborationBackfill(
   sql: Sql,
-  options: { apply: boolean },
+  options: CollaborationBackfillOptions,
 ): Promise<CollaborationBackfillReport> {
-  const threads = await runQuery<SourceThread>(
-    sql,
-    `select id, tenant_id, title, archived, linked_object
-     from "chat_threads" order by tenant_id, created_at, id`,
-  )
+  const pageSize = options.pageSize ?? DEFAULT_PAGE_SIZE
+  if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > MAX_PAGE_SIZE) {
+    throw new RangeError(`Collaboration backfill pageSize must be between 1 and ${MAX_PAGE_SIZE}`)
+  }
   let eventCount = 0
+  let threadCount = 0
+  let lastSuccessfulCursor = options.cursor ?? null
   const unresolved = new Set<string>()
-  for (const thread of threads) {
-    const runs = await runQuery<SourceRun>(
+  while (true) {
+    const threads = await runQuery<SourceThread>(
       sql,
-      `select r.id, r.triggered_by, u.id as resolved_user_id, r.transcript
-       from "agent_runs" r
-       left join "users" u on u.id = r.triggered_by
-       where r.tenant_id = $1 and r.thread_id = $2
-       order by r.created_at, r.id`,
-      [thread.tenant_id, thread.id],
+      `select id, tenant_id, created_at::text as created_at, title, archived, linked_object
+       from "chat_threads"
+       where ($1::text is null or (tenant_id, created_at, id) > ($1::text, $2::timestamptz, $3::uuid))
+       order by tenant_id, created_at, id
+       limit $4`,
+      [
+        lastSuccessfulCursor?.tenantId ?? null,
+        lastSuccessfulCursor?.createdAt ?? null,
+        lastSuccessfulCursor?.id ?? null,
+        pageSize,
+      ],
     )
-    const events: LegacyBackfillEvent[] = []
-    for (const run of runs) {
-      if (run.triggered_by && !run.resolved_user_id) unresolved.add(run.triggered_by)
-      const runEvents = legacyEventsForRun(run.id, run.transcript, events.length + 1)
-      events.push(...runEvents.map((event) => ({ ...event, userId: run.resolved_user_id })))
+    for (const thread of threads) {
+      const runs = await runQuery<SourceRun>(
+        sql,
+        `select r.id, r.triggered_by, u.id as resolved_user_id, r.transcript
+         from "agent_runs" r
+         left join "users" u on u.id = r.triggered_by
+         where r.tenant_id = $1 and r.thread_id = $2
+         order by r.created_at, r.id`,
+        [thread.tenant_id, thread.id],
+      )
+      const events: LegacyBackfillEvent[] = []
+      for (const run of runs) {
+        if (run.triggered_by && !run.resolved_user_id) unresolved.add(run.triggered_by)
+        const runEvents = legacyEventsForRun(run.id, run.transcript, events.length + 1)
+        events.push(...runEvents.map((event) => ({ ...event, userId: run.resolved_user_id })))
+      }
+      eventCount += events.length
+      if (options.apply) await applyThread(sql, thread, runs, events)
+      threadCount += 1
+      lastSuccessfulCursor = {
+        tenantId: thread.tenant_id,
+        createdAt: thread.created_at,
+        id: thread.id,
+      }
     }
-    eventCount += events.length
-    if (options.apply) await applyThread(sql, thread, runs, events)
+    if (threads.length < pageSize) break
   }
   return {
     applied: options.apply,
-    threads: threads.length,
+    threads: threadCount,
     events: eventCount,
     unresolvedUsers: [...unresolved].sort((left, right) => left.localeCompare(right)),
+    lastSuccessfulCursor,
   }
 }

@@ -216,13 +216,13 @@ export const conversationEvents = pgTable(
       name: 'conversation_events_tenant_actor_fk',
     }),
     reply: foreignKey({
-      columns: [t.tenantId, t.replyToEventId],
-      foreignColumns: [t.tenantId, t.id],
+      columns: [t.tenantId, t.conversationId, t.replyToEventId],
+      foreignColumns: [t.tenantId, t.conversationId, t.id],
       name: 'conversation_events_tenant_reply_fk',
     }),
     target: foreignKey({
-      columns: [t.tenantId, t.targetEventId],
-      foreignColumns: [t.tenantId, t.id],
+      columns: [t.tenantId, t.conversationId, t.targetEventId],
+      foreignColumns: [t.tenantId, t.conversationId, t.id],
       name: 'conversation_events_tenant_target_fk',
     }),
     payloadSize: check('conversation_events_payload_size_check', sql`octet_length(${t.payload}::text) <= 262144`),
@@ -285,7 +285,7 @@ export const agentRuns = pgTable(
     // The durable thread this chat run belongs to (nullable: legacy/autonomous runs
     // stay unlinked). SET NULL on thread delete so a run's work outlives its thread.
     threadId: uuid('thread_id').references(() => chatThreads.id, { onDelete: 'set null' }),
-    conversationId: uuid('conversation_id').references(() => conversations.id, { onDelete: 'set null' }),
+    conversationId: uuid('conversation_id'),
     // Memory Brain P2 holdout flag: assigned at run start (always false in P1). When
     // true, retrieval logs what WOULD have injected (suppressed attributions) without
     // adding it to the prompt, so the edit/reject-rate delta measures the moat.
@@ -294,6 +294,11 @@ export const agentRuns = pgTable(
   },
   (t) => ({
     byTenant: index('agent_runs_tenant_idx').on(t.tenantId),
+    conversation: foreignKey({
+      columns: [t.tenantId, t.conversationId],
+      foreignColumns: [conversations.tenantId, conversations.id],
+      name: 'agent_runs_tenant_conversation_fk',
+    }).onDelete('restrict'),
     // Reconstruction reads a thread's runs in creation order.
     byThread: index('agent_runs_thread_created_idx').on(t.threadId, t.createdAt),
   }),

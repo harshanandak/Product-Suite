@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS "conversation_events" (
   "references" jsonb DEFAULT '[]'::jsonb NOT NULL,
   "created_at" timestamptz DEFAULT now() NOT NULL,
   CONSTRAINT "conversation_events_tenant_conversation_id_uniq" UNIQUE ("tenant_id", "conversation_id", "id"),
-  CONSTRAINT "conversation_events_tenant_conversation_fk" FOREIGN KEY ("tenant_id","conversation_id") REFERENCES "conversations"("tenant_id","id") ON DELETE cascade,
+  CONSTRAINT "conversation_events_tenant_conversation_fk" FOREIGN KEY ("tenant_id","conversation_id") REFERENCES "conversations"("tenant_id","id") ON DELETE restrict,
   CONSTRAINT "conversation_events_tenant_actor_fk" FOREIGN KEY ("tenant_id","actor_id") REFERENCES "collaboration_actors"("tenant_id","id") ON DELETE restrict,
   CONSTRAINT "conversation_events_tenant_reply_fk" FOREIGN KEY ("tenant_id","conversation_id","reply_to_event_id") REFERENCES "conversation_events"("tenant_id","conversation_id","id") ON DELETE restrict,
   CONSTRAINT "conversation_events_tenant_target_fk" FOREIGN KEY ("tenant_id","conversation_id","target_event_id") REFERENCES "conversation_events"("tenant_id","conversation_id","id") ON DELETE restrict,
@@ -86,8 +86,6 @@ CREATE TABLE IF NOT EXISTS "conversation_events" (
 );--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "conversation_events_tenant_conversation_sequence_uniq" ON "conversation_events" ("tenant_id", "conversation_id", "sequence");--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "conversation_events_tenant_conversation_idempotency_uniq" ON "conversation_events" ("tenant_id", "conversation_id", "idempotency_key");--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "conversation_events_tenant_conversation_cursor_idx" ON "conversation_events" ("tenant_id", "conversation_id", "sequence");--> statement-breakpoint
-
 CREATE OR REPLACE FUNCTION prevent_conversation_event_mutation()
 RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
@@ -101,6 +99,6 @@ FOR EACH ROW EXECUTE FUNCTION prevent_conversation_event_mutation();--> statemen
 
 ALTER TABLE "agent_runs" ADD COLUMN IF NOT EXISTS "conversation_id" uuid;--> statement-breakpoint
 DO $$ BEGIN
- ALTER TABLE "agent_runs" ADD CONSTRAINT "agent_runs_conversation_id_conversations_id_fk" FOREIGN KEY ("conversation_id") REFERENCES "conversations"("id") ON DELETE set null;
+ ALTER TABLE "agent_runs" ADD CONSTRAINT "agent_runs_tenant_conversation_fk" FOREIGN KEY ("tenant_id","conversation_id") REFERENCES "conversations"("tenant_id","id") ON DELETE restrict;
 EXCEPTION WHEN duplicate_object THEN null; END $$;--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "agent_runs_conversation_created_idx" ON "agent_runs" ("conversation_id", "created_at");

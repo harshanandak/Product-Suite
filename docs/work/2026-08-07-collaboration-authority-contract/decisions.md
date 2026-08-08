@@ -36,9 +36,9 @@ Keep existing `chat_threads`, `agent_runs.thread_id`, route shapes, and run tran
 
 CloudEvents informs stable event identity and a metadata/data split, but Product-Suite needs conversation sequence, membership ACL, edits, and domain references that the generic spec does not provide. Use the shape as prior art; add no SDK, broker, or transport authority.
 
-## D10 - PLAN exits at human approval
+## D10 - PLAN exited at human approval (historical)
 
-This branch contains design and TDD artifacts only. Production code, migrations, UI projections, vendor integration, merge, and `gate.plan-approval` mutation are explicitly deferred to authorized later stages.
+The plan-stage branch originally contained design and TDD artifacts only. The approved DEV work in PR #163 subsequently added the shared contract, schema and migration, platform repository/API, database conformance coverage, and the additive legacy bridge. UI projections, vendor integration, merge, and downstream cutovers remain deferred to separately authorized work.
 ## DEV Decision 1
 
 **Date**: 2026-08-07

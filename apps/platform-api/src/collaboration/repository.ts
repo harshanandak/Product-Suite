@@ -37,7 +37,7 @@ export type ConversationAuthorization =
     }
   | { ok: false; reason: 'not_found' | 'forbidden' | 'archived' }
 
-function runQuery<Row>(sql: Sql, text: string, params: unknown[]): Promise<Row[]> {
+export function runQuery<Row>(sql: Sql, text: string, params: unknown[]): Promise<Row[]> {
   return (sql as unknown as { query: (query: string, params: unknown[]) => Promise<Row[]> }).query(text, params)
 }
 
@@ -89,6 +89,7 @@ export async function authorizeConversation(
   allowedRoles: readonly ConversationRole[],
   options: { allowArchived?: boolean } = {},
 ): Promise<ConversationAuthorization> {
+  const { allowArchived = false } = options
   const rows = await runQuery<AuthorizationRow>(
     sql,
     `select a.id as actor_id, a.kind as actor_kind, m.role, c.status as conversation_status
@@ -104,7 +105,7 @@ export async function authorizeConversation(
   const row = rows[0]
   if (!row) return { ok: false, reason: 'not_found' }
   if (!allowedRoles.includes(row.role)) return { ok: false, reason: 'forbidden' }
-  if (row.conversation_status === 'archived' && options.allowArchived === false) {
+  if (row.conversation_status === 'archived' && !allowArchived) {
     return { ok: false, reason: 'archived' }
   }
   return {
@@ -175,12 +176,18 @@ interface AppendTransactionRow extends Partial<ConversationEventRow> {
   outcome: 'inserted' | 'existing' | 'not_found' | 'forbidden' | 'archived' | 'invalid_reference' | 'failed'
 }
 
+function compareCodeUnits(left: string, right: string): number {
+  if (left < right) return -1
+  if (left > right) return 1
+  return 0
+}
+
 function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
   if (value !== null && typeof value === 'object') {
     const object = value as Record<string, unknown>
     const entries = Object.keys(object)
-      .sort((left, right) => left.localeCompare(right))
+      .sort(compareCodeUnits)
       .map((key) => [JSON.stringify(key), canonicalJson(object[key])].join(':'))
     return `{${entries.join(',')}}`
   }
@@ -314,8 +321,8 @@ export async function appendConversationEvent(
            when $5::text in ('membership.added', 'membership.changed', 'membership.removed') then a.role = 'admin'
            else a.role in ('writer', 'admin')
          end then 'forbidden'
-         when a.conversation_status = 'archived' then 'archived'
          when e.id is not null then 'existing'
+         when a.conversation_status = 'archived' then 'archived'
          when not v.links_valid then 'invalid_reference'
          when i.id is not null then 'inserted'
          else 'failed'
@@ -375,6 +382,7 @@ export async function listConversationEvents(
     sql,
     { tenantId: input.tenantId, conversationId: input.conversationId, actorId: input.actorId },
     ['reader', 'writer', 'admin'],
+    { allowArchived: true },
   )
   if (!authorization.ok) return authorization
   const rows = await runQuery<ConversationEventRow>(

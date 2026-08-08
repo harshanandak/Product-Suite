@@ -10,6 +10,7 @@ import {
   authorizeConversation,
   listConversationEvents,
   resolveActiveActor,
+  runQuery,
   type ActorRow,
   type ConversationEventRow,
 } from '../collaboration/repository'
@@ -17,7 +18,7 @@ import { sqlFrom } from '../db'
 import type { AuthedEnv } from '../middleware/clerk-auth'
 
 const tenantSchema = z.string().min(1).max(200)
-const uuidSchema = z.string().uuid()
+const uuidSchema = z.uuid()
 const referenceSchema = z.object({
   kind: z.enum(['agent_run', 'proposal', 'approval', 'schedule', 'meeting', 'work_item', 'canvas_document']),
   id: z.string().min(1).max(500),
@@ -51,6 +52,11 @@ const membershipSchema = z.object({
   status: z.enum(['active', 'removed']),
   idempotency_key: z.string().min(1).max(200),
 }).strict()
+const conversationListSchema = z.object({
+  tenant_id: tenantSchema,
+  before_updated_at: z.string().datetime({ offset: true }).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+})
 
 interface ConversationRow {
   id: string
@@ -62,16 +68,21 @@ interface ConversationRow {
   updated_at?: string | Date
 }
 
-function containsSensitiveKey(value: unknown): boolean {
-  if (Array.isArray(value)) return value.some(containsSensitiveKey)
-  if (!value || typeof value !== 'object') return false
-  return Object.entries(value as Record<string, unknown>).some(
-    ([key, nested]) => /(^|_)(authorization|cookie|password|secret|token)($|_)/i.test(key) || containsSensitiveKey(nested),
-  )
-}
+const MAX_SENSITIVE_KEY_DEPTH = 20
+const SENSITIVE_KEY_PARTS = new Set(['authorization', 'cookie', 'password', 'secret', 'token'])
 
-function runQuery<Row>(sql: Sql, text: string, params: unknown[]): Promise<Row[]> {
-  return (sql as unknown as { query: (query: string, params: unknown[]) => Promise<Row[]> }).query(text, params)
+function containsSensitiveKey(value: unknown, depth = 0): boolean {
+  if (!value || typeof value !== 'object') return false
+  if (depth >= MAX_SENSITIVE_KEY_DEPTH) return true
+  if (Array.isArray(value)) return value.some((nested) => containsSensitiveKey(nested, depth + 1))
+  return Object.entries(value as Record<string, unknown>).some(
+    ([key, nested]) => {
+      const parts = key.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase().split(/[^a-z0-9]+/)
+      const hasSensitivePart = parts.some((part) => SENSITIVE_KEY_PARTS.has(part))
+      const hasApiKey = parts.some((part, index) => part === 'api' && parts[index + 1] === 'key')
+      return hasSensitivePart || hasApiKey || containsSensitiveKey(nested, depth + 1)
+    },
+  )
 }
 
 async function callerActor(sql: Sql, claims: AuthClaims, tenantId: string): Promise<ActorRow | null> {
@@ -177,8 +188,8 @@ async function mutateMembership(
        case
          when a.actor_id is null or t.id is null then 'not_found'
          when a.role <> 'admin' then 'forbidden'
-         when a.conversation_status = 'archived' then 'archived'
          when e.id is not null then 'existing'
+         when a.conversation_status = 'archived' then 'archived'
          when i.id is not null then 'inserted'
          else 'failed'
        end as outcome,
@@ -214,11 +225,11 @@ async function mutateMembership(
 export const conversationsRoutes = new Hono<AuthedEnv>()
 
 conversationsRoutes.get('/', async (c) => {
-  const tenant = tenantSchema.safeParse(c.req.query('tenant_id'))
-  if (!tenant.success) return c.json({ error: 'Invalid tenant_id' }, 400)
+  const input = conversationListSchema.safeParse(c.req.query())
+  if (!input.success) return c.json({ error: 'Invalid request' }, 400)
   const sql = sqlFrom(c.env ?? {})
   try {
-    const actor = await callerActor(sql, c.get('claims'), tenant.data)
+    const actor = await callerActor(sql, c.get('claims'), input.data.tenant_id)
     if (!actor) return c.json({ error: 'Not found' }, 404)
     const rows = await runQuery<ConversationRow>(sql,
       `select c.id, c.tenant_id, c.title, c.status, c.subject_ref, c.created_at, c.updated_at
@@ -226,8 +237,10 @@ conversationsRoutes.get('/', async (c) => {
        join "conversation_memberships" m
          on m.tenant_id = c.tenant_id and m.conversation_id = c.id and m.status = 'active'
        where c.tenant_id = $1 and m.actor_id = $2
-       order by c.updated_at desc`,
-      [tenant.data, actor.id],
+         and ($3::timestamptz is null or c.updated_at < $3::timestamptz)
+       order by c.updated_at desc, c.id desc
+       limit $4`,
+      [input.data.tenant_id, actor.id, input.data.before_updated_at ?? null, input.data.limit],
     )
     return c.json(rows)
   } catch (cause) {
@@ -244,7 +257,12 @@ conversationsRoutes.get('/:id', async (c) => {
   try {
     const actor = await callerActor(sql, c.get('claims'), tenant.data)
     if (!actor) return c.json({ error: 'Not found' }, 404)
-    const access = await authorizeConversation(sql, { tenantId: tenant.data, conversationId: id.data, actorId: actor.id }, ['reader', 'writer', 'admin'])
+    const access = await authorizeConversation(
+      sql,
+      { tenantId: tenant.data, conversationId: id.data, actorId: actor.id },
+      ['reader', 'writer', 'admin'],
+      { allowArchived: true },
+    )
     if (!access.ok) return c.json({ error: access.reason === 'forbidden' ? 'Forbidden' : 'Not found' }, failureStatus(access.reason))
     const rows = await runQuery<ConversationRow>(sql,
       `select id, tenant_id, title, status, subject_ref, created_at, updated_at
@@ -324,7 +342,7 @@ conversationsRoutes.post('/:id/memberships', async (c) => {
     if (!actor) return c.json({ error: 'Not found' }, 404)
     const access = await authorizeConversation(sql, {
       tenantId: body.data.tenant_id, conversationId: id.data, actorId: actor.id,
-    }, ['admin'], { allowArchived: false })
+    }, ['admin'], { allowArchived: true })
     if (!access.ok) return c.json({ error: access.reason }, failureStatus(access.reason))
     const result = await mutateMembership(sql, {
       tenantId: body.data.tenant_id,

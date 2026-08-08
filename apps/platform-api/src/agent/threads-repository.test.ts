@@ -71,4 +71,21 @@ describe('canonical conversation compatibility', () => {
     expect(messages.map((message) => message.id)).toEqual(['u1', 'a1'])
     expect(String(query.mock.calls[1]?.[0])).toMatch(/conversation_events/i)
   })
+
+  it('ignores malformed canonical rows and deduplicates messages by id', async () => {
+    const query = vi.fn()
+      .mockResolvedValueOnce([{ id: 'conversation_1' }])
+      .mockResolvedValueOnce([
+        { message: null },
+        { message: 'not-a-message' },
+        { message: { id: 'missing-parts', role: 'user' } },
+        { message: user('hello', 'u1') },
+        { message: user('duplicate', 'u1') },
+        { message: assistant('hi', 'a1') },
+      ])
+
+    const messages = await reconstructThreadMessages({ query } as never, 'thread_1', 'tenant_1')
+
+    expect(messages.map((message) => message.id)).toEqual(['u1', 'a1'])
+  })
 })

@@ -9,17 +9,17 @@ Execution: sequential waves; no same-wave file overlap.
 ## Task 1: Extend the canonical conversation contract and fixtures
 
 **Requirement anchor:** Success criteria 1, 5, 6, and 7.
-**File(s):** `packages/contracts/src/conversation.js`, `packages/contracts/contracts/conversation.json`, `packages/contracts/src/index.js`, `packages/contracts/src/index.d.ts`, `packages/contracts/src/index.test.ts`
-**OWNS:** `packages/contracts/src/conversation.js`, `packages/contracts/contracts/conversation.json`, `packages/contracts/src/index.js`, `packages/contracts/src/index.d.ts`, `packages/contracts/src/index.test.ts`
+**File(s):** `packages/contracts/src/conversation.js`, `packages/contracts/contracts/conversation.json`, `packages/contracts/src/index.js`, `packages/contracts/src/index.d.ts`, `packages/contracts/src/conversation.test.ts`
+**OWNS:** `packages/contracts/src/conversation.js`, `packages/contracts/contracts/conversation.json`, `packages/contracts/src/index.js`, `packages/contracts/src/index.d.ts`, `packages/contracts/src/conversation.test.ts`
 
 **What to implement:** Extend the existing `conversationContract` with Actor, Conversation, Membership, ConversationEvent, DomainReference, enum values, required/optional fields, sequence cursor, idempotency conflict semantics, and ACL operation matrix. Keep the existing export name. Add independent JS/JSON/TypeScript drift assertions and conformance fixtures for create/edit/delete/reply and owning-domain references.
 
 **TDD steps:**
 
-1. Write test: in `packages/contracts/src/index.test.ts`, assert the expanded JS object equals the JSON artifact and that `.d.ts` enums/field sets match independently; assert agent actors and run references are distinct IDs.
-2. Run test: `bun test packages/contracts/src/index.test.ts`; confirm RED because Actor/Conversation/Membership/ConversationEvent fields are absent.
+1. Write test: in `packages/contracts/src/conversation.test.ts`, assert the expanded JS object equals the JSON artifact and that `.d.ts` enums/field sets match independently; assert agent actors and run references are distinct IDs.
+2. Run test: `bun test packages/contracts/src/conversation.test.ts`; confirm RED because Actor/Conversation/Membership/ConversationEvent fields are absent.
 3. Implement: extend the five owned files only; do not add a package or dependency.
-4. Run test: `bun test packages/contracts/src/index.test.ts`; confirm all collaboration contract fixtures pass.
+4. Run test: `bun test packages/contracts/src/conversation.test.ts`; confirm all collaboration contract fixtures pass.
 5. Commit: `feat(contracts): define collaboration authority contract`
 
 **Expected output:** One provider-neutral contract with no second conversation vocabulary.

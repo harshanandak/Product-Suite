@@ -6,7 +6,7 @@
 - Date: 2026-08-07
 - Forge issue: `2086343b-db19-4b13-a50f-c5e36c213b20`
 - Classification: Critical
-- Status: planned; awaiting `gate.plan-approval`
+- Status: implemented and under review in PR #163
 
 ## Purpose
 
@@ -50,9 +50,9 @@ Add four Drizzle-owned tables in shared Postgres:
 
 | Entity | Authority and key invariants |
 | --- | --- |
-| `collaboration_actors` | UUID `id`; `tenant_id`; `kind` = `human | agent | service`; required `owning_domain` + `owning_id`; `disabled_at`; unique `(tenant_id, owning_domain, owning_id)`. Profile rendering stays with the owning domain. |
-| `conversations` | UUID `id`; `tenant_id`; `title`; `status` = `active | archived`; optional typed `subject_ref`; `created_by_actor_id`; monotonic `next_sequence`; optional `legacy_source` + `legacy_id` with a tenant-scoped unique key. |
-| `conversation_memberships` | UUID `id`; tenant-bound FKs to conversation and actor; `role` = `reader | writer | admin`; `status` = `active | removed`; author/timestamps; unique `(tenant_id, conversation_id, actor_id)`. This is the current ACL projection. |
+| `collaboration_actors` | UUID `id`; `tenant_id`; `kind` = `human`, `agent`, or `service`; required `owning_domain` + `owning_id`; `disabled_at`; unique `(tenant_id, owning_domain, owning_id)`. Profile rendering stays with the owning domain. |
+| `conversations` | UUID `id`; `tenant_id`; `title`; `status` = `active` or `archived`; optional typed `subject_ref`; `created_by_actor_id`; monotonic `next_sequence`; optional `legacy_source` + `legacy_id` with a tenant-scoped unique key. |
+| `conversation_memberships` | UUID `id`; tenant-bound FKs to conversation and actor; `role` = `reader`, `writer`, or `admin`; `status` = `active` or `removed`; author/timestamps; unique `(tenant_id, conversation_id, actor_id)`. This is the current ACL projection. |
 | `conversation_events` | UUID `id`; tenant-bound conversation and author actor; `sequence`; `idempotency_key`; closed `kind`; JSON payload; optional `reply_to_event_id` and `target_event_id`; typed `references`; server timestamp. Unique `(tenant_id, conversation_id, sequence)` and `(tenant_id, conversation_id, idempotency_key)`. Rows are immutable. |
 
 Use composite tenant keys/FKs in SQL so a row cannot connect entities from different tenants even if application code is wrong. The repository still includes `tenant_id` and active membership in every query because DB integrity is not authorization.

@@ -45,6 +45,7 @@ const event = {
 function installSql(options: {
   auth?: typeof authorization | null
   append?: Record<string, unknown>
+  membership?: Record<string, unknown>
   list?: Record<string, unknown>[]
   events?: Record<string, unknown>[]
 } = {}) {
@@ -56,6 +57,7 @@ function installSql(options: {
       transaction: ReturnType<typeof vi.fn>
     }
   const query = vi.fn((text: string, _params: unknown[] = []) => {
+    if (/membership_write/i.test(text)) return Promise.resolve([options.membership ?? { outcome: 'inserted', semantic_match: true, ...event }])
     if (/with authorized_actor as materialized/i.test(text)) return Promise.resolve([options.append ?? { outcome: 'inserted', ...event }])
     if (/for update/i.test(text)) return Promise.resolve([{ id: conversationId }])
     if (/from "collaboration_actors"\s+where/i.test(text)) return Promise.resolve([actor])
@@ -82,10 +84,32 @@ describe('canonical conversation routes', () => {
   })
 
   it('registers an authenticated tenant-scoped conversation list', async () => {
-    installSql()
+    const { query } = installSql()
     const res = await app.request('/api/conversations?tenant_id=tenant_1', auth)
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual([{ id: conversationId, tenant_id: 'tenant_1', title: 'Launch', status: 'active' }])
+    const list = query.mock.calls.find(([text]) => /from "conversations" c\s+join "conversation_memberships"/i.test(String(text)))
+    expect(String(list?.[0])).toMatch(/c\.updated_at\s*<\s*\$3::timestamptz[\s\S]*order by c\.updated_at desc[\s\S]*limit \$4/i)
+    expect(list?.[1]).toEqual(['tenant_1', actorId, null, 50])
+  })
+
+  it('applies a bounded updated_at keyset cursor to conversation lists', async () => {
+    const { query } = installSql()
+    const cursor = '2026-08-07T00:00:00.000Z'
+    const res = await app.request(`/api/conversations?tenant_id=tenant_1&before_updated_at=${encodeURIComponent(cursor)}&limit=25`, auth)
+    expect(res.status).toBe(200)
+    const list = query.mock.calls.find(([text]) => /from "conversations" c\s+join "conversation_memberships"/i.test(String(text)))
+    expect(list?.[1]).toEqual(['tenant_1', actorId, cursor, 25])
+  })
+
+  it('rejects invalid list bounds and cursors before DB access', async () => {
+    const { query } = installSql()
+    const responses = await Promise.all([
+      app.request('/api/conversations?tenant_id=tenant_1&limit=101', auth),
+      app.request('/api/conversations?tenant_id=tenant_1&before_updated_at=not-a-date', auth),
+    ])
+    expect(responses.map((response) => response.status)).toEqual([400, 400])
+    expect(query).not.toHaveBeenCalled()
   })
 
   it('returns 404 for a foreign conversation without leaking it', async () => {
@@ -132,6 +156,37 @@ it('rejects secret-bearing payload fields before append', async () => {
     expect(res.status).toBe(400)
     expect(transaction).not.toHaveBeenCalled()
   })
+  it.each([
+    { accessToken: 'must-not-persist' },
+    { nested: { clientSecret: 'must-not-persist' } },
+    { apiKey: 'must-not-persist' },
+  ])('rejects camelCase secret-bearing payload fields', async (payload) => {
+    const { transaction } = installSql()
+    const res = await app.request(`/api/conversations/${conversationId}/events`, {
+      method: 'POST',
+      ...auth,
+      body: JSON.stringify({
+        tenant_id: 'tenant_1', idempotency_key: 'request_1', kind: 'message.created', payload,
+      }),
+    })
+    expect(res.status).toBe(400)
+    expect(transaction).not.toHaveBeenCalled()
+  })
+
+  it('fails closed when a payload exceeds the sensitive-key scan depth', async () => {
+    const { transaction } = installSql()
+    let payload: Record<string, unknown> = { value: 'leaf' }
+    for (let depth = 0; depth < 25; depth += 1) payload = { nested: payload }
+    const res = await app.request(`/api/conversations/${conversationId}/events`, {
+      method: 'POST',
+      ...auth,
+      body: JSON.stringify({
+        tenant_id: 'tenant_1', idempotency_key: 'request_1', kind: 'message.created', payload,
+      }),
+    })
+    expect(res.status).toBe(400)
+    expect(transaction).not.toHaveBeenCalled()
+  })
   it('maps changed idempotent retries to 409', async () => {
     installSql({ append: { outcome: 'existing', ...event } })
     const res = await app.request(`/api/conversations/${conversationId}/events`, {
@@ -157,6 +212,21 @@ it('rejects secret-bearing payload fields before append', async () => {
     expect(transaction).not.toHaveBeenCalled()
   })
 
+  it('returns an existing membership retry after the conversation is archived', async () => {
+    installSql({
+      auth: { ...authorization, role: 'admin', conversation_status: 'archived' },
+      membership: { outcome: 'existing', semantic_match: true, ...event },
+    })
+    const res = await app.request(`/api/conversations/${conversationId}/memberships`, {
+      method: 'POST',
+      ...auth,
+      body: JSON.stringify({
+        tenant_id: 'tenant_1', target_actor_id: targetActorId, role: 'reader', status: 'active', idempotency_key: 'member_1',
+      }),
+    })
+    expect(res.status).toBe(200)
+  })
+
 
 it('mutates membership and appends its audit event in one locked transaction for an admin', async () => {
     const { query, transaction } = installSql({ auth: { ...authorization, role: 'admin' } })
@@ -173,6 +243,9 @@ it('mutates membership and appends its audit event in one locked transaction for
     expect(statement).toMatch(/next_sequence\s*=\s*c\.next_sequence\s*\+\s*1/i)
     expect(statement).toMatch(/insert into "conversation_memberships"/i)
     expect(statement).toMatch(/insert into "conversation_events"/i)
+    expect(statement.indexOf("when e.id is not null then 'existing'")).toBeLessThan(
+      statement.indexOf("when a.conversation_status = 'archived' then 'archived'"),
+    )
   })
   it('authenticates every canonical route before DB access', async () => {
     const sql = vi.fn()
