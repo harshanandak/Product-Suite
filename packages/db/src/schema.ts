@@ -892,3 +892,8 @@ export const meetingPromotions = pgTable(
     byTenantRecord: uniqueIndex('meeting_promotions_tenant_record_uniq').on(t.tenantId, t.meetingRecordId),
   }),
 )
+
+// Meeting/identity tables are maintained in a separate module so their
+// historical ownership boundary remains explicit while Drizzle still has one
+// canonical schema entrypoint.
+export * from './meeting-schema'

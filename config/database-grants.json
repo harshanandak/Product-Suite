@@ -1,0 +1,75 @@
+{
+  "provider": "neon",
+  "database": "neondb",
+  "schema": "public",
+  "revokeCreateFromPublic": true,
+  "requiredRoles": [
+    {
+      "name": "product_suite_platform_runtime",
+      "canLogin": false,
+      "grants": {
+        "schema": ["USAGE"],
+        "tables": ["SELECT", "INSERT", "UPDATE", "DELETE"],
+        "sequences": ["USAGE", "SELECT"]
+      },
+      "defaultPrivileges": {
+        "tables": ["SELECT", "INSERT", "UPDATE", "DELETE"],
+        "sequences": ["USAGE", "SELECT"]
+      },
+      "tableAllowlist": [
+        "activity_events",
+        "agent_runs",
+        "checks",
+        "chat_threads",
+        "collaboration_actors",
+        "conversation_events",
+        "conversation_memberships",
+        "conversations",
+        "knowledge_chunks",
+        "memories",
+        "projects",
+        "proposals",
+        "run_knowledge_attributions",
+        "run_memory_attributions",
+        "statuses",
+        "teams",
+        "work_item_dependencies",
+        "work_items"
+      ]
+    },
+    {
+      "name": "product_suite_meeting_runtime",
+      "canLogin": false,
+      "grants": {
+        "schema": ["USAGE"],
+        "tables": ["SELECT", "INSERT", "UPDATE", "DELETE"],
+        "sequences": ["USAGE", "SELECT"]
+      },
+      "defaultPrivileges": {
+        "tables": ["SELECT", "INSERT", "UPDATE", "DELETE"],
+        "sequences": ["USAGE", "SELECT"]
+      },
+      "tableAllowlist": [
+        "users",
+        "tenants",
+        "meetings",
+        "transcript_segments",
+        "summaries",
+        "chat_messages",
+        "jobs",
+        "meeting_state",
+        "chapter_summaries",
+        "decisions",
+        "action_items",
+        "open_questions",
+        "audio_assets",
+        "agent_invocations",
+        "agent_responses",
+        "meeting_links",
+        "user_auth_identities",
+        "organization_memberships",
+        "organization_invitations"
+      ]
+    }
+  ]
+}

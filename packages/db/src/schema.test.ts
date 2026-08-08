@@ -308,4 +308,48 @@ describe('workboard schema', () => {
     expect(migration).toMatch(/agent_runs_tenant_conversation_fk[^\n]*foreign key \("tenant_id","conversation_id"\)[^\n]*on delete restrict/i)
     expect(migration).not.toMatch(/drop table|drop column/i)
   })
+
+  it('exports the complete canonical Meeting and identity model', () => {
+    for (const table of [
+      'users',
+      'tenants',
+      'meetings',
+      'transcriptSegments',
+      'summaries',
+      'chatMessages',
+      'jobs',
+      'meetingState',
+      'chapterSummaries',
+      'decisions',
+      'actionItems',
+      'openQuestions',
+      'audioAssets',
+      'agentInvocations',
+      'agentResponses',
+      'meetingLinks',
+      'userAuthIdentities',
+      'organizationMemberships',
+      'organizationInvitations',
+    ] as const) {
+      expect(schema[table]).toBeDefined()
+    }
+    expect(Object.keys(schema.meetings)).toEqual(expect.arrayContaining([
+      'tenantId',
+      'visibility',
+      'tags',
+      'participantLabels',
+      'primaryLanguage',
+      'buddyMode',
+    ]))
+    expect(Object.keys(schema.chapterSummaries)).toEqual(expect.arrayContaining([
+      'embedding',
+      'windowLabel',
+      'boundarySource',
+    ]))
+    expect(Object.keys(schema.organizationInvitations)).toEqual(expect.arrayContaining([
+      'tokenHash',
+      'expiresAt',
+      'acceptedAt',
+    ]))
+  })
 })
