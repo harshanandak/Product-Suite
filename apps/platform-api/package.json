@@ -10,7 +10,7 @@
     "dev": "wrangler dev",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint"
+    "lint": "eslint --max-warnings 0 src"
   },
   "dependencies": {
     "@clerk/backend": "^2.0.0",

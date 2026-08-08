@@ -1,6 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
+import type { Sql } from '@product-suite/db'
 
 import { clusterCorrections, RECURRENCE_THRESHOLD, runReflection } from './reflection'
+
+interface CorrectionRow {
+  id: string
+  target_type: string
+  payload: Record<string, unknown>
+  edited_payload: Record<string, unknown>
+}
 
 describe('clusterCorrections', () => {
   const corr = (id: string, from: string, to: string) => ({
@@ -31,10 +39,10 @@ describe('clusterCorrections', () => {
 describe('runReflection', () => {
   // mockSql returns corrections on the SELECT, a minted run on the agent_runs insert,
   // created proposals on the proposals insert, and records the reflected_at UPDATE.
-  function harness(corrections: any[]) {
-    const created: any[] = []
-    const stamped: string[][] = []
-    const query = vi.fn(async (text: string, params: any[]) => {
+  function harness(corrections: CorrectionRow[]) {
+    const created: Array<{ text: string; params: unknown[] }> = []
+    const stamped: unknown[][] = []
+    const query = vi.fn(async (text: string, params: unknown[]) => {
       if (/from "proposals"/i.test(text) && /edited_payload/i.test(text)) return corrections
       if (/insert into "agent_runs"/i.test(text)) return [{ id: 'run_reflect' }]
       if (/insert into "proposals"/i.test(text)) { const row = { id: `rp_${created.length}` }; created.push({ text, params }); return [row] }
@@ -43,7 +51,7 @@ describe('runReflection', () => {
       if (/update "agent_runs"/i.test(text)) return []
       return []
     })
-    const sql = { query } as any
+    const sql = { query } as unknown as Sql
     return { sql, query, created, stamped }
   }
 
@@ -60,7 +68,7 @@ describe('runReflection', () => {
     expect(result.proposalsCreated).toBe(1)
     expect(distill).toHaveBeenCalledTimes(1) // only the title cluster
     // The reflection run is the proposal actor:
-    expect(created[0].params).toContain('run_reflect')
+    expect(created[0]!.params).toContain('run_reflect')
     // Only p1+p2 (the consumed cluster) are stamped; p3 stays NULL:
     const stampedIds = stamped.flat()
     expect(stampedIds).toContain('p1')

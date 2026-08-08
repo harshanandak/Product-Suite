@@ -192,21 +192,24 @@ describe("prepush-gate PREPUSH_GATE_FAST (lint+typecheck-only) mode", () => {
     expect(out).not.toContain("verify:meeting-web");
   });
 
-  test("fast mode KEEPS test for a no-lint workspace whose tests are its only safety net (platform-api)", () => {
-    // verify:platform-api is typecheck+test (no lint step) → fast mode must NOT reduce
-    // it to a bare typecheck; the full suite (incl. test) still runs.
+  test("fast mode runs lint and typecheck for platform-api", () => {
     const out = classifyFast(["apps/platform-api/src/agent/tools.ts"]);
     expect(out).toContain("mode: fast");
-    expect(out).toContain("verify:platform-api"); // = typecheck && test
-    expect(out).not.toContain("apps/platform-api:lint"); // its gate has no lint step
+    expect(out).toContain("apps/platform-api:lint");
+    expect(out).toContain("apps/platform-api:typecheck");
+    expect(out).not.toContain("verify:platform-api");
   });
 
-  test("fast mode KEEPS test for packages/db (no lint step → tests are the safety net)", () => {
+  test("fast mode runs lint and typecheck for packages/db and its dependent", () => {
     const out = classifyFast(["packages/db/src/schema.ts"]);
     expect(out).toContain("mode: fast");
-    expect(out).toContain("verify:db"); // = typecheck && test
-    // db fans out to platform-api (also no-lint) → it too keeps its test suite
-    expect(out).toContain("verify:platform-api");
+    expect(out).toContain("packages/db:lint");
+    expect(out).toContain("packages/db:typecheck");
+    // db fans out to platform-api, so both lint-gated workspaces run cheap checks
+    expect(out).toContain("apps/platform-api:lint");
+    expect(out).toContain("apps/platform-api:typecheck");
+    expect(out).not.toContain("verify:db");
+    expect(out).not.toContain("verify:platform-api");
   });
 
   test("fast mode keeps a test-only package's suite (packages/ui has no lint → keep test)", () => {
@@ -221,7 +224,7 @@ describe("prepush-gate PREPUSH_GATE_FAST (lint+typecheck-only) mode", () => {
     expect(out).toContain("apps/platform-web:lint");
   });
 
-  test("fast mode narrows a lint-gated workspace but keeps no-lint workspaces' tests (full push)", () => {
+  test("fast mode narrows lint-gated workspaces and keeps test-only suites", () => {
     const out = classifyFast(["package.json"]);
     expect(out).toContain("full-suite");
     expect(out).toContain("mode: fast");
@@ -229,9 +232,13 @@ describe("prepush-gate PREPUSH_GATE_FAST (lint+typecheck-only) mode", () => {
     expect(out).toContain("apps/platform-web:lint");
     expect(out).toContain("apps/platform-web:typecheck");
     expect(out).not.toContain("verify:platform-web");
-    // no-lint workspaces still run their full test-bearing suites
-    expect(out).toContain("verify:platform-api");
-    expect(out).toContain("verify:db");
+    // lint-gated server workspaces defer tests too
+    expect(out).toContain("apps/platform-api:lint");
+    expect(out).toContain("apps/platform-api:typecheck");
+    expect(out).toContain("packages/db:lint");
+    expect(out).toContain("packages/db:typecheck");
+    expect(out).not.toContain("verify:platform-api");
+    expect(out).not.toContain("verify:db");
     expect(out).toContain("test:ui");
   });
 

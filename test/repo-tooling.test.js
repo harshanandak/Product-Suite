@@ -6,6 +6,12 @@ const rootDir = join(import.meta.dir, "..");
 const packageJson = JSON.parse(
   readFileSync(join(rootDir, "package.json"), "utf8"),
 );
+const platformApiPackageJson = JSON.parse(
+  readFileSync(join(rootDir, "apps", "platform-api", "package.json"), "utf8"),
+);
+const dbPackageJson = JSON.parse(
+  readFileSync(join(rootDir, "packages", "db", "package.json"), "utf8"),
+);
 const dependencyLockPaths = [
   join(rootDir, "bun.lock"),
   join(rootDir, "apps", "roadmap-web", "bun.lock"),
@@ -234,6 +240,16 @@ describe("repo tooling", () => {
     expect(packageJson.scripts["validate:meeting-api"]).toContain(
       "validate:meeting-api:test",
     );
+  });
+
+  test("server workspace lint gates keep their shared config", () => {
+    expect(existsSync(join(rootDir, "eslint.config.mjs"))).toBe(true);
+    expect(platformApiPackageJson.scripts.lint).toContain("--max-warnings 0");
+    expect(dbPackageJson.scripts.lint).toContain("--max-warnings 0");
+    expect(packageJson.scripts["verify:platform-api"]).toContain(
+      "--cwd apps/platform-api lint",
+    );
+    expect(packageJson.scripts["verify:db"]).toContain("--cwd packages/db lint");
   });
 
   test("meeting-api validation scripts point at the Python backend", () => {

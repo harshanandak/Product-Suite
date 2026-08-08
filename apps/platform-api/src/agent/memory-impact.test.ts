@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import type { Sql } from '@product-suite/db'
 
 import { computeMemoryImpact, decideVerdict, newcombeDiffCI } from './memory-impact'
 
@@ -50,7 +51,7 @@ describe('computeMemoryImpact', () => {
   // mockSql: single grouped-aggregate query returns per-cohort rows keyed on memory_holdout.
   function harness(rows: Array<{ memory_holdout: boolean; applied: number; edited: number; rejected: number; threads?: number }>) {
     const query = vi.fn(async (_text: string, _params: unknown[]) => rows)
-    const sql = { query } as any
+    const sql = { query } as unknown as Sql
     return { sql, query }
   }
 
