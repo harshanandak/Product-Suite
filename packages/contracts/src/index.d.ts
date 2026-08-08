@@ -592,6 +592,20 @@ export interface Owner {
   initials?: string;
 }
 
+/** Tenant-safe read projection for the stored facts behind a work item. */
+export interface WorkItemProvenance {
+  readonly applied_from_proposal_id: string | null;
+  readonly proposal_available: boolean;
+  readonly actor_type: "human" | "agent" | "system" | "import";
+  readonly actor_id: string | null;
+  readonly on_behalf_of: string | null;
+  readonly run_id: string | null;
+  readonly run_summary: string | null;
+  readonly approver_id: string | null;
+  readonly approver_name: string | null;
+  readonly approved_at: string | null;
+}
+
 /**
  * A work item — the coalition hub (§1, middle of the object ladder).
  *
@@ -615,6 +629,8 @@ export interface WorkItem {
   tags: string[];
   /** Provenance — how the item entered the board (manual/meeting/agent/feedback). */
   source: WorkItemSource;
+  /** Optional read-only attribution resolved by tenant-scoped API joins. */
+  readonly provenance?: WorkItemProvenance;
   /** Nullable — a work item may belong to no project (§1 / §11). */
   project_id: string | null;
   /**

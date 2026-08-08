@@ -50,7 +50,10 @@ function childEnv(): Record<string, string> {
   for (const [k, v] of Object.entries(process.env)) {
     if (v !== undefined) out[k] = v;
   }
-  out.VITE_CLERK_PUBLISHABLE_KEY = process.env.VITE_CLERK_PUBLISHABLE_KEY ?? "";
+  out.VITE_CLERK_PUBLISHABLE_KEY =
+    process.env.VITE_CLERK_PUBLISHABLE_KEY?.trim() ||
+    process.env.CLERK_PUBLISHABLE_KEY?.trim() ||
+    "";
   out.VITE_DEFAULT_WORKSPACE = process.env.VITE_DEFAULT_WORKSPACE ?? "";
   return out;
 }

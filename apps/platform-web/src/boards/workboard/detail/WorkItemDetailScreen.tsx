@@ -62,6 +62,21 @@ function formatDate(iso: string | null): string {
   });
 }
 
+/** Human-readable approval timestamp, or null for malformed input. */
+function formatDateTime(iso: string): string | null {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
+/** Stable compact fallback for durable IDs when joined display context is gone. */
+function shortId(id: string): string {
+  return id.length <= 18 ? id : id.slice(0, 8) + "…" + id.slice(-6);
+}
+
 /** Two-char initials for an owner avatar, from stored initials or the name. */
 function ownerInitials(owner: Owner): string {
   if (owner.initials && owner.initials.trim() !== "") return owner.initials;
@@ -94,9 +109,82 @@ function EmptyTab({
   );
 }
 
-/** Overview narrative block — the description brief and tags. */
-function OverviewTab({ row }: Readonly<{ row: WorkItemRow }>) {
+/** Small provenance value renderers keep missing-context fallbacks consistent. */
+type WorkItemProvenance = NonNullable<WorkItemRow['provenance']>;
+
+interface IdentifierValueProps {
+  readonly id: WorkItemProvenance['actor_id'];
+}
+
+function UnavailableValue() {
+  return <span className="text-muted-foreground">Unavailable</span>;
+}
+
+function IdentifierValue(props: IdentifierValueProps) {
+  if (!props.id) return <UnavailableValue />;
+  return (
+    <span className="break-all font-mono text-xs" title={props.id}>
+      {shortId(props.id)}
+    </span>
+  );
+}
+
+function ActorValue({ provenance }: Readonly<{ provenance: WorkItemProvenance }>) {
+  if (!provenance.actor_id) return <UnavailableValue />;
+  return (
+    <span className="inline-flex max-w-full flex-wrap gap-x-1">
+      <span className="capitalize">{provenance.actor_type}</span>
+      <span aria-hidden>·</span>
+      <IdentifierValue id={provenance.actor_id} />
+    </span>
+  );
+}
+
+function RunValue({ provenance }: Readonly<{ provenance: WorkItemProvenance }>) {
+  if (provenance.run_summary) return provenance.run_summary;
+  return <IdentifierValue id={provenance.run_id} />;
+}
+
+function ApproverValue({ provenance }: Readonly<{ provenance: WorkItemProvenance }>) {
+  if (provenance.approver_name) return provenance.approver_name;
+  return <IdentifierValue id={provenance.approver_id} />;
+}
+
+function ApprovedAtValue({ provenance }: Readonly<{ provenance: WorkItemProvenance }>) {
+  if (!provenance.approved_at) return <UnavailableValue />;
+  const label = formatDateTime(provenance.approved_at);
+  if (!label) return <UnavailableValue />;
+  return <time dateTime={provenance.approved_at}>{label}</time>;
+}
+
+function ProposalValue({
+  provenance,
+  workspace,
+}: Readonly<{ provenance: WorkItemProvenance; workspace: string }>) {
+  const proposalId = provenance.applied_from_proposal_id;
+  if (!proposalId) return null;
+  if (!provenance.proposal_available) return <IdentifierValue id={proposalId} />;
+  return (
+    <Link
+      to="/w/$workspace/inbox"
+      params={{ workspace }}
+      search={{ proposal: proposalId }}
+      aria-label={`Review proposal ${proposalId} in Inbox`}
+      className="inline-flex max-w-full flex-wrap items-baseline gap-x-2 text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <span>Review in Inbox</span>
+      <span className="break-all font-mono text-xs">{proposalId}</span>
+    </Link>
+  );
+}
+
+/** Overview narrative block — the description brief, tags, and provenance. */
+function OverviewTab({
+  row,
+  workspace,
+}: Readonly<{ row: WorkItemRow; workspace: string }>) {
   const hasDescription = Boolean(row.description && row.description.trim() !== "");
+  const provenance = row.provenance;
   return (
     <section className="space-y-5">
       {hasDescription ? (
@@ -117,6 +205,73 @@ function OverviewTab({ row }: Readonly<{ row: WorkItemRow }>) {
             </Badge>
           ))}
         </div>
+      ) : null}
+
+      {provenance ? (
+        <section
+          aria-labelledby="work-item-provenance-heading"
+          className="space-y-3 rounded-lg border border-border bg-card p-4"
+        >
+          <h2 id="work-item-provenance-heading" className="text-sm font-medium">
+            Provenance
+          </h2>
+          <dl className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
+            <div className="contents">
+              <dt className="text-muted-foreground">Source</dt>
+              <dd className="min-w-0">
+                <ProvenanceChip source={row.source} />
+              </dd>
+            </div>
+
+            {provenance.applied_from_proposal_id ? (
+              <div className="contents">
+                <dt className="text-muted-foreground">Proposal</dt>
+                <dd className="min-w-0">
+                  <ProposalValue provenance={provenance} workspace={workspace} />
+                </dd>
+              </div>
+            ) : null}
+
+            <div className="contents">
+              <dt className="text-muted-foreground">Actor</dt>
+              <dd className="min-w-0 break-words">
+                <ActorValue provenance={provenance} />
+              </dd>
+            </div>
+
+            <div className="contents">
+              <dt className="text-muted-foreground">On behalf of</dt>
+              <dd className="min-w-0 break-words">
+                <IdentifierValue id={provenance.on_behalf_of} />
+              </dd>
+            </div>
+
+            <div className="contents">
+              <dt className="text-muted-foreground">Run</dt>
+              <dd className="min-w-0 break-words">
+                <RunValue provenance={provenance} />
+              </dd>
+            </div>
+
+            {provenance.applied_from_proposal_id ? (
+              <>
+                <div className="contents">
+                  <dt className="text-muted-foreground">Approver</dt>
+                  <dd className="min-w-0 break-words">
+                    <ApproverValue provenance={provenance} />
+                  </dd>
+                </div>
+
+                <div className="contents">
+                  <dt className="text-muted-foreground">Approved</dt>
+                  <dd className="min-w-0 break-words">
+                    <ApprovedAtValue provenance={provenance} />
+                  </dd>
+                </div>
+              </>
+            ) : null}
+          </dl>
+        </section>
       ) : null}
     </section>
   );
@@ -784,7 +939,7 @@ export function WorkItemDetailScreen({
 
             <TabsContent value="overview" className="space-y-8 pt-5">
               {/* §C module order: description → Checks → Tasks. */}
-              <OverviewTab row={row} />
+              <OverviewTab row={row} workspace={workspace} />
               <ChecksModule
                 checks={checks}
                 completed={completed}

@@ -9,14 +9,9 @@ import { describe, expect, it } from 'vitest'
  * all — e.g. forgets `run_id`; and (b) a whole audited write that stamps NONE — e.g.
  * only one of the two `checks` UPDATEs gets converted.
  *
- * The four columns are always stamped as a group. So per route file, each column must
- * appear the SAME number of times (catches partial stamps → counts diverge) AND that
- * number must equal the file's known count of Tier-2 escape-hatch write statements
- * (catches a whole unstamped statement → count falls short). Tier-1 routes stamp via
- * recordWrite (no inline `actor_*` in the route source), so their expected count is 0.
- *
- * `//` comment lines are stripped so prose like "stamps all four actor_* columns"
- * never counts. Update this map when a route gains/loses an escape-hatch statement.
+ * Each tagged INSERT/UPDATE is checked independently. The total catches wholly
+ * unstamped writes; exact per-statement column counts catch partial or duplicate
+ * stamps. SELECTs and ordinary TypeScript fields are intentionally ignored.
  */
 const ROUTES_DIR = fileURLToPath(new URL('../routes', import.meta.url))
 const DOMAIN_DIR = fileURLToPath(new URL('../domain', import.meta.url))
@@ -38,24 +33,46 @@ function dirFor(relPath: string): string {
   return relPath.startsWith('domain/') ? DOMAIN_DIR : ROUTES_DIR
 }
 
-function countColumn(src: string, col: string): number {
-  const code = src
-    .split('\n')
-    .filter((line) => !line.trim().startsWith('//'))
-    .join('\n')
-  return (code.match(new RegExp(`\\b${col}\\b`, 'g')) ?? []).length
+function inlineWriteBodies(src: string): string[] {
+  return [...src.matchAll(/\bsql\s*`([\s\S]*?)`/g)]
+    .map((match) => match[1] ?? '')
+    .filter((body) => /^\s*(?:insert\s+into|update)\b/i.test(body))
 }
+
+function columnCount(body: string, column: string): number {
+  return (body.match(new RegExp(`\\b${column}\\b`, 'g')) ?? []).length
+}
+
+function assertInlineWriteCoverage(src: string, expected: number): void {
+  const writes = inlineWriteBodies(src)
+  expect(writes).toHaveLength(expected)
+  for (const body of writes) {
+    const counts = PROVENANCE_COLUMNS.map((column) => columnCount(body, column))
+    expect(counts).toEqual([1, 1, 1, 1])
+  }
+}
+
+describe('statement-level provenance extraction', () => {
+  it('ignores provenance column names in SELECTs', () => {
+    const source =
+      'const rows = sql`select actor_type, actor_id, on_behalf_of, run_id from work_items`'
+    expect(inlineWriteBodies(source)).toEqual([])
+  })
+
+  it.each([
+    ['INSERT', 'const rows = sql`insert into things (actor_type) values (${actor})`'],
+    ['UPDATE', 'const rows = sql`update things set actor_type = ${actor}`'],
+  ])('rejects a partial %s statement', (_verb, source) => {
+    expect(() => assertInlineWriteCoverage(source, 1)).toThrow()
+  })
+})
 
 describe('Tier-2 provenance stamp completeness', () => {
   for (const [file, expected] of Object.entries(EXPECTED_STAMP_GROUPS)) {
     it(`${file}: every escape-hatch statement stamps all four actor_* columns (${expected}×)`, () => {
       const base = file.slice(file.indexOf('/') + 1)
       const src = readFileSync(`${dirFor(file)}/${base}`, 'utf8')
-      const counts = PROVENANCE_COLUMNS.map((col) => countColumn(src, col))
-      // All four counts equal each other → no partial stamp.
-      expect(new Set(counts).size).toBe(1)
-      // …and equal the known number of stamp-groups → no whole statement unstamped.
-      expect(counts[0]).toBe(expected)
+      assertInlineWriteCoverage(src, expected)
     })
   }
 })

@@ -331,6 +331,8 @@ export async function updateWorkItem(
     tenantIds: string[]
     actor: ActorSource
     expectedVersion?: number
+    /** Trusted command-only override; omitted callers preserve the stored source. */
+    provenanceSource?: WorkItem['source']
     /**
      * Field/value pairs the target MUST still hold for this write to land, in the
      * DB's own jsonb rendering (read them via `to_jsonb(work_items)` so formatting
@@ -459,6 +461,7 @@ export async function updateWorkItem(
       type = ${next.type},
       priority = ${next.priority},
       tags = ${next.tags ?? []},
+      source = ${ctx.provenanceSource ?? current.source},
       project_id = ${next.project_id ?? null},
       team_id = ${next.team_id},
       status_id = ${next.status_id},

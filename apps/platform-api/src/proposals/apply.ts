@@ -124,6 +124,19 @@ function sqlQuery<Row = Record<string, unknown>>(
 }
 
 /**
+ * Meeting provenance is trusted only when the existing tenant-scoped promotion
+ * ledger links this proposal. Every other accepted work-item proposal is agent-authored.
+ */
+async function trustedWorkItemSource(sql: Sql, proposal: ProposalRow): Promise<'agent' | 'meeting'> {
+  const rows = await sqlQuery<{ id: string }>(
+    sql,
+    'select id from meeting_promotions where proposal_id = $1 and tenant_id = $2 limit 1',
+    [proposal.id, proposal.tenant_id],
+  )
+  return rows.length > 0 ? 'meeting' : 'agent'
+}
+
+/**
  * Terminally fail a permanently-invalid proposal (a structural pre-check failure that
  * no payload edit can fix) and report it as `invalid` with `retryable:false` — a DECIDED
  * decline the Inbox renders with Discard/acknowledge only (never Retry/Edit). The DB row
@@ -532,6 +545,8 @@ export async function applyProposal(
     onBehalfOf: approverUserId,
     runId: proposal.run_id,
   }
+  const provenanceSource =
+    proposal.target_type === 'work_item' ? await trustedWorkItemSource(sql, proposal) : undefined
 
   // (4) WRITE FIRST — the proposal is STILL `pending`, so a failure here leaves it
   // re-acceptable. On failure, classify WITHOUT touching the proposal.
@@ -543,7 +558,7 @@ export async function applyProposal(
       result = await createWorkItem(
         sql,
         { tenantId: proposal.tenant_id, actor, appliedFromProposalId: proposal.id },
-        effectivePayload as CreateWorkItemInput,
+        { ...effectivePayload, source: provenanceSource } as CreateWorkItemInput,
       )
     } else {
       result = await updateWorkItem(
@@ -551,6 +566,7 @@ export async function applyProposal(
         {
           tenantIds: [proposal.tenant_id],
           actor,
+          provenanceSource,
           expectedVersion: proposal.target_version ?? undefined,
           // The authority for staleness: the write lands only while the target still
           // holds the values this proposal was authored against (null ⇒ unfenced).

@@ -2,7 +2,13 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { Sql } from '@product-suite/db'
 
-import { createWorkItem, resolveDefaultStatusId, resolveDefaultTeamId, updateWorkItem } from './work-items'
+import {
+  createWorkItem,
+  resolveDefaultStatusId,
+  resolveDefaultTeamId,
+  updateWorkItem,
+  type UpdateWorkItemInput,
+} from './work-items'
 
 const actor = { actorType: 'human', actorId: 'u_1' } as const
 
@@ -26,6 +32,22 @@ const WI_ROW = {
   archived: false,
   created_at: '2026-07-01T00:00:00.000Z',
   updated_at: '2026-07-02T00:00:00.000Z',
+}
+
+function insertParam(query: ReturnType<typeof vi.fn>, column: string): unknown {
+  const [text, params] = query.mock.calls[0] ?? []
+  const columns =
+    /\(([^)]+)\) values/
+      .exec(String(text))?.[1]
+      ?.split(', ')
+      .map((value) => value.replace(/\W/g, '')) ?? []
+  return (params as unknown[] | undefined)?.[columns.indexOf(column)]
+}
+
+function taggedParam(sql: ReturnType<typeof vi.fn>, callIndex: number, assignment: string): unknown {
+  const [strings, ...params] = sql.mock.calls[callIndex] ?? []
+  const paramIndex = (strings as string[]).findIndex((part) => part.includes(`${assignment} = `))
+  return params[paramIndex]
 }
 
 describe('createWorkItem', () => {
@@ -182,6 +204,56 @@ describe('createWorkItem', () => {
     // The actor thunk ran once, AFTER both ownership reads — preserving query order.
     expect(resolveActor).toHaveBeenCalledTimes(1)
     expect(sql).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([
+    ['manual', {}],
+    ['meeting', { source: 'meeting' as const }],
+  ])('persists %s source for existing create writers', async (expectedSource, sourceInput) => {
+    const sql = vi.fn()
+    sql.mockResolvedValueOnce([{ n: 1 }]).mockResolvedValueOnce([{ n: 1 }])
+    const query = vi.fn()
+    ;(sql as unknown as { query: typeof query }).query = query
+    ;(sql as unknown as { transaction: ReturnType<typeof vi.fn> }).transaction = vi
+      .fn()
+      .mockResolvedValue([[{ ...WI_ROW, source: expectedSource }], [{}]])
+
+    await createWorkItem(
+      sql as unknown as Sql,
+      { tenantId: 't_1', actor },
+      { title: 'A', team_id: 'team_1', status_id: 'status_1', ...sourceInput },
+    )
+
+    expect(insertParam(query, 'source')).toBe(expectedSource)
+  })
+
+  it('persists trusted agent source with proposal and actor/run attribution', async () => {
+    const agentActor = {
+      actorType: 'agent',
+      actorId: 'run_1',
+      onBehalfOf: 'u_approver',
+      runId: 'run_1',
+    } as const
+    const sql = vi.fn()
+    sql.mockResolvedValueOnce([{ n: 1 }]).mockResolvedValueOnce([{ n: 1 }])
+    const query = vi.fn()
+    ;(sql as unknown as { query: typeof query }).query = query
+    ;(sql as unknown as { transaction: ReturnType<typeof vi.fn> }).transaction = vi
+      .fn()
+      .mockResolvedValue([[{ ...WI_ROW, source: 'agent' }], [{}]])
+
+    await createWorkItem(
+      sql as unknown as Sql,
+      { tenantId: 't_1', actor: agentActor, appliedFromProposalId: 'p1' },
+      { title: 'A', team_id: 'team_1', status_id: 'status_1', source: 'agent' },
+    )
+
+    expect(insertParam(query, 'source')).toBe('agent')
+    expect(insertParam(query, 'applied_from_proposal_id')).toBe('p1')
+    expect(insertParam(query, 'actor_type')).toBe('agent')
+    expect(insertParam(query, 'actor_id')).toBe('run_1')
+    expect(insertParam(query, 'on_behalf_of')).toBe('u_approver')
+    expect(insertParam(query, 'run_id')).toBe('run_1')
   })
 
   it('idempotent re-drive: a unique violation on applied_from_proposal_id returns the existing row', async () => {
@@ -435,6 +507,52 @@ describe('updateWorkItem', () => {
     expect(updated.phase).toBe('done')
     expect(resolveActor).toHaveBeenCalledTimes(1)
   })
+
+  it('uses a trusted server override for agent source and stamps the real run and authorizing human', async () => {
+    const agentActor = {
+      actorType: 'agent',
+      actorId: 'run_1',
+      onBehalfOf: 'u_approver',
+      runId: 'run_1',
+    } as const
+    const sql = vi.fn()
+    sql
+      .mockResolvedValueOnce([WI_ROW])
+      .mockResolvedValueOnce([{ ...WI_ROW, phase: 'done', source: 'agent' }])
+    ;(sql as unknown as { query: ReturnType<typeof vi.fn> }).query = vi.fn().mockResolvedValueOnce([{}])
+
+    await updateWorkItem(
+      sql as unknown as Sql,
+      { tenantIds: ['t_1'], actor: agentActor, provenanceSource: 'agent' },
+      'wi_1',
+      { phase: 'done' },
+    )
+
+    expect(taggedParam(sql, 1, 'source')).toBe('agent')
+    expect(taggedParam(sql, 1, 'actor_type')).toBe('agent')
+    expect(taggedParam(sql, 1, 'actor_id')).toBe('run_1')
+    expect(taggedParam(sql, 1, 'on_behalf_of')).toBe('u_approver')
+    expect(taggedParam(sql, 1, 'run_id')).toBe('run_1')
+  })
+
+  it.each(['manual', 'meeting'] as const)(
+    'preserves %s source on a human update and ignores a client source patch',
+    async (currentSource) => {
+      const current = { ...WI_ROW, source: currentSource }
+      const sql = vi.fn()
+      sql.mockResolvedValueOnce([current]).mockResolvedValueOnce([{ ...current, phase: 'done' }])
+      ;(sql as unknown as { query: ReturnType<typeof vi.fn> }).query = vi.fn().mockResolvedValueOnce([{}])
+
+      await updateWorkItem(
+        sql as unknown as Sql,
+        { tenantIds: ['t_1'], actor },
+        'wi_1',
+        { phase: 'done', source: 'agent' } as unknown as UpdateWorkItemInput,
+      )
+
+      expect(taggedParam(sql, 1, 'source')).toBe(currentSource)
+    },
+  )
 
   it('an agent-applied update stamps the activity event with the REAL agent actor (run + on_behalf_of), never a spoofed human', async () => {
     const agentActor = {

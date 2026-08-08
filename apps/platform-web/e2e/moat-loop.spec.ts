@@ -18,7 +18,7 @@ import { readWorkItemAppliedFrom } from "./db-provenance.e2e";
  *  - TopBar "Ask agent" button ......... src/shell/TopBar.tsx
  *  - Agent chat panel <aside> .......... src/agent-chat/AgentChatPanel.tsx (aria-label="Agent chat")
  *  - Composer submit ................... packages/ui-chat/.../prompt-input.tsx (aria-label="Submit")
- *  - "Review in Inbox" proposal link ... src/agent-chat/ProposalCard.tsx
+ *  - Proposal card + "Edit" action ...... src/agent-chat/ProposalCard.tsx
  *  - Inbox pending list ................ src/boards/inbox/InboxScreen.tsx (aria-label="Pending proposals")
  *  - Accept / "View item →" ............ src/boards/inbox/ProposalDetail.tsx
  *  - Workboard empty state ............. src/boards/workboard/WorkboardScreen.tsx ("No work items yet")
@@ -35,13 +35,31 @@ const AGENT_PROMPT = `Create a work item titled '${ITEM_TITLE}' in this team`;
 // A real agent + LLM round-trip is slow; give the propose/apply steps headroom.
 const AGENT_TIMEOUT = 90_000;
 
+const clerkPublishableKey =
+  process.env.VITE_CLERK_PUBLISHABLE_KEY?.trim() ||
+  process.env.CLERK_PUBLISHABLE_KEY?.trim();
+const missingLivePrerequisites = [
+  process.env.CLERK_SECRET_KEY?.trim() ? null : "CLERK_SECRET_KEY",
+  clerkPublishableKey
+    ? null
+    : "publishable key (VITE_CLERK_PUBLISHABLE_KEY || CLERK_PUBLISHABLE_KEY)",
+  process.env.E2E_CLERK_USER?.trim() ? null : "E2E_CLERK_USER",
+  process.env.DATABASE_URL?.trim() ? null : "DATABASE_URL",
+].filter((name): name is string => name !== null);
+
+// Missing live authority is reported as INCOMPLETE instead of a false PASS or FAIL.
+test.skip(
+  missingLivePrerequisites.length > 0,
+  `INCOMPLETE: missing live prerequisites: ${missingLivePrerequisites.join(", ")}`,
+);
+
 test.beforeEach(async ({ page }) => {
   // Inject the Clerk testing token on every test so bot-protection never trips,
   // even though storageState already carries the session.
   await setupClerkTestingToken({ page });
 });
 
-test("agent proposes a create → accept in inbox → item appears on the workboard", async ({
+test("agent proposes a create → accept in inbox → provenance appears on item detail", async ({
   page,
 }) => {
   // ── a. Workboard loads ────────────────────────────────────────────────────
@@ -68,30 +86,23 @@ test("agent proposes a create → accept in inbox → item appears on the workbo
   await composer.press("Enter");
 
   // ── c. Wait for the agent to PROPOSE ──────────────────────────────────────
-  // On success the panel renders a ProposalCard with a "Review in Inbox" link.
-  // VERIFY against live app: exact wording + how long the agent takes to emit
-  // a proposal tool-call.
-  const reviewLink = agentPanel.getByRole("link", { name: /Review in Inbox/i });
-  await expect(reviewLink).toBeVisible({ timeout: AGENT_TIMEOUT });
+  // The current ProposalCard reviews inline; its existing Edit action is the
+  // route into the full Inbox and carries the authoritative proposal id.
+  const proposalCard = agentPanel
+    .locator('[id^="proposal-card-"]')
+    .filter({ hasText: ITEM_TITLE });
+  await expect(proposalCard).toBeVisible({ timeout: AGENT_TIMEOUT });
+  await proposalCard.getByRole("button", { name: "Edit" }).click();
+  await expect(page).toHaveURL(/\/inbox\?proposal=/);
 
-  // Capture the proposal id from the deep-link (ProposalCard links to the inbox
-  // with `?proposal=<id>`) so step f can assert the PERSISTED provenance pointer
-  // (work_items.applied_from_proposal_id) equals THIS accepted proposal's id.
-  const reviewHref = await reviewLink.getAttribute("href");
-  const proposalId = reviewHref
-    ? new URL(reviewHref, page.url()).searchParams.get("proposal")
-    : null;
-  expect(proposalId, "ProposalCard link must carry ?proposal=<id>").toBeTruthy();
+  const proposalId = new URL(page.url()).searchParams.get("proposal");
+  expect(proposalId, "ProposalCard Edit must carry ?proposal=<id>").toBeTruthy();
+  if (!proposalId) return;
 
   // ── d. Review Inbox shows the proposed create ─────────────────────────────
-  await page.goto(`/w/${WORKSPACE}/inbox`);
   const pendingList = page.getByRole("list", { name: "Pending proposals" });
   await expect(pendingList).toBeVisible({ timeout: AGENT_TIMEOUT });
-
-  // Select the new proposal from the list. VERIFY against live app:
-  // ProposalListItem's accessible name — it surfaces the item title, so we open
-  // the list entry that mentions our title.
-  await pendingList.getByText(ITEM_TITLE, { exact: false }).first().click();
+  await expect(pendingList.getByText(ITEM_TITLE, { exact: false }).first()).toBeVisible();
 
   // The detail pane's diff must show the proposed create (the new title).
   // VERIFY against live app: exact diff DOM (field-diff rows). Asserting the
@@ -103,35 +114,48 @@ test("agent proposes a create → accept in inbox → item appears on the workbo
   // ── e. Accept the proposal ────────────────────────────────────────────────
   await acceptButton.click();
   // On a successful applied write the detail shows a "View item →" link.
-  await expect(page.getByRole("link", { name: /View item/i })).toBeVisible({
+  const viewItemLink = page.getByRole("link", { name: /View item/i });
+  await expect(viewItemLink).toBeVisible({
     timeout: AGENT_TIMEOUT,
   });
 
-  // ── f. The validated write applied: item is now on the workboard ──────────
-  await page.goto(`/w/${WORKSPACE}/workboard`);
-  await expect(async () => {
-    await expect(page.getByText(ITEM_TITLE, { exact: false }).first()).toBeVisible({
-      timeout: 5_000,
-    });
-  }).toPass({ timeout: AGENT_TIMEOUT });
+  // ── f. The write is PERSISTED with full accountable provenance ──────────────
+  const persisted = await readWorkItemAppliedFrom(proposalId);
+  expect(
+    persisted,
+    "a work item must be linked to the accepted proposal via applied_from_proposal_id",
+  ).toBeTruthy();
+  if (!persisted) return;
 
-  // ── g. The write is PERSISTED with provenance (not just a UI banner) ───────
-  // Read Neon directly: the created work item must carry the durable
-  // `applied_from_proposal_id` pointer back to the proposal we accepted. Soft-skip
-  // when DATABASE_URL is absent (helper returns undefined) so the spec still runs
-  // UI-only in deployed mode without DB access.
-  const persisted = await readWorkItemAppliedFrom(proposalId as string);
-  if (persisted === undefined) {
-    test.info().annotations.push({
-      type: "skip",
-      description:
-        "DATABASE_URL unset — skipped the persisted applied_from_proposal_id provenance check.",
-    });
-  } else {
-    expect(
-      persisted,
-      "a work item must be linked to the accepted proposal via applied_from_proposal_id",
-    ).not.toBeNull();
-    expect(persisted?.title).toBe(ITEM_TITLE);
-  }
+  expect(persisted.title).toBe(ITEM_TITLE);
+  expect(persisted.applied_from_proposal_id).toBe(proposalId);
+  expect(persisted.source).toBe("agent");
+  expect(persisted.actor_type).toBe("agent");
+  expect(persisted.actor_id).toBeTruthy();
+  expect(persisted.run_id).toBeTruthy();
+  expect(persisted.actor_id).toBe(persisted.run_id);
+  expect(persisted.on_behalf_of).toBeTruthy();
+  expect(persisted.decided_by).toBe(persisted.on_behalf_of);
+  expect(persisted.decided_at).toBeTruthy();
+
+  // ── g. The same item renders the tenant-safe provenance read model ──────────
+  await viewItemLink.click();
+  await expect(page.getByRole("heading", { name: ITEM_TITLE })).toBeVisible({
+    timeout: AGENT_TIMEOUT,
+  });
+
+  const provenance = page.getByRole("region", { name: "Provenance" });
+  await expect(provenance).toBeVisible();
+  await expect(provenance.getByText("Agent", { exact: true })).toBeVisible();
+
+  const proposalLink = provenance.getByRole("link", {
+    name: `Review proposal ${proposalId} in Inbox`,
+  });
+  await expect(proposalLink).toBeVisible();
+  const proposalHref = await proposalLink.getAttribute("href");
+  expect(proposalHref, "detail proposal link must have an href").toBeTruthy();
+  if (!proposalHref) return;
+  const proposalUrl = new URL(proposalHref, page.url());
+  expect(proposalUrl.pathname).toBe(`/w/${WORKSPACE}/inbox`);
+  expect(proposalUrl.searchParams.get("proposal")).toBe(proposalId);
 });

@@ -98,12 +98,18 @@ function makeSql(
     /** The target work item as it stands BEFORE the write — the pre-image source. */
     targetRow?: Record<string, unknown> | null
     targetReadError?: Error
+    meetingPromotionTenantId?: string
   } = {},
 ) {
   const proposal = { ...CREATE_PROPOSAL, ...(opts.proposal ?? {}) }
   let status = proposal.status as string
 
   const query = vi.fn(async (text: string, params: unknown[]) => {
+    if (text.includes('from meeting_promotions')) {
+      return params[0] === proposal.id && params[1] === opts.meetingPromotionTenantId
+        ? [{ id: 'promotion_1' }]
+        : []
+    }
     if (text.includes("set status = 'applied'")) {
       if (status === 'pending') {
         status = 'applied'
@@ -153,7 +159,7 @@ describe('applyProposal (write-first, flip-last)', () => {
     getMemoryBySourceProposalId.mockReset().mockResolvedValue(null)
   })
 
-  it('applies a pending create through the domain command as an agent on-behalf-of the approver', async () => {
+  it('applies a pending create with trusted agent source, proposal id, and run attribution', async () => {
     const { sql, getStatus } = makeSql({})
     const res = await applyProposal(sql, ctx, 'p1')
     // The stable envelope: applied + the resulting item id (not the full row).
@@ -162,12 +168,26 @@ describe('applyProposal (write-first, flip-last)', () => {
     expect(createWorkItem).toHaveBeenCalledTimes(1)
     // The write is stamped as the run acting on behalf of the approver, and carries
     // the proposal id for idempotent re-drive.
-    const [, cmdCtx] = createWorkItem.mock.calls[0] ?? []
+    const [, cmdCtx, input] = createWorkItem.mock.calls[0] ?? []
     expect(cmdCtx).toMatchObject({
       tenantId: 't_1',
       appliedFromProposalId: 'p1',
       actor: { actorType: 'agent', actorId: 'run_1', onBehalfOf: 'u_approver', runId: 'run_1' },
     })
+    expect(input).toMatchObject({ source: 'agent' })
+  })
+
+  it('ignores a meeting promotion from another tenant and binds the trusted lookup exactly', async () => {
+    const { sql, query } = makeSql({ meetingPromotionTenantId: 't_other' })
+
+    await applyProposal(sql, ctx, 'p1')
+
+    const lookup = (query.mock.calls as [string, unknown[]][]).find(([text]) =>
+      text.includes('from meeting_promotions'),
+    )
+    expect(lookup?.[1]).toEqual(['p1', 't_1'])
+    const [, , input] = createWorkItem.mock.calls[0] ?? []
+    expect(input).toMatchObject({ source: 'agent' })
   })
 
   it('flips to applied only AFTER the write succeeds (the flip carries the exactly-once guard)', async () => {
@@ -371,7 +391,11 @@ describe('applyProposal (write-first, flip-last)', () => {
       expect(updateWorkItem).toHaveBeenCalledTimes(1)
       // The fence moves the comparison INSIDE the writing statement, so a writer
       // landing between our check and our write cannot be clobbered.
-      expect(updateWorkItem.mock.calls[0]?.[1]).toMatchObject({ expectedValues: SNAPSHOT })
+      expect(updateWorkItem.mock.calls[0]?.[1]).toMatchObject({
+        expectedValues: SNAPSHOT,
+        provenanceSource: 'agent',
+        actor: { actorType: 'agent', actorId: 'run_1', onBehalfOf: 'u_approver', runId: 'run_1' },
+      })
     })
 
     it('DECLINES a drifted baseline as stale — no write, still pending, names what moved', async () => {

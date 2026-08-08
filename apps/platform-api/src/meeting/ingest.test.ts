@@ -2,14 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Sql } from '@product-suite/db'
 
-// `createProposal` is the SHARED proposal write path — spied (not replaced wholesale)
-// so the rest of the repository module stays real for the accept-path test below.
-const { createProposal } = vi.hoisted(() => ({ createProposal: vi.fn() }))
-vi.mock('../proposals/repository', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../proposals/repository')>()),
-  createProposal,
-}))
-
 // The domain commands are the shared validated write path; mocked so the accept-path
 // test can read exactly what `createWorkItem` was handed.
 const { createWorkItem, updateWorkItem, resolveDefaultTeamId } = vi.hoisted(() => ({
@@ -71,7 +63,8 @@ function harness(opts: {
   const lostRace = opts.lostRace ?? new Set<string>()
   const ledgerInserts: unknown[][] = []
   const runInserts: unknown[][] = []
-  const proposalUpdates: [string, unknown[]][] = []
+  const publishedProposals: Record<string, unknown>[] = []
+  const transactionBatches: { text: string; params: unknown[] }[][] = []
 
   const query = vi.fn(async (text: string, params: unknown[]) => {
     if (/from "action_items"/i.test(text)) {
@@ -91,26 +84,64 @@ function harness(opts: {
         .filter((recordId) => ledger.has(`${tenantId}::${recordId}`))
         .map((recordId) => ({ meeting_record_id: recordId }))
     }
-    if (/insert into "meeting_promotions"/i.test(text)) {
-      ledgerInserts.push(params)
-      const key = `${String(params[0])}::${String(params[1])}`
-      // Models `on conflict do nothing returning id`: the winner gets a row back, a
-      // conflicting insert gets NOTHING. `lostRace` forces the loser path for a
-      // record the ledger read did not yet know about — the concurrent case.
-      if (ledger.has(key) || lostRace.has(String(params[1]))) return []
-      ledger.add(key)
-      return [{ id: `mp_${String(params[1])}` }]
-    }
-    if (/update "proposals"/i.test(text)) {
-      proposalUpdates.push([text, params])
-      return []
-    }
     if (/update "agent_runs"/i.test(text)) return []
     return []
   })
 
-  const sql = { query } as unknown as Sql
-  return { sql, query, ledger, ledgerInserts, runInserts, proposalUpdates }
+  const transaction = vi.fn(
+    async (
+      build: (tx: {
+        query: (text: string, params: unknown[]) => { text: string; params: unknown[] }
+      }) => { text: string; params: unknown[] }[],
+    ) => {
+      const batch = build({ query: (text, params) => ({ text, params }) })
+      transactionBatches.push(batch)
+      const [proposalWrite, ledgerWrite] = batch
+      expect(proposalWrite?.text).toMatch(/insert into .*proposals/i)
+      expect(ledgerWrite?.text).toMatch(/insert into .*meeting_promotions/i)
+
+      const proposalParams = proposalWrite?.params ?? []
+      const ledgerParams = ledgerWrite?.params ?? []
+      const ledgerKey = `${String(ledgerParams[0])}::${String(ledgerParams[1])}`
+      if (ledger.has(ledgerKey) || lostRace.has(String(ledgerParams[1]))) {
+        throw Object.assign(new Error('duplicate meeting promotion'), {
+          code: '23505',
+          constraint: 'meeting_promotions_tenant_record_uniq',
+        })
+      }
+
+      const proposal = {
+        id: String(proposalParams[0]),
+        tenant_id: proposalParams[1],
+        run_id: proposalParams[2],
+        target_type: 'work_item',
+        operation: 'create',
+        payload: JSON.parse(String(proposalParams[3])),
+        rationale: proposalParams[4],
+        confidence: proposalParams[5],
+        prompt_version: proposalParams[6],
+        actor_type: 'agent',
+        actor_id: proposalParams[2],
+        context_ref: proposalParams[7],
+      }
+      publishedProposals.push(proposal)
+      ledger.add(ledgerKey)
+      ledgerInserts.push(ledgerParams)
+      return [[{ id: proposal.id }], [{ id: `mp_${String(ledgerParams[1])}` }]]
+    },
+  )
+
+  const sql = { query, transaction } as unknown as Sql
+  return {
+    sql,
+    query,
+    transaction,
+    ledger,
+    ledgerInserts,
+    runInserts,
+    publishedProposals,
+    transactionBatches,
+  }
 }
 
 const ctx = () => ({ tenantId: PLATFORM_TENANT, tenantMap: TENANT_MAP })
@@ -126,9 +157,6 @@ function candidateReadSql(query: ReturnType<typeof vi.fn>): string {
 
 describe('runMeetingIngest', () => {
   beforeEach(() => {
-    createProposal.mockReset().mockImplementation(async (_sql: Sql, input: { context_ref?: string }) =>
-      Promise.resolve({ id: `prop_${input.context_ref ?? 'x'}` }),
-    )
     createWorkItem.mockReset().mockResolvedValue({ id: 'wi_new' })
     resolveDefaultTeamId.mockReset().mockResolvedValue(TEAM_ID)
   })
@@ -151,7 +179,7 @@ describe('runMeetingIngest', () => {
   it('reads only the mapped tenant, and skips a foreign row that reaches it anyway', async () => {
     const foreign = candidate({ id: 'ai_foreign', tenant_id: 'tenant_meeting_other' })
     const unmapped = candidate({ id: 'ai_unmapped', tenant_id: 'tenant_meeting_nowhere' })
-    const { sql, query } = harness({ candidates: [candidate(), foreign, unmapped] })
+    const { sql, query, publishedProposals } = harness({ candidates: [candidate(), foreign, unmapped] })
 
     const result = await runMeetingIngest(sql, ctx())
 
@@ -166,7 +194,7 @@ describe('runMeetingIngest', () => {
     // (b) belt and braces: a row that arrives anyway is re-checked against the map
     expect(result.proposalsCreated).toBe(1)
     expect(result.skippedUnmappedTenant).toBe(2)
-    const proposedRefs = createProposal.mock.calls.map(([, input]) => input.context_ref)
+    const proposedRefs = publishedProposals.map((input) => input.context_ref)
     expect(proposedRefs).toEqual(['ai_content_hash_1'])
   })
 
@@ -189,13 +217,15 @@ describe('runMeetingIngest', () => {
 
   // 7
   it('creates one work_item:create proposal per new candidate, left at the default pending status', async () => {
-    const { sql } = harness({ candidates: [candidate({ id: 'a' }), candidate({ id: 'b' })] })
+    const { sql, transaction, publishedProposals } = harness({
+      candidates: [candidate({ id: 'a' }), candidate({ id: 'b' })],
+    })
 
     const result = await runMeetingIngest(sql, ctx())
 
     expect(result.proposalsCreated).toBe(2)
-    expect(createProposal).toHaveBeenCalledTimes(2)
-    for (const [, input] of createProposal.mock.calls) {
+    expect(transaction).toHaveBeenCalledTimes(2)
+    for (const input of publishedProposals) {
       expect(input.target_type).toBe('work_item')
       expect(input.operation).toBe('create')
       // `status` is server-managed and defaults to 'pending' — never set by the caller.
@@ -205,11 +235,11 @@ describe('runMeetingIngest', () => {
 
   // 8
   it("sets payload.title to the candidate text and leaves team_id ABSENT", async () => {
-    const { sql } = harness({ candidates: [candidate()] })
+    const { sql, publishedProposals } = harness({ candidates: [candidate()] })
 
     await runMeetingIngest(sql, ctx())
 
-    const [, input] = createProposal.mock.calls[0]!
+    const input = publishedProposals[0]!
     const payload = input.payload as Record<string, unknown>
     expect(payload.title).toBe('Send the revised quote to Acme by Friday')
     // ABSENT, not null/'' — apply.ts resolves the sole team only when the KEY is missing.
@@ -219,11 +249,11 @@ describe('runMeetingIngest', () => {
 
   // 9
   it('stamps the provenance a reviewer needs: context_ref, run, agent actor, prompt version, confidence', async () => {
-    const { sql } = harness({ candidates: [candidate()] })
+    const { sql, publishedProposals } = harness({ candidates: [candidate()] })
 
     await runMeetingIngest(sql, ctx())
 
-    const [, input] = createProposal.mock.calls[0]!
+    const input = publishedProposals[0]!
     expect(input).toMatchObject({
       tenant_id: PLATFORM_TENANT,
       context_ref: 'ai_content_hash_1',
@@ -238,11 +268,11 @@ describe('runMeetingIngest', () => {
 
   // 10
   it('writes a rationale a human can read, derived from the promotion reason and evidence', async () => {
-    const { sql } = harness({ candidates: [candidate()] })
+    const { sql, publishedProposals } = harness({ candidates: [candidate()] })
 
     await runMeetingIngest(sql, ctx())
 
-    const [, input] = createProposal.mock.calls[0]!
+    const input = publishedProposals[0]!
     const rationale = String(input.rationale)
     expect(rationale.length).toBeGreaterThan(0)
     expect(rationale).toContain('Explicit commitment with a named owner and a date')
@@ -276,9 +306,9 @@ describe('runMeetingIngest', () => {
 
   // 11
   it("sets payload.source='meeting', and accepting such a proposal carries it into the work item", async () => {
-    const { sql } = harness({ candidates: [candidate()] })
+    const { sql, publishedProposals } = harness({ candidates: [candidate()] })
     await runMeetingIngest(sql, ctx())
-    const [, input] = createProposal.mock.calls[0]!
+    const input = publishedProposals[0]!
     expect((input.payload as Record<string, unknown>).source).toBe('meeting')
     expect(buildProposalPayload(candidate()).source).toBe('meeting')
 
@@ -299,19 +329,28 @@ describe('runMeetingIngest', () => {
       if (text.includes('from proposals')) return [proposal]
       return []
     }) as unknown as Sql
-    ;(applySql as unknown as { query: ReturnType<typeof vi.fn> }).query = vi.fn(async () => [])
+    const applyQuery = vi.fn(async (text: string) =>
+      text.includes('from meeting_promotions') ? [{ id: 'promotion_1' }] : [],
+    )
+    ;(applySql as unknown as { query: typeof applyQuery }).query = applyQuery
 
-    await applyProposal(applySql, { tenantIds: [PLATFORM_TENANT], approverUserId: 'u_1' }, 'p_meeting')
+    await applyProposal(
+      applySql,
+      { tenantIds: [PLATFORM_TENANT], approverUserId: 'u_1' },
+      'p_meeting',
+      { ...buildProposalPayload(candidate()), source: 'manual' },
+    )
 
     expect(createWorkItem).toHaveBeenCalledTimes(1)
     const [, , createInput] = createWorkItem.mock.calls[0]!
+    expect(applyQuery.mock.calls.some(([text]) => text.includes('from meeting_promotions'))).toBe(true)
     expect(createInput.source).toBe('meeting')
   })
 
   // 12
   it('skips a candidate already recorded in meeting_promotions for that tenant', async () => {
     const ledger = new Set([`${PLATFORM_TENANT}::ai_seen`])
-    const { sql } = harness({
+    const { sql, publishedProposals } = harness({
       candidates: [candidate({ id: 'ai_seen' }), candidate({ id: 'ai_new' })],
       ledger,
     })
@@ -320,7 +359,7 @@ describe('runMeetingIngest', () => {
 
     expect(result.proposalsCreated).toBe(1)
     expect(result.skippedDuplicate).toBe(1)
-    expect(createProposal.mock.calls.map(([, i]) => i.context_ref)).toEqual(['ai_new'])
+    expect(publishedProposals.map((input) => input.context_ref)).toEqual(['ai_new'])
   })
 
   // 13
@@ -333,53 +372,67 @@ describe('runMeetingIngest', () => {
     // meeting-api's server.py drops and re-inserts the action item; the row is new,
     // its content-derived id is not. The ledger keys on that id, so the second pass
     // must be a no-op.
-    createProposal.mockClear()
     const second = harness({ candidates: [candidate({ id: 'ai_stable' })], ledger })
     const secondResult = await runMeetingIngest(second.sql, ctx())
 
     expect(secondResult.proposalsCreated).toBe(0)
     expect(secondResult.skippedDuplicate).toBe(1)
-    expect(createProposal).not.toHaveBeenCalled()
+    expect(second.transaction).not.toHaveBeenCalled()
   })
 
   // 14
   it('writes one ledger row per proposal, linking the meeting record id to the proposal id', async () => {
-    const { sql, ledgerInserts } = harness({ candidates: [candidate({ id: 'ai_a' }), candidate({ id: 'ai_b' })] })
+    const { sql, ledgerInserts, publishedProposals } = harness({
+      candidates: [candidate({ id: 'ai_a' }), candidate({ id: 'ai_b' })],
+    })
 
     await runMeetingIngest(sql, ctx())
 
     expect(ledgerInserts).toHaveLength(2)
-    expect(ledgerInserts[0]).toEqual([PLATFORM_TENANT, 'ai_a', 'prop_ai_a'])
-    expect(ledgerInserts[1]).toEqual([PLATFORM_TENANT, 'ai_b', 'prop_ai_b'])
+    expect(ledgerInserts[0]).toEqual([PLATFORM_TENANT, 'ai_a', publishedProposals[0]?.id])
+    expect(ledgerInserts[1]).toEqual([PLATFORM_TENANT, 'ai_b', publishedProposals[1]?.id])
+  })
+
+  it('publishes each proposal and its same-tenant meeting ledger row in one atomic transaction', async () => {
+    const { sql, transaction, transactionBatches } = harness({ candidates: [candidate()] })
+
+    await runMeetingIngest(sql, ctx())
+
+    expect(transaction).toHaveBeenCalledTimes(1)
+    expect(transactionBatches).toHaveLength(1)
+    const [proposalWrite, ledgerWrite] = transactionBatches[0]!
+    expect(proposalWrite?.text).toMatch(/insert into .*proposals/i)
+    expect(proposalWrite?.text).toContain('$3::uuid')
+    expect(proposalWrite?.text).toContain('$3::uuid::text')
+    expect(ledgerWrite?.text).toMatch(/insert into .*meeting_promotions/i)
+    expect(ledgerWrite?.params.slice(0, 2)).toEqual([PLATFORM_TENANT, 'ai_content_hash_1'])
+    expect(ledgerWrite?.params[2]).toBe(proposalWrite?.params[0])
   })
 
   // 14b — the CONCURRENT case. Two ingests race: both pass the ledger read, both
   // create a proposal, one loses the ledger's unique index. The loser must not leave
   // its proposal sitting in the reviewer's pending inbox.
-  it('latches the losing proposal to superseded when a concurrent run wins the ledger', async () => {
-    const { sql, proposalUpdates } = harness({
+  it('rolls back the losing proposal when a concurrent run wins the ledger', async () => {
+    const { sql, publishedProposals, transaction } = harness({
       candidates: [candidate({ id: 'ai_won' }), candidate({ id: 'ai_lost' })],
       lostRace: new Set(['ai_lost']),
     })
 
     const result = await runMeetingIngest(sql, ctx())
 
-    // The loser's proposal is latched out of `pending`, so `listPending` cannot show it.
-    expect(proposalUpdates).toHaveLength(1)
-    const [updateText, updateParams] = proposalUpdates[0]!
-    expect(updateText).toMatch(/status\s*=\s*'superseded'/i)
-    expect(updateText).toMatch(/status\s*=\s*'pending'/i) // guarded — never re-latch a decided proposal
-    expect(updateParams).toEqual(['prop_ai_lost'])
+    // A unique-ledger loss aborts the transaction, so no orphan pending proposal survives.
+    expect(transaction).toHaveBeenCalledTimes(2)
+    expect(publishedProposals.map((proposal) => proposal.context_ref)).toEqual(['ai_won'])
 
     // And the summary counts it as the duplicate it is, not as work created.
     expect(result.proposalsCreated).toBe(1)
     expect(result.skippedDuplicate).toBe(1)
-    expect(result.proposalIds).toEqual(['prop_ai_won'])
+    expect(result.proposalIds).toEqual([publishedProposals[0]?.id])
   })
 
   // 15
   it('a run with zero new candidates still mints the run, proposes nothing, and does not throw', async () => {
-    const { sql, query } = harness({ candidates: [] })
+    const { sql, query, transaction } = harness({ candidates: [] })
 
     const result = await runMeetingIngest(sql, ctx())
 
@@ -394,12 +447,12 @@ describe('runMeetingIngest', () => {
     // Pinned: the run is minted unconditionally (test 6's "regardless of candidate
     // count"), and completed even on the empty path.
     expect((query.mock.calls as [string, unknown[]][]).filter(([t]) => /insert into "agent_runs"/i.test(t))).toHaveLength(1)
-    expect(createProposal).not.toHaveBeenCalled()
+    expect(transaction).not.toHaveBeenCalled()
     expect((query.mock.calls as [string, unknown[]][]).some(([t]) => /update "agent_runs"/i.test(t))).toBe(true)
   })
 
   it('refuses everything when the tenant map is empty — fail-closed, nothing proposed', async () => {
-    const { sql, query } = harness({ candidates: [candidate()] })
+    const { sql, query, transaction } = harness({ candidates: [candidate()] })
 
     const result = await runMeetingIngest(sql, {
       tenantId: PLATFORM_TENANT,
@@ -407,7 +460,7 @@ describe('runMeetingIngest', () => {
     })
 
     expect(result.proposalsCreated).toBe(0)
-    expect(createProposal).not.toHaveBeenCalled()
+    expect(transaction).not.toHaveBeenCalled()
 
     // The caller is TOLD its tenant is not allowlisted — that is the "why did nothing
     // appear" signal, and it is a fact about the caller's own configuration.
