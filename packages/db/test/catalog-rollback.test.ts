@@ -5,6 +5,117 @@ import {
   buildRolePreflight,
   type CatalogSnapshot,
 } from '../src/catalog-contract'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
+
+const MIGRATION_SQL = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), '..', 'migrations', '0019_neon_authority_reconciliation.sql'),
+  'utf8',
+)
+const SNAPSHOT = JSON.parse(readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), '..', 'migrations', 'meta', '0019_snapshot.json'),
+  'utf8',
+)) as Snapshot
+
+type SnapshotColumn = {
+  name: string
+  type: string
+  notNull: boolean
+  default?: string | number | boolean
+  primaryKey?: boolean
+}
+type SnapshotIndex = {
+  columns: Array<{ expression: string }>
+  isUnique: boolean
+  method: string
+  where?: string
+}
+type SnapshotTable = {
+  name: string
+  columns: Record<string, SnapshotColumn>
+  indexes: Record<string, SnapshotIndex>
+  foreignKeys: Record<string, { columnsFrom: string[] }>
+  uniqueConstraints: Record<string, { columns: string[] }>
+  checkConstraints: Record<string, { value: string }>
+}
+type Snapshot = {
+  tables: Record<string, SnapshotTable>
+  enums: Record<string, { values: string[] }>
+}
+type EmbeddedCatalog = {
+  version: string
+  relations: Array<[string, string]>
+  columns: Array<[string, string, number, string | null, boolean, string | number | boolean | null, string, string]>
+  enums: Array<[string, string[]]>
+  constraints: Array<{ table: string; name: string; kind: string; columns: string[] }>
+  indexes: Array<{
+    table: string
+    name: string
+    unique: boolean
+    method: string
+    keys: string[]
+    opclasses: string[]
+    include: string[]
+    predicate: string | null
+  }>
+}
+
+function embeddedCatalog(): EmbeddedCatalog {
+  const match = MIGRATION_SQL.match(/\$catalog_contract_data\$([\s\S]+?)\$catalog_contract_data\$/)
+  if (!match) throw new Error('0019 is missing its embedded catalog contract')
+  return JSON.parse(match[1]) as EmbeddedCatalog
+}
+
+function assertSnapshotCovered(contract: EmbeddedCatalog): void {
+  for (const [tableName, table] of Object.entries(SNAPSHOT.tables)) {
+    if (!contract.relations.some(([name, kind]) => name === tableName && kind === 'r')) {
+      throw new Error('relation missing: ' + tableName)
+    }
+    for (const [columnName, column] of Object.entries(table.columns)) {
+      const row = contract.columns.find(([name]) => name === tableName + '.' + columnName)
+      const expected = [
+        tableName + '.' + columnName,
+        column.type,
+        column.type === 'vector(1536)' ? 1536 : -1,
+        column.type === 'text' ? 'default' : null,
+        column.notNull !== true,
+        column.default ?? null,
+        '',
+        '',
+      ]
+      if (!row || JSON.stringify(row) !== JSON.stringify(expected)) {
+        throw new Error('column contract mismatch: ' + tableName + '.' + columnName)
+      }
+    }
+    for (const [indexName, index] of Object.entries(table.indexes)) {
+      const row = contract.indexes.find((candidate) => candidate.table === tableName && candidate.name === indexName)
+      if (!row || row.unique !== index.isUnique || row.method !== index.method
+        || JSON.stringify(row.keys) !== JSON.stringify(index.columns.map((column) => column.expression))
+        || row.predicate !== (index.where ?? null)
+        || row.opclasses.length !== row.keys.length || row.include.length !== 0) {
+        throw new Error('index contract mismatch: ' + tableName + '.' + indexName)
+      }
+    }
+    const expectedConstraintNames = [
+      ...Object.values(table.columns).filter((column) => column.primaryKey).map(() => table.name + '_pkey'),
+      ...Object.keys(table.foreignKeys),
+      ...Object.keys(table.uniqueConstraints),
+      ...Object.keys(table.checkConstraints),
+    ]
+    for (const name of expectedConstraintNames) {
+      if (!contract.constraints.some((constraint) => constraint.table === tableName && constraint.name === name)) {
+        throw new Error('constraint missing: ' + tableName + '.' + name)
+      }
+    }
+  }
+  for (const [enumName, enumValue] of Object.entries(SNAPSHOT.enums)) {
+    const row = contract.enums.find(([name]) => name === enumName)
+    if (!row || JSON.stringify(row[1]) !== JSON.stringify(enumValue.values)) {
+      throw new Error('enum contract mismatch: ' + enumName)
+    }
+  }
+}
 
 describe('0019 catalog rollback contract', () => {
   it('emits catalog assertions for every compatibility category', () => {
@@ -35,5 +146,20 @@ describe('0019 catalog rollback contract', () => {
   it('uses a typed snapshot shape for fixture-driven assertions', () => {
     const fixture: CatalogSnapshot = { relations: {}, columns: {}, enums: {}, constraints: {}, indexes: {} }
     expect(fixture).toBeDefined()
+  })
+
+  it('uses the genuine 0019 snapshot for exhaustive column, constraint, and index checks', () => {
+    const contract = embeddedCatalog()
+    expect(contract).toMatchObject({ version: 'catalog-contract-v1' })
+    assertSnapshotCovered(contract)
+
+    const removed = structuredClone(contract)
+    removed.columns = removed.columns.filter(([name]) => !name.endsWith('.visibility'))
+    expect(() => assertSnapshotCovered(removed)).toThrow(/visibility/)
+
+    const incompatible = structuredClone(contract)
+    const id = incompatible.columns.findIndex(([name]) => name.endsWith('.id'))
+    incompatible.columns[id][5] = 'tampered-default'
+    expect(() => assertSnapshotCovered(incompatible)).toThrow(/column contract mismatch/)
   })
 })
