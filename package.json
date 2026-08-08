@@ -24,6 +24,7 @@
     "check:source-test": "node scripts/check-source-test-coupling.mjs",
     "check:supabase-exposure": "node scripts/check-supabase-exposure.mjs infra/supabase/migrations/20260602120000_create_platform_schema.sql",
     "check:migration-parity": "node scripts/check-migration-parity.mjs packages/db/migrations",
+    "check:database-authority": "node scripts/check-database-authority.mjs",
     "preflight:meeting-cutover": "node scripts/meeting-cutover-preflight.mjs",
     "verify:deployment": "node scripts/deployment/verify-monorepo-rebinding.mjs",
     "install:meeting-api": "node scripts/meeting-api-validation.mjs install apps/meeting-api/backend/requirements.txt",
