@@ -56,7 +56,7 @@ function installSql(options: {
       transaction: ReturnType<typeof vi.fn>
     }
   const query = vi.fn((text: string, _params: unknown[] = []) => {
-    if (/with authorization as materialized/i.test(text)) return Promise.resolve([options.append ?? { outcome: 'inserted', ...event }])
+    if (/with authorized_actor as materialized/i.test(text)) return Promise.resolve([options.append ?? { outcome: 'inserted', ...event }])
     if (/for update/i.test(text)) return Promise.resolve([{ id: conversationId }])
     if (/from "collaboration_actors"\s+where/i.test(text)) return Promise.resolve([actor])
     if (/select a\.id as actor_id/i.test(text)) return Promise.resolve(options.auth === null ? [] : [options.auth ?? authorization])

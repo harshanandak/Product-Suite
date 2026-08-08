@@ -125,7 +125,7 @@ async function mutateMembership(
     [input.tenantId, input.conversationId],
   )
   const mutation = client.query(
-    `with authorization as materialized (
+    `with authorized_actor as materialized (
        select a.id as actor_id, m.role, c.status as conversation_status
        from "collaboration_actors" a
        join "conversation_memberships" m
@@ -146,7 +146,7 @@ async function mutateMembership(
        where tenant_id = $1 and conversation_id = $2 and actor_id = $5
      ), allocated as materialized (
        update "conversations" c set next_sequence = c.next_sequence + 1, updated_at = now()
-       from authorization a, target t
+       from authorized_actor a, target t
        where c.tenant_id = $1 and c.id = $2 and c.status = 'active' and a.role = 'admin'
          and not exists (select 1 from existing)
        returning c.next_sequence - 1 as sequence
@@ -196,7 +196,7 @@ async function mutateMembership(
        coalesce(i.references, e.references) as references,
        coalesce(i.created_at, e.created_at) as created_at
      from (values (1)) as seed(n)
-     left join authorization a on true
+     left join authorized_actor a on true
      left join target t on true
      left join existing e on true
      left join inserted i on true`,

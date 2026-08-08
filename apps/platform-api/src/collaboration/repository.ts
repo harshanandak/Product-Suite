@@ -237,7 +237,7 @@ export async function appendConversationEvent(
     [input.tenantId, input.conversationId],
   )
   const appendQuery = client.query(
-    `with authorization as materialized (
+    `with authorized_actor as materialized (
        select a.id as actor_id, m.role, c.status as conversation_status
        from "collaboration_actors" a
        join "conversation_memberships" m
@@ -288,7 +288,7 @@ export async function appendConversationEvent(
      ), allocated as materialized (
        update "conversations" c
        set next_sequence = c.next_sequence + 1, updated_at = now()
-       from authorization a, valid_links v
+       from authorized_actor a, valid_links v
        where c.tenant_id = $1 and c.id = $2 and c.status = 'active'
          and case
            when $5::text in ('membership.added', 'membership.changed', 'membership.removed') then a.role = 'admin'
@@ -333,7 +333,7 @@ export async function appendConversationEvent(
        coalesce(i.references, e.references) as references,
        coalesce(i.created_at, e.created_at) as created_at
      from valid_links v
-     left join authorization a on true
+      left join authorized_actor a on true
      left join existing e on true
      left join inserted i on true`,
     [
