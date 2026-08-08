@@ -5,6 +5,7 @@ import { MeetingActionsRepositoryProvider } from "./data/meeting-actions";
 import { MemoriesProvider } from "./data/memories";
 import { MemoryImpactProvider } from "./data/memory-impact";
 import { ProposalRepositoryProvider } from "./data/proposals";
+import { ServerStateProvider } from "./data/server-state";
 import { RepositoryProvider } from "./data/work-items/RepositoryProvider";
 import { CLERK_PUBLISHABLE_KEY, hasClerkKey } from "./env";
 import { USE_FIXTURES } from "./fixtures-mode";
@@ -28,17 +29,19 @@ import { SetupNotice } from "./shell/SetupNotice";
 export function AppRoot() {
   if (USE_FIXTURES) {
     return (
-      <RepositoryProvider>
-        <ProposalRepositoryProvider>
-          <MeetingActionsRepositoryProvider>
-            <MemoriesProvider>
-              <MemoryImpactProvider>
-                <RouterProvider router={router} />
-              </MemoryImpactProvider>
-            </MemoriesProvider>
-          </MeetingActionsRepositoryProvider>
-        </ProposalRepositoryProvider>
-      </RepositoryProvider>
+      <ServerStateProvider>
+        <RepositoryProvider>
+          <ProposalRepositoryProvider>
+            <MeetingActionsRepositoryProvider>
+              <MemoriesProvider>
+                <MemoryImpactProvider>
+                  <RouterProvider router={router} />
+                </MemoryImpactProvider>
+              </MemoriesProvider>
+            </MeetingActionsRepositoryProvider>
+          </ProposalRepositoryProvider>
+        </RepositoryProvider>
+      </ServerStateProvider>
     );
   }
   if (!hasClerkKey()) {
@@ -51,17 +54,19 @@ export function AppRoot() {
       afterSignOutUrl="/sign-in"
       signInFallbackRedirectUrl="/"
     >
-      <RepositoryProvider>
-        <ProposalRepositoryProvider>
-          <MeetingActionsRepositoryProvider>
-            <MemoriesProvider>
-              <MemoryImpactProvider>
-                <RouterProvider router={router} />
-              </MemoryImpactProvider>
-            </MemoriesProvider>
-          </MeetingActionsRepositoryProvider>
-        </ProposalRepositoryProvider>
-      </RepositoryProvider>
+      <ServerStateProvider>
+        <RepositoryProvider>
+          <ProposalRepositoryProvider>
+            <MeetingActionsRepositoryProvider>
+              <MemoriesProvider>
+                <MemoryImpactProvider>
+                  <RouterProvider router={router} />
+                </MemoryImpactProvider>
+              </MemoriesProvider>
+            </MeetingActionsRepositoryProvider>
+          </ProposalRepositoryProvider>
+        </RepositoryProvider>
+      </ServerStateProvider>
     </ClerkProvider>
   );
 }
