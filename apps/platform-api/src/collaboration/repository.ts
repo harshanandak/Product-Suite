@@ -52,7 +52,7 @@ export async function resolveActiveActor(sql: Sql, context: ActorContext): Promi
     [context.tenantId, context.kind, context.owningDomain, context.owningId],
   )
   const actor = rows[0]
-  return actor && actor.disabled_at === null ? actor : null
+  return actor?.disabled_at === null ? actor : null
 }
 
 export async function ensureActor(sql: Sql, context: ActorContext): Promise<ActorRow> {
@@ -179,7 +179,10 @@ function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
   if (value !== null && typeof value === 'object') {
     const object = value as Record<string, unknown>
-    return `{${Object.keys(object).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(object[key])}`).join(',')}}`
+    const entries = Object.keys(object)
+      .sort((left, right) => left.localeCompare(right))
+      .map((key) => [JSON.stringify(key), canonicalJson(object[key])].join(':'))
+    return `{${entries.join(',')}}`
   }
   return JSON.stringify(value) ?? 'null'
 }

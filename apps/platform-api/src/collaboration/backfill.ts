@@ -185,6 +185,6 @@ export async function runCollaborationBackfill(
     applied: options.apply,
     threads: threads.length,
     events: eventCount,
-    unresolvedUsers: [...unresolved].sort(),
+    unresolvedUsers: [...unresolved].sort((left, right) => left.localeCompare(right)),
   }
 }

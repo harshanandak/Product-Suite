@@ -79,7 +79,7 @@ async function callerActor(sql: Sql, claims: AuthClaims, tenantId: string): Prom
   return context ? resolveActiveActor(sql, context) : null
 }
 
-async function parsedBody(c: Context<AuthedEnv>): Promise<unknown | null> {
+async function parsedBody(c: Context<AuthedEnv>): Promise<unknown> {
   try {
     return await c.req.json()
   } catch {
@@ -305,9 +305,9 @@ conversationsRoutes.post('/:id/events', async (c) => {
       targetEventId: body.data.target_event_id,
       references: body.data.references,
     })
-    return result.ok
-      ? c.json({ event: result.event, duplicate: result.duplicate }, result.duplicate ? 200 : 201)
-      : c.json({ error: result.reason }, failureStatus(result.reason))
+    if (!result.ok) return c.json({ error: result.reason }, failureStatus(result.reason))
+    const status = result.duplicate ? 200 : 201
+    return c.json({ event: result.event, duplicate: result.duplicate }, status)
   } catch (cause) {
     console.error('[conversations] event append failed', cause)
     return c.json({ error: 'Failed to append conversation event' }, 500)
