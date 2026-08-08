@@ -9,3 +9,13 @@
 **Route**: PROCEED
 **Choice made**: Add a focused barrel-export test. Delete the prematurely created barrel, prove the test RED on the missing module, then restore the barrel and prove GREEN.
 **Status**: RESOLVED
+
+## Decision 2
+
+**Date**: 2026-08-08
+**Task**: Quality correction — auth-scope observer ownership
+**Gap**: Passing a replacement client to `useQuery` did not reconstruct its existing observer, so results for scope B could be written into scope A's client.
+**Score**: 4/14 (security-sensitive cache ownership and lifecycle behavior; localized, testable, and reversible inside the server-state boundary)
+**Route**: SPEC-REVIEWER correction
+**Choice made**: Key the entire context and Query provider subtree by authorization scope. A scope departure unmounts its observers and clears its client; returning A after A→B→A creates a fresh A client and refetches rather than retaining a departed-scope cache.
+**Status**: RESOLVED

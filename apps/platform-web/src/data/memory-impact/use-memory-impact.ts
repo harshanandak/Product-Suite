@@ -42,6 +42,10 @@ export interface UseMemoryImpactResult {
   error: Error | null;
 }
 
+function normalizeError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
+}
+
 /**
  * `useMemoryImpact` — React-19 hook over the {@link MemoryImpactAdapter},
  * mirroring `useMemories`' plain-state load loop (the app has no react-query
@@ -67,7 +71,13 @@ export function useMemoryImpact(
   const query = useQuery<MemoryImpact, Error>(
     {
       queryKey: ["memory-impact", scope.key, windowDays, adapterIdentity],
-      queryFn: ({ signal }) => adapter.get(windowDays, signal),
+      queryFn: async ({ signal }) => {
+        try {
+          return await adapter.get(windowDays, signal);
+        } catch (error) {
+          throw normalizeError(error);
+        }
+      },
     },
     queryClient,
   );

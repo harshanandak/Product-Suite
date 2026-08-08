@@ -1,8 +1,8 @@
+export { ServerStateProvider } from "./ServerStateProvider";
+export { useServerState } from "./context";
+export type { ServerStateScope, ServerStateValue } from "./context";
 export {
-  ServerStateProvider,
   createServerStateQueryClient,
   getAdapterIdentity,
   shouldRetryServerStateQuery,
-  useServerState,
-} from "./ServerStateProvider";
-export type { ServerStateScope, ServerStateValue } from "./ServerStateProvider";
+} from "./query-client";

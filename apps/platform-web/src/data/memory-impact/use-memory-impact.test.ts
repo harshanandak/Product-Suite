@@ -71,6 +71,22 @@ describe("useMemoryImpact", () => {
     expect(result.current.impact).toBeNull();
   });
 
+  it("normalizes a non-Error rejection to Error", async () => {
+    const failing: MemoryImpactAdapter = {
+      get: vi.fn(async () => {
+        throw "string failure";
+      }),
+    };
+    const { result } = renderHook(() => useMemoryImpact({ adapter: failing }), {
+      wrapper: ServerStateProvider,
+    });
+
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+    expect(result.current.error).toBeInstanceOf(Error);
+    expect(result.current.error?.message).toBe("string failure");
+    expect(result.current.impact).toBeNull();
+  });
+
   it("deduplicates concurrent consumers in the same authorization scope", async () => {
     const adapter = createMockMemoryImpactAdapter();
     const spy = vi.spyOn(adapter, "get");
