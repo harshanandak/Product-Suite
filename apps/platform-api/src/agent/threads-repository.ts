@@ -86,6 +86,15 @@ export function concatDeltas(transcripts: unknown[]): UIMessage[] {
   return out
 }
 
+function isUiMessage(value: unknown): value is UIMessage {
+  if (!value || typeof value !== 'object') return false
+  const message = value as { id?: unknown; role?: unknown; parts?: unknown }
+  return typeof message.id === 'string'
+    && message.id.length > 0
+    && ['system', 'user', 'assistant'].includes(String(message.role))
+    && Array.isArray(message.parts)
+}
+
 /**
  * Create a thread anchored to ONE org and return its id. The SERVER owns creation
  * (kills the first-message race: never client-create-then-save). Title is derived,
@@ -176,6 +185,30 @@ export async function reconstructThreadMessages(
   threadId: string,
   tenantId: string,
 ): Promise<UIMessage[]> {
+  const mapped = await runQuery<{ id: string }>(
+    sql,
+    `select id from "conversations"
+     where tenant_id = $1 and legacy_source = 'platform.chat_threads' and legacy_id = $2
+     limit 1`,
+    [tenantId, threadId],
+  )
+  if (mapped[0]) {
+    const events = await runQuery<{ message: unknown }>(
+      sql,
+      `select payload->'message' as message from "conversation_events"
+       where tenant_id = $1 and conversation_id = $2 and kind = 'message.created'
+       order by sequence asc`,
+      [tenantId, mapped[0].id],
+    )
+    const messages: UIMessage[] = []
+    const seen = new Set<string>()
+    for (const event of events) {
+      if (!isUiMessage(event.message) || seen.has(event.message.id)) continue
+      seen.add(event.message.id)
+      messages.push(event.message)
+    }
+    return messages
+  }
   const rows = await runQuery<{ transcript: unknown }>(
     sql,
     `select transcript from "agent_runs"
@@ -183,5 +216,5 @@ export async function reconstructThreadMessages(
      order by created_at`,
     [threadId, tenantId],
   )
-  return concatDeltas(rows.map((r) => r.transcript))
+  return concatDeltas(rows.map((row) => row.transcript))
 }

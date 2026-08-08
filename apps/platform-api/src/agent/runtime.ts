@@ -206,8 +206,16 @@ async function mintRun(
   const holdout = await resolveHoldout(sql, threadId, id)
   const rows = await runQuery<{ id: string }>(
     sql,
-    `insert into "agent_runs" ("id", "tenant_id", "triggered_by", "kind", "status", "thread_id", "memory_holdout")
-     values ($1, $2, $3, 'chat', 'running', $4, $5) returning id`,
+    `insert into "agent_runs" (
+       "id", "tenant_id", "triggered_by", "kind", "status", "thread_id", "conversation_id", "memory_holdout"
+     )
+     values (
+       $1, $2, $3, 'chat', 'running', $4,
+       (select id from "conversations"
+        where tenant_id = $2 and legacy_source = 'platform.chat_threads' and legacy_id = $4
+        limit 1),
+       $5
+     ) returning id`,
     [id, tenantId, userId, threadId ?? null, holdout],
   )
   if (!rows[0]?.id) throw new Error('mintRun: insert returned no id')

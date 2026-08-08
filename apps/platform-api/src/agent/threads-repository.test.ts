@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { UIMessage } from 'ai'
 
-import { concatDeltas, titleFromFirstMessage } from './threads-repository'
+import { concatDeltas, reconstructThreadMessages, titleFromFirstMessage } from './threads-repository'
 
 // Real UIMessages carry unique ids; parameterize so reconstruction (which dedups
 // by id) is exercised with realistic distinct ids — and a deliberate collision.
@@ -59,5 +59,33 @@ describe('concatDeltas (thread reconstruction)', () => {
     expect(messages).toHaveLength(2)
     expect(messages[0]?.role).toBe('user')
     expect(messages[1]?.role).toBe('assistant')
+  })
+})
+
+describe('canonical conversation compatibility', () => {
+  it('reconstructs the unchanged legacy UIMessage shape from canonical events when mapped', async () => {
+    const query = vi.fn()
+      .mockResolvedValueOnce([{ id: 'conversation_1' }])
+      .mockResolvedValueOnce([{ message: user('hello', 'u1') }, { message: assistant('hi', 'a1') }])
+    const messages = await reconstructThreadMessages({ query } as never, 'thread_1', 'tenant_1')
+    expect(messages.map((message) => message.id)).toEqual(['u1', 'a1'])
+    expect(String(query.mock.calls[1]?.[0])).toMatch(/conversation_events/i)
+  })
+
+  it('ignores malformed canonical rows and deduplicates messages by id', async () => {
+    const query = vi.fn()
+      .mockResolvedValueOnce([{ id: 'conversation_1' }])
+      .mockResolvedValueOnce([
+        { message: null },
+        { message: 'not-a-message' },
+        { message: { id: 'missing-parts', role: 'user' } },
+        { message: user('hello', 'u1') },
+        { message: user('duplicate', 'u1') },
+        { message: assistant('hi', 'a1') },
+      ])
+
+    const messages = await reconstructThreadMessages({ query } as never, 'thread_1', 'tenant_1')
+
+    expect(messages.map((message) => message.id)).toEqual(['u1', 'a1'])
   })
 })

@@ -289,8 +289,154 @@ export type ClerkJwtPayloadValidationResult =
       };
     };
 
+export type CollaborationActorKind = "human" | "agent" | "service";
+export type ConversationStatus = "active" | "archived";
+export type ConversationMembershipRole = "reader" | "writer" | "admin";
+export type ConversationMembershipStatus = "active" | "removed";
+export type ConversationEventKind =
+  | "message.created"
+  | "message.edited"
+  | "message.deleted"
+  | "membership.added"
+  | "membership.changed"
+  | "membership.removed";
+export type ConversationReferenceDomain =
+  | "agent_run"
+  | "proposal"
+  | "approval"
+  | "schedule"
+  | "meeting"
+  | "work_item"
+  | "canvas_document";
+
+export interface ConversationDomainReference {
+  readonly domain: ConversationReferenceDomain;
+  readonly id: string;
+}
+
+export interface CollaborationActor {
+  readonly id: string;
+  readonly tenant_id: string;
+  readonly kind: CollaborationActorKind;
+  readonly owning_domain: string;
+  readonly owning_id: string;
+  readonly disabled_at: string | null;
+}
+
+export interface Conversation {
+  readonly id: string;
+  readonly tenant_id: string;
+  title: string;
+  status: ConversationStatus;
+  subject_ref: ConversationDomainReference | null;
+  readonly created_by_actor_id: string;
+  readonly next_sequence: number;
+  readonly legacy_source: string | null;
+  readonly legacy_id: string | null;
+  readonly created_at: string;
+  readonly updated_at: string;
+}
+
+export interface ConversationMembership {
+  readonly id: string;
+  readonly tenant_id: string;
+  readonly conversation_id: string;
+  readonly actor_id: string;
+  role: ConversationMembershipRole;
+  status: ConversationMembershipStatus;
+  readonly created_by_actor_id: string;
+  readonly created_at: string;
+  readonly updated_at: string;
+}
+
+export interface ConversationEvent {
+  readonly id: string;
+  readonly tenant_id: string;
+  readonly conversation_id: string;
+  readonly actor_id: string;
+  readonly sequence: number;
+  readonly idempotency_key: string;
+  readonly kind: ConversationEventKind;
+  readonly payload: Record<string, unknown>;
+  readonly reply_to_event_id: string | null;
+  readonly target_event_id: string | null;
+  readonly references: readonly ConversationDomainReference[];
+  readonly created_at: string;
+}
+
 export interface ConversationContract {
   module: "conversation";
+  authorityVersion: 1;
+  actor: {
+    table: string;
+    idKey: string;
+    tenantIdKey: string;
+    kindKey: string;
+    kindValues: readonly CollaborationActorKind[];
+    owningDomainKey: string;
+    owningIdKey: string;
+    disabledAtKey: string;
+  };
+  conversation: {
+    table: string;
+    idKey: string;
+    tenantIdKey: string;
+    titleKey: string;
+    statusKey: string;
+    statusValues: readonly ConversationStatus[];
+    subjectRefKey: string;
+    createdByActorIdKey: string;
+    nextSequenceKey: string;
+    legacySourceKey: string;
+    legacyIdKey: string;
+    createdAtKey: string;
+    updatedAtKey: string;
+  };
+  membership: {
+    table: string;
+    idKey: string;
+    tenantIdKey: string;
+    conversationIdKey: string;
+    actorIdKey: string;
+    roleKey: string;
+    roleValues: readonly ConversationMembershipRole[];
+    statusKey: string;
+    statusValues: readonly ConversationMembershipStatus[];
+    createdByActorIdKey: string;
+    createdAtKey: string;
+    updatedAtKey: string;
+  };
+  event: {
+    table: string;
+    idKey: string;
+    tenantIdKey: string;
+    conversationIdKey: string;
+    actorIdKey: string;
+    sequenceKey: string;
+    idempotencyKey: string;
+    kindKey: string;
+    kindValues: readonly ConversationEventKind[];
+    payloadKey: string;
+    replyToEventIdKey: string;
+    targetEventIdKey: string;
+    referencesKey: string;
+    createdAtKey: string;
+    cursor: { field: "sequence"; mode: "exclusive" };
+    idempotency: { scope: readonly string[]; conflictStatus: 409 };
+    immutable: true;
+  };
+  access: {
+    readRoles: readonly ConversationMembershipRole[];
+    writeRoles: readonly ConversationMembershipRole[];
+    adminRoles: readonly ConversationMembershipRole[];
+    denyByDefault: true;
+  };
+  authority: {
+    store: "shared_postgres";
+    actorDerivedServerSide: true;
+    runIsActor: false;
+    owningDomainReferences: readonly ConversationReferenceDomain[];
+  };
   thread: {
     table: string;
     idKey: string;

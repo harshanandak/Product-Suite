@@ -47,3 +47,22 @@ export async function callerUserId(sql: Sql, claims: AuthClaims): Promise<string
   `) as { user_id: string }[]
   return rows[0]?.user_id ?? null
 }
+export interface HumanActorContext {
+  tenantId: string
+  kind: 'human'
+  owningDomain: 'identity.user'
+  owningId: string
+}
+
+/** Resolve a verified Clerk caller to one tenant-scoped stable human actor reference. */
+export async function resolveHumanActorContext(
+  sql: Sql,
+  claims: AuthClaims,
+  tenantId: string,
+): Promise<HumanActorContext | null> {
+  const tenantIds = await callerTenantIds(sql, claims)
+  if (!tenantIds.includes(tenantId)) return null
+  const userId = await callerUserId(sql, claims)
+  if (!userId) return null
+  return { tenantId, kind: 'human', owningDomain: 'identity.user', owningId: userId }
+}

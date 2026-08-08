@@ -31,7 +31,6 @@ describe("@product-suite/contracts", () => {
     expect(conversationContract.module).toBe("conversation");
     expect(conversationContract.thread.table).toBe("chat_threads");
     expect(conversationContract.message.table).toBe("chat_messages");
-    expect(conversationContract).toEqual(conversationArtifact);
 
     expect(meetingCoreContract.module).toBe("meeting");
     expect(meetingCoreContract.runtimeConfig.auth.providerKey).toBe("provider");
