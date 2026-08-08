@@ -23,17 +23,17 @@ Before Task 1:
 **OWNS:** `config/database-authority.json`; `scripts/check-database-authority.mjs`; `test/check-database-authority.test.js`; `package.json`
 **Estimated size:** 4 files, 180–260 net LOC.
 
-**What to implement:** Add a machine-readable contract that names Neon, `neondb`, `public`, active services, canonical Drizzle root/journal/commands, runtime pooled purpose, migration direct purpose, and historical roots. Add a pure validator/CLI that structurally parses URLs and validates scheme, exact `.neon.tech` hostname suffix, database, TLS, pooled/direct purpose, configured project/branch evidence, and absence of dual production DB settings. Export pure functions for tests. Never print or return a full URL, user, password, or query string.
+**What to implement:** Add a machine-readable contract that names Neon, `neondb`, `public`, active services, Drizzle root/journal/commands, historical roots, and environment history pins: production=`original-production`, fresh/staging/test=`repaired-bootstrap`. Define P0's allowed suffixes and future exact contiguous suffix declaration. Add structural URL/project/branch/environment validation and reject dual DB settings or CLI variant differing from the environment pin. Never expose URL/user/password/query values.
 
 **TDD steps:**
 
-1. Write test: in `test/check-database-authority.test.js`, cover valid pooled runtime/direct migration Neon URLs; reject Supabase, lookalike hosts (`neon.tech.evil.example`), wrong database, non-TLS hosted URL, pooled migration URL, direct runtime when policy requires pooled, provider/host mismatch, two production URLs, and redacted errors.
+1. Write test: cover pooled/direct Neon URLs and valid environment pins; reject Supabase/lookalike/wrong DB/non-TLS, provider mismatch, two production URLs, production+repaired variant, fresh/staging+original variant, undeclared environment, and redaction failure.
 2. Run test: `bun test test/check-database-authority.test.js`; confirm RED with `Cannot find module '../scripts/check-database-authority.mjs'`.
 3. Implement: add contract, parser, validator, CLI, and root `check:database-authority` script. CLI reads secrets only from environment and emits provider/purpose/status/project/branch IDs, never values.
-4. Run test: confirm all validator cases pass; run the CLI with synthetic Neon values and confirm no credential fragments appear.
+4. Run test: confirm URL and environment/variant cases pass; run the CLI with synthetic values and confirm no credential fragments appear.
 5. Commit: `feat(db): freeze canonical Neon authority contract`.
 
-**Expected output:** `Database authority check passed: provider=neon schema=public migration=drizzle` for valid config; deterministic redacted errors and nonzero exit for every invalid/dual config.
+**Expected output:** valid output includes provider/schema/migration/history-variant only; every invalid URL, dual config, or environment/variant mismatch is redacted and nonzero.
 
 ## Wave 2 — immutable history and cross-platform integrity
 
@@ -63,11 +63,11 @@ Before Task 1:
 **OWNS:** `config/database-grants.json`; `packages/db/src/meeting-schema.ts`; `packages/db/src/schema.ts`; `packages/db/src/schema.test.ts`; `packages/db/src/catalog-contract.ts`; `packages/db/src/catalog-contract.test.ts`; `packages/db/migrations/0019_neon_authority_reconciliation.sql`; `packages/db/migrations/meta/0019_snapshot.json`; `packages/db/migrations/meta/_journal.json`; `packages/db/test/catalog-rollback.test.ts`; `packages/db/test/sql-firewall.test.ts`; `packages/db/package.json`
 **Estimated size:** 12 files, 800–1,180 net LOC including generated snapshot.
 
-**What to implement:** Model the full current schema, generate normal `0019` from the real `0011` snapshot, and retain the complete new snapshot. Rewrite only new SQL into transactional additive DDL. Every creation guard is followed by exact catalog assertions for relation kind; column type/typmod/collation/null/default/identity/generated; enum order; constraint definition/FK actions; and index method/keys/opclass/include/predicate. Add the five deferred FKs and exact service grants/default privileges. Mismatch raises and rolls back; no `0019` journal row remains. A token-aware firewall bans `INSERT/UPDATE/DELETE/MERGE/COPY/TRUNCATE` plus destructive DDL in authored repair/0019 SQL.
+**What to implement:** Model the full current schema, generate normal `0019` from the real `0011` snapshot, and retain the complete new snapshot. Rewrite only new SQL into transactional additive DDL. Every creation guard is followed by exact catalog assertions for relation kind; column type/typmod/collation/null/default/identity/generated; enum order; constraint definition/FK actions; and index method/keys/opclass/include/predicate. Require pre-existing NOLOGIN roles `product_suite_platform_runtime` and `product_suite_meeting_runtime`; missing/wrong-kind roles fail before object DDL. Add the five deferred FKs and exact grants/default privileges to those roles. Mismatch raises and rolls back; no `0019` journal row remains. A token-aware firewall bans `INSERT/UPDATE/DELETE/MERGE/COPY/TRUNCATE` plus destructive DDL in authored repair/0019 SQL.
 
 **TDD steps:**
 
-1. Write test: exact catalog fixtures cover types/null/defaults/enums/index predicates/opclasses/FK actions; inject one incompatibility per category and assert SQLSTATE/error object plus full transactional rollback. Firewall fixtures cover comments/strings/dollar quotes and ban `INSERT|UPDATE|DELETE|MERGE|COPY|TRUNCATE` tokens in executable SQL.
+1. Write test: exact catalog fixtures cover types/null/defaults/enums/index predicates/opclasses/FK actions; inject one incompatibility per category and assert SQLSTATE/error object plus rollback. Add missing-role, LOGIN-instead-of-NOLOGIN, and unauthorized-membership fixtures that fail before table DDL. Firewall fixtures cover comments/strings/dollar quotes and banned DML tokens.
 2. Run test: `bun run --cwd packages/db test`; `bun run --cwd packages/db test:catalog-rollback`; `bun run --cwd packages/db test:sql-firewall`; confirm RED on missing model/assertions/migration.
 3. Implement: add schema model; run `bun run --cwd packages/db generate -- --name neon_authority_reconciliation`; keep the new full snapshot; review/rewrite only `0019` SQL into guarded additive DDL. Never synthesize `0012`–`0018` snapshots.
 4. Run test: `bun run --cwd packages/db lint`; `bun run --cwd packages/db typecheck`; `bun run --cwd packages/db test`; `bun run --cwd packages/db test:catalog-rollback`; `bun run --cwd packages/db test:sql-firewall`; history/parity checks; then no-change generation reports `No schema changes, nothing to migrate`.
@@ -138,20 +138,20 @@ Before Task 1:
 ### Task 7: Build the guarded runner and prove both migration histories
 
 **Requirement anchor:** success criteria 7, 8, 9; rollout/rollback contract.
-**OWNS:** `scripts/migrate-database.mjs`; `scripts/migration-evidence.mjs`; `test/migrate-database.test.js`; `test/migration-evidence.test.js`; `.github/workflows/meeting-api-ci.yml`; `.github/workflows/platform-api-deploy.yml`; `scripts/check-worker-secrets.mjs`; `test/check-worker-secrets.test.js`; `apps/platform-api/DEPLOY.md`; `docs/deployment/DATABASE_AUTHORITY.md`; `package.json`
-**Estimated size:** 11 files, 500–780 net LOC.
+**OWNS:** `scripts/provision-database-roles.mjs`; `scripts/migrate-database.mjs`; `scripts/migration-evidence.mjs`; `test/provision-database-roles.test.js`; `test/migrate-database.test.js`; `test/migration-evidence.test.js`; `.github/workflows/meeting-api-ci.yml`; `.github/workflows/platform-api-deploy.yml`; `scripts/check-worker-secrets.mjs`; `test/check-worker-secrets.test.js`; `apps/platform-api/DEPLOY.md`; `docs/deployment/DATABASE_AUTHORITY.md`; `package.json`
+**Estimated size:** 13 files, 620–900 net LOC.
 
-**What to implement:** Add one canonical runner with `bootstrap` and `deploy` modes. Bootstrap requires a truly empty digest-pinned PostgreSQL 17 + pgvector target and the repaired history variant. Deploy requires original production history, acquires a fixed advisory lock, re-reads history in the apply session, and accepts exactly ordered `{0018,0019}` or `{0019}` with expected tags/timestamps/hashes/count. Platform deploy additionally requires a ready, test-restored Neon snapshot at exact LSN/timestamp whose expiry exceeds P0 acceptance plus PR A contingency. Preserve direct migration versus pooled runtime URLs and exact-SHA approval.
+**What to implement:** Add one runner with `bootstrap`, `apply`, and `verify`. Environment config pins its history variant; the CLI must declare the same variant. Bootstrap requires empty PG17+pgvector and repaired-bootstrap. Apply accepts a complete recognized prefix of either variant and only an exact declared contiguous suffix after an advisory-locked re-read; P0 production additionally allows only `{0018,0019}` or `{0019}`. Verify requires a recognized declared variant, expected floor, and zero pending, emits `NOOP`, and never writes. This contract must support PR A `0020+` on both variants. Add a prerequisite role provisioner: Neon admin is LOGIN/control-plane authority; direct `neondb_owner` (or explicitly approved equivalent) is SQL authority for creating/validating NOLOGIN roles and memberships. Passwords never enter repo/CLI output.
 
 **TDD steps:**
 
-1. Write test: runner fixtures reject dirty nonempty bootstrap; non-PG17/no-vector; repaired/mixed deploy prefix; original-prefix bootstrap; pending `{}`, `{0018}`, `{0017,0018,0019}`, reordered/unknown/extra sets; wrong ordered hash/count; TOCTOU mutation after preflight; pooled/non-Neon migration URL; stale SHA; insufficient/expired/unrestored snapshot; secret leakage.
-2. Run test: `bun test test/migrate-database.test.js test/migration-evidence.test.js test/check-worker-secrets.test.js`; confirm RED on missing runner and current workflow behavior.
-3. Implement: update workflows/scripts/docs/root commands. Keep `NEON_API_KEY` scoped only to branch/control-plane steps and direct URL scoped only to migrate/pre/postflight.
-4. Run test: focused tests; `bun run migrate:database --mode bootstrap` against pinned pgvector/PostgreSQL 17; second-run no-op; deploy-mode production fixture for both accepted sets; concurrency/TOCTOU rejection; YAML/static tests and redaction snapshot.
+1. Write test: provisioning fixtures cover missing `CREATEROLE`/ADMIN OPTION, missing roles, wrong rolcanlogin, unauthorized/wrong LOGIN membership, idempotent valid roles, and redaction. Runner fixtures cover environment/flag mismatch; both recognized variants applying exact `0020`; mixed/unknown histories; zero-pending verify `NOOP`; apply with undeclared/extra/reordered suffix; wrong floor/hash/count; TOCTOU; P0 production allowlist; non-PG17/no-vector; wrong URL/SHA/snapshot; secret leakage.
+2. Run test: `bun test test/provision-database-roles.test.js test/migrate-database.test.js test/migration-evidence.test.js test/check-worker-secrets.test.js`; confirm RED on missing provisioner/runner and current workflow behavior.
+3. Implement: add provisioner and three-operation runner; bind environment-to-variant in the authority contract; update workflows/docs/root commands. Keep control-plane key, direct URL, and LOGIN credentials in separate scopes.
+4. Run test: focused tests; provision roles; bootstrap repaired history; `verify --history-variant repaired-bootstrap --expected-floor 0019` returns `NOOP`; original/repaired fixtures each apply synthetic `0020` then verify; P0 production fixtures accept only its two sets; concurrency/TOCTOU and unauthorized role cases fail.
 5. Commit: `ci(db): enforce canonical Neon migration rollout`.
 
-**Expected output:** empty and existing-live paths are independently proven; deploy applies only the exact allowed suffix under lock; restore evidence is retained and sufficient; logs reveal no credentials.
+**Expected output:** either recognized pinned variant can advance beyond `0019` and verify at zero pending; mixed/unknown/mismatched variants fail; roles exist before migration under named authority; logs reveal no credentials.
 
 ### Task 8: Rotate to least-privilege runtime roles and prove real-Neon conformance
 
@@ -159,17 +159,17 @@ Before Task 1:
 **OWNS:** `apps/platform-api/src/db.ts`; `apps/platform-api/src/db.test.ts`; `apps/platform-api/src/app.ts`; `apps/platform-api/src/app.test.ts`; `apps/platform-api/test/db-contract/harness.ts`; `apps/platform-api/test/db-contract/neon-authority.test.ts`; `apps/platform-api/test/db-contract/role-privileges.test.ts`; `apps/platform-api/vitest.db-contract.config.ts`; `apps/platform-api/package.json`; `.github/workflows/db-contract.yml`
 **Estimated size:** 10 paths, 420–660 net LOC.
 
-**What to implement:** Define exact Platform and Meeting grant manifests, NOLOGIN group roles and separate LOGIN credentials. `0019` revokes public schema creation, grants enumerated tables/sequences, and sets owner default privileges; login passwords remain out-of-band. Deploy rotates pooled secrets away from observed `neondb_owner`, validates `current_user` is not owner/admin, proves allowed queries and denies create/alter/drop, role escalation, and unlisted cross-service access, then invalidates the superseded runtime owner credential when distinct from migration secret. Add opaque DB readiness. Real Neon runs both empty bootstrap and production-derived deploy proofs and cleans up in `finally`.
+**What to implement:** Define exact grants and separate LOGIN credentials. Create the empty real-Neon proof only by provisioning a disposable test-only project/root with empty `neondb`; validate project ID differs from production, root/default status, test authority/variant, and empty catalog, then delete the entire project in `finally` and prove deletion. Separately use a production-derived branch for original history. On both, provision NOLOGIN roles before `0019`. Rotate pooled secrets away from owner and prove allowed access plus denied DDL/escalation/cross-service access. Add opaque readiness.
 
 **TDD steps:**
 
-1. Write test: unit readiness/redaction plus real DB allowed CRUD/readiness and denied DDL/ownership/role membership/cross-service access; assert old owner runtime URL is rejected. Cover empty repaired history, live original history, both allowed pending sets, exact catalog, unchanged rows/Alembic marker, incompatibility rollback, and branch cleanup.
+1. Write test: reject production project ID, production child claimed empty, non-root test branch, nonempty catalog, missing test-only authority, missing cleanup, and absent/unauthorized NOLOGIN provisioning. Positive path creates disposable project/root, bootstraps repaired history, verifies NOOP, deletes project, and verifies deletion. Original path uses a production-derived branch. Both include allowed/denied runtime privilege probes.
 2. Run test: unit tests RED with missing validator/readiness; required real command RED if credentials absent or migration evidence missing.
 3. Implement: wire validator/readiness and harness; never return/log URL, role, content, row payload, or query error detail.
-4. Run test: `bun run --cwd apps/platform-api lint`; `bun run --cwd apps/platform-api typecheck`; `bun run --cwd apps/platform-api test`; `bun run test:db-contract:required`; confirm both branch modes, privilege negatives, parent immutability, credential rotation evidence, and cleanup.
+4. Run test: `bun run --cwd apps/platform-api lint`; `bun run --cwd apps/platform-api typecheck`; `bun run --cwd apps/platform-api test`; `bun run test:db-contract:required`; confirm disposable-project/root cleanup, production-derived branch isolation, both variants, privilege negatives, and credential rotation evidence.
 5. Commit: `test(db): prove Neon authority on ephemeral branch`.
 
-**Expected output:** runtime authenticates as non-owner least-privilege roles; required calls pass and forbidden capabilities fail; both migration histories converge; missing proof/cleanup/rotation is nonzero.
+**Expected output:** disposable empty project and production-derived branch prove distinct variants; both provision roles first and support future suffixes; project/branch cleanup and privilege rotation are mandatory evidence.
 
 ## Wave 7 — canonical documentation and stack handoff
 
@@ -183,13 +183,13 @@ Before Task 1:
 
 **TDD steps:**
 
-1. Write test: extend authority/docs alignment assertions so current-state docs cannot say Supabase Postgres is source of truth, Meeting is moving to Supabase, or Alembic owns new migrations. Require PR A fields for original-production history variant, guarded deploy command, applied `0019` floor, candidate `0020`, exact catalog/grant contract, and prohibition on touching the five-block repair.
+1. Write test: require PR A fields for both history variants, exact `0020` apply and verify/no-op commands, production variant pin, pre-0019 NOLOGIN provisioning authority, applied floor, catalog/grant contract, and prohibition on touching the repair.
 2. Run test: `bun test test/check-database-authority.test.js test/check-historical-db-artifacts.test.js`; confirm RED naming stale ownership rows/current-state statements or missing handoff fields.
 3. Implement: update canonical docs and decision log from verified live evidence; keep historical plans untouched.
 4. Run test: `bun run check:database-authority`; `bun run check:historical-db-artifacts`; whole-repo categorized Supabase/Alembic search; full relevant validation; `forge issue show 59efc6dc-07a1-4b31-9942-ba2f1fcac8e1 --json` readback.
 5. Commit: `docs(db): publish canonical Neon authority handoff`.
 
-**Expected output:** a new session can recover provider/schema/model/root/journal/generate/guarded-apply/runtime-role/history-variant/applied-floor/next-slot facts without reading historical PR19/PR20 material.
+**Expected output:** a new session can recover both-variant apply/verify semantics, disposable-empty topology, role-provisioning authority, and PR A `0020` contract without historical material.
 
 ## Final validation and stage exit
 
@@ -197,7 +197,7 @@ After all tasks and reviews:
 
 1. Re-prove Forge lease ownership.
 2. Rebase on current main and rerun migration-order checks; update `0019/0020` only if required and rerun everything. Recompute manifest-approved repaired hashes without touching production history.
-3. Run authority/history/parity, package DB lint/type/catalog/firewall/rollback, Meeting full validation, Platform API lint/type/test, digest-pinned PG17+pgvector bootstrap, both required ephemeral Neon modes, least-privilege negatives, apply-time pending fixtures, and workflow/docs alignment.
+3. Run authority/history/parity, package DB lint/type/catalog/firewall/rollback, Meeting full validation, Platform API lint/type/test, role-provisioning negatives, digest-pinned PG17+pgvector bootstrap/no-op, disposable Neon project/root cleanup, production-derived branch isolation, both-variant `0020` suffix fixtures, P0 pending fixtures, and workflow/docs alignment.
 4. Verify `git diff` changes only the five allowlisted blocks in `0000`/`0004`, modifies no other historical SQL, and contains no DML/data-copy/drop/down-migration SQL.
 5. Record Forge stage exit with `summary`, `decisions`, `artifacts`, and `next`.
 6. Stop at VALIDATE/SHIP checkpoint. Do not push, deploy, rotate secrets, apply production migrations, open a PR, or begin PR A without the next explicit stage authorization.

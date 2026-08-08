@@ -40,14 +40,14 @@ The read-only evidence is detailed in [`docs/research/canonicalize-neon-authorit
 
 1. A machine-readable authority contract names Neon, database `neondb`, schema `public`, `packages/db/migrations`, Drizzle journal, runtime/migration URL purposes, active services, and historical roots.
 2. Supported hosted configuration accepts exactly one Neon database authority. Meeting defaults to Neon, rejects a Supabase database provider/URL, and has no provider-dependent `meeting` search path or legacy Supabase smoke variable.
-3. `packages/db` is the only supported schema/migration owner. New migrations have one root, one journal, one generation command, one apply command, and one deployment order.
+3. `packages/db` is the only supported schema/migration owner. New migrations have one root, one journal, one generation command, and one guarded runner whose caller-declared history variant is pinned by environment authority: production=`original-production`; fresh/staging=`repaired-bootstrap`.
 4. A narrowly audited repair to the five premature foreign-key blocks in `0000`/`0004`, followed by additive `0019_neon_authority_reconciliation.sql`, makes the Drizzle chain bootstrappable on empty PostgreSQL 17 with pgvector. Existing production history rows and hashes are never edited; the runner recognizes the original-history and repaired-bootstrap variants explicitly and rejects mixed or unknown histories.
 5. Meeting readiness checks the canonical Drizzle/schema contract rather than the Alembic head. Existing HTTP request/response fields and semantics remain unchanged.
 6. Historical Supabase and Meeting Alembic/raw SQL remain byte-for-byte preserved and hash-manifested. Drizzle `0001`–`0003` and `0005`–`0018` remain byte-for-byte preserved; `0000`/`0004` have one reviewed bootstrap-only exception recorded before/after by hash and semantic assertion. Active Alembic/raw/Supabase runners, both Supabase workflows, and current-authority documentation retire.
 7. CI proves empty-database bootstrap, migration ordering/integrity, API compatibility, hosted URL rejection, and real-Neon convergence. Missing Neon credentials is INCOMPLETE/FAIL for the required conformance job, not PASS.
 8. Deployment uses a direct owner-scoped `MIGRATION_DATABASE_URL`; application runtimes rotate from the currently observed `neondb_owner` credential to pooled, per-service least-privilege roles. Positive data access and negative DDL/role-escalation probes are required before traffic.
-9. Under one advisory-locked apply session, production accepts exactly the ordered pending set `{0018,0019}` or `{0019}`, with expected tags, timestamps, hashes, and count. It rejects every other set and preserves row counts, `public.alembic_version`, all existing Drizzle rows/hashes, and API response keys.
-10. PR A receives a stable stack interface: canonical root/model/runner and next slot `0020`, conditional on production recording `0019` and a final rebase/order check.
+9. Under one advisory-locked apply session, P0 production accepts exactly `{0018,0019}` or `{0019}` with expected tags, timestamps, hashes, and count. The same suffix runner accepts later exact contiguous migrations on either complete recognized variant when the environment-pinned variant and caller-declared pending list agree; `verify` handles zero-pending recognized histories as a successful no-op.
+10. PR A receives a stable interface for candidate `0020` that applies and verifies on both `original-production` and `repaired-bootstrap`, conditional on production recording `0019` and a final rebase/order check.
 
 ## Out of scope
 
@@ -74,7 +74,9 @@ Keep the existing Platform migration plane and extend it to describe the already
 | Journal | `packages/db/migrations/meta/_journal.json` |
 | Generate | `bun run --cwd packages/db generate` |
 | Repository checks | `bun run check:migration-parity` and new `bun run check:database-authority` |
-| Apply | `MIGRATION_DATABASE_URL=<direct Neon URL> bun run migrate:database --mode <bootstrap|deploy>` |
+| Bootstrap | `bun run migrate:database -- bootstrap --history-variant repaired-bootstrap --expected-pending <0000..0019>` |
+| Apply suffix | `bun run migrate:database -- apply --history-variant <original-production|repaired-bootstrap> --expected-pending <ordered-tags>` |
+| Verify/no-op | `bun run migrate:database -- verify --history-variant <variant> --expected-floor <tag>` |
 | Runtime | `DATABASE_URL=<pooled Neon URL>` |
 | P0 migration | `0019_neon_authority_reconciliation.sql` |
 | PR A next slot | `0020_meeting_authority_foundation.sql` after rebase and live verification |
@@ -87,7 +89,7 @@ The current chain cannot reach `0019` on an empty database: `0000` adds three te
 
 1. In `0000` and `0004`, change only those five `DO` blocks so they add the original, byte-identical FK definition when `to_regclass('public.tenants')` or `to_regclass('public.users')` exists and otherwise defer it. Do not change table/column/type/index creation, ordering, timestamps, tags, or any other migration.
 2. Record canonical LF/legacy CRLF hashes of the production-applied originals and canonical hashes of the repaired files in the historical manifest. A semantic checker requires exactly those five guard changes and the unchanged FK names, columns, referenced columns, and actions.
-3. The canonical runner has two fail-closed modes. `bootstrap` requires a genuinely empty PostgreSQL 17 database and records the repaired `0000`/`0004` hashes. `deploy` requires the recognized production-original history prefix and never updates or re-marks those rows. A mixed original/repaired prefix, an unknown hash, or a nonempty database without recognized history fails.
+3. The canonical runner has three operations. `bootstrap` requires a genuinely empty database and `repaired-bootstrap`, then records repaired `0000`/`0004` hashes. `apply` accepts a complete recognized prefix of either variant, but its explicit `--history-variant` must match the environment's authority contract and the observed hashes; it applies only the exact caller-declared contiguous suffix after re-reading under lock. `verify` requires a recognized complete prefix at the declared floor and zero pending, then exits successfully with `NOOP` and no journal/DDL write. Mixed/unknown variants, variant/environment mismatch, or undeclared pending migrations fail.
 4. `0019` creates/asserts the missing canonical baseline and adds the five deferred FKs. Thus an empty database reaches the same catalog as production, while production applies only its pending suffix.
 
 This is the only exception to historical Drizzle immutability. Supabase, Alembic, raw Meeting SQL, and Drizzle `0001`–`0003` plus `0005`–`0018` remain byte-for-byte unchanged.
@@ -101,7 +103,7 @@ The migration defines the current live shapes for:
 - `meeting_state`, `chapter_summaries`, `decisions`, `action_items`, `open_questions`;
 - `audio_assets`, `agent_invocations`, `agent_responses`, `meeting_links`.
 
-It uses schema-qualified, additive DDL in one transaction. Creation guards are followed by exact catalog assertions; `IF NOT EXISTS` is never treated as compatibility proof. For every same-named object, assertions cover relation kind/schema; column type OID/typmod, collation, nullability, identity/generated state, and normalized default; enum label/order; constraint definition, referenced columns, match mode, deferrability, and `ON UPDATE`/`ON DELETE`; and index uniqueness, access method, key/expression order, opclass, included columns, and normalized predicate. Any mismatch raises with an object identifier, rolls the transaction back, and leaves no `0019` journal row. It creates the five deferred FKs, revokes `CREATE` on `public` from `PUBLIC`, installs exact service grants/default privileges, never creates `alembic_version` on fresh databases, and never alters the production marker.
+It uses schema-qualified, additive DDL in one transaction. Creation guards are followed by exact catalog assertions; `IF NOT EXISTS` is never treated as compatibility proof. For every same-named object, assertions cover relation kind/schema; column type OID/typmod, collation, nullability, identity/generated state, and normalized default; enum label/order; constraint definition, referenced columns, match mode, deferrability, and `ON UPDATE`/`ON DELETE`; and index uniqueness, access method, key/expression order, opclass, included columns, and normalized predicate. Any mismatch raises with an object identifier, rolls the transaction back, and leaves no `0019` journal row. It requires the pre-provisioned NOLOGIN roles `product_suite_platform_runtime` and `product_suite_meeting_runtime`, creates the five deferred FKs, revokes `CREATE` on `public` from `PUBLIC`, installs exact grants/default privileges to those roles, never creates `alembic_version` on fresh databases, and never alters the production marker.
 
 The authored repair and `0019` SQL pass a token-aware DML firewall banning `INSERT`, `UPDATE`, `DELETE`, `MERGE`, `COPY`, and `TRUNCATE` in every form, plus `DROP`, cross-database facilities, `CREATE SCHEMA meeting`, Supabase roles/functions, and data-dependent backfills. The runner's own append to `drizzle.__drizzle_migrations` is the sole allowed write outside DDL and is tested separately.
 
@@ -146,8 +148,8 @@ Drizzle `0001`–`0003` and `0005`–`0018` are immutable. The manifest records 
 
 1. `bun install --frozen-lockfile`.
 2. Start a digest-pinned PostgreSQL 17 image with pgvector; assert `server_version_num` is PostgreSQL 17 and `CREATE EXTENSION vector` succeeds.
-3. Set a direct local `MIGRATION_DATABASE_URL`; run `bun run migrate:database --mode bootstrap`. The runner proves the database has no application relations or Drizzle journal before applying repaired `0000` through `0019`.
-4. Run authority/migration integrity and schema conformance.
+3. As the local SQL administrator, run `bun run provision:database-roles`; assert both required NOLOGIN grant roles exist and the configured test LOGIN role has only its intended membership.
+4. Set a direct local `MIGRATION_DATABASE_URL`; run `bun run migrate:database -- bootstrap --history-variant repaired-bootstrap --expected-pending <0000..0019>`. Then run `verify --history-variant repaired-bootstrap --expected-floor 0019` and require `NOOP`.
 5. Start Meeting/Platform runtimes with `DATABASE_URL`; no Supabase CLI, Alembic, or raw Meeting runner is invoked.
 
 Local OSS Meeting development may use local Postgres. Hosted configuration always validates Neon.
@@ -155,9 +157,9 @@ Local OSS Meeting development may use local Postgres. Hosted configuration alway
 ### Pull-request CI
 
 1. Static authority, historical-manifest, URL-purpose, migration parity, and API-shape tests.
-2. Empty digest-pinned PostgreSQL 17 + pgvector bootstrap through `0019`, asserting repaired `0000`/`0004` history hashes, exact final catalog, and a second-run no-op.
+2. Empty digest-pinned PostgreSQL 17 + pgvector bootstrap through `0019`, asserting repaired `0000`/`0004` hashes and exact catalog; follow with the separate `verify` operation and require a zero-write `NOOP`.
 3. Meeting tests against that database, including readiness without `alembic_version`.
-4. Two real-DB proofs: an empty Neon branch runs `bootstrap`; a production-derived ephemeral branch retains original `0000`/`0004` hashes and runs `deploy`, accepting only `{0018,0019}` or `{0019}`. Verify catalog, rows/history, transaction rollback on injected incompatibility, and parent isolation; delete test branches in `finally`.
+4. Two real-DB proofs: (a) create a disposable test-only Neon project whose root branch has an empty `neondb`; prove its project ID differs from production, authority contract says `test-only/repaired-bootstrap`, provision NOLOGIN roles, bootstrap, verify/no-op, then delete the entire project in `finally` and verify deletion; (b) create a production-derived branch, pin `original-production`, provision/verify roles, apply the P0 suffix, and prove parent isolation. A child branch of populated production is never described as empty.
 5. The real-Neon job fails when credentials are missing, no tests execute, cleanup fails, output is truncated, or evidence cannot be reconstructed.
 
 ### Production rollout order
@@ -166,9 +168,9 @@ Local OSS Meeting development may use local Postgres. Hosted configuration alway
 2. Capture privacy-safe preflight: exact main SHA, Neon project/root production branch, applied Drizzle tags/timestamps/hashes/count, `alembic_version`, exact catalog inventory, current LSN/timestamp, and per-table row counts only.
 3. Create a retained Neon snapshot of the production root branch at that exact LSN (timestamp only if LSN is unavailable). Verify snapshot state and a test restore to an isolated branch. Its `expires_at` must be later than the full acceptance window plus PR A's planned rollout and contingency buffer; if the plan/feature cannot provide sufficient retention, deployment is blocked. Record snapshot ID/LSN/expiry, never a credential.
 4. Configure GitHub environment secret `MIGRATION_DATABASE_URL` with a direct production-branch Neon URL. Keep Cloudflare/Meeting `DATABASE_URL` pooled. Validators must agree on project/branch/database/provider but never print either URL.
-5. Create per-service Neon login roles with no ownership/role creation/schema creation, grant only enumerated table/sequence access through checked group roles, and set owner default privileges for future tables. Generate new pooled credentials; do not reuse `neondb_owner`.
-6. Human-approve one exact-main-SHA deploy run. The direct runner acquires a fixed advisory lock, re-reads history inside the apply session, and accepts exactly ordered `{0018,0019}` or `{0019}` with the expected tag/timestamp/hash/count. Reject empty, extra, missing, reordered, or unknown pending sets before DDL.
-7. Apply with `bun run migrate:database --mode deploy`; never manually mark history. Verify exactly the accepted number of new rows, immutable historical rows/hashes, unchanged `alembic_version`/row counts, exact catalog, and no open transaction.
+5. Neon project administrators are the control-plane authority for creating/rotating LOGIN identities and credentials out of band. Before `0019`, the direct SQL authority named by `MIGRATION_DATABASE_URL` must be `neondb_owner` (or an explicitly approved equivalent with role-administration authority) and run `provision:database-roles` to create/validate the two NOLOGIN grant roles and grant each environment LOGIN only its intended membership. Missing `CREATEROLE`/ADMIN OPTION, missing roles, or unauthorized membership blocks every path before migration.
+6. Human-approve one exact-main-SHA deploy run pinned to `original-production`. The direct runner acquires a fixed advisory lock, re-reads history inside the apply session, and accepts exactly `{0018,0019}` or `{0019}` with expected tag/timestamp/hash/count. Reject empty, extra, missing, reordered, unknown, repaired-bootstrap, or environment/flag mismatch before DDL.
+7. Apply with `apply --history-variant original-production --expected-pending <observed-approved-set>`; never manually mark history. Then run `verify --history-variant original-production --expected-floor 0019`, require `NOOP`, and verify the accepted row count, immutable history, unchanged `alembic_version`/rows, exact catalog, and no open transaction.
 8. Rotate Cloudflare Platform and any restored Meeting runtime `DATABASE_URL` to their pooled least-privilege login. Prove positive required CRUD/readiness and negative `CREATE/ALTER/DROP`, cross-service table access, role membership, and owner/superuser capabilities before traffic; then invalidate the former runtime owner credential if it is not the migration credential.
 9. Deploy Platform API and exercise DB-backed readiness plus read-only authenticated API smoke. Reauthenticate Railway only if Meeting is restored; dead Vercel/Railway records are not rollout success.
 10. After both Supabase workflows are gone and repository consumers are proven absent, human-remove Supabase repository secrets/variables and archive/delete stale external projects. Repository code never deletes secrets.
@@ -194,7 +196,9 @@ Local OSS Meeting development may use local Postgres. Hosted configuration alway
 ## Edge cases
 
 - `0019` sees any same-name object with incompatible kind, type/typmod, nullability, default, enum order, index predicate/opclass, or FK action: raise and roll back the whole migration; do not coerce, drop, or accept `IF NOT EXISTS` as proof.
-- Empty bootstrap encounters application objects/history: fail; deploy encounters repaired bootstrap hashes, mixed hash variants, or a pending set other than exactly `{0018,0019}` or `{0019}`: fail before DDL.
+- Bootstrap encounters application objects/history or a non-disposable Neon target: fail. P0 production apply rejects any variant except environment-pinned `original-production` and any pending set except `{0018,0019}` or `{0019}`. Generic post-P0 suffix apply accepts either recognized environment-pinned variant with an exact declared contiguous suffix; mixed/unknown/mismatched variants always fail.
+- Verify sees a recognized declared variant at the expected floor and zero pending: return `NOOP` without mutation. Pending migrations, wrong floor, wrong variant, or unknown hashes fail.
+- Required NOLOGIN grant roles are absent or SQL authority cannot create/validate/grant them: fail before `0019`; never create LOGIN credentials inside migration SQL.
 - Production remains at `0017`: normal deployment applies `0018` before `0019`; no manual leapfrog.
 - A parallel PR claims `0019`: rebase and renumber this reconciliation and PR A's slot together before DEV/merge.
 - CRLF vs LF hashes: accept only the precomputed historical forms; future files are LF-only.
@@ -240,15 +244,16 @@ canonical_schema_model: packages/db/src/schema.ts (re-exporting meeting-schema.t
 canonical_migration_root: packages/db/migrations
 canonical_journal: packages/db/migrations/meta/_journal.json
 canonical_generate: bun run --cwd packages/db generate
-canonical_apply: MIGRATION_DATABASE_URL=<direct Neon URL> bun run migrate:database --mode deploy
+canonical_apply: bun run migrate:database -- apply --history-variant <environment-pinned-variant> --expected-pending <ordered-tags>
+canonical_verify: bun run migrate:database -- verify --history-variant <variant> --expected-floor <tag>
 runtime_url_contract: pooled Neon DATABASE_URL
-history_contract: production retains original 0000/0004 hashes; fresh bootstrap uses manifest-approved repaired variants only
+history_contract: production pins original-production; fresh/staging pins repaired-bootstrap; suffix apply and verify support both; mixed/unknown fail
 canonical_applied_floor: 0019_neon_authority_reconciliation
 pr_a_candidate_revision: 0020_meeting_authority_foundation.sql
 historical_non_authoritative: Supabase migrations, Meeting Alembic versions/raw SQL
 ```
 
-PR A must still rebase, rerun migration-order and live-applied-floor checks, and renumber if another migration lands. It creates no Alembic/Supabase file and does not modify the reconciliation migration.
+PR A must run its `0020` apply and zero-pending verify suites against both history variants, while production remains pinned to `original-production`. It still rebases, reruns order/live-floor checks, and renumbers if another migration lands. It creates no Alembic/Supabase file and does not modify the repair or reconciliation migration.
 
 ## Baseline validation and coordination evidence
 
@@ -275,8 +280,8 @@ Approve DEV only if the human accepts all seven locked decisions:
 2. P0 owns the manifest-audited five-block bootstrap repair in `0000`/`0004` plus additive/cross-catalog-asserting `0019`; production history rows/hashes are never rewritten. PR A consumes candidate `0020` after live verification.
 3. Drizzle `0001`–`0003`, `0005`–`0018`, and all Supabase/Alembic/raw migration files stay immutable; active runners and both Supabase workflows retire.
 4. Supported hosted services reject Supabase/dual DB configuration; the legacy Roadmap app is explicitly unsupported rather than migrated here.
-5. Production accepts only apply-time pending `{0018,0019}` or `{0019}` under a lock, with exact ordered hashes/count; every other history/pending shape blocks.
-6. Runtime credentials rotate from `neondb_owner` to tested per-service least-privilege roles; the owner credential remains migration-only.
+5. P0 production accepts only `{0018,0019}` or `{0019}` under a lock; later exact suffixes and zero-pending verification work on both environment-pinned recognized variants, including PR A `0020`.
+6. Neon administrators own LOGIN lifecycle; the direct SQL authority provisions/validates required NOLOGIN grant roles before `0019` on every path. Runtime secrets rotate from `neondb_owner` to tested least-privilege LOGIN roles out of band.
 7. Rollout requires a retained, test-restored Neon snapshot at exact LSN/timestamp with expiry beyond P0 plus PR A contingency, exact-SHA approval, post-migration row/history/catalog proof, and forward-only application rollback.
 
 No DEV, push, PR, external secret mutation, or production database operation is authorized by this document.

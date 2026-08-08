@@ -86,10 +86,10 @@ This makes the next post-reconciliation migration slot `0020`, which is the inte
 2. Supabase/Alembic/raw SQL and Drizzle `0001`–`0003` plus `0005`–`0018` are immutable. The only exception is the five-block `0000`/`0004` bootstrap repair, with original/repaired hashes and semantic diff allowlist. Production history is never rewritten.
 3. Production schema changes are forward-only and additive. Application rollback reactivates the prior Worker/service version; it never restores Supabase, drops columns, deletes rows, or rewrites migration history.
 4. `public.alembic_version` remains historical metadata on production and need not be recreated on a fresh database. Runtime readiness moves to the canonical Drizzle revision/schema contract.
-5. A clean PostgreSQL 17 + pgvector CI database proves the repaired full chain. Separate empty and production-derived Neon branches prove repaired-bootstrap and original-production history paths.
-6. The deploy runner locks and re-reads history at apply time, accepting exactly ordered `{0018,0019}` or `{0019}` with expected hashes/count and rejecting every other set.
+5. A clean PostgreSQL 17 + pgvector database proves the repaired chain. Real-Neon empty proof requires a disposable test-only project/root with empty `neondb`; a child of populated production cannot be empty. A separate production-derived branch proves the original-production path.
+6. The runner locks and re-reads history at apply time. The environment authority pins `original-production` for production and `repaired-bootstrap` for fresh/staging; exact suffix apply works on either recognized variant, while mixed/unknown/mismatched variants fail. P0 production specifically allows `{0018,0019}` or `{0019}`. A separate verify operation returns a successful nonmutating `NOOP` only for zero-pending recognized histories.
 7. `0019` must assert exact catalog compatibility for same-name objects and roll back on mismatch; `IF NOT EXISTS` alone is not evidence.
-8. Runtime credentials must rotate from the observed owner role to separately validated least-privilege service roles.
+8. Runtime credentials must rotate from the observed owner role to separately validated least-privilege service roles. Neon project administrators own LOGIN identity/credential lifecycle; the direct SQL authority must provision/validate the named NOLOGIN grant roles before `0019` on every path.
 
 ## OWASP Top 10 pass
 
@@ -127,12 +127,13 @@ Mandatory replacement/removal blast radius includes:
 
 1. Happy path: hosted runtimes accept pooled Neon least-privilege roles, migration tooling accepts a direct owner URL, empty PostgreSQL 17 + pgvector records repaired `0000`/`0004` hashes, and a production-derived branch preserves original hashes while applying the allowed suffix.
 2. Failure path: any supported hosted config using a Supabase hostname, `DATABASE_PROVIDER=supabase`, two production database URLs, or a pooled migration URL fails before a connection or deploy.
-3. Production edge: pending set at locked apply time must equal ordered `{0018,0019}` or `{0019}` with exact hashes/count; extra, missing, reordered, repaired-prefix, or unknown rows fail before DDL.
+3. Runner edge: P0 production pending must equal `{0018,0019}` or `{0019}` with exact hashes/count and `original-production`; later suffixes including `0020` apply to either environment-pinned recognized variant. Zero pending succeeds only through verify/no-op. Extra, missing, reordered, mixed, unknown, or variant-mismatched histories fail.
 4. Catalog edge: incompatible same-name type/null/default/enum/index predicate/FK action raises and rolls back all `0019` DDL/history.
 5. Integrity edge: only original or repaired manifest variants are accepted in their proper mode; a mixed prefix, semantic drift outside five blocks, unknown hash, duplicate index, or timestamp/tag edit fails.
 6. SQL firewall: repaired files and `0019` contain no `INSERT`, `UPDATE`, `DELETE`, `MERGE`, `COPY`, or `TRUNCATE`; only the canonical runner appends its journal row.
-7. Security: runtime service roles perform required operations but cannot create/alter/drop, inherit owner/admin, or access unlisted cross-service tables.
-8. Rollback: a retained snapshot at verified LSN/expiry can restore to a test branch; application rollback never invokes down SQL or Supabase.
+7. Security: missing NOLOGIN roles, unauthorized provisioning authority, wrong LOGIN membership, or committed credentials fail; correctly provisioned runtime roles perform required operations but cannot create/alter/drop, inherit owner/admin, or access unlisted tables.
+8. Neon topology: the empty proof rejects the production project/child branches, creates a disposable test-only project/root, validates its authority, and verifies whole-project cleanup; original history uses a production-derived branch.
+9. Rollback: a retained snapshot at verified LSN/expiry can restore to a test branch; application rollback never invokes down SQL or Supabase.
 
 ## Unknowns that remain human-gated
 
