@@ -94,7 +94,7 @@ async function provisionActors(sql: Sql, tenantId: string, resolvedUsers: string
     [tenantId, JSON.stringify(resolvedUsers.map((user_id) => ({ user_id })))],
   )
   const serviceActor = serviceActors[0]
-  if (!serviceActor || serviceActor.disabled_at !== null) {
+  if (serviceActor?.disabled_at !== null) {
     throw new Error(`Collaboration backfill service actor is disabled for tenant ${tenantId}`)
   }
 }
@@ -195,6 +195,25 @@ async function applyThread(sql: Sql, thread: SourceThread, runs: SourceRun[], ev
   }
 }
 
+async function loadThreadEvents(sql: Sql, thread: SourceThread, unresolved: Set<string>) {
+  const runs = await runQuery<SourceRun>(
+    sql,
+    `select r.id, r.triggered_by, u.id as resolved_user_id, r.transcript
+     from "agent_runs" r
+     left join "users" u on u.id = r.triggered_by
+     where r.tenant_id = $1 and r.thread_id = $2
+     order by r.created_at, r.id`,
+    [thread.tenant_id, thread.id],
+  )
+  const events: LegacyBackfillEvent[] = []
+  for (const run of runs) {
+    if (run.triggered_by && !run.resolved_user_id) unresolved.add(run.triggered_by)
+    const runEvents = legacyEventsForRun(run.id, run.transcript, events.length + 1)
+    events.push(...runEvents.map((event) => ({ ...event, userId: run.resolved_user_id })))
+  }
+  return { runs, events }
+}
+
 export async function runCollaborationBackfill(
   sql: Sql,
   options: CollaborationBackfillOptions,
@@ -223,21 +242,7 @@ export async function runCollaborationBackfill(
       ],
     )
     for (const thread of threads) {
-      const runs = await runQuery<SourceRun>(
-        sql,
-        `select r.id, r.triggered_by, u.id as resolved_user_id, r.transcript
-         from "agent_runs" r
-         left join "users" u on u.id = r.triggered_by
-         where r.tenant_id = $1 and r.thread_id = $2
-         order by r.created_at, r.id`,
-        [thread.tenant_id, thread.id],
-      )
-      const events: LegacyBackfillEvent[] = []
-      for (const run of runs) {
-        if (run.triggered_by && !run.resolved_user_id) unresolved.add(run.triggered_by)
-        const runEvents = legacyEventsForRun(run.id, run.transcript, events.length + 1)
-        events.push(...runEvents.map((event) => ({ ...event, userId: run.resolved_user_id })))
-      }
+      const { runs, events } = await loadThreadEvents(sql, thread, unresolved)
       eventCount += events.length
       if (options.apply) await applyThread(sql, thread, runs, events)
       threadCount += 1
