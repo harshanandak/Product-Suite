@@ -300,7 +300,7 @@ export async function appendConversationEvent(
      ), inserted as materialized (
        insert into "conversation_events" (
          id, tenant_id, conversation_id, actor_id, sequence, idempotency_key,
-         kind, payload, reply_to_event_id, target_event_id, references
+         kind, payload, reply_to_event_id, target_event_id, "references"
        )
        select gen_random_uuid(), $1, $2::uuid, $3::uuid, allocated.sequence, $4,
          $5::conversation_event_kind, $6::jsonb, $7::uuid, $8::uuid, $9::jsonb
@@ -330,7 +330,7 @@ export async function appendConversationEvent(
        coalesce(i.payload, e.payload) as payload,
        coalesce(i.reply_to_event_id, e.reply_to_event_id) as reply_to_event_id,
        coalesce(i.target_event_id, e.target_event_id) as target_event_id,
-       coalesce(i.references, e.references) as references,
+       coalesce(i."references", e."references") as "references",
        coalesce(i.created_at, e.created_at) as created_at
      from valid_links v
       left join authorized_actor a on true
@@ -380,7 +380,7 @@ export async function listConversationEvents(
   const rows = await runQuery<ConversationEventRow>(
     sql,
     `select id, tenant_id, conversation_id, actor_id, sequence, idempotency_key,
-       kind, payload, reply_to_event_id, target_event_id, references, created_at
+       kind, payload, reply_to_event_id, target_event_id, "references", created_at
      from "conversation_events"
      where tenant_id = $1 and conversation_id = $2 and sequence > $3
      order by sequence asc

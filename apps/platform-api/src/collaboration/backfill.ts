@@ -103,11 +103,11 @@ async function applyThread(sql: Sql, thread: SourceThread, runs: SourceRun[], ev
        returning id
      ), event_rows as materialized (
        select * from jsonb_to_recordset($7::jsonb) as source(
-         sequence bigint, idempotency_key text, run_id text, user_id text, message jsonb, references jsonb
+         sequence bigint, idempotency_key text, run_id text, user_id text, message jsonb, "references" jsonb
        )
      ), event_write as materialized (
        insert into "conversation_events" (
-         id, tenant_id, conversation_id, actor_id, sequence, idempotency_key, kind, payload, references
+         id, tenant_id, conversation_id, actor_id, sequence, idempotency_key, kind, payload, "references"
        )
        select (
          substr(md5(event_rows.idempotency_key), 1, 8) || '-' ||
@@ -117,7 +117,7 @@ async function applyThread(sql: Sql, thread: SourceThread, runs: SourceRun[], ev
          substr(md5(event_rows.idempotency_key), 21, 12)
        )::uuid, $1, conversation_write.id, coalesce(actor.id, service_actor.id), event_rows.sequence,
          event_rows.idempotency_key, 'message.created', jsonb_build_object('message', event_rows.message),
-         event_rows.references
+         event_rows."references"
        from event_rows
        cross join conversation_write
        cross join service_actor

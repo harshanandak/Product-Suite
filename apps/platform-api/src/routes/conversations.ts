@@ -161,7 +161,7 @@ async function mutateMembership(
        returning actor_id
      ), inserted as materialized (
        insert into "conversation_events" (
-         tenant_id, conversation_id, actor_id, sequence, idempotency_key, kind, payload, references
+         tenant_id, conversation_id, actor_id, sequence, idempotency_key, kind, payload, "references"
        )
        select $1, $2::uuid, $3::uuid, allocated.sequence, $4,
          case
@@ -193,7 +193,7 @@ async function mutateMembership(
        coalesce(i.payload, e.payload) as payload,
        coalesce(i.reply_to_event_id, e.reply_to_event_id) as reply_to_event_id,
        coalesce(i.target_event_id, e.target_event_id) as target_event_id,
-       coalesce(i.references, e.references) as references,
+       coalesce(i."references", e."references") as "references",
        coalesce(i.created_at, e.created_at) as created_at
      from (values (1)) as seed(n)
      left join authorized_actor a on true
