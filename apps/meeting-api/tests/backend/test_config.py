@@ -3,6 +3,12 @@ import pytest
 from backend.config import load_settings, parse_bool_env, parse_csv_env
 
 
+HOSTED_NEON_DATABASE_URL = (
+    "postgresql://meeting_runtime:password@"
+    "ep-cool-fire-123456-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require"
+)
+
+
 @pytest.fixture(autouse=True)
 def clear_relevant_env(monkeypatch):
     for key in [
@@ -31,6 +37,7 @@ def clear_relevant_env(monkeypatch):
         "NEON_REDIRECT_URI",
         "FRONTEND_RUNTIME_BACKEND_URL",
         "DATABASE_PROVIDER",
+        "DATABASE_URL_SECONDARY",
         "STORAGE_BACKEND",
         "R2_ACCOUNT_ID",
         "R2_BUCKET_NAME",
@@ -66,7 +73,7 @@ def test_parse_bool_env_honors_truthy_values(monkeypatch):
 
 def test_load_settings_uses_hosted_mode_defaults(monkeypatch):
     monkeypatch.setenv("DEPLOYMENT_MODE", "hosted")
-    monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+    monkeypatch.setenv("DATABASE_URL", HOSTED_NEON_DATABASE_URL)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
     monkeypatch.setenv("NEON_AUTH_URL", "https://project-123.neon.tech/auth")
     monkeypatch.setenv("FRONTEND_RUNTIME_BACKEND_URL", "http://localhost:8000")
@@ -78,8 +85,8 @@ def test_load_settings_uses_hosted_mode_defaults(monkeypatch):
     settings = load_settings()
 
     assert settings.deployment_mode == "hosted"
-    assert settings.database_url == "postgresql://localhost/test"
-    assert settings.database_provider == "supabase"
+    assert settings.database_url == HOSTED_NEON_DATABASE_URL
+    assert settings.database_provider == "neon"
     assert settings.auth_required is True
     assert settings.auth_provider == "neon"
     assert settings.tenant_mode == "organization"
@@ -106,6 +113,69 @@ def test_load_settings_uses_hosted_mode_defaults(monkeypatch):
     assert settings.r2_bucket_name == "meeting-agent-audio"
 
 
+def test_load_settings_rejects_explicit_supabase_database_provider_before_pool(monkeypatch):
+    monkeypatch.setenv("DEPLOYMENT_MODE", "hosted")
+    monkeypatch.setenv("DATABASE_URL", HOSTED_NEON_DATABASE_URL)
+    monkeypatch.setenv("DATABASE_PROVIDER", "supabase")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
+    monkeypatch.setenv("NEON_AUTH_URL", "https://project-123.neon.tech/auth")
+    monkeypatch.setenv("R2_ACCOUNT_ID", "account-123")
+    monkeypatch.setenv("R2_BUCKET_NAME", "meeting-agent-audio")
+    monkeypatch.setenv("R2_ACCESS_KEY_ID", "r2-key")
+    monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "r2-secret")
+
+    with pytest.raises(ValueError, match="DATABASE_PROVIDER_INVALID"):
+        load_settings()
+
+
+@pytest.mark.parametrize(
+    "database_url",
+    [
+        "postgresql://meeting_runtime:password@db.example.supabase.co:5432/neondb?sslmode=require",
+        "postgresql://meeting_runtime:password@ep-cool-fire-123456.neon.tech.evil.example/neondb?sslmode=require",
+        "postgresql://meeting_runtime:password@ep-cool-fire-123456-pooler.us-east-2.aws.neon.tech/other?sslmode=require",
+        "postgresql://meeting_runtime:password@ep-cool-fire-123456-pooler.us-east-2.aws.neon.tech/neondb?sslmode=disable",
+    ],
+)
+def test_load_settings_rejects_supabase_and_neon_lookalike_urls(monkeypatch, database_url):
+    monkeypatch.setenv("DEPLOYMENT_MODE", "hosted")
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
+    monkeypatch.setenv("NEON_AUTH_URL", "https://project-123.neon.tech/auth")
+    monkeypatch.setenv("R2_ACCOUNT_ID", "account-123")
+    monkeypatch.setenv("R2_BUCKET_NAME", "meeting-agent-audio")
+    monkeypatch.setenv("R2_ACCESS_KEY_ID", "r2-key")
+    monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "r2-secret")
+
+    with pytest.raises(ValueError, match="DATABASE_"):
+        load_settings()
+
+
+def test_load_settings_rejects_dual_database_authority_before_pool(monkeypatch):
+    monkeypatch.setenv("DEPLOYMENT_MODE", "hosted")
+    monkeypatch.setenv("DATABASE_URL", HOSTED_NEON_DATABASE_URL)
+    monkeypatch.setenv("DATABASE_URL_SECONDARY", HOSTED_NEON_DATABASE_URL)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
+    monkeypatch.setenv("NEON_AUTH_URL", "https://project-123.neon.tech/auth")
+    monkeypatch.setenv("R2_ACCOUNT_ID", "account-123")
+    monkeypatch.setenv("R2_BUCKET_NAME", "meeting-agent-audio")
+    monkeypatch.setenv("R2_ACCESS_KEY_ID", "r2-key")
+    monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "r2-secret")
+
+    with pytest.raises(ValueError, match="DATABASE_AUTHORITY_DUPLICATE"):
+        load_settings()
+
+
+def test_load_settings_keeps_oss_general_postgres_supported(monkeypatch):
+    monkeypatch.setenv("DEPLOYMENT_MODE", "oss")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/meeting_agent")
+
+    settings = load_settings()
+
+    assert settings.database_provider == "postgres"
+    assert settings.is_oss is True
+
+
 def test_load_settings_does_not_accept_redirect_uris_as_neon_auth_url(monkeypatch):
     monkeypatch.setenv("DEPLOYMENT_MODE", "hosted")
     monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
@@ -122,7 +192,7 @@ def test_load_settings_does_not_accept_redirect_uris_as_neon_auth_url(monkeypatc
 
 def test_load_settings_prefers_explicit_canonical_auth_config(monkeypatch):
     monkeypatch.setenv("DEPLOYMENT_MODE", "hosted")
-    monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+    monkeypatch.setenv("DATABASE_URL", HOSTED_NEON_DATABASE_URL)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
     monkeypatch.setenv("AUTH_PROVIDER", "neon")
     monkeypatch.setenv("NEON_AUTH_URL", "https://project-123.neon.tech/auth")
