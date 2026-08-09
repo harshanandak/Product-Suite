@@ -118,7 +118,10 @@ describe.skipIf(!hasNeonCreds())(
 
         const foreignActor = randomUUID()
         const foreignTenant = randomUUID()
-        await query(sql, `insert into tenants (id, name) values ($1, 'Foreign')`, [foreignTenant])
+        await query(sql, `insert into tenants (id, slug, name) values ($1, $2, 'Foreign')`, [
+          foreignTenant,
+          `contract-${foreignTenant}`,
+        ])
         await query(
           sql,
           `insert into collaboration_actors (id, tenant_id, kind, owning_domain, owning_id)

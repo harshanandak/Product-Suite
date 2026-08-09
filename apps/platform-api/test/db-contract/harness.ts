@@ -828,9 +828,32 @@ async function applyHarnessMigrations(sql: Sql, options: { recordJournal?: boole
   await exec(sql, `drop schema if exists public cascade`)
   await exec(sql, `create schema public`)
 
-  // Minimal stand-ins for the externally-owned identity tables the FKs reference.
-  await exec(sql, `create table if not exists tenants (id text primary key, name text)`)
-  await exec(sql, `create table if not exists users (id text primary key, email text)`)
+  // Canonical stand-ins for the externally-owned identity tables the FKs
+  // reference. Their shape must match the 0019 catalog contract exactly:
+  // migration assertions run after these tables exist, before the suite seeds
+  // any rows. Keep this test-only DDL aligned with the Alembic-owned tables.
+  await exec(sql, `
+    create table if not exists tenants (
+      id text primary key,
+      slug text not null,
+      name text not null,
+      created_at timestamp with time zone not null default now(),
+      updated_at timestamp with time zone not null default now(),
+      constraint tenants_slug_key unique (slug)
+    )
+  `)
+  await exec(sql, `
+    create table if not exists users (
+      id text primary key,
+      email text not null,
+      password_hash text not null,
+      name text,
+      created_at timestamp with time zone not null,
+      updated_at timestamp with time zone not null,
+      constraint users_email_key unique (email)
+    )
+  `)
+  await exec(sql, `create index if not exists idx_users_email on public.users using btree (lower("email"))`)
 
   if (options.recordJournal) {
     await exec(sql, `create schema if not exists drizzle`)
@@ -900,8 +923,15 @@ async function seedBaseline(sql: Sql): Promise<Seed> {
   const teamId = randomUUID()
   const runId = randomUUID()
 
-  await exec(sql, `insert into tenants (id, name) values ($1, $2)`, [tenantId, 'Contract Test Org'])
-  await exec(sql, `insert into users (id, email) values ($1, $2)`, [userId, 'contract@test.local'])
+  await exec(sql, `insert into tenants (id, slug, name) values ($1, $2, $3)`, [
+    tenantId,
+    `contract-${tenantId}`,
+    'Contract Test Org',
+  ])
+  await exec(sql, `
+    insert into users (id, email, password_hash, name, created_at, updated_at)
+    values ($1, $2, $3, $4, now(), now())
+  `, [userId, 'contract@test.local', 'test-password-hash', 'Contract User'])
   await exec(sql, `insert into teams (id, tenant_id, name) values ($1, $2, $3)`, [
     teamId,
     tenantId,

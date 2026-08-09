@@ -154,6 +154,41 @@ function assertSnapshotCovered(contract: EmbeddedCatalog): void {
 }
 
 describe('0019 catalog rollback contract', () => {
+  it('qualifies PostgreSQL 17 FK deparser output before comparing existing constraints', () => {
+    const normalize = (definition: string) => definition
+      .toLowerCase()
+      .replaceAll('on update no action', '')
+      .replace(/\s+/g, '')
+      .replaceAll('"', '')
+
+    const expected = normalize(
+      'FOREIGN KEY ("tenant_id") REFERENCES public.tenants(id) ON DELETE cascade ON UPDATE no action',
+    )
+
+    // PostgreSQL 17.10 omits the public schema when it is visible through the
+    // default search_path. This is the exact deparse shape Neon returns.
+    const defaultSearchPath = normalize(
+      'FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE',
+    )
+    expect(defaultSearchPath).not.toContain(expected)
+
+    const qualified = normalize(
+      'FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE CASCADE',
+    )
+    expect(qualified).toContain(expected)
+    expect(normalize(
+      'FOREIGN KEY (tenant_id) REFERENCES other.tenants(id) ON DELETE CASCADE',
+    )).not.toContain(expected)
+
+    const reconciliation = MIGRATION_SQL.slice(
+      MIGRATION_SQL.indexOf('-- These FKs were intentionally unreachable'),
+      MIGRATION_SQL.indexOf('-- Exact catalog assertions'),
+    )
+    expect(reconciliation).toMatch(/SET LOCAL search_path\s*=\s*pg_catalog;/i)
+    expect(reconciliation).toMatch(/previous_search_path\s*:=\s*current_setting\('search_path'\)/i)
+    expect(reconciliation).toMatch(/set_config\('search_path',\s*previous_search_path,\s*true\)/i)
+  })
+
   it('emits catalog assertions for every compatibility category', () => {
     const sql = buildCatalogAssertions({
       relations: ['public.users'],

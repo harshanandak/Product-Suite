@@ -778,7 +778,10 @@ DO $$
 DECLARE
   fk record;
   existing_definition text;
+  previous_search_path text;
 BEGIN
+  previous_search_path := current_setting('search_path');
+  SET LOCAL search_path = pg_catalog;
   FOR fk IN
     SELECT * FROM (VALUES
       ('projects', 'projects_tenant_id_tenants_id_fk', 'FOREIGN KEY ("tenant_id") REFERENCES public.tenants(id) ON DELETE cascade ON UPDATE no action'),
@@ -850,6 +853,7 @@ BEGIN
       RAISE EXCEPTION 'catalog mismatch: constraint % definition', fk.constraint_name USING ERRCODE = 'P0001';
     END IF;
   END LOOP;
+  PERFORM set_config('search_path', previous_search_path, true);
 END $$;--> statement-breakpoint
 
 -- Exact catalog assertions: relation kind; column type/typmod/collation,

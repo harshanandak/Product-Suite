@@ -89,7 +89,11 @@ async function seedExtraTenant(sql: Sql): Promise<string> {
   // A Clerk-style org id, matching what live `public.tenants` actually holds
   // alongside uuids — a uuid-only fixture would not exercise the real key space.
   const tenantId = `org_${randomUUID().replaceAll('-', '')}`
-  await query(sql, `insert into tenants (id, name) values ($1, $2)`, [tenantId, 'Other Org'])
+  await query(sql, `insert into tenants (id, slug, name) values ($1, $2, $3)`, [
+    tenantId,
+    `contract-${tenantId}`,
+    'Other Org',
+  ])
   return tenantId
 }
 
