@@ -747,7 +747,7 @@
             "tenant_id",
             "id"
           ],
-          "onDelete": "no action",
+          "onDelete": "restrict",
           "onUpdate": "no action"
         },
         "conversation_events_tenant_actor_fk": {
@@ -762,7 +762,7 @@
             "tenant_id",
             "id"
           ],
-          "onDelete": "no action",
+          "onDelete": "restrict",
           "onUpdate": "no action"
         },
         "conversation_events_tenant_reply_fk": {
@@ -779,7 +779,7 @@
             "conversation_id",
             "id"
           ],
-          "onDelete": "no action",
+          "onDelete": "restrict",
           "onUpdate": "no action"
         },
         "conversation_events_tenant_target_fk": {
@@ -796,7 +796,7 @@
             "conversation_id",
             "id"
           ],
-          "onDelete": "no action",
+          "onDelete": "restrict",
           "onUpdate": "no action"
         }
       },
@@ -820,7 +820,7 @@
         },
         "conversation_events_references_size_check": {
           "name": "conversation_events_references_size_check",
-          "value": "jsonb_typeof(\"conversation_events\".\"references\") = 'array' and octet_length(\"conversation_events\".\"references\"::text) <= 65536"
+          "value": "jsonb_typeof(\"conversation_events\".\"references\") = 'array'::text and octet_length(\"conversation_events\".\"references\"::text) <= 65536"
         }
       },
       "isRLSEnabled": false
@@ -932,7 +932,7 @@
             "tenant_id",
             "id"
           ],
-          "onDelete": "no action",
+          "onDelete": "cascade",
           "onUpdate": "no action"
         },
         "conversation_memberships_tenant_actor_fk": {
@@ -947,7 +947,7 @@
             "tenant_id",
             "id"
           ],
-          "onDelete": "no action",
+          "onDelete": "restrict",
           "onUpdate": "no action"
         },
         "conversation_memberships_tenant_created_by_actor_fk": {
@@ -962,7 +962,7 @@
             "tenant_id",
             "id"
           ],
-          "onDelete": "no action",
+          "onDelete": "restrict",
           "onUpdate": "no action"
         }
       },
@@ -1113,7 +1113,7 @@
             "tenant_id",
             "id"
           ],
-          "onDelete": "no action",
+          "onDelete": "restrict",
           "onUpdate": "no action"
         }
       },

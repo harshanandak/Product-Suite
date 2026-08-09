@@ -35,7 +35,13 @@ type SnapshotTable = {
   name: string
   columns: Record<string, SnapshotColumn>
   indexes: Record<string, SnapshotIndex>
-  foreignKeys: Record<string, { columnsFrom: string[] }>
+  foreignKeys: Record<string, {
+    tableTo: string
+    columnsFrom: string[]
+    columnsTo: string[]
+    onDelete: string
+    onUpdate: string
+  }>
   uniqueConstraints: Record<string, { columns: string[] }>
   checkConstraints: Record<string, { value: string }>
 }
@@ -48,7 +54,16 @@ type EmbeddedCatalog = {
   relations: Array<[string, string]>
   columns: Array<[string, string, number, string | null, boolean, string | number | boolean | null, string, string]>
   enums: Array<[string, string[]]>
-  constraints: Array<{ table: string; name: string; kind: string; columns: string[] }>
+  constraints: Array<{
+    table: string
+    name: string
+    kind: string
+    columns: string[]
+    refTable?: string
+    refColumns?: string[]
+    onDelete?: string
+    onUpdate?: string
+  }>
   indexes: Array<{
     table: string
     name: string
@@ -78,7 +93,7 @@ function assertSnapshotCovered(contract: EmbeddedCatalog): void {
         tableName + '.' + columnName,
         column.type,
         column.type === 'vector(1536)' ? 1536 : -1,
-        column.type === 'text' ? 'default' : null,
+        column.type === 'text' || column.type === 'text[]' ? 'default' : null,
         column.notNull !== true,
         column.default ?? null,
         '',
@@ -106,6 +121,27 @@ function assertSnapshotCovered(contract: EmbeddedCatalog): void {
     for (const name of expectedConstraintNames) {
       if (!contract.constraints.some((constraint) => constraint.table === tableName && constraint.name === name)) {
         throw new Error('constraint missing: ' + tableName + '.' + name)
+      }
+    }
+    for (const [name, foreignKey] of Object.entries(table.foreignKeys)) {
+      const constraint = contract.constraints.find((candidate) => candidate.table === tableName && candidate.name === name)
+      if (!constraint || constraint.kind !== 'f'
+        || JSON.stringify(constraint.columns) !== JSON.stringify(foreignKey.columnsFrom)
+        || constraint.refTable !== 'public.' + foreignKey.tableTo
+        || JSON.stringify(constraint.refColumns) !== JSON.stringify(foreignKey.columnsTo)
+        || constraint.onDelete !== foreignKey.onDelete
+        || constraint.onUpdate !== foreignKey.onUpdate) {
+        throw new Error('foreign key contract mismatch: ' + tableName + '.' + name)
+      }
+    }
+    for (const [name, check] of Object.entries(table.checkConstraints)) {
+      const constraint = contract.constraints.find((candidate) => candidate.table === tableName && candidate.name === name)
+      const referencedColumns = Object.keys(table.columns).filter((columnName) =>
+        check.value.includes(`"${table.name}"."${columnName}"`),
+      )
+      if (!constraint || constraint.kind !== 'c'
+        || JSON.stringify(constraint.columns) !== JSON.stringify(referencedColumns)) {
+        throw new Error('check constraint contract mismatch: ' + tableName + '.' + name)
       }
     }
   }
@@ -162,5 +198,11 @@ describe('0019 catalog rollback contract', () => {
     const id = incompatible.columns.findIndex(([name]) => name.endsWith('.id'))
     incompatible.columns[id][5] = 'tampered-default'
     expect(() => assertSnapshotCovered(incompatible)).toThrow(/column contract mismatch/)
+
+    const unsafeForeignKey = structuredClone(contract)
+    const foreignKey = unsafeForeignKey.constraints.find((constraint) => constraint.kind === 'f')
+    if (!foreignKey) throw new Error('fixture is missing a foreign key')
+    foreignKey.onDelete = foreignKey.onDelete === 'cascade' ? 'restrict' : 'cascade'
+    expect(() => assertSnapshotCovered(unsafeForeignKey)).toThrow(/foreign key contract mismatch/)
   })
 })

@@ -4,7 +4,7 @@ const RUNTIME_NEON_HOST = /^ep-([a-z0-9-]+?)(-pooler)?\.[a-z0-9-]+\.aws\.neon\.t
 export const CANONICAL_DATABASE = 'neondb'
 export const CANONICAL_SCHEMA = 'public'
 export const CANONICAL_REVISION = '0019_neon_authority_reconciliation'
-export const CANONICAL_REVISION_HASH = 'cec68e4bdb0c929a40a3a0a74ac3056363fb723355f366919b00b0b8af07fee8'
+export const CANONICAL_REVISION_HASH = 'dc6ac02c11a113e9e7e3ff884d1073cb5977d4c2fc2376f2c21b9d6e8536d2c8'
 
 export interface RuntimeNeonUrl {
   provider: 'neon'
