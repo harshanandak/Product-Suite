@@ -13,6 +13,14 @@ const input = (changedFiles, overrides = {}) => ({
   ...overrides,
 });
 
+const dependencyCatalog = (packageNames = ["@floating-ui/react"]) => ({
+  schemaVersion: "delivery-dependency-catalog.v1",
+  baseSha: BASE_SHA,
+  headSha: HEAD_SHA,
+  workspaceRoots: ["apps/platform-web"],
+  packageNames,
+});
+
 const provenUiDependency = {
   status: "proven",
   baseSha: BASE_SHA,
@@ -22,6 +30,7 @@ const provenUiDependency = {
   databaseRuntimeChanged: false,
   frozenLockConsistent: true,
   packageManagerLifecycleChanged: false,
+  dependencyCatalog: dependencyCatalog(),
 };
 
 describe("delivery change classifier", () => {
@@ -150,6 +159,7 @@ describe("delivery change classifier", () => {
       dependencyEvidence: {
         ...provenUiDependency,
         changedPackages: ["postgres"],
+        dependencyCatalog: dependencyCatalog(["postgres"]),
         databaseRuntimeChanged: true,
       },
     }));
@@ -163,6 +173,7 @@ describe("delivery change classifier", () => {
       dependencyEvidence: {
         ...provenUiDependency,
         changedPackages: ["@neondatabase/serverless"],
+        dependencyCatalog: dependencyCatalog(["@neondatabase/serverless"]),
         databaseRuntimeChanged: false,
       },
     }));
@@ -188,6 +199,10 @@ describe("delivery change classifier", () => {
       dependencyEvidence: {
         ...provenUiDependency,
         affectedWorkspaces: ["apps/platform-web", "apps/roadmap-web"],
+        dependencyCatalog: {
+          ...dependencyCatalog(),
+          workspaceRoots: ["apps/platform-web", "apps/roadmap-web"],
+        },
       },
     }));
 
@@ -202,6 +217,12 @@ describe("delivery change classifier", () => {
     ["unsupported proof", { ...provenUiDependency, status: "unsupported" }, "dependency_proof_invalid"],
     ["missing changed closure", { ...provenUiDependency, changedPackages: undefined }, "dependency_proof_invalid"],
     ["inconsistent frozen lock", { ...provenUiDependency, frozenLockConsistent: false }, "dependency_proof_invalid"],
+    ["missing dependency catalog", { ...provenUiDependency, dependencyCatalog: undefined }, "dependency_catalog_invalid"],
+    [
+      "mismatched dependency catalog",
+      { ...provenUiDependency, dependencyCatalog: { ...dependencyCatalog(), headSha: "3".repeat(40) } },
+      "dependency_catalog_mismatch",
+    ],
   ])("fails closed for %s", (_name, dependencyEvidence, reason) => {
     const result = classifyChange(input(["bun.lock"], { dependencyEvidence }));
 
@@ -224,6 +245,30 @@ describe("delivery change classifier", () => {
 
     expect(result.tier).toBe("T3");
     expect(result.reasons).toContain("dependency_proof_invalid");
+  });
+
+  test("rejects a syntactically valid package absent from the exact-SHA catalog", () => {
+    const result = classifyChange(input(["bun.lock"], {
+      dependencyEvidence: {
+        ...provenUiDependency,
+        changedPackages: ["not-a-real-package"],
+      },
+    }));
+
+    expect(result.tier).toBe("T3");
+    expect(result.reasons).toContain("dependency_package_unresolved");
+  });
+
+  test("rejects a known workspace absent from the exact-SHA catalog", () => {
+    const result = classifyChange(input(["bun.lock"], {
+      dependencyEvidence: {
+        ...provenUiDependency,
+        affectedWorkspaces: ["apps/roadmap-web"],
+      },
+    }));
+
+    expect(result.tier).toBe("T3");
+    expect(result.reasons).toContain("dependency_workspace_unresolved");
   });
 
   test("emits the full fail-closed check vector for T3", () => {

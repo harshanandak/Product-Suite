@@ -11,7 +11,9 @@
   A proven UI-only closure may remain T1; missing, mismatched, unsupported, or
   database-runtime-affecting evidence is T3. The proof records affected
   workspaces, changed packages, frozen-lock consistency, and whether package
-  manager lifecycle behavior changed; a lifecycle change is always T3.
+  manager lifecycle behavior changed; a lifecycle change is always T3. Every
+  workspace and package must also resolve in a versioned catalog bound to the
+  same exact base/head SHAs; absent or unknown catalog entries are T3.
 - T0 is an allowlist, initially limited to Markdown documentation plus known
   inert spelling/Markdown/editor metadata. All unmatched paths fail closed.
 - The classifier test uses `test/delivery/classify-change.test.js`, the

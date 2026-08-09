@@ -175,6 +175,39 @@ const dependencyDecision = (evidence, baseSha, headSha) => {
     return { tier: "T3", reason: "dependency_proof_invalid" };
   }
 
+  const catalog = evidence.dependencyCatalog;
+  if (
+    catalog?.schemaVersion !== "delivery-dependency-catalog.v1" ||
+    !Array.isArray(catalog.workspaceRoots) ||
+    catalog.workspaceRoots.length === 0 ||
+    catalog.workspaceRoots.some((workspace) => !SUPPORTED_WORKSPACES.has(workspace)) ||
+    new Set(catalog.workspaceRoots).size !== catalog.workspaceRoots.length ||
+    !Array.isArray(catalog.packageNames) ||
+    catalog.packageNames.length === 0 ||
+    catalog.packageNames.some(
+      (packageName) =>
+        typeof packageName !== "string" ||
+        packageName.length > 214 ||
+        !PACKAGE_NAME_PATTERN.test(packageName),
+    ) ||
+    new Set(catalog.packageNames).size !== catalog.packageNames.length
+  ) {
+    return { tier: "T3", reason: "dependency_catalog_invalid" };
+  }
+
+  if (catalog.baseSha !== baseSha || catalog.headSha !== headSha) {
+    return { tier: "T3", reason: "dependency_catalog_mismatch" };
+  }
+
+  const catalogWorkspaces = new Set(catalog.workspaceRoots);
+  const catalogPackages = new Set(catalog.packageNames);
+  if (evidence.affectedWorkspaces.some((workspace) => !catalogWorkspaces.has(workspace))) {
+    return { tier: "T3", reason: "dependency_workspace_unresolved" };
+  }
+  if (evidence.changedPackages.some((packageName) => !catalogPackages.has(packageName))) {
+    return { tier: "T3", reason: "dependency_package_unresolved" };
+  }
+
   if (evidence.changedPackages.some((packageName) => DB_RUNTIME_PACKAGES.has(packageName))) {
     return { tier: "T3", reason: "dependency_proof_contradiction" };
   }
