@@ -397,7 +397,7 @@ approved plan amendment):
 - `scripts/delivery/verify-gate-result.mjs`
 - `scripts/delivery/worktree-bootstrap.mjs`
 - `scripts/delivery/metrics.mjs`
-- `test/delivery-classifier.test.js`
+- `test/delivery/classify-change.test.js`
 - `test/delivery-gate.test.js`
 - `test/delivery-worktree.test.js`
 - `test/repo-tooling.test.js`

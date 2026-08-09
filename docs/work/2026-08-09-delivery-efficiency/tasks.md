@@ -22,13 +22,13 @@ This is a PLAN artifact for Forge epic
 ambiguity and authority changes escalating to T3.
 **Owns:**
 `scripts/delivery/classify-change.mjs`,
-`test/delivery-classifier.test.js`.
+`test/delivery/classify-change.test.js`.
 **Does not own:** workflows, Forge config, branch protection, DB execution.
 
 RED:
 
 ```powershell
-bun test test/delivery-classifier.test.js
+bun test test/delivery/classify-change.test.js
 ```
 
 Add table-driven failures for docs T0, UI T1, cross-app/API T2, auth/tenant/DB
@@ -43,7 +43,7 @@ must emit versioned base/head/digest/reason/expected-check evidence. Run the sam
 command and existing repo-tooling tests:
 
 ```powershell
-bun test test/delivery-classifier.test.js
+bun test test/delivery/classify-change.test.js
 bun test test/repo-tooling.test.js
 ```
 
@@ -102,7 +102,7 @@ full Neon.
 RED:
 
 ```powershell
-bun test test/delivery-classifier.test.js test/delivery-gate.test.js test/repo-tooling.test.js
+bun test test/delivery/classify-change.test.js test/delivery-gate.test.js test/repo-tooling.test.js
 ```
 
 Add failures proving:
