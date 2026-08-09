@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   connectPinnedForTest,
+  createSuiteResourceLimiter,
   createTransactionalDbSuite,
   SuiteResourceError,
   type TransactionalDbDependencies,
@@ -53,11 +54,45 @@ function fixture() {
     seed: vi.fn(async () => { events.push('seed'); return seed }),
     observeSentinelAbsent: vi.fn(async (_uri, tenantId) => { events.push(`observe:${tenantId}`) }),
     deleteBranch: vi.fn(async () => { events.push('delete-404') }),
+    suiteLimiter: { acquire: vi.fn(async () => () => undefined) },
   }
   return { deps, events, client, get setup() { return setup }, get teardown() { return teardown } }
 }
 
 describe('transactional suite resource', () => {
+  it('never admits more than two active suite resources', async () => {
+    const limiter = createSuiteResourceLimiter(2)
+    const releases = Array.from({ length: 3 }, () => {
+      let resolve!: () => void
+      const promise = new Promise<void>((done) => { resolve = done })
+      return { promise, resolve }
+    })
+    let active = 0
+    let maximum = 0
+
+    const runs = releases.map(({ promise }, index) => limiter.run(async () => {
+      active += 1
+      maximum = Math.max(maximum, active)
+      await promise
+      active -= 1
+      return index
+    }))
+
+    await vi.waitFor(() => expect(active).toBe(2))
+    expect(maximum).toBe(2)
+    releases[0]?.resolve()
+    await vi.waitFor(() => expect(runs[0]).resolves.toBe(0))
+    await vi.waitFor(() => expect(active).toBe(2))
+    releases[1]?.resolve()
+    releases[2]?.resolve()
+    await expect(Promise.all(runs)).resolves.toEqual([0, 1, 2])
+    expect(maximum).toBe(2)
+  })
+
+  it.each([0, -1, 1.5, 3])('rejects suite concurrency %s outside the exact 1..2 bound', (limit) => {
+    expect(() => createSuiteResourceLimiter(limit)).toThrow('DB_CONTRACT_CONCURRENCY_INVALID')
+  })
+
   it('migrates once, seeds every test, rolls back, observes absence, and strictly deletes', async () => {
     const f = fixture()
     const run = createTransactionalDbSuite('memory-tier', f.deps)

@@ -20,6 +20,10 @@ import { workerRuntimeConfig, type DbContractRuntimeConfig } from './runtime-con
 
 const API_BASE = process.env.NEON_API_BASE ?? 'https://console.neon.tech/api/v2'
 const NEON_REQUEST_TIMEOUT_MS = 10_000
+const SAFE_REQUEST_MAX_ATTEMPTS = 4
+const SAFE_REQUEST_RETRY_DEADLINE_MS = 5_000
+const SAFE_REQUEST_MAX_DELAY_MS = 1_000
+const RETRYABLE_STATUSES = new Set([423, 429, 503])
 
 /**
  * Prefix every ephemeral test branch shares. Encoded once so the create path and
@@ -138,15 +142,7 @@ async function neonFetch(
   path: string,
   init: { method: string; body?: unknown },
 ): Promise<unknown> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: init.method,
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: init.body === undefined ? undefined : JSON.stringify(init.body),
-  })
+  const res = await neonRequest(apiKey, path, init)
   if (!res.ok) {
     throw new NeonBranchError('DB_CONTRACT_NEON_REQUEST_FAILED')
   }
@@ -155,6 +151,65 @@ async function neonFetch(
 }
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+
+function retryDelayMs(response: Response, attempt: number): number {
+  const header = response.headers?.get?.('Retry-After')?.trim()
+  if (header) {
+    const seconds = Number(header)
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      return Math.min(Math.round(seconds * 1_000), SAFE_REQUEST_MAX_DELAY_MS)
+    }
+    const timestamp = Date.parse(header)
+    if (Number.isFinite(timestamp)) {
+      return Math.min(Math.max(0, timestamp - Date.now()), SAFE_REQUEST_MAX_DELAY_MS)
+    }
+  }
+  const backoff = Math.min(100 * (2 ** attempt), SAFE_REQUEST_MAX_DELAY_MS)
+  return Math.min(backoff + Math.floor(Math.random() * 50), SAFE_REQUEST_MAX_DELAY_MS)
+}
+
+async function neonRequest(
+  apiKey: string,
+  path: string,
+  init: { method: string; body?: unknown },
+): Promise<Response> {
+  const method = init.method.toUpperCase()
+  const retrySafe = method === 'GET' || method === 'DELETE'
+  const deadline = Date.now() + SAFE_REQUEST_RETRY_DEADLINE_MS
+
+  for (let attempt = 0; attempt < SAFE_REQUEST_MAX_ATTEMPTS; attempt += 1) {
+    let response: Response
+    try {
+      response = await fetch(`${API_BASE}${path}`, {
+        method,
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: init.body === undefined ? undefined : JSON.stringify(init.body),
+        signal: AbortSignal.timeout(NEON_REQUEST_TIMEOUT_MS),
+      })
+    } catch {
+      if (method === 'POST') {
+        throw new NeonBranchError('DB_CONTRACT_NEON_REQUEST_INDETERMINATE')
+      }
+      throw new NeonBranchError('DB_CONTRACT_NEON_REQUEST_FAILED')
+    }
+
+    if (!retrySafe || !RETRYABLE_STATUSES.has(response.status)) return response
+    if (attempt === SAFE_REQUEST_MAX_ATTEMPTS - 1) {
+      throw new NeonBranchError('DB_CONTRACT_NEON_REQUEST_RETRY_EXHAUSTED')
+    }
+    const delay = retryDelayMs(response, attempt)
+    if (Date.now() + delay > deadline) {
+      throw new NeonBranchError('DB_CONTRACT_NEON_REQUEST_RETRY_EXHAUSTED')
+    }
+    await sleep(delay)
+  }
+
+  throw new NeonBranchError('DB_CONTRACT_NEON_REQUEST_RETRY_EXHAUSTED')
+}
 
 /**
  * Poll each create operation until it reaches a terminal state. A branch's compute
@@ -206,13 +261,21 @@ export async function createEphemeralBranch(namePrefix = suiteBranchPrefix('dedi
   const branchInput = parentBranchId
     ? { name, parent_id: parentBranchId, expires_at: expiresAt }
     : { name, expires_at: expiresAt }
-  const body = (await neonFetch(apiKey, `/projects/${projectId}/branches`, {
-    method: 'POST',
-    body: {
-      endpoints: [{ type: 'read_write' }],
-      branch: branchInput,
-    },
-  })) as CreateBranchResponse
+  let body: CreateBranchResponse
+  try {
+    body = (await neonFetch(apiKey, `/projects/${projectId}/branches`, {
+      method: 'POST',
+      body: {
+        endpoints: [{ type: 'read_write' }],
+        branch: branchInput,
+      },
+    })) as CreateBranchResponse
+  } catch (error) {
+    if (error instanceof NeonBranchError && error.code === 'DB_CONTRACT_NEON_REQUEST_INDETERMINATE') {
+      return reconcileIndeterminateCreate(apiKey, projectId, name)
+    }
+    throw error
+  }
 
   const branchId = body.branch?.id
   if (!branchId) {
@@ -248,15 +311,10 @@ export async function deleteEphemeralBranchStrict(
   timeoutMs = 30_000,
 ): Promise<void> {
   const { apiKey, projectId } = neonConfig()
-  const url = `${API_BASE}/projects/${projectId}/branches/${branchId}`
-  const headers = { Accept: 'application/json', Authorization: `Bearer ${apiKey}` }
+  const path = `/projects/${projectId}/branches/${branchId}`
   let response: Response
   try {
-    response = await fetch(url, {
-      method: 'DELETE',
-      headers,
-      signal: AbortSignal.timeout(NEON_REQUEST_TIMEOUT_MS),
-    })
+    response = await neonRequest(apiKey, path, { method: 'DELETE' })
   } catch {
     throw new NeonBranchError('DB_CONTRACT_BRANCH_DELETE_FAILED')
   }
@@ -265,11 +323,7 @@ export async function deleteEphemeralBranchStrict(
   const deadline = Date.now() + timeoutMs
   while (Date.now() <= deadline) {
     try {
-      response = await fetch(url, {
-        method: 'GET',
-        headers,
-        signal: AbortSignal.timeout(NEON_REQUEST_TIMEOUT_MS),
-      })
+      response = await neonRequest(apiKey, path, { method: 'GET' })
     } catch {
       throw new NeonBranchError('DB_CONTRACT_BRANCH_DELETION_UNPROVEN')
     }
@@ -296,6 +350,7 @@ interface BranchSummary {
   default?: boolean
   /** `true` for a protected branch — must never be reaped. */
   protected?: boolean
+  connection_uris?: { connection_uri?: string }[]
 }
 
 /**
@@ -346,6 +401,29 @@ async function listAllBranches(apiKey: string, projectId: string): Promise<Branc
   }
 
   return all
+}
+
+async function reconcileIndeterminateCreate(
+  apiKey: string,
+  projectId: string,
+  exactName: string,
+): Promise<EphemeralBranch> {
+  const matches = (await listAllBranches(apiKey, projectId)).filter((branch) =>
+    branch.name === exactName && isEphemeralTestBranchName(branch.name) && Boolean(branch.expires_at))
+  if (matches.length > 1) {
+    throw new NeonBranchError('DB_CONTRACT_BRANCH_CREATE_RECONCILIATION_AMBIGUOUS')
+  }
+  const match = matches[0]
+  if (!match) throw new NeonBranchError('DB_CONTRACT_BRANCH_CREATE_INCOMPLETE')
+  const connectionUri = match.connection_uris?.[0]?.connection_uri
+  if (connectionUri) return { branchId: match.id, connectionUri }
+
+  try {
+    await deleteEphemeralBranchStrict(match.id)
+  } catch {
+    throw new NeonBranchError('DB_CONTRACT_BRANCH_DELETION_UNPROVEN')
+  }
+  throw new NeonBranchError('DB_CONTRACT_BRANCH_CREATE_INCOMPLETE')
 }
 
 export async function assertCurrentRunBranchesAbsent(runToken = rawRunToken()): Promise<void> {

@@ -19,6 +19,56 @@ export class SuiteResourceError extends Error {
   }
 }
 
+export const DB_CONTRACT_SUITE_CONCURRENCY = 2 as const
+
+export interface SuiteResourceLimiter {
+  acquire(): Promise<() => void>
+  run<T>(operation: () => Promise<T>): Promise<T>
+}
+
+/** Fair process-local permit pool. Vitest's two-worker cap supplies the run-wide ceiling. */
+export function createSuiteResourceLimiter(limit: number = DB_CONTRACT_SUITE_CONCURRENCY): SuiteResourceLimiter {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > DB_CONTRACT_SUITE_CONCURRENCY) {
+    throw new SuiteResourceError('DB_CONTRACT_CONCURRENCY_INVALID')
+  }
+
+  let active = 0
+  const waiters: Array<(release: () => void) => void> = []
+
+  const makeRelease = (): (() => void) => {
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      const next = waiters.shift()
+      if (next) next(makeRelease())
+      else active -= 1
+    }
+  }
+
+  const acquire = async (): Promise<() => void> => {
+    if (active < limit) {
+      active += 1
+      return makeRelease()
+    }
+    return new Promise<() => void>((resolve) => waiters.push(resolve))
+  }
+
+  return {
+    acquire,
+    async run<T>(operation: () => Promise<T>): Promise<T> {
+      const release = await acquire()
+      try {
+        return await operation()
+      } finally {
+        release()
+      }
+    },
+  }
+}
+
+const processSuiteResourceLimiter = createSuiteResourceLimiter()
+
 interface TransactionClient extends PinnedPoolClient {
   release(): void | Promise<void>
 }
@@ -46,6 +96,7 @@ export interface TransactionalDbDependencies {
   observeSentinelAbsent(connectionUri: string, tenantId: string): Promise<void>
   deleteBranch(branchId: string): Promise<void>
   measure?<T>(phase: TelemetryPhase, operation: () => Promise<T>): Promise<T>
+  suiteLimiter?: Pick<SuiteResourceLimiter, 'acquire'>
 }
 
 export async function connectPinnedForTest(
@@ -102,6 +153,7 @@ const defaultDependencies: TransactionalDbDependencies = {
   observeSentinelAbsent,
   deleteBranch: deleteEphemeralBranchStrict,
   measure: (phase, operation) => measurePhase(telemetryPathFromEnv(), phase, operation),
+  suiteLimiter: processSuiteResourceLimiter,
 }
 
 function stableCleanupError(code: string): SuiteResourceError {
@@ -123,20 +175,28 @@ export function createTransactionalDbSuite(
   dependencies: TransactionalDbDependencies = defaultDependencies,
 ): TransactionalDbRunner {
   let branch: EphemeralBranch | undefined
+  let releaseSuiteResource: (() => void) | undefined
   const measured = <T>(phase: TelemetryPhase, operation: () => Promise<T>): Promise<T> =>
     dependencies.measure ? dependencies.measure(phase, operation) : operation()
 
   dependencies.registerBeforeAll(async () => {
-    branch = await measured('create', () => dependencies.createBranch(dependencies.branchPrefix(suiteName)))
+    releaseSuiteResource = await (dependencies.suiteLimiter ?? processSuiteResourceLimiter).acquire()
     try {
+      branch = await measured('create', () => dependencies.createBranch(dependencies.branchPrefix(suiteName)))
       await measured('prepare', () => dependencies.prepare(branch!.connectionUri))
     } catch (error) {
-      try {
-        await measured('delete', () => dependencies.deleteBranch(branch!.branchId))
-        branch = undefined
-      } catch {
-        throwCombined(error, true, [stableCleanupError('DB_CONTRACT_BRANCH_DELETION_UNPROVEN')])
+      if (branch) {
+        try {
+          await measured('delete', () => dependencies.deleteBranch(branch!.branchId))
+          branch = undefined
+        } catch {
+          releaseSuiteResource?.()
+          releaseSuiteResource = undefined
+          throwCombined(error, true, [stableCleanupError('DB_CONTRACT_BRANCH_DELETION_UNPROVEN')])
+        }
       }
+      releaseSuiteResource?.()
+      releaseSuiteResource = undefined
       throw error
     }
   })
@@ -149,6 +209,8 @@ export function createTransactionalDbSuite(
       throw stableCleanupError('DB_CONTRACT_BRANCH_DELETION_UNPROVEN')
     } finally {
       branch = undefined
+      releaseSuiteResource?.()
+      releaseSuiteResource = undefined
     }
   })
 
