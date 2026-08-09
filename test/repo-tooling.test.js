@@ -182,26 +182,17 @@ describe("repo tooling", () => {
     );
     expect(packageJson.scripts["check:source-test"]).toBeDefined();
     expect(packageJson.scripts["check:source-test"]).toContain("check-source-test-coupling");
-    expect(packageJson.scripts["check:supabase-exposure"]).toBeDefined();
-    expect(packageJson.scripts["check:supabase-exposure"]).toContain(
-      "check-supabase-exposure",
-    );
-    expect(packageJson.scripts["preflight:meeting-cutover"]).toContain(
-      "meeting-cutover-preflight.mjs",
-    );
+    expect(packageJson.scripts["check:supabase-exposure"]).toBeUndefined();
+    expect(packageJson.scripts["preflight:meeting-cutover"]).toBeUndefined();
     expect(packageJson.scripts["test:repo-tooling"]).toContain("check-source-test-coupling.test.js");
-    expect(packageJson.scripts["test:repo-tooling"]).toContain(
+    for (const retiredTest of [
       "check-supabase-exposure.test.js",
-    );
-    expect(packageJson.scripts["test:repo-tooling"]).toContain(
       "supabase-platform-schema.test.js",
-    );
-    expect(packageJson.scripts["test:repo-tooling"]).toContain(
       "meeting-cutover-preflight.test.js",
-    );
-    expect(packageJson.scripts["test:repo-tooling"]).toContain(
       "meeting-supabase-cutover-docs.test.js",
-    );
+    ]) {
+      expect(packageJson.scripts["test:repo-tooling"]).not.toContain(retiredTest);
+    }
     expect(packageJson.scripts["test:prepush"]).toContain("check:source-test");
     expect(packageJson.scripts["test:prepush"]).toContain("test:agent-core");
     expect(packageJson.scripts["test:prepush"]).toContain("test:hocuspocus");
