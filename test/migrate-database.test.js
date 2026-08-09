@@ -224,6 +224,39 @@ describe("canonical migration runner", () => {
     })).toMatchObject({ ok: false, code: "MIGRATION_TAG_UNKNOWN" });
   });
 
+  test("rejects incomplete or mutated original-production prefixes before a suffix", () => {
+    const vector = productionManifest.drizzle.historyVectors["original-production"].entries;
+    const files = loadMigrationFiles();
+    const authority = { environment: "conformance-original", historyVariant: "original-production" };
+    const plan = (applied) => buildMigrationPlan({ applied, declared: [], files, authority, history: { manifest: productionManifest } });
+    const valid = vector.map((entry, index) => ({ hash: entry.observedSha256, timestamp: index }));
+    expect(plan(valid)).toMatchObject({ ok: true });
+
+    const incomplete = valid.slice(1);
+    expect(plan(incomplete)).toMatchObject({ ok: false, code: "MIGRATION_HISTORY_PREFIX_INCOMPLETE" });
+
+    const reordered = valid.map((entry) => ({ ...entry }));
+    [reordered[0], reordered[1]] = [reordered[1], reordered[0]];
+    expect(plan(reordered)).toMatchObject({ ok: false, code: "MIGRATION_HISTORY_SEQUENCE_INVALID" });
+
+    const wrongHash = valid.map((entry) => ({ ...entry }));
+    wrongHash[3] = { ...wrongHash[3], tag: "0003_tranquil_tattoo", hash: "0".repeat(64) };
+    expect(plan(wrongHash)).toMatchObject({ ok: false, code: "MIGRATION_HASH_MISMATCH" });
+
+    const wrongTimestamp = valid.map((entry) => ({ ...entry }));
+    wrongTimestamp[3] = { ...wrongTimestamp[3], tag: "0003_tranquil_tattoo", timestamp: 99 };
+    expect(plan(wrongTimestamp)).toMatchObject({ ok: false, code: "MIGRATION_TIMESTAMP_MISMATCH" });
+  });
+
+  test("accepts a valid original-production prefix followed by canonical suffix files", () => {
+    const vector = productionManifest.drizzle.historyVectors["original-production"].entries;
+    const files = loadMigrationFiles();
+    const authority = { environment: "conformance-original", historyVariant: "original-production" };
+    const applied = vector.map((entry, index) => ({ hash: entry.observedSha256, timestamp: index }));
+    for (const file of files.filter(({ timestamp }) => timestamp > 17)) applied.push({ tag: file.tag, hash: file.hash, timestamp: file.timestamp });
+    expect(buildMigrationPlan({ applied, declared: [], files, authority, history: { manifest: productionManifest }, expectedCount: applied.length, expectedFloor: applied.at(-1).tag })).toMatchObject({ ok: true, applied: files.map(({ tag }) => tag) });
+  });
+
   test("reports a controlled CLI failure when pool creation is unavailable", async () => {
     const errors = [];
     const previousExitCode = process.exitCode ?? 0;

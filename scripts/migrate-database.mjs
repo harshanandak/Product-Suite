@@ -271,6 +271,19 @@ function pendingFor(applied, declared, files) {
   return null;
 }
 
+function originalHistoryPrefixIssue(applied, files) {
+  const expected = files.filter((file) => tagNumber(file.tag) <= 17);
+  if (expected.length !== 18 || applied.length < expected.length) return "MIGRATION_HISTORY_PREFIX_INCOMPLETE";
+  for (let index = 0; index < expected.length; index += 1) {
+    const observed = applied[index];
+    const canonical = expected[index];
+    if (!observed || observed.tag !== canonical.tag) return "MIGRATION_HISTORY_SEQUENCE_INVALID";
+    if (observed.hash !== undefined && observed.hash !== canonical.hash) return "MIGRATION_HASH_MISMATCH";
+    if (observed.timestamp !== undefined && Number(observed.timestamp) !== Number(canonical.timestamp)) return "MIGRATION_TIMESTAMP_MISMATCH";
+  }
+  return null;
+}
+
 function isProductionP0Allowed(environment, applied, declared) {
   if (environment !== "production") return true;
   const appliedLast = applied.length ? applied.at(-1).tag : null;
@@ -301,6 +314,10 @@ export function buildMigrationPlan({ applied = [], declared = [], files = [], au
   if (declaredHashIssue) return { ok: false, code: declaredHashIssue };
   if (expectedFloor && !migrationFloorMatches(normalizedAppliedList.at(-1)?.tag, expectedFloor)) return { ok: false, code: "MIGRATION_FLOOR_MISMATCH" };
   if (expectedCount !== undefined && normalizedAppliedList.length !== expectedCount) return { ok: false, code: "MIGRATION_COUNT_MISMATCH" };
+  if (inferredVariant === "original-production" && effectiveFiles.some((file) => tagNumber(file.tag) === 0)) {
+    const prefixIssue = originalHistoryPrefixIssue(normalizedAppliedList, effectiveFiles);
+    if (prefixIssue) return { ok: false, code: prefixIssue };
+  }
   const suffixIssue = pendingFor(normalizedAppliedList, normalizedDeclared, effectiveFiles);
   if (suffixIssue) return { ok: false, code: suffixIssue };
   if (!isProductionP0Allowed(pinned.environment, normalizedAppliedList, normalizedDeclared)) return { ok: false, code: "MIGRATION_P0_SUFFIX_FORBIDDEN" };
