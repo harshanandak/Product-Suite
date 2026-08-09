@@ -17,7 +17,6 @@ const requiredPaths = [
   "apps/meeting-api/tests/backend",
   "infra/supabase/config.toml",
   ".github/workflows/roadmap-web-ci.yml",
-  ".github/workflows/roadmap-web-playwright.yml",
   ".github/workflows/meeting-web-ci.yml",
   ".github/workflows/meeting-api-ci.yml",
   ".github/workflows/meeting-api-railway-preview.yml"

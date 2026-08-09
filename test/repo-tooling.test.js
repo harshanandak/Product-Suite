@@ -92,14 +92,6 @@ const meetingApiRailwayPreviewWorkflow = readFileSync(
   join(rootDir, ".github", "workflows", "meeting-api-railway-preview.yml"),
   "utf8",
 );
-const roadmapWebPlaywrightWorkflow = readFileSync(
-  join(rootDir, ".github", "workflows", "roadmap-web-playwright.yml"),
-  "utf8",
-);
-const roadmapSupabaseWorkflow = readFileSync(
-  join(rootDir, ".github", "workflows", "roadmap-supabase.yml"),
-  "utf8",
-);
 const repoToolingWorkflow = readFileSync(
   join(rootDir, ".github", "workflows", "repo-tooling-ci.yml"),
   "utf8",
@@ -511,40 +503,29 @@ describe("repo tooling", () => {
     expect(roadmapWebWorkflow).toContain("bun run test");
   });
 
-  test("Roadmap Supabase CI validates PR19 private schema type generation", () => {
-    expect(roadmapSupabaseWorkflow).toContain(
-      "Verify Roadmap Supabase types are current",
-    );
-    expect(roadmapSupabaseWorkflow).toContain("--schema public");
-    expect(roadmapSupabaseWorkflow).toContain(
-      "Verify PR19 private Supabase schema types generate",
-    );
-    expect(roadmapSupabaseWorkflow).toContain(
-      "--schema platform,meeting,roadmap,agent",
-    );
-    expect(roadmapSupabaseWorkflow).toContain(
-      "platform-private-supabase-types.ts",
-    );
-  });
+  test("retired Roadmap Supabase authority surfaces stay absent", () => {
+    for (const relativePath of [
+      ".github/workflows/roadmap-supabase.yml",
+      ".github/workflows/roadmap-web-playwright.yml",
+      "scripts/check-supabase-exposure.mjs",
+      "scripts/meeting-cutover-preflight.mjs",
+    ]) {
+      expect(existsSync(join(rootDir, relativePath))).toBe(false);
+    }
 
-  test("Roadmap Supabase CI permits PR migrations that are not applied remotely yet", () => {
-    expect(roadmapSupabaseWorkflow).toContain(
-      "remote_version != \"\" && local_version != remote_version",
+    const cutoverDoc = readFileSync(
+      join(rootDir, "docs", "deployment", "MEETING_SUPABASE_CUTOVER.md"),
+      "utf8",
     );
-    expect(roadmapSupabaseWorkflow).toContain(
-      "local_version == \"\" && remote_version != \"\"",
-    );
-  });
+    expect(cutoverDoc).toMatch(/historical|non-authoritative/i);
+    expect(cutoverDoc).not.toMatch(/bun run preflight:meeting-cutover|DATABASE_PROVIDER=supabase/i);
 
-  test("roadmap Playwright CI reflects the full e2e environment contract", () => {
-    expect(roadmapWebPlaywrightWorkflow).toContain("name: Roadmap Web Playwright");
-    expect(roadmapWebPlaywrightWorkflow).toContain("Run Playwright tests");
-    expect(roadmapWebPlaywrightWorkflow).toContain("bun run test:e2e");
-    expect(roadmapWebPlaywrightWorkflow).toContain("SUPABASE_SERVICE_ROLE_KEY");
-    expect(roadmapWebPlaywrightWorkflow).toContain("TEST_USER_A_EMAIL");
-    expect(roadmapWebPlaywrightWorkflow).toContain("TEST_USER_A_PASSWORD");
-    expect(roadmapWebPlaywrightWorkflow).toContain("TEST_USER_B_EMAIL");
-    expect(roadmapWebPlaywrightWorkflow).toContain("TEST_USER_B_PASSWORD");
+    const roadmapSetup = readFileSync(
+      join(rootDir, "apps", "roadmap-web", "SUPABASE_SETUP.md"),
+      "utf8",
+    );
+    expect(roadmapSetup).toMatch(/unsupported|archived/i);
+    expect(roadmapSetup).not.toMatch(/supabase db push|supabase login|NEXT_PUBLIC_SUPABASE_ANON_KEY/i);
   });
 
   test("meeting web CI reflects the local validation baseline", () => {
@@ -573,9 +554,6 @@ describe("repo tooling", () => {
     );
     expect(repoToolingWorkflow).toContain('".github/workflows/meeting-web-ci.yml"');
     expect(repoToolingWorkflow).toContain('".github/workflows/roadmap-web-ci.yml"');
-    expect(repoToolingWorkflow).toContain(
-      '".github/workflows/roadmap-web-playwright.yml"',
-    );
     expect(repoToolingWorkflow).toContain("bun run test:agent-core");
     expect(repoToolingWorkflow).toContain("bun run test:hocuspocus");
     expect(repoToolingWorkflow).toContain("bun run test:roadmap-canvas-boundary");
@@ -639,35 +617,6 @@ describe("repo tooling", () => {
     expect(roadmapWebWorkflow).toContain("persist-credentials: false");
     expect(roadmapWebWorkflow).toContain('"package.json"');
     expect(roadmapWebWorkflow).toContain('"bun.lock"');
-    expect(roadmapWebPlaywrightWorkflow).toContain('"packages/contracts/**"');
-    expect(roadmapWebPlaywrightWorkflow).toContain('"packages/sdk/**"');
-    expect(roadmapWebPlaywrightWorkflow).toContain('"packages/ui-meeting/**"');
-    expect(roadmapWebPlaywrightWorkflow).toContain('"packages/ui-chat/**"');
-    expect(roadmapWebPlaywrightWorkflow).toContain('"packages/ui-canvas/**"');
-    expect(roadmapWebPlaywrightWorkflow).toContain('"packages/ui-planning/**"');
-    expect(roadmapWebPlaywrightWorkflow).toContain('"packages/ui-charting/**"');
-    expect(roadmapWebPlaywrightWorkflow).toContain('"services/agent-core/**"');
-    expect(roadmapWebPlaywrightWorkflow).toContain('"services/hocuspocus/**"');
-    expect(roadmapWebPlaywrightWorkflow).not.toContain('"docs/**"');
-    expect(roadmapWebPlaywrightWorkflow).not.toContain('"test/**"');
-    expect(roadmapWebPlaywrightWorkflow).toContain(
-      "Detect app-impacting changes",
-    );
-    expect(roadmapWebPlaywrightWorkflow).toContain(
-      "steps.changes.outputs.run == 'true'",
-    );
-    expect(roadmapWebPlaywrightWorkflow).toContain(
-      "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
-    );
-    expect(roadmapWebPlaywrightWorkflow).toContain(
-      "actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f",
-    );
-    expect(roadmapWebPlaywrightWorkflow).toContain(
-      "persist-credentials: false",
-    );
-    expect(roadmapWebPlaywrightWorkflow).toContain('"package.json"');
-    expect(roadmapWebPlaywrightWorkflow).toContain('"bun.lock"');
-    expect(roadmapWebPlaywrightWorkflow).toContain('"infra/supabase/**"');
     expect(roadmapNextConfig).toContain('"@product-suite/ui-planning"');
     expect(roadmapNextConfig).toContain('"@product-suite/ui-charting"');
     expect(meetingApiWorkflow).toContain('"packages/contracts/**"');
