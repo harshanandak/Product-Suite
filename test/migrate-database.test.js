@@ -74,6 +74,7 @@ describe("canonical migration runner", () => {
     });
     expect(result.ok).toBe(true);
     expect(calls.join("\n")).toContain("pg_advisory_xact_lock");
+    expect(calls.join("\n")).not.toContain("pg_available_extensions");
   });
 
   test("accepts a full Drizzle migration tag when the caller supplies its numeric floor", () => {
@@ -126,7 +127,7 @@ describe("canonical migration runner", () => {
     expect(migrationSql).not.toMatch(/commit;\s*$/i);
   });
 
-  test("bootstrap creates its owned journal before inspecting a truly empty database", async () => {
+  test("bootstrap accepts available-but-not-installed pgvector and reaches its migrations", async () => {
     const calls = [];
     let journalReady = false;
     const bootstrapFiles = files.slice(0, 2).map((file) => ({ ...file, sql: "SELECT 1;" }));
@@ -137,7 +138,8 @@ describe("canonical migration runner", () => {
           if (sql.includes("CREATE TABLE IF NOT EXISTS drizzle.__drizzle_migrations")) journalReady = true;
           if (sql.includes("count(*) FROM drizzle.__drizzle_migrations") && !journalReady) throw new Error("JOURNAL_MISSING");
           if (sql === "SHOW server_version_num;") return { rows: [{ server_version_num: "170000" }] };
-          if (sql.includes("FROM pg_extension")) return { rows: [{ extname: "vector" }] };
+          if (sql.includes("FROM pg_available_extensions")) return { rows: [{ name: "vector" }] };
+          if (sql.includes("FROM pg_extension")) return { rows: [] };
           if (sql.includes("count(*) FROM drizzle.__drizzle_migrations")) return { rows: [{ migration_count: "0" }] };
           return { rows: [] };
         },
@@ -148,9 +150,32 @@ describe("canonical migration runner", () => {
     });
 
     expect(result).toMatchObject({ ok: true, status: "BOOTSTRAPPED" });
+    expect(calls).toContain("SELECT 1;");
+    expect(calls.join("\n")).not.toContain("FROM pg_extension");
     expect(calls.findIndex((sql) => sql.includes("CREATE TABLE IF NOT EXISTS drizzle.__drizzle_migrations"))).toBeLessThan(
       calls.findIndex((sql) => sql.includes("count(*) FROM drizzle.__drizzle_migrations")),
     );
+  });
+
+  test("bootstrap rejects a target where pgvector is unavailable", async () => {
+    const calls = [];
+    const result = await bootstrapMigrations({
+      adapter: {
+        query: async (sql) => {
+          calls.push(sql);
+          if (sql === "SHOW server_version_num;") return { rows: [{ server_version_num: "170000" }] };
+          if (sql.includes("FROM pg_available_extensions")) return { rows: [] };
+          return { rows: [] };
+        },
+      },
+      files,
+      declared: files.map((file) => file.tag),
+      authority: { environment: "test", historyVariant: "repaired-bootstrap" },
+    });
+
+    expect(result).toEqual({ ok: false, code: "PGVECTOR_REQUIRED" });
+    expect(calls.join("\n")).toContain("FROM pg_available_extensions");
+    expect(calls.join("\n")).not.toContain("CREATE SCHEMA");
   });
 
   test.each([

@@ -482,18 +482,12 @@ describe("repo tooling", () => {
   });
 
   test("meeting-api CI reflects the local validation baseline", () => {
-    const pgvectorInit = 'docker exec ${{ job.services.postgres.id }} psql -v ON_ERROR_STOP=1 -U postgres -d meeting_agent -c "CREATE EXTENSION IF NOT EXISTS vector;"';
-
     expect(meetingApiWorkflow).toContain("Run backend lint");
     expect(meetingApiWorkflow).toContain("python -m flake8");
     expect(meetingApiWorkflow).toContain(
       "image: pgvector/pgvector:0.8.6-pg17@sha256:7ae6051efd0e60444282c27c7e141af07f322ce033300e727a49c3dd11075e38",
     );
     expect(meetingApiWorkflow).toContain('--health-cmd "pg_isready -U postgres -d meeting_agent"');
-    expect(meetingApiWorkflow).toContain(pgvectorInit);
-    expect(meetingApiWorkflow.indexOf(pgvectorInit)).toBeLessThan(
-      meetingApiWorkflow.indexOf("Run backend migrations"),
-    );
     expect(meetingApiWorkflow).toContain("Run backend migrations");
     expect(meetingApiWorkflow).toContain("Run backend tests");
     expect(meetingApiWorkflow).toContain("python -m pytest apps/meeting-api/tests/backend -q");

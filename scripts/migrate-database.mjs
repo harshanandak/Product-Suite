@@ -258,7 +258,7 @@ export async function bootstrapMigrations({ adapter, files = loadMigrationFiles(
   const version = await query(adapter, "SHOW server_version_num;");
   const versionValue = Number(version?.rows?.[0]?.server_version_num ?? version?.rows?.[0]?.server_version ?? 0);
   if (versionValue && versionValue < 170000) return { ok: false, code: "POSTGRESQL_17_REQUIRED" };
-  const vector = await query(adapter, "SELECT extname FROM pg_extension WHERE extname = 'vector';");
+  const vector = await query(adapter, "SELECT name FROM pg_available_extensions WHERE name = 'vector';");
   if (!(vector?.rows?.length > 0)) return { ok: false, code: "PGVECTOR_REQUIRED" };
   await query(adapter, "CREATE SCHEMA IF NOT EXISTS drizzle;");
   await query(adapter, "CREATE TABLE IF NOT EXISTS drizzle.__drizzle_migrations (id serial PRIMARY KEY, hash text NOT NULL, created_at bigint NOT NULL);");
