@@ -161,11 +161,11 @@ jobs:
 
       - name: Install dependencies
         if: steps.changes.outputs.run == 'true'
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --ignore-scripts
 
       - name: Install Playwright Browsers
         if: steps.changes.outputs.run == 'true'
-        run: bun x playwright install --with-deps chromium
+        run: bun run playwright install --with-deps chromium
 
       - name: Run Playwright tests
         if: steps.changes.outputs.run == 'true'

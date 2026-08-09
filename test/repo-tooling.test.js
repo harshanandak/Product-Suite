@@ -507,6 +507,19 @@ describe("repo tooling", () => {
     expect(testJob.if).toBeUndefined();
     expect(testJob.steps).toContainEqual(
       expect.objectContaining({
+        name: "Install dependencies",
+        run: "bun install --frozen-lockfile --ignore-scripts",
+      }),
+    );
+    expect(testJob.steps).toContainEqual(
+      expect.objectContaining({
+        name: "Install Playwright Browsers",
+        run: "bun run playwright install --with-deps chromium",
+      }),
+    );
+    expect(roadmapWebWorkflow).not.toContain("bun x playwright install");
+    expect(testJob.steps).toContainEqual(
+      expect.objectContaining({
         name: "Run Playwright tests",
         if: "steps.changes.outputs.run == 'true'",
         run: "bun run test:e2e",
