@@ -189,7 +189,7 @@ function runnableSql(sql) {
   const withoutCommit = trimmed.toUpperCase().endsWith("COMMIT;")
     ? trimmed.slice(0, -"COMMIT;".length).trimEnd()
     : withoutBegin;
-  return withoutCommit.replace(/-->\s*statement-breakpoint/g, ";");
+  return withoutCommit.replace(/^[ \t]*-->[ \t]*statement-breakpoint[ \t]*\r?$/gim, ";");
 }
 
 const HISTORY_SQL = "SELECT hash, created_at AS timestamp FROM drizzle.__drizzle_migrations ORDER BY created_at, id;";

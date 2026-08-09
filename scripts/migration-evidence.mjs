@@ -23,6 +23,8 @@ const ALLOWED_KEYS = new Set([
 ]);
 
 const SECRET_KEY = /(url|password|secret|token|credential|username|user|sql|query|row|payload|content|error|message|claim|prompt|embedding)/i;
+const MIGRATION_TAG = /^\d{4}(?:_[a-z0-9_]+)?$/i;
+const MIGRATION_HASH = /^[a-f0-9]{64}$/i;
 
 function migrationFloorMatches(actualTag, expectedFloor) {
   const actualPrefix = /^(\d+)/.exec(String(actualTag))?.[1];
@@ -89,7 +91,7 @@ export function verifyMigrationEvidence(evidence = {}) {
   if (!["original-production", "repaired-bootstrap"].includes(safe.historyVariant)) issues.push("history variant missing or invalid");
   if (!Array.isArray(safe.applied)) issues.push("applied migration records missing");
   for (const entry of safe.applied ?? []) {
-    if (typeof entry.tag !== "string" || typeof entry.hash !== "string" || !/^[a-f0-9]{64}$/i.test(entry.hash) || typeof entry.timestamp !== "number") issues.push("applied migration record is incomplete");
+    if (typeof entry.tag !== "string" || !MIGRATION_TAG.test(entry.tag) || typeof entry.hash !== "string" || !MIGRATION_HASH.test(entry.hash) || typeof entry.timestamp !== "number") issues.push("applied migration record is incomplete");
   }
   if (safe.expectedCount !== undefined && safe.expectedCount !== safe.applied?.length) issues.push("migration count mismatch");
   if (safe.count !== undefined && safe.count !== safe.applied?.length) issues.push("evidence count mismatch");

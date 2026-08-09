@@ -81,7 +81,7 @@ describe("canonical migration runner", () => {
       ...files.slice(0, 2),
       {
         ...files[2],
-        sql: "BEGIN;\nSELECT 'COMMIT;';\n--> statement-breakpoint\nselect 2;\n  cOmMiT;\n",
+        sql: "BEGIN;\nSELECT 'COMMIT;';\nSELECT '--> statement-breakpoint';\n--> statement-breakpoint\nselect 2;\n  cOmMiT;\n",
       },
     ];
     const result = await applyMigrations({
@@ -101,6 +101,7 @@ describe("canonical migration runner", () => {
 
     expect(result.ok).toBe(true);
     expect(migrationSql).toContain("SELECT 'COMMIT;'");
+    expect(migrationSql).toContain("SELECT '--> statement-breakpoint';");
     expect(migrationSql).toContain(";\nselect 2;");
     expect(migrationSql).not.toMatch(/commit;\s*$/i);
   });

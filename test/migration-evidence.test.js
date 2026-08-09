@@ -43,4 +43,13 @@ describe("migration evidence", () => {
     expect(verifyMigrationEvidence({ status: "NOOP", historyVariant: "repaired-bootstrap", applied: [{ tag: "0019" }] }).ok).toBe(false);
     expect(verifyMigrationEvidence({ status: "APPLIED", historyVariant: "repaired-bootstrap", applied: [{ tag: "0019", timestamp: 19, hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }], expectedCount: 2 }).ok).toBe(false);
   });
+
+  test("rejects URL-shaped migration tags even when the hash is valid", () => {
+    const evidence = createMigrationEvidence({
+      operation: "verify", historyVariant: "repaired-bootstrap", expectedFloor: "0019",
+      applied: [{ tag: "0019_https://evil.example", timestamp: 19, hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }], status: "NOOP",
+    });
+
+    expect(verifyMigrationEvidence(evidence)).toMatchObject({ ok: false, code: "EVIDENCE_INVALID" });
+  });
 });
