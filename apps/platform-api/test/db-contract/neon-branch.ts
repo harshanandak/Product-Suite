@@ -360,6 +360,9 @@ export async function preflightBranchCapacity(
   required = 1,
   runtime: DbContractRuntimeConfig = workerRuntimeConfig(),
 ): Promise<void> {
+  if (!Number.isSafeInteger(required) || required < 0) {
+    throw new NeonBranchError('DB_CONTRACT_BRANCH_CAPACITY_UNAVAILABLE')
+  }
   const configured = runtime.branchCap
   if (!Number.isSafeInteger(configured) || configured < 1) {
     throw new NeonBranchError('DB_CONTRACT_BRANCH_CAP_UNAVAILABLE')

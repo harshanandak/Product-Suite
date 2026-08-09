@@ -171,11 +171,16 @@ describe('transactional suite resource', () => {
 
     const failure = await connectPinnedForTest('postgres://uri-secret', () => pool).catch((error: unknown) => error)
     expect(failure).toBeInstanceOf(AggregateError)
-    expect((failure as AggregateError).errors).toEqual([
+    const aggregate = failure as AggregateError
+    expect(aggregate.message).toBe('DB_CONTRACT_TEST_AND_CLEANUP_FAILED')
+    expect(aggregate.errors).toEqual([
       expect.objectContaining({ code: 'DB_CONTRACT_SESSION_CONNECT_FAILED' }),
       expect.objectContaining({ code: 'DB_CONTRACT_POOL_CLOSE_UNPROVEN' }),
     ])
-    expect(JSON.stringify(failure)).not.toContain('secret')
+    for (const nested of aggregate.errors) {
+      expect(nested).toBeInstanceOf(Error)
+      expect((nested as Error).message).not.toContain('secret')
+    }
   })
 
   it('fails closed when a test runs before suite setup', async () => {
@@ -325,6 +330,27 @@ describe('required branch ownership and cleanup', () => {
     process.env.DB_CONTRACT_BRANCH_CAP = '10'
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 503 } as Response)))
     await expect(preflightBranchCapacity()).rejects.toThrow('DB_CONTRACT_BRANCH_CAPACITY_UNAVAILABLE')
+  })
+
+  it('rejects invalid required branch counts before listing branches', async () => {
+    const fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ branches: [] }),
+    } as Response))
+    vi.stubGlobal('fetch', fetch)
+    const runtime = {
+      runToken: 'unit-run',
+      branchCap: 10,
+      exactHead: 'unit-head',
+      telemetryPath: 'unit-telemetry.json',
+    }
+
+    for (const required of [Number.NaN, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      const failure = await preflightBranchCapacity(required, runtime).catch((error: unknown) => error)
+      expect(failure).toMatchObject({ code: 'DB_CONTRACT_BRANCH_CAPACITY_UNAVAILABLE' })
+    }
+    expect(fetch).not.toHaveBeenCalled()
   })
 
   it('fails closed on credentials/reap and final teardown proves the exact run absent', async () => {
