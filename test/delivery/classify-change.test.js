@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { classifyChange } from "../../scripts/delivery/classify-change.mjs";
 
 const BASE_SHA = "1".repeat(40);
@@ -97,6 +98,15 @@ describe("delivery change classifier", () => {
     );
   });
 
+  test("serializes the sorted file list without delimiter ambiguity", () => {
+    const files = ["README.md", "docs/guides/DELIVERY.md"];
+    const expectedDigest = createHash("sha256")
+      .update(JSON.stringify(files))
+      .digest("hex");
+
+    expect(classifyChange(input([...files].reverse())).changedFileDigest).toBe(expectedDigest);
+  });
+
   test.each(["api_error", "parser_error", "unsupported"])(
     "fails closed for %s source evidence",
     (status) => {
@@ -112,6 +122,10 @@ describe("delivery change classifier", () => {
     ["invalid changed files", null, {}, "changed_files_invalid"],
     ["double path separator", ["apps/platform-web//package.json"], {}, "changed_files_invalid"],
     ["dot path segment", ["apps/platform-web/./package.json"], {}, "changed_files_invalid"],
+    ["trailing path separator", ["apps/platform-web/"], {}, "changed_files_invalid"],
+    ["C0 control character", ["README.md\u0000"], {}, "changed_files_invalid"],
+    ["DEL control character", ["README.md\u007f"], {}, "changed_files_invalid"],
+    ["trailing newline", ["README.md\n"], {}, "changed_files_invalid"],
     ["invalid base SHA", ["README.md"], { baseSha: "main" }, "exact_sha_invalid"],
     ["invalid PR", ["README.md"], { pr: null }, "pr_invalid"],
   ])("fails closed for %s", (_name, files, overrides, reason) => {
@@ -135,6 +149,67 @@ describe("delivery change classifier", () => {
     expect(result.reasons).toContain("sensitive_or_authority_path");
   });
 
+  test.each([
+    "apps/platform-web/vite.config.ts",
+    "apps/platform-web/vitest.config.ts",
+    "apps/platform-web/playwright.config.ts",
+    "apps/platform-web/wrangler.jsonc",
+    "apps/platform-web/tsconfig.json",
+    "apps/platform-web/.dev.vars.example",
+    "apps/platform-web/.npmrc",
+    "apps/platform-web/eslint.config.js",
+    "apps/meeting-web/vite.config.js",
+    "apps/meeting-web/jsconfig.json",
+    "apps/meeting-web/src/lib/runtimeConfig.js",
+    "apps/meeting-web/public/runtime-config.json",
+    "apps/roadmap-web/next.config.ts",
+    "apps/meeting-api/backend/config.py",
+    "apps/meeting-api/railway.json",
+    "apps/platform-web/Dockerfile",
+    "apps/roadmap-web/vercel.json",
+  ])("keeps runtime and authority config %s at T3", (path) => {
+    const result = classifyChange(input([path]));
+
+    expect(result.tier).toBe("T3");
+    expect(result.reasons).toContain("sensitive_or_authority_path");
+  });
+
+  test.each([
+    ["apps/meeting-api/backend/routes/status.py", "shared_or_api_behavior"],
+    ["apps/meeting-web/src/components/Agenda.tsx", "bounded_leaf_workspace"],
+    ["packages/ui/src/Button.tsx", "shared_or_api_behavior"],
+  ])("keeps known classifiable root %s at its intended tier", (path, reason) => {
+    const result = classifyChange(input([path]));
+
+    expect(result.tier).not.toBe("T3");
+    expect(result.reasons).toContain(reason);
+  });
+
+  test("fails closed for a non-object classifier input", () => {
+    const result = classifyChange(null);
+
+    expect(result.tier).toBe("T3");
+    expect(result.reasons).toEqual(expect.arrayContaining([
+      "pr_invalid",
+      "exact_sha_invalid",
+      "source_evidence_invalid",
+      "changed_files_invalid",
+    ]));
+  });
+
+  test.each([
+    "apps/unknown-web/src/index.ts",
+    "apps/unknown-api/src/routes.ts",
+    "packages/unknown/src/index.ts",
+    "packages/ui-unknown/src/Button.tsx",
+    "services/unknown/src/index.ts",
+  ])("fails closed for unknown classifiable root %s", (path) => {
+    const result = classifyChange(input([path]));
+
+    expect(result.tier).toBe("T3");
+    expect(result.reasons).toContain("unknown_path");
+  });
+
   test("promotes a mixed docs and bounded UI change to T1", () => {
     const result = classifyChange(input(["README.md", "apps/platform-web/src/shell/TopBar.tsx"]));
 
@@ -155,6 +230,46 @@ describe("delivery change classifier", () => {
     expect(result.dependencyEvidence).toEqual(provenUiDependency);
     expect(result.expectedChecks).toContain("migration-integrity");
   });
+
+  test.each(["bun.lock", "package.json"])(
+    "rejects non-Bun meeting-api workspace evidence from root dependency proof for %s",
+    (path) => {
+      const result = classifyChange(input([path], {
+        dependencyEvidence: {
+          ...provenUiDependency,
+          affectedWorkspaces: ["apps/meeting-api"],
+          dependencyCatalog: {
+            ...dependencyCatalog(),
+            workspaceRoots: ["apps/meeting-api"],
+          },
+        },
+      }));
+
+      expect(result.tier).toBe("T3");
+      expect(result.reasons).toContain("dependency_proof_invalid");
+      expect(result.reasons).not.toContain("dependency_closure_proven_safe");
+    },
+  );
+
+  test.each(["apps/meeting-api/package.json", "apps/meeting-api/bun.lock"])(
+    "rejects non-Bun meeting-api dependency manifest proof for %s",
+    (path) => {
+      const result = classifyChange(input([path], {
+        dependencyEvidence: {
+          ...provenUiDependency,
+          affectedWorkspaces: ["apps/meeting-api"],
+          dependencyCatalog: {
+            ...dependencyCatalog(),
+            workspaceRoots: ["apps/meeting-api"],
+          },
+        },
+      }));
+
+      expect(result.tier).toBe("T3");
+      expect(result.reasons).toContain("dependency_proof_invalid");
+      expect(result.reasons).not.toContain("dependency_closure_proven_safe");
+    },
+  );
 
   test("escalates a transitive DB-driver lock change", () => {
     const result = classifyChange(input(["bun.lock"], {
@@ -177,6 +292,37 @@ describe("delivery change classifier", () => {
         changedPackages: ["@neondatabase/serverless"],
         dependencyCatalog: dependencyCatalog(["@neondatabase/serverless"]),
         databaseRuntimeChanged: false,
+      },
+    }));
+
+    expect(result.tier).toBe("T3");
+    expect(result.reasons).toContain("dependency_proof_contradiction");
+  });
+
+  test.each([
+    "@neondatabase/auth",
+    "@neondatabase/neon-js",
+    "@neondatabase/postgrest-js",
+    "@better-auth/core",
+    "better-auth",
+    "@supabase/auth-js",
+    "drizzle-kit",
+    "drizzle-orm",
+    "@drizzle-team/brocli",
+    "kysely",
+    "@types/pg",
+    "pg",
+    "pg-pool",
+    "postgres",
+    "postgres-array",
+    "@vercel/postgres",
+    "@prisma/client",
+    "prisma",
+  ])("rejects dependency catalogs that contain runtime/auth package family %s", (packageName) => {
+    const result = classifyChange(input(["bun.lock"], {
+      dependencyEvidence: {
+        ...provenUiDependency,
+        dependencyCatalog: dependencyCatalog(["@floating-ui/react", packageName]),
       },
     }));
 

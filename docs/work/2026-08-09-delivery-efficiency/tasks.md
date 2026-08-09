@@ -45,6 +45,16 @@ command and existing repo-tooling tests:
 ```powershell
 bun test test/delivery/classify-change.test.js
 bun test test/repo-tooling.test.js
+bunx eslint --max-warnings 0 scripts/delivery/classify-change.mjs test/delivery/classify-change.test.js
+```
+
+Record the classifier test, repo-tooling, and strict ESLint outputs with the
+exact correction SHA in the linked Forge issue evidence before push. Preserve
+the issue's RED/GREEN counts and validation scope; a missing or ambiguous
+evidence record keeps the Slice 1 result fail-closed.
+
+```powershell
+forge issue comment <issue-id> "Slice 1 validation evidence: classifier/repo-tooling counts, strict ESLint --max-warnings 0 output, exact correction SHA"
 ```
 
 REFACTOR: remove duplicate path rules, keep an explicit T0 allowlist, and mutation
