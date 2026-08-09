@@ -4,9 +4,20 @@ const { verifyToken } = vi.hoisted(() => ({ verifyToken: vi.fn() }))
 
 vi.mock('@clerk/backend', () => ({ verifyToken }))
 
-import app from './app'
+import app, { readinessKey } from './app'
 
 const authed = (token = 'good') => ({ headers: { Authorization: `Bearer ${token}` } })
+
+describe('readinessKey', () => {
+  it('preserves the existing FNV-1a key for ASCII URLs', () => {
+    expect(readinessKey('postgresql://example/neondb')).toBe('27:2057181808')
+  })
+
+  it('hashes a surrogate pair once as its Unicode code point', () => {
+    expect(readinessKey('A😀B')).toBe('4:3088315282')
+    expect(readinessKey('😀')).toBe('2:105948959')
+  })
+})
 
 describe('platform-api auth spine', () => {
   beforeEach(() => {

@@ -26,10 +26,10 @@ const readinessCache = new Map<string, { expiresAt: number; result: ReadinessRes
 const readinessInFlight = new Map<string, Promise<ReadinessResult>>()
 
 /** Hash the authority key without retaining/logging a connection URL. */
-function readinessKey(url: string): string {
+export function readinessKey(url: string): string {
   let hash = 2_166_136_261
-  for (let index = 0; index < url.length; index += 1) {
-    hash ^= url.charCodeAt(index)
+  for (const character of url) {
+    hash ^= character.codePointAt(0)!
     hash = Math.imul(hash, 16_777_619)
   }
   return `${url.length}:${hash >>> 0}`

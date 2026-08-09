@@ -514,10 +514,11 @@ describe("repo tooling", () => {
     expect(testJob.steps).toContainEqual(
       expect.objectContaining({
         name: "Install Playwright Browsers",
-        run: "bun run playwright install --with-deps chromium",
+        run: "bun run --no-install playwright install --with-deps chromium",
       }),
     );
     expect(roadmapWebWorkflow).not.toContain("bun x playwright install");
+    expect(roadmapWebWorkflow).not.toContain("bun run playwright install");
     expect(testJob.steps).toContainEqual(
       expect.objectContaining({
         name: "Run Playwright tests",
