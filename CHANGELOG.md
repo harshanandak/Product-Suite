@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Fail-closed T0-T3 delivery change classification with exact base/head evidence, adversarial downgrade coverage, and catalog-bound dependency proof (PR #167, Forge issue `9041eeab-6079-43e3-a95a-d555e076dddf`)
 - Authorization-scoped, memory-only TanStack Query orchestration for `platform-web` memory-impact reads, preserving repository, API, realtime, and run authority (PR #164, 5a03773c-b0df-4b96-9215-b2a0c9cd4031)
 - Canonical collaboration authority for stable actors, conversations, memberships, immutable ordered events, tenant-bound API access, and additive legacy-thread compatibility (PR #163, 2086343b-db19-4b13-a50f-c5e36c213b20)
 - BlockSuite 0.19.5 canonical-persistence NO-GO decision with an exact public-API rejection regression and bounded alternative-editor handoff (PR #161, 8dfbe355-366a-4518-b377-9f3eccf2745d)
