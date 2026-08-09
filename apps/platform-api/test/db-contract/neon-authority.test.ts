@@ -7,8 +7,10 @@ import {
   conformanceCredentialStatus,
   hasNeonCreds,
   requiredConformanceStatus,
+  runRequiredNeonConformance,
   type CleanupEvidence,
   type DisposableTestProject,
+  type NeonControlPlane,
   type ProductionDerivedBranch,
 } from './harness'
 
@@ -94,5 +96,60 @@ describe('Neon authority conformance guards', () => {
   it('fails the required real lane instead of silently skipping when requested', () => {
     if (process.env.DB_CONTRACT_REQUIRED !== '1') return
     expect(requiredConformanceStatus(process.env)).toEqual({ status: 'READY' })
+  })
+
+  it('does not claim real conformance without credentials', async () => {
+    expect(await runRequiredNeonConformance({})).toEqual({ status: 'INCOMPLETE', code: 'NEON_CREDENTIALS_UNAVAILABLE' })
+  })
+
+  it('runs the required sequence through a mocked control plane and cleans up both resources', async () => {
+    const events: string[] = []
+    const plane: NeonControlPlane = {
+      async createDisposableProject() {
+        events.push('create-project')
+        return { ...disposable, connectionUri: 'opaque-test-connection' }
+      },
+      async createProductionDerivedBranch() {
+        events.push('create-branch')
+        return { ...derived, connectionUri: 'opaque-production-connection' }
+      },
+      async bootstrapRepaired() { events.push('bootstrap') },
+      async verifyRepairedNoop() { events.push('verify') },
+      async probeLeastPrivilege() { events.push('probe') },
+      async deleteProject() { events.push('delete-project') },
+      async verifyProjectDeleted() { events.push('verify-delete') },
+      async deleteBranch() { events.push('delete-branch') },
+    }
+
+    expect(await runRequiredNeonConformance({ NEON_API_KEY: 'test-key', NEON_PROJECT_ID: 'production-project' }, plane)).toEqual({
+      status: 'PASS',
+    })
+    expect(events).toEqual(['create-project', 'bootstrap', 'verify', 'create-branch', 'probe', 'probe', 'delete-branch', 'delete-project', 'verify-delete'])
+  })
+
+  it('cleans the disposable project when derived-branch creation fails', async () => {
+    const events: string[] = []
+    const plane: NeonControlPlane = {
+      async createDisposableProject() {
+        events.push('create-project')
+        return { ...disposable, connectionUri: 'opaque-test-connection' }
+      },
+      async createProductionDerivedBranch() {
+        events.push('create-branch')
+        throw new Error('mocked branch creation failure')
+      },
+      async bootstrapRepaired() { events.push('bootstrap') },
+      async verifyRepairedNoop() { events.push('verify') },
+      async probeLeastPrivilege() { events.push('probe') },
+      async deleteProject() { events.push('delete-project') },
+      async verifyProjectDeleted() { events.push('verify-delete') },
+      async deleteBranch() { events.push('delete-branch') },
+    }
+
+    expect(await runRequiredNeonConformance({ NEON_API_KEY: 'test-key', NEON_PROJECT_ID: 'production-project' }, plane)).toEqual({
+      status: 'INCOMPLETE',
+      code: 'REAL_NEON_CONFORMANCE_FAILED',
+    })
+    expect(events).toEqual(['create-project', 'bootstrap', 'verify', 'create-branch', 'delete-project', 'verify-delete'])
   })
 })
