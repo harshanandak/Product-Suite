@@ -1,4 +1,37 @@
-import { defineConfig } from 'vitest/config'
+import { defineConfig, type ViteUserConfig } from 'vitest/config'
+
+const DB_CONTRACT_INCLUDE = [
+  'test/db-contract/accept-path.test.ts',
+  'test/db-contract/baseline.test.ts',
+  'test/db-contract/collaboration.test.ts',
+  'test/db-contract/meeting-ingest.test.ts',
+  'test/db-contract/memory-curator.test.ts',
+  'test/db-contract/memory-tier.test.ts',
+  'test/db-contract/neon-authority.test.ts',
+  'test/db-contract/reap.test.ts',
+  'test/db-contract/role-privileges.test.ts',
+] as const
+
+export function createDbContractVitestConfig(): ViteUserConfig {
+  const listMode = process.env.DB_CONTRACT_LIST_ONLY === '1'
+
+  return {
+    test: {
+      // Keep the evidence lane explicit: A1's topology/reporter unit tests are
+      // local checks and must not inflate the locked 57-test real inventory.
+      include: [...DB_CONTRACT_INCLUDE],
+      ...(listMode
+        ? { reporters: ['default'] }
+        : {
+            globalSetup: ['./test/db-contract/reap-setup.ts'],
+            reporters: ['default', './test/db-contract/zero-skip-reporter.ts'],
+          }),
+      fileParallelism: false,
+      maxWorkers: 1,
+      maxConcurrency: 1,
+    },
+  }
+}
 
 /**
  * Dedicated vitest config for the real-DB `db-contract` tier. Used ONLY by the
@@ -30,25 +63,4 @@ import { defineConfig } from 'vitest/config'
  * The per-suite 180s `describe` timeouts live in the test files and are left
  * untouched — this config sets no test timeout.
  */
-export default defineConfig({
-  test: {
-    // Keep the evidence lane explicit: A1's topology/reporter unit tests are
-    // local checks and must not inflate the locked 57-test real inventory.
-    include: [
-      'test/db-contract/accept-path.test.ts',
-      'test/db-contract/baseline.test.ts',
-      'test/db-contract/collaboration.test.ts',
-      'test/db-contract/meeting-ingest.test.ts',
-      'test/db-contract/memory-curator.test.ts',
-      'test/db-contract/memory-tier.test.ts',
-      'test/db-contract/neon-authority.test.ts',
-      'test/db-contract/reap.test.ts',
-      'test/db-contract/role-privileges.test.ts',
-    ],
-    globalSetup: ['./test/db-contract/reap-setup.ts'],
-    reporters: ['default', './test/db-contract/zero-skip-reporter.ts'],
-    fileParallelism: false,
-    maxWorkers: 1,
-    maxConcurrency: 1,
-  },
-})
+export default defineConfig(createDbContractVitestConfig())

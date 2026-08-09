@@ -94,7 +94,9 @@ export interface CleanupEvidence {
   projectDeletionVerified: boolean
 }
 
-type NeonControlPlaneEnv = Partial<Pick<NodeJS.ProcessEnv, 'NEON_API_KEY' | 'NEON_PROJECT_ID' | 'NEON_PARENT_BRANCH_ID'>>
+type NeonControlPlaneEnv = Partial<
+  Pick<NodeJS.ProcessEnv, 'NEON_API_KEY' | 'NEON_PROJECT_ID' | 'NEON_PARENT_BRANCH_ID' | 'DB_CONTRACT_LIST_ONLY'>
+>
 
 export interface ConformanceCredentialStatus {
   status: 'READY' | 'INCOMPLETE'
@@ -105,6 +107,7 @@ export interface ConformanceCredentialStatus {
 export function hasNeonCreds(
   env: NeonControlPlaneEnv = process.env,
 ): boolean {
+  if (env.DB_CONTRACT_LIST_ONLY === '1') return true
   return Boolean(env.NEON_API_KEY && env.NEON_PROJECT_ID)
 }
 

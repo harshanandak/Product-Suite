@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 
+import { createDbContractVitestConfig } from '../../vitest.db-contract.config'
+
 import {
   EXPECTED_CONTROL_PLANE_ASSERTIONS,
   EXPECTED_REAL_ASSERTIONS,
@@ -14,6 +16,7 @@ import {
   classifyTestId,
   getTopologySummary,
 } from './topology'
+import { hasNeonCreds } from './harness'
 
 const CONTRACT_TEST_DIR = dirname(fileURLToPath(import.meta.url))
 const ROUTED_SUITES = [
@@ -126,6 +129,31 @@ function expectedHelper(executionClass: string): RoutedHelper {
 }
 
 describe('db-contract topology lock', () => {
+  it('uses only the list marker for metadata collection and keeps normal runs guarded', () => {
+    const previous = process.env.DB_CONTRACT_LIST_ONLY
+
+    try {
+      process.env.DB_CONTRACT_LIST_ONLY = '1'
+      const listConfig = createDbContractVitestConfig()
+      expect(listConfig.test?.include).toHaveLength(9)
+      expect(listConfig.test?.fileParallelism).toBe(false)
+      expect(listConfig.test?.maxWorkers).toBe(1)
+      expect(listConfig.test?.maxConcurrency).toBe(1)
+      expect(listConfig.test?.globalSetup).toBeUndefined()
+      expect(listConfig.test?.reporters).toEqual(['default'])
+      expect(hasNeonCreds({ DB_CONTRACT_LIST_ONLY: '1' })).toBe(true)
+
+      delete process.env.DB_CONTRACT_LIST_ONLY
+      const normalConfig = createDbContractVitestConfig()
+      expect(normalConfig.test?.globalSetup).toEqual(['./test/db-contract/reap-setup.ts'])
+      expect(normalConfig.test?.reporters).toEqual(['default', './test/db-contract/zero-skip-reporter.ts'])
+      expect(hasNeonCreds({})).toBe(false)
+    } finally {
+      if (previous === undefined) delete process.env.DB_CONTRACT_LIST_ONLY
+      else process.env.DB_CONTRACT_LIST_ONLY = previous
+    }
+  })
+
   it('locks the 57-test inventory and its three execution classes', () => {
     const summary = getTopologySummary()
 
