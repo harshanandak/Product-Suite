@@ -119,6 +119,7 @@ describe("historical database artifacts", () => {
     const meetingRequirements = readFileSync(join(repoRoot, "apps/meeting-api/backend/requirements.txt"), "utf8");
     const toolchain = readFileSync(join(repoRoot, "apps/meeting-api/docs/forge/TOOLCHAIN.md"), "utf8");
     expect(meetingRequirements).not.toMatch(/^alembic\s*=/im);
+    expect(meetingRequirements).toMatch(/^SQLAlchemy==2\.0\.51$/m);
     expect(toolchain).toMatch(/Drizzle|packages[\\/]db[\\/]migrations/i);
     expect(toolchain).not.toMatch(/\bAlembic\b|python\s+(?:-m\s+)?migrate\.py/i);
 
