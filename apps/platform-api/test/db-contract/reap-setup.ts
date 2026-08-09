@@ -1,37 +1,49 @@
-/**
- * Vitest `globalSetup` for the `db-contract` tier: reap-before-run self-heal.
- *
- * Runs ONCE in the vitest main process before any test file, with the same
- * `NEON_API_KEY` / `NEON_PROJECT_ID` the CI job scopes to the run step. It deletes
- * ephemeral test branches leaked by prior/crashed runs (see `reapStaleBranches`),
- * clearing the backlog that causes `422 BRANCHES_LIMIT_EXCEEDED` at branch
- * creation. This is what lets THIS run's own branch-creates succeed — the reap
- * happens before the first test asks Neon for a branch.
- *
- * Without creds it no-ops (the suite self-skips via `describe.skipIf`), so a fork
- * PR that can't read secrets still runs this setup harmlessly.
- */
+/** Required DB Contract global setup and exact current-run cleanup proof. */
 
-import { reapStaleBranches } from './neon-branch'
+import { randomBytes } from 'node:crypto'
 
-export default async function setup(): Promise<void> {
-  if (!process.env.NEON_API_KEY || !process.env.NEON_PROJECT_ID) {
-    // No creds → the suite self-skips; nothing to reap.
-    return
+import {
+  RUN_TOKEN_ENV,
+  assertCurrentRunBranchesAbsent,
+  preflightBranchCapacity,
+  reapStaleBranches,
+  type ReapResult,
+} from './neon-branch'
+
+export interface RequiredSetupDependencies {
+  env: NodeJS.ProcessEnv
+  reap(): Promise<ReapResult>
+  preflight(): Promise<void>
+  assertCurrentRunAbsent(runToken: string): Promise<void>
+  makeRunToken(): string
+}
+
+const defaultDependencies: RequiredSetupDependencies = {
+  env: process.env,
+  reap: reapStaleBranches,
+  preflight: () => preflightBranchCapacity(1),
+  assertCurrentRunAbsent: assertCurrentRunBranchesAbsent,
+  makeRunToken: () => randomBytes(6).toString('hex'),
+}
+
+export async function runRequiredSetup(
+  dependencies: RequiredSetupDependencies = defaultDependencies,
+): Promise<() => Promise<void>> {
+  if (!dependencies.env.NEON_API_KEY || !dependencies.env.NEON_PROJECT_ID) {
+    throw new Error('DB_CONTRACT_CREDENTIALS_UNAVAILABLE')
   }
+  const runToken = dependencies.env[RUN_TOKEN_ENV] ?? dependencies.makeRunToken()
+  dependencies.env[RUN_TOKEN_ENV] = runToken
 
-  try {
-    const { scanned, deleted, failed } = await reapStaleBranches()
-    // eslint-disable-next-line no-console
-    console.log(
-      `db-contract reap-before-run: scanned ${scanned} branch(es), ` +
-        `deleted ${deleted.length} stale, ${failed.length} delete(s) failed.`,
-    )
-  } catch (cause) {
-    // Belt-and-suspenders: reapStaleBranches is already best-effort, but never let a
-    // reap problem block the run — the per-test create still surfaces a real limit
-    // error if the backlog genuinely can't be cleared.
-    // eslint-disable-next-line no-console
-    console.warn('db-contract reap-before-run: reap failed (continuing):', cause)
+  const reap = await dependencies.reap()
+  if (!reap.complete || reap.failed.length > 0) throw new Error('DB_CONTRACT_STALE_REAP_INCOMPLETE')
+  await dependencies.preflight()
+
+  return async () => {
+    await dependencies.assertCurrentRunAbsent(runToken)
   }
+}
+
+export default async function setup(): Promise<() => Promise<void>> {
+  return runRequiredSetup()
 }

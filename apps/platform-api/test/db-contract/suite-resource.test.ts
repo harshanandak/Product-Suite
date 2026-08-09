@@ -1,0 +1,295 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+import {
+  createTransactionalDbSuite,
+  SuiteResourceError,
+  type TransactionalDbDependencies,
+} from './suite-resource'
+import {
+  assertCurrentRunBranchesAbsent,
+  createEphemeralBranch,
+  deleteEphemeralBranchStrict,
+  isCurrentRunBranchName,
+  preflightBranchCapacity,
+  suiteBranchPrefix,
+} from './neon-branch'
+import { runRequiredSetup } from './reap-setup'
+
+type Hook = () => Promise<void>
+
+const originalEnv = { ...process.env }
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+  process.env = { ...originalEnv }
+})
+
+function fixture() {
+  const events: string[] = []
+  let setup: Hook = async () => undefined
+  let teardown: Hook = async () => undefined
+  const client = {
+    query: vi.fn(async (text: string) => {
+      events.push(text)
+      return { rows: [] }
+    }),
+    release: vi.fn(() => { events.push('release') }),
+  }
+  const seed = { tenantId: 'sentinel' } as never
+  const deps: TransactionalDbDependencies = {
+    registerBeforeAll: (hook) => { setup = hook },
+    registerAfterAll: (hook) => { teardown = hook },
+    branchPrefix: vi.fn(() => 'db-contract-unit'),
+    createBranch: vi.fn(async () => ({ branchId: 'secret-branch', connectionUri: 'secret-uri' })),
+    prepare: vi.fn(async () => { events.push('migrate') }),
+    connect: vi.fn(async () => client),
+    transactionSql: vi.fn(() => ({}) as never),
+    seed: vi.fn(async () => { events.push('seed'); return seed }),
+    observeSentinelAbsent: vi.fn(async (_uri, tenantId) => { events.push(`observe:${tenantId}`) }),
+    deleteBranch: vi.fn(async () => { events.push('delete-404') }),
+  }
+  return { deps, events, client, get setup() { return setup }, get teardown() { return teardown } }
+}
+
+describe('transactional suite resource', () => {
+  it('migrates once, seeds every test, rolls back, observes absence, and strictly deletes', async () => {
+    const f = fixture()
+    const run = createTransactionalDbSuite('memory-tier', f.deps)
+
+    await f.setup()
+    await run(async ({ seed }) => { expect(seed.tenantId).toBe('sentinel') })
+    await run(async () => undefined)
+    await f.teardown()
+
+    expect(f.deps.prepare).toHaveBeenCalledTimes(1)
+    expect(f.deps.seed).toHaveBeenCalledTimes(2)
+    expect(f.events).toEqual([
+      'migrate',
+      'BEGIN', 'SAVEPOINT db_contract_test_root', 'seed', 'ROLLBACK', 'observe:sentinel', 'release',
+      'BEGIN', 'SAVEPOINT db_contract_test_root', 'seed', 'ROLLBACK', 'observe:sentinel', 'release',
+      'delete-404',
+    ])
+  })
+
+  it('rolls back and proves absence after an assertion failure', async () => {
+    const f = fixture()
+    const run = createTransactionalDbSuite('accept-path', f.deps)
+    await f.setup()
+
+    const assertion = new Error('assertion-detail')
+    await expect(run(async () => { throw assertion })).rejects.toBe(assertion)
+    expect(f.events).toContain('ROLLBACK')
+    expect(f.events).toContain('observe:sentinel')
+  })
+
+  it('retains the original failure while redacting cleanup details', async () => {
+    const f = fixture()
+    const run = createTransactionalDbSuite('accept-path', {
+      ...f.deps,
+      observeSentinelAbsent: async () => { throw new Error('postgres://user:password@secret') },
+    })
+    await f.setup()
+
+    const assertion = new Error('assertion-detail')
+    const failure = await run(async () => { throw assertion }).catch((error: unknown) => error)
+
+    expect(failure).toBeInstanceOf(AggregateError)
+    expect((failure as AggregateError).errors[0]).toBe(assertion)
+    expect((failure as AggregateError).errors[1]).toMatchObject({ code: 'DB_CONTRACT_SENTINEL_LEAK_UNPROVEN' })
+    expect(String(failure)).not.toContain('postgres://')
+    expect(String(failure)).not.toContain('secret-branch')
+  })
+
+  it('retains an undefined rejection as primary while cleanup still aggregates', async () => {
+    const f = fixture()
+    const run = createTransactionalDbSuite('accept-path', {
+      ...f.deps,
+      observeSentinelAbsent: async () => { throw new Error('cleanup-detail') },
+    })
+    await f.setup()
+
+    const failure = await run(async () => Promise.reject()).catch((error: unknown) => error)
+    expect(failure).toBeInstanceOf(AggregateError)
+    expect((failure as AggregateError).errors[0]).toBeUndefined()
+    expect((failure as AggregateError).errors[1]).toMatchObject({ code: 'DB_CONTRACT_SENTINEL_LEAK_UNPROVEN' })
+    expect(f.events).toContain('ROLLBACK')
+    expect(f.events).toContain('release')
+  })
+
+  it('fails suite teardown when 404 deletion proof is unavailable', async () => {
+    const f = fixture()
+    const run = createTransactionalDbSuite('accept-path', {
+      ...f.deps,
+      deleteBranch: async () => { throw new Error('raw-control-plane-body') },
+    })
+    void run
+    await f.setup()
+
+    await expect(f.teardown()).rejects.toEqual(
+      expect.objectContaining({ code: 'DB_CONTRACT_BRANCH_DELETION_UNPROVEN' }),
+    )
+  })
+
+  it('fails closed when a test runs before suite setup', async () => {
+    const f = fixture()
+    const run = createTransactionalDbSuite('accept-path', f.deps)
+    await expect(run(async () => undefined)).rejects.toEqual(
+      new SuiteResourceError('DB_CONTRACT_SUITE_NOT_READY'),
+    )
+  })
+})
+
+describe('required branch ownership and cleanup', () => {
+  it('mints a TTL branch and recognizes only the exact current run token', async () => {
+    process.env.NEON_API_KEY = 'unit-key'
+    process.env.NEON_PROJECT_ID = 'unit-project'
+    process.env.DB_CONTRACT_RUN_TOKEN = 'run-42'
+    let requestBody: { branch?: { name?: string; expires_at?: string } } = {}
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit) => {
+      requestBody = JSON.parse(String(init.body)) as typeof requestBody
+      return {
+        ok: true,
+        status: 201,
+        json: async () => ({ branch: { id: 'secret-id' }, connection_uris: [{ connection_uri: 'secret-uri' }] }),
+      } as Response
+    }))
+
+    await createEphemeralBranch(suiteBranchPrefix('memory tier'))
+
+    expect(requestBody.branch?.expires_at).toBeTruthy()
+    expect(isCurrentRunBranchName(requestBody.branch?.name, 'run-42')).toBe(true)
+    expect(isCurrentRunBranchName(requestBody.branch?.name, 'run-4')).toBe(false)
+    expect(isCurrentRunBranchName('db-contract--run-42--memory-tier', 'run-42')).toBe(false)
+  })
+
+  it('does not alias distinct run tokens with the same leading characters', () => {
+    const first = 'abcdefghijkl-1'
+    const second = 'abcdefghijkl-2'
+    const name = `${suiteBranchPrefix('memory-tier', { DB_CONTRACT_RUN_TOKEN: first } as NodeJS.ProcessEnv)}-1700000000000-abcdef01`
+
+    expect(isCurrentRunBranchName(name, first)).toBe(true)
+    expect(isCurrentRunBranchName(name, second)).toBe(false)
+  })
+
+  it('uses the raw environment token exactly once in zero-argument cleanup proof', async () => {
+    process.env.NEON_API_KEY = 'unit-key'
+    process.env.NEON_PROJECT_ID = 'unit-project'
+    process.env.DB_CONTRACT_RUN_TOKEN = 'raw-current-run'
+    const name = `${suiteBranchPrefix('memory-tier')}-1700000000000-abcdef01`
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ branches: [{ id: 'secret-id', name }] }),
+    } as Response)))
+
+    await expect(assertCurrentRunBranchesAbsent()).rejects.toThrow(
+      'DB_CONTRACT_CURRENT_RUN_CLEANUP_INCOMPLETE',
+    )
+  })
+
+  it('requires a post-delete 404 proof', async () => {
+    process.env.NEON_API_KEY = 'unit-key'
+    process.env.NEON_PROJECT_ID = 'unit-project'
+    const statuses = [202, 200, 404]
+    const fetchMock = vi.fn(async (_url: string | URL, _init?: RequestInit) => {
+      const status = statuses.shift() ?? 404
+      return { ok: status >= 200 && status < 300, status } as Response
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await deleteEphemeralBranchStrict('secret-id', 1_000)
+
+    expect(fetchMock.mock.calls.map((call) => call[1]?.method)).toEqual(['DELETE', 'GET', 'GET'])
+  })
+
+  it('strictly deletes a retained branch when create operations fail', async () => {
+    process.env.NEON_API_KEY = 'unit-key'
+    process.env.NEON_PROJECT_ID = 'unit-project'
+    process.env.DB_CONTRACT_RUN_TOKEN = 'run-42'
+    const methods: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      methods.push(method)
+      if (method === 'POST') return {
+        ok: true,
+        status: 201,
+        json: async () => ({
+          branch: { id: 'secret-branch' },
+          connection_uris: [{ connection_uri: 'secret-uri' }],
+          operations: [{ id: 'secret-operation', action: 'secret-action', status: 'failed' }],
+        }),
+      } as Response
+      if (method === 'DELETE') return { ok: true, status: 202 } as Response
+      return { ok: false, status: 404 } as Response
+    }))
+
+    await expect(createEphemeralBranch(suiteBranchPrefix('failed-create'))).rejects.toThrow(
+      'DB_CONTRACT_BRANCH_CREATE_INCOMPLETE',
+    )
+    expect(methods).toEqual(['POST', 'DELETE', 'GET'])
+  })
+
+  it('aggregates retained-branch create and cleanup failures without secret details', async () => {
+    process.env.NEON_API_KEY = 'unit-key'
+    process.env.NEON_PROJECT_ID = 'unit-project'
+    process.env.DB_CONTRACT_RUN_TOKEN = 'run-42'
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    vi.stubGlobal('fetch', vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      if (init?.method === 'POST') return {
+        ok: true,
+        status: 201,
+        json: async () => ({ branch: { id: 'secret-branch' } }),
+      } as Response
+      return { ok: false, status: 500, text: async () => 'raw-response-secret' } as Response
+    }))
+
+    const failure = await createEphemeralBranch(suiteBranchPrefix('failed-cleanup')).catch((error: unknown) => error)
+    expect(failure).toBeInstanceOf(AggregateError)
+    expect((failure as AggregateError).errors.map((error) => (error as { code?: string }).code)).toEqual([
+      'DB_CONTRACT_BRANCH_CREATE_INCOMPLETE',
+      'DB_CONTRACT_BRANCH_DELETION_UNPROVEN',
+    ])
+    expect(JSON.stringify(failure)).not.toMatch(/secret-branch|unit-project|raw-response-secret/)
+    expect(warning).not.toHaveBeenCalled()
+  })
+
+  it('requires an explicit authoritative branch cap', async () => {
+    process.env.NEON_API_KEY = 'unit-key'
+    process.env.NEON_PROJECT_ID = 'unit-project'
+    delete process.env.DB_CONTRACT_BRANCH_CAP
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ branches: [] }),
+    } as Response)))
+
+    await expect(preflightBranchCapacity()).rejects.toThrow('DB_CONTRACT_BRANCH_CAP_UNAVAILABLE')
+    process.env.DB_CONTRACT_BRANCH_CAP = 'unknown'
+    await expect(preflightBranchCapacity()).rejects.toThrow('DB_CONTRACT_BRANCH_CAP_UNAVAILABLE')
+    process.env.DB_CONTRACT_BRANCH_CAP = '10'
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 503 } as Response)))
+    await expect(preflightBranchCapacity()).rejects.toThrow('DB_CONTRACT_BRANCH_CAPACITY_UNAVAILABLE')
+  })
+
+  it('fails closed on credentials/reap and final teardown proves the exact run absent', async () => {
+    const base = {
+      env: {} as NodeJS.ProcessEnv,
+      reap: vi.fn(async () => ({ complete: true, scanned: 0, deleted: [], failed: [] })),
+      preflight: vi.fn(async () => undefined),
+      assertCurrentRunAbsent: vi.fn(async () => undefined),
+      makeRunToken: () => 'exact-run',
+    }
+    await expect(runRequiredSetup(base)).rejects.toThrow('DB_CONTRACT_CREDENTIALS_UNAVAILABLE')
+
+    const deps = { ...base, env: { NEON_API_KEY: 'key', NEON_PROJECT_ID: 'project' } as NodeJS.ProcessEnv }
+    const teardown = await runRequiredSetup(deps)
+    await teardown()
+    expect(deps.preflight).toHaveBeenCalledOnce()
+    expect(deps.assertCurrentRunAbsent).toHaveBeenCalledWith('exact-run')
+
+    await expect(runRequiredSetup({
+      ...deps,
+      reap: async () => ({ complete: false, scanned: 0, deleted: [], failed: [] }),
+    })).rejects.toThrow('DB_CONTRACT_STALE_REAP_INCOMPLETE')
+  })
+})

@@ -41,7 +41,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { Pool } from '@neondatabase/serverless'
 import { createDb, createSql, type Database, type Sql } from '@product-suite/db'
 
-import { createEphemeralBranch, deleteEphemeralBranch } from './neon-branch'
+import { createEphemeralBranch, deleteEphemeralBranchStrict } from './neon-branch'
 
 /** The only migration-history variants accepted by the authority contract. */
 export type NeonHistoryVariant = 'original-production' | 'repaired-bootstrap'
@@ -915,7 +915,7 @@ export async function prepareHarnessDatabase(
 }
 
 /** Seed the baseline fixture and return its ids. */
-async function seedBaseline(sql: Sql): Promise<Seed> {
+export async function seedBaseline(sql: Sql): Promise<Seed> {
   const tenantId = randomUUID()
   const userId = randomUUID()
   const teamId = randomUUID()
@@ -960,15 +960,31 @@ async function seedBaseline(sql: Sql): Promise<Seed> {
  * delete the branch — even if the body throws. The branch is fully isolated, so
  * tests never contend for shared rows and teardown is a single API call.
  */
-export async function withDbBranch<T>(body: (ctx: DbBranchContext) => Promise<T>): Promise<T> {
+export async function withDedicatedDbBranch<T>(body: (ctx: DbBranchContext) => Promise<T>): Promise<T> {
   const { branchId, connectionUri } = await createEphemeralBranch()
+  let value: T | undefined
+  let primary: unknown
+  let hasPrimary = false
   try {
     const sql = createSql(connectionUri)
     const db = createDb(connectionUri)
     await prepareHarnessDatabase(connectionUri, sql)
     const seed = await seedBaseline(sql)
-    return await body({ db, sql, seed, branchId })
-  } finally {
-    await deleteEphemeralBranch(branchId)
+    value = await body({ db, sql, seed, branchId })
+  } catch (error) {
+    primary = error
+    hasPrimary = true
   }
+  try {
+    await deleteEphemeralBranchStrict(branchId)
+  } catch {
+    const cleanup = new NeonConformanceError('BRANCH_DELETION_UNPROVEN')
+    if (hasPrimary) throw new AggregateError([primary, cleanup], 'DB_CONTRACT_TEST_AND_CLEANUP_FAILED')
+    throw cleanup
+  }
+  if (hasPrimary) throw primary
+  return value as T
 }
+
+/** Compatibility alias; topology routing moves callers to the explicit helper in A4. */
+export const withDbBranch = withDedicatedDbBranch
