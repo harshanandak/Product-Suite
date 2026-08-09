@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
   ALLOWED_REPAIRS,
+  checkHistoricalArtifacts,
   detectHistoryVariant,
   inspectRepairSemantics,
   normalizeLineEndings,
@@ -15,6 +16,19 @@ const migrationRoot = join(repoRoot, "packages", "db", "migrations");
 const bootstrapFixture = JSON.parse(readFileSync(join(import.meta.dir, "fixtures", "db-history", "bootstrap-probe.json"), "utf8"));
 const untouchedFixture = readFileSync(join(import.meta.dir, "fixtures", "db-history", "untouched-0000.sql"), "utf8");
 const manifest = JSON.parse(readFileSync(join(repoRoot, "docs", "history", "database-migrations", "manifest.json"), "utf8"));
+const retiredMeetingMigrationSurfaces = [
+  "apps/meeting-api/backend/alembic.ini",
+  "apps/meeting-api/backend/alembic/env.py",
+  "apps/meeting-api/backend/alembic/url_config.py",
+  "apps/meeting-api/backend/alembic/__tests__/env.test.py",
+  "apps/meeting-api/backend/alembic/__tests__/url_config.test.py",
+  "apps/meeting-api/backend/migrate.py",
+].map((relativePath) => join(repoRoot, relativePath));
+const canonicalMeetingDocs = [
+  "apps/meeting-api/README.md",
+  "apps/meeting-api/docs/deployment/HOSTED_FOUNDATION.md",
+  "apps/meeting-api/docs/deployment/PRODUCTION_HOSTED_LAUNCH_CHECKLIST.md",
+].map((relativePath) => join(repoRoot, relativePath));
 
 function readMigration(name) {
   return readFileSync(join(migrationRoot, name), "utf8");
@@ -96,5 +110,17 @@ describe("historical database artifacts", () => {
     expect(() => detectHistoryVariant({ "0000_stale_jamie_braddock.sql": "original", "0004_minor_lockheed.sql": "repaired" })).toThrow(/mixed/i);
     expect(() => detectHistoryVariant({ "0000_stale_jamie_braddock.sql": "fabricated", "0004_minor_lockheed.sql": "fabricated" })).toThrow(/unknown|fabricated/i);
     expect(() => detectHistoryVariant({ "0000_stale_jamie_braddock.sql": "original", "0004_minor_lockheed.sql": "original", snapshot: { id: "not-a-journal-snapshot" } })).toThrow(/snapshot/i);
+  });
+
+  test("retires executable Meeting migration surfaces while preserving manifest-verified history", () => {
+    expect(retiredMeetingMigrationSurfaces.filter(existsSync)).toEqual([]);
+    expect(checkHistoricalArtifacts({ root: repoRoot })).toMatchObject({ ok: true });
+
+    for (const docPath of canonicalMeetingDocs) {
+      const content = readFileSync(docPath, "utf8");
+      expect(content).toMatch(/Neon/i);
+      expect(content).toMatch(/Drizzle|packages[\\/]db[\\/]migrations/i);
+      expect(content).not.toMatch(/alembic(?:\s+(?:upgrade|revision))|python\s+(?:-m\s+)?migrate\.py|schema_migrations/i);
+    }
   });
 });

@@ -17,3 +17,15 @@ CI sets `PYTHONPATH=apps/meeting-api` so the copied backend package resolves wit
 - Hosted session exchange flows through `/api/auth/session/exchange` with app-owned organizations.
 - The summary-first flow is exposed through `/api/runtime-config` and the summary-first meeting routes.
 
+## Database migration authority
+
+`packages/db/migrations` is the sole supported schema and migration root. Fresh
+clones and hosted schema changes use the canonical Drizzle runner with a direct
+Neon `MIGRATION_DATABASE_URL`; application runtimes use their pooled `DATABASE_URL`.
+
+The retained Meeting migration files under
+`apps/meeting-api/backend/alembic/versions/` and
+`apps/meeting-api/backend/migrations/` are immutable historical evidence only.
+They are not a supported migration plane: do not run them, add revisions, or
+apply raw SQL from those directories.
+
