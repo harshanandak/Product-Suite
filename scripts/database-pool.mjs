@@ -1,4 +1,4 @@
-const LOCAL_DATABASE_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
+const LOCAL_DATABASE_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 
 /** Pick raw PostgreSQL only for an explicit non-production local target. */
 export function databasePoolDriver(databaseUrl, environment = "production") {

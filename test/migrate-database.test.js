@@ -4,6 +4,7 @@ import {
   applyMigrations,
   bootstrapMigrations,
   buildMigrationPlan,
+  runMigrationCli,
   verifyMigrations,
 } from "../scripts/migrate-database.mjs";
 import { provisionDatabaseRoles } from "../scripts/provision-database-roles.mjs";
@@ -17,6 +18,25 @@ const files = [
 const authority = { environment: "staging", historyVariant: "repaired-bootstrap" };
 
 describe("canonical migration runner", () => {
+  test("reports a controlled CLI failure when pool creation is unavailable", async () => {
+    const errors = [];
+    const previousExitCode = process.exitCode;
+    process.exitCode = undefined;
+    try {
+      await runMigrationCli({
+        args: ["verify", "--environment", "test", "--history-variant", "repaired-bootstrap"],
+        databaseUrl: "postgresql://postgres:secret@localhost:5432/app",
+        poolFactory: async () => { throw new Error("DATABASE_POOL_UNAVAILABLE"); },
+        writeError: (message) => errors.push(message),
+      });
+
+      expect(errors).toEqual(["migration verify failed: DATABASE_POOL_UNAVAILABLE"]);
+      expect(process.exitCode).toBe(1);
+    } finally {
+      process.exitCode = previousExitCode;
+    }
+  });
+
   test("plans an exact contiguous suffix and rejects reordered extras", () => {
     expect(buildMigrationPlan({ applied: ["0019"], declared: ["0020"], files, authority })).toMatchObject({
       ok: true,

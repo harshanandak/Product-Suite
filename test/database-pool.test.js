@@ -25,6 +25,10 @@ describe("database CLI pool selection", () => {
     expect(pool.options).toEqual({ connectionString: "postgresql://postgres:secret@127.0.0.1:5432/app" });
   });
 
+  test("uses node-postgres for an explicit non-production IPv6 loopback target", () => {
+    expect(databasePoolDriver("postgresql://postgres:secret@[::1]:5432/app", "test")).toBe("pg");
+  });
+
   test("keeps the Neon serverless pool for hosted targets", async () => {
     const imports = [];
     class FakePool {}

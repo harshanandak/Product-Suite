@@ -295,32 +295,39 @@ function parseArgs(args) {
   return options;
 }
 
-async function cli() {
-  const options = parseArgs(process.argv.slice(2));
+export async function runMigrationCli({
+  args = process.argv.slice(2),
+  databaseUrl = process.env.MIGRATION_DATABASE_URL,
+  poolFactory = createDatabasePool,
+  writeError = (message) => console.error(message),
+  writeOutput = (message) => console.log(message),
+} = {}) {
+  const options = parseArgs(args);
   if (!options?.operation || !options.historyVariant || !options.environment) {
-    console.error("usage: bun run migrate:database -- <bootstrap|apply|verify> --environment <environment> --history-variant <variant> [--expected-pending <tags>] [--expected-floor <tag>]");
+    writeError("usage: bun run migrate:database -- <bootstrap|apply|verify> --environment <environment> --history-variant <variant> [--expected-pending <tags>] [--expected-floor <tag>]");
     process.exitCode = 1;
     return;
   }
-  const url = process.env.MIGRATION_DATABASE_URL;
-  if (!url) { console.error("MIGRATION_DATABASE_URL is required"); process.exitCode = 1; return; }
+  const url = databaseUrl;
+  if (!url) { writeError("MIGRATION_DATABASE_URL is required"); process.exitCode = 1; return; }
   if (options.environment === "production") parseNeonUrl(url, "migration");
-  const pool = await createDatabasePool({ databaseUrl: url, environment: options.environment });
+  let pool;
   try {
+    pool = await poolFactory({ databaseUrl: url, environment: options.environment });
     const files = loadMigrationFiles();
     const authority = { environment: options.environment, historyVariant: options.historyVariant };
     let result;
     if (options.operation === "bootstrap") result = await bootstrapMigrations({ adapter: pool, files, declared: options.declared.length ? options.declared : files.map((file) => file.tag), authority });
     else if (options.operation === "apply") result = await applyMigrations({ adapter: pool, files, declared: options.declared, authority });
     else result = await verifyMigrations({ adapter: pool, files, declared: [], expectedFloor: options.expectedFloor, authority });
-    if (!result.ok) { console.error(`migration ${options.operation} rejected: ${result.code}`); process.exitCode = 1; return; }
-    console.log(JSON.stringify(result));
+    if (!result.ok) { writeError(`migration ${options.operation} rejected: ${result.code}`); process.exitCode = 1; return; }
+    writeOutput(JSON.stringify(result));
   } catch (error) {
-    console.error(`migration ${options.operation} failed: ${error?.message || "unknown"}`);
+    writeError(`migration ${options.operation} failed: ${error?.message || "unknown"}`);
     process.exitCode = 1;
   } finally {
-    await pool.end();
+    await pool?.end();
   }
 }
 
-if (process.argv[1] && process.argv[1].endsWith("migrate-database.mjs")) await cli();
+if (process.argv[1] && process.argv[1].endsWith("migrate-database.mjs")) await runMigrationCli();
