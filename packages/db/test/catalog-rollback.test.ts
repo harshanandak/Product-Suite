@@ -180,13 +180,36 @@ describe('0019 catalog rollback contract', () => {
       'FOREIGN KEY (tenant_id) REFERENCES other.tenants(id) ON DELETE CASCADE',
     )).not.toContain(expected)
 
-    const reconciliation = MIGRATION_SQL.slice(
-      MIGRATION_SQL.indexOf('-- These FKs were intentionally unreachable'),
-      MIGRATION_SQL.indexOf('-- Exact catalog assertions'),
-    )
-    expect(reconciliation).toMatch(/SET LOCAL search_path\s*=\s*pg_catalog;/i)
-    expect(reconciliation).toMatch(/previous_search_path\s*:=\s*current_setting\('search_path'\)/i)
-    expect(reconciliation).toMatch(/set_config\('search_path',\s*previous_search_path,\s*true\)/i)
+    const startMarker = '-- These FKs were intentionally unreachable'
+    const endMarker = '-- Exact catalog assertions'
+    const startIndex = MIGRATION_SQL.indexOf(startMarker)
+    const endIndex = MIGRATION_SQL.indexOf(endMarker)
+    expect(startIndex).toBeGreaterThanOrEqual(0)
+    expect(endIndex).toBeGreaterThan(startIndex)
+
+    const reconciliation = MIGRATION_SQL.slice(startIndex, endIndex)
+    const capturePattern = /previous_search_path\s*:=\s*current_setting\('search_path'\)/i
+    const setLocalPattern = /SET LOCAL search_path\s*=\s*pg_catalog;/i
+    const restorePattern = /set_config\('search_path',\s*previous_search_path,\s*true\)/i
+    const assertSearchPathOrder = (sql: string): void => {
+      const captureIndex = sql.search(capturePattern)
+      const setLocalIndex = sql.search(setLocalPattern)
+      const restoreIndex = sql.search(restorePattern)
+      expect(captureIndex).toBeGreaterThanOrEqual(0)
+      expect(setLocalIndex).toBeGreaterThanOrEqual(0)
+      expect(restoreIndex).toBeGreaterThanOrEqual(0)
+      expect(captureIndex).toBeLessThan(setLocalIndex)
+      expect(setLocalIndex).toBeLessThan(restoreIndex)
+    }
+
+    assertSearchPathOrder(reconciliation)
+
+    const reorderedReconciliation = [
+      "set_config('search_path', previous_search_path, true);",
+      "previous_search_path := current_setting('search_path');",
+      'SET LOCAL search_path = pg_catalog;',
+    ].join('\n')
+    expect(() => assertSearchPathOrder(reorderedReconciliation)).toThrow()
   })
 
   it('emits catalog assertions for every compatibility category', () => {
