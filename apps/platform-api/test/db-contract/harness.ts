@@ -95,7 +95,7 @@ export interface CleanupEvidence {
 
 export interface ConformanceCredentialStatus {
   status: 'READY' | 'INCOMPLETE'
-  code?: 'NEON_CREDENTIALS_UNAVAILABLE'
+  code?: 'NEON_CREDENTIALS_UNAVAILABLE' | 'REAL_NEON_PROJECT_HARNESS_UNAVAILABLE'
 }
 
 /** True when the branch-level contract tier can reach the Neon control plane. */
@@ -106,16 +106,30 @@ export function hasNeonCreds(
 }
 
 /**
- * Task 8's required lane needs an explicit production pin in addition to the
- * branch-tier credentials.  Missing credentials are INCOMPLETE, never a pass.
+ * Task 8's required lane uses `NEON_PROJECT_ID` as the production/source project
+ * and must create a distinct disposable project for the empty-root proof.
+ * Missing credentials are INCOMPLETE, never a pass.
  */
 export function conformanceCredentialStatus(
-  env: Partial<Pick<NodeJS.ProcessEnv, 'NEON_API_KEY' | 'NEON_PROJECT_ID' | 'NEON_PRODUCTION_PROJECT_ID'>> = process.env,
+  env: Partial<Pick<NodeJS.ProcessEnv, 'NEON_API_KEY' | 'NEON_PROJECT_ID'>> = process.env,
 ): ConformanceCredentialStatus {
-  if (!env.NEON_API_KEY || !env.NEON_PROJECT_ID || !env.NEON_PRODUCTION_PROJECT_ID) {
+  if (!env.NEON_API_KEY || !env.NEON_PROJECT_ID) {
     return { status: 'INCOMPLETE', code: 'NEON_CREDENTIALS_UNAVAILABLE' }
   }
   return { status: 'READY' }
+}
+
+/**
+ * The current worktree has pure safety guards but no live project-control-plane
+ * adapter. Keep the required lane merge-blocking until that adapter can create
+ * and delete a disposable project/root and a production-derived branch.
+ */
+export function requiredConformanceStatus(
+  env: Partial<Pick<NodeJS.ProcessEnv, 'NEON_API_KEY' | 'NEON_PROJECT_ID'>> = process.env,
+): ConformanceCredentialStatus {
+  const credentials = conformanceCredentialStatus(env)
+  if (credentials.status !== 'READY') return credentials
+  return { status: 'INCOMPLETE', code: 'REAL_NEON_PROJECT_HARNESS_UNAVAILABLE' }
 }
 
 /** Validate an isolated, empty root project without returning identifiers. */

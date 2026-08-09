@@ -20,6 +20,19 @@ describe('platform-api auth spine', () => {
     expect(await res.json()).toEqual({ ok: true })
   })
 
+  it('returns an opaque 503 when canonical Neon readiness is not configured', async () => {
+    const prior = process.env.DATABASE_URL
+    delete process.env.DATABASE_URL
+    try {
+      const res = await app.request('/health/ready')
+      expect(res.status).toBe(503)
+      expect(await res.json()).toEqual({ ok: false, code: 'DATABASE_URL_NOT_CONFIGURED' })
+    } finally {
+      if (prior === undefined) delete process.env.DATABASE_URL
+      else process.env.DATABASE_URL = prior
+    }
+  })
+
   it('returns 401 for /api/* without a bearer token', async () => {
     const res = await app.request('/api/me')
     expect(res.status).toBe(401)

@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "test": "vitest run",
+    "test:db-contract:required": "vitest run --config vitest.db-contract.config.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint --max-warnings 0 src"
   },

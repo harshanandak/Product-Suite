@@ -5,9 +5,10 @@ name: DB Contract
 # accept/create path is exercised over the real neon-http driver + real migrations.
 # Isolated from the Platform Web CI job on purpose.
 #
-# Requires the `NEON_API_KEY` (account API key) and `NEON_PROJECT_ID` secrets. When
-# they are absent (e.g. a fork PR that can't read secrets) the suite self-skips via
-# `describe.skipIf`, so the job stays green without ever touching a database.
+# Requires the `NEON_API_KEY` and `NEON_PROJECT_ID` secrets. `NEON_PROJECT_ID`
+# is the production/source project; the harness must create a distinct disposable
+# project for the empty-root proof. Missing credentials fail this required
+# lane closed; a green skipped job is not conformance evidence.
 
 # The tier costs ~17 min (serial ephemeral Neon branches), so both triggers carry the
 # same paths filter and DB-irrelevant PRs skip it entirely. Safe because `db-contract`
@@ -63,17 +64,17 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Report Neon credential availability
+      - name: Require Neon credential availability
         shell: bash
         env:
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
           NEON_PROJECT_ID: ${{ secrets.NEON_PROJECT_ID }}
         run: |
-          if [ -n "$NEON_API_KEY" ] && [ -n "$NEON_PROJECT_ID" ]; then
-            echo "Neon credentials present — db-contract suite will run against ephemeral branches."
-          else
-            echo "::notice::NEON_API_KEY/NEON_PROJECT_ID not set — db-contract suite self-skips (no real-DB run)."
+          if [ -z "$NEON_API_KEY" ] || [ -z "$NEON_PROJECT_ID" ]; then
+            echo "::error::Neon conformance credentials are required; refusing a silently skipped real-DB lane."
+            exit 1
           fi
+          echo "Neon credentials present — db-contract suite will run against isolated test resources."
 
       - name: Run db-contract suite (ephemeral Neon branch per test)
         working-directory: apps/platform-api
@@ -81,4 +82,5 @@ jobs:
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
           NEON_PROJECT_ID: ${{ secrets.NEON_PROJECT_ID }}
           NEON_PARENT_BRANCH_ID: ${{ secrets.NEON_PARENT_BRANCH_ID }}
+          DB_CONTRACT_REQUIRED: "1"
         run: bunx vitest run --config vitest.db-contract.config.ts

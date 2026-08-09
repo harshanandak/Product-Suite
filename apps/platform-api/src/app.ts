@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 
+import { databaseReadiness } from './db'
 import { clerkAuth, type AuthedEnv } from './middleware/clerk-auth'
 import { agentChatRoutes } from './routes/agent-chat'
 import { agentKbRoutes } from './routes/agent-kb'
@@ -27,6 +28,11 @@ import { workItemsRoutes } from './routes/work-items'
 const app = new Hono<AuthedEnv>()
 
 app.get('/health', (c) => c.json({ ok: true }))
+
+app.get('/health/ready', async (c) => {
+  const readiness = await databaseReadiness(c.env ?? {})
+  return c.json(readiness, readiness.ok ? 200 : 503)
+})
 
 app.use('/api/*', clerkAuth())
 

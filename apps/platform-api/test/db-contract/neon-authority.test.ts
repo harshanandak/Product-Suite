@@ -6,6 +6,7 @@ import {
   assertProductionDerivedBranch,
   conformanceCredentialStatus,
   hasNeonCreds,
+  requiredConformanceStatus,
   type CleanupEvidence,
   type DisposableTestProject,
   type ProductionDerivedBranch,
@@ -88,5 +89,10 @@ describe('Neon authority conformance guards', () => {
   it('reports the real lane as INCOMPLETE without control-plane credentials', () => {
     expect(hasNeonCreds({})).toBe(false)
     expect(conformanceCredentialStatus({})).toEqual({ status: 'INCOMPLETE', code: 'NEON_CREDENTIALS_UNAVAILABLE' })
+  })
+
+  it('fails the required real lane instead of silently skipping when requested', () => {
+    if (process.env.DB_CONTRACT_REQUIRED !== '1') return
+    expect(requiredConformanceStatus(process.env)).toEqual({ status: 'READY' })
   })
 })
