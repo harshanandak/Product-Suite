@@ -1,4 +1,5 @@
 import { EXPECTED_TOTAL_ASSERTIONS, resolveTestId } from './topology'
+import { recordCounts, recordPhaseDuration, telemetryPathFromEnv } from './telemetry'
 
 export const DB_CONTRACT_ZERO_TESTS = 'DB_CONTRACT_ZERO_TESTS' as const
 export const DB_CONTRACT_SKIPPED = 'DB_CONTRACT_SKIPPED' as const
@@ -71,6 +72,14 @@ const fail = (code: DbContractFailureCode): never => {
  * stable diagnosis while still failing closed.
  */
 export function assertDbContractEvidence(evidence: DbContractEvidence): ValidatedDbContractEvidence {
+  const validated = assertDbContractPreliminaryEvidence(evidence)
+  if (evidence.cleanupComplete !== true) fail(DB_CONTRACT_INCOMPLETE_CLEANUP)
+  return { ...validated, cleanupComplete: true }
+}
+
+export function assertDbContractPreliminaryEvidence(
+  evidence: DbContractEvidence,
+): Omit<ValidatedDbContractEvidence, 'cleanupComplete'> {
   const collected = count(evidence.collected)
   const skipped = count(evidence.skipped)
   const todo = count(evidence.todo)
@@ -93,8 +102,6 @@ export function assertDbContractEvidence(evidence: DbContractEvidence): Validate
     if (exactHead !== evidence.expectedExactHead.trim()) fail(DB_CONTRACT_METADATA)
   }
 
-  if (evidence.cleanupComplete !== true) fail(DB_CONTRACT_INCOMPLETE_CLEANUP)
-
   return {
     collected,
     passed,
@@ -102,7 +109,6 @@ export function assertDbContractEvidence(evidence: DbContractEvidence): Validate
     todo,
     pending,
     filtered,
-    cleanupComplete: true,
   }
 }
 
@@ -126,6 +132,7 @@ export interface ReporterTestResultLike {
 
 /** Minimal structural reporter contract; avoids pinning this helper to Vitest internals. */
 export interface DbContractReporter {
+  onTestRunStart?: () => void
   onTestCaseResult?: (testCase: ReporterTestCaseLike, result?: ReporterTestResultLike) => void
   onTestRunEnd?: () => void
 }
@@ -147,6 +154,7 @@ export default class ZeroSkipReporter implements DbContractReporter {
   private pending = 0
   private filtered = 0
   private unclassified: string[] = []
+  private runStartedAt = performance.now()
 
   getEvidenceSnapshot(): Pick<DbContractEvidence, 'collected' | 'passed' | 'skipped' | 'todo' | 'pending' | 'filtered'> {
     return {
@@ -176,12 +184,28 @@ export default class ZeroSkipReporter implements DbContractReporter {
     if (!resolved) this.unclassified.push('unclassified')
   }
 
+  onTestRunStart(): void {
+    this.runStartedAt = performance.now()
+  }
+
   onTestRunEnd(): void {
     // Vitest does not emit events for filtered tests. The locked count catches
     // that case; this explicit field documents the invariant for unit adapters.
     this.filtered = Math.max(0, EXPECTED_TOTAL_ASSERTIONS - this.collected)
 
-    assertDbContractEvidence({
+    const path = telemetryPathFromEnv()
+    recordPhaseDuration(path, 'test', performance.now() - this.runStartedAt)
+    recordCounts(path, {
+      collected: this.collected,
+      passed: this.passed,
+      skipped: this.skipped,
+      todo: this.todo,
+      pending: this.pending,
+      filtered: this.filtered,
+      unclassified: this.unclassified.length,
+    })
+
+    assertDbContractPreliminaryEvidence({
       collected: this.collected,
       passed: this.passed,
       skipped: this.skipped,
@@ -190,8 +214,8 @@ export default class ZeroSkipReporter implements DbContractReporter {
       filtered: this.filtered,
       unclassified: this.unclassified,
       exactHead: process.env.DB_CONTRACT_EXACT_HEAD ?? process.env.GITHUB_SHA,
-      cleanupComplete: process.env.DB_CONTRACT_CLEANUP_COMPLETE === 'true',
-      expectedExactHead: process.env.GITHUB_SHA,
+      cleanupComplete: false,
+      expectedExactHead: process.env.DB_CONTRACT_EXACT_HEAD,
     })
   }
 }

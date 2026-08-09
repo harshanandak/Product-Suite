@@ -107,6 +107,10 @@ const dbContractWorkflowPath = join(
   "db-contract.yml",
 );
 const dbContractWorkflow = readFileSync(dbContractWorkflowPath, "utf8");
+const dbContractTelemetry = readFileSync(
+  join(rootDir, "apps", "platform-api", "test", "db-contract", "telemetry.ts"),
+  "utf8",
+);
 const lefthookConfig = readFileSync(join(rootDir, "lefthook.yml"), "utf8");
 
 describe("repo tooling", () => {
@@ -622,6 +626,45 @@ describe("repo tooling", () => {
     expect(dbContractWorkflow).toContain("DB contract N/A: no authority-relevant files changed.");
     expect(dbContractWorkflow).toContain("steps.relevance.outputs.run == 'true'");
     expect(dbContractWorkflow).not.toContain("paths-ignore");
+  });
+
+  test("db-contract locks exact-head execution and publishes sanitized teardown evidence", () => {
+    const workflow = Bun.YAML.parse(dbContractWorkflow);
+    const steps = workflow.jobs["db-contract"].steps;
+    const install = steps.find((step) => step.name === "Install dependencies");
+    const requiredRun = steps.find((step) => step.name === "Run required DB-contract suite");
+    const exactHead = steps.find((step) => step.name === "Verify exact checkout");
+    const summary = steps.find((step) => step.name === "Publish DB-contract summary");
+    const artifact = steps.find((step) => step.name === "Upload DB-contract telemetry");
+
+    expect(dbContractWorkflow).not.toContain("bunx");
+    expect(install.run).toBe("bun install --frozen-lockfile");
+    expect(steps.find((step) => step.name === "Checkout").with.ref).toBe(
+      "${{ github.event.pull_request.head.sha || github.sha }}",
+    );
+    expect(exactHead.run).toContain('git rev-parse HEAD');
+    expect(exactHead.run).toContain('DB_CONTRACT_EXACT_HEAD');
+    expect(requiredRun.run).toBe("bun run --cwd apps/platform-api test:db-contract:required");
+    expect(requiredRun.env.VITEST_SKIP_INSTALL_CHECKS).toBe("1");
+    expect(requiredRun.env.DB_CONTRACT_BRANCH_CAP).toBe("${{ vars.DB_CONTRACT_BRANCH_CAP }}");
+    expect(requiredRun.env.NEON_API_KEY).toBe("${{ secrets.NEON_API_KEY }}");
+    expect(requiredRun.env.NEON_PROJECT_ID).toBe("${{ secrets.NEON_PROJECT_ID }}");
+    expect(requiredRun.env.DB_CONTRACT_REQUIRED).toBe("1");
+    expect(workflow.jobs["db-contract"].env.NEON_API_KEY).toBeUndefined();
+    for (const step of steps.filter((step) => step !== requiredRun)) {
+      expect(JSON.stringify(step)).not.toContain("secrets.NEON_");
+    }
+    expect(summary.run).toContain("test:db-contract:summary");
+    expect(dbContractTelemetry).toContain("Zero skip:");
+    expect(dbContractTelemetry).toContain("Cleanup:");
+    expect(dbContractTelemetry).toContain("finalizeTelemetry(path)");
+    expect(artifact.uses).toBe("actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f");
+    expect(platformApiPackageJson.scripts["test:db-contract:list"]).toBe(
+      "vitest list --config vitest.db-contract.config.ts",
+    );
+    expect(platformApiPackageJson.scripts["test:db-contract:required"]).toBe(
+      "vitest run --config vitest.db-contract.config.ts",
+    );
   });
 
   test("shared root dependency changes trigger the web and backend CI workflows", () => {

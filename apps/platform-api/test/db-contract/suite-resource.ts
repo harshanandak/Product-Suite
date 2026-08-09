@@ -5,6 +5,7 @@ import { afterAll, beforeAll } from 'vitest'
 import { prepareHarnessDatabase, seedBaseline, withDedicatedDbBranch, type Seed } from './harness'
 import { createEphemeralBranch, deleteEphemeralBranchStrict, suiteBranchPrefix, type EphemeralBranch } from './neon-branch'
 import { createTransactionSql, type PinnedPoolClient, type TransactionSql } from './transaction-sql'
+import { measurePhase, telemetryPathFromEnv, type TelemetryPhase } from './telemetry'
 
 export { withDedicatedDbBranch }
 
@@ -39,6 +40,7 @@ export interface TransactionalDbDependencies {
   seed(sql: TransactionSql): Promise<Seed>
   observeSentinelAbsent(connectionUri: string, tenantId: string): Promise<void>
   deleteBranch(branchId: string): Promise<void>
+  measure?<T>(phase: TelemetryPhase, operation: () => Promise<T>): Promise<T>
 }
 
 async function connectPinned(connectionUri: string): Promise<TransactionClient> {
@@ -77,6 +79,7 @@ const defaultDependencies: TransactionalDbDependencies = {
   seed: async (sql) => seedBaseline(sql as unknown as Sql),
   observeSentinelAbsent,
   deleteBranch: deleteEphemeralBranchStrict,
+  measure: (phase, operation) => measurePhase(telemetryPathFromEnv(), phase, operation),
 }
 
 function stableCleanupError(code: string): SuiteResourceError {
@@ -98,14 +101,16 @@ export function createTransactionalDbSuite(
   dependencies: TransactionalDbDependencies = defaultDependencies,
 ): TransactionalDbRunner {
   let branch: EphemeralBranch | undefined
+  const measured = <T>(phase: TelemetryPhase, operation: () => Promise<T>): Promise<T> =>
+    dependencies.measure ? dependencies.measure(phase, operation) : operation()
 
   dependencies.registerBeforeAll(async () => {
-    branch = await dependencies.createBranch(dependencies.branchPrefix(suiteName))
+    branch = await measured('create', () => dependencies.createBranch(dependencies.branchPrefix(suiteName)))
     try {
-      await dependencies.prepare(branch.connectionUri)
+      await measured('prepare', () => dependencies.prepare(branch!.connectionUri))
     } catch (error) {
       try {
-        await dependencies.deleteBranch(branch.branchId)
+        await measured('delete', () => dependencies.deleteBranch(branch!.branchId))
       } catch {
         throwCombined(error, true, [stableCleanupError('DB_CONTRACT_BRANCH_DELETION_UNPROVEN')])
       }
@@ -116,7 +121,7 @@ export function createTransactionalDbSuite(
   dependencies.registerAfterAll(async () => {
     if (!branch) return
     try {
-      await dependencies.deleteBranch(branch.branchId)
+      await measured('delete', () => dependencies.deleteBranch(branch!.branchId))
     } catch {
       throw stableCleanupError('DB_CONTRACT_BRANCH_DELETION_UNPROVEN')
     } finally {
@@ -137,20 +142,20 @@ export function createTransactionalDbSuite(
     try {
       await client.query('BEGIN')
       await client.query('SAVEPOINT db_contract_test_root')
-      seed = await dependencies.seed(sql)
+      seed = await measured('seed', () => dependencies.seed(sql))
       value = await body({ sql, seed, diagnostics: { topology: 'transactional-suite' } })
     } catch (error) {
       primary = error
       hasPrimary = true
     } finally {
       try {
-        await client.query('ROLLBACK')
+        await measured('rollback', async () => { await client.query('ROLLBACK') })
       } catch {
         cleanup.push(stableCleanupError('DB_CONTRACT_ROLLBACK_UNPROVEN'))
       }
       if (seed) {
         try {
-          await dependencies.observeSentinelAbsent(branch.connectionUri, seed.tenantId)
+          await measured('observer', () => dependencies.observeSentinelAbsent(branch!.connectionUri, seed!.tenantId))
         } catch {
           cleanup.push(stableCleanupError('DB_CONTRACT_SENTINEL_LEAK_UNPROVEN'))
         }
