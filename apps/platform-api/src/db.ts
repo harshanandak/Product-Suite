@@ -88,9 +88,7 @@ export async function databaseReadiness(
     const sql = createSql(url)
     const result = query
       ? await query(sql)
-      : await (sql as unknown as { query: (text: string) => Promise<unknown> }).query(
-          `select hash from drizzle.__drizzle_migrations where hash = '${CANONICAL_REVISION_HASH}' limit 1`,
-        )
+      : await sql`select hash from drizzle.__drizzle_migrations where hash = ${CANONICAL_REVISION_HASH} limit 1`
     const rows = (result as { rows?: unknown[] })?.rows ?? (Array.isArray(result) ? result : [])
     const hasCanonicalRevision = rows.some((row) => (row as { hash?: unknown })?.hash === CANONICAL_REVISION_HASH)
     if (!hasCanonicalRevision) return { ok: false, code: 'DATABASE_REVISION_NOT_READY' }

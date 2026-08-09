@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const { createSql } = vi.hoisted(() => ({ createSql: vi.fn() }))
 vi.mock('@product-suite/db', () => ({ createSql }))
 
-import { databaseReadiness, parseRuntimeNeonUrl, sqlFrom } from './db'
+import { CANONICAL_REVISION_HASH, databaseReadiness, parseRuntimeNeonUrl, sqlFrom } from './db'
 
 describe('sqlFrom', () => {
   const original = process.env.DATABASE_URL
@@ -80,6 +80,25 @@ describe('runtime Neon authority and readiness', () => {
       ] }),
     )
     expect(laterRevision.ok).toBe(true)
+  })
+
+  it('uses the default Neon tagged-template client to probe the canonical floor', async () => {
+    const sql = vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      expect(strings.join('?')).toBe('select hash from drizzle.__drizzle_migrations where hash = ? limit 1')
+      expect(values).toEqual([CANONICAL_REVISION_HASH])
+      return [{ hash: CANONICAL_REVISION_HASH }]
+    })
+    createSql.mockReturnValue(sql)
+
+    await expect(databaseReadiness({
+      DATABASE_URL: 'postgresql://runtime:secret@ep-cool-fire-123456-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require',
+    })).resolves.toEqual({
+      ok: true,
+      provider: 'neon',
+      schema: 'public',
+      revision: '0019_neon_authority_reconciliation',
+    })
+    expect(sql).toHaveBeenCalledOnce()
   })
 
   it('redacts missing configuration and query failures', async () => {
