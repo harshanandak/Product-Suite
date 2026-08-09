@@ -2,12 +2,12 @@ import { Pool } from '@neondatabase/serverless'
 import { createSql, type Sql } from '@product-suite/db'
 import { afterAll, beforeAll } from 'vitest'
 
-import { prepareHarnessDatabase, seedBaseline, withDedicatedDbBranch, type Seed } from './harness'
+import { prepareHarnessDatabase, seedBaseline, type Seed } from './harness'
 import { createEphemeralBranch, deleteEphemeralBranchStrict, suiteBranchPrefix, type EphemeralBranch } from './neon-branch'
 import { createTransactionSql, type PinnedPoolClient, type TransactionSql } from './transaction-sql'
 import { measurePhase, telemetryPathFromEnv, type TelemetryPhase } from './telemetry'
 
-export { withDedicatedDbBranch }
+export { withDedicatedDbBranch } from './harness'
 
 export class SuiteResourceError extends Error {
   readonly code: string

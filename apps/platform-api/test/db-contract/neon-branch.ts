@@ -49,9 +49,9 @@ export const STALE_BRANCH_MAX_AGE_MS = 30 * 60 * 1000
  * with the same prefix (e.g. `db-contract-base` used as a parent) can never match
  * and can never be deleted.
  */
-const LEGACY_EPHEMERAL_BRANCH_NAME_RE = new RegExp(`^${TEST_BRANCH_PREFIX}-\\d+-[0-9a-f]{8}$`)
+const LEGACY_EPHEMERAL_BRANCH_NAME_RE = new RegExp(String.raw`^${TEST_BRANCH_PREFIX}-\d+-[0-9a-f]{8}$`)
 const EPHEMERAL_BRANCH_NAME_RE = new RegExp(
-  `^${TEST_BRANCH_PREFIX}--[0-9a-f]{16}--[a-z0-9][a-z0-9-]{0,7}-\\d+-[0-9a-f]{8}$`,
+  String.raw`^${TEST_BRANCH_PREFIX}--[0-9a-f]{16}--[a-z0-9][a-z0-9-]{0,7}-\d+-[0-9a-f]{8}$`,
 )
 
 /** True iff `name` is one this harness's `createEphemeralBranch` could have produced. */
@@ -62,7 +62,12 @@ export function isEphemeralTestBranchName(name: string | undefined): boolean {
 }
 
 function safeNamePart(value: string, fallback: string): string {
-  const safe = value.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 8)
+  const normalized = value.toLowerCase().replace(/[^a-z0-9-]+/g, '-')
+  let start = 0
+  let end = normalized.length
+  while (normalized[start] === '-') start += 1
+  while (end > start && normalized[end - 1] === '-') end -= 1
+  const safe = normalized.slice(start, end).slice(0, 8)
   return safe || fallback
 }
 

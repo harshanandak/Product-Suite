@@ -153,7 +153,7 @@ export default class ZeroSkipReporter implements DbContractReporter {
   private todo = 0
   private pending = 0
   private filtered = 0
-  private unclassified: string[] = []
+  private readonly unclassified: string[] = []
   private runStartedAt = performance.now()
 
   getEvidenceSnapshot(): Pick<DbContractEvidence, 'collected' | 'passed' | 'skipped' | 'todo' | 'pending' | 'filtered'> {

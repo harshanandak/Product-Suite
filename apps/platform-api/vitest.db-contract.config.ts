@@ -1,15 +1,7 @@
 import { defineConfig, type ViteUserConfig } from 'vitest/config'
 
 const DB_CONTRACT_INCLUDE = [
-  'test/db-contract/accept-path.test.ts',
-  'test/db-contract/baseline.test.ts',
-  'test/db-contract/collaboration.test.ts',
-  'test/db-contract/meeting-ingest.test.ts',
-  'test/db-contract/memory-curator.test.ts',
-  'test/db-contract/memory-tier.test.ts',
-  'test/db-contract/neon-authority.test.ts',
-  'test/db-contract/reap.test.ts',
-  'test/db-contract/role-privileges.test.ts',
+  'test/db-contract/{accept-path,baseline,collaboration,meeting-ingest,memory-curator,memory-tier,neon-authority,reap,role-privileges}.test.ts',
 ] as const
 
 export function createDbContractVitestConfig(): ViteUserConfig {

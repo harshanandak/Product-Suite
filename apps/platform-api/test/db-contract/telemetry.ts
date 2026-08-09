@@ -83,63 +83,68 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
 const hasExactKeys = (value: Record<string, unknown>, keys: readonly string[]): boolean => {
-  const actual = Object.keys(value).sort()
-  const expected = [...keys].sort()
+  const actual = Object.keys(value).sort((left, right) => left.localeCompare(right))
+  const expected = [...keys].sort((left, right) => left.localeCompare(right))
   return actual.length === expected.length && actual.every((key, index) => key === expected[index])
 }
 
 const isSafeInteger = (value: unknown, minimum = 0): value is number =>
   typeof value === 'number' && Number.isSafeInteger(value) && value >= minimum
 
-function assertTelemetry(value: unknown): asserts value is DbContractTelemetry {
-  if (!isObject(value)) fail()
-  if (!hasExactKeys(value, TOP_LEVEL_KEYS)) fail()
-  const record = value
+function assertTelemetryHeader(record: Record<string, unknown>): void {
   if (record.schemaVersion !== TELEMETRY_SCHEMA_VERSION || record.topologyVersion !== TOPOLOGY_VERSION) fail()
   if (typeof record.exactHead !== 'string' || !/^[0-9a-f]{40}$/i.test(record.exactHead)) fail()
   if (!isSafeInteger(record.suiteFiles, 1) || !isSafeInteger(record.expectedTests, 1)) fail()
   if (!isSafeInteger(record.concurrency, 1) || record.concurrency > 3) fail()
+}
 
-  if (record.counts !== null) {
-    if (!isObject(record.counts)) fail()
-    if (!hasExactKeys(record.counts, COUNT_KEYS)) fail()
-    const counts = record.counts
-    for (const key of COUNT_KEYS.slice(0, -1)) {
-      if (!isSafeInteger(counts[key])) fail()
-    }
-    if (typeof counts.zeroSkip !== 'boolean') fail()
+function assertTelemetryCounts(value: unknown): void {
+  if (value === null) return
+  if (!isObject(value) || !hasExactKeys(value, COUNT_KEYS)) fail()
+  for (const key of COUNT_KEYS.slice(0, -1)) {
+    if (!isSafeInteger(value[key])) fail()
   }
+  if (typeof value.zeroSkip !== 'boolean') fail()
+}
 
-  if (!isObject(record.phases)) fail()
-  for (const [phase, evidenceValue] of Object.entries(record.phases)) {
+function assertTelemetryPhases(value: unknown): void {
+  if (!isObject(value)) fail()
+  for (const [phase, evidenceValue] of Object.entries(value)) {
     if (!(TELEMETRY_PHASES as readonly string[]).includes(phase)) fail()
-    if (!isObject(evidenceValue)) fail()
-    if (!hasExactKeys(evidenceValue, ['count', 'durationMs'])) fail()
-    const evidence = evidenceValue
-    if (!isSafeInteger(evidence.count, 1) || !isSafeInteger(evidence.durationMs)) fail()
+    if (!isObject(evidenceValue) || !hasExactKeys(evidenceValue, ['count', 'durationMs'])) fail()
+    if (!isSafeInteger(evidenceValue.count, 1) || !isSafeInteger(evidenceValue.durationMs)) fail()
   }
+}
 
-  if (!isObject(record.cleanup)) fail()
-  if (!hasExactKeys(record.cleanup, ['complete', 'proof'])) fail()
-  const cleanup = record.cleanup
-  if (typeof cleanup.complete !== 'boolean') fail()
-  if (cleanup.proof !== 'not-proven' && cleanup.proof !== 'current-run-absent') fail()
-  if (cleanup.complete !== (cleanup.proof === 'current-run-absent')) fail()
+function assertTelemetryCleanup(value: unknown): void {
+  if (!isObject(value) || !hasExactKeys(value, ['complete', 'proof'])) fail()
+  if (typeof value.complete !== 'boolean') fail()
+  if (value.proof !== 'not-proven' && value.proof !== 'current-run-absent') fail()
+  if (value.complete !== (value.proof === 'current-run-absent')) fail()
+}
 
-  if (record.branchCapacity !== null) {
-    if (!isObject(record.branchCapacity)) fail()
-    if (!hasExactKeys(record.branchCapacity, ['configured', 'available'])) fail()
-    const capacity = record.branchCapacity
-    if (!isSafeInteger(capacity.configured, 1) || !isSafeInteger(capacity.available)) fail()
-    if (capacity.available > capacity.configured) fail()
-  }
+function assertTelemetryCapacity(value: unknown): void {
+  if (value === null) return
+  if (!isObject(value) || !hasExactKeys(value, ['configured', 'available'])) fail()
+  if (!isSafeInteger(value.configured, 1) || !isSafeInteger(value.available)) fail()
+  if (value.available > value.configured) fail()
+}
 
-  if (!isObject(record.rateLimit)) fail()
-  if (!hasExactKeys(record.rateLimit, ['result', 'stableCount'])) fail()
-  const rateLimit = record.rateLimit
-  if (rateLimit.result !== 'stable' && rateLimit.result !== 'unknown') fail()
-  if (rateLimit.stableCount !== null && !isSafeInteger(rateLimit.stableCount)) fail()
-  if (rateLimit.result === 'unknown' && rateLimit.stableCount !== null) fail()
+function assertTelemetryRateLimit(value: unknown): void {
+  if (!isObject(value) || !hasExactKeys(value, ['result', 'stableCount'])) fail()
+  if (value.result !== 'stable' && value.result !== 'unknown') fail()
+  if (value.stableCount !== null && !isSafeInteger(value.stableCount)) fail()
+  if (value.result === 'unknown' && value.stableCount !== null) fail()
+}
+
+function assertTelemetry(value: unknown): asserts value is DbContractTelemetry {
+  if (!isObject(value) || !hasExactKeys(value, TOP_LEVEL_KEYS)) fail()
+  assertTelemetryHeader(value)
+  assertTelemetryCounts(value.counts)
+  assertTelemetryPhases(value.phases)
+  assertTelemetryCleanup(value.cleanup)
+  assertTelemetryCapacity(value.branchCapacity)
+  assertTelemetryRateLimit(value.rateLimit)
 }
 
 export const telemetryPathFromEnv = (): string =>
@@ -262,8 +267,8 @@ export function recordCleanupComplete(path: string): void {
 
 export function finalizeTelemetry(path: string): DbContractTelemetry {
   const telemetry = readTelemetry(path)
-  if (!telemetry.counts || telemetry.counts.collected !== EXPECTED_TOTAL_ASSERTIONS
-    || telemetry.counts.passed !== EXPECTED_TOTAL_ASSERTIONS || !telemetry.counts.zeroSkip) {
+  if (telemetry.counts?.collected !== EXPECTED_TOTAL_ASSERTIONS
+    || telemetry.counts?.passed !== EXPECTED_TOTAL_ASSERTIONS || !telemetry.counts?.zeroSkip) {
     fail('DB_CONTRACT_TELEMETRY_COUNTS_INCOMPLETE')
   }
   if (!telemetry.branchCapacity) fail('DB_CONTRACT_TELEMETRY_CAPACITY_INCOMPLETE')

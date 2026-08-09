@@ -135,7 +135,10 @@ describe('db-contract topology lock', () => {
     try {
       process.env.DB_CONTRACT_LIST_ONLY = '1'
       const listConfig = createDbContractVitestConfig()
-      expect(listConfig.test?.include).toHaveLength(9)
+      expect(listConfig.test?.include).toEqual([
+        'test/db-contract/{accept-path,baseline,collaboration,meeting-ingest,memory-curator,memory-tier,neon-authority,reap,role-privileges}.test.ts',
+      ])
+      expect(listConfig.test?.include?.every((pattern) => !pattern.includes('\\'))).toBe(true)
       expect(listConfig.test?.fileParallelism).toBe(false)
       expect(listConfig.test?.maxWorkers).toBe(1)
       expect(listConfig.test?.maxConcurrency).toBe(1)
