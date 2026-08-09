@@ -20,8 +20,8 @@ const authority = { environment: "staging", historyVariant: "repaired-bootstrap"
 describe("canonical migration runner", () => {
   test("reports a controlled CLI failure when pool creation is unavailable", async () => {
     const errors = [];
-    const previousExitCode = process.exitCode;
-    process.exitCode = undefined;
+    const previousExitCode = process.exitCode ?? 0;
+    process.exitCode = 0;
     try {
       await runMigrationCli({
         args: ["verify", "--environment", "test", "--history-variant", "repaired-bootstrap"],
