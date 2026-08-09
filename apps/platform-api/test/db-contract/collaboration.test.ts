@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 
 import { appendConversationEvent, listConversationEvents } from '../../src/collaboration/repository'
-import { hasNeonCreds, query, withDbBranch } from './harness'
+import { hasNeonCreds, query, withDedicatedDbBranch } from './harness'
 
 const DB_CONTRACT_TIMEOUT_MS = 180_000
 
@@ -12,7 +12,7 @@ describe.skipIf(!hasNeonCreds())(
   { timeout: DB_CONTRACT_TIMEOUT_MS },
   () => {
     it('enforces idempotency, ordering, cursor, ACL, references, links, archive, and immutability', async () => {
-      await withDbBranch(async ({ sql, seed }) => {
+      await withDedicatedDbBranch(async ({ sql, seed }) => {
         const actorId = randomUUID()
         const conversationId = randomUUID()
         await query(

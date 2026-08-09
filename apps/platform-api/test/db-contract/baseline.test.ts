@@ -2,10 +2,13 @@ import { randomUUID } from 'node:crypto'
 
 import { describe, expect, it } from 'vitest'
 
+import type { Sql } from '@product-suite/db'
+
 import { applyProposal } from '../../src/proposals/apply'
 import { createProposal, getProposalScoped } from '../../src/proposals/repository'
 
-import { hasNeonCreds, query, withDbBranch } from './harness'
+import { hasNeonCreds, query, type Seed, withDedicatedDbBranch } from './harness'
+import { withTransactionalDb } from './suite-resource'
 
 /**
  * Lane B baseline tests (1, 10, 11, 12) of the atomic-accept wave. These exercise
@@ -25,12 +28,16 @@ import { hasNeonCreds, query, withDbBranch } from './harness'
  */
 const DB_CONTRACT_TIMEOUT_MS = 180_000
 
+type TransactionalRunner = <T>(body: (context: { sql: Sql; seed: Seed }) => Promise<T>) => Promise<T>
+
 describe.skipIf(!hasNeonCreds())(
   'db-contract: baseline accept path (real Neon branch)',
   { timeout: DB_CONTRACT_TIMEOUT_MS },
   () => {
+  const runTransactionalDb = withTransactionalDb('baseline') as unknown as TransactionalRunner
+
   it('1: create-with-defaults persists the resolved team + default status ids', async () => {
-    await withDbBranch(async ({ sql, seed }) => {
+    await runTransactionalDb(async ({ sql, seed }) => {
       // A create proposal that omits team_id and status_id — the accept path must
       // resolve the sole team and its default (Backlog) status server-side.
       const proposal = await createProposal(sql, {
@@ -69,7 +76,7 @@ describe.skipIf(!hasNeonCreds())(
   })
 
   it('10: the full migration chain applies cleanly on a fresh branch (no schema drift)', async () => {
-    await withDbBranch(async ({ sql }) => {
+    await withDedicatedDbBranch(async ({ sql }) => {
       // Every workboard table the accept path touches (or that a rollup reads) exists.
       const tables = await query<{ table_name: string }>(
         sql,
@@ -111,7 +118,7 @@ describe.skipIf(!hasNeonCreds())(
   })
 
   it('11: accepting a proposal from another tenant → not_found (route maps to 404)', async () => {
-    await withDbBranch(async ({ sql, seed }) => {
+    await runTransactionalDb(async ({ sql, seed }) => {
       // A second tenant with its own run + proposal, invisible to the seed tenant.
       const otherTenant = randomUUID()
       const otherRun = randomUUID()
@@ -148,7 +155,7 @@ describe.skipIf(!hasNeonCreds())(
   })
 
   it('12: a non-create proposal with no target_id terminally fails (invalid)', async () => {
-    await withDbBranch(async ({ sql, seed }) => {
+    await runTransactionalDb(async ({ sql, seed }) => {
       // An update names no target — a permanent structural failure, not a retryable one.
       const proposal = await createProposal(sql, {
         tenant_id: seed.tenantId,

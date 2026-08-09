@@ -2,13 +2,16 @@ import { randomUUID } from 'node:crypto'
 
 import { describe, expect, it, vi } from 'vitest'
 
+import type { Sql } from '@product-suite/db'
+
 import { createMemory, supersedeMemory } from '../../src/domain/memories'
 import { createWorkItem } from '../../src/domain/work-items'
 import { applyProposal } from '../../src/proposals/apply'
 import { createProposal, getProposalScoped } from '../../src/proposals/repository'
 import type { ActorContext } from '../../src/provenance/record-write'
 
-import { hasNeonCreds, query, withDbBranch } from './harness'
+import { hasNeonCreds, query, type Seed, withDedicatedDbBranch } from './harness'
+import { withTransactionalDb } from './suite-resource'
 
 /**
  * Lane A atomic-accept tests (2–9) of the atomic-accept wave — the real-DB half of the
@@ -24,6 +27,8 @@ import { hasNeonCreds, query, withDbBranch } from './harness'
  */
 const DB_CONTRACT_TIMEOUT_MS = 180_000
 
+type TransactionalRunner = <T>(body: (context: { sql: Sql; seed: Seed }) => Promise<T>) => Promise<T>
+
 /** The accept context every test uses — the seed approver acting in the seed tenant. */
 function acceptCtx(tenantId: string, userId: string) {
   return { tenantIds: [tenantId], approverUserId: userId }
@@ -33,8 +38,10 @@ describe.skipIf(!hasNeonCreds())(
   'db-contract: atomic accept path (real Neon branch)',
   { timeout: DB_CONTRACT_TIMEOUT_MS },
   () => {
+    const runTransactionalDb = withTransactionalDb('accept-path') as unknown as TransactionalRunner
+
     it('2: a malformed team_id at accept → invalid, proposal stays pending, no row (22P02 regression)', async () => {
-      await withDbBranch(async ({ sql, seed }) => {
+      await runTransactionalDb(async ({ sql, seed }) => {
         // A slug bound to a `uuid` column is the exact class that used to escape as a raw
         // 500 (leaving the proposal applied-without-a-row). Accept-time validation must
         // turn it into a clean, recoverable `invalid` with NOTHING written.
@@ -60,7 +67,7 @@ describe.skipIf(!hasNeonCreds())(
     })
 
     it('3: a successful accept stamps applied_from_proposal_id + applied_write and flips the proposal', async () => {
-      await withDbBranch(async ({ sql, seed }) => {
+      await runTransactionalDb(async ({ sql, seed }) => {
         const proposal = await createProposal(sql, {
           tenant_id: seed.tenantId,
           run_id: seed.runId,
@@ -94,7 +101,7 @@ describe.skipIf(!hasNeonCreds())(
     })
 
     it('4: a forced write failure (FK violation) → not applied, no partial row', async () => {
-      await withDbBranch(async ({ sql, seed }) => {
+      await runTransactionalDb(async ({ sql, seed }) => {
         // A well-formed but NON-EXISTENT status_id: it passes accept-time UUID validation,
         // then the domain write fails (unknown status / FK). The write ran while the
         // proposal was still pending, so the transaction rolls back and nothing is stranded.
@@ -119,7 +126,7 @@ describe.skipIf(!hasNeonCreds())(
     })
 
     it('5: re-accepting an applied proposal is a no-op (not_pending), never a duplicate row', async () => {
-      await withDbBranch(async ({ sql, seed }) => {
+      await withDedicatedDbBranch(async ({ sql, seed }) => {
         const proposal = await createProposal(sql, {
           tenant_id: seed.tenantId,
           run_id: seed.runId,
@@ -148,7 +155,7 @@ describe.skipIf(!hasNeonCreds())(
     })
 
     it('6: crash after write, before flip → re-accept converges on the SAME row and flips (single row)', async () => {
-      await withDbBranch(async ({ sql, seed }) => {
+      await withDedicatedDbBranch(async ({ sql, seed }) => {
         const proposal = await createProposal(sql, {
           tenant_id: seed.tenantId,
           run_id: seed.runId,
@@ -190,7 +197,7 @@ describe.skipIf(!hasNeonCreds())(
     })
 
     it('7: a snapshotted team survives a 2nd team added before re-drive → uses persisted id (6055d30e)', async () => {
-      await withDbBranch(async ({ sql, seed }) => {
+      await withDedicatedDbBranch(async ({ sql, seed }) => {
         // A create that omits team_id. The first accept resolves the sole team AND snapshots
         // the resolved id into edited_payload, so the decision records the exact team used.
         const proposal = await createProposal(sql, {
@@ -244,7 +251,7 @@ describe.skipIf(!hasNeonCreds())(
     })
 
     it('8: concurrent double-accept → exactly ONE row (the mandatory exactly-once proof)', async () => {
-      await withDbBranch(async ({ sql, seed }) => {
+      await withDedicatedDbBranch(async ({ sql, seed }) => {
         const proposal = await createProposal(sql, {
           tenant_id: seed.tenantId,
           run_id: seed.runId,
@@ -279,7 +286,7 @@ describe.skipIf(!hasNeonCreds())(
     })
 
     it('9: a memory superseded out from under the proposal → stale, stays reviewable (no clobber)', async () => {
-      await withDbBranch(async ({ sql, seed }) => {
+      await runTransactionalDb(async ({ sql, seed }) => {
         // A memory the proposal wants to supersede — but a human edits it first.
         const mem = await createMemory(
           sql,
@@ -316,7 +323,7 @@ describe.skipIf(!hasNeonCreds())(
     })
 
     it('flip-loser (create): a reject that wins the race COMPENSATES the orphaned row (996b674c)', async () => {
-      await withDbBranch(async ({ sql, seed }) => {
+      await withDedicatedDbBranch(async ({ sql, seed }) => {
         const actor: ActorContext = {
           actorType: 'agent',
           actorId: seed.runId,
@@ -380,7 +387,7 @@ describe.skipIf(!hasNeonCreds())(
     })
 
     it('flip-loser (non-create): an in-place update that loses to a reject logs LOUDLY, row left', async () => {
-      await withDbBranch(async ({ sql, seed }) => {
+      await withDedicatedDbBranch(async ({ sql, seed }) => {
         const actor: ActorContext = {
           actorType: 'agent',
           actorId: seed.runId,

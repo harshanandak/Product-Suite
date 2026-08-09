@@ -1,3 +1,8 @@
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -9,6 +14,116 @@ import {
   classifyTestId,
   getTopologySummary,
 } from './topology'
+
+const CONTRACT_TEST_DIR = dirname(fileURLToPath(import.meta.url))
+const ROUTED_SUITES = [
+  'accept-path',
+  'baseline',
+  'collaboration',
+  'meeting-ingest',
+  'memory-curator',
+  'memory-tier',
+] as const
+
+type RoutedHelper = 'transactional' | 'dedicated'
+
+interface CallSite {
+  readonly title: string
+  readonly helpers: readonly string[]
+}
+
+/**
+ * Read helper choices from the TypeScript AST rather than inferring isolation
+ * from a filename or a test-id prefix. The explicit topology manifest remains
+ * the authority; this only proves each manifest entry is wired to its declared
+ * helper at the call site.
+ */
+function readCallSites(suiteId: string): {
+  readonly callSites: readonly CallSite[]
+  readonly transactionalAliases: ReadonlySet<string>
+  readonly legacyCalls: number
+  readonly factoryCalls: number
+} {
+  const fileName = join(CONTRACT_TEST_DIR, `${suiteId}.test.ts`)
+  const source = ts.createSourceFile(
+    fileName,
+    readFileSync(fileName, 'utf8'),
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  )
+  const transactionalAliases = new Set<string>()
+  let legacyCalls = 0
+  let factoryCalls = 0
+  const callSites: CallSite[] = []
+
+  const isNamedCall = (node: ts.Node | undefined, name: string): node is ts.CallExpression =>
+    node !== undefined && ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === name
+
+  const unwrap = (expression: ts.Expression | undefined): ts.Expression | undefined => {
+    let current = expression
+    while (
+      current !== undefined &&
+      (ts.isAsExpression(current) || ts.isTypeAssertionExpression(current) || ts.isNonNullExpression(current))
+    ) {
+      current = current.expression
+    }
+    return current
+  }
+
+  const collectHelpers = (root: ts.Node): string[] => {
+    const helpers: string[] = []
+    const visit = (node: ts.Node): void => {
+      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+        const name = node.expression.text
+        if (name === 'withDedicatedDbBranch' || name === 'withTransactionalDb' || transactionalAliases.has(name)) {
+          helpers.push(name)
+        }
+      }
+      ts.forEachChild(node, visit)
+    }
+    ts.forEachChild(root, visit)
+    return helpers
+  }
+
+  const visit = (node: ts.Node): void => {
+    if (isNamedCall(node, 'withDbBranch')) legacyCalls += 1
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      isNamedCall(unwrap(node.initializer), 'withTransactionalDb')
+    ) {
+      transactionalAliases.add(node.name.text)
+    }
+    if (isNamedCall(node, 'withTransactionalDb')) factoryCalls += 1
+
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+      const titleArgument = node.arguments[0]
+      if (
+        (node.expression.text === 'it' || node.expression.text === 'test') &&
+        node.arguments.length > 1 &&
+        titleArgument !== undefined &&
+        ts.isStringLiteralLike(titleArgument)
+      ) {
+        const callback = node.arguments.find((argument) => ts.isArrowFunction(argument) || ts.isFunctionExpression(argument))
+        callSites.push({
+          title: titleArgument.text,
+          helpers: callback ? collectHelpers(callback) : [],
+        })
+      }
+    }
+    ts.forEachChild(node, visit)
+  }
+
+  visit(source)
+  return { callSites, transactionalAliases, legacyCalls, factoryCalls }
+}
+
+function expectedHelper(executionClass: string): RoutedHelper {
+  if (executionClass === 'transactional-suite') return 'transactional'
+  if (executionClass === 'dedicated-branch') return 'dedicated'
+  throw new Error(`non-real assertion in routed suite: ${executionClass}`)
+}
 
 describe('db-contract topology lock', () => {
   it('locks the 57-test inventory and its three execution classes', () => {
@@ -56,5 +171,36 @@ describe('db-contract topology lock', () => {
       'role-privileges': 7,
       reap: 3,
     })
+  })
+
+  it('routes every real call site according to the explicit topology manifest', () => {
+    for (const suiteId of ROUTED_SUITES) {
+      const { callSites, transactionalAliases, legacyCalls, factoryCalls } = readCallSites(suiteId)
+      const entries = SUITE_MANIFEST.filter((entry) => entry.suiteId === suiteId)
+      const byTitle = new Map(callSites.map((callSite) => [callSite.title, callSite]))
+
+      expect(legacyCalls, `${suiteId} still uses compatibility withDbBranch`).toBe(0)
+      const transactionalEntryCount = entries.filter((entry) => entry.executionClass === 'transactional-suite').length
+      expect(factoryCalls, `${suiteId} must create one transactional runner per transactional file`).toBe(
+        transactionalEntryCount > 0 ? 1 : 0,
+      )
+      if (transactionalEntryCount > 0) expect(transactionalAliases.size).toBe(1)
+
+      for (const entry of entries) {
+        const callSite = byTitle.get(entry.title ?? '')
+        expect(callSite, `${suiteId} is missing ${entry.id}`).toBeDefined()
+        expect(callSite?.helpers, `${entry.id} helper mismatch`).toHaveLength(1)
+        const helper = callSite?.helpers[0]
+        const expected = expectedHelper(entry.executionClass)
+        const actual =
+          helper === 'withDedicatedDbBranch'
+            ? 'dedicated'
+            : helper !== undefined && transactionalAliases.has(helper)
+              ? 'transactional'
+              : undefined
+        expect(actual, `${entry.id} helper mismatch`).toBe(expected)
+      }
+      expect(callSites).toHaveLength(entries.length)
+    }
   })
 })

@@ -69,7 +69,7 @@ const REAL_ASSERTIONS: readonly TopologyEntry[] = [
   transactional('accept-path', 'accept-path:2', '2: a malformed team_id at accept → invalid, proposal stays pending, no row (22P02 regression)'),
   transactional('accept-path', 'accept-path:3', '3: a successful accept stamps applied_from_proposal_id + applied_write and flips the proposal'),
   transactional('accept-path', 'accept-path:4', '4: a forced write failure (FK violation) → not applied, no partial row'),
-  transactional('accept-path', 'accept-path:5', '5: re-accepting an applied proposal is a no-op (not_pending), never a duplicate row'),
+  dedicated('accept-path', 'accept-path:5', '5: re-accepting an applied proposal is a no-op (not_pending), never a duplicate row'),
   dedicated('accept-path', 'accept-path:6', '6: crash after write, before flip → re-accept converges on the SAME row and flips (single row)'),
   dedicated('accept-path', 'accept-path:7', '7: a snapshotted team survives a 2nd team added before re-drive → uses persisted id (6055d30e)'),
   dedicated('accept-path', 'accept-path:8', '8: concurrent double-accept → exactly ONE row (the mandatory exactly-once proof)'),
@@ -79,7 +79,7 @@ const REAL_ASSERTIONS: readonly TopologyEntry[] = [
 
   transactional('baseline', 'baseline:1', '1: create-with-defaults persists the resolved team + default status ids'),
   dedicated('baseline', 'baseline:10', '10: the full migration chain applies cleanly on a fresh branch (no schema drift)'),
-  dedicated('baseline', 'baseline:11', '11: accepting a proposal from another tenant → not_found (route maps to 404)'),
+  transactional('baseline', 'baseline:11', '11: accepting a proposal from another tenant → not_found (route maps to 404)'),
   transactional('baseline', 'baseline:12', '12: a non-create proposal with no target_id terminally fails (invalid)'),
 
   dedicated('collaboration', 'collaboration:1', 'enforces idempotency, ordering, cursor, ACL, references, links, archive, and immutability'),

@@ -6,7 +6,8 @@ import type { Sql } from '@product-suite/db'
 
 import { curateProposal } from '../../src/curator/curate'
 
-import { hasNeonCreds, query, withDbBranch } from './harness'
+import { hasNeonCreds, query, type Seed } from './harness'
+import { withTransactionalDb } from './suite-resource'
 
 /**
  * Real-DB contract for the CURATOR PASS (research rec #3, memory-curator).
@@ -28,6 +29,8 @@ import { hasNeonCreds, query, withDbBranch } from './harness'
  * only ever execute in CI.
  */
 const DB_CONTRACT_TIMEOUT_MS = 180_000
+
+type TransactionalRunner = <T>(body: (context: { sql: Sql; seed: Seed }) => Promise<T>) => Promise<T>
 
 const ALICE = 'u_alice_owner'
 const BOB = 'u_bob_nonowner'
@@ -82,8 +85,10 @@ describe.skipIf(!hasNeonCreds())(
   'db-contract: curator pass over real rows (real Neon branch)',
   { timeout: DB_CONTRACT_TIMEOUT_MS },
   () => {
+    const runTransactionalDb = withTransactionalDb('memory-curator') as unknown as TransactionalRunner
+
     it('never names another user’s private memory as a collision — and DOES name the org one', async () => {
-      await withDbBranch(async ({ sql, seed }) => {
+      await runTransactionalDb(async ({ sql, seed }) => {
         const t = seed.tenantId
         const orgId = await insertMemory(sql, t, {
           title: `${SHARED} needs two reviewers`,
@@ -130,7 +135,7 @@ describe.skipIf(!hasNeonCreds())(
     })
 
     it('never names a memory from ANOTHER tenant, however well it matches', async () => {
-      await withDbBranch(async ({ sql, seed }) => {
+      await runTransactionalDb(async ({ sql, seed }) => {
         const t = seed.tenantId
         const foreignTenant = randomUUID()
         const mine = await insertMemory(sql, t, {
@@ -155,7 +160,7 @@ describe.skipIf(!hasNeonCreds())(
     })
 
     it('reports a real contradiction against a real row (the verdict earns its keep)', async () => {
-      await withDbBranch(async ({ sql, seed }) => {
+      await runTransactionalDb(async ({ sql, seed }) => {
         const t = seed.tenantId
         const existing = await insertMemory(sql, t, {
           kind: 'rule',

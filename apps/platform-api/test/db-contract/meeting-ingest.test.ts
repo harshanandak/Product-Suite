@@ -7,7 +7,8 @@ import { parseMeetingTenantMap } from '../../src/meeting/tenant-map'
 import { applyProposal } from '../../src/proposals/apply'
 import type { Sql } from '@product-suite/db'
 
-import { hasNeonCreds, query, withDbBranch } from './harness'
+import { hasNeonCreds, query, type Seed, withDedicatedDbBranch } from './harness'
+import { withTransactionalDb } from './suite-resource'
 
 /**
  * The real-DB half of Task B.2. The mock unit suite (`src/meeting/ingest.test.ts`)
@@ -21,6 +22,8 @@ import { hasNeonCreds, query, withDbBranch } from './harness'
  * stays green; the dedicated `db-contract` CI job supplies the secrets.
  */
 const DB_CONTRACT_TIMEOUT_MS = 180_000
+
+type TransactionalRunner = <T>(body: (context: { sql: Sql; seed: Seed }) => Promise<T>) => Promise<T>
 
 /**
  * `meetings` and `action_items` live in the platform `public` schema but are
@@ -159,8 +162,10 @@ describe.skipIf(!hasNeonCreds())(
   'db-contract: meeting ingest (real Neon branch)',
   { timeout: DB_CONTRACT_TIMEOUT_MS },
   () => {
+    const runTransactionalDb = withTransactionalDb('meeting-ingest') as unknown as TransactionalRunner
+
     it('reads ONLY generated + promoted rows, and only for the mapped tenant', async () => {
-      await withDbBranch(async ({ sql, seed }) => {
+      await runTransactionalDb(async ({ sql, seed }) => {
         await createAlembicOwnedTables(sql)
         const tenantMap = identityMap(seed.tenantId)
         const meetingId = await seedMeeting(sql, seed.tenantId)
@@ -207,7 +212,7 @@ describe.skipIf(!hasNeonCreds())(
     })
 
     it('mints exactly one run and stamps each proposal with reviewable provenance', async () => {
-      await withDbBranch(async ({ sql, seed }) => {
+      await runTransactionalDb(async ({ sql, seed }) => {
         await createAlembicOwnedTables(sql)
         const tenantMap = identityMap(seed.tenantId)
         const meetingId = await seedMeeting(sql, seed.tenantId)
@@ -265,7 +270,7 @@ describe.skipIf(!hasNeonCreds())(
     })
 
     it('accepting a meeting proposal persists work_items.source = meeting', async () => {
-      await withDbBranch(async ({ sql, seed }) => {
+      await runTransactionalDb(async ({ sql, seed }) => {
         await createAlembicOwnedTables(sql)
         const tenantMap = identityMap(seed.tenantId)
         const meetingId = await seedMeeting(sql, seed.tenantId)
@@ -310,7 +315,7 @@ describe.skipIf(!hasNeonCreds())(
     })
 
     it('proposes each candidate exactly once — including across rematerialization', async () => {
-      await withDbBranch(async ({ sql, seed }) => {
+      await withDedicatedDbBranch(async ({ sql, seed }) => {
         await createAlembicOwnedTables(sql)
         const tenantMap = identityMap(seed.tenantId)
         const meetingId = await seedMeeting(sql, seed.tenantId)
@@ -351,7 +356,7 @@ describe.skipIf(!hasNeonCreds())(
     })
 
     it('a run with no candidates still mints the run and proposes nothing', async () => {
-      await withDbBranch(async ({ sql, seed }) => {
+      await runTransactionalDb(async ({ sql, seed }) => {
         await createAlembicOwnedTables(sql)
         const tenantMap = identityMap(seed.tenantId)
         await seedMeeting(sql, seed.tenantId)
