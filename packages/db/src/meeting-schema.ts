@@ -1,7 +1,5 @@
 import { sql } from 'drizzle-orm'
 import {
-  bigint,
-  boolean,
   customType,
   doublePrecision,
   index,

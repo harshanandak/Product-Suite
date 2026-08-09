@@ -9,6 +9,8 @@ root. Its journal, `packages/db/migrations/meta/_journal.json`, is the only
 pending-migration authority; the historical manifest is validation/provenance,
 not a second journal.
 
+## Ownership Matrix
+
 | Domain | Runtime owner | Current database | Current schema/model |
 | --- | --- | --- | --- |
 | Workboard, teams, projects, statuses, work items | Platform API | Neon `neondb` | `packages/db/src/schema.ts` |
@@ -49,6 +51,28 @@ The historical manifest at
 is `historical_non_authoritative` and validation-only. It records original and
 repaired hashes, line-ending forms, and the exactly five permitted FK guards;
 it is not a pending journal.
+
+## Overlap Notes
+
+### users and identity
+
+Identity and authorization remain application concerns; database rows use
+internal Product Suite user IDs. Historical provider tables do not become a
+second current authority.
+
+### Conversation and artifacts
+
+Meeting conversation stays scoped to meeting records and their evidence.
+Workboard and canvas artifacts stay in the shared Neon model, while transcript
+and summary artifacts stay in the meeting domain.
+
+## Non-Goals
+
+- Re-activating the historical Supabase, Roadmap, or Meeting Alembic roots as
+  supported runtime databases.
+- Adding a second migration journal or copying the Neon public schema into a
+  compatibility database.
+- Rewriting or regenerating the audited five-block bootstrap repair.
 
 ## Contract boundary
 
