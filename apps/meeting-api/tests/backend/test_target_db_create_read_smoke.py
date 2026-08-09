@@ -8,7 +8,6 @@ import psycopg
 
 os.environ.setdefault("DATABASE_URL", "postgresql://user:pass@127.0.0.1:5432/meeting_agent")
 
-from backend import db as db_module
 from backend import config as config_module
 import backend.server as server_module
 from backend.server import AuthUser, MeetingCreate, create_meeting, get_meeting
@@ -82,8 +81,8 @@ def test_meeting_create_read_smoke_against_target_postgres(monkeypatch):
 
     settings = build_settings_stub(database_url, database_provider, "hosted" if database_provider == "neon" else "oss")
 
-    db_module.close_db_pool()
-    db_module.init_db_pool(settings)
+    server_module.close_db_pool()
+    server_module.init_db_pool(settings)
     monkeypatch.setattr(server_module, "settings", settings)
 
     try:
@@ -98,20 +97,18 @@ def test_meeting_create_read_smoke_against_target_postgres(monkeypatch):
                 )
                 cur.execute(
                     """
-                    insert into public.users (id, email, password_hash, name, tenant_id, created_at, updated_at)
-                    values (%s, %s, %s, %s, %s, %s, %s)
+                    insert into public.users (id, email, password_hash, name, created_at, updated_at)
+                    values (%s, %s, %s, %s, %s, %s)
                     """,
                     (
                         user_id,
                         f"{user_id}@example.com",
                         "smoke-password-hash",
                         "PR20 Smoke User",
-                        tenant_id,
                         now,
                         now,
                     ),
                 )
-
         actor = AuthUser(
             id=user_id,
             email=f"{user_id}@example.com",
@@ -123,12 +120,12 @@ def test_meeting_create_read_smoke_against_target_postgres(monkeypatch):
         created = asyncio.run(create_meeting(MeetingCreate(title="PR20 target-db smoke"), actor=actor))
         fetched = asyncio.run(get_meeting(created.id, actor=actor))
 
-        assert fetched.id == created.id
-        assert fetched.title == "PR20 target-db smoke"
+        assert fetched["id"] == created.id
+        assert fetched["title"] == "PR20 target-db smoke"
     finally:
         with psycopg.connect(database_url) as conn:
             with conn.cursor() as cur:
                 cur.execute("delete from public.meetings where owner_user_id = %s", (user_id,))
                 cur.execute("delete from public.users where id = %s", (user_id,))
                 cur.execute("delete from public.tenants where id = %s", (tenant_id,))
-        db_module.close_db_pool()
+        server_module.close_db_pool()
