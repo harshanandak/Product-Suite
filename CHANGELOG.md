@@ -16,7 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Schema and domain ownership inventory for roadmap and meeting surfaces, including canonical ownership boundaries, overlap rules, and guarded discoverability links (PR #3, product-suite-waq)
 
 ### Changed
-- Canonical live Postgres authority is now Neon `neondb`/`public` with Drizzle as the sole migration plane; guarded original-production and repaired-bootstrap histories reconcile at the `0019` floor, runtime roles remain least-privilege, and executable Supabase/Alembic authority surfaces are retired while historical artifacts stay validation-only (PR #TBD, Forge issue `59efc6dc-07a1-4b31-9942-ba2f1fcac8e1`)
+- Canonical live Postgres authority is now Neon `neondb`/`public` with Drizzle as the sole migration plane; guarded original-production and repaired-bootstrap histories reconcile at the `0019` floor, runtime roles remain least-privilege, and executable Supabase/Alembic authority surfaces are retired while historical artifacts stay validation-only (PR #165, Forge issue `59efc6dc-07a1-4b31-9942-ba2f1fcac8e1`)
 
 ### Fixed
 - Agent-created work items now preserve trusted proposal provenance and expose tenant-safe proposal, run, actor, and approval context on item details (PR #162, 163c617a-2ec7-4ffc-8575-eea4085f8e4f)
