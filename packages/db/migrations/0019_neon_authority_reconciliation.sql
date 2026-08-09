@@ -1232,9 +1232,83 @@ END $catalog_contract_assertions$;--> statement-breakpoint
 
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;--> statement-breakpoint
 GRANT USAGE ON SCHEMA public TO product_suite_platform_runtime, product_suite_meeting_runtime;--> statement-breakpoint
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO product_suite_platform_runtime;--> statement-breakpoint
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO product_suite_meeting_runtime;--> statement-breakpoint
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO product_suite_platform_runtime, product_suite_meeting_runtime;--> statement-breakpoint
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO product_suite_platform_runtime, product_suite_meeting_runtime;--> statement-breakpoint
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO product_suite_platform_runtime, product_suite_meeting_runtime;--> statement-breakpoint
+-- Runtime roles receive only the product-owned table manifests.  Broad
+-- `ON ALL TABLES`/default grants would silently expose future or unrelated
+-- tables, so new objects remain denied until deliberately added to a manifest.
+DO $runtime_grants$
+DECLARE
+  current_table text;
+  sequence_name text;
+  platform_tables constant text[] := ARRAY[
+    'activity_events', 'agent_runs', 'checks', 'chat_threads',
+    'collaboration_actors', 'conversation_events', 'conversation_memberships',
+    'conversations', 'knowledge_chunks', 'memories', 'projects', 'proposals',
+    'run_knowledge_attributions', 'run_memory_attributions', 'statuses',
+    'teams', 'work_item_dependencies', 'work_items'
+  ];
+  meeting_tables constant text[] := ARRAY[
+    'users', 'tenants', 'meetings', 'transcript_segments', 'summaries',
+    'chat_messages', 'jobs', 'meeting_state', 'chapter_summaries', 'decisions',
+    'action_items', 'open_questions', 'audio_assets', 'agent_invocations',
+    'agent_responses', 'meeting_links', 'user_auth_identities',
+    'organization_memberships', 'organization_invitations'
+  ];
+BEGIN
+  REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public
+    FROM product_suite_platform_runtime, product_suite_meeting_runtime;
+  REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public
+    FROM product_suite_platform_runtime, product_suite_meeting_runtime;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public
+    REVOKE ALL ON TABLES FROM product_suite_platform_runtime, product_suite_meeting_runtime;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public
+    REVOKE ALL ON SEQUENCES FROM product_suite_platform_runtime, product_suite_meeting_runtime;
+
+  FOREACH current_table IN ARRAY platform_tables LOOP
+    IF to_regclass(format('public.%I', current_table)) IS NULL THEN
+      RAISE EXCEPTION 'runtime grant manifest table missing: %', current_table USING ERRCODE = 'P0001';
+    END IF;
+    EXECUTE format(
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.%I TO product_suite_platform_runtime',
+      current_table
+    );
+    FOR sequence_name IN
+      SELECT pg_get_serial_sequence(format('public.%I', current_table), columns.column_name)
+      FROM information_schema.columns AS columns
+      WHERE columns.table_schema = 'public'
+        AND columns.table_name = current_table
+        AND (columns.column_default LIKE 'nextval(%' OR columns.is_identity = 'YES')
+    LOOP
+      IF sequence_name IS NOT NULL THEN
+        EXECUTE format(
+          'GRANT USAGE, SELECT ON SEQUENCE %s TO product_suite_platform_runtime',
+          sequence_name
+        );
+      END IF;
+    END LOOP;
+  END LOOP;
+
+  FOREACH current_table IN ARRAY meeting_tables LOOP
+    IF to_regclass(format('public.%I', current_table)) IS NULL THEN
+      RAISE EXCEPTION 'runtime grant manifest table missing: %', current_table USING ERRCODE = 'P0001';
+    END IF;
+    EXECUTE format(
+      'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.%I TO product_suite_meeting_runtime',
+      current_table
+    );
+    FOR sequence_name IN
+      SELECT pg_get_serial_sequence(format('public.%I', current_table), columns.column_name)
+      FROM information_schema.columns AS columns
+      WHERE columns.table_schema = 'public'
+        AND columns.table_name = current_table
+        AND (columns.column_default LIKE 'nextval(%' OR columns.is_identity = 'YES')
+    LOOP
+      IF sequence_name IS NOT NULL THEN
+        EXECUTE format(
+          'GRANT USAGE, SELECT ON SEQUENCE %s TO product_suite_meeting_runtime',
+          sequence_name
+        );
+      END IF;
+    END LOOP;
+  END LOOP;
+END $runtime_grants$;--> statement-breakpoint
 COMMIT;

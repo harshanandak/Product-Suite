@@ -64,6 +64,12 @@ describe('catalog contract', () => {
     expect(error.message).not.toContain('postgres://')
   })
 
+  it('rejects unexpected catalog objects instead of checking only the expected subset', () => {
+    const actual = structuredClone(compatible)
+    actual.relations['unexpected'] = { kind: 'r', schema: 'public' }
+    expect(() => assertCatalog(compatible, actual)).toThrowError(/unexpected/i)
+  })
+
   it('requires pre-existing NOLOGIN grant roles before object DDL', () => {
     expect(() => assertRequiredRoles([
       { name: 'product_suite_platform_runtime', canLogin: false, isSuperuser: false },

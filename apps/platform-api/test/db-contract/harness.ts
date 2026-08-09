@@ -351,9 +351,12 @@ export function createNeonControlPlane(env: NeonControlPlaneEnv = process.env, f
     },
     async createProductionDerivedBranch() {
       const parentBranchId = await productionParentBranchId(apiKey, sourceProjectId, env.NEON_PARENT_BRANCH_ID, fetcher)
+      // Production-derived conformance branches are disposable even when a
+      // runner is cancelled between creation and cleanup.
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString()
       const body = {
         endpoints: [{ type: 'read_write' }],
-        branch: { name: `db-contract-production-${Date.now()}`, parent_id: parentBranchId },
+        branch: { name: `db-contract-production-${Date.now()}`, parent_id: parentBranchId, expires_at: expiresAt },
       }
       const result = await request(`/projects/${sourceProjectId}/branches`, { method: 'POST', body })
       const branchId = branchIdResponse(result.body)
@@ -560,27 +563,33 @@ async function expectPermissionDenied(operation: () => Promise<unknown>): Promis
 }
 
 async function proveRuntimeLoginPrivileges(ownerSql: Sql, connectionUri: string): Promise<void> {
-  const suffix = randomUUID().replace(/-/g, '')
+  const suffix = randomUUID().replaceAll('-', '')
   const table = `runtime_privilege_probe_${suffix}`
+  const sequence = `${table}_sequence`
   const login = `runtime_login_${suffix}`
   const password = randomBytes(24).toString('base64url')
   const otherRuntimeRole = 'product_suite_meeting_runtime'
   try {
     await exec(ownerSql, `create table public.${quoteIdentifier(table)} (id uuid primary key, value text not null)`)
+    await exec(ownerSql, `create sequence public.${quoteIdentifier(sequence)}`)
     await exec(ownerSql, `create role ${quoteIdentifier(login)} login password '${password.replaceAll("'", "''")}' nosuperuser nocreatedb nocreaterole inherit`)
     await exec(ownerSql, `grant ${quoteIdentifier('product_suite_platform_runtime')} to ${quoteIdentifier(login)}`)
     const runtimeSql = createSql(runtimeLoginUri(connectionUri, login, password))
     const id = randomUUID()
     await exec(runtimeSql, 'select 1')
-    await exec(runtimeSql, `insert into public.${quoteIdentifier(table)} (id, value) values ($1, $2)`, [id, 'probe'])
-    await exec(runtimeSql, `update public.${quoteIdentifier(table)} set value = $1 where id = $2`, ['updated', id])
-    await exec(runtimeSql, `delete from public.${quoteIdentifier(table)} where id = $1`, [id])
+    // This table and sequence are deliberately outside both product-owned
+    // manifests.  The negative probes prove an unlisted object cannot be read
+    // or written through a runtime role, including sequence side channels.
+    await expectPermissionDenied(() => exec(runtimeSql, `select * from public.${quoteIdentifier(table)}`))
+    await expectPermissionDenied(() => exec(runtimeSql, `insert into public.${quoteIdentifier(table)} (id, value) values ($1, $2)`, [id, 'probe']))
+    await expectPermissionDenied(() => exec(runtimeSql, `select nextval('public.${sequence}')`))
     await expectPermissionDenied(() => exec(runtimeSql, `create table public.${quoteIdentifier(`${table}_denied`)} (id integer)`))
     await expectPermissionDenied(() => exec(runtimeSql, `create role ${quoteIdentifier(`${login}_denied`)} login`))
     await expectPermissionDenied(() => exec(runtimeSql, `set role ${quoteIdentifier(otherRuntimeRole)}`))
   } finally {
     try { await exec(ownerSql, `revoke ${quoteIdentifier('product_suite_platform_runtime')} from ${quoteIdentifier(login)}`) } catch { /* opaque cleanup */ }
     try { await exec(ownerSql, `drop role if exists ${quoteIdentifier(login)}`) } catch { /* opaque cleanup */ }
+    try { await exec(ownerSql, `drop sequence if exists public.${quoteIdentifier(sequence)}`) } catch { /* opaque cleanup */ }
     try { await exec(ownerSql, `drop table if exists public.${quoteIdentifier(table)}`) } catch { /* opaque cleanup */ }
   }
 }

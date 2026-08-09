@@ -91,7 +91,7 @@ export class CatalogContractError extends Error {
 }
 
 function stable(value: unknown): string {
-  return JSON.stringify(value, Object.keys(value as object).sort())
+  return JSON.stringify(value, Object.keys(value as object).sort((left, right) => left.localeCompare(right)))
 }
 
 function compareMap<T>(
@@ -102,6 +102,11 @@ function compareMap<T>(
   for (const [name, expectedValue] of Object.entries(expected)) {
     if (!(name in actual) || stable(expectedValue) !== stable(actual[name])) {
       throw new CatalogContractError(category, name, expectedValue, actual[name])
+    }
+  }
+  for (const [name, actualValue] of Object.entries(actual)) {
+    if (!(name in expected)) {
+      throw new CatalogContractError(category, name, undefined, actualValue)
     }
   }
 }
@@ -169,7 +174,9 @@ export interface CatalogAssertionTargets {
   relations: readonly string[]
   columns: readonly string[]
   enums: readonly string[]
+  /** Fully qualified as `schema.table.constraint`. */
   constraints: readonly string[]
+  /** Fully qualified as `schema.table.index`. */
   indexes: readonly string[]
 }
 
@@ -246,7 +253,11 @@ BEGIN
   FOREACH object_name IN ARRAY ARRAY[${list(targets.constraints)}] LOOP
     SELECT pg_get_constraintdef(con.oid, true) INTO constraint_definition
       FROM pg_catalog.pg_constraint con
-      WHERE con.conname = split_part(object_name, '.', 2);
+      JOIN pg_catalog.pg_class rel ON rel.oid = con.conrelid
+      JOIN pg_catalog.pg_namespace n ON n.oid = rel.relnamespace
+      WHERE n.nspname = split_part(object_name, '.', 1)
+        AND rel.relname = split_part(object_name, '.', 2)
+        AND con.conname = split_part(object_name, '.', 3);
     IF constraint_definition IS NULL THEN
       RAISE EXCEPTION 'catalog mismatch: constraint %', object_name USING ERRCODE = 'P0001';
     END IF;
@@ -264,8 +275,9 @@ BEGIN
       FROM pg_catalog.pg_index i
       JOIN pg_catalog.pg_class c ON c.oid = i.indexrelid
       JOIN pg_catalog.pg_am am ON am.oid = c.relam
-      WHERE c.relnamespace = 'public'::regnamespace
-        AND c.relname = split_part(object_name, '.', 2);
+      WHERE c.relnamespace = to_regnamespace(split_part(object_name, '.', 1))
+        AND c.relname = split_part(object_name, '.', 3)
+        AND i.indrelid = to_regclass(format('%I.%I', split_part(object_name, '.', 1), split_part(object_name, '.', 2)));
     IF index_method IS NULL THEN
       RAISE EXCEPTION 'catalog mismatch: index %', object_name USING ERRCODE = 'P0001';
     END IF;

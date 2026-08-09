@@ -25,6 +25,14 @@ def resolve_smoke_database_url(env):
     return env.get(SMOKE_DATABASE_URL_ENV)
 
 
+def require_smoke_database_url(env):
+    """Fail closed when a workflow explicitly requires the isolated target lane."""
+    database_url = resolve_smoke_database_url(env)
+    if env.get("MEETING_TARGET_SMOKE_REQUIRED") == "1" and not database_url:
+        raise RuntimeError(f"{SMOKE_DATABASE_URL_ENV} is required for the isolated target smoke lane")
+    return database_url
+
+
 def build_settings_stub(database_url, database_provider=DEFAULT_SMOKE_DATABASE_PROVIDER):
     """A minimal hosted-shaped settings object for the db pool + server module."""
     return type(
@@ -42,12 +50,19 @@ def build_settings_stub(database_url, database_provider=DEFAULT_SMOKE_DATABASE_P
     )()
 
 
+def test_required_target_smoke_fails_closed_without_an_isolated_url():
+    with pytest.raises(RuntimeError, match=SMOKE_DATABASE_URL_ENV):
+        require_smoke_database_url({"MEETING_TARGET_SMOKE_REQUIRED": "1"})
+
+
 @pytest.mark.skipif(
-    not resolve_smoke_database_url(os.environ),
+    not resolve_smoke_database_url(os.environ) and os.environ.get("MEETING_TARGET_SMOKE_REQUIRED") != "1",
     reason=f"{SMOKE_DATABASE_URL_ENV} is required for live target-database create/read smoke coverage",
 )
 def test_meeting_create_read_smoke_against_target_postgres(monkeypatch):
-    database_url = resolve_smoke_database_url(os.environ)
+    database_url = require_smoke_database_url(os.environ)
+    if not database_url:
+        raise RuntimeError(f"{SMOKE_DATABASE_URL_ENV} is required for the isolated target smoke lane")
     config_module.validate_hosted_database_url(database_url)
     tenant_id = f"smoke-tenant-{uuid.uuid4()}"
     user_id = f"smoke-user-{uuid.uuid4()}"

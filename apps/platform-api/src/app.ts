@@ -20,6 +20,37 @@ import { statusesRoutes } from './routes/statuses'
 import { teamsRoutes } from './routes/teams'
 import { workItemsRoutes } from './routes/work-items'
 
+const READINESS_TTL_MS = 5_000
+type ReadinessResult = Awaited<ReturnType<typeof databaseReadiness>>
+const readinessCache = new Map<string, { expiresAt: number; result: ReadinessResult }>()
+const readinessInFlight = new Map<string, Promise<ReadinessResult>>()
+
+/** Hash the authority key without retaining/logging a connection URL. */
+function readinessKey(url: string): string {
+  let hash = 2_166_136_261
+  for (let index = 0; index < url.length; index += 1) {
+    hash ^= url.charCodeAt(index)
+    hash = Math.imul(hash, 16_777_619)
+  }
+  return `${url.length}:${hash >>> 0}`
+}
+
+async function cachedReadiness(env: { DATABASE_URL?: string }): Promise<ReadinessResult> {
+  const url = env.DATABASE_URL ?? process.env.DATABASE_URL ?? ''
+  const key = readinessKey(url)
+  const cached = readinessCache.get(key)
+  if (cached && cached.expiresAt > Date.now()) return cached.result
+
+  let pending = readinessInFlight.get(key)
+  if (!pending) {
+    pending = databaseReadiness(env).finally(() => readinessInFlight.delete(key))
+    readinessInFlight.set(key, pending)
+  }
+  const result = await pending
+  if (result.ok) readinessCache.set(key, { expiresAt: Date.now() + READINESS_TTL_MS, result })
+  return result
+}
+
 /**
  * The unified platform API behind the single Product-Suite surface. Every
  * `/api/*` route is authenticated once by the Clerk-verify middleware; handlers
@@ -30,7 +61,7 @@ const app = new Hono<AuthedEnv>()
 app.get('/health', (c) => c.json({ ok: true }))
 
 app.get('/health/ready', async (c) => {
-  const readiness = await databaseReadiness(c.env ?? {})
+  const readiness = await cachedReadiness(c.env ?? {})
   return c.json(readiness, readiness.ok ? 200 : 503)
 })
 

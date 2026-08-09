@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { parseNeonUrl } from "./check-database-authority.mjs";
-import { createMigrationEvidence } from "./migration-evidence.mjs";
+import { createRoleProvisioningEvidence } from "./migration-evidence.mjs";
 
 export const REQUIRED_GRANT_ROLES = Object.freeze([
   "product_suite_platform_runtime",
@@ -19,7 +19,8 @@ const DEFAULT_LOGIN_ROLES = new Set([
 ]);
 
 function redactError(error) {
-  const code = error?.code || "ROLE_PROVISIONING_FAILED";
+  const message = typeof error?.message === "string" ? error.message : "";
+  const code = error?.code || (/^(?:SQL_|CREATEROLE_|ROLE_|UNAUTHORIZED_|ADMIN_OPTION_|WRONG_LOGIN_)/.test(message) ? message : "ROLE_PROVISIONING_FAILED");
   return new Error(code);
 }
 
@@ -45,12 +46,7 @@ function normalizeAllowedLogins(options = {}) {
   return new Set([...DEFAULT_LOGIN_ROLES, ...values]);
 }
 
-/**
- * Validate a snapshot returned by pg_catalog.  It is deliberately pure so
- * tests can exercise all privilege cases without a database.
- */
-export function analyzeRoleProvisioning(snapshot = {}) {
-  const admin = snapshot.admin ?? snapshot.authority ?? {};
+function validateAuthority(admin = {}, snapshot = {}) {
   const authorityName = admin.rolname ?? admin.role ?? admin.name;
   if (authorityName && authorityName !== "neondb_owner" && admin.approvedEquivalent !== true) throw new Error("SQL_AUTHORITY_ROLE_INVALID");
   const canCreateRoles = admin.rolcreaterole === true || admin.createrole === true || admin.canCreateRole === true;
@@ -59,6 +55,15 @@ export function analyzeRoleProvisioning(snapshot = {}) {
       authorityName && memberName(membership) === authorityName && (membership.admin_option === true || membership.adminOption === true));
   if (admin.rolcanlogin !== true && admin.canLogin !== true) throw new Error("SQL_AUTHORITY_LOGIN_REQUIRED");
   if (!canCreateRoles && !hasAdminOption) throw new Error("CREATEROLE_OR_ADMIN_OPTION_REQUIRED");
+}
+
+/**
+ * Validate a snapshot returned by pg_catalog.  It is deliberately pure so
+ * tests can exercise all privilege cases without a database.
+ */
+export function analyzeRoleProvisioning(snapshot = {}) {
+  const admin = snapshot.admin ?? snapshot.authority ?? {};
+  validateAuthority(admin, snapshot);
 
   const roles = new Map((snapshot.roles ?? []).map((role) => [roleName(role), role]));
   for (const required of REQUIRED_GRANT_ROLES) {
@@ -102,6 +107,25 @@ SELECT
 FROM pg_roles r
 WHERE r.rolname IN ('product_suite_platform_runtime', 'product_suite_meeting_runtime')
 ORDER BY r.rolname;
+`;
+
+// Never infer authority from a caller-provided/default snapshot.  The role
+// attributes are read from pg_catalog in the same transaction that provisions
+// the runtime roles, so a missing row fails closed.
+const AUTHORITY_SQL = `
+SELECT
+  current_user AS rolname,
+  r.rolcanlogin,
+  r.rolsuper,
+  r.rolcreaterole,
+  r.rolcreatedb,
+  EXISTS (
+    SELECT 1
+    FROM pg_auth_members m
+    WHERE m.member = r.oid AND m.admin_option
+  ) AS admin_option
+FROM pg_roles r
+WHERE r.rolname = current_user;
 `;
 
 const MEMBERSHIP_SQL = `
@@ -150,7 +174,7 @@ export async function provisionDatabaseRoles({ adapter, databaseUrl, environment
 
   if (snapshot) {
     const result = analyzeRoleProvisioning({ ...snapshot, allowedLogins, platformLogin, meetingLogin });
-    return createMigrationEvidence({ operation: "bootstrap", status: "BOOTSTRAPPED", historyVariant: "repaired-bootstrap", count: result.roles.length, pending: [] });
+    return createRoleProvisioningEvidence({ count: result.roles.length });
   }
 
   const run = async (sql, params) => {
@@ -163,33 +187,39 @@ export async function provisionDatabaseRoles({ adapter, databaseUrl, environment
 
   await run("BEGIN;");
   try {
-    const authority = typeof adapter.readAuthority === "function"
-      ? await adapter.readAuthority()
-      : null;
-    if (authority) analyzeRoleProvisioning({ authority, roles: authority.roles, memberships: authority.memberships, allowedLogins, platformLogin, meetingLogin });
+    const authorityRows = await run(AUTHORITY_SQL);
+    const authorityRow = authorityRows?.rows?.[0];
+    if (!authorityRow) throw new Error("SQL_AUTHORITY_NOT_FOUND");
+    let localAuthority = false;
+    try { localAuthority = ["localhost", "127.0.0.1", "::1"].includes(new URL(databaseUrl ?? "").hostname); } catch { /* URL validation above owns the error */ }
+    // Local CI uses PostgreSQL's `postgres` owner.  It is still read from
+    // pg_catalog; only this explicitly non-production local authority is an
+    // approved equivalent to Neon `neondb_owner`.
+    const authority = localAuthority && environment !== "production"
+      ? { ...authorityRow, approvedEquivalent: true }
+      : authorityRow;
+    validateAuthority(authority, { allowedLogins, platformLogin, meetingLogin });
     await run("SELECT pg_advisory_xact_lock(hashtext('product-suite:database-roles'));");
     await run(CREATE_ROLES_SQL);
     if (platformLogin) await run(`GRANT ${quoteRoleIdentifier("product_suite_platform_runtime")} TO ${quoteRoleIdentifier(platformLogin)};`);
     if (meetingLogin) await run(`GRANT ${quoteRoleIdentifier("product_suite_meeting_runtime")} TO ${quoteRoleIdentifier(meetingLogin)};`);
     const roleRows = await run(ROLE_STATE_SQL);
     const membershipRows = await run(MEMBERSHIP_SQL);
-    if (roleRows?.rows?.length || membershipRows?.rows?.length) {
-      analyzeRoleProvisioning({
-        admin: authority ?? { rolcanlogin: true, rolsuper: true, rolcreaterole: true },
-        roles: roleRows?.rows ?? [],
-        memberships: membershipRows?.rows ?? [],
-        allowedLogins,
-        platformLogin,
-        meetingLogin,
-      });
-    }
+    analyzeRoleProvisioning({
+      admin: authority,
+      roles: roleRows?.rows ?? [],
+      memberships: membershipRows?.rows ?? [],
+      allowedLogins,
+      platformLogin,
+      meetingLogin,
+    });
     await run("COMMIT;");
   } catch (error) {
     try { await run("ROLLBACK;"); } catch { /* preserve the original fail-closed error */ }
     throw redactError(error);
   }
 
-  return createMigrationEvidence({ operation: "bootstrap", status: "BOOTSTRAPPED", historyVariant: "repaired-bootstrap", count: REQUIRED_GRANT_ROLES.length, pending: [] });
+  return createRoleProvisioningEvidence({ count: REQUIRED_GRANT_ROLES.length });
 }
 
 export const provisionRoles = provisionDatabaseRoles;

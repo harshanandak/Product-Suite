@@ -246,11 +246,13 @@ export function detectHistoryVariant(input, manifest = null) {
     }
   }
 
-  const values = [input["0000_stale_jamie_braddock.sql"], input["0004_minor_lockheed.sql"]];
-  const modes = values.map((value, index) => {
+  const markerFiles = ["0000_stale_jamie_braddock.sql", "0004_minor_lockheed.sql"];
+  const modes = markerFiles.map((file) => {
+    const value = input[file];
     const marker = classifyMarker(value);
     if (marker) return marker;
-    const repair = ALLOWED_REPAIRS[index === 0 ? 0 : 4];
+    const repair = ALLOWED_REPAIRS.find((candidate) => candidate.file === file);
+    if (!repair) return null;
     const entry = manifest?.drizzle?.repairs?.find((candidate) => candidate.path === repair.file);
     if (!entry) return null;
     const originalHashes = new Set([entry.original?.lfSha256, entry.original?.crlfSha256].filter(Boolean));

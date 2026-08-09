@@ -158,7 +158,7 @@ function runCli(migrationsDir) {
       const hashes = {};
       for (const file of REPAIR_FILES) hashes[file] = createCanonicalHash(readFileSync(join(loaded.resolvedDir, file), "utf8"));
       const variants = [...REPAIR_FILES].map((file) => classifyHash(hashes[file], file, manifest));
-      const inferred = variants[0] && variants.every((variant) => variant === variants[0]) ? variants[0] : variants[0];
+      const inferred = variants.length > 0 && variants.every((variant) => variant === variants[0]) ? variants[0] : null;
       const history = validateMigrationHistory({ journal: loaded.journal, sqlFileNames: loaded.sqlFileNames, hashes, historyVariant: inferred, manifest });
       if (!history.ok) issues = history.issues;
     }

@@ -36,7 +36,10 @@ function safeValue(key, value) {
     return undefined;
   }
   if (!isSafeScalar(value)) return undefined;
-  if (typeof value === "string" && /(postgres(?:ql)?|https?:\/\/|@|BEGIN|ALTER|CREATE|INSERT|UPDATE|DELETE|DROP)/i.test(value)) return undefined;
+  // Migration names and digests are opaque, product-owned identifiers.  They
+  // may legitimately contain words such as "create" or "delete"; applying
+  // the SQL/prose filter to them would silently drop reconstructable history.
+  if (key !== "tag" && key !== "hash" && typeof value === "string" && /(postgres(?:ql)?|https?:\/\/|@|BEGIN|ALTER|CREATE|INSERT|UPDATE|DELETE|DROP)/i.test(value)) return undefined;
   return value;
 }
 
@@ -61,6 +64,12 @@ export function createMigrationEvidence(input = {}) {
   return Object.freeze(evidence);
 }
 
+/** Evidence for role provisioning is not migration history. */
+export function createRoleProvisioningEvidence(input = {}) {
+  const evidence = { ok: true, ...redactEvidence(input), operation: "provision-roles", status: "READY" };
+  return Object.freeze(evidence);
+}
+
 /**
  * Validate that an evidence packet contains enough immutable facts to replay
  * the gate.  This deliberately does not accept a URL, SQL text, or payload as
@@ -74,7 +83,7 @@ export function verifyMigrationEvidence(evidence = {}) {
   if (!["original-production", "repaired-bootstrap"].includes(safe.historyVariant)) issues.push("history variant missing or invalid");
   if (!Array.isArray(safe.applied)) issues.push("applied migration records missing");
   for (const entry of safe.applied ?? []) {
-    if (typeof entry.tag !== "string" || typeof entry.hash !== "string" || entry.hash.length === 0 || typeof entry.timestamp !== "number") issues.push("applied migration record is incomplete");
+    if (typeof entry.tag !== "string" || typeof entry.hash !== "string" || !/^[a-f0-9]{64}$/i.test(entry.hash) || typeof entry.timestamp !== "number") issues.push("applied migration record is incomplete");
   }
   if (safe.expectedCount !== undefined && safe.expectedCount !== safe.applied?.length) issues.push("migration count mismatch");
   if (safe.count !== undefined && safe.count !== safe.applied?.length) issues.push("evidence count mismatch");

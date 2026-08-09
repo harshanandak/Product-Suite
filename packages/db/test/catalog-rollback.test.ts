@@ -123,8 +123,8 @@ describe('0019 catalog rollback contract', () => {
       relations: ['public.users'],
       columns: ['public.users.id'],
       enums: ['public.status'],
-      constraints: ['public.users_pkey'],
-      indexes: ['public.users_id_idx'],
+      constraints: ['public.users.users_pkey'],
+      indexes: ['public.users.users_id_idx'],
     })
     expect(sql).toMatch(/relation/i)
     expect(sql).toMatch(/typmod/i)
@@ -133,6 +133,7 @@ describe('0019 catalog rollback contract', () => {
     expect(sql).toMatch(/constraint/i)
     expect(sql).toMatch(/index/i)
     expect(sql).toMatch(/raise exception/i)
+    expect(sql).toMatch(/conrelid|indrelid/i)
   })
 
   it('preflights roles before object DDL and leaves a rollback marker', () => {

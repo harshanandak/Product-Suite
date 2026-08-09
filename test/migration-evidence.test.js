@@ -26,13 +26,13 @@ describe("migration evidence", () => {
   test("accepts a reconstructable exact-SHA evidence record", () => {
     const evidence = createMigrationEvidence({
       operation: "verify", historyVariant: "repaired-bootstrap", expectedFloor: "0019",
-      applied: [{ tag: "0019", timestamp: 19, hash: "h19" }], status: "NOOP",
+      applied: [{ tag: "0019", timestamp: 19, hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }], status: "NOOP",
     });
     expect(verifyMigrationEvidence(evidence)).toMatchObject({ ok: true, status: "NOOP" });
   });
 
   test("rejects evidence with missing or mismatched hash/count", () => {
     expect(verifyMigrationEvidence({ status: "NOOP", historyVariant: "repaired-bootstrap", applied: [{ tag: "0019" }] }).ok).toBe(false);
-    expect(verifyMigrationEvidence({ status: "APPLIED", historyVariant: "repaired-bootstrap", applied: [{ tag: "0019", timestamp: 19, hash: "h19" }], expectedCount: 2 }).ok).toBe(false);
+    expect(verifyMigrationEvidence({ status: "APPLIED", historyVariant: "repaired-bootstrap", applied: [{ tag: "0019", timestamp: 19, hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }], expectedCount: 2 }).ok).toBe(false);
   });
 });

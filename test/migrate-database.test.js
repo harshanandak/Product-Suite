@@ -43,11 +43,54 @@ describe("canonical migration runner", () => {
   test("apply rereads under an advisory lock before executing", async () => {
     const calls = [];
     const result = await applyMigrations({
-      adapter: { query: async (sql) => { calls.push(sql); return { rows: [] }; } },
+      adapter: {
+        query: async (sql) => {
+          calls.push(sql);
+          if (sql.includes("FROM drizzle.__drizzle_migrations")) return { rows: [{ hash: "h19", timestamp: 19 }] };
+          return { rows: [] };
+        },
+      },
       applied: ["0019"], files, declared: ["0020"], authority,
     });
     expect(result.ok).toBe(true);
     expect(calls.join("\n")).toContain("pg_advisory_xact_lock");
+  });
+
+  test("fails closed when the locked history re-read is empty", async () => {
+    await expect(applyMigrations({
+      adapter: { query: async () => ({ rows: [] }) },
+      applied: ["0019"], files, declared: ["0020"], authority,
+    })).rejects.toThrow("MIGRATION_TOCTOU");
+  });
+
+  test("strips only an outer trailing COMMIT marker from migration SQL", async () => {
+    const calls = [];
+    const migrationFiles = [
+      ...files.slice(0, 2),
+      {
+        ...files[2],
+        sql: "BEGIN;\nSELECT 'COMMIT;';\n--> statement-breakpoint\nselect 2;\n  cOmMiT;\n",
+      },
+    ];
+    const result = await applyMigrations({
+      adapter: {
+        query: async (sql) => {
+          calls.push(sql);
+          if (sql.includes("FROM drizzle.__drizzle_migrations")) return { rows: [{ hash: "h19", timestamp: 19 }] };
+          return { rows: [] };
+        },
+      },
+      applied: ["0019"],
+      files: migrationFiles,
+      declared: ["0020"],
+      authority,
+    });
+    const migrationSql = calls.find((sql) => sql.includes("SELECT 'COMMIT;'") );
+
+    expect(result.ok).toBe(true);
+    expect(migrationSql).toContain("SELECT 'COMMIT;'");
+    expect(migrationSql).toContain(";\nselect 2;");
+    expect(migrationSql).not.toMatch(/commit;\s*$/i);
   });
 
   test("bootstrap creates its owned journal before inspecting a truly empty database", async () => {
@@ -82,7 +125,20 @@ describe("canonical migration runner", () => {
     ["test-only original conformance", { environment: "conformance-original", historyVariant: "original-production" }],
   ])("provisions roles before applying synthetic 0020 then verifies NOOP for %s", async (_label, variantAuthority) => {
     const calls = [];
-    const adapter = { query: async (sql) => { calls.push(sql); return { rows: [] }; } };
+    const adapter = {
+      query: async (sql) => {
+        calls.push(sql);
+        if (sql.includes("current_user AS rolname")) return { rows: [{ rolname: "neondb_owner", rolcanlogin: true, rolsuper: true, rolcreaterole: true, rolcreatedb: true }] };
+        if (sql.includes("FROM drizzle.__drizzle_migrations")) return { rows: [{ hash: "h19", timestamp: 19 }] };
+        if (sql.includes("FROM pg_roles r") && sql.includes("product_suite_platform_runtime")) return {
+          rows: [
+            { rolname: "product_suite_platform_runtime", rolcanlogin: false, rolsuper: false, rolcreaterole: false, rolcreatedb: false },
+            { rolname: "product_suite_meeting_runtime", rolcanlogin: false, rolsuper: false, rolcreaterole: false, rolcreatedb: false },
+          ],
+        };
+        return { rows: [] };
+      },
+    };
 
     const provisioned = await provisionDatabaseRoles({
       adapter,

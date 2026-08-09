@@ -4,13 +4,14 @@ const RUNTIME_NEON_HOST = /^ep-([a-z0-9-]+?)(-pooler)?\.[a-z0-9-]+\.aws\.neon\.t
 export const CANONICAL_DATABASE = 'neondb'
 export const CANONICAL_SCHEMA = 'public'
 export const CANONICAL_REVISION = '0019_neon_authority_reconciliation'
+export const CANONICAL_REVISION_HASH = 'cec68e4bdb0c929a40a3a0a74ac3056363fb723355f366919b00b0b8af07fee8'
 
 export interface RuntimeNeonUrl {
   provider: 'neon'
   database: typeof CANONICAL_DATABASE
   schema: typeof CANONICAL_SCHEMA
-  projectId: string
-  branchId: string
+  /** Neon connection hosts expose an endpoint id, not project/branch ids. */
+  endpointId: string
   pooled: true
 }
 
@@ -42,8 +43,7 @@ export function parseRuntimeNeonUrl(value: string): RuntimeNeonUrl {
     provider: 'neon',
     database: CANONICAL_DATABASE,
     schema: CANONICAL_SCHEMA,
-    projectId: host[1]!,
-    branchId: host[1]!,
+    endpointId: host[1]!,
     pooled: true,
   }
 }
@@ -57,7 +57,10 @@ type ReadinessQuery = (sql: Sql) => Promise<unknown>
 /**
  * Probe only the canonical migration floor and return an opaque deployment
  * signal. Callers can inject a query in tests; production uses one read-only
- * query against `drizzle.__drizzle_migrations`.
+ * query against `drizzle.__drizzle_migrations`. Drizzle's canonical journal
+ * stores migration hashes, not tags; the checked-in revision hash is the
+ * product-owned readiness floor. Later migrations are valid once this hash is
+ * present, so readiness is not tied to the newest row.
  */
 export async function databaseReadiness(
   env: { DATABASE_URL?: string },
@@ -86,11 +89,11 @@ export async function databaseReadiness(
     const result = query
       ? await query(sql)
       : await (sql as unknown as { query: (text: string) => Promise<unknown> }).query(
-          'select tag from drizzle.__drizzle_migrations order by created_at desc, id desc limit 1',
+          `select hash from drizzle.__drizzle_migrations where hash = '${CANONICAL_REVISION_HASH}' limit 1`,
         )
     const rows = (result as { rows?: unknown[] })?.rows ?? (Array.isArray(result) ? result : [])
-    const latest = rows[0] as { tag?: unknown } | undefined
-    if (latest?.tag !== CANONICAL_REVISION) return { ok: false, code: 'DATABASE_REVISION_NOT_READY' }
+    const hasCanonicalRevision = rows.some((row) => (row as { hash?: unknown })?.hash === CANONICAL_REVISION_HASH)
+    if (!hasCanonicalRevision) return { ok: false, code: 'DATABASE_REVISION_NOT_READY' }
     return { ok: true, provider: 'neon', schema: CANONICAL_SCHEMA, revision: CANONICAL_REVISION }
   } catch {
     return { ok: false, code: 'DATABASE_NOT_READY' }

@@ -13,8 +13,8 @@
         "sequences": ["USAGE", "SELECT"]
       },
       "defaultPrivileges": {
-        "tables": ["SELECT", "INSERT", "UPDATE", "DELETE"],
-        "sequences": ["USAGE", "SELECT"]
+        "tables": [],
+        "sequences": []
       },
       "tableAllowlist": [
         "activity_events",
@@ -46,8 +46,8 @@
         "sequences": ["USAGE", "SELECT"]
       },
       "defaultPrivileges": {
-        "tables": ["SELECT", "INSERT", "UPDATE", "DELETE"],
-        "sequences": ["USAGE", "SELECT"]
+        "tables": [],
+        "sequences": []
       },
       "tableAllowlist": [
         "users",

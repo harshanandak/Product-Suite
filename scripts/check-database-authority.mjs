@@ -26,7 +26,7 @@ export function parseNeonUrl(value, purpose) {
 
   const pooled = Boolean(host[2])
   if ((purpose === 'runtime' && !pooled) || (purpose === 'migration' && pooled)) throw new Error('DATABASE_PURPOSE_INVALID')
-  return { provider: contract.provider, purpose, projectId: host[1], branchId: host[1] }
+  return { provider: contract.provider, purpose, endpointId: host[1] }
 }
 
 export function validateDatabaseAuthority({ environment, databaseUrl, migrationDatabaseUrl, databaseUrlSecondary, historyVariant }) {
@@ -38,7 +38,7 @@ export function validateDatabaseAuthority({ environment, databaseUrl, migrationD
   try {
     const runtime = parseNeonUrl(databaseUrl, 'runtime')
     const migration = parseNeonUrl(migrationDatabaseUrl, 'migration')
-    if (runtime.provider !== migration.provider || runtime.projectId !== migration.projectId || runtime.branchId !== migration.branchId) return failure('DATABASE_AUTHORITY_MISMATCH')
+    if (runtime.provider !== migration.provider || runtime.endpointId !== migration.endpointId) return failure('DATABASE_AUTHORITY_MISMATCH')
     return { ok: true, provider: contract.provider, schema: contract.schema, historyVariant, endpoints: [runtime, migration] }
   } catch (error) {
     return failure(error instanceof Error ? error.message : 'DATABASE_URL_INVALID')
@@ -70,7 +70,7 @@ function main() {
     return
   }
   for (const endpoint of result.endpoints) {
-    console.log(`status=ok provider=${endpoint.provider} purpose=${endpoint.purpose} project_id=${endpoint.projectId} branch_id=${endpoint.branchId}`)
+    console.log(`status=ok provider=${endpoint.provider} purpose=${endpoint.purpose} endpoint_id=${endpoint.endpointId}`)
   }
   console.log(`schema=${result.schema} migration_root=${contract.drizzle.migrationRoot} history_variant=${result.historyVariant}`)
 }

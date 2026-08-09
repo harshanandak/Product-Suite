@@ -62,15 +62,24 @@ describe('runtime Neon authority and readiness', () => {
   it('returns opaque readiness only when the canonical floor is present', async () => {
     const ready = await databaseReadiness(
       { DATABASE_URL: 'postgresql://runtime:secret@ep-cool-fire-123456-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require' },
-      async () => ({ rows: [{ tag: '0019_neon_authority_reconciliation' }] }),
+      async () => ({ rows: [{ hash: 'cec68e4bdb0c929a40a3a0a74ac3056363fb723355f366919b00b0b8af07fee8' }] }),
     )
     expect(ready).toEqual({ ok: true, provider: 'neon', schema: 'public', revision: '0019_neon_authority_reconciliation' })
 
     const notReady = await databaseReadiness(
       { DATABASE_URL: 'postgresql://runtime:secret@ep-cool-fire-123456-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require' },
-      async () => ({ rows: [{ tag: '0018_collaboration_fabric' }] }),
+      async () => ({ rows: [{ hash: 'older-migration-hash' }] }),
     )
     expect(notReady).toEqual({ ok: false, code: 'DATABASE_REVISION_NOT_READY' })
+
+    const laterRevision = await databaseReadiness(
+      { DATABASE_URL: 'postgresql://runtime:secret@ep-cool-fire-123456-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require' },
+      async () => ({ rows: [
+        { hash: 'later-migration-hash' },
+        { hash: 'cec68e4bdb0c929a40a3a0a74ac3056363fb723355f366919b00b0b8af07fee8' },
+      ] }),
+    )
+    expect(laterRevision.ok).toBe(true)
   })
 
   it('redacts missing configuration and query failures', async () => {

@@ -13,8 +13,8 @@ const scriptPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '.
 
 describe('database authority', () => {
   test('accepts direct migration and pooled runtime Neon URLs with valid pins', () => {
-    expect(parseNeonUrl(direct, 'migration')).toMatchObject({ provider: 'neon', purpose: 'migration', projectId: 'cool-fire-123456', branchId: 'cool-fire-123456' })
-    expect(parseNeonUrl(pooled, 'runtime')).toMatchObject({ provider: 'neon', purpose: 'runtime', projectId: 'cool-fire-123456', branchId: 'cool-fire-123456' })
+    expect(parseNeonUrl(direct, 'migration')).toMatchObject({ provider: 'neon', purpose: 'migration', endpointId: 'cool-fire-123456' })
+    expect(parseNeonUrl(pooled, 'runtime')).toMatchObject({ provider: 'neon', purpose: 'runtime', endpointId: 'cool-fire-123456' })
     expect(validateDatabaseAuthority({ environment: 'production', databaseUrl: pooled, migrationDatabaseUrl: direct, historyVariant: 'original-production' }).ok).toBe(true)
     expect(validateDatabaseAuthority({ environment: 'staging', databaseUrl: pooled, migrationDatabaseUrl: direct, historyVariant: 'repaired-bootstrap' }).ok).toBe(true)
   })

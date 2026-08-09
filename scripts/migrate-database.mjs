@@ -25,7 +25,7 @@ function redactError(error) {
 
 function tagNumber(tag) {
   const match = /^(\d+)/.exec(String(tag));
-  return match ? Number(match[1]) : NaN;
+  return match ? Number(match[1]) : Number.NaN;
 }
 
 function normalizeTag(value) {
@@ -177,10 +177,12 @@ function lockSql() {
 // COMMIT markers.  The guarded runner owns the single transaction (and its
 // advisory lock), so strip only those outer markers before sending SQL.
 function runnableSql(sql) {
-  return String(sql)
-    .replace(/^\s*BEGIN;\s*/i, "")
-    .replace(/\s*COMMIT;\s*$/i, "")
-    .replace(/-->\s*statement-breakpoint/g, ";");
+  const withoutBegin = String(sql).replace(/^\s*BEGIN;\s*/i, "");
+  const trimmed = withoutBegin.trimEnd();
+  const withoutCommit = trimmed.toUpperCase().endsWith("COMMIT;")
+    ? trimmed.slice(0, -"COMMIT;".length).trimEnd()
+    : withoutBegin;
+  return withoutCommit.replace(/-->\s*statement-breakpoint/g, ";");
 }
 
 const HISTORY_SQL = "SELECT hash, created_at AS timestamp FROM drizzle.__drizzle_migrations ORDER BY created_at, id;";
@@ -197,10 +199,11 @@ export async function applyMigrations({ adapter, applied = [], declared = [], fi
     await query(adapter, lockSql());
     const reread = await query(adapter, HISTORY_SQL);
     const rereadRows = migrationRows(reread?.rows, files);
-    if (rereadRows.length > 0) {
-      const rereadPlan = buildMigrationPlan({ applied: rereadRows, declared, files, authority, observedVariant, hashes, history });
-      if (!rereadPlan.ok || rereadPlan.applied.join(",") !== plan.applied.join(",")) throw new Error("MIGRATION_TOCTOU");
-    }
+    // An empty re-read is also a TOCTOU change: trusting it would allow a
+    // caller's stale `applied` list to authorize a suffix on a fresh/changed
+    // database.  Always rebuild and compare the observed plan under the lock.
+    const rereadPlan = buildMigrationPlan({ applied: rereadRows, declared, files, authority, observedVariant, hashes, history });
+    if (!rereadPlan.ok || rereadPlan.applied.join(",") !== plan.applied.join(",")) throw new Error("MIGRATION_TOCTOU");
     for (const tag of plan.pending) {
       const file = byTag.get(tag);
       if (!file) throw new Error("MIGRATION_TAG_UNKNOWN");
