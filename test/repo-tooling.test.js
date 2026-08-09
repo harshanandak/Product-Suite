@@ -485,7 +485,7 @@ describe("repo tooling", () => {
     expect(meetingApiWorkflow).toContain("Run backend lint");
     expect(meetingApiWorkflow).toContain("python -m flake8");
     expect(meetingApiWorkflow).toContain(
-      "image: pgvector/pgvector:0.8.6-pg16@sha256:a36250871de0833b8757561c72f2477ef1ddd1101afa4e617fb552e0de514c6b",
+      "image: pgvector/pgvector:0.8.6-pg17@sha256:7ae6051efd0e60444282c27c7e141af07f322ce033300e727a49c3dd11075e38",
     );
     expect(meetingApiWorkflow).toContain('--health-cmd "pg_isready -U postgres -d meeting_agent"');
     expect(meetingApiWorkflow).toContain("Run backend migrations");
