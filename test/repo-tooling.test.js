@@ -554,21 +554,15 @@ describe("repo tooling", () => {
     expect(repoToolingWorkflow).toContain("bun run test:repo-tooling");
   });
 
-  test("db-contract filters pull requests by the same paths as pushes", () => {
-    // The tier costs ~17 min per run, so an unfiltered pull_request trigger makes every
-    // PR — docs-only included — pay it. Both triggers must carry the same paths list, or
-    // the filter silently stops covering PRs again.
+  test("db-contract reports every pull request and gates credentials only for relevant changes", () => {
     const triggers = Bun.YAML.parse(dbContractWorkflow).on;
 
-    expect(Array.isArray(triggers.push?.paths)).toBe(true);
-    expect(triggers.push.paths).toContain("apps/platform-api/**");
-    expect(triggers.push.paths).toContain("packages/db/**");
-    expect(triggers.push.paths).toContain("package.json");
-    expect(triggers.push.paths).toContain("bun.lock");
-    expect(triggers.push.paths).toContain(".github/workflows/db-contract.yml");
-    expect(triggers.pull_request?.paths).toEqual(triggers.push.paths);
-    // paths-ignore would invert the filter and let unrelated PRs back in.
-    expect(triggers.pull_request["paths-ignore"]).toBeUndefined();
+    expect(triggers.pull_request).toEqual({});
+    expect(triggers.push?.paths).toBeUndefined();
+    expect(dbContractWorkflow).toContain("Determine DB-contract relevance");
+    expect(dbContractWorkflow).toContain("DB contract N/A: no authority-relevant files changed.");
+    expect(dbContractWorkflow).toContain("steps.relevance.outputs.run == 'true'");
+    expect(dbContractWorkflow).not.toContain("paths-ignore");
   });
 
   test("shared root dependency changes trigger the web and backend CI workflows", () => {

@@ -5,6 +5,7 @@ import {
   buildMigrationPlan,
   verifyMigrations,
 } from "../scripts/migrate-database.mjs";
+import { provisionDatabaseRoles } from "../scripts/provision-database-roles.mjs";
 
 const files = [
   { tag: "0018", hash: "h18", timestamp: 18 },
@@ -46,5 +47,41 @@ describe("canonical migration runner", () => {
     });
     expect(result.ok).toBe(true);
     expect(calls.join("\n")).toContain("pg_advisory_xact_lock");
+  });
+
+  test.each([
+    ["repaired bootstrap", { environment: "test", historyVariant: "repaired-bootstrap" }],
+    ["test-only original conformance", { environment: "conformance-original", historyVariant: "original-production" }],
+  ])("provisions roles before applying synthetic 0020 then verifies NOOP for %s", async (_label, variantAuthority) => {
+    const calls = [];
+    const adapter = { query: async (sql) => { calls.push(sql); return { rows: [] }; } };
+
+    const provisioned = await provisionDatabaseRoles({
+      adapter,
+      databaseUrl: "postgresql://owner:secret@ep-test.us-east-2.aws.neon.tech/neondb?sslmode=require",
+      environment: variantAuthority.environment,
+    });
+    const applied = await applyMigrations({
+      adapter,
+      applied: ["0019"],
+      files,
+      declared: ["0020"],
+      authority: variantAuthority,
+    });
+    const noop = await verifyMigrations({
+      adapter,
+      applied: ["0019", "0020"],
+      files,
+      declared: [],
+      expectedFloor: "0020",
+      authority: variantAuthority,
+    });
+
+    expect(provisioned.ok).toBe(true);
+    expect(applied).toMatchObject({ ok: true, status: "APPLIED", historyVariant: variantAuthority.historyVariant });
+    expect(noop).toMatchObject({ ok: true, status: "NOOP" });
+    expect(calls.findIndex((sql) => sql.includes("product-suite:database-roles"))).toBeLessThan(
+      calls.findIndex((sql) => sql.includes("product-suite:database-migrations")),
+    );
   });
 });

@@ -4,6 +4,8 @@ import {
   assertCleanupEvidence,
   assertDisposableTestProject,
   assertProductionDerivedBranch,
+  controlPlaneFetchForTest,
+  createNeonControlPlane,
   conformanceCredentialStatus,
   hasNeonCreds,
   requiredConformanceStatus,
@@ -113,18 +115,23 @@ describe('Neon authority conformance guards', () => {
         events.push('create-branch')
         return { ...derived, connectionUri: 'opaque-production-connection' }
       },
-      async bootstrapRepaired() { events.push('bootstrap') },
-      async verifyRepairedNoop() { events.push('verify') },
+      async bootstrapVariant(_connectionUri, variant) { events.push(`bootstrap-${variant}`) },
+      async applySynthetic0020AndVerifyNoop(_connectionUri, variant) { events.push(`verify-${variant}`) },
       async probeLeastPrivilege() { events.push('probe') },
       async deleteProject() { events.push('delete-project') },
       async verifyProjectDeleted() { events.push('verify-delete') },
       async deleteBranch() { events.push('delete-branch') },
+      async verifyBranchDeleted() { events.push('verify-branch-delete') },
     }
 
     expect(await runRequiredNeonConformance({ NEON_API_KEY: 'test-key', NEON_PROJECT_ID: 'production-project' }, plane)).toEqual({
       status: 'PASS',
     })
-    expect(events).toEqual(['create-project', 'bootstrap', 'verify', 'create-branch', 'probe', 'probe', 'delete-branch', 'delete-project', 'verify-delete'])
+    expect(events).toEqual([
+      'create-project', 'bootstrap-repaired-bootstrap', 'verify-repaired-bootstrap',
+      'create-branch', 'bootstrap-original-production', 'verify-original-production',
+      'probe', 'probe', 'delete-branch', 'verify-branch-delete', 'delete-project', 'verify-delete',
+    ])
   })
 
   it('cleans the disposable project when derived-branch creation fails', async () => {
@@ -138,18 +145,58 @@ describe('Neon authority conformance guards', () => {
         events.push('create-branch')
         throw new Error('mocked branch creation failure')
       },
-      async bootstrapRepaired() { events.push('bootstrap') },
-      async verifyRepairedNoop() { events.push('verify') },
+      async bootstrapVariant(_connectionUri, variant) { events.push(`bootstrap-${variant}`) },
+      async applySynthetic0020AndVerifyNoop(_connectionUri, variant) { events.push(`verify-${variant}`) },
       async probeLeastPrivilege() { events.push('probe') },
       async deleteProject() { events.push('delete-project') },
       async verifyProjectDeleted() { events.push('verify-delete') },
       async deleteBranch() { events.push('delete-branch') },
+      async verifyBranchDeleted() { events.push('verify-branch-delete') },
     }
 
     expect(await runRequiredNeonConformance({ NEON_API_KEY: 'test-key', NEON_PROJECT_ID: 'production-project' }, plane)).toEqual({
       status: 'INCOMPLETE',
       code: 'REAL_NEON_CONFORMANCE_FAILED',
     })
-    expect(events).toEqual(['create-project', 'bootstrap', 'verify', 'create-branch', 'delete-project', 'verify-delete'])
+    expect(events).toEqual([
+      'create-project', 'bootstrap-repaired-bootstrap', 'verify-repaired-bootstrap',
+      'create-branch', 'delete-project', 'verify-delete',
+    ])
+  })
+
+  it('retries only safe GETs for explicit transient control-plane statuses', async () => {
+    const calls: string[] = []
+    const responses = [
+      new Response('', { status: 429 }),
+      new Response('{}', { status: 200 }),
+    ]
+    const fetcher: typeof fetch = async (input, init) => {
+      calls.push(`${init?.method ?? 'GET'} ${String(input)}`)
+      return responses.shift() ?? new Response('{}', { status: 200 })
+    }
+
+    await expect(controlPlaneFetchForTest('opaque-key', '/projects/p', { method: 'GET' }, fetcher, [0, 0])).resolves.toMatchObject({ status: 200 })
+    expect(calls).toHaveLength(2)
+
+    calls.length = 0
+    await expect(controlPlaneFetchForTest('opaque-key', '/projects/p', { method: 'DELETE' }, async (_input, init) => {
+      calls.push(init?.method ?? 'GET')
+      return new Response('', { status: 503 })
+    }, [0, 0])).rejects.toThrow('NEON_CONTROL_PLANE_FAILED')
+    expect(calls).toEqual(['DELETE'])
+  })
+
+  it('polls project deletion until the control plane proves 404', async () => {
+    const statuses = [200, 404]
+    const calls: string[] = []
+    const plane = createNeonControlPlane(
+      { NEON_API_KEY: 'opaque-key', NEON_PROJECT_ID: 'production-project' },
+      async (_input, init) => {
+        calls.push(init?.method ?? 'GET')
+        return new Response('{}', { status: statuses.shift() ?? 404 })
+      },
+    )
+    await expect(plane.verifyProjectDeleted('test-project')).resolves.toBeUndefined()
+    expect(calls).toEqual(['GET', 'GET'])
   })
 })

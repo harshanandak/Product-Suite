@@ -36,7 +36,7 @@
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 
 import { createDb, createSql, type Database, type Sql } from '@product-suite/db'
 
@@ -138,12 +138,13 @@ export interface NeonDerivedHandle extends ProductionDerivedBranch {
 export interface NeonControlPlane {
   createDisposableProject(): Promise<NeonProjectHandle>
   createProductionDerivedBranch(): Promise<NeonDerivedHandle>
-  bootstrapRepaired(connectionUri: string): Promise<void>
-  verifyRepairedNoop(connectionUri: string): Promise<void>
+  bootstrapVariant(connectionUri: string, variant: NeonHistoryVariant): Promise<void>
+  applySynthetic0020AndVerifyNoop(connectionUri: string, variant: NeonHistoryVariant): Promise<void>
   probeLeastPrivilege(connectionUri: string): Promise<void>
   deleteProject(projectId: string): Promise<void>
   verifyProjectDeleted(projectId: string): Promise<void>
   deleteBranch(projectId: string, branchId: string): Promise<void>
+  verifyBranchDeleted(projectId: string, branchId: string): Promise<void>
 }
 
 interface NeonOperation {
@@ -161,31 +162,93 @@ function controlPlaneConfig(env: NeonControlPlaneEnv): { apiKey: string; sourceP
   return { apiKey: env.NEON_API_KEY!, sourceProjectId: env.NEON_PROJECT_ID! }
 }
 
+const CONTROL_PLANE_TIMEOUT_MS = 15_000
+const TRANSIENT_GET_STATUSES = new Set([423, 429, 503])
+const CONTROL_PLANE_RETRY_DELAYS_MS = [100, 250, 500] as const
+
+type ControlPlaneFetchOptions = {
+  acceptedStatuses?: readonly number[]
+  retryDelaysMs?: readonly number[]
+}
+
+function controlPlaneSleep(delayMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delayMs))
+}
+
 /** Fetch JSON without ever surfacing response bodies, URLs, or credentials. */
+async function controlPlaneFetchWith(
+  apiKey: string,
+  path: string,
+  init: { method: string; body?: unknown },
+  fetcher: typeof fetch,
+  options: ControlPlaneFetchOptions = {},
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const retryDelaysMs = options.retryDelaysMs ?? CONTROL_PLANE_RETRY_DELAYS_MS
+  for (let attempt = 0; ; attempt += 1) {
+    const response = await fetcher(`${controlPlaneBase()}${path}`, {
+      method: init.method,
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: init.body === undefined ? undefined : JSON.stringify(init.body),
+    })
+    const body = await response.json().catch(() => ({})) as Record<string, unknown>
+    if (response.ok || options.acceptedStatuses?.includes(response.status)) return { status: response.status, body }
+    if (init.method === 'GET' && TRANSIENT_GET_STATUSES.has(response.status) && attempt < retryDelaysMs.length) {
+      await controlPlaneSleep(retryDelaysMs[attempt] ?? 0)
+      continue
+    }
+    conformanceFailure('NEON_CONTROL_PLANE_FAILED')
+  }
+}
+
 async function controlPlaneFetch(
   apiKey: string,
   path: string,
   init: { method: string; body?: unknown },
+  options?: ControlPlaneFetchOptions,
 ): Promise<{ status: number; body: Record<string, unknown> }> {
-  const response = await fetch(`${controlPlaneBase()}${path}`, {
-    method: init.method,
-    headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-    body: init.body === undefined ? undefined : JSON.stringify(init.body),
-  })
-  const body = await response.json().catch(() => ({})) as Record<string, unknown>
-  if (!response.ok) conformanceFailure('NEON_CONTROL_PLANE_FAILED')
-  return { status: response.status, body }
+  return controlPlaneFetchWith(apiKey, path, init, fetch, options)
 }
 
-async function waitControlPlaneOperations(apiKey: string, projectId: string, operations: NeonOperation[] = []): Promise<void> {
-  const deadline = Date.now() + 180_000
+/** Test seam for the retry contract; production always uses the native fetch implementation. */
+export async function controlPlaneFetchForTest(
+  apiKey: string,
+  path: string,
+  init: { method: string; body?: unknown },
+  fetcher: typeof fetch,
+  retryDelaysMs: readonly number[],
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  return controlPlaneFetchWith(apiKey, path, init, fetcher, { retryDelaysMs })
+}
+
+async function pollControlPlaneDeletion(
+  apiKey: string,
+  path: string,
+  failureCode: 'PROJECT_DELETION_UNPROVEN' | 'BRANCH_DELETION_UNPROVEN',
+  fetcher: typeof fetch = fetch,
+): Promise<void> {
+  const deadline = Date.now() + CONTROL_PLANE_TIMEOUT_MS
+  while (Date.now() <= deadline) {
+    const response = await controlPlaneFetchWith(apiKey, path, { method: 'GET' }, fetcher, { acceptedStatuses: [404] })
+    if (response.status === 404) return
+    await controlPlaneSleep(CONTROL_PLANE_RETRY_DELAYS_MS.at(-1) ?? 500)
+  }
+  conformanceFailure(failureCode)
+}
+
+async function waitControlPlaneOperations(
+  apiKey: string,
+  projectId: string,
+  operations: NeonOperation[] = [],
+  fetcher: typeof fetch = fetch,
+): Promise<void> {
+  const deadline = Date.now() + CONTROL_PLANE_TIMEOUT_MS
   for (const operation of operations) {
     let status = operation.status
     while (status !== 'finished') {
       if (status === 'failed' || status === 'cancelled') conformanceFailure('NEON_OPERATION_FAILED')
       if (Date.now() > deadline) conformanceFailure('NEON_OPERATION_TIMEOUT')
-      await new Promise<void>((resolve) => setTimeout(resolve, 1_000))
-      const result = await controlPlaneFetch(apiKey, `/projects/${projectId}/operations/${operation.id}`, { method: 'GET' })
+      await controlPlaneSleep(CONTROL_PLANE_RETRY_DELAYS_MS.at(-1) ?? 500)
+      const result = await controlPlaneFetchWith(apiKey, `/projects/${projectId}/operations/${operation.id}`, { method: 'GET' }, fetcher)
       const current = result.body.operation as { status?: unknown } | undefined
       status = typeof current?.status === 'string' ? current.status : status
     }
@@ -226,9 +289,10 @@ async function productionParentBranchId(
   apiKey: string,
   sourceProjectId: string,
   requestedParentBranchId: string | undefined,
+  fetcher: typeof fetch = fetch,
 ): Promise<string> {
   if (requestedParentBranchId) return requestedParentBranchId
-  const result = await controlPlaneFetch(apiKey, `/projects/${sourceProjectId}/branches?limit=100`, { method: 'GET' })
+  const result = await controlPlaneFetchWith(apiKey, `/projects/${sourceProjectId}/branches?limit=100`, { method: 'GET' }, fetcher)
   const branches = Array.isArray(result.body.branches) ? result.body.branches as Array<{ id?: unknown; default?: unknown }> : []
   const parent = branches.find((branch) => branch.default === true) ?? branches[0]
   if (typeof parent?.id !== 'string' || parent.id.length === 0) {
@@ -238,18 +302,19 @@ async function productionParentBranchId(
 }
 
 /** Native-fetch control-plane adapter: project/root + production-derived branch. */
-export function createNeonControlPlane(env: NeonControlPlaneEnv = process.env): NeonControlPlane {
+export function createNeonControlPlane(env: NeonControlPlaneEnv = process.env, fetcher: typeof fetch = fetch): NeonControlPlane {
   const { apiKey, sourceProjectId } = controlPlaneConfig(env)
+  const request = (path: string, init: { method: string; body?: unknown }) => controlPlaneFetchWith(apiKey, path, init, fetcher)
   return {
     async createDisposableProject() {
-      const result = await controlPlaneFetch(apiKey, '/projects', {
+      const result = await request('/projects', {
         method: 'POST',
         body: { project: { name: `product-suite-db-contract-${Date.now()}`, pg_version: 17 } },
       })
       const projectId = projectIdResponse(result.body)
       if (!projectId) conformanceFailure('NEON_PROJECT_RESPONSE_INVALID')
       try {
-        await waitControlPlaneOperations(apiKey, projectId, (result.body.operations ?? []) as NeonOperation[])
+        await waitControlPlaneOperations(apiKey, projectId, (result.body.operations ?? []) as NeonOperation[], fetcher)
         const created = projectResponse(result.body)
         const sql = createSql(created.connectionUri)
         const rows = await query<{ count: string }>(sql, `select count(*)::text as count from information_schema.tables where table_schema = 'public'`)
@@ -265,11 +330,8 @@ export function createNeonControlPlane(env: NeonControlPlaneEnv = process.env): 
         }
       } catch (error) {
         try {
-          await controlPlaneFetch(apiKey, `/projects/${projectId}`, { method: 'DELETE' })
-          const deleted = await fetch(`${controlPlaneBase()}/projects/${projectId}`, {
-            headers: { Accept: 'application/json', Authorization: `Bearer ${apiKey}` },
-          })
-          if (deleted.status !== 404) conformanceFailure('PROJECT_DELETION_UNPROVEN')
+          await request(`/projects/${projectId}`, { method: 'DELETE' })
+          await pollControlPlaneDeletion(apiKey, `/projects/${projectId}`, 'PROJECT_DELETION_UNPROVEN', fetcher)
         } catch {
           // Preserve the stable conformance failure; cleanup is rechecked by the caller when a handle exists.
         }
@@ -277,16 +339,16 @@ export function createNeonControlPlane(env: NeonControlPlaneEnv = process.env): 
       }
     },
     async createProductionDerivedBranch() {
-      const parentBranchId = await productionParentBranchId(apiKey, sourceProjectId, env.NEON_PARENT_BRANCH_ID)
+      const parentBranchId = await productionParentBranchId(apiKey, sourceProjectId, env.NEON_PARENT_BRANCH_ID, fetcher)
       const body = {
         endpoints: [{ type: 'read_write' }],
         branch: { name: `db-contract-production-${Date.now()}`, parent_id: parentBranchId },
       }
-      const result = await controlPlaneFetch(apiKey, `/projects/${sourceProjectId}/branches`, { method: 'POST', body })
+      const result = await request(`/projects/${sourceProjectId}/branches`, { method: 'POST', body })
       const branchId = branchIdResponse(result.body)
       if (!branchId) conformanceFailure('NEON_BRANCH_RESPONSE_INVALID')
       try {
-        await waitControlPlaneOperations(apiKey, sourceProjectId, (result.body.operations ?? []) as NeonOperation[])
+        await waitControlPlaneOperations(apiKey, sourceProjectId, (result.body.operations ?? []) as NeonOperation[], fetcher)
         const created = branchResponse(result.body)
         return {
           ...created,
@@ -299,33 +361,123 @@ export function createNeonControlPlane(env: NeonControlPlaneEnv = process.env): 
           historyVariant: 'original-production',
         }
       } catch (error) {
-        try { await controlPlaneFetch(apiKey, `/projects/${sourceProjectId}/branches/${branchId}`, { method: 'DELETE' }) } catch { /* preserve original failure */ }
+        try { await request(`/projects/${sourceProjectId}/branches/${branchId}`, { method: 'DELETE' }) } catch { /* preserve original failure */ }
         throw error
       }
     },
-    async bootstrapRepaired(connectionUri) {
+    async bootstrapVariant(connectionUri, variant) {
       const sql = createSql(connectionUri)
-      await exec(sql, `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'product_suite_platform_runtime') THEN CREATE ROLE product_suite_platform_runtime NOLOGIN; END IF; IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'product_suite_meeting_runtime') THEN CREATE ROLE product_suite_meeting_runtime NOLOGIN; END IF; END $$`)
+      await provisionRuntimeRoles(sql, connectionUri, variant)
       await applyMigrations(sql, { recordJournal: true })
+      await assertCanonical0019Noop(sql)
     },
-    async verifyRepairedNoop(connectionUri) {
+    async applySynthetic0020AndVerifyNoop(connectionUri, _variant) {
       const sql = createSql(connectionUri)
-      const rows = await query<{ hash?: string }>(sql, `select hash from drizzle.__drizzle_migrations order by created_at desc, id desc limit 1`)
-      const migration = readFileSync(resolve(MIGRATIONS_DIR, '0019_neon_authority_reconciliation.sql'), 'utf8')
-      const expectedHash = createHash('sha256').update(migration.replace(/\r\n?/g, '\n'), 'utf8').digest('hex')
-      if (rows[0]?.hash !== expectedHash) conformanceFailure('REPAIRED_BOOTSTRAP_UNPROVEN')
+      await applySynthetic0020WithCanonicalRunner(sql, _variant)
     },
     async probeLeastPrivilege(connectionUri) {
       const sql = createSql(connectionUri)
       const roles = await query<RuntimeRoleSnapshot>(sql, `select rolname as name, rolcanlogin as "canLogin", rolsuper as "isSuperuser", rolcreaterole as "canCreateRole", rolcreatedb as "canCreateDb", '[]'::json as memberships from pg_roles where rolname in ('product_suite_platform_runtime','product_suite_meeting_runtime')`)
       assertRuntimeRoleContract(roles, { allowedLogins: [] })
+      await proveRuntimeLoginPrivileges(sql, connectionUri)
     },
-    async deleteProject(projectId) { await controlPlaneFetch(apiKey, `/projects/${projectId}`, { method: 'DELETE' }) },
-    async verifyProjectDeleted(projectId) {
-      const response = await fetch(`${controlPlaneBase()}/projects/${projectId}`, { headers: { Accept: 'application/json', Authorization: `Bearer ${apiKey}` } })
-      if (response.status !== 404) conformanceFailure('PROJECT_DELETION_UNPROVEN')
-    },
-    async deleteBranch(projectId, branchId) { await controlPlaneFetch(apiKey, `/projects/${projectId}/branches/${branchId}`, { method: 'DELETE' }) },
+    async deleteProject(projectId) { await request(`/projects/${projectId}`, { method: 'DELETE' }) },
+    async verifyProjectDeleted(projectId) { await pollControlPlaneDeletion(apiKey, `/projects/${projectId}`, 'PROJECT_DELETION_UNPROVEN', fetcher) },
+    async deleteBranch(projectId, branchId) { await request(`/projects/${projectId}/branches/${branchId}`, { method: 'DELETE' }) },
+    async verifyBranchDeleted(projectId, branchId) { await pollControlPlaneDeletion(apiKey, `/projects/${projectId}/branches/${branchId}`, 'BRANCH_DELETION_UNPROVEN', fetcher) },
+  }
+}
+
+async function provisionRuntimeRoles(sql: Sql, connectionUri: string, variant: NeonHistoryVariant): Promise<void> {
+  // @ts-expect-error JavaScript CLI module has no declaration file; the runtime contract is explicit below.
+  const { provisionDatabaseRoles } = await import('../../../../scripts/provision-database-roles.mjs') as {
+    provisionDatabaseRoles: (input: { adapter: { query(statement: string): Promise<{ rows: Record<string, unknown>[] }> }; databaseUrl: string; environment: string }) => Promise<{ ok: boolean }>
+  }
+  const result = await provisionDatabaseRoles({
+    adapter: { query: async (statement) => ({ rows: await exec(sql, statement) }) },
+    databaseUrl: connectionUri,
+    environment: variant === 'original-production' ? 'conformance-original' : 'test',
+  })
+  if (!result.ok) conformanceFailure('RUNTIME_ROLE_PROVISION_UNPROVEN')
+}
+
+async function assertCanonical0019Noop(sql: Sql): Promise<void> {
+  const rows = await query<{ hash?: string }>(sql, `select hash from drizzle.__drizzle_migrations order by created_at desc, id desc limit 1`)
+      const migration = readFileSync(resolve(MIGRATIONS_DIR, '0019_neon_authority_reconciliation.sql'), 'utf8')
+      const expectedHash = createHash('sha256').update(migration.replace(/\r\n?/g, '\n'), 'utf8').digest('hex')
+  if (rows[0]?.hash !== expectedHash) conformanceFailure('REPAIRED_BOOTSTRAP_UNPROVEN')
+}
+
+async function applySynthetic0020WithCanonicalRunner(
+  sql: Sql,
+  variant: NeonHistoryVariant,
+): Promise<void> {
+  // @ts-expect-error JavaScript CLI module has no declaration file; the runtime contract is explicit below.
+  const { applyMigrations: canonicalApply, verifyMigrations: canonicalVerify } = await import('../../../../scripts/migrate-database.mjs') as {
+    applyMigrations: (input: Record<string, unknown>) => Promise<{ ok: boolean; status?: string }>
+    verifyMigrations: (input: Record<string, unknown>) => Promise<{ ok: boolean; status?: string }>
+  }
+  const suffix = randomUUID().replace(/-/g, '')
+  const syntheticHash = createHash('sha256').update('task8-synthetic-0020', 'utf8').digest('hex')
+  const files = [
+    { tag: '0019', hash: createHash('sha256').update(readFileSync(resolve(MIGRATIONS_DIR, '0019_neon_authority_reconciliation.sql'), 'utf8').replace(/\r\n?/g, '\n'), 'utf8').digest('hex'), timestamp: 19, sql: '-- already applied' },
+    { tag: '0020', hash: syntheticHash, timestamp: 20, sql: `create table public.${quoteIdentifier(`runtime_conformance_${suffix}`)} (id uuid primary key, value text not null)` },
+  ]
+  const adapter = { query: async (statement: string) => ({ rows: await exec(sql, statement) }) }
+  const authority = {
+    environment: variant === 'original-production' ? 'conformance-original' : 'test',
+    historyVariant: variant,
+  }
+  const applied = await canonicalApply({ adapter, applied: ['0019'], declared: ['0020'], files, authority })
+  const noop = await canonicalVerify({ adapter, applied: ['0019', '0020'], declared: [], expectedFloor: '0020', files, authority })
+  if (!applied.ok || applied.status !== 'APPLIED' || !noop.ok || noop.status !== 'NOOP') {
+    conformanceFailure('SYNTHETIC_0020_NOOP_UNPROVEN')
+  }
+}
+
+function quoteIdentifier(identifier: string): string {
+  return `"${identifier.replaceAll('"', '""')}"`
+}
+
+function runtimeLoginUri(connectionUri: string, login: string, password: string): string {
+  const url = new URL(connectionUri)
+  url.username = login
+  url.password = password
+  return url.toString()
+}
+
+async function expectPermissionDenied(operation: () => Promise<unknown>): Promise<void> {
+  try {
+    await operation()
+  } catch (error) {
+    if ((error as { code?: unknown })?.code === '42501') return
+  }
+  conformanceFailure('RUNTIME_DENIAL_UNPROVEN')
+}
+
+async function proveRuntimeLoginPrivileges(ownerSql: Sql, connectionUri: string): Promise<void> {
+  const suffix = randomUUID().replace(/-/g, '')
+  const table = `runtime_privilege_probe_${suffix}`
+  const login = `runtime_login_${suffix}`
+  const password = randomBytes(24).toString('base64url')
+  const otherRuntimeRole = 'product_suite_meeting_runtime'
+  try {
+    await exec(ownerSql, `create table public.${quoteIdentifier(table)} (id uuid primary key, value text not null)`)
+    await exec(ownerSql, `create role ${quoteIdentifier(login)} login password '${password.replaceAll("'", "''")}' nosuperuser nocreatedb nocreaterole inherit`)
+    await exec(ownerSql, `grant ${quoteIdentifier('product_suite_platform_runtime')} to ${quoteIdentifier(login)}`)
+    const runtimeSql = createSql(runtimeLoginUri(connectionUri, login, password))
+    const id = randomUUID()
+    await exec(runtimeSql, 'select 1')
+    await exec(runtimeSql, `insert into public.${quoteIdentifier(table)} (id, value) values ($1, $2)`, [id, 'probe'])
+    await exec(runtimeSql, `update public.${quoteIdentifier(table)} set value = $1 where id = $2`, ['updated', id])
+    await exec(runtimeSql, `delete from public.${quoteIdentifier(table)} where id = $1`, [id])
+    await expectPermissionDenied(() => exec(runtimeSql, `create table public.${quoteIdentifier(`${table}_denied`)} (id integer)`))
+    await expectPermissionDenied(() => exec(runtimeSql, `create role ${quoteIdentifier(`${login}_denied`)} login`))
+    await expectPermissionDenied(() => exec(runtimeSql, `set role ${quoteIdentifier(otherRuntimeRole)}`))
+  } finally {
+    try { await exec(ownerSql, `revoke ${quoteIdentifier('product_suite_platform_runtime')} from ${quoteIdentifier(login)}`) } catch { /* opaque cleanup */ }
+    try { await exec(ownerSql, `drop role if exists ${quoteIdentifier(login)}`) } catch { /* opaque cleanup */ }
+    try { await exec(ownerSql, `drop table if exists public.${quoteIdentifier(table)}`) } catch { /* opaque cleanup */ }
   }
 }
 
@@ -351,10 +503,12 @@ export async function runRequiredNeonConformance(
   try {
     disposable = await plane.createDisposableProject()
     assertDisposableTestProject(disposable, env.NEON_PROJECT_ID!)
-    await plane.bootstrapRepaired(disposable.connectionUri)
-    await plane.verifyRepairedNoop(disposable.connectionUri)
+    await plane.bootstrapVariant(disposable.connectionUri, 'repaired-bootstrap')
+    await plane.applySynthetic0020AndVerifyNoop(disposable.connectionUri, 'repaired-bootstrap')
     derived = await plane.createProductionDerivedBranch()
     assertProductionDerivedBranch(derived)
+    await plane.bootstrapVariant(derived.connectionUri, 'original-production')
+    await plane.applySynthetic0020AndVerifyNoop(derived.connectionUri, 'original-production')
     await plane.probeLeastPrivilege(disposable.connectionUri)
     await plane.probeLeastPrivilege(derived.connectionUri)
     evidence = { status: 'PASS' }
@@ -362,7 +516,10 @@ export async function runRequiredNeonConformance(
     evidence = { status: 'INCOMPLETE', code: 'REAL_NEON_CONFORMANCE_FAILED' }
   } finally {
     if (derived) {
-      try { await plane.deleteBranch(derived.projectId, derived.branchId) } catch { cleanupFailed = true }
+      try {
+        await plane.deleteBranch(derived.projectId, derived.branchId)
+        await plane.verifyBranchDeleted(derived.projectId, derived.branchId)
+      } catch { cleanupFailed = true }
     }
     if (disposable) {
       try {

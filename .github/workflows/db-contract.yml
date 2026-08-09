@@ -10,28 +10,13 @@ name: DB Contract
 # project for the empty-root proof. Missing credentials fail this required
 # lane closed; a green skipped job is not conformance evidence.
 
-# The tier costs ~17 min (serial ephemeral Neon branches), so both triggers carry the
-# same paths filter and DB-irrelevant PRs skip it entirely. Safe because `db-contract`
-# is NOT a required status check on `main` — a skipped run reports no conclusion, which
-# would leave PRs unmergeable if it ever became required. Keep the two lists identical
-# (enforced by test/repo-tooling.test.js) and err toward running.
+# Every pull request reports this check. DB-irrelevant changes finish explicitly as N/A;
+# authority-relevant changes require the real-Neon lane and fail closed without credentials.
 on:
   push:
     branches:
       - main
-    paths:
-      - "apps/platform-api/**"
-      - "packages/db/**"
-      - "package.json"
-      - "bun.lock"
-      - ".github/workflows/db-contract.yml"
-  pull_request:
-    paths:
-      - "apps/platform-api/**"
-      - "packages/db/**"
-      - "package.json"
-      - "bun.lock"
-      - ".github/workflows/db-contract.yml"
+  pull_request: {}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -55,16 +40,45 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
+          fetch-depth: 0
+
+      - name: Determine DB-contract relevance
+        id: relevance
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_BEFORE: ${{ github.event.before }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            range="origin/${BASE_REF}...HEAD"
+          elif git rev-parse --verify --quiet "${EVENT_BEFORE}^{commit}" >/dev/null; then
+            range="${EVENT_BEFORE}..HEAD"
+          else
+            range="HEAD^..HEAD"
+          fi
+          if git diff --name-only "$range" | grep -Eq '^(apps/platform-api/|packages/db/|package\.json$|bun\.lock$|\.github/workflows/db-contract\.yml$)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Report DB-contract N/A
+        if: "${{ steps.relevance.outputs.run != 'true' }}"
+        run: 'echo "DB contract N/A: no authority-relevant files changed."'
 
       - name: Setup Bun
+        if: "${{ steps.relevance.outputs.run == 'true' }}"
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.3.6
 
       - name: Install dependencies
+        if: "${{ steps.relevance.outputs.run == 'true' }}"
         run: bun install --frozen-lockfile
 
       - name: Require Neon credential availability
+        if: "${{ steps.relevance.outputs.run == 'true' }}"
         shell: bash
         env:
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
@@ -77,6 +91,7 @@ jobs:
           echo "Neon credentials present — db-contract suite will run against isolated test resources."
 
       - name: Run db-contract suite (ephemeral Neon branch per test)
+        if: "${{ steps.relevance.outputs.run == 'true' }}"
         working-directory: apps/platform-api
         env:
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
