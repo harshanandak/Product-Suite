@@ -545,6 +545,9 @@ describe("repo tooling", () => {
     );
     expect(repoToolingWorkflow).toContain('".github/workflows/meeting-web-ci.yml"');
     expect(repoToolingWorkflow).toContain('".github/workflows/roadmap-web-ci.yml"');
+    expect(repoToolingWorkflow).not.toContain(
+      '".github/workflows/roadmap-web-playwright.yml"',
+    );
     expect(repoToolingWorkflow).toContain("bun run test:agent-core");
     expect(repoToolingWorkflow).toContain("bun run test:hocuspocus");
     expect(repoToolingWorkflow).toContain("bun run test:roadmap-canvas-boundary");
