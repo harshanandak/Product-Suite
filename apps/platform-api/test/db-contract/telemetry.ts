@@ -10,7 +10,7 @@ import {
 } from 'node:fs'
 import { dirname } from 'node:path'
 
-import { workerRuntimeConfig } from './runtime-config'
+import { DB_CONTRACT_SUITE_CONCURRENCY, workerRuntimeConfig } from './runtime-config'
 import { EXPECTED_TOTAL_ASSERTIONS, SUITE_IDS, TOPOLOGY_VERSION } from './topology'
 
 export const TELEMETRY_SCHEMA_VERSION = 1 as const
@@ -96,7 +96,7 @@ function assertTelemetryHeader(record: Record<string, unknown>): void {
   if (record.schemaVersion !== TELEMETRY_SCHEMA_VERSION || record.topologyVersion !== TOPOLOGY_VERSION) fail()
   if (typeof record.exactHead !== 'string' || !/^[0-9a-f]{40}$/i.test(record.exactHead)) fail()
   if (!isSafeInteger(record.suiteFiles, 1) || !isSafeInteger(record.expectedTests, 1)) fail()
-  if (!isSafeInteger(record.concurrency, 1) || record.concurrency > 3) fail()
+  if (!isSafeInteger(record.concurrency, 1) || record.concurrency > DB_CONTRACT_SUITE_CONCURRENCY) fail()
 }
 
 function assertTelemetryCounts(value: unknown): void {

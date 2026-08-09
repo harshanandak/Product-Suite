@@ -1,5 +1,7 @@
 import { defineConfig, type ViteUserConfig } from 'vitest/config'
 
+import { DB_CONTRACT_SUITE_CONCURRENCY } from './test/db-contract/runtime-config'
+
 const DB_CONTRACT_INCLUDE = [
   'test/db-contract/{accept-path,baseline,collaboration,meeting-ingest,memory-curator,memory-tier,neon-authority,reap,role-privileges}.test.ts',
 ] as const
@@ -18,8 +20,8 @@ export function createDbContractVitestConfig(): ViteUserConfig {
             globalSetup: ['./test/db-contract/reap-setup.ts'],
             reporters: ['default', './test/db-contract/zero-skip-reporter.ts'],
           }),
-      fileParallelism: false,
-      maxWorkers: 1,
+      fileParallelism: true,
+      maxWorkers: DB_CONTRACT_SUITE_CONCURRENCY,
       maxConcurrency: 1,
       // DB provisioning and migration hooks are network-bound; ordinary test
       // timeouts remain owned by the suites themselves.
@@ -41,14 +43,11 @@ export function createDbContractVitestConfig(): ViteUserConfig {
  *     before any branch is created, to clear leaked branches from crashed prior
  *     runs — the fix for `422 BRANCHES_LIMIT_EXCEEDED`.
  *
- *  2. Bound concurrency so at most ONE ephemeral Neon branch exists at a time
- *     (comfortably under the plan's branch cap). Each test already provisions +
- *     tears down its own branch serially within a file; the settings below stop
- *     the two test files from running in parallel workers (which would otherwise
- *     hold two branches at once). These are the Vitest 4 top-level options that
- *     replaced the removed `poolOptions`:
- *       - `fileParallelism: false` — run test files one at a time.
- *       - `maxWorkers: 1` — never spawn more than one worker.
+ *  2. Run at most two isolated suite files at a time. The suite-resource limiter
+ *     and worker cap share the same fixed ceiling; tests inside a file remain
+ *     sequential. These are Vitest 4 top-level options:
+ *       - `fileParallelism: true` — allow independent files to overlap.
+ *       - `maxWorkers: 2` — never spawn more than two workers.
  *       - `maxConcurrency: 1` — no `.concurrent` test ever overlaps another.
  *
  *  3. `zero-skip-reporter.ts` is a fail-closed evidence gate. It rejects an empty

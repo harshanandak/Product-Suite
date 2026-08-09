@@ -6,6 +6,7 @@ import { prepareHarnessDatabase, seedBaseline, type Seed } from './harness'
 import { createEphemeralBranch, deleteEphemeralBranchStrict, suiteBranchPrefix, type EphemeralBranch } from './neon-branch'
 import { createTransactionSql, type PinnedPoolClient, type TransactionSql } from './transaction-sql'
 import { measurePhase, telemetryPathFromEnv, type TelemetryPhase } from './telemetry'
+import { DB_CONTRACT_SUITE_CONCURRENCY } from './runtime-config'
 
 export { withDedicatedDbBranch } from './harness'
 
@@ -18,8 +19,6 @@ export class SuiteResourceError extends Error {
     this.code = code
   }
 }
-
-export const DB_CONTRACT_SUITE_CONCURRENCY = 2 as const
 
 export interface SuiteResourceLimiter {
   acquire(): Promise<() => void>

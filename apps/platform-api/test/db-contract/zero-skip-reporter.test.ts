@@ -11,6 +11,7 @@ import {
   ZeroSkipReporter,
   type DbContractEvidence,
 } from './zero-skip-reporter'
+import { SUITE_MANIFEST } from './topology'
 
 const complete = (overrides: Partial<DbContractEvidence> = {}): DbContractEvidence => ({
   collected: 57,
@@ -26,6 +27,32 @@ const complete = (overrides: Partial<DbContractEvidence> = {}): DbContractEviden
 })
 
 describe('db-contract zero-skip reporter', () => {
+  it('aggregates interleaved worker results and still requires complete run cleanup', () => {
+    const reporter = new ZeroSkipReporter()
+    const midpoint = Math.ceil(SUITE_MANIFEST.length / 2)
+    const interleaved = SUITE_MANIFEST.slice(0, midpoint).flatMap((entry, index) => {
+      const paired = SUITE_MANIFEST[index + midpoint]
+      return paired ? [entry, paired] : [entry]
+    })
+
+    for (const entry of interleaved) {
+      reporter.onTestCaseResult({
+        name: entry.title,
+        module: { moduleId: `apps/platform-api/test/db-contract/${entry.suiteId}.test.ts` },
+        result: () => ({ state: 'passed' }),
+      })
+    }
+
+    const snapshot = reporter.getEvidenceSnapshot()
+    expect(snapshot).toEqual({ collected: 57, passed: 57, skipped: 0, todo: 0, pending: 0, filtered: 0 })
+    expect(() => assertDbContractEvidence({
+      ...snapshot,
+      unclassified: [],
+      exactHead: 'exact-head',
+      cleanupComplete: false,
+    })).toThrowError(new RegExp(DB_CONTRACT_INCOMPLETE_CLEANUP))
+  })
+
   it('reads Vitest 4 state from the one-argument testCase.result() API', () => {
     const reporter = new ZeroSkipReporter()
     let resultReads = 0

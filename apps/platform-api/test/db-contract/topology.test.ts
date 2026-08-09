@@ -139,8 +139,8 @@ describe('db-contract topology lock', () => {
         'test/db-contract/{accept-path,baseline,collaboration,meeting-ingest,memory-curator,memory-tier,neon-authority,reap,role-privileges}.test.ts',
       ])
       expect(listConfig.test?.include?.every((pattern) => !pattern.includes('\\'))).toBe(true)
-      expect(listConfig.test?.fileParallelism).toBe(false)
-      expect(listConfig.test?.maxWorkers).toBe(1)
+      expect(listConfig.test?.fileParallelism).toBe(true)
+      expect(listConfig.test?.maxWorkers).toBe(2)
       expect(listConfig.test?.maxConcurrency).toBe(1)
       expect(listConfig.test?.hookTimeout).toBe(180_000)
       expect(listConfig.test?.globalSetup).toBeUndefined()

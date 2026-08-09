@@ -93,6 +93,54 @@ describe('transactional suite resource', () => {
     expect(() => createSuiteResourceLimiter(limit)).toThrow('DB_CONTRACT_CONCURRENCY_INVALID')
   })
 
+  it('overlaps two suite lifetimes while keeping branch and sentinel identity isolated', async () => {
+    const limiter = createSuiteResourceLimiter(2)
+    const first = fixture()
+    const second = fixture()
+    let arrivals = 0
+    let releaseCreates!: () => void
+    const bothCreating = new Promise<void>((resolve) => { releaseCreates = resolve })
+    let activeCreates = 0
+    let maximumCreates = 0
+    const observed: string[] = []
+
+    const configure = (f: ReturnType<typeof fixture>, suite: string, sentinel: string): void => {
+      f.deps.suiteLimiter = limiter
+      f.deps.branchPrefix = () => `prefix-${suite}`
+      f.deps.createBranch = vi.fn(async (prefix) => {
+        activeCreates += 1
+        maximumCreates = Math.max(maximumCreates, activeCreates)
+        arrivals += 1
+        if (arrivals === 2) releaseCreates()
+        await bothCreating
+        activeCreates -= 1
+        return { branchId: `branch-${suite}`, connectionUri: `uri-${prefix}` }
+      })
+      f.deps.seed = vi.fn(async () => ({ tenantId: sentinel }) as never)
+      f.deps.observeSentinelAbsent = vi.fn(async (uri, tenantId) => {
+        observed.push(`${uri}:${tenantId}`)
+      })
+    }
+
+    configure(first, 'accept-path', 'sentinel-a')
+    configure(second, 'memory-tier', 'sentinel-b')
+    const runFirst = createTransactionalDbSuite('accept-path', first.deps)
+    const runSecond = createTransactionalDbSuite('memory-tier', second.deps)
+
+    await Promise.all([first.setup(), second.setup()])
+    await Promise.all([
+      runFirst(async ({ seed }) => expect(seed.tenantId).toBe('sentinel-a')),
+      runSecond(async ({ seed }) => expect(seed.tenantId).toBe('sentinel-b')),
+    ])
+    await Promise.all([first.teardown(), second.teardown()])
+
+    expect(maximumCreates).toBe(2)
+    expect(observed.sort()).toEqual([
+      'uri-prefix-accept-path:sentinel-a',
+      'uri-prefix-memory-tier:sentinel-b',
+    ])
+  })
+
   it('migrates once, seeds every test, rolls back, observes absence, and strictly deletes', async () => {
     const f = fixture()
     const run = createTransactionalDbSuite('memory-tier', f.deps)

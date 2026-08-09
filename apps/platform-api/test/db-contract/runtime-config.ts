@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { inject } from 'vitest'
 
 export const DB_CONTRACT_RUNTIME_KEY = 'dbContractRuntime' as const
+export const DB_CONTRACT_SUITE_CONCURRENCY = 2 as const
 
 export interface DbContractRuntimeConfig {
   runToken: string
