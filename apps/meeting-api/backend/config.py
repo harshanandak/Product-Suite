@@ -1,8 +1,9 @@
 from dataclasses import dataclass
 from pathlib import Path
 import os
+import re
 from typing import TYPE_CHECKING
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from dotenv import load_dotenv
 
@@ -21,6 +22,13 @@ load_dotenv(ROOT_DIR / ".env")
 
 ALLOWED_DEPLOYMENT_MODES = {"oss", "hosted"}
 ALLOWED_AUTH_PROVIDERS = {"local", "neon"}
+ALLOWED_DATABASE_PROVIDERS = {"neon", "postgres"}
+NEON_DATABASE_NAME = "neondb"
+NEON_DATABASE_HOST_PATTERN = re.compile(
+    r"^ep-([a-z0-9-]+?)(-pooler)?\.[a-z0-9-]+\.aws\.neon\.tech$",
+    re.IGNORECASE,
+)
+NEON_DATABASE_SSL_MODES = {"require", "verify-ca", "verify-full"}
 LOCAL_DEV_CORS_ORIGINS = (
     "http://localhost:3000,http://127.0.0.1:3000,"
     "http://localhost:4173,http://127.0.0.1:4173,"
@@ -55,6 +63,46 @@ def derive_neon_issuer(auth_url: str) -> str:
     if not parsed.scheme or not parsed.netloc:
         return ""
     return f"{parsed.scheme}://{parsed.netloc}"
+
+
+def parse_neon_database_url(database_url: str, purpose: str = "runtime") -> dict[str, str]:
+    """Validate a Neon DSN without returning or logging credentials."""
+    if not isinstance(database_url, str) or not database_url.strip():
+        raise ValueError("DATABASE_URL_INVALID")
+    if purpose not in {"runtime", "migration"}:
+        raise ValueError("DATABASE_PURPOSE_INVALID")
+
+    parsed = urlparse(database_url.strip())
+    if parsed.scheme not in {"postgres", "postgresql"}:
+        raise ValueError("DATABASE_PROVIDER_INVALID")
+
+    hostname = parsed.hostname or ""
+    host_match = NEON_DATABASE_HOST_PATTERN.fullmatch(hostname)
+    if host_match is None:
+        raise ValueError("DATABASE_PROVIDER_INVALID")
+    if parsed.path != f"/{NEON_DATABASE_NAME}" or parsed.params:
+        raise ValueError("DATABASE_NAME_INVALID")
+
+    query = parse_qs(parsed.query, keep_blank_values=True)
+    ssl_modes = query.get("sslmode", [])
+    if len(ssl_modes) != 1 or ssl_modes[0] not in NEON_DATABASE_SSL_MODES:
+        raise ValueError("DATABASE_TLS_REQUIRED")
+
+    pooled = bool(host_match.group(2))
+    if (purpose == "runtime" and not pooled) or (purpose == "migration" and pooled):
+        raise ValueError("DATABASE_PURPOSE_INVALID")
+
+    return {
+        "provider": "neon",
+        "purpose": purpose,
+        "project_id": host_match.group(1),
+        "branch_id": host_match.group(1),
+    }
+
+
+def validate_hosted_database_url(database_url: str) -> dict[str, str]:
+    """Validate the pooled Neon runtime URL used by hosted Meeting."""
+    return parse_neon_database_url(database_url, purpose="runtime")
 
 
 @dataclass(frozen=True)
@@ -122,11 +170,27 @@ def load_settings() -> Settings:
     if deployment_mode not in ALLOWED_DEPLOYMENT_MODES:
         deployment_mode = "oss"
 
-    database_url = (os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL") or "").strip()
+    configured_database_url = os.environ.get("DATABASE_URL")
+    legacy_database_url = os.environ.get("POSTGRES_URL")
+    secondary_database_url = os.environ.get("DATABASE_URL_SECONDARY")
+    if configured_database_url and legacy_database_url:
+        raise ValueError("DATABASE_AUTHORITY_DUPLICATE")
+    if secondary_database_url and secondary_database_url.strip():
+        raise ValueError("DATABASE_AUTHORITY_DUPLICATE")
+
+    database_url = (configured_database_url or legacy_database_url or "").strip()
     if not database_url:
         raise KeyError("DATABASE_URL")
 
-    database_provider = (os.environ.get("DATABASE_PROVIDER") or ("supabase" if deployment_mode == "hosted" else "postgres")).strip().lower()
+    database_provider = (
+        os.environ.get("DATABASE_PROVIDER")
+        or ("neon" if deployment_mode == "hosted" else "postgres")
+    ).strip().lower()
+    if database_provider not in ALLOWED_DATABASE_PROVIDERS:
+        raise ValueError("DATABASE_PROVIDER_INVALID")
+    if deployment_mode == "hosted":
+        if database_provider != "neon":
+            raise ValueError("DATABASE_PROVIDER_INVALID")
     auth_secret = os.environ.get("AUTH_SECRET", "meeting-agent-dev-secret")
     auth_algorithm = (os.environ.get("AUTH_ALGORITHM") or "HS256").strip()
     if auth_algorithm != "HS256":
@@ -195,6 +259,8 @@ def load_settings() -> Settings:
             raise KeyError("R2_ACCESS_KEY_ID")
         if not r2_secret_access_key:
             raise KeyError("R2_SECRET_ACCESS_KEY")
+    if deployment_mode == "hosted":
+        validate_hosted_database_url(database_url)
 
     return Settings(
         deployment_mode=deployment_mode,

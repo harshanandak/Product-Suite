@@ -1,9 +1,10 @@
 import { execFileSync } from "node:child_process";
+import { copyFileSync, cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, test } from "bun:test";
 
-import { analyzeMigrationParity } from "../scripts/check-migration-parity.mjs";
+import { analyzeMigrationParity, validateMigrationHistory } from "../scripts/check-migration-parity.mjs";
 
 const SCRIPT_PATH = join(import.meta.dir, "..", "scripts", "check-migration-parity.mjs");
 const REAL_MIGRATIONS_DIR = join(import.meta.dir, "..", "packages", "db", "migrations");
@@ -125,6 +126,56 @@ describe("check-migration-parity", () => {
 
       expect(status).not.toBe(0);
       expect(stderr).toContain("outside the expected migrations tree");
+    });
+
+    test("exits non-zero when a manifest-pinned snapshot is changed", () => {
+      const fixture = mkdtempSync(join(REAL_MIGRATIONS_DIR, ".parity-test-"));
+      try {
+        for (const file of readdirSync(REAL_MIGRATIONS_DIR).filter((name) => name.endsWith(".sql"))) {
+          copyFileSync(join(REAL_MIGRATIONS_DIR, file), join(fixture, file));
+        }
+        cpSync(join(REAL_MIGRATIONS_DIR, "meta"), join(fixture, "meta"), { recursive: true });
+        const snapshot = join(fixture, "meta", "0011_snapshot.json");
+        writeFileSync(snapshot, `${readFileSync(snapshot, "utf8")}\n`);
+
+        const { status, stderr } = runCli([fixture]);
+
+        expect(status).not.toBe(0);
+        expect(stderr).toContain("snapshot hash");
+      } finally {
+        rmSync(fixture, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe("history variants", () => {
+    const base = {
+      journal: journal(["0000_stale_jamie_braddock", "0001_dear_the_enforcers", "0002_polite_orphan", "0003_tranquil_tattoo", "0004_minor_lockheed"]),
+      hashes: {
+        "0000_stale_jamie_braddock.sql": "original-0000",
+        "0001_dear_the_enforcers.sql": "immutable-0001",
+        "0002_polite_orphan.sql": "immutable-0002",
+        "0003_tranquil_tattoo.sql": "immutable-0003",
+        "0004_minor_lockheed.sql": "original-0004",
+      },
+    };
+
+    test("accepts original-production and repaired-bootstrap as complete variants", () => {
+      expect(validateMigrationHistory({ ...base, historyVariant: "original-production" }).ok).toBe(true);
+      expect(validateMigrationHistory({
+        ...base,
+        historyVariant: "repaired-bootstrap",
+        hashes: { ...base.hashes, "0000_stale_jamie_braddock.sql": "repaired-0000", "0004_minor_lockheed.sql": "repaired-0004" },
+      }).ok).toBe(true);
+    });
+
+    test("rejects mixed and unknown hash variants", () => {
+      expect(validateMigrationHistory({ ...base, historyVariant: "original-production", hashes: { ...base.hashes, "0004_minor_lockheed.sql": "repaired-0004" } })).toMatchObject({ ok: false, code: "HISTORY_VARIANT_MIXED" });
+      expect(validateMigrationHistory({ ...base, historyVariant: "original-production", hashes: { ...base.hashes, "0000_stale_jamie_braddock.sql": "fabricated" } })).toMatchObject({ ok: false, code: "HISTORY_HASH_UNKNOWN" });
+    });
+
+    test("rejects fabricated snapshot hashes instead of treating them as a prefix", () => {
+      expect(validateMigrationHistory({ ...base, historyVariant: "original-production", snapshotHashes: { "0011_snapshot.json": "fabricated" } })).toMatchObject({ ok: false, code: "SNAPSHOT_HASH_UNKNOWN" });
     });
   });
 });

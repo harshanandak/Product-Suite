@@ -134,6 +134,13 @@
       "when": 1785081600000,
       "tag": "0018_collaboration_fabric",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1786229538854,
+      "tag": "0019_neon_authority_reconciliation",
+      "breakpoints": true
     }
   ]
 }

@@ -5,8 +5,19 @@ from psycopg_pool import ConnectionPool
 from sqlalchemy import JSON, MetaData, Table, Column, DateTime, Float, Integer, String, Text, create_engine
 from sqlalchemy.engine import Engine
 
-EXPECTED_ALEMBIC_VERSION = "0005_remove_workos_session_id"
-MEETING_SCHEMA_SEARCH_PATH = "-c search_path=meeting,public"
+CANONICAL_SCHEMA_REVISION = "0019_neon_authority_reconciliation"
+CANONICAL_SCHEMA_MIGRATION_HASH = "dc6ac02c11a113e9e7e3ff884d1073cb5977d4c2fc2376f2c21b9d6e8536d2c8"
+CANONICAL_SCHEMA_TABLES = (
+    "tenants",
+    "users",
+    "meetings",
+    "chapter_summaries",
+    "summaries",
+    "audio_assets",
+    "user_auth_identities",
+    "organization_memberships",
+    "organization_invitations",
+)
 
 metadata = MetaData()
 
@@ -112,19 +123,11 @@ def normalize_sqlalchemy_database_url(database_url: str) -> str:
     return database_url
 
 
-def should_use_meeting_schema_search_path(settings) -> bool:
-    return str(getattr(settings, "database_provider", "")).strip().lower() == "supabase"
-
-
 def build_db_connection_kwargs(settings) -> dict[str, str]:
-    if should_use_meeting_schema_search_path(settings):
-        return {"options": MEETING_SCHEMA_SEARCH_PATH}
     return {}
 
 
 def build_db_engine_connect_args(settings) -> dict[str, str]:
-    if should_use_meeting_schema_search_path(settings):
-        return {"options": MEETING_SCHEMA_SEARCH_PATH}
     return {}
 
 
@@ -184,18 +187,44 @@ def assert_schema_ready() -> None:
                 SELECT EXISTS (
                     SELECT 1
                     FROM information_schema.tables
-                    WHERE table_schema = 'public' AND table_name = 'alembic_version'
-                ) AS has_alembic
+                    WHERE table_schema = 'drizzle' AND table_name = '__drizzle_migrations'
+                ) AS has_drizzle_journal
                 """
             )
-            has_alembic = bool(cur.fetchone()["has_alembic"])
-            if not has_alembic:
-                raise RuntimeError("Database schema is not initialized. Run `alembic upgrade head` in the backend directory.")
-
-            cur.execute("SELECT version_num FROM alembic_version LIMIT 1")
-            row = cur.fetchone()
-            version = row["version_num"] if row else None
-            if version != EXPECTED_ALEMBIC_VERSION:
+            has_drizzle_journal = bool(cur.fetchone()["has_drizzle_journal"])
+            if not has_drizzle_journal:
                 raise RuntimeError(
-                    f"Database schema version is '{version}'. Expected '{EXPECTED_ALEMBIC_VERSION}'. Run `alembic upgrade head`."
+                    "Database schema is not initialized. Canonical Drizzle journal is missing."
+                )
+
+            cur.execute(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM drizzle.__drizzle_migrations
+                    WHERE hash = %s
+                ) AS has_reconciliation
+                """,
+                (CANONICAL_SCHEMA_MIGRATION_HASH,),
+            )
+            has_reconciliation = bool(cur.fetchone()["has_reconciliation"])
+            if not has_reconciliation:
+                raise RuntimeError(
+                    f"Database schema is below {CANONICAL_SCHEMA_REVISION}. Apply the canonical Drizzle migration."
+                )
+
+            table_placeholders = ", ".join("%s" for _ in CANONICAL_SCHEMA_TABLES)
+            cur.execute(
+                f"""
+                SELECT COUNT(*) = %s AS has_canonical_schema
+                FROM information_schema.tables
+                WHERE table_schema = 'public'
+                  AND table_name IN ({table_placeholders})
+                """,
+                (len(CANONICAL_SCHEMA_TABLES), *CANONICAL_SCHEMA_TABLES),
+            )
+            has_canonical_schema = bool(cur.fetchone()["has_canonical_schema"])
+            if not has_canonical_schema:
+                raise RuntimeError(
+                    f"Database schema does not satisfy the canonical {CANONICAL_SCHEMA_REVISION} contract."
                 )

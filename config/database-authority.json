@@ -1,0 +1,36 @@
+{
+  "provider": "neon",
+  "database": "neondb",
+  "schema": "public",
+  "services": {
+    "platform-api": "supported",
+    "meeting-api": "supported",
+    "agent-core": "supported",
+    "hocuspocus": "supported",
+    "roadmap-web": "unsupported-legacy"
+  },
+  "drizzle": {
+    "owner": "packages/db",
+    "migrationRoot": "packages/db/migrations",
+    "journal": "packages/db/migrations/meta/_journal.json",
+    "generateCommand": "bun run --cwd packages/db generate",
+    "runnerCommand": "bun run migrate:database"
+  },
+  "historicalRoots": [
+    "infra/supabase/migrations",
+    "apps/roadmap-web/supabase/migrations",
+    "apps/meeting-api/backend/alembic/versions",
+    "apps/meeting-api/backend/migrations"
+  ],
+  "environmentHistoryPins": {
+    "production": "original-production",
+    "fresh": "repaired-bootstrap",
+    "staging": "repaired-bootstrap",
+    "test": "repaired-bootstrap",
+    "conformance-original": "original-production"
+  },
+  "migrationPolicy": {
+    "p0ProductionAllowedSuffixes": [["0018", "0019"], ["0019"]],
+    "futureRequiresExactContiguousSuffix": true
+  }
+}

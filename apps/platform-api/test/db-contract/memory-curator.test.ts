@@ -138,8 +138,9 @@ describe.skipIf(!hasNeonCreds())(
           body: `A ${SHARED} needs two reviewers before it ships.`,
         })
         // A perfect textual match in a tenant the reviewer has nothing to do with.
-        await query(sql, `insert into tenants (id, name) values ($1, $2)`, [
+        await query(sql, `insert into tenants (id, slug, name) values ($1, $2, $3)`, [
           foreignTenant,
+          `contract-${foreignTenant}`,
           'Foreign Org',
         ])
         const foreign = await insertMemory(sql, foreignTenant, {

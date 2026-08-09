@@ -18,94 +18,79 @@ const serviceInventoryPath = join(
 );
 
 describe("schema domain inventory", () => {
-  test("durable ownership inventory doc exists with required task-one sections", () => {
+  test("durable ownership inventory doc records the current authority contract", () => {
     expect(existsSync(inventoryDocPath)).toBe(true);
 
     const inventoryDoc = readFileSync(inventoryDocPath, "utf8");
 
-    expect(inventoryDoc).toContain("# Schema And Domain Ownership");
+    expect(inventoryDoc).toContain("# Schema and domain ownership");
+    expect(inventoryDoc).toContain("## Current authority (2026-08-09)");
     expect(inventoryDoc).toContain("## Ownership Matrix");
+    expect(inventoryDoc).toContain("## Historical evidence (not current authority)");
     expect(inventoryDoc).toContain("## Overlap Notes");
     expect(inventoryDoc).toContain("## Non-Goals");
   });
 
-  test("roadmap-owned entities are mapped with canonical schema paths", () => {
+  test("current domain entities are mapped to the Neon schema model", () => {
     const inventoryDoc = readFileSync(inventoryDocPath, "utf8");
 
     expect(inventoryDoc).toContain(
-      "| `team` | `roadmap-web` | `roadmap-web` | `Supabase Postgres` | `apps/roadmap-web/supabase/migrations/20250110000001_initial_multitenant_schema.sql` |",
+      "| Workboard, teams, projects, statuses, work items | Platform API | Neon `neondb` | `packages/db/src/schema.ts` |",
     );
     expect(inventoryDoc).toContain(
-      "| `workspace` | `roadmap-web` | `roadmap-web` | `Supabase Postgres` | `apps/roadmap-web/supabase/migrations/20250110000001_initial_multitenant_schema.sql` |",
+      "| Meetings, transcripts, summaries, jobs, meeting links | Platform/Meeting services | Neon `neondb` | `packages/db/src/meeting-schema.ts` re-exported by `schema.ts` |",
     );
     expect(inventoryDoc).toContain(
-      "| `thread` | `roadmap-web` | `roadmap-web` | `Supabase Postgres` | `infra/supabase/migrations/20251208100000_create_chat_threads_tables.sql` |",
+      "| Agent runs, proposals, memories, knowledge | Platform API / agent module | Neon `neondb` | `packages/db/src/schema.ts` |",
     );
     expect(inventoryDoc).toContain(
-      "| `task` | `roadmap-web` | `roadmap-web` | `Supabase Postgres` | `apps/roadmap-web/supabase/migrations/20250110000001_initial_multitenant_schema.sql` |",
+      "| Realtime transport | Hocuspocus service | Neon `neondb` when persisted by Product Suite | service-owned tables in `public` |",
     );
   });
 
-  test("meeting-owned entities and migration drift are documented", () => {
+  test("meeting ownership and historical migration provenance are documented", () => {
     const inventoryDoc = readFileSync(inventoryDocPath, "utf8");
 
     expect(inventoryDoc).toContain(
-      "| `meeting` | `meeting-api` | `meeting-api` | `Meeting API Postgres` | `apps/meeting-api/backend/alembic/versions/0001_multi_user_jobs.py` |",
+      "[`apps/meeting-api/backend/alembic/versions`](../../apps/meeting-api/backend/alembic/versions)",
     );
     expect(inventoryDoc).toContain(
-      "| `artifact` | `split by artifact type` | `split by artifact type` | `Supabase Postgres` and `Meeting API Postgres` | `apps/roadmap-web/src/lib/supabase/types.ts` and `apps/meeting-api/backend/alembic/versions/0001_multi_user_jobs.py` |",
+      "[`apps/meeting-api/backend/migrations`](../../apps/meeting-api/backend/migrations)",
     );
+    expect(inventoryDoc).toContain("historical_non_authoritative");
     expect(inventoryDoc).toContain(
-      "Meeting transcript, summary, and processing job artifacts stay in the meeting-api domain.",
-    );
-    expect(inventoryDoc).toContain("## Migration Drift");
-    expect(inventoryDoc).toContain(
-      "`apps/meeting-api/backend/migrations/0001_initial.sql`",
-    );
-    expect(inventoryDoc).toContain(
-      "`apps/meeting-api/backend/alembic/versions/0001_multi_user_jobs.py`",
+      "The five-block bootstrap repair in Drizzle `0000`/`0004` is immutable",
     );
   });
 
-  test("PR19 platform and module schema ownership is explicit", () => {
+  test("historical provider and compatibility roots cannot become current authority", () => {
     const inventoryDoc = readFileSync(inventoryDocPath, "utf8");
 
     expect(inventoryDoc).toContain(
-      "| `platform` | `new in PR19` | `platform services` | `Supabase Postgres` | `infra/supabase/migrations/20260602120000_create_platform_schema.sql` |",
+      "[`infra/supabase/migrations`](../../infra/supabase/migrations)",
     );
     expect(inventoryDoc).toContain(
-      "| `meeting` | `meeting-api on Neon` | `meeting-api in Supabase schema` | `Neon Postgres to Supabase Postgres` | `apps/meeting-api/backend/alembic/versions/0001_multi_user_jobs.py` and `infra/supabase/migrations/20260602120000_create_platform_schema.sql` |",
+      "[`apps/roadmap-web/supabase/migrations`](../../apps/roadmap-web/supabase/migrations)",
     );
-    expect(inventoryDoc).toContain(
-      "| `roadmap` | `roadmap-web public schema` | `roadmap-web public compatibility during PR19` | `Supabase Postgres` | `infra/supabase/migrations` and `apps/roadmap-web/supabase/migrations` |",
-    );
-    expect(inventoryDoc).toContain(
-      "| `agent` | `services/agent-core` | `agent module schema` | `Supabase Postgres` | `infra/supabase/migrations/20260602120000_create_platform_schema.sql` |",
-    );
-    expect(inventoryDoc).toContain(
-      "| `realtime` | `services/hocuspocus` | Supabase-managed built-in schema | `Supabase Postgres` | Supabase platform ownership; `infra/supabase/migrations/20260602120000_create_platform_schema.sql` documents the exception |",
-    );
-    expect(inventoryDoc).toContain("## PR19 Unified Schema Boundaries");
-    expect(inventoryDoc).toContain("Meeting stays on Neon until PR20");
-    expect(inventoryDoc).toContain(
-      "The built-in `realtime` schema is Supabase-managed and explicitly excluded from the Product Suite private-schema contract.",
-    );
+    expect(inventoryDoc).toContain("not current authority");
+    expect(inventoryDoc).toContain("not a pending journal");
   });
 
   test("shared-entity collision rules are explicit", () => {
     const inventoryDoc = readFileSync(inventoryDocPath, "utf8");
+    const normalizedDoc = inventoryDoc.replace(/\s+/g, " ");
 
-    expect(inventoryDoc).toContain("### `users`");
-    expect(inventoryDoc).toContain(
-      "Roadmap `chat_threads` and roadmap `chat_messages` represent workspace conversation state.",
+    expect(normalizedDoc).toContain("### users and identity");
+    expect(normalizedDoc).toContain(
+      "Identity and authorization remain application concerns; database rows use internal Product Suite user IDs.",
     );
-    expect(inventoryDoc).toContain(
-      "Meeting-api `chat_messages` represent meeting-scoped assistant and transcript-adjacent conversation state.",
+    expect(normalizedDoc).toContain(
+      "Meeting conversation stays scoped to meeting records and their evidence.",
     );
-    expect(inventoryDoc).toContain(
-      "Planning and canvas artifacts stay in roadmap, while transcript and summary artifacts stay in meeting-api.",
+    expect(normalizedDoc).toContain(
+      "Workboard and canvas artifacts stay in the shared Neon model, while transcript and summary artifacts stay in the meeting domain.",
     );
-    expect(inventoryDoc).toContain("## Shared-Contract Boundary");
+    expect(normalizedDoc).toContain("## Contract boundary");
   });
 
   test("inventory doc is discoverable from durable root-facing docs", () => {

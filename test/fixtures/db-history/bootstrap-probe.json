@@ -1,0 +1,14 @@
+{
+  "engine": "postgresql-17",
+  "extension": "vector",
+  "untouchedRed": {
+    "stopAfter": "0000_stale_jamie_braddock",
+    "sqlState": "42P01",
+    "relation": "public.tenants"
+  },
+  "repair": {
+    "allowedGuardCount": 5,
+    "deferredRelations": ["public.tenants", "public.users"]
+  },
+  "liveProbe": "INCOMPLETE_WHEN_POSTGRESQL_17_UNAVAILABLE"
+}

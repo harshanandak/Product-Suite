@@ -5,7 +5,7 @@ This repository is the single Git source for:
 - `apps/roadmap-web`
 - `apps/meeting-web`
 - `apps/meeting-api/backend`
-- `infra/supabase`
+- historical database roots under `infra/supabase` and the legacy Meeting paths
 - future shared code in `packages/*`
 - future backend runtimes in `services/*`
 
@@ -38,12 +38,33 @@ The root Bun workspace intentionally includes only the JavaScript web apps. The 
 - `apps/meeting-api/tests/backend` contains the backend pytest suite.
 - `packages/` is reserved for shared monorepo building blocks that will be extracted later.
 - `services/` is reserved for future standalone backend runtimes.
-- `infra/supabase` contains Roadmap Supabase migrations and config.
+- `infra/supabase` and `apps/roadmap-web/supabase/migrations` are preserved
+  historical roots for the unsupported legacy Roadmap application; they are not
+  active database configuration.
 
 ## Deployment Notes
 
 - Deployment roots and live platform mappings are maintained in the deployment inventory.
-- `Neon`, `Supabase`, and `R2` remain environment/data systems. They are not repo-linked deploy targets.
+- Neon is the sole live Postgres authority for supported Product Suite services.
+- Neon PostgreSQL (`neondb`, schema `public`) is the sole live Postgres authority
+  and sole supported live database. Supabase and Alembic paths are historical evidence only; R2 remains
+  an independent object-storage system.
+
+The current migration plane is Drizzle in `packages/db/migrations`, with
+`packages/db/migrations/meta/_journal.json` as its only pending journal. The
+applied floor is `0019_neon_authority_reconciliation`; production pins
+`original-production`, while fresh/staging/test pin `repaired-bootstrap`.
+
+PR A consumes candidate `0020_meeting_authority_foundation.sql` on both variants:
+
+```text
+bun run migrate:database -- apply --history-variant <variant> --expected-pending <ordered-tags>
+bun run migrate:database -- verify --history-variant <variant> --expected-floor <tag>
+```
+
+The required real-Neon lane is INCOMPLETE when its disposable-project
+credentials are unavailable; it must fail closed rather than report a skipped
+run as success.
 
 See [docs/deployment/SERVICE_INVENTORY.md](docs/deployment/SERVICE_INVENTORY.md) and [docs/deployment/REPO_REBINDING_RUNBOOK.md](docs/deployment/REPO_REBINDING_RUNBOOK.md).
 

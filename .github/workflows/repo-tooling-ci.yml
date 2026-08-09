@@ -27,7 +27,6 @@ on:
       - ".github/workflows/meeting-web-ci.yml"
       - ".github/workflows/repo-tooling-ci.yml"
       - ".github/workflows/roadmap-web-ci.yml"
-      - ".github/workflows/roadmap-web-playwright.yml"
   # No `paths` filter here: `repo-tooling` is a REQUIRED status check on main, so
   # it must run (and report) on EVERY PR. With a paths filter, a PR that touches
   # none of these paths never starts this workflow, leaving the required check

@@ -115,7 +115,11 @@ describe.skipIf(!hasNeonCreds())(
       // A second tenant with its own run + proposal, invisible to the seed tenant.
       const otherTenant = randomUUID()
       const otherRun = randomUUID()
-      await query(sql, `insert into tenants (id, name) values ($1, $2)`, [otherTenant, 'Other Org'])
+      await query(sql, `insert into tenants (id, slug, name) values ($1, $2, $3)`, [
+        otherTenant,
+        `contract-${otherTenant}`,
+        'Other Org',
+      ])
       await query(
         sql,
         `insert into agent_runs (id, tenant_id, triggered_by, kind, status) values ($1, $2, $3, 'agent_run', 'running')`,

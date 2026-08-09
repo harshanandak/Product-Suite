@@ -3,14 +3,17 @@
     {
       "id": "roadmap-web",
       "platform": "vercel",
+      "status": "unsupported-archived",
+      "supported": false,
+      "databaseAuthority": "none",
       "currentRepo": "Product-Suite",
       "targetRepo": "Product-Suite",
       "targetRootDirectory": "apps/roadmap-web",
       "currentBranch": "main",
       "currentBuildCommand": "bun run build",
-      "currentProductionDomain": "https://platform-test-cyan.vercel.app",
-      "previewBehavior": "Vercel Git-based preview deployments from harshanandak/Product-Suite",
-      "notes": "Existing Vercel project preserved and rebound to the monorepo."
+      "currentProductionDomain": null,
+      "previewBehavior": "No supported preview or production deployment; the former Vercel binding is archived.",
+      "notes": "Legacy source is retained for historical/product recovery. Supabase workflows, cutover runners, and database authority are retired."
     },
     {
       "id": "meeting-web",

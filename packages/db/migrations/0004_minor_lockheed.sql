@@ -8,7 +8,9 @@ ALTER TABLE "projects" ADD COLUMN "status" "project_status" DEFAULT 'backlog' NO
 ALTER TABLE "projects" ADD COLUMN "lead_id" text;--> statement-breakpoint
 ALTER TABLE "projects" ADD COLUMN "target_date" timestamp with time zone;--> statement-breakpoint
 DO $$ BEGIN
- ALTER TABLE "projects" ADD CONSTRAINT "projects_lead_id_users_id_fk" FOREIGN KEY ("lead_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;
+ IF to_regclass('public.users') IS NOT NULL THEN
+  ALTER TABLE "projects" ADD CONSTRAINT "projects_lead_id_users_id_fk" FOREIGN KEY ("lead_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;
+ END IF;
 EXCEPTION
  WHEN duplicate_object THEN null;
 END $$;

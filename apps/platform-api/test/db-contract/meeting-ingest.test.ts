@@ -53,8 +53,8 @@ async function createAlembicOwnedTables(sql: Sql): Promise<void> {
        buddy_mode text not null default 'addressable',
        duration_seconds integer not null default 0,
        segment_count integer not null default 0,
-       created_at timestamptz not null default now(),
-       updated_at timestamptz not null default now()
+       created_at timestamptz not null,
+       updated_at timestamptz not null
      )`,
   )
   await query(
@@ -89,7 +89,11 @@ async function seedExtraTenant(sql: Sql): Promise<string> {
   // A Clerk-style org id, matching what live `public.tenants` actually holds
   // alongside uuids — a uuid-only fixture would not exercise the real key space.
   const tenantId = `org_${randomUUID().replaceAll('-', '')}`
-  await query(sql, `insert into tenants (id, name) values ($1, $2)`, [tenantId, 'Other Org'])
+  await query(sql, `insert into tenants (id, slug, name) values ($1, $2, $3)`, [
+    tenantId,
+    `contract-${tenantId}`,
+    'Other Org',
+  ])
   return tenantId
 }
 
@@ -98,7 +102,9 @@ async function seedMeeting(sql: Sql, tenantId: string): Promise<string> {
   const meetingId = `mtg_${randomUUID()}`
   await query(
     sql,
-    `insert into meetings (id, tenant_id, title, status, engine) values ($1, $2, $3, $4, $5)`,
+    `insert into meetings
+       (id, tenant_id, title, status, engine, created_at, updated_at)
+     values ($1, $2, $3, $4, $5, now(), now())`,
     [meetingId, tenantId, 'Weekly sync', 'completed', 'test'],
   )
   return meetingId

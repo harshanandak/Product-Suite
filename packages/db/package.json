@@ -12,6 +12,8 @@
     "migrate": "drizzle-kit migrate",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:catalog-rollback": "vitest run test/catalog-rollback.test.ts",
+    "test:sql-firewall": "vitest run test/sql-firewall.test.ts",
     "lint": "eslint --max-warnings 0 src drizzle.config.ts"
   },
   "dependencies": {

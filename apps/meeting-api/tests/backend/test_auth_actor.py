@@ -341,7 +341,10 @@ def test_access_token_helpers_reject_non_hs256_algorithms():
 def test_hosted_onboarding_actor_allows_missing_tenant_context(monkeypatch):
     monkeypatch.delenv("AUTH_PROVIDER", raising=False)
     monkeypatch.setenv("DEPLOYMENT_MODE", "hosted")
-    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@127.0.0.1:5432/meeting_agent")
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql://user:pass@ep-cool-fire-123456-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require",
+    )
     monkeypatch.setenv("OPENAI_API_KEY", "openai-test")
     monkeypatch.setenv("NEON_AUTH_URL", "https://project-123.neon.tech/auth")
     monkeypatch.setenv("R2_ACCOUNT_ID", "account-123")
@@ -409,7 +412,10 @@ def test_decode_neon_access_token_reuses_jwks_client(monkeypatch):
 def test_provision_hosted_user_from_neon_access_token_issues_app_user(monkeypatch):
     monkeypatch.delenv("AUTH_PROVIDER", raising=False)
     monkeypatch.setenv("DEPLOYMENT_MODE", "hosted")
-    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@127.0.0.1:5432/meeting_agent")
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql://user:pass@ep-cool-fire-123456-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require",
+    )
     monkeypatch.setenv("OPENAI_API_KEY", "openai-test")
     monkeypatch.setenv("NEON_AUTH_URL", "https://project-123.neon.tech/auth")
     monkeypatch.setenv("R2_ACCOUNT_ID", "account-123")

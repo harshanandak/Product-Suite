@@ -136,7 +136,7 @@ export const conversations = pgTable(
       columns: [t.tenantId, t.createdByActorId],
       foreignColumns: [collaborationActors.tenantId, collaborationActors.id],
       name: 'conversations_tenant_created_by_actor_fk',
-    }),
+    }).onDelete('restrict'),
     byTenantUpdated: index('conversations_tenant_updated_idx').on(t.tenantId, t.updatedAt),
   }),
 )
@@ -163,17 +163,17 @@ export const conversationMemberships = pgTable(
       columns: [t.tenantId, t.conversationId],
       foreignColumns: [conversations.tenantId, conversations.id],
       name: 'conversation_memberships_tenant_conversation_fk',
-    }),
+    }).onDelete('cascade'),
     actor: foreignKey({
       columns: [t.tenantId, t.actorId],
       foreignColumns: [collaborationActors.tenantId, collaborationActors.id],
       name: 'conversation_memberships_tenant_actor_fk',
-    }),
+    }).onDelete('restrict'),
     createdByActor: foreignKey({
       columns: [t.tenantId, t.createdByActorId],
       foreignColumns: [collaborationActors.tenantId, collaborationActors.id],
       name: 'conversation_memberships_tenant_created_by_actor_fk',
-    }),
+    }).onDelete('restrict'),
   }),
 )
 
@@ -209,26 +209,26 @@ export const conversationEvents = pgTable(
       columns: [t.tenantId, t.conversationId],
       foreignColumns: [conversations.tenantId, conversations.id],
       name: 'conversation_events_tenant_conversation_fk',
-    }),
+    }).onDelete('restrict'),
     actor: foreignKey({
       columns: [t.tenantId, t.actorId],
       foreignColumns: [collaborationActors.tenantId, collaborationActors.id],
       name: 'conversation_events_tenant_actor_fk',
-    }),
+    }).onDelete('restrict'),
     reply: foreignKey({
       columns: [t.tenantId, t.conversationId, t.replyToEventId],
       foreignColumns: [t.tenantId, t.conversationId, t.id],
       name: 'conversation_events_tenant_reply_fk',
-    }),
+    }).onDelete('restrict'),
     target: foreignKey({
       columns: [t.tenantId, t.conversationId, t.targetEventId],
       foreignColumns: [t.tenantId, t.conversationId, t.id],
       name: 'conversation_events_tenant_target_fk',
-    }),
+    }).onDelete('restrict'),
     payloadSize: check('conversation_events_payload_size_check', sql`octet_length(${t.payload}::text) <= 262144`),
     referencesSize: check(
       'conversation_events_references_size_check',
-      sql`jsonb_typeof(${t.references}) = 'array' and octet_length(${t.references}::text) <= 65536`,
+      sql`jsonb_typeof(${t.references}) = 'array'::text and octet_length(${t.references}::text) <= 65536`,
     ),
   }),
 )
@@ -892,3 +892,8 @@ export const meetingPromotions = pgTable(
     byTenantRecord: uniqueIndex('meeting_promotions_tenant_record_uniq').on(t.tenantId, t.meetingRecordId),
   }),
 )
+
+// Meeting/identity tables are maintained in a separate module so their
+// historical ownership boundary remains explicit while Drizzle still has one
+// canonical schema entrypoint.
+export * from './meeting-schema'
