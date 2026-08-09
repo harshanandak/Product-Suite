@@ -660,7 +660,7 @@ describe("repo tooling", () => {
     expect(dbContractTelemetry).toContain("finalizeTelemetry(path)");
     expect(artifact.uses).toBe("actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f");
     expect(platformApiPackageJson.scripts["test:db-contract:list"]).toBe(
-      "vitest list --config vitest.db-contract.config.ts",
+      "DB_CONTRACT_LIST_ONLY=1 vitest list --config vitest.db-contract.config.ts",
     );
     expect(platformApiPackageJson.scripts["test:db-contract:required"]).toBe(
       "vitest run --config vitest.db-contract.config.ts",
