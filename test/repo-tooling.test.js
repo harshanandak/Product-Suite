@@ -498,6 +498,28 @@ describe("repo tooling", () => {
     expect(roadmapWebWorkflow).toContain("bun run test");
   });
 
+  test("roadmap CI preserves the required test check on every pull request", () => {
+    const workflow = Bun.YAML.parse(roadmapWebWorkflow);
+    const testJob = workflow.jobs.test;
+
+    expect(workflow.on.pull_request.paths).toBeUndefined();
+    expect(testJob.name).toBe("test");
+    expect(testJob.if).toBeUndefined();
+    expect(testJob.steps).toContainEqual(
+      expect.objectContaining({
+        name: "Run Playwright tests",
+        if: "steps.changes.outputs.run == 'true'",
+        run: "bun run test:e2e",
+      }),
+    );
+    expect(testJob.steps).toContainEqual(
+      expect.objectContaining({
+        name: "Roadmap Playwright N/A",
+        if: "steps.changes.outputs.run != 'true'",
+      }),
+    );
+  });
+
   test("retired Roadmap Supabase authority surfaces stay absent", () => {
     for (const relativePath of [
       ".github/workflows/roadmap-supabase.yml",
