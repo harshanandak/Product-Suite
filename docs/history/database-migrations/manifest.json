@@ -698,7 +698,32 @@
           "sha256": "444f24951876c1cc3250d97e7663faa63bc36c777614159508d495328337cff7"
         }
       }
-    ]
+    ],
+    "historyVectors": {
+      "original-production": {
+        "version": 1,
+        "entries": [
+          { "tag": "0000", "filename": "0000_stale_jamie_braddock.sql", "lineEnding": "CRLF", "observedSha256": "da63f59c785b78d0896d21880821f12d0cf306f5b6f6ce5e890d525de269d507", "gitBlobOid": "abcd85f41a46142669bdb6567c0c60600b431ba1", "sourceCommit": "341caeb0072f6642ce9b2172c1d092f91bcd326" },
+          { "tag": "0001", "filename": "0001_dear_the_enforcers.sql", "lineEnding": "CRLF", "observedSha256": "66c78756b0c967113d4b6aa44f3f3a233bd55702465ff73052b8fd0f7cf45f7f", "gitBlobOid": "93d6f6e7554aaf829211ff6e5946199ed3db59e7", "sourceCommit": "9c38161b21fb88eaee6ffe50f55e9f43259ef86d" },
+          { "tag": "0002", "filename": "0002_polite_orphan.sql", "lineEnding": "CRLF", "observedSha256": "d258edd36bd2c50a5bb8c52868494e50b3ab65bf525c50b717c6714384e870d2", "gitBlobOid": "6d30e4febad868f447b1e37e74932fe07e4bd158", "sourceCommit": "9c38161b21fb88eaee6ffe50f55e9f43259ef86d" },
+          { "tag": "0003", "filename": "0003_tranquil_tattoo.sql", "lineEnding": "CRLF", "observedSha256": "ae5da2c02c82bc8f8ee812edafd70889a4cbfc985fa70e7cb3746392d5e2615c", "gitBlobOid": "7c0188c9117034b41ad7745c9711aeec1ddc2266", "sourceCommit": "9c38161b21fb88eaee6ffe50f55e9f43259ef86d" },
+          { "tag": "0004", "filename": "0004_minor_lockheed.sql", "lineEnding": "CRLF", "observedSha256": "1d73a91952aa4f1b1ce184777ae39484fb876d2bad72d21bc3a428bba6d60ac7", "gitBlobOid": "2889d9fc4459dac1fa576c51fc2a1baf60131415", "sourceCommit": "341caeb0072f6642ce9b2172c1d092f91bcd326" },
+          { "tag": "0005", "filename": "0005_rename_tasks_to_checks.sql", "lineEnding": "CRLF", "observedSha256": "8fa959937b555b0383ca769ef783582e4cb53236bff363bdcf3d404c3cbd9423", "gitBlobOid": "8ad031b8876ea1eca0da5fa591afb3102a7b6ed8", "sourceCommit": "9c38161b21fb88eaee6ffe50f55e9f43259ef86d" },
+          { "tag": "0006", "filename": "0006_provenance_foundation.sql", "lineEnding": "CRLF", "observedSha256": "e44ecd32b0605c8101db8991414d8b9422808973a55bde3317c2bb8a6cc9fe0d", "gitBlobOid": "e0f99e292b448b1bd7f60593c5ed932257b013a3", "sourceCommit": "9c38161b21fb88eaee6ffe50f55e9f43259ef86d" },
+          { "tag": "0007", "filename": "0007_proposals.sql", "lineEnding": "CRLF", "observedSha256": "d85b60d49d5fff3097779a5e41c14ecef249be795dec00f2f92b0501e96257da", "gitBlobOid": "5225d1736e6fb004be3e11147599338accf74791", "sourceCommit": "9c38161b21fb88eaee6ffe50f55e9f43259ef86d" },
+          { "tag": "0008", "filename": "0008_agent_transcript.sql", "lineEnding": "CRLF", "observedSha256": "a6cb10ac13d30c7e5ddc92d7bb234f827cf32108349f73cc5e09cca330cd893a", "gitBlobOid": "5d2745e7d82e28c4e9fc3d7ea13638d75dd98439", "sourceCommit": "9c38161b21fb88eaee6ffe50f55e9f43259ef86d" },
+          { "tag": "0009", "filename": "0009_chat_threads.sql", "lineEnding": "CRLF", "observedSha256": "90d55e2c964f432c3d48444fc29e185ba75ffee088b1698ad9a52c6868cfcea8", "gitBlobOid": "8080f9d511fcbcf1e3ae8911377401f5542dc8d0", "sourceCommit": "9c38161b21fb88eaee6ffe50f55e9f43259ef86d" },
+          { "tag": "0010", "filename": "0010_memory_brain.sql", "lineEnding": "CRLF", "observedSha256": "d8670a928886af28824f29123648d29e72a2bb0b0dac9c158c0741b72d5c1a97", "gitBlobOid": "ddec25029424ef32644782f061f2f8877e99c5c7", "sourceCommit": "9c38161b21fb88eaee6ffe50f55e9f43259ef86d" },
+          { "tag": "0011", "filename": "0011_memory_source_proposal_uniq.sql", "lineEnding": "CRLF", "observedSha256": "e73544e73377fd4a88c6be656a8b798486d0f3e26678cb5fc6f3c0ec7ea1e664", "gitBlobOid": "11c5d58d063880449cb15a774b96207d62bbe5a5", "sourceCommit": "9c38161b21fb88eaee6ffe50f55e9f43259ef86d" },
+          { "tag": "0012", "filename": "0012_proposals_reflected_at.sql", "lineEnding": "CRLF", "observedSha256": "d702cfa2b6d0baad7aa59b12ad2de14b4e0cdc52dee639b43bf601d4cc4c2917", "gitBlobOid": "ce5224eb4b91e7b630590608985cc764fbad305e", "sourceCommit": "9c38161b21fb88eaee6ffe50f55e9f43259ef86d" },
+          { "tag": "0013", "filename": "0013_knowledge_base.sql", "lineEnding": "CRLF", "observedSha256": "11d6d1de67ce9511a76e3393e7be21534a16bc52f1a5bd1b5aaa2da6f740e2a6", "gitBlobOid": "00d87c48666e90099d37b19a8e6d8d7c264980eb", "sourceCommit": "9c38161b21fb88eaee6ffe50f55e9f43259ef86d" },
+          { "tag": "0014", "filename": "0014_work_item_applied_from_proposal_partial.sql", "lineEnding": "CRLF", "observedSha256": "b4803d3d3b7d87fbc82cd46c99050749289aaf091874cb1d61b5e11dda3cebd7", "gitBlobOid": "e5fa5fda15614d9f397f0a64b0c9b51e27f918c1", "sourceCommit": "9c38161b21fb88eaee6ffe50f55e9f43259ef86d" },
+          { "tag": "0015", "filename": "0015_meeting_promotions.sql", "lineEnding": "CRLF", "observedSha256": "793ba3d11c86a5476f54ddf6b59fb223ffa9ff8374d6112ecce508f43bb696e1", "gitBlobOid": "713d190228777d7630f4d24dd98afda69757bf34", "sourceCommit": "9c38161b21fb88eaee6ffe50f55e9f43259ef86d" },
+          { "tag": "0016", "filename": "0016_memory_ownership_axis.sql", "lineEnding": "CRLF", "observedSha256": "3fca12b63918ba93a23e0e21d5a3fad69396f727b816dce193aca7c8d717e0f1", "gitBlobOid": "51919343d72e2a29b38d724646c1cd446403d7d4", "sourceCommit": "9c38161b21fb88eaee6ffe50f55e9f43259ef86d" },
+          { "tag": "0017", "filename": "0017_proposal_target_snapshot.sql", "lineEnding": "LF", "observedSha256": "503f779a56bb4a8ee1124904109efd15e2221ceae6f8ebc7de92e13452d41c36", "gitBlobOid": "06e2cbf274766d37e322c85179bf8fa606c15316", "sourceCommit": "9c38161b21fb88eaee6ffe50f55e9f43259ef86d" }
+        ]
+      }
+    }
   },
   "snapshots": {
     "packages/db/migrations/meta/0000_snapshot.json": {

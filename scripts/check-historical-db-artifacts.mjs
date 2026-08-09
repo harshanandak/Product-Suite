@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -97,6 +98,29 @@ export const HISTORY_VARIANTS = Object.freeze({
   REPAIRED_BOOTSTRAP: "repaired-bootstrap",
 });
 
+const ORIGINAL_PRODUCTION_SOURCE = "9c38161b21fb88eaee6ffe50f55e9f43259ef86d";
+const ORIGINAL_PRODUCTION_REPAIRS_SOURCE = "341caeb0072f6642ce9b2172c1d092f91bcd326";
+const ORIGINAL_PRODUCTION_FILES = Object.freeze([
+  "0000_stale_jamie_braddock.sql",
+  "0001_dear_the_enforcers.sql",
+  "0002_polite_orphan.sql",
+  "0003_tranquil_tattoo.sql",
+  "0004_minor_lockheed.sql",
+  "0005_rename_tasks_to_checks.sql",
+  "0006_provenance_foundation.sql",
+  "0007_proposals.sql",
+  "0008_agent_transcript.sql",
+  "0009_chat_threads.sql",
+  "0010_memory_brain.sql",
+  "0011_memory_source_proposal_uniq.sql",
+  "0012_proposals_reflected_at.sql",
+  "0013_knowledge_base.sql",
+  "0014_work_item_applied_from_proposal_partial.sql",
+  "0015_meeting_promotions.sql",
+  "0016_memory_ownership_axis.sql",
+  "0017_proposal_target_snapshot.sql",
+]);
+
 export function normalizeLineEndings(value) {
   return String(value).replace(/\r\n?/g, "\n");
 }
@@ -109,6 +133,92 @@ export function sha256(value) {
 /** Hashes the bytes exactly as supplied, used for legacy CRLF provenance. */
 export function sha256Bytes(value) {
   return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function gitBlobs(root, refs) {
+  const output = execFileSync("git", ["-C", root, "cat-file", "--batch"], {
+    input: Buffer.from(`${refs.join("\n")}\n`, "utf8"),
+  });
+  const blobs = new Map();
+  let offset = 0;
+  for (const ref of refs) {
+    const headerEnd = output.indexOf(0x0a, offset);
+    if (headerEnd < 0) throw new Error("GIT_BLOB_BATCH_INVALID");
+    const header = output.subarray(offset, headerEnd).toString("utf8").split(" ");
+    offset = headerEnd + 1;
+    if (header[1] === "missing") {
+      blobs.set(ref, null);
+      continue;
+    }
+    const size = Number(header[2]);
+    if (header[1] !== "blob" || !Number.isSafeInteger(size) || size < 0 || offset + size > output.length) throw new Error("GIT_BLOB_BATCH_INVALID");
+    blobs.set(ref, { oid: header[0], bytes: output.subarray(offset, offset + size) });
+    offset += size;
+    if (output[offset] === 0x0a) offset += 1;
+  }
+  return blobs;
+}
+
+function declaredBytes(sourceBytes, lineEnding) {
+  const lf = Buffer.from(sourceBytes.toString("utf8").replace(/\r\n?/g, "\n"), "utf8");
+  return lineEnding === "CRLF" ? Buffer.from(lf.toString("utf8").replace(/\n/g, "\r\n"), "utf8") : lf;
+}
+
+/** Validate the immutable, ordered production journal vector against Git objects. */
+export function validateOriginalProductionVector({ manifest, root = REPOSITORY_ROOT } = {}) {
+  const vector = manifest?.drizzle?.historyVectors?.[HISTORY_VARIANTS.ORIGINAL_PRODUCTION];
+  const issues = [];
+  if (!vector || vector.version !== 1 || !Array.isArray(vector.entries)) {
+    return { ok: false, code: "ORIGINAL_PRODUCTION_VECTOR_MISSING", issues: ["manifest original-production vector is missing or unversioned"], count: 0, entries: [] };
+  }
+  if (vector.entries.length !== ORIGINAL_PRODUCTION_FILES.length) issues.push("original-production vector must contain exactly 18 entries");
+  const seenTags = new Set();
+  const entries = vector.entries;
+  const expectedRefs = ORIGINAL_PRODUCTION_FILES.map((filename, index) => `${index === 0 || index === 4 ? ORIGINAL_PRODUCTION_REPAIRS_SOURCE : ORIGINAL_PRODUCTION_SOURCE}:packages/db/migrations/${filename}`);
+  let blobs;
+  try {
+    blobs = gitBlobs(root, expectedRefs);
+  } catch {
+    issues.push("original-production Git objects are unavailable");
+    blobs = new Map();
+  }
+  for (let index = 0; index < ORIGINAL_PRODUCTION_FILES.length; index += 1) {
+    const entry = entries[index];
+    const tag = String(index).padStart(4, "0");
+    const expectedFile = ORIGINAL_PRODUCTION_FILES[index];
+    const expectedSource = index === 0 || index === 4 ? ORIGINAL_PRODUCTION_REPAIRS_SOURCE : ORIGINAL_PRODUCTION_SOURCE;
+    const expectedLineEnding = index === 17 ? "LF" : "CRLF";
+    if (!entry || typeof entry !== "object") {
+      issues.push(`original-production entry ${index} is missing`);
+      continue;
+    }
+    if (entry.tag !== tag || seenTags.has(entry.tag)) issues.push(`original-production tag/order invalid at index ${index}`);
+    seenTags.add(entry.tag);
+    if (entry.filename !== expectedFile) issues.push(`original-production filename invalid at ${tag}`);
+    if (entry.lineEnding !== expectedLineEnding) issues.push(`original-production line ending invalid at ${tag}`);
+    if (entry.sourceCommit !== expectedSource) issues.push(`original-production source commit invalid at ${tag}`);
+    if (!/^[0-9a-f]{64}$/i.test(String(entry.observedSha256)) || !/^[0-9a-f]{40}$/i.test(String(entry.gitBlobOid))) {
+      issues.push(`original-production digest metadata invalid at ${tag}`);
+      continue;
+    }
+    try {
+      const blob = blobs.get(`${expectedSource}:packages/db/migrations/${expectedFile}`);
+      if (!blob) throw new Error("GIT_BLOB_MISSING");
+      const bytes = declaredBytes(blob.bytes, expectedLineEnding);
+      if (blob.oid !== entry.gitBlobOid) issues.push(`original-production Git blob mismatch at ${tag}`);
+      if (sha256Bytes(bytes) !== entry.observedSha256) issues.push(`original-production hash mismatch at ${tag}`);
+    } catch (error) {
+      issues.push(`original-production source unavailable at ${tag}`);
+    }
+  }
+  if (seenTags.size !== entries.length) issues.push("original-production tags must be unique");
+  return {
+    ok: issues.length === 0,
+    code: issues.length === 0 ? "ORIGINAL_PRODUCTION_VECTOR_VALID" : "ORIGINAL_PRODUCTION_VECTOR_INVALID",
+    issues,
+    count: entries.length,
+    entries,
+  };
 }
 
 function compact(value) {
@@ -294,6 +404,9 @@ export function checkHistoricalArtifacts({ root = REPOSITORY_ROOT, manifestPath 
   } catch (error) {
     return { ok: false, issues: [error.message], variant: null };
   }
+
+  const productionVector = validateOriginalProductionVector({ manifest, root });
+  if (!productionVector.ok) issues.push(...productionVector.issues);
 
   const variantMarkers = {};
   for (const repair of ALLOWED_REPAIRS) {
