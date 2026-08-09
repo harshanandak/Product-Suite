@@ -9,6 +9,9 @@ const packageJson = JSON.parse(
 const platformApiPackageJson = JSON.parse(
   readFileSync(join(rootDir, "apps", "platform-api", "package.json"), "utf8"),
 );
+const roadmapWebPackageJson = JSON.parse(
+  readFileSync(join(rootDir, "apps", "roadmap-web", "package.json"), "utf8"),
+);
 const dbPackageJson = JSON.parse(
   readFileSync(join(rootDir, "packages", "db", "package.json"), "utf8"),
 );
@@ -514,11 +517,15 @@ describe("repo tooling", () => {
     expect(testJob.steps).toContainEqual(
       expect.objectContaining({
         name: "Install Playwright Browsers",
-        run: "bun run --no-install playwright install --with-deps chromium",
+        run: "bun run --no-install ci:prepare:browsers",
       }),
     );
     expect(roadmapWebWorkflow).not.toContain("bun x playwright install");
     expect(roadmapWebWorkflow).not.toContain("bun run playwright install");
+    expect(roadmapWebWorkflow).not.toContain("playwright install");
+    expect(roadmapWebPackageJson.scripts["ci:prepare:browsers"]).toBe(
+      "playwright install --with-deps chromium",
+    );
     expect(testJob.steps).toContainEqual(
       expect.objectContaining({
         name: "Run Playwright tests",

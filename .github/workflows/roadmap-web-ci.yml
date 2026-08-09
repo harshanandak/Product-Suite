@@ -165,7 +165,7 @@ jobs:
 
       - name: Install Playwright Browsers
         if: steps.changes.outputs.run == 'true'
-        run: bun run --no-install playwright install --with-deps chromium
+        run: bun run --no-install ci:prepare:browsers
 
       - name: Run Playwright tests
         if: steps.changes.outputs.run == 'true'
