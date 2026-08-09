@@ -484,6 +484,10 @@ describe("repo tooling", () => {
   test("meeting-api CI reflects the local validation baseline", () => {
     expect(meetingApiWorkflow).toContain("Run backend lint");
     expect(meetingApiWorkflow).toContain("python -m flake8");
+    expect(meetingApiWorkflow).toContain(
+      "image: pgvector/pgvector:0.8.6-pg16@sha256:a36250871de0833b8757561c72f2477ef1ddd1101afa4e617fb552e0de514c6b",
+    );
+    expect(meetingApiWorkflow).toContain('--health-cmd "pg_isready -U postgres -d meeting_agent"');
     expect(meetingApiWorkflow).toContain("Run backend migrations");
     expect(meetingApiWorkflow).toContain("Run backend tests");
     expect(meetingApiWorkflow).toContain("python -m pytest apps/meeting-api/tests/backend -q");
