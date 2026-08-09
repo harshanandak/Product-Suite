@@ -116,6 +116,12 @@ describe("historical database artifacts", () => {
     expect(retiredMeetingMigrationSurfaces.filter(existsSync)).toEqual([]);
     expect(checkHistoricalArtifacts({ root: repoRoot })).toMatchObject({ ok: true });
 
+    const meetingRequirements = readFileSync(join(repoRoot, "apps/meeting-api/backend/requirements.txt"), "utf8");
+    const toolchain = readFileSync(join(repoRoot, "apps/meeting-api/docs/forge/TOOLCHAIN.md"), "utf8");
+    expect(meetingRequirements).not.toMatch(/^alembic\s*=/im);
+    expect(toolchain).toMatch(/Drizzle|packages[\\/]db[\\/]migrations/i);
+    expect(toolchain).not.toMatch(/\bAlembic\b|python\s+(?:-m\s+)?migrate\.py/i);
+
     for (const docPath of canonicalMeetingDocs) {
       const content = readFileSync(docPath, "utf8");
       expect(content).toMatch(/Neon/i);
