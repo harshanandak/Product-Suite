@@ -42,9 +42,176 @@ import { createDb, createSql, type Database, type Sql } from '@product-suite/db'
 
 import { createEphemeralBranch, deleteEphemeralBranch } from './neon-branch'
 
-/** True when the Neon control-plane creds needed to run this tier are present. */
-export function hasNeonCreds(): boolean {
-  return Boolean(process.env.NEON_API_KEY && process.env.NEON_PROJECT_ID)
+/** The only migration-history variants accepted by the authority contract. */
+export type NeonHistoryVariant = 'original-production' | 'repaired-bootstrap'
+
+/** A redaction-safe conformance failure.  Messages are stable codes only. */
+export class NeonConformanceError extends Error {
+  readonly code: string
+
+  constructor(code: string) {
+    super(code)
+    this.name = 'NeonConformanceError'
+    this.code = code
+  }
+}
+
+function conformanceFailure(code: string): never {
+  throw new NeonConformanceError(code)
+}
+
+/** The minimum project/root evidence required for the disposable bootstrap lane. */
+export interface DisposableTestProject {
+  projectId: string
+  branchId: string
+  database: string
+  branchIsRoot: boolean
+  branchIsDefault: boolean
+  authority: 'test-only' | 'production-derived' | 'unknown'
+  historyVariant: NeonHistoryVariant
+  catalogCount: number
+}
+
+/** The minimum branch evidence required for the production-history lane. */
+export interface ProductionDerivedBranch {
+  projectId: string
+  branchId: string
+  parentBranchId?: string
+  productionProjectId: string
+  branchIsRoot: boolean
+  branchIsDefault: boolean
+  authority: 'production-derived' | 'test-only' | 'unknown'
+  historyVariant: NeonHistoryVariant
+}
+
+/** Evidence required before a real Neon conformance run can be called complete. */
+export interface CleanupEvidence {
+  projectCreated: boolean
+  repairedBootstrapVerified: boolean
+  productionDerivedBranchVerified: boolean
+  projectDeleteRequested: boolean
+  projectDeletionVerified: boolean
+}
+
+export interface ConformanceCredentialStatus {
+  status: 'READY' | 'INCOMPLETE'
+  code?: 'NEON_CREDENTIALS_UNAVAILABLE'
+}
+
+/** True when the branch-level contract tier can reach the Neon control plane. */
+export function hasNeonCreds(
+  env: Partial<Pick<NodeJS.ProcessEnv, 'NEON_API_KEY' | 'NEON_PROJECT_ID'>> = process.env,
+): boolean {
+  return Boolean(env.NEON_API_KEY && env.NEON_PROJECT_ID)
+}
+
+/**
+ * Task 8's required lane needs an explicit production pin in addition to the
+ * branch-tier credentials.  Missing credentials are INCOMPLETE, never a pass.
+ */
+export function conformanceCredentialStatus(
+  env: Partial<Pick<NodeJS.ProcessEnv, 'NEON_API_KEY' | 'NEON_PROJECT_ID' | 'NEON_PRODUCTION_PROJECT_ID'>> = process.env,
+): ConformanceCredentialStatus {
+  if (!env.NEON_API_KEY || !env.NEON_PROJECT_ID || !env.NEON_PRODUCTION_PROJECT_ID) {
+    return { status: 'INCOMPLETE', code: 'NEON_CREDENTIALS_UNAVAILABLE' }
+  }
+  return { status: 'READY' }
+}
+
+/** Validate an isolated, empty root project without returning identifiers. */
+export function assertDisposableTestProject(
+  project: DisposableTestProject,
+  productionProjectId: string,
+): DisposableTestProject {
+  if (!project.projectId || project.projectId === productionProjectId) conformanceFailure('TEST_PROJECT_PRODUCTION_ID')
+  if (project.database !== 'neondb') conformanceFailure('TEST_PROJECT_DATABASE_INVALID')
+  if (project.authority !== 'test-only') conformanceFailure('TEST_PROJECT_AUTHORITY_INVALID')
+  if (!project.branchIsRoot || !project.branchIsDefault) conformanceFailure('TEST_PROJECT_ROOT_REQUIRED')
+  if (project.historyVariant !== 'repaired-bootstrap') conformanceFailure('TEST_PROJECT_VARIANT_INVALID')
+  if (!Number.isInteger(project.catalogCount) || project.catalogCount !== 0) conformanceFailure('TEST_PROJECT_NOT_EMPTY')
+  return project
+}
+
+/** Validate that the original-history proof uses a non-root production-derived branch. */
+export function assertProductionDerivedBranch(branch: ProductionDerivedBranch): ProductionDerivedBranch {
+  if (!branch.projectId || !branch.productionProjectId || branch.projectId !== branch.productionProjectId) {
+    conformanceFailure('PRODUCTION_DERIVED_PROJECT_MISMATCH')
+  }
+  if (!branch.parentBranchId) conformanceFailure('PRODUCTION_DERIVED_PARENT_REQUIRED')
+  if (branch.branchIsRoot || branch.branchIsDefault) conformanceFailure('PRODUCTION_DERIVED_ROOT')
+  if (branch.authority !== 'production-derived') conformanceFailure('PRODUCTION_DERIVED_AUTHORITY_INVALID')
+  if (branch.historyVariant !== 'original-production') conformanceFailure('PRODUCTION_DERIVED_VARIANT_INVALID')
+  return branch
+}
+
+/** Require a complete create/bootstrap/verify/delete/deletion-proof sequence. */
+export function assertCleanupEvidence(evidence: CleanupEvidence): { status: 'PASS' } {
+  if (!evidence.projectCreated) conformanceFailure('PROJECT_CREATE_REQUIRED')
+  if (!evidence.repairedBootstrapVerified) conformanceFailure('REPAIRED_BOOTSTRAP_UNPROVEN')
+  if (!evidence.productionDerivedBranchVerified) conformanceFailure('PRODUCTION_DERIVED_UNPROVEN')
+  if (!evidence.projectDeleteRequested) conformanceFailure('PROJECT_CLEANUP_REQUIRED')
+  if (!evidence.projectDeletionVerified) conformanceFailure('PROJECT_DELETION_UNPROVEN')
+  return { status: 'PASS' }
+}
+
+export interface RuntimeRoleMembership {
+  member: string
+  adminOption: boolean
+}
+
+export interface RuntimeRoleSnapshot {
+  name: string
+  canLogin: boolean
+  isSuperuser: boolean
+  canCreateRole: boolean
+  canCreateDb: boolean
+  memberships: RuntimeRoleMembership[]
+}
+
+const RUNTIME_ROLE_NAMES = ['product_suite_platform_runtime', 'product_suite_meeting_runtime'] as const
+
+/**
+ * Validate the exact pre-0019 least-privilege contract without exposing role
+ * names, membership rows, connection URLs, or query errors in the result.
+ */
+export function assertRuntimeRoleContract(
+  roles: RuntimeRoleSnapshot[],
+  options: { allowedLogins?: readonly string[] } = {},
+): { status: 'READY'; roleCount: number; membershipCount: number } {
+  const byName = new Map(roles.map((role) => [role.name, role]))
+  const allowed = new Set(options.allowedLogins ?? ['platform_runtime_login', 'meeting_runtime_login'])
+  let membershipCount = 0
+
+  for (const required of RUNTIME_ROLE_NAMES) {
+    const role = byName.get(required)
+    if (!role) conformanceFailure('RUNTIME_ROLE_MISSING')
+    if (role.canLogin) conformanceFailure('RUNTIME_ROLE_MUST_BE_NOLOGIN')
+    if (role.isSuperuser || role.canCreateRole || role.canCreateDb) conformanceFailure('RUNTIME_ROLE_ESCALATION')
+
+    for (const membership of role.memberships) {
+      membershipCount += 1
+      if (!allowed.has(membership.member)) conformanceFailure('RUNTIME_LOGIN_UNAUTHORIZED')
+      if (membership.adminOption) conformanceFailure('RUNTIME_ROLE_ADMIN_OPTION_FORBIDDEN')
+      const isPlatformRole = required.includes('platform')
+      const isMeetingRole = required.includes('meeting')
+      if ((isPlatformRole && membership.member.includes('meeting')) || (isMeetingRole && membership.member.includes('platform'))) {
+        conformanceFailure('RUNTIME_ROLE_CROSS_SERVICE_MEMBERSHIP')
+      }
+    }
+  }
+
+  return { status: 'READY', roleCount: RUNTIME_ROLE_NAMES.length, membershipCount }
+}
+
+/** Probe names are intentionally semantic and contain no authored SQL payloads. */
+export function buildRuntimePrivilegeProbes(): {
+  allowed: readonly ['select_public', 'write_owned_rows']
+  denied: readonly ['ddl', 'role_escalation', 'cross_service_schema']
+} {
+  return {
+    allowed: ['select_public', 'write_owned_rows'],
+    denied: ['ddl', 'role_escalation', 'cross_service_schema'],
+  }
 }
 
 /**
