@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import authorityContract from "../config/database-authority.json" with { type: "json" };
 import { parseNeonUrl } from "./check-database-authority.mjs";
+import { createDatabasePool } from "./database-pool.mjs";
 import { createMigrationEvidence } from "./migration-evidence.mjs";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -304,8 +305,7 @@ async function cli() {
   const url = process.env.MIGRATION_DATABASE_URL;
   if (!url) { console.error("MIGRATION_DATABASE_URL is required"); process.exitCode = 1; return; }
   if (options.environment === "production") parseNeonUrl(url, "migration");
-  const { Pool } = await import("@neondatabase/serverless");
-  const pool = new Pool({ connectionString: url });
+  const pool = await createDatabasePool({ databaseUrl: url, environment: options.environment });
   try {
     const files = loadMigrationFiles();
     const authority = { environment: options.environment, historyVariant: options.historyVariant };

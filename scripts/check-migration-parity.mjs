@@ -157,9 +157,17 @@ function runCli(migrationsDir) {
       const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
       const hashes = {};
       for (const file of REPAIR_FILES) hashes[file] = createCanonicalHash(readFileSync(join(loaded.resolvedDir, file), "utf8"));
+      const snapshotHashes = {};
+      const snapshotPrefix = "packages/db/migrations/";
+      for (const file of Object.keys(manifest.snapshots ?? {})) {
+        if (!file.startsWith(snapshotPrefix)) throw new Error(`snapshot path is outside the migrations tree: ${file}`);
+        const snapshotPath = resolve(loaded.resolvedDir, file.slice(snapshotPrefix.length));
+        if (relative(loaded.resolvedDir, snapshotPath).startsWith("..")) throw new Error(`snapshot path is outside the migrations tree: ${file}`);
+        snapshotHashes[file] = createCanonicalHash(readFileSync(snapshotPath, "utf8"));
+      }
       const variants = [...REPAIR_FILES].map((file) => classifyHash(hashes[file], file, manifest));
       const inferred = variants.length > 0 && variants.every((variant) => variant === variants[0]) ? variants[0] : null;
-      const history = validateMigrationHistory({ journal: loaded.journal, sqlFileNames: loaded.sqlFileNames, hashes, historyVariant: inferred, manifest });
+      const history = validateMigrationHistory({ journal: loaded.journal, sqlFileNames: loaded.sqlFileNames, hashes, historyVariant: inferred, manifest, snapshotHashes });
       if (!history.ok) issues = history.issues;
     }
   } catch (err) {

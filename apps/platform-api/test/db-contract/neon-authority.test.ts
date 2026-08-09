@@ -101,8 +101,8 @@ describe('Neon authority conformance guards', () => {
     expect(conformanceCredentialStatus({})).toEqual({ status: 'INCOMPLETE', code: 'NEON_CREDENTIALS_UNAVAILABLE' })
   })
 
-  it('fails the required real lane instead of silently skipping when requested', () => {
-    if (process.env.DB_CONTRACT_REQUIRED !== '1') return
+  it('fails the required real lane instead of silently skipping when requested', ({ skip }) => {
+    if (process.env.DB_CONTRACT_REQUIRED !== '1') skip()
     expect(requiredConformanceStatus(process.env)).toEqual({ status: 'READY' })
   })
 

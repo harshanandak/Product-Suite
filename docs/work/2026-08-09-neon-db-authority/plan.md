@@ -75,7 +75,7 @@ Keep the existing Platform migration plane and extend it to describe the already
 | Generate | `bun run --cwd packages/db generate` |
 | Repository checks | `bun run check:migration-parity` and new `bun run check:database-authority` |
 | Bootstrap | `bun run migrate:database -- bootstrap --history-variant repaired-bootstrap --expected-pending <0000..0019>` |
-| Apply suffix | `bun run migrate:database -- apply --history-variant <original-production|repaired-bootstrap> --expected-pending <ordered-tags>` |
+| Apply suffix | `bun run migrate:database -- apply --history-variant <original-production\|repaired-bootstrap> --expected-pending <ordered-tags>` |
 | Verify/no-op | `bun run migrate:database -- verify --history-variant <variant> --expected-floor <tag>` |
 | Runtime | `DATABASE_URL=<pooled Neon URL>` |
 | P0 migration | `0019_neon_authority_reconciliation.sql` |

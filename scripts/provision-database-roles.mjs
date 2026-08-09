@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { parseNeonUrl } from "./check-database-authority.mjs";
+import { createDatabasePool } from "./database-pool.mjs";
 import { createRoleProvisioningEvidence } from "./migration-evidence.mjs";
 
 export const REQUIRED_GRANT_ROLES = Object.freeze([
@@ -231,9 +232,9 @@ if (process.argv[1] && process.argv[1].endsWith("provision-database-roles.mjs"))
     process.exitCode = 1;
   } else {
     try {
-      const { Pool } = await import("@neondatabase/serverless");
-      const pool = new Pool({ connectionString: url });
-      const result = await provisionDatabaseRoles({ adapter: pool, databaseUrl: url, environment: process.env.DATABASE_ENVIRONMENT ?? "production" });
+      const environment = process.env.DATABASE_ENVIRONMENT ?? "production";
+      const pool = await createDatabasePool({ databaseUrl: url, environment });
+      const result = await provisionDatabaseRoles({ adapter: pool, databaseUrl: url, environment });
       console.log(JSON.stringify(result));
       await pool.end();
     } catch (error) {

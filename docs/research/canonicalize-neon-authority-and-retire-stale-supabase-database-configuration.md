@@ -38,7 +38,7 @@ The production database contains two history tables:
 - `packages/db/src/index.ts` uses `@neondatabase/serverless` and Drizzle's Neon HTTP driver. `packages/db/drizzle.config.ts` and `packages/db/package.json` define the current generated migration plane.
 - `.github/workflows/platform-api-deploy.yml` explicitly runs `packages/db` Drizzle migrations before deploying the Cloudflare Worker.
 - Cloudflare reports a current `platform-api-production` deployment (2026-08-06) with a `DATABASE_URL` secret binding. Secret listing proves the binding name, not its value. Runtime validation must therefore reject a non-Neon URL in code and exercise a DB-backed readiness query.
-- The GitHub `DATABASE_URL` secret was updated on 2026-08-06; `NEON_API_KEY`, `NEON_PROJECT_ID`, and `NEON_PARENT_BRANCH_ID` are present for the real-Neon contract tier.
+- The GitHub `DATABASE_URL` secret was updated on 2026-08-06; the required Neon control-plane credential and parent-branch pin are present for the real-Neon contract tier.
 - The documented `api.befach.dev` name does not resolve. The documented Railway meeting API and both documented Vercel production URLs return provider 404s. Railway and Vercel CLI credentials are expired, so their environment values could not be inspected. These are deployment-documentation defects, not evidence of a second live database.
 - GitHub still contains Supabase credential names and `.github/workflows/roadmap-supabase.yml`; that workflow last ran on 2026-06-06. These are stale active surfaces that should be retired only after repository consumers are proven absent.
 
@@ -152,5 +152,3 @@ Mandatory replacement/removal blast radius includes:
 - [Drizzle: Drizzle with Neon Postgres](https://orm.drizzle.team/docs/tutorials/drizzle-with-neon)
 - [Supabase CLI reference](https://supabase.com/docs/reference/cli/introduction)
 - [PostgreSQL 17: Schemas](https://www.postgresql.org/docs/current/ddl-schemas.html)
-
-Parallel search evidence was saved outside the repository at `C:\Users\harsha_befach\AppData\Local\Temp\neon-db-authority-docs.json` and `C:\Users\harsha_befach\AppData\Local\Temp\neon-authority-plan-correction.json`.

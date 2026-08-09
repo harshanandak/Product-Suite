@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { copyFileSync, cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, test } from "bun:test";
@@ -125,6 +126,25 @@ describe("check-migration-parity", () => {
 
       expect(status).not.toBe(0);
       expect(stderr).toContain("outside the expected migrations tree");
+    });
+
+    test("exits non-zero when a manifest-pinned snapshot is changed", () => {
+      const fixture = mkdtempSync(join(REAL_MIGRATIONS_DIR, ".parity-test-"));
+      try {
+        for (const file of readdirSync(REAL_MIGRATIONS_DIR).filter((name) => name.endsWith(".sql"))) {
+          copyFileSync(join(REAL_MIGRATIONS_DIR, file), join(fixture, file));
+        }
+        cpSync(join(REAL_MIGRATIONS_DIR, "meta"), join(fixture, "meta"), { recursive: true });
+        const snapshot = join(fixture, "meta", "0011_snapshot.json");
+        writeFileSync(snapshot, `${readFileSync(snapshot, "utf8")}\n`);
+
+        const { status, stderr } = runCli([fixture]);
+
+        expect(status).not.toBe(0);
+        expect(stderr).toContain("snapshot hash");
+      } finally {
+        rmSync(fixture, { recursive: true, force: true });
+      }
     });
   });
 
