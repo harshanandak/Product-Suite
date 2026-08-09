@@ -4,10 +4,12 @@ import { join } from "node:path";
 
 import { describe, expect, test } from "bun:test";
 
-import { analyzeMigrationParity, validateMigrationHistory } from "../scripts/check-migration-parity.mjs";
+import { analyzeMigrationParity, validateMigrationHistory, validateOriginalProductionRows } from "../scripts/check-migration-parity.mjs";
 
 const SCRIPT_PATH = join(import.meta.dir, "..", "scripts", "check-migration-parity.mjs");
 const REAL_MIGRATIONS_DIR = join(import.meta.dir, "..", "packages", "db", "migrations");
+const MANIFEST = JSON.parse(readFileSync(join(import.meta.dir, "..", "docs", "history", "database-migrations", "manifest.json"), "utf8"));
+const PRODUCTION_VECTOR = MANIFEST.drizzle.historyVectors["original-production"].entries;
 
 /** Runs the CLI in a real `node` subprocess (not Bun) so the entrypoint guard
  * itself — not just the pure `analyzeMigrationParity` function — is covered
@@ -176,6 +178,30 @@ describe("check-migration-parity", () => {
 
     test("rejects fabricated snapshot hashes instead of treating them as a prefix", () => {
       expect(validateMigrationHistory({ ...base, historyVariant: "original-production", snapshotHashes: { "0011_snapshot.json": "fabricated" } })).toMatchObject({ ok: false, code: "SNAPSHOT_HASH_UNKNOWN" });
+    });
+  });
+
+  describe("original-production exact vector", () => {
+    const rows = () => PRODUCTION_VECTOR.map((entry, index) => ({ hash: entry.observedSha256, created_at: index }));
+
+    test("accepts exactly 18 ordered raw production hashes and resolves tags", () => {
+      const result = validateOriginalProductionRows(rows(), { manifest: MANIFEST, root: join(import.meta.dir, "..") });
+      expect(result).toMatchObject({ ok: true, code: "ORIGINAL_PRODUCTION_HISTORY_VALID", count: 18 });
+      expect(result.entries.map(({ tag }) => tag)).toEqual(PRODUCTION_VECTOR.map(({ tag }) => tag));
+    });
+
+    test.each([
+      ["unknown", (candidate) => { candidate[4].hash = "0".repeat(64); }],
+      ["mixed", (candidate) => { candidate[4].hash = MANIFEST.drizzle.repairs[0].repaired.lfSha256; }],
+      ["partial", (candidate) => { candidate.pop(); }],
+      ["reordered", (candidate) => { [candidate[0], candidate[1]] = [candidate[1], candidate[0]]; }],
+      ["duplicate", (candidate) => { candidate[1] = structuredClone(candidate[0]); }],
+      ["extra", (candidate) => { candidate.push(structuredClone(candidate.at(-1))); }],
+      ["bad timestamp", (candidate) => { candidate[3].created_at = 99; }],
+    ])("rejects %s production history", (_name, mutate) => {
+      const candidate = rows();
+      mutate(candidate);
+      expect(validateOriginalProductionRows(candidate, { manifest: MANIFEST, root: join(import.meta.dir, "..") }).ok).toBe(false);
     });
   });
 });

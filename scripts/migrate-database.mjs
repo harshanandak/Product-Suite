@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import authorityContract from "../config/database-authority.json" with { type: "json" };
 import productionPreflightGrantContract from "../config/neon-production-preflight-grants.json" with { type: "json" };
 import { parseNeonUrl } from "./check-database-authority.mjs";
+import { validateOriginalProductionVector } from "./check-historical-db-artifacts.mjs";
 import { createDatabasePool } from "./database-pool.mjs";
 import { createMigrationEvidence, createPreflightFailureEvidence, verifyMigrationEvidence } from "./migration-evidence.mjs";
 
@@ -33,6 +34,7 @@ const GIT_EXECUTABLES = Object.freeze({
 export const MIGRATIONS_ROOT = join(SCRIPT_DIR, "..", "packages", "db", "migrations");
 export const HISTORY_VARIANTS = Object.freeze(["original-production", "repaired-bootstrap"]);
 export const ENVIRONMENT_HISTORY_PINS = Object.freeze(authorityContract.environmentHistoryPins);
+const HISTORY_MANIFEST_PATH = join(SCRIPT_DIR, "..", "docs", "history", "database-migrations", "manifest.json");
 
 function canonicalHash(value) {
   return createHash("sha256").update(String(value).replace(/\r\n?/g, "\n"), "utf8").digest("hex");
@@ -201,7 +203,7 @@ function normalizedFiles(files) {
 }
 
 function normalizedApplied(applied) {
-  return (applied ?? []).map((entry) => typeof entry === "string" ? { tag: entry } : entry).filter((entry) => entry?.tag);
+  return (applied ?? []).map((entry) => typeof entry === "string" ? { tag: entry } : entry).filter((entry) => entry && typeof entry === "object");
 }
 
 function contiguous(tags) {
@@ -234,17 +236,26 @@ function compareDeclaredHashes(hashes, files) {
   return null;
 }
 
-function classifyHistoryHashes(hashes = {}) {
+function classifyHistoryHashes(hashes = {}, history = {}) {
   const values = ["0000_stale_jamie_braddock.sql", "0004_minor_lockheed.sql"].map((file) => hashes[file]).filter((value) => value !== undefined);
   if (values.length === 0) return null;
   const variants = values.map((value) => {
     const text = String(value).toLowerCase();
+    if (history?.manifest?.drizzle?.historyVectors?.["original-production"]?.entries?.some((entry) => entry.observedSha256 === value)) return "original-production";
     if (text === "original" || text.startsWith("original-") || text.includes("original")) return "original-production";
     if (text === "repaired" || text.startsWith("repaired-") || text.includes("repaired")) return "repaired-bootstrap";
     return null;
   });
   if (variants.some((variant) => !variant)) return "unknown";
   return new Set(variants).size === 1 ? variants[0] : "mixed";
+}
+
+function originalProductionFiles(files, history = {}) {
+  const manifest = history.manifest ?? JSON.parse(readFileSync(HISTORY_MANIFEST_PATH, "utf8"));
+  const vector = validateOriginalProductionVector({ manifest, root: join(SCRIPT_DIR, "..") });
+  if (!vector.ok) return { ok: false, code: "MIGRATION_HISTORY_VECTOR_INVALID" };
+  const byFile = new Map(vector.entries.map((entry) => [entry.filename, entry.observedSha256]));
+  return { ok: true, files: files.map((file) => ({ ...file, hash: byFile.get(file.file) ?? file.hash })), manifest };
 }
 
 function pendingFor(applied, declared, files) {
@@ -271,22 +282,26 @@ function isProductionP0Allowed(environment, applied, declared) {
 export function buildMigrationPlan({ applied = [], declared = [], files = [], authority = {}, expectedCount, expectedFloor, observedVariant, hashes, history } = {}) {
   let pinned;
   try { pinned = expectedVariant(authority); } catch (error) { return { ok: false, code: error.message }; }
-  const inferredVariant = observedVariant ?? history?.variant ?? classifyHistoryHashes(hashes);
+  const inferredVariant = observedVariant ?? history?.variant ?? classifyHistoryHashes(hashes, history) ?? pinned.historyVariant;
   if (inferredVariant === "mixed") return { ok: false, code: "MIGRATION_HISTORY_VARIANT_MIXED" };
   if (inferredVariant === "unknown") return { ok: false, code: "MIGRATION_HISTORY_VARIANT_UNKNOWN" };
   if (!HISTORY_VARIANTS.includes(inferredVariant ?? pinned.historyVariant)) return { ok: false, code: "MIGRATION_HISTORY_VARIANT_UNKNOWN" };
   if (inferredVariant && inferredVariant !== pinned.historyVariant) return { ok: false, code: "MIGRATION_HISTORY_VARIANT_MISMATCH" };
 
   const normalizedFileList = normalizedFiles(files);
-  const normalizedAppliedList = normalizedApplied(applied);
+  const productionFiles = inferredVariant === "original-production" ? originalProductionFiles(normalizedFileList, history) : { ok: true, files: normalizedFileList };
+  if (!productionFiles.ok) return productionFiles;
+  const effectiveFiles = productionFiles.files;
+  const byObservedHash = new Map(effectiveFiles.filter((file) => file.hash).map((file) => [file.hash, file.tag]));
+  const normalizedAppliedList = normalizedApplied(applied).map((entry) => entry.tag ? entry : { ...entry, tag: byObservedHash.get(entry.hash ?? entry.hash_value) });
   const normalizedDeclared = normalizedApplied(declared);
-  const hashIssue = compareHashes(normalizedAppliedList, normalizedFileList);
+  const hashIssue = compareHashes(normalizedAppliedList, effectiveFiles);
   if (hashIssue) return { ok: false, code: hashIssue };
-  const declaredHashIssue = compareDeclaredHashes(hashes, normalizedFileList);
+  const declaredHashIssue = compareDeclaredHashes(hashes, effectiveFiles);
   if (declaredHashIssue) return { ok: false, code: declaredHashIssue };
   if (expectedFloor && !migrationFloorMatches(normalizedAppliedList.at(-1)?.tag, expectedFloor)) return { ok: false, code: "MIGRATION_FLOOR_MISMATCH" };
   if (expectedCount !== undefined && normalizedAppliedList.length !== expectedCount) return { ok: false, code: "MIGRATION_COUNT_MISMATCH" };
-  const suffixIssue = pendingFor(normalizedAppliedList, normalizedDeclared, normalizedFileList);
+  const suffixIssue = pendingFor(normalizedAppliedList, normalizedDeclared, effectiveFiles);
   if (suffixIssue) return { ok: false, code: suffixIssue };
   if (!isProductionP0Allowed(pinned.environment, normalizedAppliedList, normalizedDeclared)) return { ok: false, code: "MIGRATION_P0_SUFFIX_FORBIDDEN" };
   return {
@@ -295,14 +310,15 @@ export function buildMigrationPlan({ applied = [], declared = [], files = [], au
     historyVariant: pinned.historyVariant,
     applied: normalizedAppliedList.map((entry) => entry.tag),
     pending: normalizedDeclared.map((entry) => entry.tag),
-    files: normalizedFileList,
+    files: effectiveFiles,
   };
 }
 
-function migrationRows(rows, files = []) {
-  const byHash = new Map(files.flatMap((file) => [file.hash, ...(file.acceptedHashes ?? [])].filter(Boolean).map((hash) => [hash, file.tag])));
+function migrationRows(rows, files = [], historyVariant, history) {
+  const effective = historyVariant === "original-production" ? originalProductionFiles(files, history).files ?? files : files;
+  const byHash = new Map(effective.flatMap((file) => [file.hash, ...(file.acceptedHashes ?? [])].filter(Boolean).map((hash) => [hash, file.tag])));
   return (rows ?? []).map((row) => ({
-    tag: row.tag ?? row.name ?? row.migration_tag ?? byHash.get(row.hash),
+    tag: row.tag ?? row.name ?? row.migration_tag ?? byHash.get(row.hash ?? row.hash_value),
     hash: row.hash ?? row.hash_value,
     timestamp: row.timestamp ?? row.created_at ?? row.when,
   })).filter((row) => row.tag);
@@ -648,7 +664,7 @@ export async function applyMigrations({ adapter, applied = [], declared = [], fi
   try {
     await query(adapter, lockSql());
     const reread = await query(adapter, HISTORY_SQL);
-    const rereadRows = migrationRows(reread?.rows, files);
+    const rereadRows = migrationRows(reread?.rows, files, authority?.historyVariant, history);
     // An empty re-read is also a TOCTOU change: trusting it would allow a
     // caller's stale `applied` list to authorize a suffix on a fresh/changed
     // database.  Always rebuild and compare the observed plan under the lock.
@@ -677,7 +693,7 @@ export async function verifyMigrations({ adapter, applied = [], declared = [], f
   let rows = normalizedApplied(applied);
   if (rows.length === 0 && adapter?.query && !declared.length) {
     const result = await query(adapter, HISTORY_SQL);
-    rows = migrationRows(result?.rows, files);
+    rows = migrationRows(result?.rows, files, authority?.historyVariant, history);
   }
   const plan = buildMigrationPlan({ applied: rows, declared, files, authority, observedVariant, hashes, history, expectedCount, expectedFloor });
   if (!plan.ok) return plan;

@@ -23,6 +23,7 @@ const files = [
 ];
 
 const authority = { environment: "staging", historyVariant: "repaired-bootstrap" };
+const productionManifest = JSON.parse(await Bun.file("docs/history/database-migrations/manifest.json").text());
 
 describe("canonical migration runner", () => {
   const preflightFiles = Array.from({ length: 20 }, (_, index) => ({
@@ -195,6 +196,32 @@ describe("canonical migration runner", () => {
     expect(calls.join("\n")).toContain("has_sequence_privilege");
     expect(calls.join("\n")).toContain("pg_default_acl");
     expect(calls.filter((sql) => /^(?:INSERT|UPDATE|DELETE|CREATE TABLE|SELECT nextval)/i.test(sql))).toHaveLength(10);
+  });
+
+  test("maps only the exact original-production raw hashes to tags", () => {
+    const vector = productionManifest.drizzle.historyVectors["original-production"].entries;
+    const applied = vector.map((entry, index) => ({ hash: entry.observedSha256, timestamp: index }));
+    const result = buildMigrationPlan({
+      applied,
+      declared: [],
+      files: loadMigrationFiles(),
+      authority: { environment: "conformance-original", historyVariant: "original-production" },
+      history: { manifest: productionManifest },
+      expectedCount: 18,
+      expectedFloor: "0017",
+    });
+    expect(result).toMatchObject({ ok: true, applied: loadMigrationFiles().filter(({ timestamp }) => timestamp <= 17).map(({ tag }) => tag) });
+    const unknown = applied.map((entry) => ({ ...entry }));
+    unknown[5].hash = "0".repeat(64);
+    expect(buildMigrationPlan({
+      applied: unknown,
+      declared: [],
+      files: loadMigrationFiles(),
+      authority: { environment: "conformance-original", historyVariant: "original-production" },
+      history: { manifest: productionManifest },
+      expectedCount: 18,
+      expectedFloor: "0017",
+    })).toMatchObject({ ok: false, code: "MIGRATION_TAG_UNKNOWN" });
   });
 
   test("reports a controlled CLI failure when pool creation is unavailable", async () => {
