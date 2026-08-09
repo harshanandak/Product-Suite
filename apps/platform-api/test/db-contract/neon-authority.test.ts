@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import type { Sql } from '@product-suite/db'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
   assertCleanupEvidence,
@@ -8,6 +9,7 @@ import {
   createNeonControlPlane,
   conformanceCredentialStatus,
   hasNeonCreds,
+  prepareHarnessDatabase,
   requiredConformanceStatus,
   runRequiredNeonConformance,
   variantMigrationContract,
@@ -40,6 +42,31 @@ const derived: ProductionDerivedBranch = {
 }
 
 describe('Neon authority conformance guards', () => {
+  it('provisions canonical runtime roles before applying per-test migrations', async () => {
+    const events: string[] = []
+    const sql = {} as Sql
+
+    await prepareHarnessDatabase('opaque-connection', sql, {
+      async provisionRoles(connectionUri) { events.push(`roles:${connectionUri}`) },
+      async applyMigrations(receivedSql) {
+        expect(receivedSql).toBe(sql)
+        events.push('migrations')
+      },
+    })
+
+    expect(events).toEqual(['roles:opaque-connection', 'migrations'])
+  })
+
+  it('fails closed before migrations when runtime role provisioning fails', async () => {
+    const applyMigrations = vi.fn()
+
+    await expect(prepareHarnessDatabase('opaque-connection', {} as Sql, {
+      async provisionRoles() { throw new Error('ROLE_PROVISIONING_FAILED') },
+      applyMigrations,
+    })).rejects.toThrow('ROLE_PROVISIONING_FAILED')
+    expect(applyMigrations).not.toHaveBeenCalled()
+  })
+
   it('requires both history variants to apply synthetic 0020 and finish at a 0020 NOOP floor', () => {
     expect(variantMigrationContract('repaired-bootstrap')).toEqual({ baselineFloor: '0019', declared: ['0020'], finalFloor: '0020' })
     expect(variantMigrationContract('original-production')).toEqual({ baselineFloor: '0018', declared: ['0019', '0020'], finalFloor: '0020' })

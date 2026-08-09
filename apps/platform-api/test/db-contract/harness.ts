@@ -859,6 +859,40 @@ async function applyHarnessMigrations(sql: Sql, options: { recordJournal?: boole
   }
 }
 
+export interface HarnessDatabaseSetup {
+  provisionRoles(connectionUri: string): Promise<void>
+  applyMigrations(sql: Sql): Promise<void>
+}
+
+async function provisionHarnessRoles(connectionUri: string): Promise<void> {
+  // @ts-expect-error Canonical JavaScript provisioner has no declaration file; its surface is narrowed here.
+  const roleProvisioner = await import('../../../../scripts/provision-database-roles.mjs') as {
+    provisionDatabaseRoles(input: Record<string, unknown>): Promise<CanonicalEvidence>
+  }
+  await withDatabaseSession(connectionUri, async (adapter) => {
+    const evidence = await roleProvisioner.provisionDatabaseRoles({
+      adapter,
+      databaseUrl: connectionUri,
+      environment: 'test',
+    })
+    if (!evidence.ok) conformanceFailure('RUNTIME_ROLE_PROVISION_UNPROVEN')
+  })
+}
+
+const canonicalHarnessDatabaseSetup: HarnessDatabaseSetup = {
+  provisionRoles: provisionHarnessRoles,
+  applyMigrations: applyHarnessMigrations,
+}
+
+export async function prepareHarnessDatabase(
+  connectionUri: string,
+  sql: Sql,
+  setup: HarnessDatabaseSetup = canonicalHarnessDatabaseSetup,
+): Promise<void> {
+  await setup.provisionRoles(connectionUri)
+  await setup.applyMigrations(sql)
+}
+
 /** Seed the baseline fixture and return its ids. */
 async function seedBaseline(sql: Sql): Promise<Seed> {
   const tenantId = randomUUID()
@@ -903,7 +937,7 @@ export async function withDbBranch<T>(body: (ctx: DbBranchContext) => Promise<T>
   try {
     const sql = createSql(connectionUri)
     const db = createDb(connectionUri)
-     await applyHarnessMigrations(sql)
+    await prepareHarnessDatabase(connectionUri, sql)
     const seed = await seedBaseline(sql)
     return await body({ db, sql, seed, branchId })
   } finally {
