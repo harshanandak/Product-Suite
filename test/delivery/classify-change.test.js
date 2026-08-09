@@ -110,6 +110,8 @@ describe("delivery change classifier", () => {
   test.each([
     ["empty changes", [], {}, "changed_files_invalid"],
     ["invalid changed files", null, {}, "changed_files_invalid"],
+    ["double path separator", ["apps/platform-web//package.json"], {}, "changed_files_invalid"],
+    ["dot path segment", ["apps/platform-web/./package.json"], {}, "changed_files_invalid"],
     ["invalid base SHA", ["README.md"], { baseSha: "main" }, "exact_sha_invalid"],
     ["invalid PR", ["README.md"], { pr: null }, "pr_invalid"],
   ])("fails closed for %s", (_name, files, overrides, reason) => {
@@ -269,6 +271,88 @@ describe("delivery change classifier", () => {
 
     expect(result.tier).toBe("T3");
     expect(result.reasons).toContain("dependency_workspace_unresolved");
+  });
+
+  test.each([
+    "packages/db/package.json",
+    "apps/platform-api/package.json",
+    "scripts/delivery/package.json",
+    ".forge/package.json",
+    ".github/workflows/package.json",
+    "docs/deployment/package.json",
+    "apps/platform-web/src/auth/package.json",
+    "apps/platform-web/security/package.json",
+    "apps/platform-web/release/package.json",
+    "packages/db/bun.lock",
+    "apps/platform-api/bun.lock",
+    "scripts/delivery/bun.lock",
+    ".forge/bun.lock",
+    ".github/workflows/bun.lock",
+    "docs/deployment/bun.lock",
+    "apps/platform-web/src/auth/bun.lock",
+    "apps/platform-web/security/bun.lock",
+    "apps/platform-web/release/bun.lock",
+    "packages/contracts/src/auth/package.json",
+  ])("keeps reserved dependency path %s at T3", (path) => {
+    const result = classifyChange(input([path], { dependencyEvidence: provenUiDependency }));
+
+    expect(result.tier).toBe("T3");
+    expect(result.reasons).toContain("sensitive_or_authority_path");
+  });
+
+  test.each([
+    "vendor/evil/package.json",
+    "apps/unknown/package.json",
+    "packages/unknown/package.json",
+    "vendor/evil/bun.lock",
+    "apps/platform-web/nested/package.json",
+    "apps/platform-web/nested/bun.lock",
+  ])("keeps unknown dependency path %s at T3", (path) => {
+    const result = classifyChange(input([path], { dependencyEvidence: provenUiDependency }));
+
+    expect(result.tier).toBe("T3");
+    expect(result.reasons).toContain("unknown_dependency_path");
+  });
+
+  test.each(["apps/platform-web/package.json", "apps/platform-web/bun.lock"])(
+    "allows exact proven leaf dependency path %s at T1",
+    (path) => {
+      expect(classifyChange(input([path], { dependencyEvidence: provenUiDependency })).tier).toBe("T1");
+    },
+  );
+
+  test.each(["apps/platform-web/package.json", "apps/platform-web/bun.lock"])(
+    "rejects exact leaf dependency path %s without proof",
+    (path) => {
+      const result = classifyChange(input([path], { dependencyEvidence: undefined }));
+
+      expect(result.tier).toBe("T3");
+      expect(result.reasons).toContain("dependency_proof_missing");
+    },
+  );
+
+  test("classifies an exact proven shared manifest as T2", () => {
+    const result = classifyChange(input(["packages/ui/package.json"], {
+      dependencyEvidence: {
+        ...provenUiDependency,
+        affectedWorkspaces: ["packages/ui"],
+        dependencyCatalog: {
+          ...dependencyCatalog(),
+          workspaceRoots: ["packages/ui"],
+        },
+      },
+    }));
+
+    expect(result.tier).toBe("T2");
+  });
+
+  test("rejects a known manifest omitted from affected workspace evidence", () => {
+    const result = classifyChange(input(["apps/roadmap-web/package.json"], {
+      dependencyEvidence: provenUiDependency,
+    }));
+
+    expect(result.tier).toBe("T3");
+    expect(result.reasons).toContain("dependency_manifest_workspace_unresolved");
   });
 
   test("emits the full fail-closed check vector for T3", () => {

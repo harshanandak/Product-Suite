@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 const SCHEMA_VERSION = "delivery-classification.v1";
 const CLASSIFIER_VERSION = "1.0.0";
 const SHA_PATTERN = /^[a-f0-9]{40}$/i;
-const DEPENDENCY_FILES = new Set(["package.json", "bun.lock"]);
+const ROOT_DEPENDENCY_FILES = new Set(["package.json", "bun.lock"]);
 
 const T0_ALLOWLIST = [
   /^README\.md$/,
@@ -77,10 +77,21 @@ const isValidPath = (path) =>
   path.length > 0 &&
   !path.startsWith("/") &&
   !path.includes("\\") &&
-  !path.split("/").includes("..");
+  !path.includes("//") &&
+  !path.split("/").some((segment) => segment === "." || segment === "..");
 
 const isDependencyFile = (path) =>
-  DEPENDENCY_FILES.has(path) || path.endsWith("/package.json");
+  ROOT_DEPENDENCY_FILES.has(path) ||
+  path.endsWith("/package.json") ||
+  path.endsWith("/bun.lock");
+
+const dependencyWorkspaceForPath = (path) => {
+  if (ROOT_DEPENDENCY_FILES.has(path)) return null;
+  const match = /^(apps|packages|services)\/([^/]+)\/(?:package\.json|bun\.lock)$/.exec(path);
+  if (!match) return undefined;
+  const workspace = `${match[1]}/${match[2]}`;
+  return SUPPORTED_WORKSPACES.has(workspace) ? workspace : undefined;
+};
 
 const isSensitiveOrAuthorityPath = (path) => {
   const lower = path.toLowerCase();
@@ -135,7 +146,7 @@ const digestFiles = (files) =>
     .update(files.length > 0 ? [...files].sort().join("\n") : "<invalid>")
     .digest("hex");
 
-const dependencyDecision = (evidence, baseSha, headSha) => {
+const dependencyDecision = (evidence, baseSha, headSha, dependencyWorkspaces) => {
   if (evidence === undefined) {
     return { tier: "T3", reason: "dependency_proof_missing" };
   }
@@ -173,6 +184,10 @@ const dependencyDecision = (evidence, baseSha, headSha) => {
     new Set(evidence.changedPackages).size !== evidence.changedPackages.length
   ) {
     return { tier: "T3", reason: "dependency_proof_invalid" };
+  }
+
+  if (dependencyWorkspaces.some((workspace) => !evidence.affectedWorkspaces.includes(workspace))) {
+    return { tier: "T3", reason: "dependency_manifest_workspace_unresolved" };
   }
 
   const catalog = evidence.dependencyCatalog;
@@ -237,6 +252,7 @@ export const classifyChange = (input = {}) => {
   const files = filesValid ? [...new Set(rawFiles)].sort() : [];
   const reasons = [];
   const decisions = [];
+  const dependencyWorkspaces = new Set();
 
   if (!Number.isInteger(input.pr) || input.pr <= 0) reasons.push("pr_invalid");
   if (!SHA_PATTERN.test(input.baseSha ?? "") || !SHA_PATTERN.test(input.headSha ?? "")) {
@@ -245,13 +261,32 @@ export const classifyChange = (input = {}) => {
   if (input.sourceEvidence?.status !== "ok") reasons.push("source_evidence_invalid");
   if (!filesValid) reasons.push("changed_files_invalid");
 
-  for (const path of files.filter((file) => !isDependencyFile(file))) {
-    decisions.push(classifyPath(path));
+  for (const path of files) {
+    if (!isDependencyFile(path)) {
+      decisions.push(classifyPath(path));
+      continue;
+    }
+
+    if (isSensitiveOrAuthorityPath(path)) {
+      decisions.push(classifyPath(path));
+      continue;
+    }
+
+    const dependencyWorkspace = dependencyWorkspaceForPath(path);
+    if (dependencyWorkspace === undefined) {
+      decisions.push({ tier: "T3", reason: "unknown_dependency_path" });
+    }
+    else if (dependencyWorkspace !== null) dependencyWorkspaces.add(dependencyWorkspace);
   }
 
   const dependencyFilesChanged = files.some(isDependencyFile);
   if (dependencyFilesChanged) {
-    decisions.push(dependencyDecision(input.dependencyEvidence, input.baseSha, input.headSha));
+    decisions.push(dependencyDecision(
+      input.dependencyEvidence,
+      input.baseSha,
+      input.headSha,
+      [...dependencyWorkspaces],
+    ));
   }
 
   const leafWorkspaces = new Set(
