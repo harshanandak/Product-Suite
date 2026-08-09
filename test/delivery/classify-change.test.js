@@ -53,6 +53,7 @@ describe("delivery change classifier", () => {
     ["platform API", ["apps/platform-api/src/routes/checks.ts"], "T3", "sensitive_or_authority_path"],
     ["workflow authority", [".github/workflows/db-contract.yml"], "T3", "sensitive_or_authority_path"],
     ["classifier self-change", ["scripts/delivery/classify-change.mjs"], "T3", "sensitive_or_authority_path"],
+    ["deployment authority doc", ["docs/deployment.md"], "T3", "sensitive_or_authority_path"],
     ["unknown path", ["experimental/widget.xyz"], "T3", "unknown_path"],
   ])("classifies %s", (_name, changedFiles, tier, reason) => {
     const result = classifyChange(input(changedFiles));
@@ -206,6 +207,23 @@ describe("delivery change classifier", () => {
 
     expect(result.tier).toBe("T3");
     expect(result.reasons).toContain(reason);
+  });
+
+  test.each([
+    ["nested workspace path", { affectedWorkspaces: ["apps/platform-web/src"] }],
+    ["workspace with trailing slash", { affectedWorkspaces: ["apps/platform-web/"] }],
+    ["unknown workspace", { affectedWorkspaces: ["apps/unknown-web"] }],
+    ["duplicate workspace", { affectedWorkspaces: ["apps/platform-web", "apps/platform-web"] }],
+    ["path-like package", { changedPackages: ["../postgres"] }],
+    ["URL package", { changedPackages: ["https://example.test/package.tgz"] }],
+    ["duplicate package", { changedPackages: ["react", "react"] }],
+  ])("rejects malformed dependency closure: %s", (_name, mutation) => {
+    const result = classifyChange(input(["bun.lock"], {
+      dependencyEvidence: { ...provenUiDependency, ...mutation },
+    }));
+
+    expect(result.tier).toBe("T3");
+    expect(result.reasons).toContain("dependency_proof_invalid");
   });
 
   test("emits the full fail-closed check vector for T3", () => {

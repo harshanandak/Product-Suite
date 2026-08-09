@@ -53,6 +53,24 @@ const DB_RUNTIME_PACKAGES = new Set([
   "pg",
   "postgres",
 ]);
+const SUPPORTED_WORKSPACES = new Set([
+  "apps/meeting-web",
+  "apps/roadmap-web",
+  "apps/platform-web",
+  "apps/platform-api",
+  "packages/db",
+  "packages/contracts",
+  "packages/sdk",
+  "packages/ui",
+  "packages/ui-chat",
+  "packages/ui-canvas",
+  "packages/ui-meeting",
+  "packages/ui-planning",
+  "packages/ui-charting",
+  "services/agent-core",
+  "services/hocuspocus",
+]);
+const PACKAGE_NAME_PATTERN = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
 
 const isValidPath = (path) =>
   typeof path === "string" &&
@@ -74,6 +92,7 @@ const isSensitiveOrAuthorityPath = (path) => {
     lower.startsWith("scripts/delivery/") ||
     lower.startsWith("apps/platform-api/") ||
     lower.startsWith("packages/db/") ||
+    lower === "docs/deployment.md" ||
     lower.startsWith("docs/deployment/") ||
     /(^|\/)(auth|authentication|authorization|identity|tenant|security)([./_-]|\/|$)/.test(lower) ||
     /(^|\/)(migrations?|schema|neon|postgres|release|deploy)([./_-]|\/|$)/.test(lower)
@@ -141,10 +160,17 @@ const dependencyDecision = (evidence, baseSha, headSha) => {
     evidence.packageManagerLifecycleChanged !== false ||
     !Array.isArray(evidence.affectedWorkspaces) ||
     evidence.affectedWorkspaces.length === 0 ||
-    evidence.affectedWorkspaces.some((workspace) => !isValidPath(`${workspace}/file`)) ||
+    evidence.affectedWorkspaces.some((workspace) => !SUPPORTED_WORKSPACES.has(workspace)) ||
+    new Set(evidence.affectedWorkspaces).size !== evidence.affectedWorkspaces.length ||
     !Array.isArray(evidence.changedPackages) ||
     evidence.changedPackages.length === 0 ||
-    evidence.changedPackages.some((packageName) => typeof packageName !== "string")
+    evidence.changedPackages.some(
+      (packageName) =>
+        typeof packageName !== "string" ||
+        packageName.length > 214 ||
+        !PACKAGE_NAME_PATTERN.test(packageName),
+    ) ||
+    new Set(evidence.changedPackages).size !== evidence.changedPackages.length
   ) {
     return { tier: "T3", reason: "dependency_proof_invalid" };
   }
