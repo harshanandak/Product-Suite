@@ -65,6 +65,23 @@ curl https://api.befach.dev/health
 # Should return: { "ok": true }
 ```
 
+The public `/health/ready` endpoint is the deployment readiness gate, not a
+liveness check. It returns HTTP `200` only when the pooled TLS Neon
+`DATABASE_URL` targets `neondb`/`public` and the read-only migration probe sees
+`0019_neon_authority_reconciliation` as the latest applied Drizzle revision:
+
+```bash
+curl -i https://api.befach.dev/health/ready
+# 200 { "ok": true, "provider": "neon", "schema": "public", "revision": "0019_neon_authority_reconciliation" }
+```
+
+Missing, invalid, unreachable, or stale database state returns HTTP `503` with
+only a stable opaque code (for example,
+`{ "ok": false, "code": "DATABASE_REVISION_NOT_READY" }`). The response never
+exposes a connection URL, credentials, SQL, or driver error details. Cloudflare
+deployment checks should fail the rollout on `503`; `/health` alone only proves
+that the Worker is responding.
+
 ## Monitoring
 - Logs: `wrangler tail product-suite-platform-api`
 - Dashboard: https://dash.cloudflare.com → Workers & Pages → product-suite-platform-api
