@@ -88,6 +88,7 @@
   },
   "devDependencies": {
     "@neondatabase/serverless": "^1.1.0",
+    "ajv": "6.14.0",
     "forge-workflow": "^0.0.9",
     "lefthook": "^2.1.6",
     "pg": "^8.20.0"

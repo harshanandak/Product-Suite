@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -109,6 +110,17 @@ const dbContractWorkflow = readFileSync(dbContractWorkflowPath, "utf8");
 const lefthookConfig = readFileSync(join(rootDir, "lefthook.yml"), "utf8");
 
 describe("repo tooling", () => {
+  test("root dependency bootstrap exposes ESLint's AJV 6 draft-04 reference", () => {
+    expect(packageJson.devDependencies.ajv).toBe("6.14.0");
+    expect(() =>
+      execFileSync(
+        process.execPath,
+        ["-e", "require.resolve('ajv/lib/refs/json-schema-draft-04.json')"],
+        { cwd: rootDir, stdio: "pipe" },
+      ),
+    ).not.toThrow();
+  });
+
   test("memory-value analysis unions attribution rails at the run-memory unit", () => {
     const attributionSection = p2bMemoryImpactDesign.match(
       /#### Attribution basis for memory-value \/ holdout analysis[\s\S]*?(?=\n### |\n## |\s*$)/i,
