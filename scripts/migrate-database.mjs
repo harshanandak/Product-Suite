@@ -205,7 +205,7 @@ export async function applyMigrations({ adapter, applied = [], declared = [], fi
       const file = byTag.get(tag);
       if (!file) throw new Error("MIGRATION_TAG_UNKNOWN");
       await query(adapter, runnableSql(file.sql));
-      await query(adapter, "INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES ($1, now());", [file.hash]);
+      await query(adapter, "INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES ($1, $2);", [file.hash, file.timestamp]);
     }
     await query(adapter, "COMMIT;");
   } catch (error) {
@@ -250,9 +250,19 @@ export async function bootstrapMigrations({ adapter, files = loadMigrationFiles(
   if (versionValue && versionValue < 170000) return { ok: false, code: "POSTGRESQL_17_REQUIRED" };
   const vector = await query(adapter, "SELECT extname FROM pg_extension WHERE extname = 'vector';");
   if (!(vector?.rows?.length > 0)) return { ok: false, code: "PGVECTOR_REQUIRED" };
+  await query(adapter, "CREATE SCHEMA IF NOT EXISTS drizzle;");
+  await query(adapter, "CREATE TABLE IF NOT EXISTS drizzle.__drizzle_migrations (id serial PRIMARY KEY, hash text NOT NULL, created_at bigint NOT NULL);");
   const empty = await query(adapter, "SELECT (SELECT count(*) FROM drizzle.__drizzle_migrations) AS migration_count;");
   if (Number(empty?.rows?.[0]?.migration_count ?? 0) !== 0) return { ok: false, code: "BOOTSTRAP_TARGET_NOT_EMPTY" };
-  return applyMigrations({ adapter, applied: [], declared, files, authority, observedVariant: "repaired-bootstrap" });
+  const result = await applyMigrations({ adapter, applied: [], declared, files, authority, observedVariant: "repaired-bootstrap" });
+  if (!result.ok) return result;
+  return createMigrationEvidence({
+    operation: "bootstrap",
+    status: "BOOTSTRAPPED",
+    historyVariant: result.historyVariant,
+    expectedCount: files.length,
+    applied: result.applied,
+  });
 }
 
 export const bootstrap = bootstrapMigrations;

@@ -38,6 +38,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 
+import { Pool } from '@neondatabase/serverless'
 import { createDb, createSql, type Database, type Sql } from '@product-suite/db'
 
 import { createEphemeralBranch, deleteEphemeralBranch } from './neon-branch'
@@ -138,13 +139,13 @@ export interface NeonDerivedHandle extends ProductionDerivedBranch {
 export interface NeonControlPlane {
   createDisposableProject(): Promise<NeonProjectHandle>
   createProductionDerivedBranch(): Promise<NeonDerivedHandle>
-  bootstrapVariant(connectionUri: string, variant: NeonHistoryVariant): Promise<void>
-  applySynthetic0020AndVerifyNoop(connectionUri: string, variant: NeonHistoryVariant): Promise<void>
+  proveVariant(connectionUri: string, variant: NeonHistoryVariant): Promise<void>
   probeLeastPrivilege(connectionUri: string): Promise<void>
   deleteProject(projectId: string): Promise<void>
   verifyProjectDeleted(projectId: string): Promise<void>
   deleteBranch(projectId: string, branchId: string): Promise<void>
   verifyBranchDeleted(projectId: string, branchId: string): Promise<void>
+  cleanupRetainedResources(): Promise<void>
 }
 
 interface NeonOperation {
@@ -164,6 +165,8 @@ function controlPlaneConfig(env: NeonControlPlaneEnv): { apiKey: string; sourceP
 
 const CONTROL_PLANE_TIMEOUT_MS = 15_000
 const TRANSIENT_GET_STATUSES = new Set([423, 429, 503])
+const TRANSIENT_DELETE_STATUSES = new Set([409, 423, 429, 503])
+const ACCEPTED_DELETE_STATUSES = new Set([200, 202, 204, 404])
 const CONTROL_PLANE_RETRY_DELAYS_MS = [100, 250, 500] as const
 
 type ControlPlaneFetchOptions = {
@@ -185,14 +188,29 @@ async function controlPlaneFetchWith(
 ): Promise<{ status: number; body: Record<string, unknown> }> {
   const retryDelaysMs = options.retryDelaysMs ?? CONTROL_PLANE_RETRY_DELAYS_MS
   for (let attempt = 0; ; attempt += 1) {
-    const response = await fetcher(`${controlPlaneBase()}${path}`, {
-      method: init.method,
-      headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-      body: init.body === undefined ? undefined : JSON.stringify(init.body),
-    })
+    let response: Response
+    try {
+      response = await fetcher(`${controlPlaneBase()}${path}`, {
+        method: init.method,
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: init.body === undefined ? undefined : JSON.stringify(init.body),
+        signal: AbortSignal.timeout(CONTROL_PLANE_TIMEOUT_MS),
+      })
+    } catch {
+      if ((init.method === 'GET' || init.method === 'DELETE') && attempt < retryDelaysMs.length) {
+        await controlPlaneSleep(retryDelaysMs[attempt] ?? 0)
+        continue
+      }
+      conformanceFailure('NEON_CONTROL_PLANE_FAILED')
+    }
     const body = await response.json().catch(() => ({})) as Record<string, unknown>
-    if (response.ok || options.acceptedStatuses?.includes(response.status)) return { status: response.status, body }
-    if (init.method === 'GET' && TRANSIENT_GET_STATUSES.has(response.status) && attempt < retryDelaysMs.length) {
+    if (response.ok || options.acceptedStatuses?.includes(response.status) || (init.method === 'DELETE' && ACCEPTED_DELETE_STATUSES.has(response.status))) {
+      return { status: response.status, body }
+    }
+    const retryable = init.method === 'GET'
+      ? TRANSIENT_GET_STATUSES.has(response.status)
+      : init.method === 'DELETE' && TRANSIENT_DELETE_STATUSES.has(response.status)
+    if (retryable && attempt < retryDelaysMs.length) {
       await controlPlaneSleep(retryDelaysMs[attempt] ?? 0)
       continue
     }
@@ -305,6 +323,8 @@ async function productionParentBranchId(
 export function createNeonControlPlane(env: NeonControlPlaneEnv = process.env, fetcher: typeof fetch = fetch): NeonControlPlane {
   const { apiKey, sourceProjectId } = controlPlaneConfig(env)
   const request = (path: string, init: { method: string; body?: unknown }) => controlPlaneFetchWith(apiKey, path, init, fetcher)
+  let retainedProjectId: string | undefined
+  let retainedBranch: { projectId: string; branchId: string } | undefined
   return {
     async createDisposableProject() {
       const result = await request('/projects', {
@@ -313,29 +333,20 @@ export function createNeonControlPlane(env: NeonControlPlaneEnv = process.env, f
       })
       const projectId = projectIdResponse(result.body)
       if (!projectId) conformanceFailure('NEON_PROJECT_RESPONSE_INVALID')
-      try {
-        await waitControlPlaneOperations(apiKey, projectId, (result.body.operations ?? []) as NeonOperation[], fetcher)
-        const created = projectResponse(result.body)
-        const sql = createSql(created.connectionUri)
-        const rows = await query<{ count: string }>(sql, `select count(*)::text as count from information_schema.tables where table_schema = 'public'`)
-        return {
-          ...created,
-          database: 'neondb',
-          branchIsRoot: true,
-          branchIsDefault: true,
-          authority: 'test-only',
-          historyVariant: 'repaired-bootstrap',
-          catalogCount: Number(rows[0]?.count ?? 0),
-          connectionUri: created.connectionUri,
-        }
-      } catch (error) {
-        try {
-          await request(`/projects/${projectId}`, { method: 'DELETE' })
-          await pollControlPlaneDeletion(apiKey, `/projects/${projectId}`, 'PROJECT_DELETION_UNPROVEN', fetcher)
-        } catch {
-          // Preserve the stable conformance failure; cleanup is rechecked by the caller when a handle exists.
-        }
-        throw error
+      retainedProjectId = projectId
+      await waitControlPlaneOperations(apiKey, projectId, (result.body.operations ?? []) as NeonOperation[], fetcher)
+      const created = projectResponse(result.body)
+      const sql = createSql(created.connectionUri)
+      const rows = await query<{ count: string }>(sql, `select count(*)::text as count from information_schema.tables where table_schema = 'public'`)
+      return {
+        ...created,
+        database: 'neondb',
+        branchIsRoot: true,
+        branchIsDefault: true,
+        authority: 'test-only',
+        historyVariant: 'repaired-bootstrap',
+        catalogCount: Number(rows[0]?.count ?? 0),
+        connectionUri: created.connectionUri,
       }
     },
     async createProductionDerivedBranch() {
@@ -347,34 +358,21 @@ export function createNeonControlPlane(env: NeonControlPlaneEnv = process.env, f
       const result = await request(`/projects/${sourceProjectId}/branches`, { method: 'POST', body })
       const branchId = branchIdResponse(result.body)
       if (!branchId) conformanceFailure('NEON_BRANCH_RESPONSE_INVALID')
-      try {
-        await waitControlPlaneOperations(apiKey, sourceProjectId, (result.body.operations ?? []) as NeonOperation[], fetcher)
-        const created = branchResponse(result.body)
-        return {
-          ...created,
-          projectId: sourceProjectId,
-          productionProjectId: sourceProjectId,
-          parentBranchId,
-          branchIsRoot: false,
-          branchIsDefault: false,
-          authority: 'production-derived',
-          historyVariant: 'original-production',
-        }
-      } catch (error) {
-        try { await request(`/projects/${sourceProjectId}/branches/${branchId}`, { method: 'DELETE' }) } catch { /* preserve original failure */ }
-        throw error
+      retainedBranch = { projectId: sourceProjectId, branchId }
+      await waitControlPlaneOperations(apiKey, sourceProjectId, (result.body.operations ?? []) as NeonOperation[], fetcher)
+      const created = branchResponse(result.body)
+      return {
+        ...created,
+        projectId: sourceProjectId,
+        productionProjectId: sourceProjectId,
+        parentBranchId,
+        branchIsRoot: false,
+        branchIsDefault: false,
+        authority: 'production-derived',
+        historyVariant: 'original-production',
       }
     },
-    async bootstrapVariant(connectionUri, variant) {
-      const sql = createSql(connectionUri)
-      await provisionRuntimeRoles(sql, connectionUri, variant)
-      await applyMigrations(sql, { recordJournal: true })
-      await assertCanonical0019Noop(sql)
-    },
-    async applySynthetic0020AndVerifyNoop(connectionUri, _variant) {
-      const sql = createSql(connectionUri)
-      await applySynthetic0020WithCanonicalRunner(sql, _variant)
-    },
+    async proveVariant(connectionUri, variant) { await proveCanonicalVariant(connectionUri, variant) },
     async probeLeastPrivilege(connectionUri) {
       const sql = createSql(connectionUri)
       const roles = await query<RuntimeRoleSnapshot>(sql, `select rolname as name, rolcanlogin as "canLogin", rolsuper as "isSuperuser", rolcreaterole as "canCreateRole", rolcreatedb as "canCreateDb", '[]'::json as memberships from pg_roles where rolname in ('product_suite_platform_runtime','product_suite_meeting_runtime')`)
@@ -385,55 +383,149 @@ export function createNeonControlPlane(env: NeonControlPlaneEnv = process.env, f
     async verifyProjectDeleted(projectId) { await pollControlPlaneDeletion(apiKey, `/projects/${projectId}`, 'PROJECT_DELETION_UNPROVEN', fetcher) },
     async deleteBranch(projectId, branchId) { await request(`/projects/${projectId}/branches/${branchId}`, { method: 'DELETE' }) },
     async verifyBranchDeleted(projectId, branchId) { await pollControlPlaneDeletion(apiKey, `/projects/${projectId}/branches/${branchId}`, 'BRANCH_DELETION_UNPROVEN', fetcher) },
+    async cleanupRetainedResources() {
+      let cleanupFailed = false
+      if (retainedBranch) {
+        try {
+          await request(`/projects/${retainedBranch.projectId}/branches/${retainedBranch.branchId}`, { method: 'DELETE' })
+          await pollControlPlaneDeletion(apiKey, `/projects/${retainedBranch.projectId}/branches/${retainedBranch.branchId}`, 'BRANCH_DELETION_UNPROVEN', fetcher)
+          retainedBranch = undefined
+        } catch { cleanupFailed = true }
+      }
+      if (retainedProjectId) {
+        try {
+          await request(`/projects/${retainedProjectId}`, { method: 'DELETE' })
+          await pollControlPlaneDeletion(apiKey, `/projects/${retainedProjectId}`, 'PROJECT_DELETION_UNPROVEN', fetcher)
+          retainedProjectId = undefined
+        } catch { cleanupFailed = true }
+      }
+      if (cleanupFailed) conformanceFailure('PROJECT_CLEANUP_UNPROVEN')
+    },
   }
 }
 
-async function provisionRuntimeRoles(sql: Sql, connectionUri: string, variant: NeonHistoryVariant): Promise<void> {
-  // @ts-expect-error JavaScript CLI module has no declaration file; the runtime contract is explicit below.
-  const { provisionDatabaseRoles } = await import('../../../../scripts/provision-database-roles.mjs') as {
-    provisionDatabaseRoles: (input: { adapter: { query(statement: string): Promise<{ rows: Record<string, unknown>[] }> }; databaseUrl: string; environment: string }) => Promise<{ ok: boolean }>
+interface CanonicalMigrationFile {
+  tag: string
+  file: string
+  sql: string
+  hash: string
+  timestamp: number
+}
+
+interface CanonicalEvidence {
+  ok: boolean
+  status?: string
+  applied?: Array<{ tag?: string } | string>
+}
+
+type SessionAdapter = {
+  query(text: string, params?: unknown[]): Promise<{ rows: Record<string, unknown>[] }>
+}
+
+async function withDatabaseSession<T>(connectionUri: string, body: (adapter: SessionAdapter) => Promise<T>): Promise<T> {
+  const pool = new Pool({ connectionString: connectionUri, max: 1 })
+  try {
+    const client = await pool.connect()
+    try {
+      return await body({
+        query: async (text, params = []) => {
+          const result = await client.query(text, params)
+          return { rows: result.rows as Record<string, unknown>[] }
+        },
+      })
+    } finally {
+      client.release()
+    }
+  } finally {
+    await pool.end()
   }
-  const result = await provisionDatabaseRoles({
-    adapter: { query: async (statement) => ({ rows: await exec(sql, statement) }) },
-    databaseUrl: connectionUri,
-    environment: variant === 'original-production' ? 'conformance-original' : 'test',
-  })
-  if (!result.ok) conformanceFailure('RUNTIME_ROLE_PROVISION_UNPROVEN')
 }
 
-async function assertCanonical0019Noop(sql: Sql): Promise<void> {
-  const rows = await query<{ hash?: string }>(sql, `select hash from drizzle.__drizzle_migrations order by created_at desc, id desc limit 1`)
-      const migration = readFileSync(resolve(MIGRATIONS_DIR, '0019_neon_authority_reconciliation.sql'), 'utf8')
-      const expectedHash = createHash('sha256').update(migration.replace(/\r\n?/g, '\n'), 'utf8').digest('hex')
-  if (rows[0]?.hash !== expectedHash) conformanceFailure('REPAIRED_BOOTSTRAP_UNPROVEN')
-}
-
-async function applySynthetic0020WithCanonicalRunner(
-  sql: Sql,
+function canonicalFilesForVariant(
   variant: NeonHistoryVariant,
-): Promise<void> {
-  // @ts-expect-error JavaScript CLI module has no declaration file; the runtime contract is explicit below.
-  const { applyMigrations: canonicalApply, verifyMigrations: canonicalVerify } = await import('../../../../scripts/migrate-database.mjs') as {
-    applyMigrations: (input: Record<string, unknown>) => Promise<{ ok: boolean; status?: string }>
-    verifyMigrations: (input: Record<string, unknown>) => Promise<{ ok: boolean; status?: string }>
+  loadFiles: () => CanonicalMigrationFile[],
+): CanonicalMigrationFile[] {
+  const files = loadFiles()
+  if (variant !== 'original-production') return files
+  const manifestPath = resolve(MIGRATIONS_DIR, '../../../docs/history/database-migrations/manifest.json')
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+    drizzle?: { repairs?: Array<{ path?: string; original?: { lfSha256?: string } }> }
   }
-  const suffix = randomUUID().replace(/-/g, '')
-  const syntheticHash = createHash('sha256').update('task8-synthetic-0020', 'utf8').digest('hex')
-  const files = [
-    { tag: '0019', hash: createHash('sha256').update(readFileSync(resolve(MIGRATIONS_DIR, '0019_neon_authority_reconciliation.sql'), 'utf8').replace(/\r\n?/g, '\n'), 'utf8').digest('hex'), timestamp: 19, sql: '-- already applied' },
-    { tag: '0020', hash: syntheticHash, timestamp: 20, sql: `create table public.${quoteIdentifier(`runtime_conformance_${suffix}`)} (id uuid primary key, value text not null)` },
-  ]
-  const adapter = { query: async (statement: string) => ({ rows: await exec(sql, statement) }) }
-  const authority = {
-    environment: variant === 'original-production' ? 'conformance-original' : 'test',
-    historyVariant: variant,
-  }
-  const applied = await canonicalApply({ adapter, applied: ['0019'], declared: ['0020'], files, authority })
-  const noop = await canonicalVerify({ adapter, applied: ['0019', '0020'], declared: [], expectedFloor: '0020', files, authority })
-  if (!applied.ok || applied.status !== 'APPLIED' || !noop.ok || noop.status !== 'NOOP') {
-    conformanceFailure('SYNTHETIC_0020_NOOP_UNPROVEN')
-  }
+  const originalHashes = new Map(
+    (manifest.drizzle?.repairs ?? []).flatMap((repair) =>
+      repair.path && repair.original?.lfSha256 ? [[repair.path, repair.original.lfSha256] as const] : [],
+    ),
+  )
+  return files.map((file) => ({ ...file, hash: originalHashes.get(file.file) ?? file.hash }))
 }
+
+function appliedTags(evidence: CanonicalEvidence): string[] {
+  return (evidence.applied ?? []).flatMap((entry) => {
+    const tag = typeof entry === 'string' ? entry : entry.tag
+    return tag ? [tag] : []
+  })
+}
+
+async function proveCanonicalVariant(connectionUri: string, variant: NeonHistoryVariant): Promise<void> {
+  // Dynamic loading keeps Vitest from transforming the Bun-native JSON import attribute in the canonical CLI module.
+  // @ts-expect-error Canonical JavaScript runner has no declaration file; its surface is narrowed here.
+  const migrationRunner = await import('../../../../scripts/migrate-database.mjs') as {
+    applyMigrations(input: Record<string, unknown>): Promise<CanonicalEvidence>
+    bootstrapMigrations(input: Record<string, unknown>): Promise<CanonicalEvidence>
+    loadMigrationFiles(): CanonicalMigrationFile[]
+    verifyMigrations(input: Record<string, unknown>): Promise<CanonicalEvidence>
+  }
+  // @ts-expect-error Canonical JavaScript provisioner has no declaration file; its surface is narrowed here.
+  const roleProvisioner = await import('../../../../scripts/provision-database-roles.mjs') as {
+    provisionDatabaseRoles(input: Record<string, unknown>): Promise<CanonicalEvidence>
+  }
+  await withDatabaseSession(connectionUri, async (adapter) => {
+    const authority = {
+      environment: variant === 'original-production' ? 'conformance-original' : 'test',
+      historyVariant: variant,
+    }
+    const provisioned = await roleProvisioner.provisionDatabaseRoles({ adapter, databaseUrl: connectionUri, environment: authority.environment })
+    if (!provisioned.ok) conformanceFailure('RUNTIME_ROLE_PROVISION_UNPROVEN')
+
+    const canonicalFiles = canonicalFilesForVariant(variant, migrationRunner.loadMigrationFiles)
+    if (variant === 'repaired-bootstrap') {
+      const bootstrapped = await migrationRunner.bootstrapMigrations({
+        adapter,
+        files: canonicalFiles,
+        declared: canonicalFiles.map((file) => file.tag),
+        authority,
+      })
+      if (!bootstrapped.ok || bootstrapped.status !== 'BOOTSTRAPPED') conformanceFailure('REPAIRED_BOOTSTRAP_UNPROVEN')
+      const verified = await migrationRunner.verifyMigrations({ adapter, files: canonicalFiles, declared: [], expectedFloor: '0019', authority, observedVariant: variant })
+      if (!verified.ok || verified.status !== 'NOOP') conformanceFailure('REPAIRED_BOOTSTRAP_UNPROVEN')
+      return
+    }
+
+    const baseline = await migrationRunner.verifyMigrations({ adapter, files: canonicalFiles, declared: [], expectedFloor: '0018', authority, observedVariant: variant })
+    if (!baseline.ok || baseline.status !== 'NOOP') conformanceFailure('ORIGINAL_PRODUCTION_FLOOR_UNPROVEN')
+    const syntheticSql = 'SELECT 1;'
+    const synthetic: CanonicalMigrationFile = {
+      tag: '0020',
+      file: '0020_task8_synthetic.sql',
+      sql: syntheticSql,
+      hash: createHash('sha256').update(syntheticSql.replace(/\r\n?/g, '\n'), 'utf8').digest('hex'),
+      timestamp: 20,
+    }
+    const files = [...canonicalFiles, synthetic]
+    const applied = await migrationRunner.applyMigrations({
+      adapter,
+      applied: appliedTags(baseline),
+      files,
+      declared: ['0019', '0020'],
+      authority,
+      observedVariant: variant,
+    })
+    if (!applied.ok || applied.status !== 'APPLIED') conformanceFailure('ORIGINAL_PRODUCTION_APPLY_UNPROVEN')
+    const verified = await migrationRunner.verifyMigrations({ adapter, files, declared: [], expectedFloor: '0020', authority, observedVariant: variant })
+    if (!verified.ok || verified.status !== 'NOOP') conformanceFailure('SYNTHETIC_0020_NOOP_UNPROVEN')
+  })
+}
+
 
 function quoteIdentifier(identifier: string): string {
   return `"${identifier.replaceAll('"', '""')}"`
@@ -499,36 +591,22 @@ export async function runRequiredNeonConformance(
   let disposable: NeonProjectHandle | undefined
   let derived: NeonDerivedHandle | undefined
   let evidence: RealNeonConformanceEvidence = { status: 'INCOMPLETE', code: 'REAL_NEON_CONFORMANCE_FAILED' }
-  let cleanupFailed = false
   try {
     disposable = await plane.createDisposableProject()
     assertDisposableTestProject(disposable, env.NEON_PROJECT_ID!)
-    await plane.bootstrapVariant(disposable.connectionUri, 'repaired-bootstrap')
-    await plane.applySynthetic0020AndVerifyNoop(disposable.connectionUri, 'repaired-bootstrap')
+    await plane.proveVariant(disposable.connectionUri, 'repaired-bootstrap')
     derived = await plane.createProductionDerivedBranch()
     assertProductionDerivedBranch(derived)
-    await plane.bootstrapVariant(derived.connectionUri, 'original-production')
-    await plane.applySynthetic0020AndVerifyNoop(derived.connectionUri, 'original-production')
+    await plane.proveVariant(derived.connectionUri, 'original-production')
     await plane.probeLeastPrivilege(disposable.connectionUri)
     await plane.probeLeastPrivilege(derived.connectionUri)
     evidence = { status: 'PASS' }
   } catch {
     evidence = { status: 'INCOMPLETE', code: 'REAL_NEON_CONFORMANCE_FAILED' }
   } finally {
-    if (derived) {
-      try {
-        await plane.deleteBranch(derived.projectId, derived.branchId)
-        await plane.verifyBranchDeleted(derived.projectId, derived.branchId)
-      } catch { cleanupFailed = true }
-    }
-    if (disposable) {
-      try {
-        await plane.deleteProject(disposable.projectId)
-        await plane.verifyProjectDeleted(disposable.projectId)
-      } catch { cleanupFailed = true }
-    }
+    try { await plane.cleanupRetainedResources() } catch { evidence = { status: 'INCOMPLETE', code: 'PROJECT_CLEANUP_UNPROVEN' } }
   }
-  return cleanupFailed ? { status: 'INCOMPLETE', code: 'PROJECT_CLEANUP_UNPROVEN' } : evidence
+  return evidence
 }
 
 /** Validate an isolated, empty root project without returning identifiers. */
@@ -719,7 +797,7 @@ export async function query<Row = Record<string, unknown>>(
  * would fail. We create minimal stand-ins (just enough to satisfy the FKs) before
  * the chain runs. This mirrors production, where those tables pre-exist.
  */
-async function applyMigrations(sql: Sql, options: { recordJournal?: boolean } = {}): Promise<void> {
+async function applyHarnessMigrations(sql: Sql, options: { recordJournal?: boolean } = {}): Promise<void> {
   // Start from a pristine schema so the tier is PARENT-AGNOSTIC: the branch may be
   // cloned from an empty root OR from a populated production branch (which already
   // has these tables + data), and a contract test must depend on neither. Resetting
@@ -804,7 +882,7 @@ export async function withDbBranch<T>(body: (ctx: DbBranchContext) => Promise<T>
   try {
     const sql = createSql(connectionUri)
     const db = createDb(connectionUri)
-    await applyMigrations(sql)
+     await applyHarnessMigrations(sql)
     const seed = await seedBaseline(sql)
     return await body({ db, sql, seed, branchId })
   } finally {

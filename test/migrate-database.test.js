@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   applyMigrations,
+  bootstrapMigrations,
   buildMigrationPlan,
   verifyMigrations,
 } from "../scripts/migrate-database.mjs";
@@ -47,6 +48,33 @@ describe("canonical migration runner", () => {
     });
     expect(result.ok).toBe(true);
     expect(calls.join("\n")).toContain("pg_advisory_xact_lock");
+  });
+
+  test("bootstrap creates its owned journal before inspecting a truly empty database", async () => {
+    const calls = [];
+    let journalReady = false;
+    const bootstrapFiles = files.slice(0, 2).map((file) => ({ ...file, sql: "SELECT 1;" }));
+    const result = await bootstrapMigrations({
+      adapter: {
+        query: async (sql) => {
+          calls.push(sql);
+          if (sql.includes("CREATE TABLE IF NOT EXISTS drizzle.__drizzle_migrations")) journalReady = true;
+          if (sql.includes("count(*) FROM drizzle.__drizzle_migrations") && !journalReady) throw new Error("JOURNAL_MISSING");
+          if (sql === "SHOW server_version_num;") return { rows: [{ server_version_num: "170000" }] };
+          if (sql.includes("FROM pg_extension")) return { rows: [{ extname: "vector" }] };
+          if (sql.includes("count(*) FROM drizzle.__drizzle_migrations")) return { rows: [{ migration_count: "0" }] };
+          return { rows: [] };
+        },
+      },
+      files: bootstrapFiles,
+      declared: bootstrapFiles.map((file) => file.tag),
+      authority: { environment: "test", historyVariant: "repaired-bootstrap" },
+    });
+
+    expect(result).toMatchObject({ ok: true, status: "BOOTSTRAPPED" });
+    expect(calls.findIndex((sql) => sql.includes("CREATE TABLE IF NOT EXISTS drizzle.__drizzle_migrations"))).toBeLessThan(
+      calls.findIndex((sql) => sql.includes("count(*) FROM drizzle.__drizzle_migrations")),
+    );
   });
 
   test.each([
