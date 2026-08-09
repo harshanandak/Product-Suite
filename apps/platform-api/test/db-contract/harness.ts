@@ -466,6 +466,16 @@ function appliedTags(evidence: CanonicalEvidence): string[] {
   })
 }
 
+export function variantMigrationContract(variant: NeonHistoryVariant): {
+  baselineFloor: '0018' | '0019'
+  declared: string[]
+  finalFloor: '0020'
+} {
+  return variant === 'repaired-bootstrap'
+    ? { baselineFloor: '0019', declared: ['0020'], finalFloor: '0020' }
+    : { baselineFloor: '0018', declared: ['0019', '0020'], finalFloor: '0020' }
+}
+
 async function proveCanonicalVariant(connectionUri: string, variant: NeonHistoryVariant): Promise<void> {
   // Dynamic loading keeps Vitest from transforming the Bun-native JSON import attribute in the canonical CLI module.
   // @ts-expect-error Canonical JavaScript runner has no declaration file; its surface is narrowed here.
@@ -488,6 +498,8 @@ async function proveCanonicalVariant(connectionUri: string, variant: NeonHistory
     if (!provisioned.ok) conformanceFailure('RUNTIME_ROLE_PROVISION_UNPROVEN')
 
     const canonicalFiles = canonicalFilesForVariant(variant, migrationRunner.loadMigrationFiles)
+    const contract = variantMigrationContract(variant)
+    let baseline: CanonicalEvidence
     if (variant === 'repaired-bootstrap') {
       const bootstrapped = await migrationRunner.bootstrapMigrations({
         adapter,
@@ -496,13 +508,13 @@ async function proveCanonicalVariant(connectionUri: string, variant: NeonHistory
         authority,
       })
       if (!bootstrapped.ok || bootstrapped.status !== 'BOOTSTRAPPED') conformanceFailure('REPAIRED_BOOTSTRAP_UNPROVEN')
-      const verified = await migrationRunner.verifyMigrations({ adapter, files: canonicalFiles, declared: [], expectedFloor: '0019', authority, observedVariant: variant })
-      if (!verified.ok || verified.status !== 'NOOP') conformanceFailure('REPAIRED_BOOTSTRAP_UNPROVEN')
-      return
+      baseline = await migrationRunner.verifyMigrations({ adapter, files: canonicalFiles, declared: [], expectedFloor: contract.baselineFloor, authority, observedVariant: variant })
+      if (!baseline.ok || baseline.status !== 'NOOP') conformanceFailure('REPAIRED_BOOTSTRAP_UNPROVEN')
+    } else {
+      baseline = await migrationRunner.verifyMigrations({ adapter, files: canonicalFiles, declared: [], expectedFloor: contract.baselineFloor, authority, observedVariant: variant })
+      if (!baseline.ok || baseline.status !== 'NOOP') conformanceFailure('ORIGINAL_PRODUCTION_FLOOR_UNPROVEN')
     }
 
-    const baseline = await migrationRunner.verifyMigrations({ adapter, files: canonicalFiles, declared: [], expectedFloor: '0018', authority, observedVariant: variant })
-    if (!baseline.ok || baseline.status !== 'NOOP') conformanceFailure('ORIGINAL_PRODUCTION_FLOOR_UNPROVEN')
     const syntheticSql = 'SELECT 1;'
     const synthetic: CanonicalMigrationFile = {
       tag: '0020',
@@ -516,12 +528,12 @@ async function proveCanonicalVariant(connectionUri: string, variant: NeonHistory
       adapter,
       applied: appliedTags(baseline),
       files,
-      declared: ['0019', '0020'],
+      declared: contract.declared,
       authority,
       observedVariant: variant,
     })
-    if (!applied.ok || applied.status !== 'APPLIED') conformanceFailure('ORIGINAL_PRODUCTION_APPLY_UNPROVEN')
-    const verified = await migrationRunner.verifyMigrations({ adapter, files, declared: [], expectedFloor: '0020', authority, observedVariant: variant })
+    if (!applied.ok || applied.status !== 'APPLIED') conformanceFailure('SYNTHETIC_0020_APPLY_UNPROVEN')
+    const verified = await migrationRunner.verifyMigrations({ adapter, files, declared: [], expectedFloor: contract.finalFloor, authority, observedVariant: variant })
     if (!verified.ok || verified.status !== 'NOOP') conformanceFailure('SYNTHETIC_0020_NOOP_UNPROVEN')
   })
 }

@@ -10,6 +10,7 @@ import {
   hasNeonCreds,
   requiredConformanceStatus,
   runRequiredNeonConformance,
+  variantMigrationContract,
   type CleanupEvidence,
   type DisposableTestProject,
   type NeonControlPlane,
@@ -39,6 +40,11 @@ const derived: ProductionDerivedBranch = {
 }
 
 describe('Neon authority conformance guards', () => {
+  it('requires both history variants to apply synthetic 0020 and finish at a 0020 NOOP floor', () => {
+    expect(variantMigrationContract('repaired-bootstrap')).toEqual({ baselineFloor: '0019', declared: ['0020'], finalFloor: '0020' })
+    expect(variantMigrationContract('original-production')).toEqual({ baselineFloor: '0018', declared: ['0019', '0020'], finalFloor: '0020' })
+  })
+
   it('accepts only an empty test-only root with the repaired variant', () => {
     expect(assertDisposableTestProject(disposable, 'production-project')).toMatchObject({
       authority: 'test-only',
