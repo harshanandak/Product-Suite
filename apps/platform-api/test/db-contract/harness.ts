@@ -812,11 +812,9 @@ export async function query<Row = Record<string, unknown>>(
  * one statement per round-trip and has no multi-statement transactions, so each
  * statement is executed individually — the same way the migrator does over HTTP.
  *
- * Bootstrap first: the workboard migrations add cross-tool FKs to `tenants` and
- * `users` — identity tables owned OUTSIDE drizzle (Alembic, `text` ids; see
- * schema.ts). A fresh branch has neither, so migration 0000's `ADD CONSTRAINT`
- * would fail. We create minimal stand-ins (just enough to satisfy the FKs) before
- * the chain runs. This mirrors production, where those tables pre-exist.
+ * Bootstrap first: repaired historical migrations conditionally add FKs to
+ * canonical identity tables. The harness creates canonical test-only identity
+ * tables before replay so it exercises the pre-existing-FK reconciliation path.
  */
 async function applyHarnessMigrations(sql: Sql, options: { recordJournal?: boolean } = {}): Promise<void> {
   // Start from a pristine schema so the tier is PARENT-AGNOSTIC: the branch may be
@@ -828,10 +826,10 @@ async function applyHarnessMigrations(sql: Sql, options: { recordJournal?: boole
   await exec(sql, `drop schema if exists public cascade`)
   await exec(sql, `create schema public`)
 
-  // Canonical stand-ins for the externally-owned identity tables the FKs
-  // reference. Their shape must match the 0019 catalog contract exactly:
+  // Canonical test-only identity tables the FKs reference. Their shape must
+  // match the 0019 catalog contract exactly:
   // migration assertions run after these tables exist, before the suite seeds
-  // any rows. Keep this test-only DDL aligned with the Alembic-owned tables.
+  // any rows. Keep this test-only DDL aligned with the 0019 canonical catalog contract.
   await exec(sql, `
     create table if not exists tenants (
       id text primary key,
