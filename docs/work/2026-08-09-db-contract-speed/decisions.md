@@ -11,3 +11,18 @@
 ## Task A4 — routing decision
 
 - **A4-1:** Correct the manifest inversion before routing: `accept-path:5` is a dedicated-branch proof because it verifies committed idempotency across a repeated accept, while `baseline:11` is transactional because its tenant-scoping proof is fully rollback-safe. An AST-based topology regression compares every routed call site with this explicit execution class and rejects the legacy `withDbBranch` alias.
+
+## Task A2 — transaction adapter decisions
+
+- Export `createTransactionSql(client)` with shared transaction-client types; callers receive the pinned session adapter without widening the public API.
+- Reject all query/transaction options at this boundary. Collaboration remains dedicated because its ordering, idempotency, and concurrency proofs require independent committed sessions.
+- Serialize top-level session scopes, and make descriptor scope immutable and atomic, to prevent deadlocks and descriptor reuse across scopes.
+
+## Task A3 — branch-cap authority
+
+- Require an explicit positive `DB_CONTRACT_BRANCH_CAP` authority value; there is no implicit/default cap. Missing or non-positive authority fails closed before branch creation.
+
+## Task A5 — runner and rate-limit evidence
+
+- Wire the repository variable into the required runner so branch-cap authority is visible in exact-head evidence.
+- Keep rate-limit behavior explicitly unknown until live Neon evidence records the observed response and bounded retry behavior; do not infer a ceiling from local runs.
