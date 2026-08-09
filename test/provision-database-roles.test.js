@@ -70,6 +70,27 @@ describe("database role provisioning", () => {
     expect(JSON.stringify(result)).not.toContain("secret");
   });
 
+  test("accepts a non-production IPv6 loopback PostgreSQL authority", async () => {
+    const result = await provisionDatabaseRoles({
+      adapter: {
+        query: async (sql) => {
+          if (sql.includes("current_user AS rolname")) return { rows: [{ rolname: "postgres", rolcanlogin: true, rolcreaterole: true }] };
+          if (sql.includes("FROM pg_roles r") && sql.includes("product_suite_platform_runtime")) return {
+            rows: [
+              { rolname: "product_suite_platform_runtime", rolcanlogin: false },
+              { rolname: "product_suite_meeting_runtime", rolcanlogin: false },
+            ],
+          };
+          return { rows: [] };
+        },
+      },
+      databaseUrl: "postgresql://postgres:secret@[::1]:5432/app",
+      environment: "test",
+    });
+
+    expect(result).toMatchObject({ ok: true, operation: "provision-roles", status: "READY" });
+  });
+
   test("fails closed when the database cannot report current_user authority", async () => {
     await expect(provisionDatabaseRoles({
       adapter: { query: async () => ({ rows: [] }) },

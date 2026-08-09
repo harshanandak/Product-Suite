@@ -167,7 +167,7 @@ export async function provisionDatabaseRoles({ adapter, databaseUrl, environment
       parseNeonUrl(databaseUrl, "migration");
     } catch (error) {
       let local = false;
-      try { local = ["localhost", "127.0.0.1", "::1"].includes(new URL(databaseUrl).hostname); } catch { /* redact below */ }
+      try { local = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(new URL(databaseUrl).hostname); } catch { /* redact below */ }
       if (environment === "production" || !local) throw error;
     }
   }
@@ -192,7 +192,7 @@ export async function provisionDatabaseRoles({ adapter, databaseUrl, environment
     const authorityRow = authorityRows?.rows?.[0];
     if (!authorityRow) throw new Error("SQL_AUTHORITY_NOT_FOUND");
     let localAuthority = false;
-    try { localAuthority = ["localhost", "127.0.0.1", "::1"].includes(new URL(databaseUrl ?? "").hostname); } catch { /* URL validation above owns the error */ }
+    try { localAuthority = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(new URL(databaseUrl ?? "").hostname); } catch { /* URL validation above owns the error */ }
     // Local CI uses PostgreSQL's `postgres` owner.  It is still read from
     // pg_catalog; only this explicitly non-production local authority is an
     // approved equivalent to Neon `neondb_owner`.
