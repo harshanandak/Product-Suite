@@ -181,6 +181,7 @@ function isQueryDescriptor(value: unknown): value is SqlQueryDescriptor {
 
 export function createTransactionSql(client: PinnedPoolClient): TransactionSql {
   let savepointNumber = 0
+  let querySavepointNumber = 0
   let sessionTail = Promise.resolve()
 
   const runExclusive = <T>(job: () => Promise<T>): Promise<T> => {
@@ -208,11 +209,38 @@ export function createTransactionSql(client: PinnedPoolClient): TransactionSql {
     }
   }
 
+  const requiresRecoverySavepoint = (text: string): boolean =>
+    /^\s*(?:insert|update|delete|merge|call|do)\b/i.test(text)
+
+  const executeTopLevel = async (text: string, params: unknown[]): Promise<QueryRows> => {
+    if (!requiresRecoverySavepoint(text)) return execute(text, params)
+    const savepoint = `db_contract_query_sp_${++querySavepointNumber}`
+    await execute(`SAVEPOINT ${savepoint}`)
+    try {
+      const rows = await execute(text, params)
+      await execute(`RELEASE SAVEPOINT ${savepoint}`)
+      return rows
+    } catch (error) {
+      const primary = redactedError(error, 'DB_CONTRACT_QUERY_FAILED')
+      try {
+        await execute(`ROLLBACK TO SAVEPOINT ${savepoint}`)
+      } catch {
+        // Preserve the first structured PostgreSQL failure.
+      }
+      try {
+        await execute(`RELEASE SAVEPOINT ${savepoint}`)
+      } catch {
+        // Preserve the first structured PostgreSQL failure.
+      }
+      throw primary
+    }
+  }
+
   const makeQuery = <Row extends QueryRow = QueryRow>(text: string, params: unknown[] = []): SqlQueryDescriptor<Row[]> => {
     const preservedParams = [...params]
     return new SqlQueryDescriptor<Row[]>(
       text,
-      () => runExclusive(() => execute(text, preservedParams) as Promise<Row[]>),
+      () => runExclusive(() => executeTopLevel(text, preservedParams) as Promise<Row[]>),
       () => execute(text, preservedParams) as Promise<Row[]>,
     )
   }

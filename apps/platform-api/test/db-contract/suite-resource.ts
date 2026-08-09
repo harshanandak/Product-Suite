@@ -23,6 +23,11 @@ interface TransactionClient extends PinnedPoolClient {
   release(): void | Promise<void>
 }
 
+interface PinnedPool {
+  connect(): Promise<TransactionClient>
+  end(): Promise<void>
+}
+
 export interface TransactionalDbContext {
   sql: TransactionSql
   seed: Seed
@@ -43,9 +48,26 @@ export interface TransactionalDbDependencies {
   measure?<T>(phase: TelemetryPhase, operation: () => Promise<T>): Promise<T>
 }
 
-async function connectPinned(connectionUri: string): Promise<TransactionClient> {
-  const pool = new Pool({ connectionString: connectionUri, max: 1 })
-  const client = await pool.connect()
+export async function connectPinnedForTest(
+  connectionUri: string,
+  createPool: (connectionUri: string) => PinnedPool = (uri) => new Pool({
+    connectionString: uri,
+    max: 1,
+  }) as unknown as PinnedPool,
+): Promise<TransactionClient> {
+  const pool = createPool(connectionUri)
+  let client: TransactionClient
+  try {
+    client = await pool.connect()
+  } catch {
+    const primary = stableCleanupError('DB_CONTRACT_SESSION_CONNECT_FAILED')
+    try {
+      await pool.end()
+    } catch {
+      throwCombined(primary, true, [stableCleanupError('DB_CONTRACT_POOL_CLOSE_UNPROVEN')])
+    }
+    throw primary
+  }
   return {
     query: client.query.bind(client),
     release: async () => {
@@ -74,7 +96,7 @@ const defaultDependencies: TransactionalDbDependencies = {
     const sql = createSql(connectionUri)
     await prepareHarnessDatabase(connectionUri, sql)
   },
-  connect: connectPinned,
+  connect: connectPinnedForTest,
   transactionSql: createTransactionSql,
   seed: async (sql) => seedBaseline(sql as unknown as Sql),
   observeSentinelAbsent,
@@ -111,6 +133,7 @@ export function createTransactionalDbSuite(
     } catch (error) {
       try {
         await measured('delete', () => dependencies.deleteBranch(branch!.branchId))
+        branch = undefined
       } catch {
         throwCombined(error, true, [stableCleanupError('DB_CONTRACT_BRANCH_DELETION_UNPROVEN')])
       }

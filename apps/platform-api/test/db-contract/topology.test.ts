@@ -142,6 +142,7 @@ describe('db-contract topology lock', () => {
       expect(listConfig.test?.fileParallelism).toBe(false)
       expect(listConfig.test?.maxWorkers).toBe(1)
       expect(listConfig.test?.maxConcurrency).toBe(1)
+      expect(listConfig.test?.hookTimeout).toBe(180_000)
       expect(listConfig.test?.globalSetup).toBeUndefined()
       expect(listConfig.test?.reporters).toEqual(['default'])
       expect(hasNeonCreds({ DB_CONTRACT_LIST_ONLY: '1' })).toBe(true)
@@ -150,6 +151,7 @@ describe('db-contract topology lock', () => {
       const normalConfig = createDbContractVitestConfig()
       expect(normalConfig.test?.globalSetup).toEqual(['./test/db-contract/reap-setup.ts'])
       expect(normalConfig.test?.reporters).toEqual(['default', './test/db-contract/zero-skip-reporter.ts'])
+      expect(normalConfig.test?.hookTimeout).toBe(180_000)
       expect(hasNeonCreds({})).toBe(false)
     } finally {
       if (previous === undefined) delete process.env.DB_CONTRACT_LIST_ONLY

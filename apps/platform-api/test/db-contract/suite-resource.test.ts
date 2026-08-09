@@ -1,10 +1,15 @@
+import { resolve } from 'node:path'
+
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  connectPinnedForTest,
   createTransactionalDbSuite,
   SuiteResourceError,
   type TransactionalDbDependencies,
 } from './suite-resource'
+import { dedicatedCleanupFailure } from './harness'
+import { NeonBranchError } from './neon-branch'
 import {
   assertCurrentRunBranchesAbsent,
   createEphemeralBranch,
@@ -20,6 +25,7 @@ type Hook = () => Promise<void>
 const originalEnv = { ...process.env }
 
 afterEach(() => {
+  vi.restoreAllMocks()
   vi.unstubAllGlobals()
   process.env = { ...originalEnv }
 })
@@ -130,6 +136,48 @@ describe('transactional suite resource', () => {
     )
   })
 
+  it('does not delete a setup-failed branch twice after strict deletion succeeds', async () => {
+    const f = fixture()
+    const deleteBranch = vi.fn(async () => undefined)
+    createTransactionalDbSuite('accept-path', {
+      ...f.deps,
+      prepare: async () => { throw new Error('migration failed') },
+      deleteBranch,
+    })
+
+    await expect(f.setup()).rejects.toThrow('migration failed')
+    await f.teardown()
+    expect(deleteBranch).toHaveBeenCalledOnce()
+  })
+
+  it('closes the pool and redacts a pinned connection failure', async () => {
+    const end = vi.fn(async () => undefined)
+    const pool = {
+      connect: vi.fn(async () => { throw new Error('postgres://secret') }),
+      end,
+    }
+
+    await expect(connectPinnedForTest('postgres://secret', () => pool)).rejects.toMatchObject({
+      code: 'DB_CONTRACT_SESSION_CONNECT_FAILED',
+    })
+    expect(end).toHaveBeenCalledOnce()
+  })
+
+  it('aggregates a connection failure with an unproven pool close without leaking details', async () => {
+    const pool = {
+      connect: vi.fn(async () => { throw new Error('postgres://connect-secret') }),
+      end: vi.fn(async () => { throw new Error('postgres://close-secret') }),
+    }
+
+    const failure = await connectPinnedForTest('postgres://uri-secret', () => pool).catch((error: unknown) => error)
+    expect(failure).toBeInstanceOf(AggregateError)
+    expect((failure as AggregateError).errors).toEqual([
+      expect.objectContaining({ code: 'DB_CONTRACT_SESSION_CONNECT_FAILED' }),
+      expect.objectContaining({ code: 'DB_CONTRACT_POOL_CLOSE_UNPROVEN' }),
+    ])
+    expect(JSON.stringify(failure)).not.toContain('secret')
+  })
+
   it('fails closed when a test runs before suite setup', async () => {
     const f = fixture()
     const run = createTransactionalDbSuite('accept-path', f.deps)
@@ -200,6 +248,14 @@ describe('required branch ownership and cleanup', () => {
     await deleteEphemeralBranchStrict('secret-id', 1_000)
 
     expect(fetchMock.mock.calls.map((call) => call[1]?.method)).toEqual(['DELETE', 'GET', 'GET'])
+    const signals = fetchMock.mock.calls.map((call) => call[1]?.signal)
+    expect(signals.every((signal) => signal instanceof AbortSignal)).toBe(true)
+    expect(new Set(signals).size).toBe(signals.length)
+  })
+
+  it('preserves a strict Neon cleanup error code in the dedicated harness', () => {
+    const error = new NeonBranchError('DB_CONTRACT_BRANCH_DELETE_FAILED')
+    expect(dedicatedCleanupFailure(error)).toBe(error)
   })
 
   it('strictly deletes a retained branch when create operations fail', async () => {
@@ -291,5 +347,36 @@ describe('required branch ownership and cleanup', () => {
       ...deps,
       reap: async () => ({ complete: false, scanned: 0, deleted: [], failed: [] }),
     })).rejects.toThrow('DB_CONTRACT_STALE_REAP_INCOMPLETE')
+  })
+
+  it('provides one normalized runtime config to workers, preflight, and telemetry', async () => {
+    const provide = vi.fn()
+    const preflight = vi.fn(async () => undefined)
+    const env = {
+      NEON_API_KEY: 'key',
+      NEON_PROJECT_ID: 'project',
+      DB_CONTRACT_BRANCH_CAP: '10',
+      DB_CONTRACT_EXACT_HEAD: 'a'.repeat(40),
+      DB_CONTRACT_TELEMETRY_PATH: 'runtime-telemetry.json',
+    } as NodeJS.ProcessEnv
+
+    await runRequiredSetup({
+      env,
+      reap: async () => ({ complete: true, scanned: 0, deleted: [], failed: [] }),
+      preflight,
+      assertCurrentRunAbsent: async () => undefined,
+      makeRunToken: () => 'generated-token',
+      provide,
+    })
+
+    const runtime = {
+      runToken: 'generated-token',
+      branchCap: 10,
+      exactHead: 'a'.repeat(40),
+      telemetryPath: resolve('runtime-telemetry.json'),
+    }
+    expect(provide).toHaveBeenCalledWith('dbContractRuntime', runtime)
+    expect(preflight).toHaveBeenCalledWith(runtime)
+    expect(env.DB_CONTRACT_RUN_TOKEN).toBe('generated-token')
   })
 })

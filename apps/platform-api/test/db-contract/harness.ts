@@ -41,7 +41,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { Pool } from '@neondatabase/serverless'
 import { createDb, createSql, type Database, type Sql } from '@product-suite/db'
 
-import { createEphemeralBranch, deleteEphemeralBranchStrict } from './neon-branch'
+import { createEphemeralBranch, deleteEphemeralBranchStrict, NeonBranchError } from './neon-branch'
 
 /** The only migration-history variants accepted by the authority contract. */
 export type NeonHistoryVariant = 'original-production' | 'repaired-bootstrap'
@@ -980,13 +980,20 @@ export async function withDedicatedDbBranch<T>(body: (ctx: DbBranchContext) => P
   }
   try {
     await deleteEphemeralBranchStrict(branchId)
-  } catch {
-    const cleanup = new NeonConformanceError('BRANCH_DELETION_UNPROVEN')
+  } catch (error) {
+    const cleanup = dedicatedCleanupFailure(error)
     if (hasPrimary) throw new AggregateError([primary, cleanup], 'DB_CONTRACT_TEST_AND_CLEANUP_FAILED')
     throw cleanup
   }
   if (hasPrimary) throw primary
   return value as T
+}
+
+/** Preserve the strict control-plane code while discarding unknown cleanup details. */
+export function dedicatedCleanupFailure(error: unknown): NeonBranchError | NeonConformanceError {
+  return error instanceof NeonBranchError
+    ? error
+    : new NeonConformanceError('BRANCH_DELETION_UNPROVEN')
 }
 
 /** Compatibility alias; topology routing moves callers to the explicit helper in A4. */

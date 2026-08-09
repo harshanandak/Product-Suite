@@ -73,14 +73,19 @@ describe('db-contract telemetry', () => {
 
   it('allows only final teardown to mark cleanup complete', async () => {
     const path = telemetryPath()
+    const env = {
+      NEON_API_KEY: 'unit-key',
+      NEON_PROJECT_ID: 'unit-project',
+      DB_CONTRACT_BRANCH_CAP: '10',
+    } as NodeJS.ProcessEnv
     const teardown = await runRequiredSetup({
-      env: {
-        NEON_API_KEY: 'unit-key',
-        NEON_PROJECT_ID: 'unit-project',
-        DB_CONTRACT_BRANCH_CAP: '10',
-      },
+      env,
       reap: async () => ({ complete: true, scanned: 2, deleted: ['redacted'], failed: [] }),
-      preflight: async () => undefined,
+      // A later env mutation must not alter the normalized runtime/telemetry
+      // cap captured before preflight starts.
+      preflight: async () => {
+        env.DB_CONTRACT_BRANCH_CAP = '99'
+      },
       assertCurrentRunAbsent: async () => undefined,
       makeRunToken: () => 'not-serialized',
       telemetry: { path, exactHead: 'c'.repeat(40), concurrency: 1 },

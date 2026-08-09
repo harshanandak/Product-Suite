@@ -8,8 +8,9 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { dirname, resolve } from 'node:path'
+import { dirname } from 'node:path'
 
+import { workerRuntimeConfig } from './runtime-config'
 import { EXPECTED_TOTAL_ASSERTIONS, SUITE_IDS, TOPOLOGY_VERSION } from './topology'
 
 export const TELEMETRY_SCHEMA_VERSION = 1 as const
@@ -147,8 +148,7 @@ function assertTelemetry(value: unknown): asserts value is DbContractTelemetry {
   assertTelemetryRateLimit(value.rateLimit)
 }
 
-export const telemetryPathFromEnv = (): string =>
-  resolve(process.env.DB_CONTRACT_TELEMETRY_PATH ?? 'db-contract-telemetry.json')
+export const telemetryPathFromEnv = (): string => workerRuntimeConfig().telemetryPath
 
 function writeTelemetry(path: string, telemetry: DbContractTelemetry): void {
   assertTelemetry(telemetry)

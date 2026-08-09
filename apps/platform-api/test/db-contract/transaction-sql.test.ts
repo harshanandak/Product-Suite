@@ -84,6 +84,40 @@ describe('transaction-bound Neon SQL adapter', () => {
     expect(String(new TransactionSqlError('DB_CONTRACT_QUERY_FAILED'))).not.toContain(secret)
   })
 
+  it('recovers the outer transaction after an expected direct statement failure', async () => {
+    const calls: string[] = []
+    let aborted = false
+    const constraintFailure = Object.assign(new Error('raw detail'), {
+      code: '23514',
+      constraint: 'memories_private_requires_owner',
+    })
+    const query = vi.fn(async (text: string) => {
+      calls.push(text)
+      if (text === 'insert malformed') {
+        aborted = true
+        throw constraintFailure
+      }
+      if (text.startsWith('ROLLBACK TO SAVEPOINT')) aborted = false
+      if (aborted) throw Object.assign(new Error('transaction aborted'), { code: '25P02' })
+      return { rows: [{ ok: true }] }
+    })
+    const sql = createTransactionSql({ query })
+
+    await expect(sql.query('insert malformed')).rejects.toMatchObject({
+      code: '23514',
+      constraint: 'memories_private_requires_owner',
+    })
+    await expect(sql.query('select still usable')).resolves.toEqual([{ ok: true }])
+
+    expect(calls).toEqual([
+      'SAVEPOINT db_contract_query_sp_1',
+      'insert malformed',
+      'ROLLBACK TO SAVEPOINT db_contract_query_sp_1',
+      'RELEASE SAVEPOINT db_contract_query_sp_1',
+      'select still usable',
+    ])
+  })
+
   it('uses a unique savepoint for each nested application transaction', async () => {
     const { client, calls } = mockedClient()
     const sql = createTransactionSql(client)

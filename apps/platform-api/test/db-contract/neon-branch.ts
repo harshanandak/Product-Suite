@@ -16,7 +16,10 @@
 
 import { createHash, randomBytes } from 'node:crypto'
 
+import { workerRuntimeConfig, type DbContractRuntimeConfig } from './runtime-config'
+
 const API_BASE = process.env.NEON_API_BASE ?? 'https://console.neon.tech/api/v2'
+const NEON_REQUEST_TIMEOUT_MS = 10_000
 
 /**
  * Prefix every ephemeral test branch shares. Encoded once so the create path and
@@ -81,11 +84,13 @@ function rawRunToken(env: NodeJS.ProcessEnv = process.env): string {
   return value
 }
 
-export function currentRunToken(env: NodeJS.ProcessEnv = process.env): string {
-  return ownershipToken(rawRunToken(env))
+export function currentRunToken(env?: NodeJS.ProcessEnv): string {
+  const runToken = env ? rawRunToken(env) : workerRuntimeConfig().runToken
+  if (!runToken) throw new Error('DB_CONTRACT_RUN_TOKEN_UNAVAILABLE')
+  return ownershipToken(runToken)
 }
 
-export function suiteBranchPrefix(suiteName: string, env: NodeJS.ProcessEnv = process.env): string {
+export function suiteBranchPrefix(suiteName: string, env?: NodeJS.ProcessEnv): string {
   return `${TEST_BRANCH_PREFIX}--${currentRunToken(env)}--${safeNamePart(suiteName, 'suite')}`
 }
 
@@ -247,7 +252,11 @@ export async function deleteEphemeralBranchStrict(
   const headers = { Accept: 'application/json', Authorization: `Bearer ${apiKey}` }
   let response: Response
   try {
-    response = await fetch(url, { method: 'DELETE', headers })
+    response = await fetch(url, {
+      method: 'DELETE',
+      headers,
+      signal: AbortSignal.timeout(NEON_REQUEST_TIMEOUT_MS),
+    })
   } catch {
     throw new NeonBranchError('DB_CONTRACT_BRANCH_DELETE_FAILED')
   }
@@ -256,7 +265,11 @@ export async function deleteEphemeralBranchStrict(
   const deadline = Date.now() + timeoutMs
   while (Date.now() <= deadline) {
     try {
-      response = await fetch(url, { method: 'GET', headers })
+      response = await fetch(url, {
+        method: 'GET',
+        headers,
+        signal: AbortSignal.timeout(NEON_REQUEST_TIMEOUT_MS),
+      })
     } catch {
       throw new NeonBranchError('DB_CONTRACT_BRANCH_DELETION_UNPROVEN')
     }
@@ -343,10 +356,11 @@ export async function assertCurrentRunBranchesAbsent(runToken = rawRunToken()): 
   }
 }
 
-export async function preflightBranchCapacity(required = 1): Promise<void> {
-  const rawCap = process.env.DB_CONTRACT_BRANCH_CAP
-  if (!rawCap || !/^\d+$/.test(rawCap)) throw new NeonBranchError('DB_CONTRACT_BRANCH_CAP_UNAVAILABLE')
-  const configured = Number(rawCap)
+export async function preflightBranchCapacity(
+  required = 1,
+  runtime: DbContractRuntimeConfig = workerRuntimeConfig(),
+): Promise<void> {
+  const configured = runtime.branchCap
   if (!Number.isSafeInteger(configured) || configured < 1) {
     throw new NeonBranchError('DB_CONTRACT_BRANCH_CAP_UNAVAILABLE')
   }
