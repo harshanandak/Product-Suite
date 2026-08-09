@@ -97,6 +97,12 @@ describe("check-worker-secrets", () => {
     expect(issues.some((issue) => issue.includes("expected a JSON array"))).toBe(true);
   });
 
+  test("fails when direct migration credentials are exposed to the Worker", () => {
+    const issues = analyzeWorkerSecrets(listing(["DATABASE_URL", "CLERK_SECRET_KEY", "MIGRATION_DATABASE_URL"]), REQUIRED);
+
+    expect(issues).toContain("forbidden migration secrets in Worker runtime: MIGRATION_DATABASE_URL");
+  });
+
   describe("CLI entrypoint (real `node` subprocess)", () => {
     test("exits zero and reports the verified secrets", () => {
       const { status, stdout } = runCli(REQUIRED, listing(["DATABASE_URL", "CLERK_SECRET_KEY"]));

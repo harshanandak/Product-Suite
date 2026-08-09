@@ -50,6 +50,11 @@ export function analyzeWorkerSecrets(listingText, requiredNames) {
     issues.push(`missing required secrets: ${missing.join(", ")}`);
   }
 
+  // Direct migration credentials belong only to the gated CI migration job;
+  // they must never be copied into a Worker runtime secret set.
+  const forbidden = names.filter((name) => ["MIGRATION_DATABASE_URL", "NEON_API_KEY"].includes(name));
+  if (forbidden.length > 0) issues.push(`forbidden migration secrets in Worker runtime: ${forbidden.join(", ")}`);
+
   return issues;
 }
 

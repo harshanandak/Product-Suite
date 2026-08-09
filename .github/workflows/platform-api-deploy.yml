@@ -134,13 +134,13 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Check DATABASE_URL
+      - name: Check direct MIGRATION_DATABASE_URL
         shell: bash
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          MIGRATION_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
         run: |
-          if [ -z "$DATABASE_URL" ]; then
-            echo "::error::DATABASE_URL secret not set — cannot run migrations. Add it in repo Settings -> Secrets and variables -> Actions (this is a CI-only credential, separate from the 'wrangler secret put DATABASE_URL' value the Worker uses at runtime, though both should point at the same shared Neon DB)."
+          if [ -z "$MIGRATION_DATABASE_URL" ]; then
+            echo "::error::MIGRATION_DATABASE_URL secret not set — refusing to run the direct owner-scoped migration step. Configure it in repo Settings -> Secrets and variables -> Actions; the Worker DATABASE_URL remains pooled and separate."
             exit 1
           fi
 
@@ -150,7 +150,7 @@ jobs:
           bun-version: 1.3.6
 
       - name: Install dependencies
-        # --ignore-scripts: this job has DATABASE_URL in scope once the
+        # --ignore-scripts: this job has MIGRATION_DATABASE_URL in scope once the
         # migrate step runs; a compromised dependency's postinstall must not
         # get a chance to read it. The repo's own `prepare` (lefthook) is
         # irrelevant in CI, so skipping lifecycle scripts is free here.
@@ -158,6 +158,11 @@ jobs:
 
       - name: Schema-parity check before applying
         run: node scripts/check-migration-parity.mjs packages/db/migrations
+
+      - name: Provision canonical NOLOGIN grant roles
+        env:
+          MIGRATION_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+        run: bun run provision:database-roles
 
       - name: Re-verify production Worker runtime secrets
         # Same TOCTOU window as the staleness check below: a secret can be deleted while this job waits at the approval gate.
@@ -193,11 +198,15 @@ jobs:
             exit 1
           fi
 
-      - name: Run drizzle migrations against the shared DB
-        working-directory: packages/db
+      - name: Apply the exact P0 migration suffix against the shared DB
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: bun run migrate
+          MIGRATION_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+        run: bun run migrate:database -- apply --environment production --history-variant original-production --expected-pending 0018,0019
+
+      - name: Verify the production floor without writes
+        env:
+          MIGRATION_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+        run: bun run migrate:database -- verify --environment production --history-variant original-production --expected-floor 0019
 
   deploy:
     needs: [migrate]
