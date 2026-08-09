@@ -6,6 +6,17 @@ import {
   provisionDatabaseRoles,
 } from "../scripts/provision-database-roles.mjs";
 
+const requiredRuntimeRoles = [
+  { rolname: "product_suite_platform_runtime", rolcanlogin: false },
+  { rolname: "product_suite_meeting_runtime", rolcanlogin: false },
+];
+
+const neonAuthority = {
+  rolname: "neondb_owner",
+  rolcanlogin: true,
+  rolcreaterole: true,
+};
+
 describe("database role provisioning", () => {
   test("declares the Neon driver at the root because the provisioning script imports it directly", () => {
     const packageJson = JSON.parse(
@@ -47,6 +58,68 @@ describe("database role provisioning", () => {
     expect(JSON.stringify(evidence)).not.toContain("password");
   });
 
+  test("accepts and excludes PostgreSQL 17 creator edges for both runtime roles", () => {
+    const evidence = analyzeRoleProvisioning({
+      admin: neonAuthority,
+      roles: requiredRuntimeRoles,
+      memberships: requiredRuntimeRoles.map(({ rolname }) => ({
+        member: "neondb_owner",
+        role: rolname,
+        admin_option: true,
+        inherit_option: false,
+        set_option: false,
+      })),
+    });
+
+    expect(evidence).toMatchObject({ ok: true, memberships: [] });
+  });
+
+  for (const [label, membership] of [
+    ["ADMIN false", { admin_option: false, inherit_option: false, set_option: false }],
+    ["INHERIT true", { admin_option: true, inherit_option: true, set_option: false }],
+    ["SET true", { admin_option: true, inherit_option: false, set_option: true }],
+    ["missing INHERIT", { admin_option: true, set_option: false }],
+    ["missing SET", { admin_option: true, inherit_option: false }],
+    ["different member", { member: "other_owner", admin_option: true, inherit_option: false, set_option: false }],
+  ]) {
+    test(`rejects unsafe creator edge with ${label}`, () => {
+      expect(() => analyzeRoleProvisioning({
+        admin: neonAuthority,
+        roles: requiredRuntimeRoles,
+        memberships: [{
+          member: "neondb_owner",
+          role: "product_suite_platform_runtime",
+          ...membership,
+        }],
+      })).toThrow("UNAUTHORIZED_LOGIN_MEMBERSHIP");
+    });
+  }
+
+  test("preserves runtime-login membership rejection rules", () => {
+    const snapshot = (membership, allowedLogins = []) => ({
+      admin: neonAuthority,
+      roles: requiredRuntimeRoles,
+      memberships: [membership],
+      allowedLogins,
+    });
+
+    expect(() => analyzeRoleProvisioning(snapshot({
+      member: "unknown_login",
+      role: "product_suite_platform_runtime",
+      admin_option: false,
+    }))).toThrow("UNAUTHORIZED_LOGIN_MEMBERSHIP");
+    expect(() => analyzeRoleProvisioning(snapshot({
+      member: "platform_login",
+      role: "product_suite_platform_runtime",
+      admin_option: true,
+    }, ["platform_login"]))).toThrow("ADMIN_OPTION_MEMBERSHIP_FORBIDDEN");
+    expect(() => analyzeRoleProvisioning(snapshot({
+      member: "meeting_login",
+      role: "product_suite_platform_runtime",
+      admin_option: false,
+    }, ["meeting_login"]))).toThrow("WRONG_LOGIN_MEMBERSHIP");
+  });
+
   test("uses a database adapter and never returns credentials", async () => {
     const calls = [];
     const result = await provisionDatabaseRoles({
@@ -67,6 +140,9 @@ describe("database role provisioning", () => {
     });
     expect(result).toMatchObject({ ok: true, operation: "provision-roles", status: "READY" });
     expect(calls.length).toBeGreaterThan(0);
+    const membershipQuery = calls.find((sql) => sql.includes("JOIN pg_roles member"));
+    expect(membershipQuery).toContain("m.inherit_option");
+    expect(membershipQuery).toContain("m.set_option");
     expect(JSON.stringify(result)).not.toContain("secret");
   });
 

@@ -64,6 +64,7 @@ function validateAuthority(admin = {}, snapshot = {}) {
  */
 export function analyzeRoleProvisioning(snapshot = {}) {
   const admin = snapshot.admin ?? snapshot.authority ?? {};
+  const authorityName = admin.rolname ?? admin.role ?? admin.name;
   validateAuthority(admin, snapshot);
 
   const roles = new Map((snapshot.roles ?? []).map((role) => [roleName(role), role]));
@@ -81,8 +82,15 @@ export function analyzeRoleProvisioning(snapshot = {}) {
     const member = memberName(membership);
     const parent = membership.role ?? membership.parent ?? membership.grantedRole;
     if (!REQUIRED_GRANT_ROLES.includes(parent)) continue;
+    const adminOption = membership.admin_option === true || membership.adminOption === true;
+    const inheritOption = membership.inherit_option ?? membership.inheritOption;
+    const setOption = membership.set_option ?? membership.setOption;
+    if (authorityName && member === authorityName) {
+      if (adminOption && inheritOption === false && setOption === false) continue;
+      throw new Error("UNAUTHORIZED_LOGIN_MEMBERSHIP");
+    }
     if (!member || !allowed.has(member)) throw new Error("UNAUTHORIZED_LOGIN_MEMBERSHIP");
-    if (membership.admin_option === true || membership.adminOption === true) throw new Error("ADMIN_OPTION_MEMBERSHIP_FORBIDDEN");
+    if (adminOption) throw new Error("ADMIN_OPTION_MEMBERSHIP_FORBIDDEN");
     const looksPlatform = /platform/i.test(parent);
     const looksMeeting = /meeting/i.test(parent);
     if ((looksPlatform && /meeting/i.test(member)) || (looksMeeting && /platform/i.test(member))) throw new Error("WRONG_LOGIN_MEMBERSHIP");
@@ -130,7 +138,8 @@ WHERE r.rolname = current_user;
 `;
 
 const MEMBERSHIP_SQL = `
-SELECT member.rolname AS member, parent.rolname AS role, m.admin_option
+SELECT member.rolname AS member, parent.rolname AS role,
+  m.admin_option, m.inherit_option, m.set_option
 FROM pg_auth_members m
 JOIN pg_roles member ON member.oid = m.member
 JOIN pg_roles parent ON parent.oid = m.roleid
