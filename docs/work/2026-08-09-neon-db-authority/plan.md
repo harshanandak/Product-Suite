@@ -268,6 +268,40 @@ PR A must run its `0020` apply and zero-pending verify suites against both histo
 
 DEV must install the locked Bun/Python dependencies and establish a green untouched baseline before RED. A dependency/setup failure is not permission to weaken a gate.
 
+## Task 8/9 implementation handoff (2026-08-09)
+
+The stacked Task 8 unit slice is committed at
+`e78afde2efdbbad59b01d8f48914b12b925fc70a`. It adds redaction-safe project/root
+and branch validators, cleanup evidence, NOLOGIN role probes, pooled-runtime URL
+validation, and opaque Platform API readiness at `/health/ready`. The required
+CI workflow fails closed if the Neon control-plane credentials are missing.
+
+The local real-Neon lane is `INCOMPLETE` because no `NEON_API_KEY`,
+`NEON_PROJECT_ID`, or `DATABASE_URL` is available. The worktree now includes a
+native-fetch control-plane adapter that creates/deletes a distinct disposable
+project/root, records the repaired journal floor, and creates/deletes a
+production-derived branch when credentials are supplied. No project, branch,
+production database, or secret was mutated in this credentialless run.
+
+Task 9's canonical docs state the current Neon/public topology and Drizzle owner
+while preserving all historical roots. The PR A handoff remains:
+
+```text
+database_provider: neon
+database_name: neondb
+application_schema: public
+canonical_applied_floor: 0019_neon_authority_reconciliation
+pr_a_candidate_revision: 0020_meeting_authority_foundation.sql
+history_variants: production=original-production; fresh/staging/test=repaired-bootstrap
+```
+
+The historical manifest is validation-only provenance, never a second journal.
+The five-block `0000`/`0004` repair is not to be edited. Exact apply and
+zero-write verify/no-op commands are documented for both variants. Deployment
+and real-Neon evidence remain blocked until disposable-project/root cleanup and
+production-derived branch proof can be reconstructed without credentials in
+logs.
+
 ## Ambiguity policy
 
 Use the `/dev` 7-dimension decision rubric. At or above 80% confidence, choose the most conservative additive behavior and record it. Below 80%, or whenever a decision could copy/drop/remap data, change API output, alter auth/tenant semantics, introduce a second migration owner, or expand into Roadmap migration, stop for human review.

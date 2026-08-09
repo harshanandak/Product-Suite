@@ -4,6 +4,34 @@ This is the durable design contract for Product Suite. Anyone — human or agent
 
 Status of open items is marked `TBD(...)`. Everything else is decided.
 
+## Database authority (2026-08-09)
+
+The current Product Suite topology is the single Neon/public topology: Neon
+PostgreSQL, database `neondb`, schema `public`. `packages/db/src/schema.ts`
+(including `meeting-schema.ts`) is the model, and
+`packages/db/migrations` is the only supported Drizzle migration plane. Its
+`meta/_journal.json` is the only pending journal; historical manifests are
+validation-only provenance and never a second authority.
+
+Application runtimes use pooled Neon `DATABASE_URL`; direct
+`MIGRATION_DATABASE_URL` is limited to the guarded migration and role
+provisioning path. The applied floor is
+`0019_neon_authority_reconciliation`. Production pins
+`original-production`; fresh, staging, and test pin `repaired-bootstrap`.
+PR A's next revision is `0020_meeting_authority_foundation.sql`, and it must
+run the exact apply and zero-write verify/no-op contract on both variants:
+
+```text
+bun run migrate:database -- apply --history-variant <variant> --expected-pending <ordered-tags>
+bun run migrate:database -- verify --history-variant <variant> --expected-floor <tag>
+```
+
+The five audited FK guards in Drizzle `0000`/`0004` are the only historical
+repair and must not be touched by PR A. Supabase migrations, Meeting Alembic
+versions/raw SQL, and the unsupported Roadmap source remain immutable historical
+evidence; they are not current authority. A real-Neon conformance lane without
+its disposable-project credentials is INCOMPLETE, never a green skip.
+
 ## 1. Product shape
 
 Product Suite is one platform where a team's meetings turn into plans, documents, insight, and delegated agent work — for both people and AI agents as first-class users.

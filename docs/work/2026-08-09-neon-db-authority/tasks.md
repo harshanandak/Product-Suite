@@ -191,6 +191,24 @@ Before Task 1:
 
 **Expected output:** a new session can recover both-variant apply/verify semantics, disposable-empty topology, role-provisioning authority, and PR A `0020` contract without historical material.
 
+## Task 8/9 execution record
+
+- Task 8 unit/harness safety slice: commit `e78afde2efdbbad59b01d8f48914b12b925fc70a`.
+- Platform readiness is `/health/ready`; it validates pooled Neon `DATABASE_URL`
+  and the `0019_neon_authority_reconciliation` floor while returning only an
+  opaque status envelope.
+- `test:db-contract:required` and `.github/workflows/db-contract.yml` fail
+  closed when `NEON_API_KEY`/`NEON_PROJECT_ID` are missing. The native-fetch
+  control-plane adapter now creates/deletes a distinct disposable project/root,
+  proves the repaired journal floor, and creates/deletes a production-derived
+  branch; local evidence remains INCOMPLETE because this checkout has no Neon
+  credentials.
+- Task 9 documents the one Neon/public topology, one Drizzle journal, exact PR A
+  `0020_meeting_authority_foundation.sql` apply/verify/no-op commands on both
+  variants, the pre-`0019` NOLOGIN role authority, and the prohibition on editing
+  the five-block repair. Historical Supabase/Alembic/raw roots remain immutable
+  validation-only evidence.
+
 ## Final validation and stage exit
 
 After all tasks and reviews:
