@@ -1,37 +1,97 @@
-/**
- * Vitest `globalSetup` for the `db-contract` tier: reap-before-run self-heal.
- *
- * Runs ONCE in the vitest main process before any test file, with the same
- * `NEON_API_KEY` / `NEON_PROJECT_ID` the CI job scopes to the run step. It deletes
- * ephemeral test branches leaked by prior/crashed runs (see `reapStaleBranches`),
- * clearing the backlog that causes `422 BRANCHES_LIMIT_EXCEEDED` at branch
- * creation. This is what lets THIS run's own branch-creates succeed — the reap
- * happens before the first test asks Neon for a branch.
- *
- * Without creds it no-ops (the suite self-skips via `describe.skipIf`), so a fork
- * PR that can't read secrets still runs this setup harmlessly.
- */
+/** Required DB Contract global setup and exact current-run cleanup proof. */
 
-import { reapStaleBranches } from './neon-branch'
+import { randomBytes } from 'node:crypto'
+import type { TestProject } from 'vitest/node'
 
-export default async function setup(): Promise<void> {
-  if (!process.env.NEON_API_KEY || !process.env.NEON_PROJECT_ID) {
-    // No creds → the suite self-skips; nothing to reap.
-    return
+import {
+  RUN_TOKEN_ENV,
+  assertCurrentRunBranchesAbsent,
+  preflightBranchCapacity,
+  reapStaleBranches,
+  type ReapResult,
+} from './neon-branch'
+import {
+  initializeTelemetry,
+  measurePhase,
+  recordBranchCapacity,
+  recordCleanupComplete,
+  recordPhaseDuration,
+} from './telemetry'
+import {
+  DB_CONTRACT_RUNTIME_KEY,
+  runtimeConfigFromEnv,
+  type DbContractRuntimeConfig,
+} from './runtime-config'
+
+export interface RequiredSetupDependencies {
+  env: NodeJS.ProcessEnv
+  reap(): Promise<ReapResult>
+  preflight(runtime: DbContractRuntimeConfig): Promise<void>
+  assertCurrentRunAbsent(runToken: string): Promise<void>
+  makeRunToken(): string
+  provide?(key: typeof DB_CONTRACT_RUNTIME_KEY, value: DbContractRuntimeConfig): void
+  recordTelemetry?: boolean
+  telemetry?: {
+    path: string
+    exactHead: string
+    concurrency: number
+  }
+}
+
+function defaultDependencies(): RequiredSetupDependencies {
+  return {
+    env: process.env,
+    reap: reapStaleBranches,
+    preflight: (runtime) => preflightBranchCapacity(1, runtime),
+    assertCurrentRunAbsent: assertCurrentRunBranchesAbsent,
+    makeRunToken: () => randomBytes(6).toString('hex'),
+    recordTelemetry: true,
+  }
+}
+
+export async function runRequiredSetup(
+  dependencies: RequiredSetupDependencies = defaultDependencies(),
+): Promise<() => Promise<void>> {
+  const runToken = dependencies.env[RUN_TOKEN_ENV] ?? dependencies.makeRunToken()
+  dependencies.env[RUN_TOKEN_ENV] = runToken
+  const runtime = runtimeConfigFromEnv(dependencies.env, runToken)
+  dependencies.provide?.(DB_CONTRACT_RUNTIME_KEY, runtime)
+  const telemetry = dependencies.telemetry ?? (dependencies.recordTelemetry ? {
+    path: runtime.telemetryPath,
+    exactHead: runtime.exactHead,
+    concurrency: 1,
+  } : undefined)
+  if (telemetry) initializeTelemetry(telemetry.path, telemetry)
+  const credentialStartedAt = performance.now()
+  if (!dependencies.env.NEON_API_KEY || !dependencies.env.NEON_PROJECT_ID) {
+    throw new Error('DB_CONTRACT_CREDENTIALS_UNAVAILABLE')
+  }
+  if (telemetry) recordPhaseDuration(telemetry.path, 'credential', performance.now() - credentialStartedAt)
+
+  const reap = telemetry
+    ? await measurePhase(telemetry.path, 'reap', dependencies.reap)
+    : await dependencies.reap()
+  if (!reap.complete || reap.failed.length > 0) throw new Error('DB_CONTRACT_STALE_REAP_INCOMPLETE')
+  await dependencies.preflight(runtime)
+  if (telemetry) {
+    const configured = runtime.branchCap
+    const remaining = reap.scanned - reap.deleted.length
+    recordBranchCapacity(telemetry.path, { configured, available: configured - remaining })
   }
 
-  try {
-    const { scanned, deleted, failed } = await reapStaleBranches()
-    // eslint-disable-next-line no-console
-    console.log(
-      `db-contract reap-before-run: scanned ${scanned} branch(es), ` +
-        `deleted ${deleted.length} stale, ${failed.length} delete(s) failed.`,
-    )
-  } catch (cause) {
-    // Belt-and-suspenders: reapStaleBranches is already best-effort, but never let a
-    // reap problem block the run — the per-test create still surfaces a real limit
-    // error if the backlog genuinely can't be cleared.
-    // eslint-disable-next-line no-console
-    console.warn('db-contract reap-before-run: reap failed (continuing):', cause)
+  return async () => {
+    if (!telemetry) {
+      await dependencies.assertCurrentRunAbsent(runToken)
+      return
+    }
+    await measurePhase(telemetry.path, 'finalCleanup', () => dependencies.assertCurrentRunAbsent(runToken))
+    recordCleanupComplete(telemetry.path)
   }
+}
+
+export default async function setup(project: TestProject): Promise<() => Promise<void>> {
+  return runRequiredSetup({
+    ...defaultDependencies(),
+    provide: (key, value) => project.provide(key, value),
+  })
 }

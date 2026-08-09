@@ -1,4 +1,32 @@
-import { defineConfig } from 'vitest/config'
+import { defineConfig, type ViteUserConfig } from 'vitest/config'
+
+const DB_CONTRACT_INCLUDE = [
+  'test/db-contract/{accept-path,baseline,collaboration,meeting-ingest,memory-curator,memory-tier,neon-authority,reap,role-privileges}.test.ts',
+] as const
+
+export function createDbContractVitestConfig(): ViteUserConfig {
+  const listMode = process.env.DB_CONTRACT_LIST_ONLY === '1'
+
+  return {
+    test: {
+      // Keep the evidence lane explicit: A1's topology/reporter unit tests are
+      // local checks and must not inflate the locked 57-test real inventory.
+      include: [...DB_CONTRACT_INCLUDE],
+      ...(listMode
+        ? { reporters: ['default'] }
+        : {
+            globalSetup: ['./test/db-contract/reap-setup.ts'],
+            reporters: ['default', './test/db-contract/zero-skip-reporter.ts'],
+          }),
+      fileParallelism: false,
+      maxWorkers: 1,
+      maxConcurrency: 1,
+      // DB provisioning and migration hooks are network-bound; ordinary test
+      // timeouts remain owned by the suites themselves.
+      hookTimeout: 180_000,
+    },
+  }
+}
 
 /**
  * Dedicated vitest config for the real-DB `db-contract` tier. Used ONLY by the
@@ -23,15 +51,11 @@ import { defineConfig } from 'vitest/config'
  *       - `maxWorkers: 1` — never spawn more than one worker.
  *       - `maxConcurrency: 1` — no `.concurrent` test ever overlaps another.
  *
+ *  3. `zero-skip-reporter.ts` is a fail-closed evidence gate. It rejects an empty
+ *     or count-mismatched collection, skips/todos/pending/filtered tests,
+ *     unclassified assertions, absent exact-head metadata, and incomplete cleanup.
+ *
  * The per-suite 180s `describe` timeouts live in the test files and are left
  * untouched — this config sets no test timeout.
  */
-export default defineConfig({
-  test: {
-    include: ['test/db-contract/**/*.test.ts'],
-    globalSetup: ['./test/db-contract/reap-setup.ts'],
-    fileParallelism: false,
-    maxWorkers: 1,
-    maxConcurrency: 1,
-  },
-})
+export default defineConfig(createDbContractVitestConfig())

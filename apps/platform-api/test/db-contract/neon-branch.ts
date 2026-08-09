@@ -14,9 +14,12 @@
  * the exact driver/UUID-cast behavior the wave is hardening.
  */
 
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
+
+import { workerRuntimeConfig, type DbContractRuntimeConfig } from './runtime-config'
 
 const API_BASE = process.env.NEON_API_BASE ?? 'https://console.neon.tech/api/v2'
+const NEON_REQUEST_TIMEOUT_MS = 10_000
 
 /**
  * Prefix every ephemeral test branch shares. Encoded once so the create path and
@@ -27,6 +30,17 @@ const API_BASE = process.env.NEON_API_BASE ?? 'https://console.neon.tech/api/v2'
  * is safe by construction.
  */
 export const TEST_BRANCH_PREFIX = 'db-contract'
+export const RUN_TOKEN_ENV = 'DB_CONTRACT_RUN_TOKEN'
+
+export class NeonBranchError extends Error {
+  readonly code: string
+
+  constructor(code: string) {
+    super(code)
+    this.name = 'NeonBranchError'
+    this.code = code
+  }
+}
 
 /** How old a leaked test branch must be before the reaper deletes it (default 30 min). */
 export const STALE_BRANCH_MAX_AGE_MS = 30 * 60 * 1000
@@ -38,11 +52,51 @@ export const STALE_BRANCH_MAX_AGE_MS = 30 * 60 * 1000
  * with the same prefix (e.g. `db-contract-base` used as a parent) can never match
  * and can never be deleted.
  */
-const EPHEMERAL_BRANCH_NAME_RE = new RegExp(`^${TEST_BRANCH_PREFIX}-\\d+-[0-9a-f]{8}$`)
+const LEGACY_EPHEMERAL_BRANCH_NAME_RE = new RegExp(String.raw`^${TEST_BRANCH_PREFIX}-\d+-[0-9a-f]{8}$`)
+const EPHEMERAL_BRANCH_NAME_RE = new RegExp(
+  String.raw`^${TEST_BRANCH_PREFIX}--[0-9a-f]{16}--[a-z0-9][a-z0-9-]{0,7}-\d+-[0-9a-f]{8}$`,
+)
 
 /** True iff `name` is one this harness's `createEphemeralBranch` could have produced. */
 export function isEphemeralTestBranchName(name: string | undefined): boolean {
-  return typeof name === 'string' && EPHEMERAL_BRANCH_NAME_RE.test(name)
+  return typeof name === 'string' && (
+    LEGACY_EPHEMERAL_BRANCH_NAME_RE.test(name) || EPHEMERAL_BRANCH_NAME_RE.test(name)
+  )
+}
+
+function safeNamePart(value: string, fallback: string): string {
+  const normalized = value.toLowerCase().replace(/[^a-z0-9-]+/g, '-')
+  let start = 0
+  let end = normalized.length
+  while (normalized[start] === '-') start += 1
+  while (end > start && normalized[end - 1] === '-') end -= 1
+  const safe = normalized.slice(start, end).slice(0, 8)
+  return safe || fallback
+}
+
+function ownershipToken(value: string): string {
+  return createHash('sha256').update(value).digest('hex').slice(0, 16)
+}
+
+function rawRunToken(env: NodeJS.ProcessEnv = process.env): string {
+  const value = env[RUN_TOKEN_ENV]
+  if (!value) throw new Error('DB_CONTRACT_RUN_TOKEN_UNAVAILABLE')
+  return value
+}
+
+export function currentRunToken(env?: NodeJS.ProcessEnv): string {
+  const runToken = env ? rawRunToken(env) : workerRuntimeConfig().runToken
+  if (!runToken) throw new Error('DB_CONTRACT_RUN_TOKEN_UNAVAILABLE')
+  return ownershipToken(runToken)
+}
+
+export function suiteBranchPrefix(suiteName: string, env?: NodeJS.ProcessEnv): string {
+  return `${TEST_BRANCH_PREFIX}--${currentRunToken(env)}--${safeNamePart(suiteName, 'suite')}`
+}
+
+export function isCurrentRunBranchName(name: string | undefined, runToken: string): boolean {
+  if (!name || !EPHEMERAL_BRANCH_NAME_RE.test(name)) return false
+  return name.split('--')[1] === ownershipToken(runToken)
 }
 
 /** One create-branch operation the control plane runs asynchronously. */
@@ -94,8 +148,7 @@ async function neonFetch(
     body: init.body === undefined ? undefined : JSON.stringify(init.body),
   })
   if (!res.ok) {
-    const text = await res.text().catch(() => '')
-    throw new Error(`Neon API ${init.method} ${path} → ${res.status} ${res.statusText}: ${text}`)
+    throw new NeonBranchError('DB_CONTRACT_NEON_REQUEST_FAILED')
   }
   // A 200/201 always carries JSON for these endpoints; DELETE returns the branch body too.
   return res.json().catch(() => ({}))
@@ -122,10 +175,10 @@ async function waitForOperations(
     let status = op.status
     while (status !== 'finished') {
       if (status === 'failed' || status === 'cancelled') {
-        throw new Error(`Neon operation ${op.action} (${op.id}) ended as ${status}`)
+        throw new NeonBranchError('DB_CONTRACT_BRANCH_CREATE_INCOMPLETE')
       }
       if (Date.now() > deadline) {
-        throw new Error(`Neon operation ${op.action} (${op.id}) did not finish within ${timeoutMs}ms`)
+        throw new NeonBranchError('DB_CONTRACT_BRANCH_CREATE_INCOMPLETE')
       }
       await sleep(1_000)
       const body = (await neonFetch(apiKey, `/projects/${projectId}/operations/${op.id}`, {
@@ -142,7 +195,7 @@ async function waitForOperations(
  * returned `connection_uris` entry authenticates without extra setup. Waits for
  * the create/compute operations before returning.
  */
-export async function createEphemeralBranch(namePrefix = TEST_BRANCH_PREFIX): Promise<EphemeralBranch> {
+export async function createEphemeralBranch(namePrefix = suiteBranchPrefix('dedicated')): Promise<EphemeralBranch> {
   const { apiKey, projectId, parentBranchId } = neonConfig()
   const name = `${namePrefix}-${Date.now()}-${randomBytes(4).toString('hex')}`
   // Safety net for a leaked branch: the workflow uses cancel-in-progress, so a
@@ -163,7 +216,7 @@ export async function createEphemeralBranch(namePrefix = TEST_BRANCH_PREFIX): Pr
 
   const branchId = body.branch?.id
   if (!branchId) {
-    throw new Error('Neon create-branch response missing branch.id — the request created no branch.')
+    throw new NeonBranchError('DB_CONTRACT_BRANCH_CREATE_FAILED')
   }
   // The branch exists now, but `withDbBranch` has NOT yet entered its try/finally,
   // so anything that throws below (missing compute URI, a failed create/compute
@@ -171,35 +224,60 @@ export async function createEphemeralBranch(namePrefix = TEST_BRANCH_PREFIX): Pr
   try {
     const connectionUri = body.connection_uris?.[0]?.connection_uri
     if (!connectionUri) {
-      throw new Error(
-        'Neon create-branch response missing connection_uris — ensure the request ' +
-          'created an endpoint and the parent branch has a role + database.',
-      )
+      throw new NeonBranchError('DB_CONTRACT_BRANCH_CREATE_INCOMPLETE')
     }
     if (body.operations?.length) {
       await waitForOperations(apiKey, projectId, body.operations)
     }
     return { branchId, connectionUri }
-  } catch (cause) {
-    await deleteEphemeralBranch(branchId)
-    throw cause
+  } catch {
+    const primary = new NeonBranchError('DB_CONTRACT_BRANCH_CREATE_INCOMPLETE')
+    try {
+      await deleteEphemeralBranchStrict(branchId)
+    } catch {
+      const cleanup = new NeonBranchError('DB_CONTRACT_BRANCH_DELETION_UNPROVEN')
+      throw new AggregateError([primary, cleanup], 'DB_CONTRACT_CREATE_AND_CLEANUP_FAILED')
+    }
+    throw primary
   }
 }
 
-/**
- * Delete a branch (and its compute, roles, databases). Best-effort: called in the
- * harness `finally`, so it must never mask a test failure. On error it logs and
- * resolves rather than throwing — a leaked branch is a cleanup nuisance, not a
- * reason to lose the real assertion error.
- */
-export async function deleteEphemeralBranch(branchId: string): Promise<void> {
+/** Required teardown: DELETE and then prove the branch endpoint reaches 404. */
+export async function deleteEphemeralBranchStrict(
+  branchId: string,
+  timeoutMs = 30_000,
+): Promise<void> {
+  const { apiKey, projectId } = neonConfig()
+  const url = `${API_BASE}/projects/${projectId}/branches/${branchId}`
+  const headers = { Accept: 'application/json', Authorization: `Bearer ${apiKey}` }
+  let response: Response
   try {
-    const { apiKey, projectId } = neonConfig()
-    await neonFetch(apiKey, `/projects/${projectId}/branches/${branchId}`, { method: 'DELETE' })
-  } catch (cause) {
-    // eslint-disable-next-line no-console
-    console.warn(`db-contract: failed to delete ephemeral Neon branch ${branchId}:`, cause)
+    response = await fetch(url, {
+      method: 'DELETE',
+      headers,
+      signal: AbortSignal.timeout(NEON_REQUEST_TIMEOUT_MS),
+    })
+  } catch {
+    throw new NeonBranchError('DB_CONTRACT_BRANCH_DELETE_FAILED')
   }
+  if (!response.ok && response.status !== 404) throw new NeonBranchError('DB_CONTRACT_BRANCH_DELETE_FAILED')
+
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() <= deadline) {
+    try {
+      response = await fetch(url, {
+        method: 'GET',
+        headers,
+        signal: AbortSignal.timeout(NEON_REQUEST_TIMEOUT_MS),
+      })
+    } catch {
+      throw new NeonBranchError('DB_CONTRACT_BRANCH_DELETION_UNPROVEN')
+    }
+    if (response.status === 404) return
+    if (!response.ok) throw new NeonBranchError('DB_CONTRACT_BRANCH_DELETION_UNPROVEN')
+    await sleep(250)
+  }
+  throw new NeonBranchError('DB_CONTRACT_BRANCH_DELETION_UNPROVEN')
 }
 
 /** The subset of a list-branches entry the reaper reads. */
@@ -270,8 +348,41 @@ async function listAllBranches(apiKey: string, projectId: string): Promise<Branc
   return all
 }
 
+export async function assertCurrentRunBranchesAbsent(runToken = rawRunToken()): Promise<void> {
+  const { apiKey, projectId } = neonConfig()
+  const branches = await listAllBranches(apiKey, projectId)
+  if (branches.some((branch) => isCurrentRunBranchName(branch.name, runToken))) {
+    throw new Error('DB_CONTRACT_CURRENT_RUN_CLEANUP_INCOMPLETE')
+  }
+}
+
+export async function preflightBranchCapacity(
+  required = 1,
+  runtime: DbContractRuntimeConfig = workerRuntimeConfig(),
+): Promise<void> {
+  if (!Number.isSafeInteger(required) || required < 0) {
+    throw new NeonBranchError('DB_CONTRACT_BRANCH_CAPACITY_UNAVAILABLE')
+  }
+  const configured = runtime.branchCap
+  if (!Number.isSafeInteger(configured) || configured < 1) {
+    throw new NeonBranchError('DB_CONTRACT_BRANCH_CAP_UNAVAILABLE')
+  }
+  const { apiKey, projectId } = neonConfig()
+  try {
+    const branches = await listAllBranches(apiKey, projectId)
+    if (configured - branches.length < required) {
+      throw new NeonBranchError('DB_CONTRACT_BRANCH_CAPACITY_UNAVAILABLE')
+    }
+  } catch (error) {
+    if (error instanceof NeonBranchError && error.code === 'DB_CONTRACT_BRANCH_CAPACITY_UNAVAILABLE') throw error
+    throw new NeonBranchError('DB_CONTRACT_BRANCH_CAPACITY_UNAVAILABLE')
+  }
+}
+
 /** The outcome of one reap pass, for logging in the global setup. */
 export interface ReapResult {
+  /** False when listing or any selected deletion could not be completed. */
+  complete: boolean
   /** Total branches returned by the list call. */
   scanned: number
   /** Ids of the stale test branches that were deleted. */
@@ -333,15 +444,16 @@ function isReapableBranch(
 export async function reapStaleBranches(
   maxAgeMs: number = STALE_BRANCH_MAX_AGE_MS,
 ): Promise<ReapResult> {
-  const result: ReapResult = { scanned: 0, deleted: [], failed: [] }
+  const result: ReapResult = { complete: true, scanned: 0, deleted: [], failed: [] }
   const { apiKey, projectId, parentBranchId } = neonConfig()
 
   let branches: BranchSummary[]
   try {
     branches = await listAllBranches(apiKey, projectId)
-  } catch (cause) {
+  } catch {
+    result.complete = false
     // eslint-disable-next-line no-console
-    console.warn('db-contract reap: failed to list branches (skipping reap):', cause)
+    console.warn('DB_CONTRACT_STALE_REAP_LIST_FAILED')
     return result
   }
 
@@ -354,10 +466,11 @@ export async function reapStaleBranches(
     try {
       await neonFetch(apiKey, `/projects/${projectId}/branches/${branch.id}`, { method: 'DELETE' })
       result.deleted.push(branch.id)
-    } catch (cause) {
+    } catch {
+      result.complete = false
       result.failed.push(branch.id)
       // eslint-disable-next-line no-console
-      console.warn(`db-contract reap: failed to delete stale branch ${branch.id}:`, cause)
+      console.warn('DB_CONTRACT_STALE_REAP_DELETE_FAILED')
     }
   }
 

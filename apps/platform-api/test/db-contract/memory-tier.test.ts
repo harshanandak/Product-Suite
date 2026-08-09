@@ -11,7 +11,8 @@ import {
   searchMemories,
 } from '../../src/agent/memory-retrieval'
 
-import { hasNeonCreds, query, withDbBranch } from './harness'
+import { hasNeonCreds, query, type Seed } from './harness'
+import { withTransactionalDb } from './suite-resource'
 
 /**
  * Real-DB contract for the personal-vs-org ownership axis (migration 0016,
@@ -29,6 +30,8 @@ import { hasNeonCreds, query, withDbBranch } from './harness'
  * means these assertions only ever execute in CI.
  */
 const DB_CONTRACT_TIMEOUT_MS = 180_000
+
+type TransactionalRunner = <T>(body: (context: { sql: Sql; seed: Seed }) => Promise<T>) => Promise<T>
 
 const ALICE = 'u_alice_owner'
 const BOB = 'u_bob_nonowner'
@@ -67,18 +70,20 @@ describe.skipIf(!hasNeonCreds())(
   'db-contract: memory ownership axis (real Neon branch)',
   { timeout: DB_CONTRACT_TIMEOUT_MS },
   () => {
+    const runTransactionalDb = withTransactionalDb('memory-tier') as unknown as TransactionalRunner
+
     it('the CHECK rejects both malformed tiers and accepts both valid ones', async () => {
-      await withDbBranch(async ({ sql, seed }) => {
+      await runTransactionalDb(async ({ sql, seed }) => {
         // A private memory with NO owner is retrievable by nobody — silently dead.
         await expect(
           insertMemory(sql, seed.tenantId, { title: 'orphan private', visibility: 'private', ownerUserId: null }),
-        ).rejects.toThrow(/memories_private_requires_owner/)
+        ).rejects.toMatchObject({ code: '23514', constraint: 'memories_private_requires_owner' })
 
         // An org memory WITH an owner is a mislabelled private one — a leak that
         // reads as intentional.
         await expect(
           insertMemory(sql, seed.tenantId, { title: 'owned org', visibility: 'org', ownerUserId: ALICE }),
-        ).rejects.toThrow(/memories_private_requires_owner/)
+        ).rejects.toMatchObject({ code: '23514', constraint: 'memories_private_requires_owner' })
 
         // Both well-formed combinations persist.
         const orgId = await insertMemory(sql, seed.tenantId, { title: 'org fine' })
@@ -99,7 +104,7 @@ describe.skipIf(!hasNeonCreds())(
     })
 
     it("visibility DEFAULTS to 'org' when the insert omits it (the zero-touch migration guarantee)", async () => {
-      await withDbBranch(async ({ sql, seed }) => {
+      await runTransactionalDb(async ({ sql, seed }) => {
         const id = await insertMemory(sql, seed.tenantId, { title: 'legacy shaped row', omitVisibility: true })
         const rows = await query<{ visibility: string }>(sql, `select visibility from memories where id = $1`, [id])
         expect(rows[0]?.visibility).toBe('org')
@@ -107,7 +112,7 @@ describe.skipIf(!hasNeonCreds())(
     })
 
     it('the dual-lane retrieval index exists with the expected column order', async () => {
-      await withDbBranch(async ({ sql }) => {
+      await runTransactionalDb(async ({ sql }) => {
         const rows = await query<{ indexdef: string }>(
           sql,
           `select indexdef from pg_indexes
@@ -121,7 +126,7 @@ describe.skipIf(!hasNeonCreds())(
     })
 
     it('INVARIANT (a), for real: a non-owner retrieves ZERO private rows on every path', async () => {
-      await withDbBranch(async ({ sql, seed }) => {
+      await runTransactionalDb(async ({ sql, seed }) => {
         const t = seed.tenantId
         const orgId = await insertMemory(sql, t, { kind: 'decision', title: 'zephyrpolicy org decision' })
         const orgRuleId = await insertMemory(sql, t, { kind: 'rule', title: 'zephyrpolicy org rule' })
@@ -195,7 +200,7 @@ describe.skipIf(!hasNeonCreds())(
     })
 
     it('attribution rows persist the tier for both lanes', async () => {
-      await withDbBranch(async ({ sql, seed }) => {
+      await runTransactionalDb(async ({ sql, seed }) => {
         const t = seed.tenantId
         const orgId = await insertMemory(sql, t, { kind: 'decision', title: 'quixotic org decision' })
         await insertMemory(sql, t, {
