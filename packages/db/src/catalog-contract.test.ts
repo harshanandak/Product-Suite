@@ -60,8 +60,22 @@ describe('catalog contract', () => {
     expect(() => assertCatalog(compatible, incompatible)).toThrowError(/users\.id/i)
 
     const error = normalizeCatalogError(new CatalogContractError('column', 'users.id', {}, {}))
-    expect(error).toMatchObject({ code: 'CATALOG_MISMATCH' })
-    expect(error.message).not.toContain('postgres://')
+    expect(error).toMatchObject({ code: 'CATALOG_MISMATCH', message: 'CATALOG_CONTRACT_FAILED', category: 'column', sqlState: 'P0001' })
+    expect(error).not.toHaveProperty('objectName')
+    expect(JSON.stringify(error)).not.toContain('users.id')
+  })
+
+  it('uses an opaque message for generic driver errors and retains only safe codes', () => {
+    const generic = normalizeCatalogError({
+      code: '42P01',
+      sqlState: '42P01',
+      message: 'postgresql://user:secret@host/db password=secret relation users missing',
+    })
+    expect(generic).toEqual({ code: '42P01', message: 'CATALOG_CONTRACT_FAILED', sqlState: '42P01' })
+    expect(JSON.stringify(generic)).not.toContain('secret')
+
+    const unsafe = normalizeCatalogError({ code: 'postgresql://user:secret@host', message: 'driver secret' })
+    expect(unsafe).toEqual({ code: 'CATALOG_CONTRACT_FAILED', message: 'CATALOG_CONTRACT_FAILED' })
   })
 
   it('rejects unexpected catalog objects instead of checking only the expected subset', () => {

@@ -56,6 +56,18 @@ describe("canonical migration runner", () => {
     expect(calls.join("\n")).toContain("pg_advisory_xact_lock");
   });
 
+  test("accepts a full Drizzle migration tag when the caller supplies its numeric floor", () => {
+    const fullTag = "0019_neon_authority_reconciliation";
+    const fullFiles = files.map((file) => file.tag === "0019" ? { ...file, tag: fullTag } : file);
+    expect(buildMigrationPlan({
+      applied: [{ tag: fullTag, hash: "h19", timestamp: 19 }],
+      declared: ["0020"],
+      files: fullFiles,
+      expectedFloor: "0019",
+      authority,
+    })).toMatchObject({ ok: true, applied: [fullTag], pending: ["0020"] });
+  });
+
   test("fails closed when the locked history re-read is empty", async () => {
     await expect(applyMigrations({
       adapter: { query: async () => ({ rows: [] }) },

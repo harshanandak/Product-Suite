@@ -31,6 +31,14 @@ describe("migration evidence", () => {
     expect(verifyMigrationEvidence(evidence)).toMatchObject({ ok: true, status: "NOOP" });
   });
 
+  test("accepts the full Drizzle tag for a numeric expected floor", () => {
+    const evidence = createMigrationEvidence({
+      operation: "verify", historyVariant: "repaired-bootstrap", expectedFloor: "0019",
+      applied: [{ tag: "0019_neon_authority_reconciliation", timestamp: 19, hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }], status: "NOOP",
+    });
+    expect(verifyMigrationEvidence(evidence)).toMatchObject({ ok: true, status: "NOOP" });
+  });
+
   test("rejects evidence with missing or mismatched hash/count", () => {
     expect(verifyMigrationEvidence({ status: "NOOP", historyVariant: "repaired-bootstrap", applied: [{ tag: "0019" }] }).ok).toBe(false);
     expect(verifyMigrationEvidence({ status: "APPLIED", historyVariant: "repaired-bootstrap", applied: [{ tag: "0019", timestamp: 19, hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }], expectedCount: 2 }).ok).toBe(false);

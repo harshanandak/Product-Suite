@@ -46,6 +46,9 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/meeting_agent
       MIGRATION_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/meeting_agent
       DATABASE_ENVIRONMENT: fresh
+      MEETING_TARGET_SMOKE_REQUIRED: "1"
+      MEETING_TARGET_SMOKE_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/meeting_agent
+      MEETING_TARGET_SMOKE_DATABASE_PROVIDER: postgres
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -81,6 +84,13 @@ jobs:
 
       - name: Verify canonical history without writes
         run: bun run migrate:database -- verify --environment fresh --history-variant repaired-bootstrap --expected-floor 0019
+
+      - name: Assert transient target smoke is wired and required
+        shell: bash
+        run: |
+          test "$MEETING_TARGET_SMOKE_REQUIRED" = "1"
+          test "$MEETING_TARGET_SMOKE_DATABASE_PROVIDER" = "postgres"
+          test "$MEETING_TARGET_SMOKE_DATABASE_URL" = "$DATABASE_URL"
 
       - name: Run backend tests
         run: python -m pytest apps/meeting-api/tests/backend -q

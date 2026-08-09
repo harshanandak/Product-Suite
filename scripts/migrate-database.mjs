@@ -33,6 +33,12 @@ function normalizeTag(value) {
   return value?.tag ?? value?.name;
 }
 
+function migrationFloorMatches(actualTag, expectedFloor) {
+  const actualPrefix = /^(\d+)/.exec(String(actualTag))?.[1];
+  const expectedPrefix = /^(\d+)/.exec(String(expectedFloor))?.[1];
+  return actualPrefix !== undefined && expectedPrefix !== undefined && Number(actualPrefix) === Number(expectedPrefix);
+}
+
 export function loadMigrationFiles(root = MIGRATIONS_ROOT) {
   return readdirSync(root)
     .filter((name) => name.endsWith(".sql"))
@@ -141,7 +147,7 @@ export function buildMigrationPlan({ applied = [], declared = [], files = [], au
   if (hashIssue) return { ok: false, code: hashIssue };
   const declaredHashIssue = compareDeclaredHashes(hashes, normalizedFileList);
   if (declaredHashIssue) return { ok: false, code: declaredHashIssue };
-  if (expectedFloor && normalizedAppliedList.at(-1)?.tag !== expectedFloor) return { ok: false, code: "MIGRATION_FLOOR_MISMATCH" };
+  if (expectedFloor && !migrationFloorMatches(normalizedAppliedList.at(-1)?.tag, expectedFloor)) return { ok: false, code: "MIGRATION_FLOOR_MISMATCH" };
   if (expectedCount !== undefined && normalizedAppliedList.length !== expectedCount) return { ok: false, code: "MIGRATION_COUNT_MISMATCH" };
   const suffixIssue = pendingFor(normalizedAppliedList, normalizedDeclared, normalizedFileList);
   if (suffixIssue) return { ok: false, code: suffixIssue };

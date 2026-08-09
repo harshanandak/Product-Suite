@@ -394,29 +394,41 @@ export function assertMigrationSqlSafe(source: string): void {
 }
 
 /** Convert driver errors to a stable, credential-free object for readiness logs. */
+const OPAQUE_CATALOG_ERROR = 'CATALOG_CONTRACT_FAILED'
+const SAFE_CATEGORIES = new Set<CatalogMismatchCategory>(['relation', 'column', 'enum', 'constraint', 'index', 'role'])
+
+function safeErrorCode(value: unknown): string {
+  if (typeof value !== 'string') return OPAQUE_CATALOG_ERROR
+  if (/^[0-9A-Z]{5}$/.test(value) || /^(?:E[A-Z0-9_]{2,63}|ERR_[A-Z0-9_]{1,59}|CATALOG_MISMATCH|CATALOG_CONTRACT_FAILED|SQL_FIREWALL_BLOCKED)$/.test(value)) return value
+  return OPAQUE_CATALOG_ERROR
+}
+
+function safeSqlState(value: unknown): string | undefined {
+  return typeof value === 'string' && /^[0-9A-Z]{5}$/.test(value) ? value : undefined
+}
+
 export function normalizeCatalogError(error: unknown): {
   code: string
   message: string
   category?: CatalogMismatchCategory
-  objectName?: string
   sqlState?: string
 } {
   if (error instanceof CatalogContractError) {
     return {
       code: error.code,
-      message: error.message,
+      message: OPAQUE_CATALOG_ERROR,
       category: error.category,
-      objectName: error.objectName,
       sqlState: error.sqlState,
     }
   }
-  const candidate = error as { code?: unknown; message?: unknown; sqlState?: unknown; detail?: unknown }
-  const message = String(candidate?.message ?? 'catalog contract failed')
-    .replace(/(?:postgres(?:ql)?:\/\/|postgres(?:ql)?\s+)[^\s]+/gi, '[redacted]')
-    .replace(/password\s*=\s*[^\s]+/gi, 'password=[redacted]')
+  const candidate = error as { code?: unknown; sqlState?: unknown; category?: unknown }
+  const category = typeof candidate?.category === 'string' && SAFE_CATEGORIES.has(candidate.category as CatalogMismatchCategory)
+    ? candidate.category as CatalogMismatchCategory
+    : undefined
   return {
-    code: typeof candidate?.code === 'string' ? candidate.code : 'CATALOG_CONTRACT_FAILED',
-    message,
-    sqlState: typeof candidate?.sqlState === 'string' ? candidate.sqlState : undefined,
+    code: safeErrorCode(candidate?.code),
+    message: OPAQUE_CATALOG_ERROR,
+    ...(category ? { category } : {}),
+    ...(safeSqlState(candidate?.sqlState) ? { sqlState: safeSqlState(candidate?.sqlState) } : {}),
   }
 }

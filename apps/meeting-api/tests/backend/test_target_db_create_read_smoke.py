@@ -13,16 +13,23 @@ from backend import config as config_module
 import backend.server as server_module
 from backend.server import AuthUser, MeetingCreate, create_meeting, get_meeting
 
-# The smoke targets the canonical public schema on the hosted Neon authority.
+# The smoke targets the canonical public schema on an isolated Neon or CI
+# Postgres authority; the workflow supplies the transient local target.
 SMOKE_DATABASE_URL_ENV = "MEETING_TARGET_SMOKE_DATABASE_URL"
+SMOKE_DATABASE_PROVIDER_ENV = "MEETING_TARGET_SMOKE_DATABASE_PROVIDER"
 
-# The smoke always exercises the hosted Neon path.
+# Hosted deployments default to Neon; CI may explicitly use transient Postgres.
 DEFAULT_SMOKE_DATABASE_PROVIDER = "neon"
 
 
 def resolve_smoke_database_url(env):
-    """Return the canonical Neon smoke target URL from ``env``."""
+    """Return the canonical isolated target URL from ``env``."""
     return env.get(SMOKE_DATABASE_URL_ENV)
+
+
+def resolve_smoke_database_provider(env):
+    """Return the provider for the isolated target (Neon or CI Postgres)."""
+    return env.get(SMOKE_DATABASE_PROVIDER_ENV, DEFAULT_SMOKE_DATABASE_PROVIDER)
 
 
 def require_smoke_database_url(env):
@@ -33,8 +40,9 @@ def require_smoke_database_url(env):
     return database_url
 
 
-def build_settings_stub(database_url, database_provider=DEFAULT_SMOKE_DATABASE_PROVIDER):
+def build_settings_stub(database_url, database_provider=DEFAULT_SMOKE_DATABASE_PROVIDER, deployment_mode=None):
     """A minimal hosted-shaped settings object for the db pool + server module."""
+    mode = deployment_mode or ("hosted" if database_provider == "neon" else "oss")
     return type(
         "SettingsStub",
         (),
@@ -43,9 +51,9 @@ def build_settings_stub(database_url, database_provider=DEFAULT_SMOKE_DATABASE_P
             "database_provider": database_provider,
             "db_pool_min_size": 1,
             "db_pool_max_size": 2,
-            "deployment_mode": "hosted",
-            "is_hosted": True,
-            "is_oss": False,
+            "deployment_mode": mode,
+            "is_hosted": mode == "hosted",
+            "is_oss": mode == "oss",
         },
     )()
 
@@ -63,12 +71,16 @@ def test_meeting_create_read_smoke_against_target_postgres(monkeypatch):
     database_url = require_smoke_database_url(os.environ)
     if not database_url:
         raise RuntimeError(f"{SMOKE_DATABASE_URL_ENV} is required for the isolated target smoke lane")
-    config_module.validate_hosted_database_url(database_url)
+    database_provider = resolve_smoke_database_provider(os.environ)
+    if database_provider == "neon":
+        config_module.validate_hosted_database_url(database_url)
+    elif database_provider != "postgres":
+        raise RuntimeError(f"{SMOKE_DATABASE_PROVIDER_ENV} must be neon or postgres")
     tenant_id = f"smoke-tenant-{uuid.uuid4()}"
     user_id = f"smoke-user-{uuid.uuid4()}"
     now = datetime.now(timezone.utc)
 
-    settings = build_settings_stub(database_url)
+    settings = build_settings_stub(database_url, database_provider, "hosted" if database_provider == "neon" else "oss")
 
     db_module.close_db_pool()
     db_module.init_db_pool(settings)

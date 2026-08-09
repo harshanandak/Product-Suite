@@ -24,6 +24,12 @@ const ALLOWED_KEYS = new Set([
 
 const SECRET_KEY = /(url|password|secret|token|credential|username|user|sql|query|row|payload|content|error|message|claim|prompt|embedding)/i;
 
+function migrationFloorMatches(actualTag, expectedFloor) {
+  const actualPrefix = /^(\d+)/.exec(String(actualTag))?.[1];
+  const expectedPrefix = /^(\d+)/.exec(String(expectedFloor))?.[1];
+  return actualPrefix !== undefined && expectedPrefix !== undefined && Number(actualPrefix) === Number(expectedPrefix);
+}
+
 function isSafeScalar(value) {
   return value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean";
 }
@@ -87,7 +93,7 @@ export function verifyMigrationEvidence(evidence = {}) {
   }
   if (safe.expectedCount !== undefined && safe.expectedCount !== safe.applied?.length) issues.push("migration count mismatch");
   if (safe.count !== undefined && safe.count !== safe.applied?.length) issues.push("evidence count mismatch");
-  if (safe.expectedFloor !== undefined && safe.applied?.at(-1)?.tag !== safe.expectedFloor) issues.push("evidence floor mismatch");
+  if (safe.expectedFloor !== undefined && !migrationFloorMatches(safe.applied?.at(-1)?.tag, safe.expectedFloor)) issues.push("evidence floor mismatch");
   if (safe.status === "NOOP" && Array.isArray(safe.pending) && safe.pending.length > 0) issues.push("NOOP evidence has pending migrations");
   return issues.length === 0 ? { ok: true, ...safe } : { ok: false, code: "EVIDENCE_INVALID", issues };
 }
