@@ -24,6 +24,7 @@ const blobId = (value) => execFileSync("git", ["hash-object", "--stdin"], {
 const fixedCommand = "bun run migrate:database -- verify --environment production --history-variant original-production --expected-floor 0017";
 
 function workflowContractIssues(workflow) {
+  workflow = workflow.replace(/\r\n?/g, "\n");
   const issues = [];
   const checkoutIndex = workflow.indexOf("name: Check out exact reviewed SHA");
   const failureInitIndex = workflow.indexOf("name: Initialize redacted failure evidence");
@@ -99,7 +100,7 @@ describe("protected Neon production preflight workflow", () => {
       ".github/workflows/neon-production-preflight.yml",
     ]) expect(existsSync(pathFor(path))).toBe(true);
 
-    const workflow = read(".github/workflows/neon-production-preflight.yml");
+    const workflow = read(".github/workflows/neon-production-preflight.yml").replace(/\r\n?/g, "\n");
     const migrationScript = read("scripts/migrate-database.mjs");
     const attestation = JSON.parse(read("config/neon-production-preflight-attestation.json"));
     const schema = JSON.parse(read("config/neon-production-preflight-attestation.schema.json"));
@@ -160,7 +161,8 @@ describe("protected Neon production preflight workflow", () => {
     ["provisioning", (workflow) => `${workflow}\n# provision:database-roles`],
     ["pre-guard repository script", (workflow) => workflow.replace("      - name: Prove exact current main SHA", "      - name: Unsafe repository script\n        run: node ./scripts/migrate-database.mjs\n\n      - name: Prove exact current main SHA")],
   ])("rejects workflow mutation: %s", (_label, mutate) => {
-    expect(workflowContractIssues(mutate(read(".github/workflows/neon-production-preflight.yml"))).length).toBeGreaterThan(0);
+    const workflow = read(".github/workflows/neon-production-preflight.yml").replace(/\r\n?/g, "\n");
+    expect(workflowContractIssues(mutate(workflow)).length).toBeGreaterThan(0);
   });
 
   test("verifies a fresh trusted Ed25519 attestation and binds file/blob/run context", () => {

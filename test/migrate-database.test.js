@@ -200,7 +200,8 @@ describe("canonical migration runner", () => {
 
   test("maps only the exact original-production raw hashes to tags", () => {
     const vector = productionManifest.drizzle.historyVectors["original-production"].entries;
-    const applied = vector.map((entry, index) => ({ hash: entry.observedSha256, timestamp: index }));
+    const timestamps = new Map(productionPreflightFiles(loadMigrationFiles()).map((file) => [file.tag.slice(0, 4), file.timestamp]));
+    const applied = vector.map((entry) => ({ hash: entry.observedSha256, timestamp: timestamps.get(entry.tag) }));
     const result = buildMigrationPlan({
       applied,
       declared: [],
@@ -224,13 +225,30 @@ describe("canonical migration runner", () => {
     })).toMatchObject({ ok: false, code: "MIGRATION_TAG_UNKNOWN" });
   });
 
+  test("binds repair hashes to their expected original-production filenames", () => {
+    const vector = productionManifest.drizzle.historyVectors["original-production"].entries;
+    expect(buildMigrationPlan({
+      applied: ["0019"],
+      declared: ["0020"],
+      files,
+      authority,
+      hashes: {
+        "0000_stale_jamie_braddock.sql": vector[1].observedSha256,
+        "0004_minor_lockheed.sql": vector[4].observedSha256,
+      },
+      history: { manifest: productionManifest },
+    })).toMatchObject({ ok: false, code: "MIGRATION_HISTORY_VARIANT_UNKNOWN" });
+  });
+
   test("rejects incomplete or mutated original-production prefixes before a suffix", () => {
     const vector = productionManifest.drizzle.historyVectors["original-production"].entries;
     const files = loadMigrationFiles();
     const authority = { environment: "conformance-original", historyVariant: "original-production" };
     const plan = (applied) => buildMigrationPlan({ applied, declared: [], files, authority, history: { manifest: productionManifest } });
-    const valid = vector.map((entry, index) => ({ hash: entry.observedSha256, timestamp: index }));
+    const timestamps = new Map(productionPreflightFiles(files).map((file) => [file.tag.slice(0, 4), file.timestamp]));
+    const valid = vector.map((entry) => ({ hash: entry.observedSha256, timestamp: timestamps.get(entry.tag) }));
     expect(plan(valid)).toMatchObject({ ok: true });
+    expect(valid[0].timestamp).toBe(1783601318727);
 
     const incomplete = valid.slice(1);
     expect(plan(incomplete)).toMatchObject({ ok: false, code: "MIGRATION_HISTORY_PREFIX_INCOMPLETE" });
@@ -244,7 +262,7 @@ describe("canonical migration runner", () => {
     expect(plan(wrongHash)).toMatchObject({ ok: false, code: "MIGRATION_HASH_MISMATCH" });
 
     const wrongTimestamp = valid.map((entry) => ({ ...entry }));
-    wrongTimestamp[3] = { ...wrongTimestamp[3], tag: "0003_tranquil_tattoo", timestamp: 99 };
+    wrongTimestamp[3] = { ...wrongTimestamp[3], timestamp: 99 };
     expect(plan(wrongTimestamp)).toMatchObject({ ok: false, code: "MIGRATION_TIMESTAMP_MISMATCH" });
   });
 
@@ -252,8 +270,11 @@ describe("canonical migration runner", () => {
     const vector = productionManifest.drizzle.historyVectors["original-production"].entries;
     const files = loadMigrationFiles();
     const authority = { environment: "conformance-original", historyVariant: "original-production" };
-    const applied = vector.map((entry, index) => ({ hash: entry.observedSha256, timestamp: index }));
-    for (const file of files.filter(({ timestamp }) => timestamp > 17)) applied.push({ tag: file.tag, hash: file.hash, timestamp: file.timestamp });
+    const timestamps = new Map(productionPreflightFiles(files).map((file) => [file.tag.slice(0, 4), file.timestamp]));
+    const applied = vector.map((entry) => ({ hash: entry.observedSha256, timestamp: timestamps.get(entry.tag) }));
+    for (const file of productionPreflightFiles(files).filter(({ tag }) => Number(tag.slice(0, 4)) > 17)) {
+      applied.push({ tag: file.tag, hash: file.hash, timestamp: file.timestamp });
+    }
     expect(buildMigrationPlan({ applied, declared: [], files, authority, history: { manifest: productionManifest }, expectedCount: applied.length, expectedFloor: applied.at(-1).tag })).toMatchObject({ ok: true, applied: files.map(({ tag }) => tag) });
   });
 
@@ -384,6 +405,25 @@ describe("canonical migration runner", () => {
     expect(calls).toHaveLength(0);
   });
 
+  test("verify rejects a nineteenth adapter row with an unknown hash", async () => {
+    const migrationFiles = loadMigrationFiles();
+    const vector = productionManifest.drizzle.historyVectors["original-production"].entries;
+    const timestamps = new Map(productionPreflightFiles(migrationFiles).map((file) => [file.tag.slice(0, 4), file.timestamp]));
+    const rows = vector.map((entry) => ({ hash: entry.observedSha256, timestamp: timestamps.get(entry.tag) }));
+    rows.push({ hash: "0".repeat(64), timestamp: 1785081600000 });
+
+    const result = await verifyMigrations({
+      adapter: { query: async () => ({ rows }) },
+      files: migrationFiles,
+      expectedFloor: "0017",
+      expectedCount: 18,
+      authority: { environment: "conformance-original", historyVariant: "original-production" },
+      history: { manifest: productionManifest },
+    });
+
+    expect(result).toMatchObject({ ok: false, code: "MIGRATION_TAG_UNKNOWN" });
+  });
+
   test("apply rereads under an advisory lock before executing", async () => {
     const calls = [];
     const result = await applyMigrations({
@@ -399,6 +439,58 @@ describe("canonical migration runner", () => {
     expect(result.ok).toBe(true);
     expect(calls.join("\n")).toContain("pg_advisory_xact_lock");
     expect(calls.join("\n")).not.toContain("pg_available_extensions");
+  });
+
+  test("locked apply rejects a nineteenth reread row with an unknown hash", async () => {
+    const migrationFiles = loadMigrationFiles();
+    const vector = productionManifest.drizzle.historyVectors["original-production"].entries;
+    const timestamps = new Map(productionPreflightFiles(migrationFiles).map((file) => [file.tag.slice(0, 4), file.timestamp]));
+    const applied = vector.map((entry) => ({ hash: entry.observedSha256, timestamp: timestamps.get(entry.tag) }));
+    const reread = [...applied, { hash: "0".repeat(64), timestamp: 1785081600000 }];
+    const pending = migrationFiles.find(({ tag }) => tag.startsWith("0018_"));
+    const calls = [];
+
+    await expect(applyMigrations({
+      adapter: {
+        query: async (sql) => {
+          calls.push(sql);
+          if (sql.includes("FROM drizzle.__drizzle_migrations")) return { rows: reread };
+          return { rows: [] };
+        },
+      },
+      applied,
+      files: migrationFiles,
+      declared: [pending.tag],
+      authority: { environment: "conformance-original", historyVariant: "original-production" },
+      history: { manifest: productionManifest },
+    })).rejects.toThrow("MIGRATION_TOCTOU");
+    expect(calls).toContain("ROLLBACK;");
+    expect(calls).not.toContain(pending.sql);
+  });
+
+  test("preserves observed original-production hashes in applied evidence", async () => {
+    const vector = productionManifest.drizzle.historyVectors["original-production"].entries;
+    const migrationFiles = loadMigrationFiles();
+    const timestamps = new Map(productionPreflightFiles(migrationFiles).map((file) => [file.tag.slice(0, 4), file.timestamp]));
+    const originalApplied = vector.map((entry) => ({ hash: entry.observedSha256, timestamp: timestamps.get(entry.tag) }));
+    const pendingTag = migrationFiles.find(({ timestamp }) => timestamp === 18).tag;
+    const result = await applyMigrations({
+      adapter: {
+        query: async (sql) => {
+          if (sql.includes("FROM drizzle.__drizzle_migrations")) return { rows: originalApplied };
+          return { rows: [] };
+        },
+      },
+      applied: originalApplied,
+      files: migrationFiles,
+      declared: [pendingTag],
+      authority: { environment: "conformance-original", historyVariant: "original-production" },
+      history: { manifest: productionManifest },
+    });
+    expect(result).toMatchObject({ ok: true, status: "APPLIED" });
+    expect(result.applied.find(({ tag }) => tag === "0000_stale_jamie_braddock")?.hash).toBe(vector[0].observedSha256);
+    expect(result.applied.find(({ tag }) => tag === "0004_minor_lockheed")?.hash).toBe(vector[4].observedSha256);
+    expect(result.applied.find(({ tag }) => tag === "0000_stale_jamie_braddock")?.timestamp).toBe(1783601318727);
   });
 
   test("accepts a full Drizzle migration tag when the caller supplies its numeric floor", () => {

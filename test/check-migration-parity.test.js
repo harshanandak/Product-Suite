@@ -10,6 +10,8 @@ const SCRIPT_PATH = join(import.meta.dir, "..", "scripts", "check-migration-pari
 const REAL_MIGRATIONS_DIR = join(import.meta.dir, "..", "packages", "db", "migrations");
 const MANIFEST = JSON.parse(readFileSync(join(import.meta.dir, "..", "docs", "history", "database-migrations", "manifest.json"), "utf8"));
 const PRODUCTION_VECTOR = MANIFEST.drizzle.historyVectors["original-production"].entries;
+const JOURNAL = JSON.parse(readFileSync(join(REAL_MIGRATIONS_DIR, "meta", "_journal.json"), "utf8"));
+const PRODUCTION_TIMESTAMPS = new Map(JOURNAL.entries.map((entry) => [entry.tag.slice(0, 4), Number(entry.when)]));
 
 /** Runs the CLI in a real `node` subprocess (not Bun) so the entrypoint guard
  * itself — not just the pure `analyzeMigrationParity` function — is covered
@@ -163,7 +165,10 @@ describe("check-migration-parity", () => {
     };
 
     test("accepts original-production and repaired-bootstrap as complete variants", () => {
-      expect(validateMigrationHistory({ ...base, historyVariant: "original-production" }).ok).toBe(true);
+      expect(validateMigrationHistory({ ...base, historyVariant: "original-production" })).toMatchObject({
+        ok: false,
+        code: "HISTORY_VECTOR_INVALID",
+      });
       expect(validateMigrationHistory({
         ...base,
         historyVariant: "repaired-bootstrap",
@@ -176,18 +181,39 @@ describe("check-migration-parity", () => {
       expect(validateMigrationHistory({ ...base, historyVariant: "original-production", hashes: { ...base.hashes, "0000_stale_jamie_braddock.sql": "fabricated" } })).toMatchObject({ ok: false, code: "HISTORY_HASH_UNKNOWN" });
     });
 
+    test("binds original vector hashes to their expected repair filenames", () => {
+      const hashes = {
+        ...base.hashes,
+        "0000_stale_jamie_braddock.sql": PRODUCTION_VECTOR[1].observedSha256,
+        "0004_minor_lockheed.sql": PRODUCTION_VECTOR[4].observedSha256,
+      };
+      expect(validateMigrationHistory({
+        journal: undefined,
+        sqlFileNames: undefined,
+        hashes,
+        historyVariant: "original-production",
+        manifest: MANIFEST,
+      })).toMatchObject({ ok: false, code: "HISTORY_HASH_UNKNOWN" });
+    });
+
     test("rejects fabricated snapshot hashes instead of treating them as a prefix", () => {
-      expect(validateMigrationHistory({ ...base, historyVariant: "original-production", snapshotHashes: { "0011_snapshot.json": "fabricated" } })).toMatchObject({ ok: false, code: "SNAPSHOT_HASH_UNKNOWN" });
+      expect(validateMigrationHistory({
+        ...base,
+        historyVariant: "repaired-bootstrap",
+        hashes: { ...base.hashes, "0000_stale_jamie_braddock.sql": "repaired-0000", "0004_minor_lockheed.sql": "repaired-0004" },
+        snapshotHashes: { "0011_snapshot.json": "fabricated" },
+      })).toMatchObject({ ok: false, code: "SNAPSHOT_HASH_UNKNOWN" });
     });
   });
 
   describe("original-production exact vector", () => {
-    const rows = () => PRODUCTION_VECTOR.map((entry, index) => ({ hash: entry.observedSha256, created_at: index }));
+    const rows = () => PRODUCTION_VECTOR.map((entry) => ({ hash: entry.observedSha256, created_at: PRODUCTION_TIMESTAMPS.get(entry.tag) }));
 
     test("accepts exactly 18 ordered raw production hashes and resolves tags", () => {
       const result = validateOriginalProductionRows(rows(), { manifest: MANIFEST, root: join(import.meta.dir, "..") });
       expect(result).toMatchObject({ ok: true, code: "ORIGINAL_PRODUCTION_HISTORY_VALID", count: 18 });
       expect(result.entries.map(({ tag }) => tag)).toEqual(PRODUCTION_VECTOR.map(({ tag }) => tag));
+      expect(result.entries[0].timestamp).toBe(1783601318727);
     });
 
     test.each([
@@ -202,6 +228,19 @@ describe("check-migration-parity", () => {
       const candidate = rows();
       mutate(candidate);
       expect(validateOriginalProductionRows(candidate, { manifest: MANIFEST, root: join(import.meta.dir, "..") }).ok).toBe(false);
+    });
+  });
+
+  test("rejects an original-production history when its manifest vector is missing", () => {
+    const manifest = structuredClone(MANIFEST);
+    delete manifest.drizzle.historyVectors["original-production"];
+    const hashes = {
+      "0000_stale_jamie_braddock.sql": "original",
+      "0004_minor_lockheed.sql": "original",
+    };
+    expect(validateMigrationHistory({ hashes, historyVariant: "original-production", manifest })).toMatchObject({
+      ok: false,
+      code: "HISTORY_VECTOR_INVALID",
     });
   });
 });

@@ -99,7 +99,7 @@ export const HISTORY_VARIANTS = Object.freeze({
 });
 
 const ORIGINAL_PRODUCTION_SOURCE = "9c38161b21fb88eaee6ffe50f55e9f43259ef86d";
-const ORIGINAL_PRODUCTION_REPAIRS_SOURCE = "341caeb0072f6642ce9b2172c1d092f91bcd326";
+const ORIGINAL_PRODUCTION_REPAIRS_SOURCE = "341caeb0072f6642ce9b2172c1d092f91bcd3265";
 const ORIGINAL_PRODUCTION_FILES = Object.freeze([
   "0000_stale_jamie_braddock.sql",
   "0001_dear_the_enforcers.sql",
@@ -121,6 +121,8 @@ const ORIGINAL_PRODUCTION_FILES = Object.freeze([
   "0017_proposal_target_snapshot.sql",
 ]);
 
+const GIT_EXECUTABLE = process.platform === "win32" ? "C:\\Program Files\\Git\\cmd\\git.exe" : "/usr/bin/git";
+
 export function normalizeLineEndings(value) {
   return String(value).replace(/\r\n?/g, "\n");
 }
@@ -136,7 +138,7 @@ export function sha256Bytes(value) {
 }
 
 function gitBlobs(root, refs) {
-  const output = execFileSync("git", ["-C", root, "cat-file", "--batch"], {
+  const output = execFileSync(GIT_EXECUTABLE, ["-C", root, "cat-file", "--batch"], {
     input: Buffer.from(`${refs.join("\n")}\n`, "utf8"),
   });
   const blobs = new Map();
@@ -161,64 +163,65 @@ function gitBlobs(root, refs) {
 
 function declaredBytes(sourceBytes, lineEnding) {
   const lf = Buffer.from(sourceBytes.toString("utf8").replace(/\r\n?/g, "\n"), "utf8");
-  return lineEnding === "CRLF" ? Buffer.from(lf.toString("utf8").replace(/\n/g, "\r\n"), "utf8") : lf;
+  return lineEnding === "CRLF" ? Buffer.from(lf.toString("utf8").replaceAll("\n", "\r\n"), "utf8") : lf;
+}
+
+function expectedProductionSource(index) {
+  return index === 0 || index === 4 ? ORIGINAL_PRODUCTION_REPAIRS_SOURCE : ORIGINAL_PRODUCTION_SOURCE;
+}
+
+function expectedProductionRefs() {
+  return ORIGINAL_PRODUCTION_FILES.map((filename, index) => `${expectedProductionSource(index)}:packages/db/migrations/${filename}`);
+}
+
+function loadProductionBlobs(root) {
+  try {
+    return gitBlobs(root, expectedProductionRefs());
+  } catch {
+    return new Map();
+  }
+}
+
+function validateProductionEntry({ entry, index, blobs, seenTags }) {
+  const tag = String(index).padStart(4, "0");
+  const expectedFile = ORIGINAL_PRODUCTION_FILES[index];
+  const expectedSource = expectedProductionSource(index);
+  const expectedLineEnding = index === 17 ? "LF" : "CRLF";
+  if (!entry || typeof entry !== "object") return [`original-production entry ${index} is missing`];
+  const issues = [];
+  if (entry.tag !== tag || seenTags.has(entry.tag)) issues.push(`original-production tag/order invalid at index ${index}`);
+  seenTags.add(entry.tag);
+  if (entry.filename !== expectedFile) issues.push(`original-production filename invalid at ${tag}`);
+  if (entry.lineEnding !== expectedLineEnding) issues.push(`original-production line ending invalid at ${tag}`);
+  if (entry.sourceCommit !== expectedSource) issues.push(`original-production source commit invalid at ${tag}`);
+  const validDigests = /^[0-9a-f]{64}$/.test(String(entry.observedSha256))
+    && /^[0-9a-f]{40}$/.test(String(entry.gitBlobOid))
+    && /^[0-9a-f]{40}$/.test(String(entry.sourceCommit));
+  if (!validDigests) return [...issues, `original-production digest metadata invalid at ${tag}`];
+  const blob = blobs.get(`${expectedSource}:packages/db/migrations/${expectedFile}`);
+  if (!blob) return [...issues, `original-production source unavailable at ${tag}`];
+  const bytes = declaredBytes(blob.bytes, expectedLineEnding);
+  if (blob.oid !== entry.gitBlobOid) issues.push(`original-production Git blob mismatch at ${tag}`);
+  if (sha256Bytes(bytes) !== entry.observedSha256) issues.push(`original-production hash mismatch at ${tag}`);
+  return issues;
 }
 
 /** Validate the immutable, ordered production journal vector against Git objects. */
 export function validateOriginalProductionVector({ manifest, root = REPOSITORY_ROOT } = {}) {
   const vector = manifest?.drizzle?.historyVectors?.[HISTORY_VARIANTS.ORIGINAL_PRODUCTION];
-  const issues = [];
-  if (!vector || vector.version !== 1 || !Array.isArray(vector.entries)) {
+  if (vector?.version !== 1 || !Array.isArray(vector?.entries)) {
     return { ok: false, code: "ORIGINAL_PRODUCTION_VECTOR_MISSING", issues: ["manifest original-production vector is missing or unversioned"], count: 0, entries: [] };
   }
-  if (vector.entries.length !== ORIGINAL_PRODUCTION_FILES.length) issues.push("original-production vector must contain exactly 18 entries");
-  const seenTags = new Set();
   const entries = vector.entries;
-  const expectedRefs = ORIGINAL_PRODUCTION_FILES.map((filename, index) => `${index === 0 || index === 4 ? ORIGINAL_PRODUCTION_REPAIRS_SOURCE : ORIGINAL_PRODUCTION_SOURCE}:packages/db/migrations/${filename}`);
-  let blobs;
-  try {
-    blobs = gitBlobs(root, expectedRefs);
-  } catch {
-    issues.push("original-production Git objects are unavailable");
-    blobs = new Map();
-  }
+  const issues = entries.length === ORIGINAL_PRODUCTION_FILES.length ? [] : ["original-production vector must contain exactly 18 entries"];
+  const seenTags = new Set();
+  const blobs = loadProductionBlobs(root);
+  if (blobs.size === 0) issues.push("original-production Git objects are unavailable");
   for (let index = 0; index < ORIGINAL_PRODUCTION_FILES.length; index += 1) {
-    const entry = entries[index];
-    const tag = String(index).padStart(4, "0");
-    const expectedFile = ORIGINAL_PRODUCTION_FILES[index];
-    const expectedSource = index === 0 || index === 4 ? ORIGINAL_PRODUCTION_REPAIRS_SOURCE : ORIGINAL_PRODUCTION_SOURCE;
-    const expectedLineEnding = index === 17 ? "LF" : "CRLF";
-    if (!entry || typeof entry !== "object") {
-      issues.push(`original-production entry ${index} is missing`);
-      continue;
-    }
-    if (entry.tag !== tag || seenTags.has(entry.tag)) issues.push(`original-production tag/order invalid at index ${index}`);
-    seenTags.add(entry.tag);
-    if (entry.filename !== expectedFile) issues.push(`original-production filename invalid at ${tag}`);
-    if (entry.lineEnding !== expectedLineEnding) issues.push(`original-production line ending invalid at ${tag}`);
-    if (entry.sourceCommit !== expectedSource) issues.push(`original-production source commit invalid at ${tag}`);
-    if (!/^[0-9a-f]{64}$/i.test(String(entry.observedSha256)) || !/^[0-9a-f]{40}$/i.test(String(entry.gitBlobOid))) {
-      issues.push(`original-production digest metadata invalid at ${tag}`);
-      continue;
-    }
-    try {
-      const blob = blobs.get(`${expectedSource}:packages/db/migrations/${expectedFile}`);
-      if (!blob) throw new Error("GIT_BLOB_MISSING");
-      const bytes = declaredBytes(blob.bytes, expectedLineEnding);
-      if (blob.oid !== entry.gitBlobOid) issues.push(`original-production Git blob mismatch at ${tag}`);
-      if (sha256Bytes(bytes) !== entry.observedSha256) issues.push(`original-production hash mismatch at ${tag}`);
-    } catch (error) {
-      issues.push(`original-production source unavailable at ${tag}`);
-    }
+    issues.push(...validateProductionEntry({ entry: entries[index], index, blobs, seenTags }));
   }
   if (seenTags.size !== entries.length) issues.push("original-production tags must be unique");
-  return {
-    ok: issues.length === 0,
-    code: issues.length === 0 ? "ORIGINAL_PRODUCTION_VECTOR_VALID" : "ORIGINAL_PRODUCTION_VECTOR_INVALID",
-    issues,
-    count: entries.length,
-    entries,
-  };
+  return { ok: issues.length === 0, code: issues.length === 0 ? "ORIGINAL_PRODUCTION_VECTOR_VALID" : "ORIGINAL_PRODUCTION_VECTOR_INVALID", issues, count: entries.length, entries };
 }
 
 function compact(value) {
