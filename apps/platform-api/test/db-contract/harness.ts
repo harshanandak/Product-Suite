@@ -44,26 +44,108 @@ import { createDb, createSql, type Database, type Sql } from '@product-suite/db'
 import { createBranchLeaseCoordinator, type BranchLease } from './branch-lease'
 import { createEphemeralBranch, deleteEphemeralBranchStrict, NeonBranchError, type EphemeralBranch } from './neon-branch'
 import { workerRuntimeConfig } from './runtime-config'
-import { assertConformanceMarker } from './conformance-marker'
-
 export { assertConformanceMarker } from './conformance-marker'
 
 /** The only migration-history variants accepted by the authority contract. */
 export type NeonHistoryVariant = 'original-production' | 'repaired-bootstrap'
 
+const CONFORMANCE_PHASES = [
+  'disposable-create',
+  'disposable-bootstrap',
+  'derived-create',
+  'derived-bootstrap',
+  'runtime-probe-disposable',
+  'runtime-probe-derived',
+  'cleanup',
+  'unknown',
+] as const
+
+export type ConformancePhase = typeof CONFORMANCE_PHASES[number]
+
+const CANONICAL_BOOTSTRAP_CODES = [
+  'DISPOSABLE_BOOTSTRAP_UNPROVEN',
+  'RUNTIME_ROLE_PROVISION_UNPROVEN',
+  'CANONICAL_FILE_LOAD_UNPROVEN',
+  'REPAIRED_BOOTSTRAP_UNPROVEN',
+  'REPAIRED_BASELINE_VERIFY_UNPROVEN',
+  'ORIGINAL_PRODUCTION_FLOOR_UNPROVEN',
+  'SYNTHETIC_0020_APPLY_UNPROVEN',
+  'SYNTHETIC_0020_NOOP_UNPROVEN',
+  'DB_SESSION_UNPROVEN',
+  'ROLE_PROVISION_BEGIN_FAILED',
+  'ROLE_PROVISION_AUTHORITY_FAILED',
+  'ROLE_PROVISION_LOCK_FAILED',
+  'ROLE_PROVISION_CREATE_ROLES_FAILED',
+  'ROLE_PROVISION_GRANTS_FAILED',
+  'ROLE_PROVISION_ROLE_STATE_FAILED',
+  'ROLE_PROVISION_MEMBERSHIP_FAILED',
+  'ROLE_PROVISION_COMMIT_FAILED',
+] as const
+
+type CanonicalBootstrapCode = typeof CANONICAL_BOOTSTRAP_CODES[number]
+
+function isCanonicalBootstrapCode(code: string): code is CanonicalBootstrapCode {
+  return (CANONICAL_BOOTSTRAP_CODES as readonly string[]).includes(code)
+}
+
 /** A redaction-safe conformance failure.  Messages are stable codes only. */
+export interface ConformanceDiagnostic {
+  endpointCategory: string
+  statusClass: string
+}
+
 export class NeonConformanceError extends Error {
   readonly code: string
+  readonly diagnostic?: ConformanceDiagnostic
+  readonly phase?: string
 
-  constructor(code: string) {
+  constructor(code: string, diagnostic?: ConformanceDiagnostic, phase?: string) {
     super(code)
     this.name = 'NeonConformanceError'
     this.code = code
+    this.diagnostic = diagnostic
+    this.phase = phase
   }
 }
 
-function conformanceFailure(code: string): never {
-  throw new NeonConformanceError(code)
+function conformanceFailure(code: string, diagnostic?: ConformanceDiagnostic, phase?: string): never {
+  throw new NeonConformanceError(code, diagnostic, phase)
+}
+
+async function canonicalBootstrapStep<T>(
+  code: CanonicalBootstrapCode,
+  operation: () => T | Promise<T>,
+): Promise<T> {
+  try {
+    return await operation()
+  } catch (error) {
+    if (error instanceof NeonConformanceError && isCanonicalBootstrapCode(error.code)) throw error
+    if (typeof error === 'object' && error !== null && 'code' in error && typeof error.code === 'string' && isCanonicalBootstrapCode(error.code)) {
+      throw new NeonConformanceError(error.code)
+    }
+    throw new NeonConformanceError(code)
+  }
+}
+
+function redactedConformanceDiagnostic(
+  diagnostic: ConformanceDiagnostic | undefined,
+): ConformanceDiagnostic | undefined {
+  if (!diagnostic) return undefined
+  return {
+    endpointCategory: /^(?:projects|project|project-branches|project-operations|control-plane)$/.test(diagnostic.endpointCategory)
+      ? diagnostic.endpointCategory
+      : 'control-plane',
+    statusClass: /^(?:[1-5]xx|network|unknown)$/.test(diagnostic.statusClass)
+      ? diagnostic.statusClass
+      : 'unknown',
+  }
+}
+
+function redactedConformancePhase(phase: string | undefined): ConformancePhase | undefined {
+  if (phase === undefined) return undefined
+  return (CONFORMANCE_PHASES as readonly string[]).includes(phase)
+    ? phase as ConformancePhase
+    : 'unknown'
 }
 
 /** The minimum project/root evidence required for the disposable bootstrap lane. */
@@ -193,6 +275,21 @@ function controlPlaneFailureCode(status: number): string {
   return 'REQUEST_FAILED'
 }
 
+function controlPlaneEndpointCategory(path: string): string {
+  const pathname = path.split('?', 1)[0] ?? path
+  if (pathname === '/projects') return 'projects'
+  if (/^\/projects\/[^/]+\/operations\/[^/]+$/.test(pathname)) return 'project-operations'
+  if (/^\/projects\/[^/]+\/branches(?:\/[^/]+)?$/.test(pathname)) return 'project-branches'
+  if (/^\/projects\/[^/]+$/.test(pathname)) return 'project'
+  return 'control-plane'
+}
+
+function controlPlaneStatusClass(status: number): string {
+  return Number.isInteger(status) && status >= 100 && status <= 599
+    ? `${Math.floor(status / 100)}xx`
+    : 'unknown'
+}
+
 /** Fetch JSON without ever surfacing response bodies, URLs, or credentials. */
 async function controlPlaneFetchWith(
   apiKey: string,
@@ -216,7 +313,10 @@ async function controlPlaneFetchWith(
         await controlPlaneSleep(retryDelaysMs[attempt] ?? 0)
         continue
       }
-      conformanceFailure('NETWORK_FAILED')
+      conformanceFailure('NETWORK_FAILED', {
+        endpointCategory: controlPlaneEndpointCategory(path),
+        statusClass: 'network',
+      })
     }
     const body = await response.json().catch(() => ({})) as Record<string, unknown>
     if (response.ok || options.acceptedStatuses?.includes(response.status) || (init.method === 'DELETE' && ACCEPTED_DELETE_STATUSES.has(response.status))) {
@@ -229,7 +329,10 @@ async function controlPlaneFetchWith(
       await controlPlaneSleep(retryDelaysMs[attempt] ?? 0)
       continue
     }
-    conformanceFailure(controlPlaneFailureCode(response.status))
+    conformanceFailure(controlPlaneFailureCode(response.status), {
+      endpointCategory: controlPlaneEndpointCategory(path),
+      statusClass: controlPlaneStatusClass(response.status),
+    })
   }
 }
 
@@ -419,21 +522,35 @@ function safeProjectIdentity(
   return { projectId }
 }
 
+async function sourceProjectOrganizationId(
+  apiKey: string,
+  sourceProjectId: string,
+  fetcher: typeof fetch,
+): Promise<string> {
+  if (!NEON_RESOURCE_ID.test(sourceProjectId)) conformanceFailure('NEON_SOURCE_PROJECT_INVALID')
+  const result = await controlPlaneFetchWith(apiKey, `/projects/${sourceProjectId}`, { method: 'GET' }, fetcher)
+  const project = result.body.project as { id?: unknown; org_id?: unknown } | undefined
+  const organizationId = typeof project?.org_id === 'string' ? project.org_id : ''
+  if (project?.id !== sourceProjectId || !NEON_RESOURCE_ID.test(organizationId)) {
+    conformanceFailure('NEON_SOURCE_PROJECT_METADATA_INVALID')
+  }
+  return organizationId
+}
+
 function projectResponse(
   body: Record<string, unknown>,
   safeIdentity: { projectId: string },
   expectedName: string,
 ): ValidatedProjectResponse {
-  const project = body.project as { id?: unknown; name?: unknown; default_branch_id?: unknown } | undefined
+  const project = body.project as { id?: unknown; name?: unknown } | undefined
   const branch = body.branch as { id?: unknown; parent_id?: unknown; default?: unknown } | undefined
   const projectId = typeof project?.id === 'string' ? project.id : ''
   const projectName = typeof project?.name === 'string' ? project.name : ''
-  const defaultBranchId = typeof project?.default_branch_id === 'string' ? project.default_branch_id : ''
   const branchId = typeof branch?.id === 'string' ? branch.id : ''
   if (projectId !== safeIdentity.projectId || projectName !== expectedName) {
     conformanceFailure('NEON_PROJECT_RESPONSE_INVALID')
   }
-  if (!NEON_RESOURCE_ID.test(branchId) || defaultBranchId !== branchId || branch?.default !== true || branch.parent_id != null) {
+  if (!NEON_RESOURCE_ID.test(branchId) || branch?.default !== true || branch.parent_id != null) {
     conformanceFailure('NEON_PROJECT_ROOT_INVALID')
   }
   const connectionUri = validatedNeonConnectionUri(body, { projectId, branchId, purpose: 'migration' })
@@ -443,10 +560,10 @@ function projectResponse(
 
 function assertProjectRead(
   body: Record<string, unknown>,
-  expected: Pick<ValidatedProjectResponse, 'projectId' | 'projectName' | 'branchId'>,
+  expected: Pick<ValidatedProjectResponse, 'projectId' | 'projectName'>,
 ): void {
-  const project = body.project as { id?: unknown; name?: unknown; default_branch_id?: unknown } | undefined
-  if (project?.id !== expected.projectId || project.name !== expected.projectName || project.default_branch_id !== expected.branchId) {
+  const project = body.project as { id?: unknown; name?: unknown } | undefined
+  if (project?.id !== expected.projectId || project.name !== expected.projectName) {
     conformanceFailure('NEON_PROJECT_METADATA_UNPROVEN')
   }
 }
@@ -515,6 +632,54 @@ function assertDerivedBranchRead(
   }
 }
 
+const PRODUCTION_BRANCH_PAGE_LIMIT = 100
+const PRODUCTION_BRANCH_MAX_PAGES = 1000
+type ProductionBranchSummary = { id?: unknown; parent_id?: unknown; default?: unknown }
+
+async function listAllProductionBranches(
+  apiKey: string,
+  sourceProjectId: string,
+  fetcher: typeof fetch,
+): Promise<ProductionBranchSummary[]> {
+  const all: ProductionBranchSummary[] = []
+  const seenCursors = new Set<string>()
+  let cursor: string | undefined
+
+  for (let page = 0; page < PRODUCTION_BRANCH_MAX_PAGES; page += 1) {
+    const params = new URLSearchParams({ limit: String(PRODUCTION_BRANCH_PAGE_LIMIT) })
+    if (cursor) params.set('cursor', cursor)
+    const result = await controlPlaneFetchWith(
+      apiKey,
+      `/projects/${sourceProjectId}/branches?${params.toString()}`,
+      { method: 'GET' },
+      fetcher,
+    )
+    const rawBranches = result.body.branches
+    if (!Array.isArray(rawBranches) || rawBranches.length === 0 || rawBranches.some((branch) => (
+      !branch || typeof branch !== 'object' || Array.isArray(branch)
+    ))) {
+      conformanceFailure('PRODUCTION_DERIVED_PARENT_UNAVAILABLE')
+    }
+    all.push(...rawBranches as ProductionBranchSummary[])
+
+    const pagination = result.body.pagination
+    if (pagination !== undefined && (
+      !pagination || typeof pagination !== 'object' || Array.isArray(pagination)
+    )) {
+      conformanceFailure('PRODUCTION_DERIVED_PARENT_UNAVAILABLE')
+    }
+    const next = (pagination as { next?: unknown } | undefined)?.next
+    if (next === undefined) return all
+    if (typeof next !== 'string' || next.length === 0 || seenCursors.has(next)) {
+      conformanceFailure('PRODUCTION_DERIVED_PARENT_UNAVAILABLE')
+    }
+    seenCursors.add(next)
+    cursor = next
+  }
+
+  conformanceFailure('PRODUCTION_DERIVED_PARENT_UNAVAILABLE')
+}
+
 async function productionParentBranchId(
   apiKey: string,
   sourceProjectId: string,
@@ -522,19 +687,24 @@ async function productionParentBranchId(
   fetcher: typeof fetch = fetch,
 ): Promise<string> {
   const projectResult = await controlPlaneFetchWith(apiKey, `/projects/${sourceProjectId}`, { method: 'GET' }, fetcher)
-  const project = projectResult.body.project as { id?: unknown; default_branch_id?: unknown } | undefined
-  const defaultBranchId = typeof project?.default_branch_id === 'string' ? project.default_branch_id : ''
-  if (project?.id !== sourceProjectId || !defaultBranchId) conformanceFailure('PRODUCTION_DERIVED_PARENT_UNAVAILABLE')
-  const result = await controlPlaneFetchWith(apiKey, `/projects/${sourceProjectId}/branches?limit=100`, { method: 'GET' }, fetcher)
-  const branches = Array.isArray(result.body.branches)
-    ? result.body.branches as Array<{ id?: unknown; parent_id?: unknown; default?: unknown }>
-    : []
-  const selectedId = requestedParentBranchId ?? defaultBranchId
-  const parent = branches.find((branch) => branch.id === selectedId)
-  if (!parent || parent.id !== defaultBranchId || parent.default !== true || parent.parent_id != null) {
+  const project = projectResult.body.project as { id?: unknown } | undefined
+  if (project?.id !== sourceProjectId) conformanceFailure('PRODUCTION_DERIVED_PARENT_UNAVAILABLE')
+  const branches = await listAllProductionBranches(apiKey, sourceProjectId, fetcher)
+  const malformed = branches.some((branch) => (
+    typeof branch.id !== 'string'
+    || !NEON_RESOURCE_ID.test(branch.id)
+    || typeof branch.default !== 'boolean'
+    || (branch.parent_id !== undefined && branch.parent_id !== null && typeof branch.parent_id !== 'string')
+  ))
+  const roots = branches.filter((branch) => branch.default === true && (branch.parent_id === null || branch.parent_id === undefined))
+  if (malformed || roots.length !== 1) {
     conformanceFailure('PRODUCTION_DERIVED_PARENT_UNAVAILABLE')
   }
-  return defaultBranchId
+  const rootBranchId = roots[0]!.id as string
+  if (requestedParentBranchId !== undefined && requestedParentBranchId !== rootBranchId) {
+    conformanceFailure('PRODUCTION_DERIVED_PARENT_UNAVAILABLE')
+  }
+  return rootBranchId
 }
 
 /** Native-fetch control-plane adapter: project/root + production-derived branch. */
@@ -542,7 +712,7 @@ export function createNeonControlPlane(env: NeonControlPlaneEnv = process.env, f
   const { apiKey, sourceProjectId } = controlPlaneConfig(env)
   const request = (path: string, init: { method: string; body?: unknown }) => controlPlaneFetchWith(apiKey, path, init, fetcher)
   let retainedProjectId: string | undefined
-  let retainedBranch: { projectId: string; branchId: string; parentBranchId: string; defaultBranchId: string } | undefined
+  let retainedBranch: { projectId: string; branchId: string; parentBranchId: string; rootBranchId: string } | undefined
 
   const assertSafeProjectDelete = (projectId: string): void => {
     if (!retainedProjectId || projectId !== retainedProjectId || projectId === sourceProjectId) {
@@ -553,7 +723,7 @@ export function createNeonControlPlane(env: NeonControlPlaneEnv = process.env, f
     if (!retainedBranch || projectId !== sourceProjectId || projectId !== retainedBranch.projectId || branchId !== retainedBranch.branchId) {
       conformanceFailure('UNSAFE_BRANCH_DELETE_TARGET')
     }
-    if (branchId === retainedBranch.parentBranchId || branchId === retainedBranch.defaultBranchId) {
+    if (branchId === retainedBranch.parentBranchId || branchId === retainedBranch.rootBranchId) {
       conformanceFailure('UNSAFE_BRANCH_DELETE_TARGET')
     }
   }
@@ -561,9 +731,10 @@ export function createNeonControlPlane(env: NeonControlPlaneEnv = process.env, f
   return {
     async createDisposableProject() {
       const projectName = `product-suite-test-only-repaired-bootstrap-${Date.now()}`
+      const organizationId = await sourceProjectOrganizationId(apiKey, sourceProjectId, fetcher)
       const result = await request('/projects', {
         method: 'POST',
-        body: { project: { name: projectName, pg_version: 17 } },
+        body: { project: { name: projectName, pg_version: 17, org_id: organizationId } },
       })
       const safeIdentity = safeProjectIdentity(result.body, sourceProjectId)
       retainedProjectId = safeIdentity.projectId
@@ -605,7 +776,7 @@ export function createNeonControlPlane(env: NeonControlPlaneEnv = process.env, f
         projectId: sourceProjectId,
         branchId: safeIdentity.branchId,
         parentBranchId,
-        defaultBranchId: parentBranchId,
+        rootBranchId: parentBranchId,
       }
       const created = branchResponse(result.body, {
         projectId: sourceProjectId,
@@ -683,23 +854,67 @@ type SessionAdapter = {
   query(text: string, params?: unknown[]): Promise<{ rows: Record<string, unknown>[] }>
 }
 
-async function withDatabaseSession<T>(connectionUri: string, body: (adapter: SessionAdapter) => Promise<T>): Promise<T> {
-  const pool = new Pool({ connectionString: connectionUri, max: 1 })
+type SessionClient = {
+  query(text: string, params?: unknown[]): Promise<{ rows: unknown[] }>
+  release(): void
+}
+
+type SessionPool = {
+  connect(): Promise<SessionClient>
+  end(): Promise<void>
+}
+
+export type SessionPoolFactory = () => SessionPool
+
+async function preservePrimaryOnCleanup<T>(
+  body: () => Promise<T>,
+  cleanup: () => Promise<void>,
+): Promise<T> {
+  let value!: T
+  let primary: unknown
+  let hasPrimary = false
+  let hasFailure = false
   try {
-    const client = await pool.connect()
-    try {
-      return await body({
+    value = await body()
+  } catch (error) {
+    primary = error
+    hasPrimary = true
+    hasFailure = true
+  }
+  try {
+    await cleanup()
+  } catch (error) {
+    hasFailure = true
+    if (!hasPrimary) primary = error
+  }
+  if (hasFailure) throw primary
+  return value
+}
+
+async function withDatabaseSession<T>(
+  connectionUri: string,
+  body: (adapter: SessionAdapter) => Promise<T>,
+  poolFactory: SessionPoolFactory = () => new Pool({ connectionString: connectionUri, max: 1 }) as unknown as SessionPool,
+): Promise<T> {
+  const pool = poolFactory()
+  let client: SessionClient | undefined
+  return preservePrimaryOnCleanup(
+    async () => {
+      client = await pool.connect()
+      return body({
         query: async (text, params = []) => {
-          const result = await client.query(text, params)
+          const result = await client!.query(text, params)
           return { rows: result.rows as Record<string, unknown>[] }
         },
       })
-    } finally {
-      client.release()
-    }
-  } finally {
-    await pool.end()
-  }
+    },
+    async () => {
+      let cleanupError: unknown
+      try { client?.release() } catch (error) { cleanupError = error }
+      try { await pool.end() } catch (error) { if (cleanupError === undefined) cleanupError = error }
+      if (cleanupError !== undefined) throw cleanupError
+    },
+  )
 }
 
 function canonicalFilesForVariant(
@@ -720,6 +935,16 @@ function canonicalFilesForVariant(
   return files.map((file) => ({ ...file, hash: originalHashes.get(file.file) ?? file.hash }))
 }
 
+export function loadCanonicalFilesForVariant(
+  variant: NeonHistoryVariant,
+  loadFiles: () => CanonicalMigrationFile[],
+): Promise<CanonicalMigrationFile[]> {
+  return canonicalBootstrapStep(
+    'CANONICAL_FILE_LOAD_UNPROVEN',
+    () => canonicalFilesForVariant(variant, loadFiles),
+  )
+}
+
 function appliedTags(evidence: CanonicalEvidence): string[] {
   return (evidence.applied ?? []).flatMap((entry) => {
     const tag = typeof entry === 'string' ? entry : entry.tag
@@ -728,13 +953,14 @@ function appliedTags(evidence: CanonicalEvidence): string[] {
 }
 
 export function variantMigrationContract(variant: NeonHistoryVariant): {
-  baselineFloor: '0018' | '0019'
+  baselineFloor: '0017' | '0018' | '0019'
+  baselineCount: 18 | 20
   declared: string[]
   finalFloor: '0020'
 } {
   return variant === 'repaired-bootstrap'
-    ? { baselineFloor: '0019', declared: ['0020'], finalFloor: '0020' }
-    : { baselineFloor: '0018', declared: ['0019', '0020'], finalFloor: '0020' }
+    ? { baselineFloor: '0019', baselineCount: 20, declared: ['0020'], finalFloor: '0020' }
+    : { baselineFloor: '0017', baselineCount: 18, declared: ['0018', '0019', '0020'], finalFloor: '0020' }
 }
 
 async function proveCanonicalVariant(connectionUri: string, variant: NeonHistoryVariant): Promise<void> {
@@ -750,29 +976,41 @@ async function proveCanonicalVariant(connectionUri: string, variant: NeonHistory
   const roleProvisioner = await import('../../../../scripts/provision-database-roles.mjs') as {
     provisionDatabaseRoles(input: Record<string, unknown>): Promise<CanonicalEvidence>
   }
-  await withDatabaseSession(connectionUri, async (adapter) => {
+  await withCanonicalDatabaseSession(connectionUri, async (adapter) => {
     const authority = {
       environment: variant === 'original-production' ? 'conformance-original' : 'test',
       historyVariant: variant,
     }
-    const provisioned = await roleProvisioner.provisionDatabaseRoles({ adapter, databaseUrl: connectionUri, environment: authority.environment })
+    const provisioned = await canonicalBootstrapStep(
+      'RUNTIME_ROLE_PROVISION_UNPROVEN',
+      () => roleProvisioner.provisionDatabaseRoles({ adapter, databaseUrl: connectionUri, environment: authority.environment }),
+    )
     if (!provisioned.ok) conformanceFailure('RUNTIME_ROLE_PROVISION_UNPROVEN')
 
-    const canonicalFiles = canonicalFilesForVariant(variant, migrationRunner.loadMigrationFiles)
+    const canonicalFiles = await loadCanonicalFilesForVariant(variant, migrationRunner.loadMigrationFiles)
     const contract = variantMigrationContract(variant)
     let baseline: CanonicalEvidence
     if (variant === 'repaired-bootstrap') {
-      const bootstrapped = await migrationRunner.bootstrapMigrations({
-        adapter,
-        files: canonicalFiles,
-        declared: canonicalFiles.map((file) => file.tag),
-        authority,
-      })
+      const bootstrapped = await canonicalBootstrapStep(
+        'REPAIRED_BOOTSTRAP_UNPROVEN',
+        () => migrationRunner.bootstrapMigrations({
+          adapter,
+          files: canonicalFiles,
+          declared: canonicalFiles.map((file) => file.tag),
+          authority,
+        }),
+      )
       if (!bootstrapped.ok || bootstrapped.status !== 'BOOTSTRAPPED') conformanceFailure('REPAIRED_BOOTSTRAP_UNPROVEN')
-      baseline = await migrationRunner.verifyMigrations({ adapter, files: canonicalFiles, declared: [], expectedFloor: contract.baselineFloor, authority, observedVariant: variant })
-      if (!baseline.ok || baseline.status !== 'NOOP') conformanceFailure('REPAIRED_BOOTSTRAP_UNPROVEN')
+      baseline = await canonicalBootstrapStep(
+        'REPAIRED_BASELINE_VERIFY_UNPROVEN',
+        () => migrationRunner.verifyMigrations({ adapter, files: canonicalFiles, declared: [], expectedFloor: contract.baselineFloor, expectedCount: contract.baselineCount, authority, observedVariant: variant }),
+      )
+      if (!baseline.ok || baseline.status !== 'NOOP') conformanceFailure('REPAIRED_BASELINE_VERIFY_UNPROVEN')
     } else {
-      baseline = await migrationRunner.verifyMigrations({ adapter, files: canonicalFiles, declared: [], expectedFloor: contract.baselineFloor, authority, observedVariant: variant })
+      baseline = await canonicalBootstrapStep(
+        'ORIGINAL_PRODUCTION_FLOOR_UNPROVEN',
+        () => migrationRunner.verifyMigrations({ adapter, files: canonicalFiles, declared: [], expectedFloor: contract.baselineFloor, expectedCount: contract.baselineCount, authority, observedVariant: variant }),
+      )
       if (!baseline.ok || baseline.status !== 'NOOP') conformanceFailure('ORIGINAL_PRODUCTION_FLOOR_UNPROVEN')
     }
 
@@ -785,16 +1023,22 @@ async function proveCanonicalVariant(connectionUri: string, variant: NeonHistory
       timestamp: 20,
     }
     const files = [...canonicalFiles, synthetic]
-    const applied = await migrationRunner.applyMigrations({
-      adapter,
-      applied: appliedTags(baseline),
-      files,
-      declared: contract.declared,
-      authority,
-      observedVariant: variant,
-    })
+    const applied = await canonicalBootstrapStep(
+      'SYNTHETIC_0020_APPLY_UNPROVEN',
+      () => migrationRunner.applyMigrations({
+        adapter,
+        applied: appliedTags(baseline),
+        files,
+        declared: contract.declared,
+        authority,
+        observedVariant: variant,
+      }),
+    )
     if (!applied.ok || applied.status !== 'APPLIED') conformanceFailure('SYNTHETIC_0020_APPLY_UNPROVEN')
-    const verified = await migrationRunner.verifyMigrations({ adapter, files, declared: [], expectedFloor: contract.finalFloor, authority, observedVariant: variant })
+    const verified = await canonicalBootstrapStep(
+      'SYNTHETIC_0020_NOOP_UNPROVEN',
+      () => migrationRunner.verifyMigrations({ adapter, files, declared: [], expectedFloor: contract.finalFloor, authority, observedVariant: variant }),
+    )
     if (!verified.ok || verified.status !== 'NOOP') conformanceFailure('SYNTHETIC_0020_NOOP_UNPROVEN')
   })
 }
@@ -834,8 +1078,12 @@ const RUNTIME_ROLE_CATALOG_SQL = `
   left join pg_catalog.pg_auth_members membership on membership.roleid = role.oid
   left join pg_catalog.pg_roles member on member.oid = membership.member
   where role.rolname in ('product_suite_platform_runtime', 'product_suite_meeting_runtime')
-  order by role.rolname, member.rolname
 `
+
+function runtimeRoleCatalogSql(logins: readonly string[]): string {
+  const quotedLogins = logins.map((login) => `'${login.replaceAll("'", "''")}'`).join(', ')
+  return `${RUNTIME_ROLE_CATALOG_SQL.trimEnd()}\n    and member.rolname in (${quotedLogins})\n  order by role.rolname, member.rolname\n`
+}
 
 export interface RuntimePrivilegeProbeOptions {
   suffix?: string
@@ -861,6 +1109,7 @@ export async function proveRuntimeLoginPrivileges(
   const createRuntimeClient = options.createRuntimeSql ?? createSql
   const tenantId = `runtime-tenant-${suffix}`
   const projectId = randomUUID()
+  let probeFailed = false
   try {
     await exec(ownerSql, `create table public.${quoteIdentifier(table)} (id uuid primary key, value text not null)`)
     await exec(ownerSql, `create sequence public.${quoteIdentifier(sequence)}`)
@@ -870,7 +1119,8 @@ export async function proveRuntimeLoginPrivileges(
     await exec(ownerSql, `grant ${quoteIdentifier('product_suite_meeting_runtime')} to ${quoteIdentifier(meetingLogin)}`)
 
     const roles = runtimeRoleSnapshotsFromCatalogRows(
-      await query<RuntimeRoleCatalogRow>(ownerSql, RUNTIME_ROLE_CATALOG_SQL),
+      await query<RuntimeRoleCatalogRow>(ownerSql, runtimeRoleCatalogSql([platformLogin, meetingLogin])),
+      { memberFilter: [platformLogin, meetingLogin] },
     )
     const roleEvidence = assertRuntimeRoleContract(roles, { allowedLogins: [platformLogin, meetingLogin] })
     if (roleEvidence.membershipCount !== 2) conformanceFailure('RUNTIME_LOGIN_MEMBERSHIP_UNPROVEN')
@@ -910,6 +1160,9 @@ export async function proveRuntimeLoginPrivileges(
     await expectPermissionDenied(() => exec(platformSql, `set role ${quoteIdentifier('product_suite_meeting_runtime')}`))
     await expectPermissionDenied(() => exec(platformSql, 'select * from public.tenants'))
     await expectPermissionDenied(() => exec(meetingSql, 'select * from public.projects'))
+  } catch (error) {
+    probeFailed = true
+    throw error
   } finally {
     let cleanupFailed = false
     const cleanup = async (operation: () => Promise<unknown>): Promise<void> => {
@@ -925,13 +1178,28 @@ export async function proveRuntimeLoginPrivileges(
     await cleanup(() => exec(ownerSql, `drop sequence if exists public.${quoteIdentifier(sequence)}`))
     await cleanup(() => exec(ownerSql, `drop table if exists public.${quoteIdentifier(table)}`))
     await cleanup(() => exec(ownerSql, `drop table if exists public.${quoteIdentifier(deniedTable)}`))
-    if (cleanupFailed) conformanceFailure('RUNTIME_PROBE_CLEANUP_UNPROVEN')
+    if (cleanupFailed && !probeFailed) conformanceFailure('RUNTIME_PROBE_CLEANUP_UNPROVEN')
+  }
+}
+
+export async function withCanonicalDatabaseSession<T>(
+  connectionUri: string,
+  body: (adapter: SessionAdapter) => Promise<T>,
+  poolFactory?: SessionPoolFactory,
+): Promise<T> {
+  try {
+    return await withDatabaseSession(connectionUri, body, poolFactory)
+  } catch (error) {
+    if (error instanceof NeonConformanceError && isCanonicalBootstrapCode(error.code)) throw error
+    throw new NeonConformanceError('DB_SESSION_UNPROVEN')
   }
 }
 
 export interface RealNeonConformanceEvidence {
   status: 'PASS' | 'INCOMPLETE'
   code?: string
+  diagnostic?: ConformanceDiagnostic
+  phase?: ConformancePhase
 }
 
 /** Accept only the single-field, redaction-safe success envelope. */
@@ -939,10 +1207,15 @@ export function assertExactConformancePass(
   evidence: RealNeonConformanceEvidence,
 ): { status: 'PASS' } {
   if (evidence.status !== 'PASS' || Object.keys(evidence).length !== 1) {
-    const code = evidence.status === 'INCOMPLETE' && typeof evidence.code === 'string' && /^[A-Z0-9_]+$/.test(evidence.code)
-      ? evidence.code
+    const hasStableCode = evidence.status === 'INCOMPLETE' && typeof evidence.code === 'string' && /^[A-Z0-9_]+$/.test(evidence.code)
+    const code = hasStableCode
+      ? evidence.code!
       : 'REAL_NEON_CONFORMANCE_REQUIRED'
-    conformanceFailure(code)
+    conformanceFailure(
+      code,
+      hasStableCode ? redactedConformanceDiagnostic(evidence.diagnostic) : undefined,
+      hasStableCode ? redactedConformancePhase(evidence.phase) : undefined,
+    )
   }
   return { status: 'PASS' }
 }
@@ -960,25 +1233,46 @@ export async function runRequiredNeonConformance(
   let disposable: NeonProjectHandle | undefined
   let derived: NeonDerivedHandle | undefined
   let evidence: RealNeonConformanceEvidence = { status: 'INCOMPLETE', code: 'REAL_NEON_CONFORMANCE_FAILED' }
+  let phase: ConformancePhase = 'unknown'
   try {
+    phase = 'disposable-create'
     disposable = await plane.createDisposableProject()
+    phase = 'disposable-bootstrap'
     assertDisposableTestProject(disposable, env.NEON_PROJECT_ID!)
     await plane.proveVariant(disposable.connectionUri, 'repaired-bootstrap')
+    phase = 'derived-create'
     derived = await plane.createProductionDerivedBranch()
+    phase = 'derived-bootstrap'
     assertProductionDerivedBranch(derived)
     await plane.proveVariant(derived.connectionUri, 'original-production')
+    phase = 'runtime-probe-disposable'
     await plane.probeLeastPrivilege(disposable.runtimeConnectionUri)
+    phase = 'runtime-probe-derived'
     await plane.probeLeastPrivilege(derived.runtimeConnectionUri)
     evidence = { status: 'PASS' }
   } catch (error) {
+    const fallbackCode = phase === 'disposable-bootstrap'
+      ? 'DISPOSABLE_BOOTSTRAP_UNPROVEN'
+      : 'REAL_NEON_CONFORMANCE_FAILED'
     evidence = {
       status: 'INCOMPLETE',
       code: error instanceof NeonConformanceError && /^[A-Z0-9_]+$/.test(error.code)
         ? error.code
-        : 'REAL_NEON_CONFORMANCE_FAILED',
+        : fallbackCode,
+      ...(error instanceof NeonConformanceError && error.diagnostic
+        ? { diagnostic: redactedConformanceDiagnostic(error.diagnostic) }
+        : {}),
+      phase: redactedConformancePhase(phase) ?? 'unknown',
     }
   } finally {
-    try { await plane.cleanupRetainedResources() } catch { evidence = { status: 'INCOMPLETE', code: 'PROJECT_CLEANUP_UNPROVEN' } }
+    phase = 'cleanup'
+    try {
+      await plane.cleanupRetainedResources()
+    } catch {
+      if (evidence.status === 'PASS') {
+        evidence = { status: 'INCOMPLETE', code: 'PROJECT_CLEANUP_UNPROVEN', phase: 'cleanup' }
+      }
+    }
   }
   return evidence
 }
@@ -1051,8 +1345,10 @@ const RUNTIME_ROLE_NAMES = ['product_suite_platform_runtime', 'product_suite_mee
 /** Aggregate real pg_catalog membership rows into the opaque role contract. */
 export function runtimeRoleSnapshotsFromCatalogRows(
   rows: RuntimeRoleCatalogRow[],
+  options: { memberFilter?: readonly string[] } = {},
 ): RuntimeRoleSnapshot[] {
   const roles = new Map<string, RuntimeRoleSnapshot>()
+  const memberFilter = options.memberFilter ? new Set(options.memberFilter) : undefined
   for (const row of rows) {
     const role = roles.get(row.name) ?? {
       name: row.name,
@@ -1062,7 +1358,7 @@ export function runtimeRoleSnapshotsFromCatalogRows(
       canCreateDb: row.canCreateDb,
       memberships: [],
     }
-    if (row.member) {
+    if (row.member && (!memberFilter || memberFilter.has(row.member))) {
       if (row.memberCanLogin !== true) conformanceFailure('RUNTIME_MEMBER_MUST_BE_LOGIN')
       role.memberships.push({ member: row.member, adminOption: row.adminOption === true })
     }

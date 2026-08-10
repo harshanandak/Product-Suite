@@ -681,6 +681,7 @@ describe("repo tooling", () => {
     expect(focusedRun.run).toBe("bun run --cwd apps/platform-api test:db-contract:conformance");
     expect(focusedRun.env.NEON_API_KEY).toBe("${{ secrets.NEON_API_KEY }}");
     expect(focusedRun.env.NEON_PROJECT_ID).toBe("${{ secrets.NEON_PROJECT_ID }}");
+    expect(focusedRun.env.NEON_PARENT_BRANCH_ID).toBe("${{ secrets.NEON_PARENT_BRANCH_ID }}");
     expect(focusedRun.env.DB_CONTRACT_CONFORMANCE_MARKER_PATH).toBe(
       "${{ runner.temp }}/db-contract-conformance.marker",
     );
@@ -691,6 +692,7 @@ describe("repo tooling", () => {
     expect(requiredRun.env.DB_CONTRACT_BRANCH_CAP).toBe("${{ vars.DB_CONTRACT_BRANCH_CAP }}");
     expect(requiredRun.env.NEON_API_KEY).toBe("${{ secrets.NEON_API_KEY }}");
     expect(requiredRun.env.NEON_PROJECT_ID).toBe("${{ secrets.NEON_PROJECT_ID }}");
+    expect(requiredRun.env.NEON_PARENT_BRANCH_ID).toBe("${{ secrets.NEON_PARENT_BRANCH_ID }}");
     expect(requiredRun.env.DB_CONTRACT_REQUIRED).toBe("1");
     expect(requiredRun.env.DB_CONTRACT_CONFORMANCE_MARKER_PATH).toBe(
       "${{ runner.temp }}/db-contract-conformance.marker",

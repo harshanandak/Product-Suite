@@ -77,6 +77,55 @@ describe('Neon least-privilege runtime role contract', () => {
     }])).toThrow('RUNTIME_MEMBER_MUST_BE_LOGIN')
   })
 
+  it('scopes catalog membership evidence to the two temporary probe logins', () => {
+    const probeRoles = runtimeRoleSnapshotsFromCatalogRows([
+      {
+        name: 'product_suite_platform_runtime',
+        canLogin: false,
+        isSuperuser: false,
+        canCreateRole: false,
+        canCreateDb: false,
+        member: 'platform_runtime_probe',
+        memberCanLogin: true,
+        adminOption: false,
+      },
+      {
+        name: 'product_suite_platform_runtime',
+        canLogin: false,
+        isSuperuser: false,
+        canCreateRole: false,
+        canCreateDb: false,
+        member: 'platform_runtime_login',
+        memberCanLogin: true,
+        adminOption: false,
+      },
+      {
+        name: 'product_suite_meeting_runtime',
+        canLogin: false,
+        isSuperuser: false,
+        canCreateRole: false,
+        canCreateDb: false,
+        member: 'meeting_runtime_probe',
+        memberCanLogin: true,
+        adminOption: false,
+      },
+      {
+        name: 'product_suite_meeting_runtime',
+        canLogin: false,
+        isSuperuser: false,
+        canCreateRole: false,
+        canCreateDb: false,
+        member: 'meeting_runtime_login',
+        memberCanLogin: true,
+        adminOption: false,
+      },
+    ], { memberFilter: ['platform_runtime_probe', 'meeting_runtime_probe'] })
+
+    expect(assertRuntimeRoleContract(probeRoles, {
+      allowedLogins: ['platform_runtime_probe', 'meeting_runtime_probe'],
+    })).toMatchObject({ status: 'READY', membershipCount: 2 })
+  })
+
   it.each([
     ['LOGIN grant role', { ...validRoles[0]!, canLogin: true }, 'RUNTIME_ROLE_MUST_BE_NOLOGIN'],
     ['role escalation', { ...validRoles[0]!, canCreateRole: true }, 'RUNTIME_ROLE_ESCALATION'],
@@ -216,6 +265,18 @@ describe('Neon least-privilege runtime role contract', () => {
     ).catch((error: unknown) => error)
     expect(cleanupFailure).toMatchObject({ code: 'RUNTIME_PROBE_CLEANUP_UNPROVEN' })
     expect(String(cleanupFailure)).not.toContain('raw cleanup detail')
+
+    const primaryAndCleanupFailure = await proveRuntimeLoginPrivileges(
+      cleanupOwnerSql,
+      'postgresql://opaque:opaque@ep.neon.tech/neondb?sslmode=require',
+      {
+        suffix: 'fixed',
+        platformPassword: 'opaque-platform',
+        meetingPassword: 'opaque-meeting',
+        createRuntimeSql: createRuntimeSql(true),
+      },
+    ).catch((error: unknown) => error)
+    expect(primaryAndCleanupFailure).toMatchObject({ code: 'RUNTIME_DENIAL_UNPROVEN' })
   })
 
 })

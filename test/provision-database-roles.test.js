@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
+import { parseNeonUrl } from "../scripts/check-database-authority.mjs";
 import {
   analyzeRoleProvisioning,
   provisionDatabaseRoles,
@@ -18,6 +19,48 @@ const neonAuthority = {
 };
 
 describe("database role provisioning", () => {
+  test("accepts nested non-AWS Neon hosts and preserves direct/pooler endpoint identity", () => {
+    expect(parseNeonUrl(
+      "postgresql://owner:secret@ep-safe-compute.eu-central-1.azure.neon.tech/neondb?sslmode=require",
+      "migration",
+    )).toMatchObject({ provider: "neon", purpose: "migration", endpointId: "safe-compute" });
+    expect(parseNeonUrl(
+      "postgresql://owner:secret@ep-safe-compute-pooler.eu-central-1.azure.neon.tech/neondb?sslmode=require",
+      "runtime",
+    )).toMatchObject({ provider: "neon", purpose: "runtime", endpointId: "safe-compute" });
+    for (const hostname of [
+      "ep-safe-compute.eu-central-1.azure.neon.tech.evil.example",
+      "ep-safe-compute.eu-central-1.azure.neon.tech.",
+    ]) {
+      expect(() => parseNeonUrl(
+        `postgresql://owner:secret@${hostname}/neondb?sslmode=require`,
+        "migration",
+      )).toThrow("DATABASE_PROVIDER_INVALID");
+    }
+  });
+
+  test("reaches BEGIN for a valid nested Neon migration host", async () => {
+    const calls = [];
+    const result = await provisionDatabaseRoles({
+      adapter: {
+        query: async (sql) => {
+          calls.push(sql);
+          if (sql.includes("current_user AS rolname")) return { rows: [{ rolname: "neondb_owner", rolcanlogin: true, rolcreaterole: false, rolsuper: false, rolcreatedb: true, neon_superuser: true }] };
+          if (sql.includes("FROM pg_roles r") && sql.includes("product_suite_platform_runtime")) return {
+            rows: [
+              { rolname: "product_suite_platform_runtime", rolcanlogin: false, rolsuper: false, rolcreaterole: false, rolcreatedb: false },
+              { rolname: "product_suite_meeting_runtime", rolcanlogin: false, rolsuper: false, rolcreaterole: false, rolcreatedb: false },
+            ],
+          };
+          return { rows: [] };
+        },
+      },
+      databaseUrl: "postgresql://owner:secret@ep-safe-compute.eu-central-1.azure.neon.tech/neondb?sslmode=require",
+    });
+    expect(result).toMatchObject({ ok: true, status: "READY" });
+    expect(calls[0]).toBe("BEGIN;");
+  });
+
   test("declares the Neon driver at the root because the provisioning script imports it directly", () => {
     const packageJson = JSON.parse(
       readFileSync(new URL("../package.json", import.meta.url), "utf8"),
@@ -35,6 +78,14 @@ describe("database role provisioning", () => {
       admin: { rolcanlogin: true, rolsuper: true, rolcreaterole: false },
       roles: [],
     })).toThrow("CREATEROLE");
+  });
+
+  test("accepts Neon API-created owners through neon_superuser membership", () => {
+    const evidence = analyzeRoleProvisioning({
+      admin: { rolname: "neondb_owner", rolcanlogin: true, rolcreaterole: false, neon_superuser: true },
+      roles: requiredRuntimeRoles,
+    });
+    expect(evidence).toMatchObject({ ok: true, status: "READY" });
   });
 
   test("fails closed when a required NOLOGIN role is a LOGIN role", () => {
@@ -126,7 +177,7 @@ describe("database role provisioning", () => {
       adapter: {
         query: async (sql) => {
           calls.push(sql);
-          if (sql.includes("current_user AS rolname")) return { rows: [{ rolname: "neondb_owner", rolcanlogin: true, rolcreaterole: true, rolsuper: true, rolcreatedb: true }] };
+          if (sql.includes("current_user AS rolname")) return { rows: [{ rolname: "neondb_owner", rolcanlogin: true, rolcreaterole: false, rolsuper: false, rolcreatedb: true, neon_superuser: true }] };
           if (sql.includes("FROM pg_roles r") && sql.includes("product_suite_platform_runtime")) return {
             rows: [
               { rolname: "product_suite_platform_runtime", rolcanlogin: false, rolsuper: false, rolcreaterole: false, rolcreatedb: false },
@@ -143,8 +194,59 @@ describe("database role provisioning", () => {
     const membershipQuery = calls.find((sql) => sql.includes("JOIN pg_roles member"));
     expect(membershipQuery).toContain("m.inherit_option");
     expect(membershipQuery).toContain("m.set_option");
+    expect(calls.find((sql) => sql.includes("current_user AS rolname"))).toContain("parent.rolname = 'neon_superuser'");
     expect(JSON.stringify(result)).not.toContain("secret");
   });
+
+  const roleProvisionStepCases = [
+    ["begin", "ROLE_PROVISION_BEGIN_FAILED"],
+    ["authority-read", "ROLE_PROVISION_AUTHORITY_FAILED"],
+    ["authority-validate", "ROLE_PROVISION_AUTHORITY_FAILED"],
+    ["lock", "ROLE_PROVISION_LOCK_FAILED"],
+    ["create", "ROLE_PROVISION_CREATE_ROLES_FAILED"],
+    ["grant", "ROLE_PROVISION_GRANTS_FAILED"],
+    ["role-state", "ROLE_PROVISION_ROLE_STATE_FAILED"],
+    ["membership-read", "ROLE_PROVISION_MEMBERSHIP_FAILED"],
+    ["membership-validate", "ROLE_PROVISION_MEMBERSHIP_FAILED"],
+    ["commit", "ROLE_PROVISION_COMMIT_FAILED"],
+  ];
+
+  for (const [step, code] of roleProvisionStepCases) {
+    test(`redacts ${step} as ${code}`, async () => {
+      const adapter = {
+        query: async (sql) => {
+          const fail = () => { throw new Error("secret https://neon.example/projects/prod token=opaque"); };
+          if (step === "begin" && sql === "BEGIN;") fail();
+          if (step === "authority-read" && sql.includes("current_user AS rolname")) fail();
+          if (sql.includes("current_user AS rolname")) {
+            return { rows: [{ rolname: "neondb_owner", rolcanlogin: step !== "authority-validate", rolcreaterole: false, rolsuper: false, rolcreatedb: true, neon_superuser: true }] };
+          }
+          if (step === "lock" && sql.includes("pg_advisory_xact_lock")) fail();
+          if (step === "create" && sql.startsWith("\nDO $$")) fail();
+          if (step === "grant" && sql.startsWith("GRANT ")) fail();
+          if (step === "role-state" && sql.includes("product_suite_platform_runtime") && sql.includes("FROM pg_roles r")) fail();
+          if (step === "membership-read" && sql.includes("JOIN pg_roles member")) fail();
+          if (sql.includes("product_suite_platform_runtime") && sql.includes("FROM pg_roles r")) return {
+            rows: [
+              { rolname: "product_suite_platform_runtime", rolcanlogin: false, rolsuper: false, rolcreaterole: false, rolcreatedb: false },
+              { rolname: "product_suite_meeting_runtime", rolcanlogin: false, rolsuper: false, rolcreaterole: false, rolcreatedb: false },
+            ],
+          };
+          if (step === "membership-validate" && sql.includes("JOIN pg_roles member")) return {
+            rows: [{ member: "unknown_login", role: "product_suite_platform_runtime", admin_option: false, inherit_option: false, set_option: false }],
+          };
+          if (step === "commit" && sql === "COMMIT;") fail();
+          if (step === "role-state" && sql === "ROLLBACK;") fail();
+          return { rows: [] };
+        },
+      };
+      await expect(provisionDatabaseRoles({
+        adapter,
+        platformLogin: "platform_runtime_login",
+        meetingLogin: "meeting_runtime_login",
+      })).rejects.toThrow(code);
+    });
+  }
 
   test("accepts a non-production IPv6 loopback PostgreSQL authority", async () => {
     const result = await provisionDatabaseRoles({
@@ -171,6 +273,6 @@ describe("database role provisioning", () => {
     await expect(provisionDatabaseRoles({
       adapter: { query: async () => ({ rows: [] }) },
       databaseUrl: "postgresql://owner:secret@ep-test.us-east-2.aws.neon.tech/neondb?sslmode=require",
-    })).rejects.toThrow("SQL_AUTHORITY_NOT_FOUND");
+    })).rejects.toThrow("ROLE_PROVISION_AUTHORITY_FAILED");
   });
 });

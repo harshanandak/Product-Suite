@@ -19,7 +19,7 @@ describe('Neon control-plane failure classification', () => {
       { method: 'POST', body: { secret: 'request-body' } },
       async () => new Response(JSON.stringify({ secret: 'response-body' }), { status }),
       [],
-    )).rejects.toMatchObject({ code, message: code })
+    )).rejects.toMatchObject({ code, message: code, diagnostic: { endpointCategory: 'project', statusClass: `${Math.floor(status / 100)}xx` } })
   })
 
   it('maps transport failures to NETWORK_FAILED without leaking the thrown detail', async () => {
@@ -29,6 +29,10 @@ describe('Neon control-plane failure classification', () => {
       { method: 'POST' },
       async () => { throw new TypeError('https://secret.example/token=opaque-token') },
       [],
-    )).rejects.toMatchObject({ code: 'NETWORK_FAILED', message: 'NETWORK_FAILED' })
+    )).rejects.toMatchObject({
+      code: 'NETWORK_FAILED',
+      message: 'NETWORK_FAILED',
+      diagnostic: { endpointCategory: 'project', statusClass: 'network' },
+    })
   })
 })
