@@ -117,7 +117,8 @@ export function redactEvidence(input = {}) {
 }
 
 export function createMigrationEvidence(input = {}) {
-  const evidence = { ok: true, ...redactEvidence(input) };
+  const ok = !["FAIL", "INCOMPLETE"].includes(input.status);
+  const evidence = { ok, ...redactEvidence({ ...input, ok }) };
   if (Array.isArray(evidence.applied)) evidence.count = evidence.applied.length;
   return Object.freeze(evidence);
 }
@@ -161,6 +162,8 @@ export function verifyMigrationEvidence(evidence = {}) {
   if (JSON.stringify(evidence, (_key, value) => typeof value === "string" && FORBIDDEN_VALUE.test(value) ? "__FORBIDDEN__" : value).includes("__FORBIDDEN__")) issues.push("secret or executable value forbidden");
   if (!["bootstrap", "apply", "verify"].includes(safe.operation)) issues.push("operation missing or invalid");
   if (!["APPLIED", "NOOP", "BOOTSTRAPPED", "PREFLIGHT_READY", "FAIL", "INCOMPLETE"].includes(safe.status)) issues.push("status missing or invalid");
+  if (typeof safe.ok !== "boolean") issues.push("evidence ok flag missing");
+  else if (["FAIL", "INCOMPLETE"].includes(safe.status) ? safe.ok : !safe.ok) issues.push("evidence status and ok flag mismatch");
   if (!["original-production", "repaired-bootstrap"].includes(safe.historyVariant)) issues.push("history variant missing or invalid");
   if (!Array.isArray(safe.applied)) issues.push("applied migration records missing");
   for (const entry of safe.applied ?? []) {

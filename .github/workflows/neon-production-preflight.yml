@@ -34,7 +34,7 @@ jobs:
           node --input-type=module <<'PREFLIGHT'
           import { writeFileSync } from "node:fs";
           const evidence = {
-            ok: true,
+            ok: false,
             schemaVersion: "neon-production-preflight-evidence.v1",
             operation: "verify",
             status: "FAIL",

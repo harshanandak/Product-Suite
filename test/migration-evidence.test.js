@@ -114,8 +114,27 @@ describe("migration evidence", () => {
       repository: "befach/product-suite", runId: "123", runSha: "a".repeat(40),
       error: "postgresql://reader:secret@example.invalid/neondb",
     });
-    expect(verifyMigrationEvidence(evidence)).toMatchObject({ ok: true, status: "FAIL", code: "PREFLIGHT_ATTESTATION_UNCONFIGURED" });
+    expect(evidence).toMatchObject({ ok: false, status: "FAIL", code: "PREFLIGHT_ATTESTATION_UNCONFIGURED" });
+    expect(verifyMigrationEvidence(evidence)).toMatchObject({ ok: false, status: "FAIL" });
     expect(JSON.stringify(evidence)).not.toContain("postgresql://");
     expect(JSON.stringify(evidence)).not.toContain("secret");
+  });
+
+  test.each([
+    ["FAIL", true],
+    ["INCOMPLETE", true],
+    ["NOOP", false],
+  ])("rejects inconsistent status/ok: %s/%s", (status, ok) => {
+    const evidence = createMigrationEvidence({
+      operation: "verify", historyVariant: "repaired-bootstrap", status,
+      applied: [],
+    });
+    expect(verifyMigrationEvidence({ ...evidence, ok })).toMatchObject({ ok: false, code: "EVIDENCE_INVALID" });
+  });
+
+  test("rejects unsupported PASS evidence instead of treating it as a preflight proof", () => {
+    expect(verifyMigrationEvidence({
+      operation: "verify", historyVariant: "repaired-bootstrap", status: "PASS", ok: true, applied: [],
+    })).toMatchObject({ ok: false, code: "EVIDENCE_INVALID" });
   });
 });

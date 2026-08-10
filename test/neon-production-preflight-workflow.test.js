@@ -118,7 +118,7 @@ describe("protected Neon production preflight workflow", () => {
     const hasNegative = (source, objectKind, privilege) => grantContract.negativePrivileges.some((fact) =>
       fact.source === source && fact.objectKind === objectKind && fact.privilege === privilege && fact.granted === false,
     );
-    for (const source of ["direct", "inherited", "PUBLIC", "built-in-default-role", "default-acl"]) {
+    for (const source of ["effective", "direct", "inherited", "PUBLIC", "built-in-default-role", "default-acl"]) {
       for (const privilege of ["INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"]) expect(hasNegative(source, "table", privilege)).toBe(true);
       for (const privilege of ["USAGE", "UPDATE", "SELECT"]) expect(hasNegative(source, "sequence", privilege)).toBe(true);
     }
