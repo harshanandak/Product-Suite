@@ -240,11 +240,13 @@ describe("database role provisioning", () => {
           return { rows: [] };
         },
       };
-      await expect(provisionDatabaseRoles({
+      const error = await provisionDatabaseRoles({
         adapter,
         platformLogin: "platform_runtime_login",
         meetingLogin: "meeting_runtime_login",
-      })).rejects.toThrow(code);
+      }).catch((caught) => caught);
+      expect(error).toBeInstanceOf(Error);
+      expect(error.message).toBe(code);
     });
   }
 
