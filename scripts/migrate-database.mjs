@@ -326,11 +326,15 @@ export function validatePreflightSnapshot({ snapshot = {}, attestation = {}, gra
   if (identity.loginIdentifier !== attestation.role?.loginIdentifier) return fail("PREFLIGHT_LOGIN_MISMATCH");
   if (attestation.role?.grantContract !== grantContract.name || attestation.role?.grantContractSha256 !== grantContractDigest(grantContract)) return fail("PREFLIGHT_GRANT_CONTRACT_MISMATCH");
   if (identity.canLogin !== true || [identity.superuser, identity.createDatabase, identity.createRole, identity.replication, identity.bypassRls, identity.temporary].some((value) => value !== false)) return fail("PREFLIGHT_ROLE_ADMIN");
-  const expectedFacts = [...(grantContract.positivePrivileges ?? []), ...(grantContract.negativePrivileges ?? [])];
+  const expectedFacts = [...(grantContract.positivePrivileges ?? []), ...(grantContract.negativePrivileges ?? [])]
+    .filter((fact) => fact.source !== "default-acl");
+  const expectedDefaultAclPaths = (grantContract.negativePrivileges ?? []).filter((fact) => fact.source === "default-acl");
   const actualFacts = snapshot.privilegeFacts ?? [];
   if (actualFacts.some((fact) => fact.granted && (grantContract.negativePrivileges ?? []).some((expected) => sameFacts([fact], [{ ...expected, granted: fact.granted }])))) return fail("PREFLIGHT_WRITE_PRIVILEGE");
   if (!sameFacts(actualFacts, expectedFacts)) return fail("PREFLIGHT_PRIVILEGE_PROOF_INCOMPLETE");
   if (!Array.isArray(snapshot.defaultAclWritePaths)) return fail("PREFLIGHT_DEFAULT_ACL_UNPROVEN");
+  if (expectedDefaultAclPaths.length === 0 || expectedDefaultAclPaths.some((fact) => !fact.objectKind || !fact.objectName || !fact.privilege || fact.granted !== false)) return fail("PREFLIGHT_DEFAULT_ACL_UNPROVEN");
+  if (snapshot.defaultAclWritePaths.some((path) => !expectedDefaultAclPaths.some((expected) => sameFacts([normalizeFact(path)], [{ ...expected, granted: true }])))) return fail("PREFLIGHT_DEFAULT_ACL_UNPROVEN");
   if (snapshot.defaultAclWritePaths.length > 0) return fail("PREFLIGHT_DEFAULT_ACL_WRITE");
   const expectedProbes = ["autocommit", "transaction"].flatMap((mode) => (grantContract.denialProbes ?? []).map((operation) => `${mode}:${operation}`)).sort();
   const actualProbes = (snapshot.denialProbes ?? []).map((probe) => `${probe.mode}:${probe.operation}`).sort();
@@ -390,15 +394,57 @@ SELECT e.source, e."objectKind" AS object_kind, e."objectName" AS object_name, e
     WHEN e.source = 'direct' THEN EXISTS (SELECT 1 FROM acl_facts a JOIN pg_roles r ON r.oid=a.grantee WHERE r.rolname=current_user AND a.object_kind=e."objectKind" AND a.object_name=e."objectName" AND a.privilege=e.privilege)
     WHEN e.source = 'inherited' THEN EXISTS (SELECT 1 FROM acl_facts a JOIN inherited_roles r ON r.oid=a.grantee WHERE r.rolname<>current_user AND a.object_kind=e."objectKind" AND a.object_name=e."objectName" AND a.privilege=e.privilege)
     WHEN e.source = 'built-in-default-role' THEN EXISTS (SELECT 1 FROM pg_roles r WHERE r.rolname IN ('pg_database_owner','pg_read_all_data','pg_write_all_data') AND pg_has_role(current_user, r.rolname, 'MEMBER'))
-    WHEN e.source = 'default-acl' THEN false
     ELSE true
   END AS granted
 FROM expected e;`;
 
-const DEFAULT_ACL_SQL = `/* preflight:default-acl */
-SELECT defaclrole::regrole::text AS subject, privilege_type AS privilege
-FROM pg_default_acl CROSS JOIN LATERAL aclexplode(defaclacl)
-WHERE privilege_type IN ('INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER','USAGE','SELECT');`;
+export const DEFAULT_ACL_SQL = `/* preflight:default-acl */
+WITH RECURSIVE expected AS (
+  SELECT * FROM jsonb_to_recordset($1::jsonb)
+    AS x(source text, "objectKind" text, "objectName" text, privilege text, granted boolean)
+), inherited_roles AS (
+  SELECT r.oid FROM pg_roles r WHERE r.rolname = current_user
+  UNION
+  SELECT parent.oid FROM pg_auth_members membership
+  JOIN inherited_roles member ON member.oid = membership.member
+  JOIN pg_roles parent ON parent.oid = membership.roleid
+), relevant_grantees AS (
+  SELECT 0::oid AS oid
+  UNION SELECT oid FROM inherited_roles
+), catalog_defaults AS (
+  SELECT 'database' AS object_kind, d.datname AS object_name, acl.grantee, acl.privilege_type AS privilege
+  FROM pg_database d
+  CROSS JOIN LATERAL aclexplode(acldefault('d', d.datdba)) acl
+  WHERE d.datacl IS NULL
+  UNION ALL
+  SELECT 'schema', n.nspname, acl.grantee, acl.privilege_type
+  FROM pg_namespace n
+  CROSS JOIN LATERAL aclexplode(acldefault('n', n.nspowner)) acl
+  WHERE n.nspacl IS NULL
+  UNION ALL
+  SELECT CASE defaults.defaclobjtype WHEN 'r' THEN 'table' WHEN 'S' THEN 'sequence' WHEN 'n' THEN 'schema' END,
+         CASE WHEN defaults.defaclobjtype = 'n' THEN '*' ELSE coalesce(namespace.nspname, '*') || '.*' END,
+         acl.grantee, acl.privilege_type
+  FROM pg_default_acl defaults
+  LEFT JOIN pg_namespace namespace ON namespace.oid = defaults.defaclnamespace
+  CROSS JOIN LATERAL aclexplode(defaults.defaclacl) acl
+  WHERE defaults.defaclobjtype IN ('r', 'S', 'n')
+)
+SELECT e.source, e."objectKind" AS object_kind, e."objectName" AS object_name, e.privilege, true AS granted
+FROM expected e
+WHERE e.source = 'default-acl'
+  AND e.privilege IN ('CREATE','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER','USAGE','SELECT')
+  AND EXISTS (
+    SELECT 1 FROM catalog_defaults actual
+    JOIN relevant_grantees grantee ON grantee.oid = actual.grantee
+    WHERE actual.object_kind = e."objectKind"
+      AND actual.privilege = e.privilege
+      AND (
+        actual.object_name = e."objectName"
+        OR (actual.object_name = '*' AND e."objectKind" = 'schema')
+        OR (e."objectKind" IN ('table','sequence') AND (actual.object_name = '*' OR e."objectName" LIKE replace(actual.object_name, '.*', '.%')))
+      )
+  );`;
 const CATALOG_SQL = `/* preflight:catalog */ SELECT n.nspname AS schema_name, c.relname AS object_name, c.relkind AS object_kind, pg_get_userbyid(c.relowner) AS owner_name FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('public','drizzle') ORDER BY n.nspname, c.relname, c.relkind;`;
 const ROW_COUNTS_SQL = `/* preflight:row-counts */ SELECT 'drizzle_migration_rows' AS metric, count(*)::bigint::text::int AS count FROM drizzle.__drizzle_migrations;`;
 
@@ -437,8 +483,8 @@ async function runTransactionDenialProbes(client, operations) {
 async function collectPreflightSnapshot(client, contract) {
   const identity = await client.query(IDENTITY_SQL);
   const expectedFacts = [...(contract.positivePrivileges ?? []), ...(contract.negativePrivileges ?? [])];
-  const privileges = await client.query(PRIVILEGE_SQL, [JSON.stringify(expectedFacts)]);
-  const defaultAcl = await client.query(DEFAULT_ACL_SQL);
+  const privileges = await client.query(PRIVILEGE_SQL, [JSON.stringify(expectedFacts.filter((fact) => fact.source !== "default-acl"))]);
+  const defaultAcl = await client.query(DEFAULT_ACL_SQL, [JSON.stringify(expectedFacts.filter((fact) => fact.source === "default-acl"))]);
   const catalog = await client.query(CATALOG_SQL);
   const rowCounts = await client.query(ROW_COUNTS_SQL);
   return {

@@ -4,6 +4,7 @@ import {
   applyMigrations,
   bootstrapMigrations,
   buildMigrationPlan,
+  DEFAULT_ACL_SQL,
   grantContractDigest,
   loadMigrationFiles,
   productionPreflightFiles,
@@ -40,9 +41,13 @@ describe("canonical migration runner", () => {
       { source: "effective", objectKind: "table", objectName: "drizzle.__drizzle_migrations", privilege: "SELECT", granted: true },
     ],
     negativePrivileges: [
+      { source: "default-acl", objectKind: "database", objectName: "neondb", privilege: "CREATE", granted: false },
+      { source: "default-acl", objectKind: "schema", objectName: "public", privilege: "CREATE", granted: false },
+      { source: "default-acl", objectKind: "schema", objectName: "drizzle", privilege: "CREATE", granted: false },
       { source: "direct", objectKind: "schema", objectName: "public", privilege: "CREATE", granted: false },
       { source: "inherited", objectKind: "table", objectName: "drizzle.__drizzle_migrations", privilege: "INSERT", granted: false },
       { source: "PUBLIC", objectKind: "table", objectName: "drizzle.__drizzle_migrations", privilege: "UPDATE", granted: false },
+      { source: "direct", objectKind: "sequence", objectName: "drizzle.__drizzle_migrations_id_seq", privilege: "USAGE", granted: false },
       { source: "default-acl", objectKind: "sequence", objectName: "drizzle.__drizzle_migrations_id_seq", privilege: "USAGE", granted: false },
     ],
     denialProbes: ["INSERT", "UPDATE", "DELETE", "DDL", "nextval"],
@@ -61,7 +66,8 @@ describe("canonical migration runner", () => {
     source: { kind: "independently-signed-export", immutableSourceSha256: "b".repeat(64), producedAt: "2026-08-10T09:00:00.000Z" },
     validity: { expiresAt: "2026-08-11T09:00:00.000Z" },
   };
-  const privilegeFacts = [...preflightContract.positivePrivileges, ...preflightContract.negativePrivileges];
+  const privilegeFacts = [...preflightContract.positivePrivileges, ...preflightContract.negativePrivileges]
+    .filter((fact) => fact.source !== "default-acl");
   const denialProbes = ["autocommit", "transaction"].flatMap((mode) =>
     preflightContract.denialProbes.map((operation) => ({ mode, operation, code: "25006" })),
   );
@@ -87,6 +93,16 @@ describe("canonical migration runner", () => {
     })).toMatchObject({ ok: true, loginIdentifier, catalogDigest: "a".repeat(64) });
   });
 
+  test("observes object-specific database and schema CREATE default-ACL paths", () => {
+    expect(DEFAULT_ACL_SQL).toContain("object_kind");
+    expect(DEFAULT_ACL_SQL).toContain("object_name");
+    expect(DEFAULT_ACL_SQL).toContain("privilege");
+    expect(DEFAULT_ACL_SQL).toContain("'CREATE'");
+    expect(DEFAULT_ACL_SQL).toContain("acldefault('d'");
+    expect(DEFAULT_ACL_SQL).toContain("acldefault('n'");
+    expect(DEFAULT_ACL_SQL).not.toContain("default-acl' THEN false");
+  });
+
   test.each([
     ["owner role", { identity: { ...snapshot.identity, loginIdentifier: "neondb_owner" } }, "PREFLIGHT_LOGIN_MISMATCH"],
     ["superuser", { identity: { ...snapshot.identity, superuser: true } }, "PREFLIGHT_ROLE_ADMIN"],
@@ -95,7 +111,9 @@ describe("canonical migration runner", () => {
     ["inherited write", { privilegeFacts: privilegeFacts.map((fact) => fact.source === "inherited" ? { ...fact, granted: true } : fact) }, "PREFLIGHT_WRITE_PRIVILEGE"],
     ["PUBLIC write", { privilegeFacts: privilegeFacts.map((fact) => fact.source === "PUBLIC" ? { ...fact, granted: true } : fact) }, "PREFLIGHT_WRITE_PRIVILEGE"],
     ["sequence write", { privilegeFacts: privilegeFacts.map((fact) => fact.objectKind === "sequence" ? { ...fact, granted: true } : fact) }, "PREFLIGHT_WRITE_PRIVILEGE"],
-    ["default ACL write", { defaultAclWritePaths: [{ subject: loginIdentifier, privilege: "INSERT" }] }, "PREFLIGHT_DEFAULT_ACL_WRITE"],
+    ["database CREATE default ACL", { defaultAclWritePaths: [{ source: "default-acl", objectKind: "database", objectName: "neondb", privilege: "CREATE", granted: true }] }, "PREFLIGHT_DEFAULT_ACL_WRITE"],
+    ["schema CREATE default ACL", { defaultAclWritePaths: [{ source: "default-acl", objectKind: "schema", objectName: "public", privilege: "CREATE", granted: true }] }, "PREFLIGHT_DEFAULT_ACL_WRITE"],
+    ["unknown default ACL path", { defaultAclWritePaths: [{ source: "default-acl", objectKind: "schema", objectName: "uncontracted", privilege: "CREATE", granted: true }] }, "PREFLIGHT_DEFAULT_ACL_UNPROVEN"],
     ["successful autocommit probe", { denialProbes: denialProbes.map((probe, index) => index === 0 ? { ...probe, code: null } : probe) }, "PREFLIGHT_DENIAL_PROBE_SUCCEEDED"],
     ["catalog mismatch", { catalogDigest: "b".repeat(64) }, "PREFLIGHT_CATALOG_MISMATCH"],
   ])("fails closed for %s", (_label, override, code) => {
