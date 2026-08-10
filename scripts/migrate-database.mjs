@@ -1,22 +1,157 @@
 #!/usr/bin/env node
 
-import { createHash } from "node:crypto";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { createHash, createPublicKey, verify as verifySignature } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import authorityContract from "../config/database-authority.json" with { type: "json" };
+import productionPreflightGrantContract from "../config/neon-production-preflight-grants.json" with { type: "json" };
 import { parseNeonUrl } from "./check-database-authority.mjs";
 import { createDatabasePool } from "./database-pool.mjs";
-import { createMigrationEvidence } from "./migration-evidence.mjs";
+import { createMigrationEvidence, createPreflightFailureEvidence, verifyMigrationEvidence } from "./migration-evidence.mjs";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
+const SHA1 = /^[a-f0-9]{40}$/i;
+const SHA256 = /^[a-f0-9]{64}$/i;
+const IDENTIFIER = /^[a-z0-9][a-z0-9_.-]{2,127}$/i;
+const REPOSITORY = /^[a-z0-9_.-]+\/[a-z0-9_.-]+$/i;
+const lexicalCompare = (left, right) => String(left).localeCompare(String(right));
+const GIT_EXECUTABLES = Object.freeze({
+  win32: Object.freeze([
+    "C:\\Program Files\\Git\\cmd\\git.exe",
+    "C:\\Program Files\\Git\\bin\\git.exe",
+  ]),
+  linux: Object.freeze(["/usr/bin/git"]),
+  darwin: Object.freeze([
+    "/usr/bin/git",
+    "/opt/homebrew/bin/git",
+    "/usr/local/bin/git",
+  ]),
+});
 export const MIGRATIONS_ROOT = join(SCRIPT_DIR, "..", "packages", "db", "migrations");
 export const HISTORY_VARIANTS = Object.freeze(["original-production", "repaired-bootstrap"]);
 export const ENVIRONMENT_HISTORY_PINS = Object.freeze(authorityContract.environmentHistoryPins);
 
 function canonicalHash(value) {
   return createHash("sha256").update(String(value).replace(/\r\n?/g, "\n"), "utf8").digest("hex");
+}
+
+function rawSha256(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function canonicalize(value) {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === "object") return Object.fromEntries(Object.keys(value).sort(lexicalCompare).map((key) => [key, canonicalize(value[key])]));
+  return value;
+}
+
+export function canonicalPreflightPayload(attestation = {}) {
+  const payload = Object.fromEntries(Object.entries(attestation).filter(([key]) => key !== "signature"));
+  return JSON.stringify(canonicalize(payload));
+}
+
+function gitBlobId(bytes) {
+  const buffer = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
+  const gitExecutable = resolveGitExecutable();
+  if (!gitExecutable) return null;
+  try {
+    const blobId = execFileSync(gitExecutable, ["hash-object", "--stdin"], {
+      input: buffer,
+      encoding: "utf8",
+      windowsHide: true,
+    }).trim();
+    return SHA1.test(blobId) ? blobId : null;
+  } catch {
+    return null;
+  }
+}
+
+export function resolveGitExecutable({ platform = process.platform, fileExists = existsSync } = {}) {
+  return GIT_EXECUTABLES[platform]?.find((candidate) => fileExists(candidate)) ?? null;
+}
+
+function attestationParts(attestation) {
+  return {
+    target: attestation.target ?? {},
+    role: attestation.role ?? {},
+    recovery: attestation.recovery ?? {},
+    source: attestation.source ?? {},
+    validity: attestation.validity ?? {},
+    signature: attestation.signature ?? {},
+  };
+}
+
+function hasValidAttestationIdentities({ target, role, recovery }) {
+  return [target.projectId, target.productionBranchId, target.endpointId, role.loginIdentifier, recovery.id, recovery.projectId, recovery.sourceBranchId]
+    .every((value) => IDENTIFIER.test(value ?? ""));
+}
+
+function hasValidAttestationDigests(attestation, { role, source }) {
+  return [role.grantContractSha256, attestation.catalog?.catalogSha256, source.immutableSourceSha256]
+    .every((value) => SHA256.test(value ?? ""));
+}
+
+function verifyAttestationSignature(attestation, trust, signature) {
+  const payload = canonicalPreflightPayload(attestation);
+  const payloadDigest = canonicalHash(payload);
+  if (signature.algorithm !== "Ed25519" || signature.canonicalPayloadSha256 !== payloadDigest || typeof signature.value !== "string") return fail("PREFLIGHT_ATTESTATION_SIGNATURE_INVALID");
+  const trustedKey = trust.keys?.find((key) => key.keyId === signature.keyId && key.algorithm === "Ed25519");
+  if (!trustedKey) return fail("PREFLIGHT_ATTESTATION_KEY_UNTRUSTED");
+  try {
+    if (!verifySignature(null, Buffer.from(payload), createPublicKey(trustedKey.publicKeyPem), Buffer.from(signature.value, "base64"))) return fail("PREFLIGHT_ATTESTATION_SIGNATURE_INVALID");
+  } catch {
+    return fail("PREFLIGHT_ATTESTATION_SIGNATURE_INVALID");
+  }
+  return { ok: true, payloadDigest };
+}
+
+function isFreshAttestation({ validity, recovery, source }, now) {
+  const instants = [
+    now instanceof Date ? now.getTime() : new Date(now).getTime(),
+    Date.parse(validity.notBefore),
+    Date.parse(validity.expiresAt),
+    Date.parse(recovery.createdAt),
+    Date.parse(recovery.expiresAt),
+    Date.parse(source.producedAt),
+  ];
+  const [instant, notBefore, expiresAt, recoveryCreatedAt, recoveryExpiresAt, sourceProducedAt] = instants;
+  return instants.every(Number.isFinite)
+    && instant >= notBefore && instant < expiresAt && instant < recoveryExpiresAt
+    && sourceProducedAt <= instant && recoveryCreatedAt <= instant;
+}
+
+export function verifyProductionPreflightAttestation({ attestation = {}, trust = {}, fileBytes = "", fileBlobId, runSha, repository, now = new Date() } = {}) {
+  if (attestation.configured !== true) return fail("PREFLIGHT_ATTESTATION_UNCONFIGURED");
+  if (attestation.schemaVersion !== "neon-production-preflight-attestation.v1" || trust.schemaVersion !== "neon-production-preflight-trust.v1") return fail("PREFLIGHT_ATTESTATION_SCHEMA_INVALID");
+  if (!SHA1.test(runSha ?? "") || !REPOSITORY.test(repository ?? "")) return fail("PREFLIGHT_RUN_CONTEXT_INVALID");
+  const parts = attestationParts(attestation);
+  const { target, role, recovery, source, signature } = parts;
+  if (!hasValidAttestationIdentities(parts)) return fail("PREFLIGHT_ATTESTATION_IDENTITY_INVALID");
+  if (target.database !== "neondb" || target.schema !== "public" || recovery.projectId !== target.projectId || recovery.sourceBranchId !== target.productionBranchId) return fail("PREFLIGHT_ATTESTATION_TARGET_MISMATCH");
+  if (role.grantContract !== productionPreflightGrantContract.name || role.grantContractSha256 !== grantContractDigest()) return fail("PREFLIGHT_ATTESTATION_GRANT_MISMATCH");
+  if (!hasValidAttestationDigests(attestation, parts)) return fail("PREFLIGHT_ATTESTATION_DIGEST_INVALID");
+  if (!["branch", "snapshot"].includes(recovery.kind) || !["neon-control-plane-export", "independently-signed-export"].includes(source.kind)) return fail("PREFLIGHT_ATTESTATION_SOURCE_INVALID");
+  const signatureProof = verifyAttestationSignature(attestation, trust, signature);
+  if (!signatureProof.ok) return signatureProof;
+  const parsedFile = (() => { try { return JSON.parse(String(fileBytes)); } catch { return null; } })();
+  if (!parsedFile || JSON.stringify(canonicalize(parsedFile)) !== JSON.stringify(canonicalize(attestation))) return fail("PREFLIGHT_ATTESTATION_FILE_MISMATCH");
+  const observedBlobId = gitBlobId(fileBytes);
+  if (!SHA1.test(fileBlobId ?? "") || observedBlobId !== fileBlobId) return fail("PREFLIGHT_ATTESTATION_BLOB_MISMATCH");
+  if (!isFreshAttestation(parts, now)) return fail("PREFLIGHT_ATTESTATION_STALE");
+  return {
+    ok: true, runSha, repository,
+    attestationBlobId: observedBlobId,
+    attestationFileSha256: rawSha256(fileBytes),
+    attestationCanonicalPayloadSha256: signatureProof.payloadDigest,
+    signatureKeyId: signature.keyId,
+  };
+}
+
+export function grantContractDigest(contract = productionPreflightGrantContract) {
+  return createHash("sha256").update(JSON.stringify(canonicalize(contract)), "utf8").digest("hex");
 }
 
 function redactError(error) {
@@ -81,7 +216,8 @@ function compareHashes(applied, files) {
   for (const entry of applied) {
     const expected = byTag.get(entry.tag);
     if (!expected) return "MIGRATION_TAG_UNKNOWN";
-    if (entry.hash && expected.hash && entry.hash !== expected.hash) return "MIGRATION_HASH_MISMATCH";
+    const acceptedHashes = new Set((expected.strictAcceptedHashes ? expected.acceptedHashes : [expected.hash, ...(expected.acceptedHashes ?? [])]).filter(Boolean));
+    if (entry.hash && acceptedHashes.size > 0 && !acceptedHashes.has(entry.hash)) return "MIGRATION_HASH_MISMATCH";
     if (entry.timestamp !== undefined && expected.timestamp !== undefined && Number(entry.timestamp) !== Number(expected.timestamp)) return "MIGRATION_TIMESTAMP_MISMATCH";
   }
   return null;
@@ -164,7 +300,7 @@ export function buildMigrationPlan({ applied = [], declared = [], files = [], au
 }
 
 function migrationRows(rows, files = []) {
-  const byHash = new Map(files.filter((file) => file.hash).map((file) => [file.hash, file.tag]));
+  const byHash = new Map(files.flatMap((file) => [file.hash, ...(file.acceptedHashes ?? [])].filter(Boolean).map((hash) => [hash, file.tag])));
   return (rows ?? []).map((row) => ({
     tag: row.tag ?? row.name ?? row.migration_tag ?? byHash.get(row.hash),
     hash: row.hash ?? row.hash_value,
@@ -193,6 +329,313 @@ function runnableSql(sql) {
 }
 
 const HISTORY_SQL = "SELECT hash, created_at AS timestamp FROM drizzle.__drizzle_migrations ORDER BY created_at, id;";
+
+const SAFE_PROBE_CODES = new Set(["25006", "42501"]);
+
+function fail(code) { return { ok: false, code }; }
+
+function normalizeIdentity(row = {}) {
+  return {
+    database: row.database ?? row.database_name,
+    schema: row.schema ?? row.schema_name,
+    loginIdentifier: row.loginIdentifier ?? row.login_identifier,
+    canLogin: row.canLogin ?? row.can_login,
+    superuser: row.superuser,
+    createDatabase: row.createDatabase ?? row.create_database,
+    createRole: row.createRole ?? row.create_role,
+    replication: row.replication,
+    bypassRls: row.bypassRls ?? row.bypass_rls,
+    temporary: row.temporary,
+  };
+}
+
+export function validateProductionHistoryRows(historyRows, files) {
+  if (!Array.isArray(historyRows)) return fail("MIGRATION_HISTORY_UNAVAILABLE");
+  const tagsByHash = acceptedHistoryTags(files);
+  const normalized = historyRows.map((row) => normalizeProductionHistoryRow(row, tagsByHash));
+  const invalid = normalized.find((row) => !row.ok);
+  if (invalid) return fail(invalid.code);
+  const rows = normalized.map(({ value }) => value);
+  if (rows.length !== 18) return fail("MIGRATION_COUNT_MISMATCH");
+  if (new Set(rows.map((row) => row.tag)).size !== rows.length) return fail("MIGRATION_DUPLICATE_TAG");
+  return { ok: true, rows };
+}
+
+function acceptedHistoryTags(files) {
+  const byHash = new Map();
+  for (const file of files ?? []) {
+    const hashes = file.strictAcceptedHashes ? file.acceptedHashes : [file.hash, ...(file.acceptedHashes ?? [])];
+    for (const hash of hashes ?? []) if (hash) byHash.set(hash, file.tag);
+  }
+  return byHash;
+}
+
+function normalizeProductionHistoryRow(row, tagsByHash) {
+  const hash = row?.hash ?? row?.hash_value;
+  const mappedTag = tagsByHash.get(hash);
+  if (!mappedTag) return fail("MIGRATION_HASH_UNKNOWN");
+  const suppliedTag = row?.tag ?? row?.name ?? row?.migration_tag;
+  if (suppliedTag !== undefined && suppliedTag !== mappedTag) return fail("MIGRATION_TAG_HASH_MISMATCH");
+  return { ok: true, value: { tag: mappedTag, hash, timestamp: row?.timestamp ?? row?.created_at ?? row?.when } };
+}
+
+function normalizeFact(row = {}) {
+  return {
+    source: row.source,
+    objectKind: row.objectKind ?? row.object_kind,
+    objectName: row.objectName ?? row.object_name,
+    privilege: row.privilege,
+    granted: row.granted,
+  };
+}
+
+function sameFacts(actual, expected) {
+  const sort = (facts) => facts.map(normalizeFact).sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+  return JSON.stringify(sort(actual)) === JSON.stringify(sort(expected));
+}
+
+export function validatePreflightSnapshot({ snapshot = {}, attestation = {}, grantContract = productionPreflightGrantContract, expectedEndpointId } = {}) {
+  const identity = normalizeIdentity(snapshot.identity);
+  if (expectedEndpointId !== attestation.target?.endpointId) return fail("PREFLIGHT_ENDPOINT_MISMATCH");
+  if (identity.database !== attestation.target?.database || identity.schema !== attestation.target?.schema) return fail("PREFLIGHT_TARGET_MISMATCH");
+  if (identity.loginIdentifier !== attestation.role?.loginIdentifier) return fail("PREFLIGHT_LOGIN_MISMATCH");
+  if (attestation.role?.grantContract !== grantContract.name || attestation.role?.grantContractSha256 !== grantContractDigest(grantContract)) return fail("PREFLIGHT_GRANT_CONTRACT_MISMATCH");
+  if (identity.canLogin !== true || [identity.superuser, identity.createDatabase, identity.createRole, identity.replication, identity.bypassRls, identity.temporary].some((value) => value !== false)) return fail("PREFLIGHT_ROLE_ADMIN");
+  const expectedFacts = [...(grantContract.positivePrivileges ?? []), ...(grantContract.negativePrivileges ?? [])]
+    .filter((fact) => fact.source !== "default-acl");
+  const expectedDefaultAclPaths = (grantContract.negativePrivileges ?? []).filter((fact) => fact.source === "default-acl");
+  const actualFacts = snapshot.privilegeFacts ?? [];
+  if (actualFacts.some((fact) => fact.granted && (grantContract.negativePrivileges ?? []).some((expected) => sameFacts([fact], [{ ...expected, granted: fact.granted }])))) return fail("PREFLIGHT_WRITE_PRIVILEGE");
+  if (!sameFacts(actualFacts, expectedFacts)) return fail("PREFLIGHT_PRIVILEGE_PROOF_INCOMPLETE");
+  if (!Array.isArray(snapshot.defaultAclWritePaths)) return fail("PREFLIGHT_DEFAULT_ACL_UNPROVEN");
+  if (expectedDefaultAclPaths.length === 0 || expectedDefaultAclPaths.some((fact) => !fact.objectKind || !fact.objectName || !fact.privilege || fact.granted !== false)) return fail("PREFLIGHT_DEFAULT_ACL_UNPROVEN");
+  if (snapshot.defaultAclWritePaths.some((path) => !expectedDefaultAclPaths.some((expected) => sameFacts([normalizeFact(path)], [{ ...expected, granted: true }])))) return fail("PREFLIGHT_DEFAULT_ACL_UNPROVEN");
+  if (snapshot.defaultAclWritePaths.length > 0) return fail("PREFLIGHT_DEFAULT_ACL_WRITE");
+  const expectedProbes = ["autocommit", "transaction"].flatMap((mode) => (grantContract.denialProbes ?? []).map((operation) => `${mode}:${operation}`)).sort(lexicalCompare);
+  const actualProbes = (snapshot.denialProbes ?? []).map((probe) => `${probe.mode}:${probe.operation}`).sort(lexicalCompare);
+  if (JSON.stringify(actualProbes) !== JSON.stringify(expectedProbes)) return fail("PREFLIGHT_DENIAL_PROBE_INCOMPLETE");
+  if ((snapshot.denialProbes ?? []).some((probe) => !SAFE_PROBE_CODES.has(probe.code))) return fail("PREFLIGHT_DENIAL_PROBE_SUCCEEDED");
+  if (!/^[a-f0-9]{64}$/i.test(snapshot.catalogDigest ?? "") || snapshot.catalogDigest !== attestation.catalog?.catalogSha256) return fail("PREFLIGHT_CATALOG_MISMATCH");
+  const metrics = (snapshot.aggregateRowCounts ?? []).map((entry) => entry.metric).sort(lexicalCompare);
+  if (JSON.stringify(metrics) !== JSON.stringify([...(grantContract.rowCountMetrics ?? [])].sort(lexicalCompare))) return fail("PREFLIGHT_ROW_COUNT_CONTRACT_MISMATCH");
+  return {
+    ok: true,
+    loginIdentifier: identity.loginIdentifier,
+    catalogDigest: snapshot.catalogDigest,
+    grantDigest: canonicalHash(canonicalize({ privilegeFacts: actualFacts, defaultAclWritePaths: snapshot.defaultAclWritePaths })),
+    aggregateRowCounts: snapshot.aggregateRowCounts,
+  };
+}
+
+const IDENTITY_SQL = `/* preflight:identity */
+SELECT current_database() AS database_name, current_schema() AS schema_name,
+       current_user AS login_identifier, r.rolcanlogin AS can_login,
+       r.rolsuper AS superuser, r.rolcreatedb AS create_database,
+       r.rolcreaterole AS create_role, r.rolreplication AS replication,
+       r.rolbypassrls AS bypass_rls,
+       has_database_privilege(current_user, current_database(), 'TEMPORARY') AS temporary
+FROM pg_roles r WHERE r.rolname = current_user;`;
+
+const PRIVILEGE_SQL = `/* preflight:privileges */
+WITH RECURSIVE expected AS (
+  SELECT * FROM jsonb_to_recordset($1::jsonb)
+    AS x(source text, "objectKind" text, "objectName" text, privilege text, granted boolean)
+), inherited_roles AS (
+  SELECT r.oid, r.rolname FROM pg_roles r WHERE r.rolname = current_user
+  UNION
+  SELECT parent.oid, parent.rolname FROM pg_auth_members membership
+  JOIN inherited_roles member ON member.oid = membership.member
+  JOIN pg_roles parent ON parent.oid = membership.roleid
+), acl_facts AS (
+  SELECT CASE WHEN c.relkind = 'S' THEN 'sequence' ELSE 'table' END AS object_kind, n.nspname || '.' || c.relname AS object_name,
+         acl.grantee, acl.privilege_type AS privilege
+  FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+  CROSS JOIN LATERAL aclexplode(coalesce(c.relacl, acldefault(CASE WHEN c.relkind = 'S' THEN 'S'::"char" ELSE 'r'::"char" END, c.relowner))) acl
+  WHERE c.relkind IN ('r','p','S')
+  UNION ALL
+  SELECT 'schema', n.nspname, acl.grantee, acl.privilege_type
+  FROM pg_namespace n CROSS JOIN LATERAL aclexplode(coalesce(n.nspacl, acldefault('n', n.nspowner))) acl
+  UNION ALL
+  SELECT 'database', d.datname, acl.grantee, acl.privilege_type
+  FROM pg_database d CROSS JOIN LATERAL aclexplode(coalesce(d.datacl, acldefault('d', d.datdba))) acl
+)
+SELECT e.source, e."objectKind" AS object_kind, e."objectName" AS object_name, e.privilege,
+  CASE
+    WHEN e.source = 'effective' AND e."objectKind" = 'database' THEN has_database_privilege(current_user, e."objectName", e.privilege)
+    WHEN e.source = 'effective' AND e."objectKind" = 'schema' THEN has_schema_privilege(current_user, e."objectName", e.privilege)
+    WHEN e.source = 'effective' AND e."objectKind" = 'table' THEN has_table_privilege(current_user, e."objectName", e.privilege)
+    WHEN e.source = 'effective' AND e."objectKind" = 'sequence' THEN has_sequence_privilege(current_user, e."objectName", e.privilege)
+    WHEN e.source = 'PUBLIC' THEN EXISTS (SELECT 1 FROM acl_facts a WHERE a.object_kind=e."objectKind" AND a.object_name=e."objectName" AND a.privilege=e.privilege AND a.grantee=0)
+    WHEN e.source = 'direct' THEN EXISTS (SELECT 1 FROM acl_facts a JOIN pg_roles r ON r.oid=a.grantee WHERE r.rolname=current_user AND a.object_kind=e."objectKind" AND a.object_name=e."objectName" AND a.privilege=e.privilege)
+    WHEN e.source = 'inherited' THEN EXISTS (SELECT 1 FROM acl_facts a JOIN inherited_roles r ON r.oid=a.grantee WHERE r.rolname<>current_user AND a.object_kind=e."objectKind" AND a.object_name=e."objectName" AND a.privilege=e.privilege)
+    WHEN e.source = 'built-in-default-role' THEN EXISTS (SELECT 1 FROM pg_roles r WHERE r.rolname IN ('pg_database_owner','pg_read_all_data','pg_write_all_data') AND pg_has_role(current_user, r.rolname, 'MEMBER'))
+    ELSE true
+  END AS granted
+FROM expected e;`;
+
+export const DEFAULT_ACL_SQL = `/* preflight:default-acl */
+WITH RECURSIVE expected AS (
+  SELECT * FROM jsonb_to_recordset($1::jsonb)
+    AS x(source text, "objectKind" text, "objectName" text, privilege text, granted boolean)
+), inherited_roles AS (
+  SELECT r.oid FROM pg_roles r WHERE r.rolname = current_user
+  UNION
+  SELECT parent.oid FROM pg_auth_members membership
+  JOIN inherited_roles member ON member.oid = membership.member
+  JOIN pg_roles parent ON parent.oid = membership.roleid
+), relevant_grantees AS (
+  SELECT 0::oid AS oid
+  UNION SELECT oid FROM inherited_roles
+), catalog_defaults AS (
+  SELECT 'database' AS object_kind, d.datname AS object_name, acl.grantee, acl.privilege_type AS privilege
+  FROM pg_database d
+  CROSS JOIN LATERAL aclexplode(acldefault('d', d.datdba)) acl
+  WHERE d.datacl IS NULL
+  UNION ALL
+  SELECT 'schema', n.nspname, acl.grantee, acl.privilege_type
+  FROM pg_namespace n
+  CROSS JOIN LATERAL aclexplode(acldefault('n', n.nspowner)) acl
+  WHERE n.nspacl IS NULL
+  UNION ALL
+  SELECT CASE defaults.defaclobjtype WHEN 'r' THEN 'table' WHEN 'S' THEN 'sequence' WHEN 'n' THEN 'schema' END,
+         CASE WHEN defaults.defaclobjtype = 'n' THEN '*' ELSE coalesce(namespace.nspname, '*') || '.*' END,
+         acl.grantee, acl.privilege_type
+  FROM pg_default_acl defaults
+  LEFT JOIN pg_namespace namespace ON namespace.oid = defaults.defaclnamespace
+  CROSS JOIN LATERAL aclexplode(defaults.defaclacl) acl
+  WHERE defaults.defaclobjtype IN ('r', 'S', 'n')
+)
+SELECT e.source, e."objectKind" AS object_kind, e."objectName" AS object_name, e.privilege, true AS granted
+FROM expected e
+WHERE e.source = 'default-acl'
+  AND e.privilege IN ('CREATE','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER','USAGE','SELECT')
+  AND EXISTS (
+    SELECT 1 FROM catalog_defaults actual
+    JOIN relevant_grantees grantee ON grantee.oid = actual.grantee
+    WHERE actual.object_kind = e."objectKind"
+      AND actual.privilege = e.privilege
+      AND (
+        actual.object_name = e."objectName"
+        OR (actual.object_name = '*' AND e."objectKind" = 'schema')
+        OR (e."objectKind" IN ('table','sequence') AND (actual.object_name = '*' OR e."objectName" LIKE replace(actual.object_name, '.*', '.%')))
+      )
+  );`;
+const CATALOG_SQL = `/* preflight:catalog */ SELECT n.nspname AS schema_name, c.relname AS object_name, c.relkind AS object_kind, pg_get_userbyid(c.relowner) AS owner_name FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('public','drizzle') ORDER BY n.nspname, c.relname, c.relkind;`;
+const ROW_COUNTS_SQL = `/* preflight:row-counts */ SELECT 'drizzle_migration_rows' AS metric, count(*)::bigint::text::int AS count FROM drizzle.__drizzle_migrations;`;
+
+const PROBE_SQL = Object.freeze({
+  INSERT: "INSERT INTO drizzle.__drizzle_migrations (hash, created_at) SELECT repeat('0', 64), 0 WHERE false;",
+  UPDATE: "UPDATE drizzle.__drizzle_migrations SET hash = hash WHERE false;",
+  DELETE: "DELETE FROM drizzle.__drizzle_migrations WHERE false;",
+  DDL: "CREATE TABLE public.__product_suite_preflight_forbidden (id integer);",
+  nextval: "SELECT nextval('drizzle.__drizzle_migrations_id_seq'::regclass);",
+});
+
+async function runAutocommitDenialProbes(client, operations) {
+  const results = [];
+  await client.query("SET default_transaction_read_only = on;");
+  for (const operation of operations) {
+    try { await client.query(PROBE_SQL[operation]); results.push({ mode: "autocommit", operation, code: null }); }
+    catch (error) { results.push({ mode: "autocommit", operation, code: error?.code ?? null }); }
+  }
+  return results;
+}
+
+async function runTransactionDenialProbes(client, operations) {
+  const results = [];
+  for (const operation of operations) {
+    await client.query("SAVEPOINT preflight_denial_probe;");
+    try { await client.query(PROBE_SQL[operation]); results.push({ mode: "transaction", operation, code: null }); }
+    catch (error) { results.push({ mode: "transaction", operation, code: error?.code ?? null }); }
+    finally {
+      await client.query("ROLLBACK TO SAVEPOINT preflight_denial_probe;");
+      await client.query("RELEASE SAVEPOINT preflight_denial_probe;");
+    }
+  }
+  return results;
+}
+
+async function collectPreflightSnapshot(client, contract) {
+  const identity = await client.query(IDENTITY_SQL);
+  const expectedFacts = [...(contract.positivePrivileges ?? []), ...(contract.negativePrivileges ?? [])];
+  const privileges = await client.query(PRIVILEGE_SQL, [JSON.stringify(expectedFacts.filter((fact) => fact.source !== "default-acl"))]);
+  const defaultAcl = await client.query(DEFAULT_ACL_SQL, [JSON.stringify(expectedFacts.filter((fact) => fact.source === "default-acl"))]);
+  const catalog = await client.query(CATALOG_SQL);
+  const rowCounts = await client.query(ROW_COUNTS_SQL);
+  return {
+    identity: normalizeIdentity(identity?.rows?.[0]),
+    privilegeFacts: (privileges?.rows ?? []).map(normalizeFact),
+    defaultAclWritePaths: defaultAcl?.rows ?? [],
+    denialProbes: [],
+    catalogDigest: catalog?.rows?.[0]?.catalog_digest ?? canonicalHash(canonicalize(catalog?.rows ?? [])),
+    aggregateRowCounts: (rowCounts?.rows ?? []).map((entry) => ({ metric: entry.metric, count: Number(entry.count) })),
+  };
+}
+
+export async function verifyProductionPreflight({ adapter, files = loadMigrationFiles(), expectedFloor, authority, attestation, grantContract = productionPreflightGrantContract, endpointId, runContext = {} } = {}) {
+  if (authority?.environment !== "production" || authority?.historyVariant !== "original-production" || expectedFloor !== "0017") return fail("PREFLIGHT_HISTORY_CONTRACT_MISMATCH");
+  if (!adapter?.query && !adapter?.connect) return fail("PREFLIGHT_DATABASE_UNAVAILABLE");
+  const client = adapter.connect ? await adapter.connect() : adapter;
+  try {
+    try { await client.query("BEGIN READ ONLY;"); }
+    catch { return fail("PREFLIGHT_READ_ONLY_SETUP_FAILED"); }
+    let snapshot;
+    let historyRows;
+    let transactionProbes;
+    let readFailure = null;
+    try {
+      snapshot = await collectPreflightSnapshot(client, grantContract);
+      const history = await query(client, HISTORY_SQL);
+      historyRows = history?.rows;
+      transactionProbes = await runTransactionDenialProbes(client, grantContract.denialProbes ?? []);
+    } catch {
+      readFailure = fail("PREFLIGHT_DATABASE_READ_FAILED");
+    }
+    try { await client.query("ROLLBACK;"); }
+    catch { return fail("PREFLIGHT_READ_ONLY_ROLLBACK_FAILED"); }
+    if (readFailure) return readFailure;
+    let autocommitProbes;
+    try { autocommitProbes = await runAutocommitDenialProbes(client, grantContract.denialProbes ?? []); }
+    catch { return fail("PREFLIGHT_READ_ONLY_SETUP_FAILED"); }
+    snapshot.denialProbes = [...autocommitProbes, ...transactionProbes];
+    const validated = validatePreflightSnapshot({ snapshot, attestation, grantContract, expectedEndpointId: endpointId });
+    if (!validated.ok) return validated;
+    const history = validateProductionHistoryRows(historyRows, files);
+    if (!history.ok) return history;
+    const rows = history.rows;
+    const pendingFiles = files.filter((file) => tagNumber(file.tag) > 17);
+    const plan = buildMigrationPlan({ applied: rows, declared: pendingFiles, files, expectedCount: 18, expectedFloor, authority, observedVariant: "original-production" });
+    if (!plan.ok) return plan;
+    if (plan.pending.join(",") !== "0018,0019") return fail("PREFLIGHT_PENDING_SUFFIX_MISMATCH");
+    const evidence = createMigrationEvidence({
+      schemaVersion: "neon-production-preflight-evidence.v1",
+      operation: "verify", status: "PREFLIGHT_READY", reasonCodes: ["PREFLIGHT_READY"],
+      historyVariant: plan.historyVariant, expectedFloor, expectedCount: 18,
+      repository: runContext.repository, runId: runContext.runId, runSha: runContext.runSha,
+      projectId: attestation.target?.projectId, branchId: attestation.target?.productionBranchId,
+      endpointId, database: attestation.target?.database, schema: attestation.target?.schema,
+      proofSource: attestation.source?.kind, sourceImmutableSha256: attestation.source?.immutableSourceSha256,
+      sourceProducedAt: attestation.source?.producedAt,
+      attestationBlobId: runContext.attestationBlobId,
+      attestationFileSha256: runContext.attestationFileSha256,
+      attestationCanonicalPayloadSha256: runContext.attestationCanonicalPayloadSha256,
+      signatureKeyId: runContext.signatureKeyId,
+      recoveryKind: attestation.recovery?.kind, recoveryId: attestation.recovery?.id,
+      recoverySourceBranchId: attestation.recovery?.sourceBranchId,
+      observedAt: new Date().toISOString(), expiresAt: attestation.validity?.expiresAt,
+      loginIdentifier: validated.loginIdentifier,
+      grantContract: grantContract.name, grantContractSha256: grantContractDigest(grantContract),
+      catalogDigest: validated.catalogDigest, grantDigest: validated.grantDigest,
+      aggregateRowCounts: validated.aggregateRowCounts,
+      applied: rows.map((entry) => ({ tag: entry.tag, timestamp: Number(entry.timestamp), hash: entry.hash })),
+      pending: pendingFiles.map((entry) => ({ tag: entry.tag, hash: entry.hash })),
+    });
+    const checked = verifyMigrationEvidence(evidence);
+    return checked.ok ? evidence : fail(checked.code);
+  } finally {
+    client.release?.();
+  }
+}
 
 /** Apply only an exact, caller-declared contiguous suffix under one lock. */
 export async function applyMigrations({ adapter, applied = [], declared = [], files = loadMigrationFiles(), authority, observedVariant, hashes, history, expectedCount, expectedFloor } = {}) {
@@ -295,12 +738,121 @@ function parseArgs(args) {
   return options;
 }
 
+function readPreflightConfig(name) {
+  const path = join(SCRIPT_DIR, "..", "config", name);
+  return { bytes: readFileSync(path, "utf8"), value: JSON.parse(readFileSync(path, "utf8")) };
+}
+
+export function productionPreflightFiles(files) {
+  const manifest = JSON.parse(readFileSync(join(SCRIPT_DIR, "..", "docs", "history", "database-migrations", "manifest.json"), "utf8"));
+  const journal = JSON.parse(readFileSync(join(MIGRATIONS_ROOT, "meta", "_journal.json"), "utf8"));
+  const timestamps = new Map((journal.entries ?? []).map((entry) => [entry.tag, Number(entry.when)]));
+  const repairs = new Map((manifest.drizzle?.repairs ?? []).map((entry) => [entry.path.replace(/\.sql$/, ""), entry]));
+  return files.map((file) => {
+    const repair = repairs.get(file.tag);
+    const acceptedHashes = repair
+      ? [repair.original?.lfSha256, repair.original?.crlfSha256].filter(Boolean)
+      : [file.hash];
+    return {
+      ...file,
+      hash: repair?.original?.lfSha256 ?? file.hash,
+      timestamp: timestamps.get(file.tag) ?? file.timestamp,
+      acceptedHashes,
+      strictAcceptedHashes: true,
+    };
+  });
+}
+
+function isProductionPreflight(options) {
+  return options.operation === "verify"
+    && options.environment === "production"
+    && options.historyVariant === "original-production"
+    && options.expectedFloor === "0017";
+}
+
+function createFailureEmitter({ productionPreflight, writeEvidence, runContext }) {
+  return (code, extra = {}) => {
+    if (!productionPreflight) return;
+    try {
+      writeEvidence(createPreflightFailureEvidence({ code, ...runContext(), ...extra }));
+    } catch {
+      // The workflow's initialized failure artifact remains authoritative.
+    }
+  };
+}
+
+function rejectCli({ code, message, emitFailure, writeError, extra }) {
+  emitFailure(code, extra);
+  writeError(message);
+  process.exitCode = 1;
+  return { ok: false, code };
+}
+
+function validateCliEndpoint({ options, databaseUrl }) {
+  if (options.environment !== "production") return { ok: true, endpoint: undefined };
+  try {
+    return { ok: true, endpoint: parseNeonUrl(databaseUrl, "migration") };
+  } catch {
+    return fail("PREFLIGHT_DATABASE_URL_INVALID");
+  }
+}
+
+function readPreflightInputs({ preflightAttestation, preflightTrust, preflightFileBytes }) {
+  try {
+    const attestationConfig = preflightAttestation === undefined ? readPreflightConfig("neon-production-preflight-attestation.json") : null;
+    const trustConfig = preflightTrust === undefined ? readPreflightConfig("neon-production-preflight-trust.json") : null;
+    const attestation = preflightAttestation ?? attestationConfig.value;
+    const trust = preflightTrust ?? trustConfig.value;
+    const fileBytes = preflightFileBytes ?? attestationConfig?.bytes;
+    if (fileBytes === undefined) return fail("PREFLIGHT_ATTESTATION_CONFIG_INVALID");
+    return { ok: true, attestation, trust, fileBytes };
+  } catch {
+    return fail("PREFLIGHT_ATTESTATION_CONFIG_INVALID");
+  }
+}
+
+function resolvePreflightAttestation({ productionPreflight, preflightAttestation, preflightTrust, preflightFileBytes, preflightFileBlobId, runContext }) {
+  if (!productionPreflight) return { ok: true, attestation: preflightAttestation, runContext };
+  const inputs = readPreflightInputs({ preflightAttestation, preflightTrust, preflightFileBytes });
+  if (!inputs.ok) return inputs;
+  const proof = verifyProductionPreflightAttestation({
+    attestation: inputs.attestation,
+    trust: inputs.trust,
+    fileBytes: inputs.fileBytes,
+    fileBlobId: preflightFileBlobId,
+    runSha: runContext.runSha,
+    repository: runContext.repository,
+  });
+  if (!proof.ok) return { ...proof, extra: { attestationFileSha256: rawSha256(inputs.fileBytes) } };
+  return { ok: true, attestation: inputs.attestation, proof, runContext: { ...runContext, ...proof } };
+}
+
+async function executeMigrationOperation({ options, pool, files, authority, productionPreflight, attestation, endpoint, runContext }) {
+  if (options.operation === "bootstrap") {
+    const declared = options.declared.length ? options.declared : files.map((file) => file.tag);
+    return bootstrapMigrations({ adapter: pool, files, declared, authority });
+  }
+  if (options.operation === "apply") return applyMigrations({ adapter: pool, files, declared: options.declared, authority });
+  if (productionPreflight) return verifyProductionPreflight({ adapter: pool, files, expectedFloor: options.expectedFloor, authority, attestation, endpointId: endpoint.endpointId, runContext });
+  return verifyMigrations({ adapter: pool, files, declared: [], expectedFloor: options.expectedFloor, authority });
+}
+
 export async function runMigrationCli({
   args = process.argv.slice(2),
   databaseUrl = process.env.MIGRATION_DATABASE_URL,
   poolFactory = createDatabasePool,
   writeError = (message) => console.error(message),
   writeOutput = (message) => console.log(message),
+  preflightAttestation,
+  preflightTrust,
+  preflightFileBytes,
+  preflightFileBlobId = process.env.PREFLIGHT_ATTESTATION_BLOB_ID,
+  writeEvidence = (packet) => writeFileSync(join(process.cwd(), "neon-production-preflight-evidence.json"), `${JSON.stringify(packet, null, 2)}\n`, { encoding: "utf8", mode: 0o600 }),
+  runContext = {
+    runSha: process.env.GITHUB_SHA,
+    repository: process.env.GITHUB_REPOSITORY,
+    runId: process.env.GITHUB_RUN_ID,
+  },
 } = {}) {
   const options = parseArgs(args);
   if (!options?.operation || !options.historyVariant || !options.environment) {
@@ -308,25 +860,52 @@ export async function runMigrationCli({
     process.exitCode = 1;
     return;
   }
+  const productionPreflight = isProductionPreflight(options);
+  const currentRunContext = () => runContext;
+  const emitFailure = createFailureEmitter({ productionPreflight, writeEvidence, runContext: currentRunContext });
   const url = databaseUrl;
-  if (!url) { writeError("MIGRATION_DATABASE_URL is required"); process.exitCode = 1; return; }
-  if (options.environment === "production") parseNeonUrl(url, "migration");
+  if (!url) {
+    rejectCli({ code: "PREFLIGHT_DATABASE_URL_REQUIRED", message: "MIGRATION_DATABASE_URL is required", emitFailure, writeError });
+    return;
+  }
+  const endpointResult = validateCliEndpoint({ options, databaseUrl: url });
+  if (!endpointResult.ok) {
+    rejectCli({ code: endpointResult.code, message: `migration ${options.operation} rejected: ${endpointResult.code}`, emitFailure, writeError });
+    return;
+  }
+  const attestationResult = resolvePreflightAttestation({
+    productionPreflight, preflightAttestation, preflightTrust, preflightFileBytes,
+    preflightFileBlobId, runContext,
+  });
+  if (!attestationResult.ok) {
+    rejectCli({ code: attestationResult.code, message: `migration verify rejected: ${attestationResult.code}`, emitFailure, writeError, extra: attestationResult.extra });
+    return;
+  }
+  runContext = attestationResult.runContext;
+  preflightAttestation = attestationResult.attestation;
+  const attestationProof = attestationResult.proof;
   let pool;
   try {
     pool = await poolFactory({ databaseUrl: url, environment: options.environment });
-    const files = loadMigrationFiles();
+    const loadedFiles = loadMigrationFiles();
+    const files = productionPreflight ? productionPreflightFiles(loadedFiles) : loadedFiles;
     const authority = { environment: options.environment, historyVariant: options.historyVariant };
-    let result;
-    if (options.operation === "bootstrap") result = await bootstrapMigrations({ adapter: pool, files, declared: options.declared.length ? options.declared : files.map((file) => file.tag), authority });
-    else if (options.operation === "apply") result = await applyMigrations({ adapter: pool, files, declared: options.declared, authority });
-    else result = await verifyMigrations({ adapter: pool, files, declared: [], expectedFloor: options.expectedFloor, authority });
-    if (!result.ok) { writeError(`migration ${options.operation} rejected: ${result.code}`); process.exitCode = 1; return; }
-    writeOutput(JSON.stringify(result));
-  } catch (error) {
-    writeError(`migration ${options.operation} failed: ${error?.message || "unknown"}`);
-    process.exitCode = 1;
+    const result = await executeMigrationOperation({ options, pool, files, authority, productionPreflight, attestation: preflightAttestation, endpoint: endpointResult.endpoint, runContext });
+    if (!result.ok) {
+      rejectCli({ code: result.code, message: `migration ${options.operation} rejected: ${result.code}`, emitFailure, writeError, extra: attestationProof });
+      return;
+    }
+    const checked = verifyMigrationEvidence(result);
+    if (!checked.ok) {
+      rejectCli({ code: checked.code, message: `migration ${options.operation} rejected: ${checked.code}`, emitFailure, writeError, extra: attestationProof });
+      return;
+    }
+    if (productionPreflight) writeEvidence(checked);
+    writeOutput(JSON.stringify(checked));
+  } catch {
+    rejectCli({ code: "MIGRATION_FAILED", message: `migration ${options.operation} failed: MIGRATION_FAILED`, emitFailure, writeError, extra: attestationProof });
   } finally {
-    await pool?.end();
+    await pool?.end?.();
   }
 }
 

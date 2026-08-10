@@ -85,4 +85,36 @@ describe('canonical Neon authority handoff', () => {
       expect(read(fixture)).toContain('insert into tenants (id, slug, name)')
     }
   })
+
+  test('documents the protected preflight and separate production apply approvals', () => {
+    const authority = read('docs/deployment/DATABASE_AUTHORITY.md')
+    const deploy = read('apps/platform-api/DEPLOY.md')
+    const handoff = `${authority}\n${deploy}`.replace(/\s+/g, ' ')
+
+    for (const field of [
+      'db-preflight-production',
+      'db-migrate-production',
+      'product-suite-neon-preflight-reader-v1',
+      'loginIdentifier',
+      'direct, inherited, `PUBLIC`, built-in/default-role, and default-ACL',
+      'autocommit and explicit-transaction',
+      'INSERT`, `UPDATE`, `DELETE`, DDL, and `nextval`',
+      'config/neon-production-preflight-attestation.json',
+      'Ed25519',
+      'Git blob',
+      'source hash',
+      'freshness',
+      'recovery',
+      'bun run migrate:database -- verify --environment production --history-variant original-production --expected-floor 0017',
+      'PREFLIGHT_READY',
+      'independent artifact review',
+      'separate apply approval',
+      'HUMAN_INFRASTRUCTURE_REQUIRED',
+    ]) expect(handoff).toContain(field)
+
+    expect(handoff).toMatch(/never (reuse|use).*(owner|apply).*LOGIN/i)
+    expect(handoff).toMatch(/hostname.*does not prove.*project.*branch/i)
+    expect(handoff).toMatch(/shape[- ]only.*(forbidden|not proof|rejected)/i)
+    expect(handoff).toMatch(/PASS.*never.*(dispatch|authorize|imply).*apply/i)
+  })
 })

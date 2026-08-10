@@ -1,0 +1,5 @@
+{
+  "configured": false,
+  "schemaVersion": "neon-production-preflight-attestation.v1",
+  "reason": "HUMAN_INFRASTRUCTURE_REQUIRED"
+}

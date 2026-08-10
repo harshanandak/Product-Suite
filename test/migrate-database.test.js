@@ -4,8 +4,15 @@ import {
   applyMigrations,
   bootstrapMigrations,
   buildMigrationPlan,
+  DEFAULT_ACL_SQL,
+  grantContractDigest,
+  loadMigrationFiles,
+  productionPreflightFiles,
   runMigrationCli,
+  validateProductionHistoryRows,
+  validatePreflightSnapshot,
   verifyMigrations,
+  verifyProductionPreflight,
 } from "../scripts/migrate-database.mjs";
 import { provisionDatabaseRoles } from "../scripts/provision-database-roles.mjs";
 
@@ -18,6 +25,178 @@ const files = [
 const authority = { environment: "staging", historyVariant: "repaired-bootstrap" };
 
 describe("canonical migration runner", () => {
+  const preflightFiles = Array.from({ length: 20 }, (_, index) => ({
+    tag: String(index).padStart(4, "0"),
+    hash: String(index).padStart(64, "0"),
+    timestamp: index,
+  }));
+  const preflightContract = {
+    schemaVersion: "neon-production-preflight-grants.v1",
+    name: "product-suite-neon-preflight-reader-v1",
+    database: "neondb",
+    schema: "public",
+    positivePrivileges: [
+      { source: "effective", objectKind: "database", objectName: "neondb", privilege: "CONNECT", granted: true },
+      { source: "effective", objectKind: "schema", objectName: "public", privilege: "USAGE", granted: true },
+      { source: "effective", objectKind: "table", objectName: "drizzle.__drizzle_migrations", privilege: "SELECT", granted: true },
+    ],
+    negativePrivileges: [
+      { source: "default-acl", objectKind: "database", objectName: "neondb", privilege: "CREATE", granted: false },
+      { source: "default-acl", objectKind: "schema", objectName: "public", privilege: "CREATE", granted: false },
+      { source: "default-acl", objectKind: "schema", objectName: "drizzle", privilege: "CREATE", granted: false },
+      { source: "effective", objectKind: "table", objectName: "drizzle.__drizzle_migrations", privilege: "INSERT", granted: false },
+      { source: "effective", objectKind: "table", objectName: "drizzle.__drizzle_migrations", privilege: "UPDATE", granted: false },
+      { source: "effective", objectKind: "table", objectName: "drizzle.__drizzle_migrations", privilege: "DELETE", granted: false },
+      { source: "effective", objectKind: "table", objectName: "drizzle.__drizzle_migrations", privilege: "TRUNCATE", granted: false },
+      { source: "effective", objectKind: "table", objectName: "drizzle.__drizzle_migrations", privilege: "REFERENCES", granted: false },
+      { source: "effective", objectKind: "table", objectName: "drizzle.__drizzle_migrations", privilege: "TRIGGER", granted: false },
+      { source: "effective", objectKind: "sequence", objectName: "drizzle.__drizzle_migrations_id_seq", privilege: "USAGE", granted: false },
+      { source: "effective", objectKind: "sequence", objectName: "drizzle.__drizzle_migrations_id_seq", privilege: "UPDATE", granted: false },
+      { source: "effective", objectKind: "sequence", objectName: "drizzle.__drizzle_migrations_id_seq", privilege: "SELECT", granted: false },
+      { source: "direct", objectKind: "schema", objectName: "public", privilege: "CREATE", granted: false },
+      { source: "inherited", objectKind: "table", objectName: "drizzle.__drizzle_migrations", privilege: "INSERT", granted: false },
+      { source: "PUBLIC", objectKind: "table", objectName: "drizzle.__drizzle_migrations", privilege: "UPDATE", granted: false },
+      { source: "direct", objectKind: "sequence", objectName: "drizzle.__drizzle_migrations_id_seq", privilege: "USAGE", granted: false },
+      { source: "default-acl", objectKind: "sequence", objectName: "drizzle.__drizzle_migrations_id_seq", privilege: "USAGE", granted: false },
+    ],
+    denialProbes: ["INSERT", "UPDATE", "DELETE", "DDL", "nextval"],
+    rowCountMetrics: ["drizzle_migration_rows"],
+  };
+  const loginIdentifier = "product_suite_neon_preflight_reader";
+  const preflightAttestation = {
+    target: { projectId: "project-test", productionBranchId: "branch-test", endpointId: "test-endpoint", database: "neondb", schema: "public" },
+    role: {
+      loginIdentifier,
+      grantContract: preflightContract.name,
+      grantContractSha256: grantContractDigest(preflightContract),
+    },
+    catalog: { catalogSha256: "a".repeat(64) },
+    recovery: { kind: "branch", id: "recovery-test", sourceBranchId: "branch-test" },
+    source: { kind: "independently-signed-export", immutableSourceSha256: "b".repeat(64), producedAt: "2026-08-10T09:00:00.000Z" },
+    validity: { expiresAt: "2026-08-11T09:00:00.000Z" },
+  };
+  const privilegeFacts = [...preflightContract.positivePrivileges, ...preflightContract.negativePrivileges]
+    .filter((fact) => fact.source !== "default-acl");
+  const denialProbes = ["autocommit", "transaction"].flatMap((mode) =>
+    preflightContract.denialProbes.map((operation) => ({ mode, operation, code: "25006" })),
+  );
+  const snapshot = {
+    identity: {
+      database: "neondb", schema: "public", loginIdentifier,
+      canLogin: true, superuser: false, createDatabase: false, createRole: false,
+      replication: false, bypassRls: false, temporary: false,
+    },
+    privilegeFacts,
+    defaultAclWritePaths: [],
+    denialProbes,
+    catalogDigest: "a".repeat(64),
+    aggregateRowCounts: [{ metric: "drizzle_migration_rows", count: 18 }],
+  };
+
+  test("validates the pinned preflight LOGIN, grant digest, all privilege paths, and denial probes", () => {
+    expect(validatePreflightSnapshot({
+      snapshot,
+      attestation: preflightAttestation,
+      grantContract: preflightContract,
+      expectedEndpointId: "test-endpoint",
+    })).toMatchObject({ ok: true, loginIdentifier, catalogDigest: "a".repeat(64) });
+  });
+
+  test("validates unordered probe and metric inputs with stable lexical ordering", () => {
+    expect(validatePreflightSnapshot({
+      snapshot: {
+        ...snapshot,
+        denialProbes: [...snapshot.denialProbes].reverse(),
+        aggregateRowCounts: [...snapshot.aggregateRowCounts].reverse(),
+      },
+      attestation: preflightAttestation,
+      grantContract: preflightContract,
+      expectedEndpointId: "test-endpoint",
+    })).toMatchObject({ ok: true, loginIdentifier });
+  });
+
+  test("observes object-specific database and schema CREATE default-ACL paths", () => {
+    expect(DEFAULT_ACL_SQL).toContain("object_kind");
+    expect(DEFAULT_ACL_SQL).toContain("object_name");
+    expect(DEFAULT_ACL_SQL).toContain("privilege");
+    expect(DEFAULT_ACL_SQL).toContain("'CREATE'");
+    expect(DEFAULT_ACL_SQL).toContain("acldefault('d'");
+    expect(DEFAULT_ACL_SQL).toContain("acldefault('n'");
+    expect(DEFAULT_ACL_SQL).not.toContain("default-acl' THEN false");
+  });
+
+  test.each([
+    ["owner role", { identity: { ...snapshot.identity, loginIdentifier: "neondb_owner" } }, "PREFLIGHT_LOGIN_MISMATCH"],
+    ["superuser", { identity: { ...snapshot.identity, superuser: true } }, "PREFLIGHT_ROLE_ADMIN"],
+    ["missing role attribute proof", { identity: { ...snapshot.identity, bypassRls: undefined } }, "PREFLIGHT_ROLE_ADMIN"],
+    ["schema create", { privilegeFacts: privilegeFacts.map((fact) => fact.objectKind === "schema" && fact.privilege === "CREATE" ? { ...fact, granted: true } : fact) }, "PREFLIGHT_WRITE_PRIVILEGE"],
+    ["effective table DML", { privilegeFacts: privilegeFacts.map((fact) => fact.source === "effective" && fact.objectKind === "table" && fact.privilege === "INSERT" ? { ...fact, granted: true } : fact) }, "PREFLIGHT_WRITE_PRIVILEGE"],
+    ["effective sequence privilege", { privilegeFacts: privilegeFacts.map((fact) => fact.source === "effective" && fact.objectKind === "sequence" && fact.privilege === "USAGE" ? { ...fact, granted: true } : fact) }, "PREFLIGHT_WRITE_PRIVILEGE"],
+    ["inherited write", { privilegeFacts: privilegeFacts.map((fact) => fact.source === "inherited" ? { ...fact, granted: true } : fact) }, "PREFLIGHT_WRITE_PRIVILEGE"],
+    ["PUBLIC write", { privilegeFacts: privilegeFacts.map((fact) => fact.source === "PUBLIC" ? { ...fact, granted: true } : fact) }, "PREFLIGHT_WRITE_PRIVILEGE"],
+    ["sequence write", { privilegeFacts: privilegeFacts.map((fact) => fact.objectKind === "sequence" ? { ...fact, granted: true } : fact) }, "PREFLIGHT_WRITE_PRIVILEGE"],
+    ["database CREATE default ACL", { defaultAclWritePaths: [{ source: "default-acl", objectKind: "database", objectName: "neondb", privilege: "CREATE", granted: true }] }, "PREFLIGHT_DEFAULT_ACL_WRITE"],
+    ["schema CREATE default ACL", { defaultAclWritePaths: [{ source: "default-acl", objectKind: "schema", objectName: "public", privilege: "CREATE", granted: true }] }, "PREFLIGHT_DEFAULT_ACL_WRITE"],
+    ["unknown default ACL path", { defaultAclWritePaths: [{ source: "default-acl", objectKind: "schema", objectName: "uncontracted", privilege: "CREATE", granted: true }] }, "PREFLIGHT_DEFAULT_ACL_UNPROVEN"],
+    ["successful autocommit probe", { denialProbes: denialProbes.map((probe, index) => index === 0 ? { ...probe, code: null } : probe) }, "PREFLIGHT_DENIAL_PROBE_SUCCEEDED"],
+    ["catalog mismatch", { catalogDigest: "b".repeat(64) }, "PREFLIGHT_CATALOG_MISMATCH"],
+  ])("fails closed for %s", (_label, override, code) => {
+    expect(validatePreflightSnapshot({
+      snapshot: { ...snapshot, ...override },
+      attestation: preflightAttestation,
+      grantContract: preflightContract,
+      expectedEndpointId: "test-endpoint",
+    })).toEqual({ ok: false, code });
+  });
+
+  test("derives the exact original-production suffix and emits PREFLIGHT_READY without a successful mutation", async () => {
+    const calls = [];
+    const adapter = {
+      connect: async () => ({
+        query: async (sql) => {
+          calls.push(sql);
+          if (sql.includes("preflight:identity")) return { rows: [snapshot.identity] };
+          if (sql.includes("preflight:privileges")) return { rows: privilegeFacts };
+          if (sql.includes("preflight:default-acl")) return { rows: [] };
+          if (sql.includes("preflight:catalog")) return { rows: [{ catalog_digest: snapshot.catalogDigest }] };
+          if (sql.includes("preflight:row-counts")) return { rows: snapshot.aggregateRowCounts };
+          if (sql.includes("SELECT hash, created_at AS timestamp FROM drizzle.__drizzle_migrations")) return { rows: preflightFiles.slice(0, 18) };
+          if (/INSERT|UPDATE|DELETE|CREATE TABLE|nextval/i.test(sql)) {
+            const error = new Error("redacted"); error.code = "25006"; throw error;
+          }
+          return { rows: [] };
+        },
+        release: () => {},
+      }),
+    };
+
+    const result = await verifyProductionPreflight({
+      adapter,
+      files: preflightFiles,
+      expectedFloor: "0017",
+      authority: { environment: "production", historyVariant: "original-production" },
+      attestation: preflightAttestation,
+      grantContract: preflightContract,
+      endpointId: "test-endpoint",
+      runContext: {
+        runSha: "c".repeat(40), repository: "befach/product-suite", runId: "123",
+        attestationBlobId: "d".repeat(40), attestationFileSha256: "e".repeat(64),
+        attestationCanonicalPayloadSha256: "f".repeat(64), signatureKeyId: "test-key-v1",
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true, status: "PREFLIGHT_READY", historyVariant: "original-production",
+      expectedFloor: "0017", expectedCount: 18,
+      pending: [{ tag: "0018", hash: preflightFiles[18].hash }, { tag: "0019", hash: preflightFiles[19].hash }],
+    });
+    expect(calls.join("\n")).toContain("has_schema_privilege");
+    expect(calls.join("\n")).toContain("has_table_privilege");
+    expect(calls.join("\n")).toContain("has_sequence_privilege");
+    expect(calls.join("\n")).toContain("pg_default_acl");
+    expect(calls.filter((sql) => /^(?:INSERT|UPDATE|DELETE|CREATE TABLE|SELECT nextval)/i.test(sql))).toHaveLength(10);
+  });
+
   test("reports a controlled CLI failure when pool creation is unavailable", async () => {
     const errors = [];
     const previousExitCode = process.exitCode ?? 0;
@@ -30,11 +209,96 @@ describe("canonical migration runner", () => {
         writeError: (message) => errors.push(message),
       });
 
-      expect(errors).toEqual(["migration verify failed: DATABASE_POOL_UNAVAILABLE"]);
+      expect(errors).toEqual(["migration verify failed: MIGRATION_FAILED"]);
       expect(process.exitCode).toBe(1);
     } finally {
       process.exitCode = previousExitCode;
     }
+  });
+
+  test("fails the fixed production preflight command before opening a pool when attestation is unconfigured", async () => {
+    const errors = [];
+    const evidence = [];
+    let opened = false;
+    const previousExitCode = process.exitCode ?? 0;
+    process.exitCode = 0;
+    try {
+      await runMigrationCli({
+        args: ["verify", "--environment", "production", "--history-variant", "original-production", "--expected-floor", "0017"],
+        databaseUrl: "postgresql://reader:secret@ep-test-endpoint.us-east-2.aws.neon.tech/neondb?sslmode=require",
+        poolFactory: async () => { opened = true; return { query: async () => ({ rows: [] }) }; },
+        preflightAttestation: { configured: false, schemaVersion: "neon-production-preflight-attestation.v1" },
+        preflightTrust: { schemaVersion: "neon-production-preflight-trust.v1", keys: [] },
+        preflightFileBytes: '{"configured":false,"schemaVersion":"neon-production-preflight-attestation.v1"}',
+        runContext: { runSha: "d".repeat(40), repository: "befach/product-suite", runId: "123" },
+        writeError: (message) => errors.push(message),
+        writeEvidence: (packet) => evidence.push(packet),
+      });
+      expect(opened).toBe(false);
+      expect(errors).toEqual(["migration verify rejected: PREFLIGHT_ATTESTATION_UNCONFIGURED"]);
+      expect(evidence).toHaveLength(1);
+      expect(evidence[0]).toMatchObject({ status: "FAIL", code: "PREFLIGHT_ATTESTATION_UNCONFIGURED" });
+      expect(JSON.stringify(evidence[0])).not.toContain("secret");
+      expect(process.exitCode).toBe(1);
+    } finally {
+      process.exitCode = previousExitCode;
+    }
+  });
+
+  test("preserves every production journal row and rejects unknown or repaired hashes before planning", () => {
+    const strictFiles = preflightFiles.map((file, index) => index === 0
+      ? { ...file, hash: "a".repeat(64), acceptedHashes: ["a".repeat(64)], strictAcceptedHashes: true }
+      : { ...file, acceptedHashes: [file.hash], strictAcceptedHashes: true });
+    const exactRows = strictFiles.slice(0, 18).map((file) => ({ hash: file.hash, timestamp: file.timestamp }));
+    expect(validateProductionHistoryRows(exactRows, strictFiles)).toMatchObject({ ok: true, rows: expect.any(Array) });
+    expect(validateProductionHistoryRows([...exactRows.slice(0, 17), { hash: "f".repeat(64), timestamp: 17 }], strictFiles)).toEqual({ ok: false, code: "MIGRATION_HASH_UNKNOWN" });
+    expect(validateProductionHistoryRows([{ hash: "0".repeat(64), timestamp: 0 }, ...exactRows.slice(1)], strictFiles)).toEqual({ ok: false, code: "MIGRATION_HASH_UNKNOWN" });
+    expect(validateProductionHistoryRows([{ ...exactRows[0], tag: "0099" }, ...exactRows.slice(1)], strictFiles)).toEqual({ ok: false, code: "MIGRATION_TAG_HASH_MISMATCH" });
+    expect(validateProductionHistoryRows([...exactRows, { hash: strictFiles[18].hash, timestamp: 18 }], strictFiles)).toEqual({ ok: false, code: "MIGRATION_COUNT_MISMATCH" });
+
+    const realOriginalFiles = productionPreflightFiles(loadMigrationFiles());
+    const realOriginalRows = realOriginalFiles.slice(0, 18).map((file) => ({ hash: file.hash, timestamp: file.timestamp }));
+    const repaired0000Hash = "d3ac8d18d56871931ad7eeabbbd3468a1237e89647e85fb05be822da5f548cd2";
+    expect(validateProductionHistoryRows(realOriginalRows, realOriginalFiles)).toMatchObject({ ok: true });
+    expect(validateProductionHistoryRows([{ ...realOriginalRows[0], hash: repaired0000Hash }, ...realOriginalRows.slice(1)], realOriginalFiles)).toEqual({ ok: false, code: "MIGRATION_HASH_UNKNOWN" });
+  });
+
+  test("returns a stable redacted code when the read-only transaction cannot roll back", async () => {
+    const adapter = {
+      query: async (sql) => {
+        if (sql === "ROLLBACK;") { const error = new Error("password=secret"); error.code = "08006"; throw error; }
+        if (sql.includes("preflight:identity")) return { rows: [snapshot.identity] };
+        if (sql.includes("preflight:privileges")) return { rows: privilegeFacts };
+        if (sql.includes("preflight:default-acl")) return { rows: [] };
+        if (sql.includes("preflight:catalog")) return { rows: [{ catalog_digest: snapshot.catalogDigest }] };
+        if (sql.includes("preflight:row-counts")) return { rows: snapshot.aggregateRowCounts };
+        if (sql.includes("SELECT hash, created_at AS timestamp FROM drizzle.__drizzle_migrations")) return { rows: preflightFiles.slice(0, 18) };
+        if (/^(?:INSERT|UPDATE|DELETE|CREATE TABLE|SELECT nextval)/i.test(sql)) { const error = new Error("secret"); error.code = "25006"; throw error; }
+        return { rows: [] };
+      },
+    };
+    const result = await verifyProductionPreflight({
+      adapter, files: preflightFiles, expectedFloor: "0017",
+      authority: { environment: "production", historyVariant: "original-production" },
+      attestation: preflightAttestation, grantContract: preflightContract,
+      endpointId: "test-endpoint", runContext: {},
+    });
+    expect(result).toEqual({ ok: false, code: "PREFLIGHT_READ_ONLY_ROLLBACK_FAILED" });
+    expect(JSON.stringify(result)).not.toContain("secret");
+  });
+
+  test("starts the verifier read-only transaction before catalog reads and redacts setup failure", async () => {
+    const calls = [];
+    const result = await verifyProductionPreflight({
+      adapter: { query: async (sql) => { calls.push(sql); const error = new Error("postgresql://reader:secret@example.invalid"); error.code = "08006"; throw error; } },
+      files: preflightFiles, expectedFloor: "0017",
+      authority: { environment: "production", historyVariant: "original-production" },
+      attestation: preflightAttestation, grantContract: preflightContract,
+      endpointId: "test-endpoint", runContext: {},
+    });
+    expect(calls[0]).toBe("BEGIN READ ONLY;");
+    expect(result).toEqual({ ok: false, code: "PREFLIGHT_READ_ONLY_SETUP_FAILED" });
+    expect(JSON.stringify(result)).not.toContain("postgresql://");
   });
 
   test("plans an exact contiguous suffix and rejects reordered extras", () => {

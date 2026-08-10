@@ -1,0 +1,79 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://product-suite.invalid/schemas/neon-production-preflight-attestation.v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["configured", "schemaVersion"],
+  "properties": {
+    "configured": { "type": "boolean" },
+    "schemaVersion": { "const": "neon-production-preflight-attestation.v1" },
+    "reason": { "const": "HUMAN_INFRASTRUCTURE_REQUIRED" },
+    "target": {
+      "type": "object", "additionalProperties": false,
+      "required": ["projectId", "productionBranchId", "endpointId", "database", "schema"],
+      "properties": {
+        "projectId": { "$ref": "#/definitions/identifier" },
+        "productionBranchId": { "$ref": "#/definitions/identifier" },
+        "endpointId": { "$ref": "#/definitions/identifier" },
+        "database": { "const": "neondb" }, "schema": { "const": "public" }
+      }
+    },
+    "role": {
+      "type": "object", "additionalProperties": false,
+      "required": ["loginIdentifier", "grantContract", "grantContractSha256"],
+      "properties": {
+        "loginIdentifier": { "$ref": "#/definitions/identifier" },
+        "grantContract": { "const": "product-suite-neon-preflight-reader-v1" },
+        "grantContractSha256": { "$ref": "#/definitions/sha256" }
+      }
+    },
+    "catalog": {
+      "type": "object", "additionalProperties": false, "required": ["catalogSha256"],
+      "properties": { "catalogSha256": { "$ref": "#/definitions/sha256" } }
+    },
+    "recovery": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "id", "projectId", "sourceBranchId", "createdAt", "expiresAt"],
+      "properties": {
+        "kind": { "enum": ["branch", "snapshot"] }, "id": { "$ref": "#/definitions/identifier" },
+        "projectId": { "$ref": "#/definitions/identifier" }, "sourceBranchId": { "$ref": "#/definitions/identifier" },
+        "createdAt": { "type": "string", "format": "date-time" }, "expiresAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "immutableSourceSha256", "producedAt"],
+      "properties": {
+        "kind": { "enum": ["neon-control-plane-export", "independently-signed-export"] },
+        "immutableSourceSha256": { "$ref": "#/definitions/sha256" }, "producedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "validity": {
+      "type": "object", "additionalProperties": false, "required": ["notBefore", "expiresAt"],
+      "properties": { "notBefore": { "type": "string", "format": "date-time" }, "expiresAt": { "type": "string", "format": "date-time" } }
+    },
+    "signature": {
+      "type": "object", "additionalProperties": false,
+      "required": ["algorithm", "keyId", "canonicalPayloadSha256", "value"],
+      "properties": {
+        "algorithm": { "const": "Ed25519" }, "keyId": { "$ref": "#/definitions/identifier" },
+        "canonicalPayloadSha256": { "$ref": "#/definitions/sha256" },
+        "value": { "type": "string", "minLength": 80, "maxLength": 128, "pattern": "^[A-Za-z0-9+/]+={0,2}$" }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "configured": { "const": true } } },
+      "then": { "required": ["target", "role", "catalog", "recovery", "source", "validity", "signature"] },
+      "else": { "required": ["reason"], "not": { "anyOf": [
+        { "required": ["target"] }, { "required": ["role"] }, { "required": ["catalog"] },
+        { "required": ["recovery"] }, { "required": ["source"] }, { "required": ["validity"] }, { "required": ["signature"] }
+      ] } }
+    }
+  ],
+  "definitions": {
+    "identifier": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{2,127}$" },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  }
+}
