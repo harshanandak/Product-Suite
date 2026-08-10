@@ -617,6 +617,12 @@ describe("repo tooling", () => {
     expect(repoToolingWorkflow).toContain("bun run test:repo-tooling");
   });
 
+  test("repo-tooling CI fetches full Git history for immutable migration provenance", () => {
+    const workflow = Bun.YAML.parse(repoToolingWorkflow);
+    const checkout = workflow.jobs["repo-tooling"].steps.find((step) => step.name === "Checkout");
+    expect(checkout.with["fetch-depth"]).toBe(0);
+  });
+
   test("db-contract reports every pull request and gates credentials only for relevant changes", () => {
     const triggers = Bun.YAML.parse(dbContractWorkflow).on;
 
