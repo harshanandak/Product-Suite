@@ -103,5 +103,12 @@ describe('required Neon conformance fail-fast behavior', () => {
       name: 'NeonConformanceError',
       code: 'CANONICAL_FILE_LOAD_UNPROVEN',
     })
+
+    await expect(loadCanonicalFilesForVariant('repaired-bootstrap', () => {
+      throw new Error('MIGRATION_TOCTOU')
+    })).rejects.toMatchObject({
+      name: 'NeonConformanceError',
+      code: 'CANONICAL_FILE_LOAD_UNPROVEN_MIGRATION_TOCTOU',
+    })
   })
 })

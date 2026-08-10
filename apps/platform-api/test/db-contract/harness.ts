@@ -82,10 +82,13 @@ const CANONICAL_BOOTSTRAP_CODES = [
   'ROLE_PROVISION_COMMIT_FAILED',
 ] as const
 
-type CanonicalBootstrapCode = typeof CANONICAL_BOOTSTRAP_CODES[number]
+type CanonicalBootstrapBaseCode = typeof CANONICAL_BOOTSTRAP_CODES[number]
+type CanonicalBootstrapCode = CanonicalBootstrapBaseCode | `${CanonicalBootstrapBaseCode}_${string}`
 
 function isCanonicalBootstrapCode(code: string): code is CanonicalBootstrapCode {
-  return (CANONICAL_BOOTSTRAP_CODES as readonly string[]).includes(code)
+  return CANONICAL_BOOTSTRAP_CODES.some((base) =>
+    code === base || (code.startsWith(`${base}_`) && /^[A-Z0-9_]+$/.test(code.slice(base.length + 1))),
+  )
 }
 
 /** A redaction-safe conformance failure.  Messages are stable codes only. */
@@ -113,7 +116,7 @@ function conformanceFailure(code: string, diagnostic?: ConformanceDiagnostic, ph
 }
 
 async function canonicalBootstrapStep<T>(
-  code: CanonicalBootstrapCode,
+  code: CanonicalBootstrapBaseCode,
   operation: () => T | Promise<T>,
 ): Promise<T> {
   try {
@@ -122,6 +125,9 @@ async function canonicalBootstrapStep<T>(
     if (error instanceof NeonConformanceError && isCanonicalBootstrapCode(error.code)) throw error
     if (typeof error === 'object' && error !== null && 'code' in error && typeof error.code === 'string' && isCanonicalBootstrapCode(error.code)) {
       throw new NeonConformanceError(error.code)
+    }
+    if (error instanceof Error && /^[A-Z0-9_]+$/.test(error.message)) {
+      throw new NeonConformanceError(`${code}_${error.message}`)
     }
     throw new NeonConformanceError(code)
   }
