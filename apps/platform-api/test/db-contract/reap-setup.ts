@@ -19,6 +19,7 @@ import {
 } from './telemetry'
 import {
   DB_CONTRACT_RUNTIME_KEY,
+  DB_CONTRACT_SUITE_CONCURRENCY,
   runtimeConfigFromEnv,
   type DbContractRuntimeConfig,
 } from './runtime-config'
@@ -42,7 +43,7 @@ function defaultDependencies(): RequiredSetupDependencies {
   return {
     env: process.env,
     reap: reapStaleBranches,
-    preflight: (runtime) => preflightBranchCapacity(1, runtime),
+    preflight: (runtime) => preflightBranchCapacity(DB_CONTRACT_SUITE_CONCURRENCY, runtime),
     assertCurrentRunAbsent: assertCurrentRunBranchesAbsent,
     makeRunToken: () => randomBytes(6).toString('hex'),
     recordTelemetry: true,
@@ -59,7 +60,7 @@ export async function runRequiredSetup(
   const telemetry = dependencies.telemetry ?? (dependencies.recordTelemetry ? {
     path: runtime.telemetryPath,
     exactHead: runtime.exactHead,
-    concurrency: 1,
+    concurrency: DB_CONTRACT_SUITE_CONCURRENCY,
   } : undefined)
   if (telemetry) initializeTelemetry(telemetry.path, telemetry)
   const credentialStartedAt = performance.now()

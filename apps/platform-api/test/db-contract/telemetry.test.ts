@@ -18,6 +18,15 @@ import {
 const telemetryPath = (): string => join(mkdtempSync(join(tmpdir(), 'db-contract-telemetry-')), 'evidence.json')
 
 describe('db-contract telemetry', () => {
+  it('rejects any concurrency evidence above the approved ceiling of two', () => {
+    const path = telemetryPath()
+
+    expect(() => initializeTelemetry(path, {
+      exactHead: 'd'.repeat(40),
+      concurrency: 3,
+    })).toThrow('DB_CONTRACT_TELEMETRY_INVALID')
+  })
+
   it('emits one allowlisted ledger with exact-head counts, timings, capacity, and final cleanup proof', () => {
     const path = telemetryPath()
     initializeTelemetry(path, { exactHead: 'a'.repeat(40), concurrency: 1 })

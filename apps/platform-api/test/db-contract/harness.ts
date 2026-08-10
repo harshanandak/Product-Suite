@@ -41,7 +41,9 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { Pool } from '@neondatabase/serverless'
 import { createDb, createSql, type Database, type Sql } from '@product-suite/db'
 
-import { createEphemeralBranch, deleteEphemeralBranchStrict, NeonBranchError } from './neon-branch'
+import { createBranchLeaseCoordinator, type BranchLease } from './branch-lease'
+import { createEphemeralBranch, deleteEphemeralBranchStrict, NeonBranchError, type EphemeralBranch } from './neon-branch'
+import { workerRuntimeConfig } from './runtime-config'
 
 /** The only migration-history variants accepted by the authority contract. */
 export type NeonHistoryVariant = 'original-production' | 'repaired-bootstrap'
@@ -964,7 +966,18 @@ export async function seedBaseline(sql: Sql): Promise<Seed> {
  * tests never contend for shared rows and teardown is a single API call.
  */
 export async function withDedicatedDbBranch<T>(body: (ctx: DbBranchContext) => Promise<T>): Promise<T> {
-  const { branchId, connectionUri } = await createEphemeralBranch()
+  const runtime = workerRuntimeConfig()
+  const lease = await createBranchLeaseCoordinator({
+    runToken: runtime.runToken,
+    rootDir: runtime.leaseRoot,
+  }).acquire('dedicated')
+  let created: EphemeralBranch
+  try {
+    created = await createEphemeralBranch()
+  } catch (error) {
+    await handleDedicatedCreateFailure(error, lease)
+  }
+  const { branchId, connectionUri } = created!
   let value: T | undefined
   let primary: unknown
   let hasPrimary = false
@@ -978,15 +991,49 @@ export async function withDedicatedDbBranch<T>(body: (ctx: DbBranchContext) => P
     primary = error
     hasPrimary = true
   }
+  await finishDedicatedBranchLifecycle(branchId, lease, primary, hasPrimary)
+  return value as T
+}
+
+export async function handleDedicatedCreateFailure(error: unknown, lease: BranchLease): Promise<never> {
+  if (error instanceof NeonBranchError && error.absenceProven) {
+    try {
+      await lease.release()
+    } catch {
+      throw new AggregateError([
+        error,
+        new NeonBranchError('DB_CONTRACT_BRANCH_LEASE_RELEASE_UNPROVEN'),
+      ], 'DB_CONTRACT_TEST_AND_CLEANUP_FAILED')
+    }
+  }
+  throw error
+}
+
+export async function finishDedicatedBranchLifecycle(
+  branchId: string,
+  lease: BranchLease,
+  primary: unknown,
+  hasPrimary: boolean,
+  deleteBranch: (branchId: string) => Promise<void> = deleteEphemeralBranchStrict,
+): Promise<void> {
+  let cleanup: NeonBranchError | NeonConformanceError | undefined
   try {
-    await deleteEphemeralBranchStrict(branchId)
+    await deleteBranch(branchId)
   } catch (error) {
-    const cleanup = dedicatedCleanupFailure(error)
-    if (hasPrimary) throw new AggregateError([primary, cleanup], 'DB_CONTRACT_TEST_AND_CLEANUP_FAILED')
-    throw cleanup
+    cleanup = dedicatedCleanupFailure(error)
+  }
+  if (!cleanup) {
+    try {
+      await lease.release()
+    } catch {
+      cleanup = new NeonBranchError('DB_CONTRACT_BRANCH_LEASE_RELEASE_UNPROVEN')
+    }
+  }
+  if (hasPrimary && cleanup) {
+    throw new AggregateError([primary, cleanup], 'DB_CONTRACT_TEST_AND_CLEANUP_FAILED')
   }
   if (hasPrimary) throw primary
-  return value as T
+  if (cleanup) throw cleanup
 }
 
 /** Preserve the strict control-plane code while discarding unknown cleanup details. */

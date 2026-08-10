@@ -38,6 +38,7 @@ describe.skipIf(!hasNeonCreds())(
   'db-contract: atomic accept path (real Neon branch)',
   { timeout: DB_CONTRACT_TIMEOUT_MS },
   () => {
+    describe('transactional assertions', () => {
     const runTransactionalDb = withTransactionalDb('accept-path') as unknown as TransactionalRunner
 
     it('2: a malformed team_id at accept → invalid, proposal stays pending, no row (22P02 regression)', async () => {
@@ -125,6 +126,9 @@ describe.skipIf(!hasNeonCreds())(
       })
     })
 
+    })
+
+    describe('dedicated assertions', () => {
     it('5: re-accepting an applied proposal is a no-op (not_pending), never a duplicate row', async () => {
       await withDedicatedDbBranch(async ({ sql, seed }) => {
         const proposal = await createProposal(sql, {
@@ -285,8 +289,12 @@ describe.skipIf(!hasNeonCreds())(
       })
     })
 
+    })
+
+    describe('transactional tail assertions', () => {
+    const runTransactionalTailDb = withTransactionalDb('accept-path-tail') as unknown as TransactionalRunner
     it('9: a memory superseded out from under the proposal → stale, stays reviewable (no clobber)', async () => {
-      await runTransactionalDb(async ({ sql, seed }) => {
+      await runTransactionalTailDb(async ({ sql, seed }) => {
         // A memory the proposal wants to supersede — but a human edits it first.
         const mem = await createMemory(
           sql,
@@ -322,6 +330,9 @@ describe.skipIf(!hasNeonCreds())(
       })
     })
 
+    })
+
+    describe('dedicated tail assertions', () => {
     it('flip-loser (create): a reject that wins the race COMPENSATES the orphaned row (996b674c)', async () => {
       await withDedicatedDbBranch(async ({ sql, seed }) => {
         const actor: ActorContext = {
@@ -447,6 +458,7 @@ describe.skipIf(!hasNeonCreds())(
           errorSpy.mockRestore()
         }
       })
+    })
     })
   },
 )

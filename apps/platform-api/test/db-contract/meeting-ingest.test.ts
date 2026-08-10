@@ -162,6 +162,7 @@ describe.skipIf(!hasNeonCreds())(
   'db-contract: meeting ingest (real Neon branch)',
   { timeout: DB_CONTRACT_TIMEOUT_MS },
   () => {
+    describe('transactional assertions', () => {
     const runTransactionalDb = withTransactionalDb('meeting-ingest') as unknown as TransactionalRunner
 
     it('reads ONLY generated + promoted rows, and only for the mapped tenant', async () => {
@@ -314,6 +315,9 @@ describe.skipIf(!hasNeonCreds())(
       })
     })
 
+    })
+
+    describe('dedicated assertions', () => {
     it('proposes each candidate exactly once — including across rematerialization', async () => {
       await withDedicatedDbBranch(async ({ sql, seed }) => {
         await createAlembicOwnedTables(sql)
@@ -355,8 +359,12 @@ describe.skipIf(!hasNeonCreds())(
       })
     })
 
+    })
+
+    describe('transactional tail assertions', () => {
+    const runTransactionalTailDb = withTransactionalDb('meeting-ingest-tail') as unknown as TransactionalRunner
     it('a run with no candidates still mints the run and proposes nothing', async () => {
-      await runTransactionalDb(async ({ sql, seed }) => {
+      await runTransactionalTailDb(async ({ sql, seed }) => {
         await createAlembicOwnedTables(sql)
         const tenantMap = identityMap(seed.tenantId)
         await seedMeeting(sql, seed.tenantId)
@@ -379,6 +387,7 @@ describe.skipIf(!hasNeonCreds())(
         ])
         expect(proposals).toHaveLength(0)
       })
+    })
     })
   },
 )

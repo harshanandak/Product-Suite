@@ -14,12 +14,25 @@
  * the exact driver/UUID-cast behavior the wave is hardening.
  */
 
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash, randomBytes, randomInt } from 'node:crypto'
 
-import { workerRuntimeConfig, type DbContractRuntimeConfig } from './runtime-config'
+import {
+  DB_CONTRACT_DATABASE_NAME,
+  DB_CONTRACT_ROLE_NAME,
+  workerRuntimeConfig,
+  type DbContractRuntimeConfig,
+} from './runtime-config'
 
 const API_BASE = process.env.NEON_API_BASE ?? 'https://console.neon.tech/api/v2'
 const NEON_REQUEST_TIMEOUT_MS = 10_000
+const SAFE_REQUEST_MAX_ATTEMPTS = 4
+const SAFE_REQUEST_RETRY_DEADLINE_MS = 5_000
+const SAFE_REQUEST_MAX_DELAY_MS = 1_000
+const RETRYABLE_STATUSES = new Set([423, 429, 503])
+const CREATE_RECOVERY_TIMEOUT_MS = 5_000
+const CREATE_RECOVERY_POLL_MS = 100
+const OPERATION_LIST_PAGE_LIMIT = 100
+const MAX_LIST_PAGES = 100
 
 /**
  * Prefix every ephemeral test branch shares. Encoded once so the create path and
@@ -34,11 +47,13 @@ export const RUN_TOKEN_ENV = 'DB_CONTRACT_RUN_TOKEN'
 
 export class NeonBranchError extends Error {
   readonly code: string
+  readonly absenceProven: boolean
 
-  constructor(code: string) {
+  constructor(code: string, options: { absenceProven?: boolean } = {}) {
     super(code)
     this.name = 'NeonBranchError'
     this.code = code
+    this.absenceProven = options.absenceProven === true
   }
 }
 
@@ -103,6 +118,7 @@ export function isCurrentRunBranchName(name: string | undefined, runToken: strin
 interface NeonOperation {
   id: string
   action: string
+  branch_id?: string
   status: 'scheduling' | 'running' | 'finished' | 'failed' | 'cancelling' | 'cancelled'
 }
 
@@ -138,15 +154,7 @@ async function neonFetch(
   path: string,
   init: { method: string; body?: unknown },
 ): Promise<unknown> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: init.method,
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: init.body === undefined ? undefined : JSON.stringify(init.body),
-  })
+  const res = await neonRequest(apiKey, path, init)
   if (!res.ok) {
     throw new NeonBranchError('DB_CONTRACT_NEON_REQUEST_FAILED')
   }
@@ -155,6 +163,69 @@ async function neonFetch(
 }
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+
+function retryDelayMs(response: Response, attempt: number): number {
+  const header = response.headers?.get?.('Retry-After')?.trim()
+  if (header) {
+    const seconds = Number(header)
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      return Math.round(seconds * 1_000)
+    }
+    const timestamp = Date.parse(header)
+    if (Number.isFinite(timestamp)) {
+      return Math.max(0, timestamp - Date.now())
+    }
+  }
+  const backoff = Math.min(100 * (2 ** attempt), SAFE_REQUEST_MAX_DELAY_MS)
+  return Math.min(backoff + randomInt(50), SAFE_REQUEST_MAX_DELAY_MS)
+}
+
+async function neonRequest(
+  apiKey: string,
+  path: string,
+  init: { method: string; body?: unknown },
+): Promise<Response> {
+  const method = init.method.toUpperCase()
+  const retrySafe = method === 'GET' || method === 'DELETE'
+  const deadline = Date.now() + (retrySafe ? SAFE_REQUEST_RETRY_DEADLINE_MS : NEON_REQUEST_TIMEOUT_MS)
+
+  for (let attempt = 0; attempt < SAFE_REQUEST_MAX_ATTEMPTS; attempt += 1) {
+    const remainingMs = deadline - Date.now()
+    if (remainingMs <= 0) {
+      throw new NeonBranchError('DB_CONTRACT_NEON_REQUEST_RETRY_EXHAUSTED')
+    }
+    let response: Response
+    try {
+      response = await fetch(`${API_BASE}${path}`, {
+        method,
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: init.body === undefined ? undefined : JSON.stringify(init.body),
+        signal: AbortSignal.timeout(Math.min(NEON_REQUEST_TIMEOUT_MS, remainingMs)),
+      })
+    } catch {
+      if (method === 'POST') {
+        throw new NeonBranchError('DB_CONTRACT_NEON_REQUEST_INDETERMINATE')
+      }
+      throw new NeonBranchError('DB_CONTRACT_NEON_REQUEST_FAILED')
+    }
+
+    if (!retrySafe || !RETRYABLE_STATUSES.has(response.status)) return response
+    if (attempt === SAFE_REQUEST_MAX_ATTEMPTS - 1) {
+      throw new NeonBranchError('DB_CONTRACT_NEON_REQUEST_RETRY_EXHAUSTED')
+    }
+    const delay = retryDelayMs(response, attempt)
+    if (Date.now() + delay > deadline) {
+      throw new NeonBranchError('DB_CONTRACT_NEON_REQUEST_RETRY_EXHAUSTED')
+    }
+    await sleep(delay)
+  }
+
+  throw new NeonBranchError('DB_CONTRACT_NEON_REQUEST_RETRY_EXHAUSTED')
+}
 
 /**
  * Poll each create operation until it reaches a terminal state. A branch's compute
@@ -202,17 +273,25 @@ export async function createEphemeralBranch(namePrefix = suiteBranchPrefix('dedi
   // runner can be killed between this POST and the test's `finally` cleanup.
   // Neon auto-deletes the branch at `expires_at`, so a cancelled/crashed run can
   // never leave a branch (and its storage cost) behind indefinitely.
-  const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString()
+  const expiresAt = new Date(Math.ceil((Date.now() + 60 * 60 * 1000) / 1000) * 1000).toISOString()
   const branchInput = parentBranchId
     ? { name, parent_id: parentBranchId, expires_at: expiresAt }
     : { name, expires_at: expiresAt }
-  const body = (await neonFetch(apiKey, `/projects/${projectId}/branches`, {
-    method: 'POST',
-    body: {
-      endpoints: [{ type: 'read_write' }],
-      branch: branchInput,
-    },
-  })) as CreateBranchResponse
+  let body: CreateBranchResponse
+  try {
+    body = (await neonFetch(apiKey, `/projects/${projectId}/branches`, {
+      method: 'POST',
+      body: {
+        endpoints: [{ type: 'read_write' }],
+        branch: branchInput,
+      },
+    })) as CreateBranchResponse
+  } catch (error) {
+    if (error instanceof NeonBranchError && error.code === 'DB_CONTRACT_NEON_REQUEST_INDETERMINATE') {
+      return reconcileIndeterminateCreate(apiKey, projectId, name, expiresAt)
+    }
+    throw error
+  }
 
   const branchId = body.branch?.id
   if (!branchId) {
@@ -238,7 +317,7 @@ export async function createEphemeralBranch(namePrefix = suiteBranchPrefix('dedi
       const cleanup = new NeonBranchError('DB_CONTRACT_BRANCH_DELETION_UNPROVEN')
       throw new AggregateError([primary, cleanup], 'DB_CONTRACT_CREATE_AND_CLEANUP_FAILED')
     }
-    throw primary
+    throw new NeonBranchError(primary.code, { absenceProven: true })
   }
 }
 
@@ -248,15 +327,10 @@ export async function deleteEphemeralBranchStrict(
   timeoutMs = 30_000,
 ): Promise<void> {
   const { apiKey, projectId } = neonConfig()
-  const url = `${API_BASE}/projects/${projectId}/branches/${branchId}`
-  const headers = { Accept: 'application/json', Authorization: `Bearer ${apiKey}` }
+  const path = `/projects/${projectId}/branches/${branchId}`
   let response: Response
   try {
-    response = await fetch(url, {
-      method: 'DELETE',
-      headers,
-      signal: AbortSignal.timeout(NEON_REQUEST_TIMEOUT_MS),
-    })
+    response = await neonRequest(apiKey, path, { method: 'DELETE' })
   } catch {
     throw new NeonBranchError('DB_CONTRACT_BRANCH_DELETE_FAILED')
   }
@@ -265,11 +339,7 @@ export async function deleteEphemeralBranchStrict(
   const deadline = Date.now() + timeoutMs
   while (Date.now() <= deadline) {
     try {
-      response = await fetch(url, {
-        method: 'GET',
-        headers,
-        signal: AbortSignal.timeout(NEON_REQUEST_TIMEOUT_MS),
-      })
+      response = await neonRequest(apiKey, path, { method: 'GET' })
     } catch {
       throw new NeonBranchError('DB_CONTRACT_BRANCH_DELETION_UNPROVEN')
     }
@@ -336,16 +406,134 @@ async function listAllBranches(apiKey: string, projectId: string): Promise<Branc
     // Neon returns the next-page cursor as `pagination.next` (NOT `.cursor`); it is
     // passed back as the `cursor` request param above.
     const next = body.pagination?.next
-    // Cursor-driven termination (the documented contract): keep paging while the
-    // server hands back a next cursor. Stop when it stops giving one, when a page
-    // comes back empty, or when a cursor repeats (defensive against a server that
-    // echoes the same cursor forever) so a malformed cursor can never loop.
-    if (pageBranches.length === 0 || !next || seenCursors.has(next)) break
+    // Empty pages and repeated cursors are ambiguous: returning the accumulated
+    // prefix could make a partial branch inventory look complete and permit an
+    // unsafe capacity/reconciliation decision. Fail closed instead.
+    if (pageBranches.length === 0 || (next !== undefined && seenCursors.has(next))) {
+      throw new NeonBranchError('DB_CONTRACT_BRANCH_LIST_PAGINATION_UNCERTAIN')
+    }
+    if (!next) return all
     seenCursors.add(next)
     cursor = next
   }
 
-  return all
+  throw new NeonBranchError('DB_CONTRACT_BRANCH_LIST_PAGINATION_UNCERTAIN')
+}
+
+async function reconcileIndeterminateCreate(
+  apiKey: string,
+  projectId: string,
+  exactName: string,
+  expectedExpiresAt: string,
+): Promise<EphemeralBranch> {
+  const runtime = workerRuntimeConfig()
+  assertSupportedBranchConnectionTarget(runtime)
+  const discoveryDeadline = Date.now() + CREATE_RECOVERY_TIMEOUT_MS
+  let match: BranchSummary | undefined
+  while (Date.now() <= discoveryDeadline) {
+    const matches = (await listAllBranches(apiKey, projectId)).filter((branch) =>
+      branch.name === exactName && isEphemeralTestBranchName(branch.name))
+    if (matches.length > 1) {
+      throw new NeonBranchError('DB_CONTRACT_BRANCH_CREATE_RECONCILIATION_AMBIGUOUS')
+    }
+    match = matches[0]
+    if (match) break
+    await sleep(CREATE_RECOVERY_POLL_MS)
+  }
+  if (!match) throw new NeonBranchError('DB_CONTRACT_BRANCH_CREATE_INCOMPLETE')
+  const readinessDeadline = Date.now() + CREATE_RECOVERY_TIMEOUT_MS
+  try {
+    const expiresAt = Date.parse(match.expires_at ?? '')
+    const expectedExpiry = Date.parse(expectedExpiresAt)
+    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now() || expiresAt !== expectedExpiry) {
+      throw new NeonBranchError('DB_CONTRACT_BRANCH_CREATE_INCOMPLETE')
+    }
+
+  while (Date.now() <= readinessDeadline) {
+    const branchOperations = (await listAllOperations(apiKey, projectId))
+      .filter(({ branch_id }) => branch_id === match!.id)
+    const operations = branchOperations.filter(({ action }) => action === 'create_branch')
+    if (branchOperations.length > 0 && operations.length === 0) {
+      throw new NeonBranchError('DB_CONTRACT_BRANCH_CREATE_INCOMPLETE')
+    }
+    if (operations.some(({ status }) => status === 'failed' || status === 'cancelled')) {
+      throw new NeonBranchError('DB_CONTRACT_BRANCH_CREATE_INCOMPLETE')
+    }
+    if (operations.length > 0 && operations.every(({ status }) => status === 'finished')) {
+      const endpointBody = (await neonFetch(
+        apiKey,
+        `/projects/${projectId}/branches/${match.id}/endpoints`,
+        { method: 'GET' },
+      )) as { endpoints?: Array<{ type?: string; current_state?: string }> }
+      const endpoints = endpointBody.endpoints ?? []
+      const ready = endpoints.length === 1 && endpoints[0]?.type === 'read_write'
+        && (endpoints[0]?.current_state === 'active' || endpoints[0]?.current_state === 'idle')
+      if (ready) {
+        const params = new URLSearchParams({
+          branch_id: match.id,
+          database_name: runtime.databaseName,
+          role_name: runtime.roleName,
+          pooled: 'false',
+        })
+        const uriBody = (await neonFetch(
+          apiKey,
+          `/projects/${projectId}/connection_uri?${params.toString()}`,
+          { method: 'GET' },
+        )) as { uri?: unknown }
+        if (typeof uriBody.uri === 'string' && uriBody.uri.length > 0) {
+          return { branchId: match.id, connectionUri: uriBody.uri }
+        }
+        throw new NeonBranchError('DB_CONTRACT_BRANCH_CONNECTION_URI_UNPROVEN')
+      }
+    }
+    await sleep(CREATE_RECOVERY_POLL_MS)
+  }
+    throw new NeonBranchError('DB_CONTRACT_BRANCH_CREATE_INCOMPLETE')
+  } catch (error) {
+    const primary = error instanceof NeonBranchError
+      ? error
+      : new NeonBranchError('DB_CONTRACT_BRANCH_CREATE_INCOMPLETE')
+    try {
+      await deleteEphemeralBranchStrict(match.id)
+    } catch {
+      throw new AggregateError([
+        primary,
+        new NeonBranchError('DB_CONTRACT_BRANCH_DELETION_UNPROVEN'),
+      ], 'DB_CONTRACT_CREATE_AND_CLEANUP_FAILED')
+    }
+    throw new NeonBranchError(primary.code, { absenceProven: true })
+  }
+}
+
+async function listAllOperations(apiKey: string, projectId: string): Promise<NeonOperation[]> {
+  const all: NeonOperation[] = []
+  const seen = new Set<string>()
+  let cursor: string | undefined
+  for (let page = 0; page < MAX_LIST_PAGES; page += 1) {
+    const params = new URLSearchParams({ limit: String(OPERATION_LIST_PAGE_LIMIT) })
+    if (cursor) params.set('cursor', cursor)
+    const body = (await neonFetch(apiKey, `/projects/${projectId}/operations?${params}`, {
+      method: 'GET',
+    })) as { operations?: NeonOperation[]; pagination?: { cursor?: string } }
+    const operations = body.operations ?? []
+    const next = body.pagination?.cursor
+    if (operations.length === 0 || (next !== undefined && seen.has(next))) {
+      throw new NeonBranchError('DB_CONTRACT_BRANCH_OPERATION_PAGINATION_UNCERTAIN')
+    }
+    all.push(...operations)
+    if (!next) return all
+    seen.add(next)
+    cursor = next
+  }
+  throw new NeonBranchError('DB_CONTRACT_BRANCH_OPERATION_PAGINATION_UNCERTAIN')
+}
+
+export function assertSupportedBranchConnectionTarget(
+  target: { databaseName: string; roleName: string },
+): void {
+  if (target.databaseName !== DB_CONTRACT_DATABASE_NAME || target.roleName !== DB_CONTRACT_ROLE_NAME) {
+    throw new NeonBranchError('DB_CONTRACT_BRANCH_CONNECTION_CONFIG_UNSUPPORTED')
+  }
 }
 
 export async function assertCurrentRunBranchesAbsent(runToken = rawRunToken()): Promise<void> {

@@ -34,6 +34,7 @@ describe.skipIf(!hasNeonCreds())(
   'db-contract: baseline accept path (real Neon branch)',
   { timeout: DB_CONTRACT_TIMEOUT_MS },
   () => {
+  describe('transactional assertions', () => {
   const runTransactionalDb = withTransactionalDb('baseline') as unknown as TransactionalRunner
 
   it('1: create-with-defaults persists the resolved team + default status ids', async () => {
@@ -72,48 +73,6 @@ describe.skipIf(!hasNeonCreds())(
 
       const decided = await getProposalScoped(sql, proposal.id, [seed.tenantId])
       expect(decided?.status).toBe('applied')
-    })
-  })
-
-  it('10: the full migration chain applies cleanly on a fresh branch (no schema drift)', async () => {
-    await withDedicatedDbBranch(async ({ sql }) => {
-      // Every workboard table the accept path touches (or that a rollup reads) exists.
-      const tables = await query<{ table_name: string }>(
-        sql,
-        `select table_name from information_schema.tables where table_schema = 'public'`,
-      )
-      const present = new Set(tables.map((t) => t.table_name))
-      for (const t of [
-        'tenants',
-        'users',
-        'teams',
-        'statuses',
-        'work_items',
-        'activity_events',
-        'agent_runs',
-        'proposals',
-        'memories',
-        'projects',
-      ]) {
-        expect(present.has(t), `expected table "${t}" to exist after migrations`).toBe(true)
-      }
-
-      // The idempotency backbone the atomic-accept fix relies on.
-      const idx = await query(
-        sql,
-        `select 1 from pg_indexes where indexname = 'work_items_applied_from_proposal_uniq'`,
-      )
-      expect(idx).toHaveLength(1)
-
-      // The proposal lifecycle enum carries the terminal states the accept path sets.
-      const labels = await query<{ enumlabel: string }>(
-        sql,
-        `select e.enumlabel from pg_enum e join pg_type t on t.oid = e.enumtypid where t.typname = 'proposal_status'`,
-      )
-      const states = new Set(labels.map((l) => l.enumlabel))
-      for (const s of ['pending', 'applied', 'failed']) {
-        expect(states.has(s), `expected proposal_status to include "${s}"`).toBe(true)
-      }
     })
   })
 
@@ -177,6 +136,38 @@ describe.skipIf(!hasNeonCreds())(
       const failed = await getProposalScoped(sql, proposal.id, [seed.tenantId])
       expect(failed?.status).toBe('failed')
       expect(failed?.rejection_reason).toContain('missing or malformed target_id')
+    })
+  })
+  })
+
+  describe('dedicated assertions', () => {
+    it('10: the full migration chain applies cleanly on a fresh branch (no schema drift)', async () => {
+      await withDedicatedDbBranch(async ({ sql }) => {
+        const tables = await query<{ table_name: string }>(
+          sql,
+          `select table_name from information_schema.tables where table_schema = 'public'`,
+        )
+        const present = new Set(tables.map((t) => t.table_name))
+        for (const t of [
+          'tenants', 'users', 'teams', 'statuses', 'work_items', 'activity_events',
+          'agent_runs', 'proposals', 'memories', 'projects',
+        ]) {
+          expect(present.has(t), `expected table "${t}" to exist after migrations`).toBe(true)
+        }
+        const idx = await query(
+          sql,
+          `select 1 from pg_indexes where indexname = 'work_items_applied_from_proposal_uniq'`,
+        )
+        expect(idx).toHaveLength(1)
+        const labels = await query<{ enumlabel: string }>(
+          sql,
+          `select e.enumlabel from pg_enum e join pg_type t on t.oid = e.enumtypid where t.typname = 'proposal_status'`,
+        )
+        const states = new Set(labels.map((l) => l.enumlabel))
+        for (const s of ['pending', 'applied', 'failed']) {
+          expect(states.has(s), `expected proposal_status to include "${s}"`).toBe(true)
+        }
+      })
     })
   })
 })
