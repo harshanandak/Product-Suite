@@ -64,7 +64,7 @@ jobs:
 
       - name: Install dependencies
         if: steps.guard.outputs.ready == 'true'
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --ignore-scripts
 
       - name: Build
         if: steps.guard.outputs.ready == 'true'
