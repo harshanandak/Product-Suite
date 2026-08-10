@@ -38,3 +38,22 @@
   is deliberately a post-merge operator action, not part of this code PR.
 - The deterministic fixture rejects a base that advances after an earlier check,
   preventing stale green evidence without network or clock-dependent tests.
+
+## Task 3: Validation evidence
+
+- Focused changed-surface/classifier, adapter, base-freshness, and repo-tooling
+  tests: `bun test test/prepush-gate.test.js test/prepush-classify.test.js
+  test/ci-change-plan.test.js test/base-freshness.test.js
+  test/repo-tooling.test.js` — 70 passed, 0 failed.
+- Workflow and classifier YAML/diff checks passed; targeted ESLint for all new
+  scripts/tests passed; `git diff --check` passed.
+- `bun run test:repo-tooling` exercised 138 passing tests but exposed one
+  pre-existing Windows CRLF assertion in
+  `test/neon-production-preflight-workflow.test.js` (it expects an LF literal
+  while the merged workflow is checked out as CRLF). This branch leaves the
+  unrelated preflight test/workflow untouched; Ubuntu CI reads the canonical LF
+  blob and remains the authoritative broad run.
+- The diff is limited to CI workflows, CI classifier/adapter scripts, their
+  deterministic tests, the changelog, the plan decisions, and the root test
+  script. No product source, migration, secret, environment, or branch-rule
+  files changed. No hook bypass was used.

@@ -154,7 +154,7 @@ export function buildCiPlan(filesOrOptions, exactSha) {
   const options = Array.isArray(filesOrOptions) || filesOrOptions === null
     ? { files: filesOrOptions, exactSha }
     : filesOrOptions ?? {};
-  const files = normalizedFiles(options.files);
+  const files = normalizedFiles(options.files ?? null);
   const validSha = isValidSha(options.exactSha);
   const result = classify(files);
   const dbEvidenceRequired = !validSha || ciDbEvidenceRequired(files, result);
