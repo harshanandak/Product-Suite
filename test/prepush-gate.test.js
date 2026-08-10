@@ -178,6 +178,12 @@ describe("change-aware CI plan", () => {
     }
   });
 
+  test("the monolithic contracts declaration entrypoint requires DB proof", () => {
+    const plan = buildCiPlan(["packages/contracts/src/index.d.ts"], SHA);
+    expect(plan.dbEvidenceRequired).toBe(true);
+    expect(plan.classification).toBe("full-suite");
+  });
+
   test("unrelated surfaces remain scoped and do not acquire DB proof", () => {
     for (const file of [
       "apps/platform-web/src/components/board.tsx",

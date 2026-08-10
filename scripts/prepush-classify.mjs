@@ -115,6 +115,7 @@ const CI_DB_REQUIRED = [
   /^apps\/platform-api(?:\/|$)/,
   /^packages\/db(?:\/|$)/,
   /^apps\/meeting-api\/backend\/tenant_context\.py$/i,
+  /^packages\/contracts\/src\/index\.d\.ts$/i,
   /^infra\//,
   /(^|\/)migrations?(?:\/|$)/i,
   /^security(?:\/|$)/i,
