@@ -24,6 +24,21 @@ describe("migration evidence", () => {
     expect(evidence).toMatchObject({ tag: "0019", hash: "abc" });
   });
 
+  test.each([
+    "postgres://reader@example.invalid/neondb",
+    "https://example.invalid/proof",
+    "password = exposed",
+    "BEGIN",
+    "ALTER TABLE users ADD COLUMN x text",
+    "CREATE TABLE leaked(id int)",
+    "INSERT INTO leaked VALUES (1)",
+    "UPDATE leaked SET id = 2",
+    "DELETE FROM leaked",
+    "DROP TABLE leaked",
+  ])("rejects forbidden evidence text after regex decomposition: %s", (value) => {
+    expect(redactEvidence({ recoveryId: value })).toEqual({});
+  });
+
   test("accepts a reconstructable exact-SHA evidence record", () => {
     const evidence = createMigrationEvidence({
       operation: "verify", historyVariant: "repaired-bootstrap", expectedFloor: "0019",

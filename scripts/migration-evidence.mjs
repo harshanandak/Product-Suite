@@ -55,7 +55,22 @@ const MIGRATION_TAG = /^\d{4}(?:_[a-z0-9_]+)?$/i;
 const MIGRATION_HASH = /^[a-f0-9]{64}$/i;
 const SHA = /^[a-f0-9]{40}$/i;
 const SAFE_IDENTIFIER = /^[a-z0-9][a-z0-9_.:/-]{0,255}$/i;
-const FORBIDDEN_VALUE = /(postgres(?:ql)?|https?:\/\/|password\s*=|BEGIN\b|ALTER\s+TABLE|CREATE\s+TABLE|INSERT\s+INTO|UPDATE\s+[^a-z]|DELETE\s+FROM|DROP\s+)/i;
+const FORBIDDEN_VALUE_PATTERNS = [
+  /postgres(?:ql)?/i,
+  /https?:\/\//i,
+  /password\s*=/i,
+  /\bBEGIN\b/i,
+  /\bALTER\s+TABLE\b/i,
+  /\bCREATE\s+TABLE\b/i,
+  /\bINSERT\s+INTO\b/i,
+  /\bUPDATE\s+\S+\s+SET\b/i,
+  /\bDELETE\s+FROM\b/i,
+  /\bDROP\s+\S+/i,
+];
+
+function containsForbiddenValue(value) {
+  return typeof value === "string" && FORBIDDEN_VALUE_PATTERNS.some((pattern) => pattern.test(value));
+}
 
 function migrationFloorMatches(actualTag, expectedFloor) {
   const actualPrefix = /^(\d+)/.exec(String(actualTag))?.[1];
@@ -77,7 +92,7 @@ function safeValue(key, value) {
   // Migration names and digests are opaque, product-owned identifiers.  They
   // may legitimately contain words such as "create" or "delete"; applying
   // the SQL/prose filter to them would silently drop reconstructable history.
-  if (typeof value === "string" && FORBIDDEN_VALUE.test(value)) return undefined;
+  if (containsForbiddenValue(value)) return undefined;
   return value;
 }
 
@@ -95,25 +110,38 @@ function redactRecord(entry, fields) {
 export function redactEvidence(input = {}) {
   const result = {};
   for (const [key, value] of Object.entries(input)) {
-    if (key === "applied") {
-      const entries = Array.isArray(value) ? value.map((entry) => redactRecord(entry, ["tag", "timestamp", "hash"])).filter((entry) => entry?.tag && entry?.hash && entry?.timestamp !== undefined) : [];
-      result[key] = entries;
-      continue;
-    }
-    if (key === "pending") {
-      const entries = Array.isArray(value) ? value.map((entry) => typeof entry === "string" ? { tag: entry } : redactRecord(entry, ["tag", "hash"])).filter((entry) => entry?.tag) : [];
-      result[key] = entries;
-      continue;
-    }
-    if (key === "aggregateRowCounts") {
-      const entries = Array.isArray(value) ? value.map((entry) => redactRecord(entry, ["metric", "count"])).filter((entry) => entry?.metric && Number.isSafeInteger(entry?.count) && entry.count >= 0) : [];
-      result[key] = entries;
-      continue;
-    }
-    const safe = safeValue(key, value);
+    const safe = redactEvidenceValue(key, value);
     if (safe !== undefined) result[key] = safe;
   }
   return result;
+}
+
+function redactEvidenceValue(key, value) {
+  if (key === "applied") return redactApplied(value);
+  if (key === "pending") return redactPending(value);
+  if (key === "aggregateRowCounts") return redactRowCounts(value);
+  return safeValue(key, value);
+}
+
+function redactApplied(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => redactRecord(entry, ["tag", "timestamp", "hash"]))
+    .filter((entry) => entry?.tag && entry?.hash && entry?.timestamp !== undefined);
+}
+
+function redactPending(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => typeof entry === "string" ? { tag: entry } : redactRecord(entry, ["tag", "hash"]))
+    .filter((entry) => entry?.tag);
+}
+
+function redactRowCounts(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => redactRecord(entry, ["metric", "count"]))
+    .filter((entry) => entry?.metric && Number.isSafeInteger(entry?.count) && entry.count >= 0);
 }
 
 export function createMigrationEvidence(input = {}) {
@@ -159,7 +187,7 @@ export function verifyMigrationEvidence(evidence = {}) {
   const issues = [];
   const unknownKeys = Object.keys(evidence).filter((key) => !ALLOWED_KEYS.has(key));
   if (unknownKeys.length > 0) issues.push("unknown evidence field");
-  if (JSON.stringify(evidence, (_key, value) => typeof value === "string" && FORBIDDEN_VALUE.test(value) ? "__FORBIDDEN__" : value).includes("__FORBIDDEN__")) issues.push("secret or executable value forbidden");
+  if (JSON.stringify(evidence, (_key, value) => containsForbiddenValue(value) ? "__FORBIDDEN__" : value).includes("__FORBIDDEN__")) issues.push("secret or executable value forbidden");
   if (!["bootstrap", "apply", "verify"].includes(safe.operation)) issues.push("operation missing or invalid");
   if (!["APPLIED", "NOOP", "BOOTSTRAPPED", "PREFLIGHT_READY", "FAIL", "INCOMPLETE"].includes(safe.status)) issues.push("status missing or invalid");
   if (typeof safe.ok !== "boolean") issues.push("evidence ok flag missing");

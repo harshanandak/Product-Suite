@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import Ajv from "ajv";
@@ -7,6 +8,7 @@ import Ajv from "ajv";
 import {
   canonicalPreflightPayload,
   grantContractDigest,
+  resolveGitExecutable,
   verifyProductionPreflightAttestation,
 } from "../scripts/migrate-database.mjs";
 
@@ -14,7 +16,11 @@ const root = join(import.meta.dir, "..");
 const pathFor = (path) => join(root, path);
 const read = (path) => readFileSync(pathFor(path), "utf8");
 const sha256 = (value) => createHash("sha256").update(value).digest("hex");
-const blobId = (value) => createHash("sha1").update(`blob ${Buffer.byteLength(value)}\0`).update(value).digest("hex");
+const blobId = (value) => execFileSync("git", ["hash-object", "--stdin"], {
+  input: value,
+  encoding: "utf8",
+  windowsHide: true,
+}).trim();
 const fixedCommand = "bun run migrate:database -- verify --environment production --history-variant original-production --expected-floor 0017";
 
 function workflowContractIssues(workflow) {
@@ -130,6 +136,19 @@ describe("protected Neon production preflight workflow", () => {
     expect(migrationScript).toContain("has_database_privilege");
     expect(migrationScript).not.toContain("preflightFileBlobId ?? gitBlobId(fileBytes)");
     expect(migrationScript).not.toContain("error?.message ||");
+    expect(migrationScript).toContain('execFileSync(gitExecutable, ["hash-object", "--stdin"]');
+    expect(migrationScript).not.toContain('execFileSync("git"');
+    expect(migrationScript).not.toContain('createHash("sha1")');
+    expect(migrationScript.match(/\.sort\(lexicalCompare\)/g)?.length).toBeGreaterThanOrEqual(4);
+  });
+
+  test("resolves Git only from fixed platform allowlists and fails closed", () => {
+    const windowsBin = "C:\\Program Files\\Git\\bin\\git.exe";
+    expect(resolveGitExecutable({ platform: "win32", fileExists: (path) => path === windowsBin })).toBe(windowsBin);
+    expect(resolveGitExecutable({ platform: "linux", fileExists: (path) => path === "/usr/bin/git" })).toBe("/usr/bin/git");
+    expect(resolveGitExecutable({ platform: "darwin", fileExists: (path) => path === "/opt/homebrew/bin/git" })).toBe("/opt/homebrew/bin/git");
+    expect(resolveGitExecutable({ platform: "linux", fileExists: () => false })).toBeNull();
+    expect(resolveGitExecutable({ platform: "freebsd", fileExists: () => true })).toBeNull();
   });
 
   test.each([

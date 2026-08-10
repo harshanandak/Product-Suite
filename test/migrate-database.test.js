@@ -102,6 +102,19 @@ describe("canonical migration runner", () => {
     })).toMatchObject({ ok: true, loginIdentifier, catalogDigest: "a".repeat(64) });
   });
 
+  test("validates unordered probe and metric inputs with stable lexical ordering", () => {
+    expect(validatePreflightSnapshot({
+      snapshot: {
+        ...snapshot,
+        denialProbes: [...snapshot.denialProbes].reverse(),
+        aggregateRowCounts: [...snapshot.aggregateRowCounts].reverse(),
+      },
+      attestation: preflightAttestation,
+      grantContract: preflightContract,
+      expectedEndpointId: "test-endpoint",
+    })).toMatchObject({ ok: true, loginIdentifier });
+  });
+
   test("observes object-specific database and schema CREATE default-ACL paths", () => {
     expect(DEFAULT_ACL_SQL).toContain("object_kind");
     expect(DEFAULT_ACL_SQL).toContain("object_name");
