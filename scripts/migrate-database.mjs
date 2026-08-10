@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import authorityContract from "../config/database-authority.json" with { type: "json" };
+import productionPreflightGrantContract from "../config/neon-production-preflight-grants.json" with { type: "json" };
 import { parseNeonUrl } from "./check-database-authority.mjs";
 import { createDatabasePool } from "./database-pool.mjs";
 import { createMigrationEvidence } from "./migration-evidence.mjs";
@@ -17,6 +18,16 @@ export const ENVIRONMENT_HISTORY_PINS = Object.freeze(authorityContract.environm
 
 function canonicalHash(value) {
   return createHash("sha256").update(String(value).replace(/\r\n?/g, "\n"), "utf8").digest("hex");
+}
+
+function canonicalize(value) {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === "object") return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalize(value[key])]));
+  return value;
+}
+
+export function grantContractDigest(contract = productionPreflightGrantContract) {
+  return createHash("sha256").update(JSON.stringify(canonicalize(contract)), "utf8").digest("hex");
 }
 
 function redactError(error) {
@@ -81,7 +92,8 @@ function compareHashes(applied, files) {
   for (const entry of applied) {
     const expected = byTag.get(entry.tag);
     if (!expected) return "MIGRATION_TAG_UNKNOWN";
-    if (entry.hash && expected.hash && entry.hash !== expected.hash) return "MIGRATION_HASH_MISMATCH";
+    const acceptedHashes = new Set([expected.hash, ...(expected.acceptedHashes ?? [])].filter(Boolean));
+    if (entry.hash && acceptedHashes.size > 0 && !acceptedHashes.has(entry.hash)) return "MIGRATION_HASH_MISMATCH";
     if (entry.timestamp !== undefined && expected.timestamp !== undefined && Number(entry.timestamp) !== Number(expected.timestamp)) return "MIGRATION_TIMESTAMP_MISMATCH";
   }
   return null;
@@ -193,6 +205,196 @@ function runnableSql(sql) {
 }
 
 const HISTORY_SQL = "SELECT hash, created_at AS timestamp FROM drizzle.__drizzle_migrations ORDER BY created_at, id;";
+
+const SAFE_PROBE_CODES = new Set(["25006", "42501"]);
+
+function fail(code) { return { ok: false, code }; }
+
+function normalizeIdentity(row = {}) {
+  return {
+    database: row.database ?? row.database_name,
+    schema: row.schema ?? row.schema_name,
+    loginIdentifier: row.loginIdentifier ?? row.login_identifier,
+    canLogin: row.canLogin ?? row.can_login,
+    superuser: row.superuser,
+    createDatabase: row.createDatabase ?? row.create_database,
+    createRole: row.createRole ?? row.create_role,
+    replication: row.replication,
+    bypassRls: row.bypassRls ?? row.bypass_rls,
+    temporary: row.temporary,
+  };
+}
+
+function normalizeFact(row = {}) {
+  return {
+    source: row.source,
+    objectKind: row.objectKind ?? row.object_kind,
+    objectName: row.objectName ?? row.object_name,
+    privilege: row.privilege,
+    granted: row.granted,
+  };
+}
+
+function sameFacts(actual, expected) {
+  const sort = (facts) => facts.map(normalizeFact).sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+  return JSON.stringify(sort(actual)) === JSON.stringify(sort(expected));
+}
+
+export function validatePreflightSnapshot({ snapshot = {}, attestation = {}, grantContract = productionPreflightGrantContract, expectedEndpointId } = {}) {
+  const identity = normalizeIdentity(snapshot.identity);
+  if (expectedEndpointId !== attestation.target?.endpointId) return fail("PREFLIGHT_ENDPOINT_MISMATCH");
+  if (identity.database !== attestation.target?.database || identity.schema !== attestation.target?.schema) return fail("PREFLIGHT_TARGET_MISMATCH");
+  if (identity.loginIdentifier !== attestation.role?.loginIdentifier) return fail("PREFLIGHT_LOGIN_MISMATCH");
+  if (attestation.role?.grantContract !== grantContract.name || attestation.role?.grantContractSha256 !== grantContractDigest(grantContract)) return fail("PREFLIGHT_GRANT_CONTRACT_MISMATCH");
+  if (identity.canLogin !== true || [identity.superuser, identity.createDatabase, identity.createRole, identity.replication, identity.bypassRls, identity.temporary].some((value) => value !== false)) return fail("PREFLIGHT_ROLE_ADMIN");
+  const expectedFacts = [...(grantContract.positivePrivileges ?? []), ...(grantContract.negativePrivileges ?? [])];
+  const actualFacts = snapshot.privilegeFacts ?? [];
+  if (actualFacts.some((fact) => fact.granted && (grantContract.negativePrivileges ?? []).some((expected) => sameFacts([fact], [{ ...expected, granted: fact.granted }])))) return fail("PREFLIGHT_WRITE_PRIVILEGE");
+  if (!sameFacts(actualFacts, expectedFacts)) return fail("PREFLIGHT_PRIVILEGE_PROOF_INCOMPLETE");
+  if (!Array.isArray(snapshot.defaultAclWritePaths)) return fail("PREFLIGHT_DEFAULT_ACL_UNPROVEN");
+  if (snapshot.defaultAclWritePaths.length > 0) return fail("PREFLIGHT_DEFAULT_ACL_WRITE");
+  const expectedProbes = ["autocommit", "transaction"].flatMap((mode) => (grantContract.denialProbes ?? []).map((operation) => `${mode}:${operation}`)).sort();
+  const actualProbes = (snapshot.denialProbes ?? []).map((probe) => `${probe.mode}:${probe.operation}`).sort();
+  if (JSON.stringify(actualProbes) !== JSON.stringify(expectedProbes)) return fail("PREFLIGHT_DENIAL_PROBE_INCOMPLETE");
+  if ((snapshot.denialProbes ?? []).some((probe) => !SAFE_PROBE_CODES.has(probe.code))) return fail("PREFLIGHT_DENIAL_PROBE_SUCCEEDED");
+  if (!/^[a-f0-9]{64}$/i.test(snapshot.catalogDigest ?? "") || snapshot.catalogDigest !== attestation.catalog?.catalogSha256) return fail("PREFLIGHT_CATALOG_MISMATCH");
+  const metrics = (snapshot.aggregateRowCounts ?? []).map((entry) => entry.metric).sort();
+  if (JSON.stringify(metrics) !== JSON.stringify([...(grantContract.rowCountMetrics ?? [])].sort())) return fail("PREFLIGHT_ROW_COUNT_CONTRACT_MISMATCH");
+  return {
+    ok: true,
+    loginIdentifier: identity.loginIdentifier,
+    catalogDigest: snapshot.catalogDigest,
+    grantDigest: canonicalHash(canonicalize({ privilegeFacts: actualFacts, defaultAclWritePaths: snapshot.defaultAclWritePaths })),
+    aggregateRowCounts: snapshot.aggregateRowCounts,
+  };
+}
+
+const IDENTITY_SQL = `/* preflight:identity */
+SELECT current_database() AS database_name, current_schema() AS schema_name,
+       current_user AS login_identifier, r.rolcanlogin AS can_login,
+       r.rolsuper AS superuser, r.rolcreatedb AS create_database,
+       r.rolcreaterole AS create_role, r.rolreplication AS replication,
+       r.rolbypassrls AS bypass_rls,
+       has_database_privilege(current_user, current_database(), 'TEMPORARY') AS temporary
+FROM pg_roles r WHERE r.rolname = current_user;`;
+
+const PRIVILEGE_SQL = `/* preflight:privileges */
+WITH RECURSIVE expected AS (
+  SELECT * FROM jsonb_to_recordset($1::jsonb)
+    AS x(source text, "objectKind" text, "objectName" text, privilege text, granted boolean)
+), inherited_roles AS (
+  SELECT r.oid, r.rolname FROM pg_roles r WHERE r.rolname = current_user
+  UNION
+  SELECT parent.oid, parent.rolname FROM pg_auth_members membership
+  JOIN inherited_roles member ON member.oid = membership.member
+  JOIN pg_roles parent ON parent.oid = membership.roleid
+), acl_facts AS (
+  SELECT CASE WHEN c.relkind = 'S' THEN 'sequence' ELSE 'table' END AS object_kind, n.nspname || '.' || c.relname AS object_name,
+         acl.grantee, acl.privilege_type AS privilege
+  FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+  CROSS JOIN LATERAL aclexplode(coalesce(c.relacl, acldefault(CASE WHEN c.relkind = 'S' THEN 'S'::"char" ELSE 'r'::"char" END, c.relowner))) acl
+  WHERE c.relkind IN ('r','p','S')
+  UNION ALL
+  SELECT 'schema', n.nspname, acl.grantee, acl.privilege_type
+  FROM pg_namespace n CROSS JOIN LATERAL aclexplode(coalesce(n.nspacl, acldefault('n', n.nspowner))) acl
+  UNION ALL
+  SELECT 'database', d.datname, acl.grantee, acl.privilege_type
+  FROM pg_database d CROSS JOIN LATERAL aclexplode(coalesce(d.datacl, acldefault('d', d.datdba))) acl
+)
+SELECT e.source, e."objectKind" AS object_kind, e."objectName" AS object_name, e.privilege,
+  CASE
+    WHEN e.source = 'effective' AND e."objectKind" = 'database' THEN has_database_privilege(current_user, e."objectName", e.privilege)
+    WHEN e.source = 'effective' AND e."objectKind" = 'schema' THEN has_schema_privilege(current_user, e."objectName", e.privilege)
+    WHEN e.source = 'effective' AND e."objectKind" = 'table' THEN has_table_privilege(current_user, e."objectName", e.privilege)
+    WHEN e.source = 'effective' AND e."objectKind" = 'sequence' THEN has_sequence_privilege(current_user, e."objectName", e.privilege)
+    WHEN e.source = 'PUBLIC' THEN EXISTS (SELECT 1 FROM acl_facts a WHERE a.object_kind=e."objectKind" AND a.object_name=e."objectName" AND a.privilege=e.privilege AND a.grantee=0)
+    WHEN e.source = 'direct' THEN EXISTS (SELECT 1 FROM acl_facts a JOIN pg_roles r ON r.oid=a.grantee WHERE r.rolname=current_user AND a.object_kind=e."objectKind" AND a.object_name=e."objectName" AND a.privilege=e.privilege)
+    WHEN e.source = 'inherited' THEN EXISTS (SELECT 1 FROM acl_facts a JOIN inherited_roles r ON r.oid=a.grantee WHERE r.rolname<>current_user AND a.object_kind=e."objectKind" AND a.object_name=e."objectName" AND a.privilege=e.privilege)
+    WHEN e.source = 'built-in-default-role' THEN EXISTS (SELECT 1 FROM pg_roles r WHERE r.rolname IN ('pg_database_owner','pg_read_all_data','pg_write_all_data') AND pg_has_role(current_user, r.rolname, 'MEMBER'))
+    WHEN e.source = 'default-acl' THEN false
+    ELSE true
+  END AS granted
+FROM expected e;`;
+
+const DEFAULT_ACL_SQL = `/* preflight:default-acl */
+SELECT defaclrole::regrole::text AS subject, privilege_type AS privilege
+FROM pg_default_acl CROSS JOIN LATERAL aclexplode(defaclacl)
+WHERE privilege_type IN ('INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER','USAGE','SELECT');`;
+const CATALOG_SQL = `/* preflight:catalog */ SELECT n.nspname AS schema_name, c.relname AS object_name, c.relkind AS object_kind, pg_get_userbyid(c.relowner) AS owner_name FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('public','drizzle') ORDER BY n.nspname, c.relname, c.relkind;`;
+const ROW_COUNTS_SQL = `/* preflight:row-counts */ SELECT 'drizzle_migration_rows' AS metric, count(*)::bigint::text::int AS count FROM drizzle.__drizzle_migrations;`;
+
+const PROBE_SQL = Object.freeze({
+  INSERT: "INSERT INTO drizzle.__drizzle_migrations (hash, created_at) SELECT repeat('0', 64), 0 WHERE false;",
+  UPDATE: "UPDATE drizzle.__drizzle_migrations SET hash = hash WHERE false;",
+  DELETE: "DELETE FROM drizzle.__drizzle_migrations WHERE false;",
+  DDL: "CREATE TABLE public.__product_suite_preflight_forbidden (id integer);",
+  nextval: "SELECT nextval('drizzle.__drizzle_migrations_id_seq'::regclass);",
+});
+
+async function runDenialProbes(client, operations) {
+  const results = [];
+  await client.query("SET default_transaction_read_only = on;");
+  for (const operation of operations) {
+    try { await client.query(PROBE_SQL[operation]); results.push({ mode: "autocommit", operation, code: null }); }
+    catch (error) { results.push({ mode: "autocommit", operation, code: error?.code ?? null }); }
+  }
+  for (const operation of operations) {
+    await client.query("BEGIN READ ONLY;");
+    try { await client.query(PROBE_SQL[operation]); results.push({ mode: "transaction", operation, code: null }); }
+    catch (error) { results.push({ mode: "transaction", operation, code: error?.code ?? null }); }
+    finally { await client.query("ROLLBACK;"); }
+  }
+  return results;
+}
+
+async function collectPreflightSnapshot(client, contract) {
+  const identity = await client.query(IDENTITY_SQL);
+  const expectedFacts = [...(contract.positivePrivileges ?? []), ...(contract.negativePrivileges ?? [])];
+  const privileges = await client.query(PRIVILEGE_SQL, [JSON.stringify(expectedFacts)]);
+  const defaultAcl = await client.query(DEFAULT_ACL_SQL);
+  const denialProbes = await runDenialProbes(client, contract.denialProbes ?? []);
+  const catalog = await client.query(CATALOG_SQL);
+  const rowCounts = await client.query(ROW_COUNTS_SQL);
+  return {
+    identity: normalizeIdentity(identity?.rows?.[0]),
+    privilegeFacts: (privileges?.rows ?? []).map(normalizeFact),
+    defaultAclWritePaths: defaultAcl?.rows ?? [],
+    denialProbes,
+    catalogDigest: catalog?.rows?.[0]?.catalog_digest ?? canonicalHash(canonicalize(catalog?.rows ?? [])),
+    aggregateRowCounts: (rowCounts?.rows ?? []).map((entry) => ({ metric: entry.metric, count: Number(entry.count) })),
+  };
+}
+
+export async function verifyProductionPreflight({ adapter, files = loadMigrationFiles(), expectedFloor, authority, attestation, grantContract = productionPreflightGrantContract, endpointId, runContext = {} } = {}) {
+  if (authority?.environment !== "production" || authority?.historyVariant !== "original-production" || expectedFloor !== "0017") return fail("PREFLIGHT_HISTORY_CONTRACT_MISMATCH");
+  if (!adapter?.query && !adapter?.connect) return fail("PREFLIGHT_DATABASE_UNAVAILABLE");
+  const client = adapter.connect ? await adapter.connect() : adapter;
+  try {
+    const snapshot = await collectPreflightSnapshot(client, grantContract);
+    const validated = validatePreflightSnapshot({ snapshot, attestation, grantContract, expectedEndpointId: endpointId });
+    if (!validated.ok) return validated;
+    const history = await query(client, HISTORY_SQL);
+    const rows = migrationRows(history?.rows, files);
+    const pendingFiles = files.filter((file) => tagNumber(file.tag) > 17);
+    const plan = buildMigrationPlan({ applied: rows, declared: pendingFiles, files, expectedCount: 18, expectedFloor, authority, observedVariant: "original-production" });
+    if (!plan.ok) return plan;
+    if (plan.pending.join(",") !== "0018,0019") return fail("PREFLIGHT_PENDING_SUFFIX_MISMATCH");
+    return createMigrationEvidence({
+      schemaVersion: "neon-production-preflight-evidence.v1",
+      operation: "verify", status: "PREFLIGHT_READY", reasonCodes: ["PREFLIGHT_READY"],
+      historyVariant: plan.historyVariant, expectedFloor, expectedCount: 18,
+      repository: runContext.repository, runId: runContext.runId, runSha: runContext.runSha,
+      endpointId, loginIdentifier: validated.loginIdentifier,
+      grantContract: grantContract.name, grantContractSha256: grantContractDigest(grantContract),
+      catalogDigest: validated.catalogDigest, grantDigest: validated.grantDigest,
+      aggregateRowCounts: validated.aggregateRowCounts,
+      applied: rows.map((entry) => ({ tag: entry.tag, timestamp: Number(entry.timestamp), hash: entry.hash })),
+      pending: pendingFiles.map((entry) => ({ tag: entry.tag, hash: entry.hash })),
+    });
+  } finally {
+    client.release?.();
+  }
+}
 
 /** Apply only an exact, caller-declared contiguous suffix under one lock. */
 export async function applyMigrations({ adapter, applied = [], declared = [], files = loadMigrationFiles(), authority, observedVariant, hashes, history, expectedCount, expectedFloor } = {}) {

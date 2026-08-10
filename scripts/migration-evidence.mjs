@@ -7,24 +7,55 @@
  */
 const ALLOWED_KEYS = new Set([
   "ok",
+  "schemaVersion",
   "operation",
   "status",
+  "code",
+  "reasonCodes",
   "historyVariant",
   "expectedFloor",
   "expectedCount",
+  "repository",
+  "runId",
+  "runSha",
   "projectId",
   "branchId",
-  "deploymentId",
+  "endpointId",
+  "database",
+  "schema",
+  "proofSource",
+  "sourceImmutableSha256",
+  "sourceProducedAt",
+  "attestationBlobId",
+  "attestationFileSha256",
+  "attestationCanonicalPayloadSha256",
+  "signatureKeyId",
+  "loginIdentifier",
+  "grantContract",
+  "grantContractSha256",
+  "recoveryKind",
+  "recoveryId",
+  "recoverySourceBranchId",
+  "catalogDigest",
+  "grantDigest",
+  "aggregateRowCounts",
+  "observedAt",
+  "expiresAt",
   "tag",
   "timestamp",
   "hash",
+  "metric",
   "count",
   "pending",
+  "applied",
 ]);
 
-const SECRET_KEY = /(url|password|secret|token|credential|username|user|sql|query|row|payload|content|error|message|claim|prompt|embedding)/i;
+const SECRET_KEY = /(url|password|secret|token|credential|username|sql|query|payload|content|error|message|claim|prompt|embedding)/i;
 const MIGRATION_TAG = /^\d{4}(?:_[a-z0-9_]+)?$/i;
 const MIGRATION_HASH = /^[a-f0-9]{64}$/i;
+const SHA = /^[a-f0-9]{40}$/i;
+const SAFE_IDENTIFIER = /^[a-z0-9][a-z0-9_.:/-]{0,255}$/i;
+const FORBIDDEN_VALUE = /(postgres(?:ql)?|https?:\/\/|password\s*=|BEGIN\b|ALTER\s+TABLE|CREATE\s+TABLE|INSERT\s+INTO|UPDATE\s+[^a-z]|DELETE\s+FROM|DROP\s+)/i;
 
 function migrationFloorMatches(actualTag, expectedFloor) {
   const actualPrefix = /^(\d+)/.exec(String(actualTag))?.[1];
@@ -39,24 +70,43 @@ function isSafeScalar(value) {
 function safeValue(key, value) {
   if (SECRET_KEY.test(key) || !ALLOWED_KEYS.has(key)) return undefined;
   if (Array.isArray(value)) {
-    if (key === "pending") return value.every((entry) => typeof entry === "string") ? [...value] : undefined;
-    if (key === "applied" || key === "migrations") return value.map((entry) => safeValue("migration", entry)).filter(Boolean);
+    if (key === "reasonCodes") return value.every((entry) => typeof entry === "string" && SAFE_IDENTIFIER.test(entry)) ? [...value] : undefined;
     return undefined;
   }
   if (!isSafeScalar(value)) return undefined;
   // Migration names and digests are opaque, product-owned identifiers.  They
   // may legitimately contain words such as "create" or "delete"; applying
   // the SQL/prose filter to them would silently drop reconstructable history.
-  if (key !== "tag" && key !== "hash" && typeof value === "string" && /(postgres(?:ql)?|https?:\/\/|@|BEGIN|ALTER|CREATE|INSERT|UPDATE|DELETE|DROP)/i.test(value)) return undefined;
+  if (typeof value === "string" && FORBIDDEN_VALUE.test(value)) return undefined;
   return value;
+}
+
+function redactRecord(entry, fields) {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+  const result = {};
+  for (const field of fields) {
+    const safe = safeValue(field, entry[field]);
+    if (safe !== undefined) result[field] = safe;
+  }
+  return result;
 }
 
 /** Return only the privacy-safe, reconstructable evidence fields. */
 export function redactEvidence(input = {}) {
   const result = {};
   for (const [key, value] of Object.entries(input)) {
-    if (key === "applied" || key === "migrations") {
-      const entries = Array.isArray(value) ? value.map((entry) => redactEvidence(entry)).filter((entry) => entry.tag && entry.hash && entry.timestamp !== undefined) : [];
+    if (key === "applied") {
+      const entries = Array.isArray(value) ? value.map((entry) => redactRecord(entry, ["tag", "timestamp", "hash"])).filter((entry) => entry?.tag && entry?.hash && entry?.timestamp !== undefined) : [];
+      result[key] = entries;
+      continue;
+    }
+    if (key === "pending") {
+      const entries = Array.isArray(value) ? value.map((entry) => typeof entry === "string" ? { tag: entry } : redactRecord(entry, ["tag", "hash"])).filter((entry) => entry?.tag) : [];
+      result[key] = entries;
+      continue;
+    }
+    if (key === "aggregateRowCounts") {
+      const entries = Array.isArray(value) ? value.map((entry) => redactRecord(entry, ["metric", "count"])).filter((entry) => entry?.metric && Number.isSafeInteger(entry?.count) && entry.count >= 0) : [];
       result[key] = entries;
       continue;
     }
@@ -86,8 +136,11 @@ export function createRoleProvisioningEvidence(input = {}) {
 export function verifyMigrationEvidence(evidence = {}) {
   const safe = redactEvidence(evidence);
   const issues = [];
+  const unknownKeys = Object.keys(evidence).filter((key) => !ALLOWED_KEYS.has(key));
+  if (unknownKeys.length > 0) issues.push("unknown evidence field");
+  if (JSON.stringify(evidence, (_key, value) => typeof value === "string" && FORBIDDEN_VALUE.test(value) ? "__FORBIDDEN__" : value).includes("__FORBIDDEN__")) issues.push("secret or executable value forbidden");
   if (!["bootstrap", "apply", "verify"].includes(safe.operation)) issues.push("operation missing or invalid");
-  if (!["APPLIED", "NOOP", "BOOTSTRAPPED"].includes(safe.status)) issues.push("status missing or invalid");
+  if (!["APPLIED", "NOOP", "BOOTSTRAPPED", "PREFLIGHT_READY", "FAIL", "INCOMPLETE"].includes(safe.status)) issues.push("status missing or invalid");
   if (!["original-production", "repaired-bootstrap"].includes(safe.historyVariant)) issues.push("history variant missing or invalid");
   if (!Array.isArray(safe.applied)) issues.push("applied migration records missing");
   for (const entry of safe.applied ?? []) {
@@ -97,6 +150,15 @@ export function verifyMigrationEvidence(evidence = {}) {
   if (safe.count !== undefined && safe.count !== safe.applied?.length) issues.push("evidence count mismatch");
   if (safe.expectedFloor !== undefined && !migrationFloorMatches(safe.applied?.at(-1)?.tag, safe.expectedFloor)) issues.push("evidence floor mismatch");
   if (safe.status === "NOOP" && Array.isArray(safe.pending) && safe.pending.length > 0) issues.push("NOOP evidence has pending migrations");
+  if (safe.status === "PREFLIGHT_READY") {
+    if (safe.schemaVersion !== "neon-production-preflight-evidence.v1") issues.push("preflight schema version invalid");
+    if (safe.historyVariant !== "original-production" || safe.expectedFloor !== "0017" || safe.expectedCount !== 18) issues.push("preflight history contract invalid");
+    if (safe.applied?.length !== 18 || safe.pending?.map((entry) => entry.tag).join(",") !== "0018,0019") issues.push("preflight suffix invalid");
+    for (const entry of safe.pending ?? []) if (!MIGRATION_TAG.test(entry.tag) || !MIGRATION_HASH.test(entry.hash ?? "")) issues.push("pending migration record is incomplete");
+    if (!SAFE_IDENTIFIER.test(safe.loginIdentifier ?? "") || safe.grantContract !== "product-suite-neon-preflight-reader-v1") issues.push("preflight role contract invalid");
+    for (const field of ["grantContractSha256", "catalogDigest", "grantDigest"]) if (!MIGRATION_HASH.test(safe[field] ?? "")) issues.push(`${field} invalid`);
+    if (safe.runSha !== undefined && !SHA.test(safe.runSha)) issues.push("run SHA invalid");
+  }
   return issues.length === 0 ? { ok: true, ...safe } : { ok: false, code: "EVIDENCE_INVALID", issues };
 }
 
