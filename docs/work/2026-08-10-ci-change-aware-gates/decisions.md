@@ -25,3 +25,16 @@
 - Consolidating/removing existing independent CI workflows after measured production evidence.
 - Cache and runner-size tuning.
 - Unrelated flaky-test remediation.
+
+## Task 4: Base freshness gate
+
+- Add a stable `Base Freshness / base-freshness` pull-request check in this same
+  independent PR. It checks out the exact head SHA, fetches the current base
+  branch, and uses `git merge-base --is-ancestor`; it never relies on a GitHub
+  merge ref or credentials.
+- Preserve existing required status contexts while this workflow lands. After
+  the workflow is merged and observed green, update branch protection to add
+  `Base Freshness / base-freshness` as a required check; that protection change
+  is deliberately a post-merge operator action, not part of this code PR.
+- The deterministic fixture rejects a base that advances after an earlier check,
+  preventing stale green evidence without network or clock-dependent tests.

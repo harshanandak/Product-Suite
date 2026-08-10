@@ -1,0 +1,51 @@
+name: Base Freshness
+
+# Reports a stable `Base Freshness / base-freshness` PR context.  It checks the
+# exact head commit, then fetches the current base branch instead of trusting a
+# merge ref that GitHub may have produced before main advanced.
+on:
+  pull_request: {}
+
+concurrency:
+  group: base-freshness-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  base-freshness:
+    name: base-freshness
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact head checkout
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+
+      - name: Fetch current base branch
+        shell: bash
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          test -n "$BASE_REF"
+          git fetch --no-tags origin "refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+
+      - name: Verify current base is an ancestor
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: node scripts/base-freshness.mjs

@@ -116,6 +116,14 @@ const lifecycleScriptHardenedWorkflowPaths = [
   join(rootDir, ".github", "workflows", "platform-web-ci.yml"),
   join(rootDir, ".github", "workflows", "platform-web-deploy.yml"),
 ];
+const baseFreshnessWorkflowPath = join(
+  rootDir,
+  ".github",
+  "workflows",
+  "base-freshness.yml",
+);
+const baseFreshnessWorkflow = readFileSync(baseFreshnessWorkflowPath, "utf8");
+const baseFreshnessScript = readFileSync(join(rootDir, "scripts", "base-freshness.mjs"), "utf8");
 const dbContractTelemetry = readFileSync(
   join(rootDir, "apps", "platform-api", "test", "db-contract", "telemetry.ts"),
   "utf8",
@@ -762,6 +770,26 @@ describe("repo tooling", () => {
     expect(platformApiPackageJson.scripts["test:db-contract:conformance"]).toBe(
       "bun test/db-contract/conformance-cli.ts",
     );
+  });
+
+  test("base-freshness is an always-on exact-head PR check against current base", () => {
+    const workflow = Bun.YAML.parse(baseFreshnessWorkflow);
+    const triggers = workflow.on;
+    const job = workflow.jobs["base-freshness"];
+    expect(triggers.pull_request).toEqual({});
+    expect(triggers.push).toBeUndefined();
+    expect(job.name).toBe("base-freshness");
+    expect(job.timeout).toBeUndefined();
+    expect(job["timeout-minutes"]).toBe(5);
+    expect(baseFreshnessWorkflow).toContain("github.event.pull_request.head.sha");
+    expect(baseFreshnessWorkflow).toContain("git fetch --no-tags origin");
+    expect(baseFreshnessScript).toContain("merge-base");
+    expect(baseFreshnessWorkflow).not.toContain("refs/pull/");
+    expect(baseFreshnessWorkflow).not.toContain("github.event.pull_request.merge_commit_sha");
+    expect(baseFreshnessWorkflow).toContain("cancel-in-progress: true");
+    for (const step of job.steps) {
+      expect(JSON.stringify(step)).not.toContain("secrets.");
+    }
   });
 
   test("shared root dependency changes trigger the web and backend CI workflows", () => {
