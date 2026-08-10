@@ -155,6 +155,42 @@ describe("change-aware CI plan", () => {
     }
   });
 
+  test("authority/security ownership rules fail closed across explicit and keyword surfaces", () => {
+    const authorityPaths = [
+      "apps/meeting-api/backend/tenant_context.py",
+      "apps/meeting-api/backend/auth.py",
+      "scripts/delivery/classify-change.mjs",
+      "scripts/delivery/security-routing.mjs",
+      "packages/contracts/src/auth/index.d.ts",
+      "packages/contracts/src/authorization/policy.ts",
+      "packages/contracts/src/permissions/index.d.ts",
+      "packages/contracts/src/identity/user.ts",
+      "apps/platform-web/src/tenant/route.ts",
+      "apps/platform-web/src/identity/session.ts",
+      "apps/platform-web/src/access/guard.ts",
+      "apps/platform-web/src/permission/check.ts",
+      "apps/platform-web/src/security/csp.ts",
+    ];
+    for (const file of authorityPaths) {
+      const plan = buildCiPlan([file], SHA);
+      expect(plan.dbEvidenceRequired, file).toBe(true);
+      expect(plan.classification, file).toBe("full-suite");
+    }
+  });
+
+  test("unrelated surfaces remain scoped and do not acquire DB proof", () => {
+    for (const file of [
+      "apps/platform-web/src/components/board.tsx",
+      "apps/meeting-api/backend/health.py",
+      "packages/contracts/src/work-item.d.ts",
+      "packages/ui/src/button.tsx",
+    ]) {
+      const plan = buildCiPlan([file], SHA);
+      expect(plan.dbEvidenceRequired, file).toBe(false);
+      expect(plan.classification, file).toBe("scoped");
+    }
+  });
+
   test("ambiguous ranges and unowned paths fail closed to full DB validation", () => {
     for (const input of [null, [], ["unknown-root-file.txt"], ["apps/platform-web/src/x.tsx", "README"]]) {
       const plan = buildCiPlan(input, SHA);

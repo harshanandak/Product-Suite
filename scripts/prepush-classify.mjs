@@ -114,12 +114,21 @@ const SHA_PATTERN = /^[0-9a-f]{40}$/i;
 const CI_DB_REQUIRED = [
   /^apps\/platform-api(?:\/|$)/,
   /^packages\/db(?:\/|$)/,
+  /^apps\/meeting-api\/backend\/tenant_context\.py$/i,
   /^infra\//,
   /(^|\/)migrations?(?:\/|$)/i,
   /^security(?:\/|$)/i,
   /(^|\/)(?:auth|authorization|security|secrets?)(?:\/|[._-]|$)/i,
   /^\.github\//,
   /^\.sonarcloud\.properties$/,
+  // Delivery classifiers and security-routing helpers can change the impact
+  // decision itself, so the whole family is DB-required even when the file is
+  // otherwise repo tooling.
+  /^scripts\/delivery(?:\/|$)/i,
+  // Fail closed on authority-bearing path segments and filename keywords. The
+  // separators include `_`, `.`, and `-` so tenant_context.py/auth.d.ts are
+  // covered without treating unrelated words such as oauth as auth.
+  /(?:^|[\/_\-.])(?:tenant|tenants|identity|identities|access|permission|permissions|authorization|auth|security|secrets?)(?=$|[\/_\-.])/i,
   /^scripts\/(?:.*(?:authority|security|secret|migration|neon|db-contract|preflight).*|prepush-.*|ci-.*|check-(?:source-test|migration-parity|database-authority|worker-secrets)|migrate-database\.mjs)$/i,
 ];
 
