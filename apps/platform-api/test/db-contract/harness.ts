@@ -969,6 +969,27 @@ export function variantMigrationContract(variant: NeonHistoryVariant): {
     : { baselineFloor: '0017', baselineCount: 18, declared: ['0018', '0019', '0020'], finalFloor: '0020' }
 }
 
+export function nextSyntheticMigrationTimestamp(
+  files: ReadonlyArray<Pick<CanonicalMigrationFile, 'timestamp'>>,
+): number {
+  const timestamps = files.map((file) => file.timestamp)
+  const latest = Math.max(...timestamps)
+  if (timestamps.length === 0 || !Number.isSafeInteger(latest) || latest < 0 || latest === Number.MAX_SAFE_INTEGER) {
+    conformanceFailure('CANONICAL_FILE_LOAD_UNPROVEN')
+  }
+  return latest + 1
+}
+
+export function effectiveTimestampFilesForVariant<T>(
+  variant: NeonHistoryVariant,
+  canonicalFiles: T[],
+  normalizeProduction: (files: T[]) => T[],
+): T[] {
+  return variant === 'original-production'
+    ? normalizeProduction(canonicalFiles)
+    : canonicalFiles
+}
+
 export function resolveDeclaredMigrationTags(
   files: ReadonlyArray<{ tag: string }>,
   declared: readonly string[],
@@ -991,6 +1012,7 @@ async function proveCanonicalVariant(connectionUri: string, variant: NeonHistory
     applyMigrations(input: Record<string, unknown>): Promise<CanonicalEvidence>
     bootstrapMigrations(input: Record<string, unknown>): Promise<CanonicalEvidence>
     loadMigrationFiles(): CanonicalMigrationFile[]
+    productionPreflightFiles(files: CanonicalMigrationFile[]): CanonicalMigrationFile[]
     verifyMigrations(input: Record<string, unknown>): Promise<CanonicalEvidence>
   }
   // @ts-expect-error Canonical JavaScript provisioner has no declaration file; its surface is narrowed here.
@@ -1035,13 +1057,18 @@ async function proveCanonicalVariant(connectionUri: string, variant: NeonHistory
       if (!baseline.ok || baseline.status !== 'NOOP') conformanceFailure('ORIGINAL_PRODUCTION_FLOOR_UNPROVEN')
     }
 
+    const effectiveTimestampFiles = effectiveTimestampFilesForVariant(
+      variant,
+      canonicalFiles,
+      migrationRunner.productionPreflightFiles,
+    )
     const syntheticSql = 'SELECT 1;'
     const synthetic: CanonicalMigrationFile = {
       tag: '0020',
       file: '0020_task8_synthetic.sql',
       sql: syntheticSql,
       hash: createHash('sha256').update(syntheticSql.replace(/\r\n?/g, '\n'), 'utf8').digest('hex'),
-      timestamp: 20,
+      timestamp: nextSyntheticMigrationTimestamp(effectiveTimestampFiles),
     }
     const files = [...canonicalFiles, synthetic]
     const declared = resolveDeclaredMigrationTags(files, contract.declared)
