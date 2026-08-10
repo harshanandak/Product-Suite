@@ -117,6 +117,7 @@ const CI_DB_REQUIRED = [
   /^infra\//,
   /(^|\/)migrations?(?:\/|$)/i,
   /^security(?:\/|$)/i,
+  /(^|\/)(?:auth|authorization|security|secrets?)(?:\/|[._-]|$)/i,
   /^\.github\//,
   /^\.sonarcloud\.properties$/,
   /^scripts\/(?:.*(?:authority|security|secret|migration|neon|db-contract|preflight).*|prepush-.*|ci-.*|check-(?:source-test|migration-parity|database-authority|worker-secrets)|migrate-database\.mjs)$/i,
@@ -155,7 +156,8 @@ export function buildCiPlan(filesOrOptions, exactSha) {
     ? { files: filesOrOptions, exactSha }
     : filesOrOptions ?? {};
   const files = normalizedFiles(options.files ?? null);
-  const validSha = isValidSha(options.exactSha);
+  const requestedSha = options.exactSha ?? options.headSha ?? options.head;
+  const validSha = isValidSha(requestedSha);
   const result = classify(files);
   const dbEvidenceRequired = !validSha || ciDbEvidenceRequired(files, result);
   const classification = !validSha ? FULL : ciClassification(files, result);
@@ -170,7 +172,7 @@ export function buildCiPlan(filesOrOptions, exactSha) {
 
   return {
     schemaVersion: CI_PLAN_SCHEMA_VERSION,
-    exactSha: validSha ? options.exactSha.trim().toLowerCase() : null,
+    exactSha: validSha ? requestedSha.trim().toLowerCase() : null,
     inputValid: validSha,
     classification,
     reason,

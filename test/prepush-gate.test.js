@@ -146,6 +146,7 @@ describe("change-aware CI plan", () => {
       ["infra/neon/migrations/001.sql"],
       ["scripts/check-worker-secrets.mjs"],
       ["scripts/prepush-gate.mjs"],
+      ["apps/platform-web/src/auth/session.ts"],
       [".github/workflows/db-contract.yml"],
     ]) {
       const plan = buildCiPlan(files, SHA);
