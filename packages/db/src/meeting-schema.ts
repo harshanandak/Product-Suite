@@ -311,8 +311,8 @@ export const userAuthIdentities = pgTable(
     provider: text('provider').notNull(),
     providerUserId: text('provider_user_id').notNull(),
     providerEmail: text('provider_email'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => ({
     providerIdentityUnique: unique('user_auth_identities_provider_provider_user_id_key').on(
@@ -332,8 +332,8 @@ export const organizationMemberships = pgTable(
     role: text('role').notNull().default('member'),
     status: text('status').notNull().default('active'),
     invitedByUserId: text('invited_by_user_id'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => ({
     tenantUserUnique: unique('organization_memberships_tenant_id_user_id_key').on(table.tenantId, table.userId),
@@ -354,8 +354,8 @@ export const organizationInvitations = pgTable(
     acceptedByUserId: text('accepted_by_user_id'),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     acceptedAt: timestamp('accepted_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => ({
     tokenUnique: unique('organization_invitations_token_hash_key').on(table.tokenHash),

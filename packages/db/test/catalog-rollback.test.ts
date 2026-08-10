@@ -8,6 +8,13 @@ import {
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import { getTableConfig, PgDialect } from 'drizzle-orm/pg-core'
+
+import {
+  organizationInvitations,
+  organizationMemberships,
+  userAuthIdentities,
+} from '../src/meeting-schema'
 
 const MIGRATION_SQL = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), '..', 'migrations', '0019_neon_authority_reconciliation.sql'),
@@ -17,6 +24,27 @@ const SNAPSHOT = JSON.parse(readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), '..', 'migrations', 'meta', '0019_snapshot.json'),
   'utf8',
 )) as Snapshot
+const ALEMBIC_AUTH_REDESIGN = readFileSync(
+  join(
+    dirname(fileURLToPath(import.meta.url)),
+    '..',
+    '..',
+    '..',
+    'apps',
+    'meeting-api',
+    'backend',
+    'alembic',
+    'versions',
+    '0004_auth_provider_redesign.py',
+  ),
+  'utf8',
+)
+
+const AUTH_TIMESTAMP_DEFAULTS = [
+  ['organization_invitations', organizationInvitations],
+  ['organization_memberships', organizationMemberships],
+  ['user_auth_identities', userAuthIdentities],
+] as const
 
 type SnapshotColumn = {
   name: string
@@ -154,6 +182,46 @@ function assertSnapshotCovered(contract: EmbeddedCatalog): void {
 }
 
 describe('0019 catalog rollback contract', () => {
+  it('preserves the Alembic auth timestamp defaults in every canonical contract', () => {
+    const contract = embeddedCatalog()
+    const dialect = new PgDialect()
+
+    for (const [tableName, table] of AUTH_TIMESTAMP_DEFAULTS) {
+      const alembicTable = ALEMBIC_AUTH_REDESIGN.match(
+        new RegExp(`CREATE TABLE IF NOT EXISTS ${tableName} \\(([\\s\\S]*?)\\n\\s*\\)`, 'i'),
+      )?.[1]
+      const migrationTable = MIGRATION_SQL.match(
+        new RegExp(`CREATE TABLE IF NOT EXISTS "${tableName}" \\(([\\s\\S]*?)\\n\\);`, 'i'),
+      )?.[1]
+      const canonicalColumns = new Map(getTableConfig(table).columns.map((column) => [column.name, column]))
+
+      expect(alembicTable).toBeDefined()
+      expect(migrationTable).toBeDefined()
+
+      for (const columnName of ['created_at', 'updated_at']) {
+        const canonicalColumn = canonicalColumns.get(columnName)
+        expect(alembicTable).toMatch(
+          new RegExp(`${columnName} TIMESTAMPTZ NOT NULL DEFAULT NOW\\(\\)`, 'i'),
+        )
+        expect(canonicalColumn?.hasDefault).toBe(true)
+        expect(canonicalColumn?.notNull).toBe(true)
+        expect(canonicalColumn?.default).toBeDefined()
+        const renderedDefault = dialect.sqlToQuery(
+          canonicalColumn?.default as Parameters<PgDialect['sqlToQuery']>[0],
+        )
+        expect(renderedDefault.sql).toBe('now()')
+        expect(renderedDefault.params).toEqual([])
+        expect(SNAPSHOT.tables[`public.${tableName}`].columns[columnName].default).toBe('now()')
+        expect(
+          contract.columns.find(([name]) => name === `public.${tableName}.${columnName}`)?.[5],
+        ).toBe('now()')
+        expect(migrationTable).toMatch(
+          new RegExp(`"${columnName}" timestamp with time zone DEFAULT now\\(\\) NOT NULL`, 'i'),
+        )
+      }
+    }
+  })
+
   it('qualifies PostgreSQL 17 FK deparser output before comparing existing constraints', () => {
     const normalize = (definition: string) => definition
       .toLowerCase()
