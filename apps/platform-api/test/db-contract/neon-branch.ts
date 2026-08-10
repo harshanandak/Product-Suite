@@ -157,11 +157,11 @@ function retryDelayMs(response: Response, attempt: number): number {
   if (header) {
     const seconds = Number(header)
     if (Number.isFinite(seconds) && seconds >= 0) {
-      return Math.min(Math.round(seconds * 1_000), SAFE_REQUEST_MAX_DELAY_MS)
+      return Math.round(seconds * 1_000)
     }
     const timestamp = Date.parse(header)
     if (Number.isFinite(timestamp)) {
-      return Math.min(Math.max(0, timestamp - Date.now()), SAFE_REQUEST_MAX_DELAY_MS)
+      return Math.max(0, timestamp - Date.now())
     }
   }
   const backoff = Math.min(100 * (2 ** attempt), SAFE_REQUEST_MAX_DELAY_MS)
@@ -178,6 +178,10 @@ async function neonRequest(
   const deadline = Date.now() + SAFE_REQUEST_RETRY_DEADLINE_MS
 
   for (let attempt = 0; attempt < SAFE_REQUEST_MAX_ATTEMPTS; attempt += 1) {
+    const remainingMs = deadline - Date.now()
+    if (remainingMs <= 0) {
+      throw new NeonBranchError('DB_CONTRACT_NEON_REQUEST_RETRY_EXHAUSTED')
+    }
     let response: Response
     try {
       response = await fetch(`${API_BASE}${path}`, {
@@ -188,7 +192,7 @@ async function neonRequest(
           Authorization: `Bearer ${apiKey}`,
         },
         body: init.body === undefined ? undefined : JSON.stringify(init.body),
-        signal: AbortSignal.timeout(NEON_REQUEST_TIMEOUT_MS),
+        signal: AbortSignal.timeout(Math.min(NEON_REQUEST_TIMEOUT_MS, remainingMs)),
       })
     } catch {
       if (method === 'POST') {
@@ -391,16 +395,18 @@ async function listAllBranches(apiKey: string, projectId: string): Promise<Branc
     // Neon returns the next-page cursor as `pagination.next` (NOT `.cursor`); it is
     // passed back as the `cursor` request param above.
     const next = body.pagination?.next
-    // Cursor-driven termination (the documented contract): keep paging while the
-    // server hands back a next cursor. Stop when it stops giving one, when a page
-    // comes back empty, or when a cursor repeats (defensive against a server that
-    // echoes the same cursor forever) so a malformed cursor can never loop.
-    if (pageBranches.length === 0 || !next || seenCursors.has(next)) break
+    // Empty pages and repeated cursors are ambiguous: returning the accumulated
+    // prefix could make a partial branch inventory look complete and permit an
+    // unsafe capacity/reconciliation decision. Fail closed instead.
+    if (pageBranches.length === 0 || (next !== undefined && seenCursors.has(next))) {
+      throw new NeonBranchError('DB_CONTRACT_BRANCH_LIST_PAGINATION_UNCERTAIN')
+    }
+    if (!next) return all
     seenCursors.add(next)
     cursor = next
   }
 
-  return all
+  throw new NeonBranchError('DB_CONTRACT_BRANCH_LIST_PAGINATION_UNCERTAIN')
 }
 
 async function reconcileIndeterminateCreate(
@@ -409,12 +415,16 @@ async function reconcileIndeterminateCreate(
   exactName: string,
 ): Promise<EphemeralBranch> {
   const matches = (await listAllBranches(apiKey, projectId)).filter((branch) =>
-    branch.name === exactName && isEphemeralTestBranchName(branch.name) && Boolean(branch.expires_at))
+    branch.name === exactName && isEphemeralTestBranchName(branch.name))
   if (matches.length > 1) {
     throw new NeonBranchError('DB_CONTRACT_BRANCH_CREATE_RECONCILIATION_AMBIGUOUS')
   }
   const match = matches[0]
   if (!match) throw new NeonBranchError('DB_CONTRACT_BRANCH_CREATE_INCOMPLETE')
+  const expiresAt = Date.parse(match.expires_at ?? '')
+  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+    throw new NeonBranchError('DB_CONTRACT_BRANCH_CREATE_INCOMPLETE')
+  }
   const connectionUri = match.connection_uris?.[0]?.connection_uri
   if (connectionUri) return { branchId: match.id, connectionUri }
 

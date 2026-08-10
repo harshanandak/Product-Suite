@@ -1,4 +1,4 @@
-import { EXPECTED_TOTAL_ASSERTIONS, resolveTestId } from './topology'
+import { classifyTestId, EXPECTED_TOTAL_ASSERTIONS, resolveTestId, SUITE_MANIFEST } from './topology'
 import { recordCounts, recordPhaseDuration, telemetryPathFromEnv } from './telemetry'
 
 export const DB_CONTRACT_ZERO_TESTS = 'DB_CONTRACT_ZERO_TESTS' as const
@@ -28,6 +28,8 @@ export interface DbContractEvidence {
   pending: number
   filtered: number
   unclassified: readonly string[]
+  /** Every resolved manifest id, retained so duplicate/missing tests fail closed. */
+  manifestIds: readonly string[]
   exactHead?: string | null
   cleanupComplete: boolean
   /** Optional explicit expected count for callers that want to self-describe. */
@@ -86,10 +88,23 @@ export function assertDbContractPreliminaryEvidence(
   const pending = count(evidence.pending)
   const filtered = count(evidence.filtered)
   const passed = count(evidence.passed)
+  const manifestIds = Array.isArray(evidence.manifestIds) ? evidence.manifestIds : []
 
   if (collected === 0) fail(DB_CONTRACT_ZERO_TESTS)
   if (evidence.unclassified.length > 0) fail(DB_CONTRACT_UNCLASSIFIED)
   if (skipped > 0 || todo > 0 || pending > 0 || filtered > 0) fail(DB_CONTRACT_SKIPPED)
+
+  if (manifestIds.length !== EXPECTED_TOTAL_ASSERTIONS) fail(DB_CONTRACT_TOPOLOGY_MISMATCH)
+  const seenManifestIds = new Set<string>()
+  for (const id of manifestIds) {
+    if (typeof id !== 'string' || seenManifestIds.has(id) || !classifyTestId(id)) {
+      fail(DB_CONTRACT_TOPOLOGY_MISMATCH)
+    }
+    seenManifestIds.add(id)
+  }
+  if (seenManifestIds.size !== EXPECTED_TOTAL_ASSERTIONS || SUITE_MANIFEST.some((entry) => !seenManifestIds.has(entry.id))) {
+    fail(DB_CONTRACT_TOPOLOGY_MISMATCH)
+  }
 
   const expectedCount = evidence.expectedCount ?? EXPECTED_TOTAL_ASSERTIONS
   if (expectedCount !== EXPECTED_TOTAL_ASSERTIONS || collected !== EXPECTED_TOTAL_ASSERTIONS) {
@@ -154,6 +169,7 @@ export default class ZeroSkipReporter implements DbContractReporter {
   private pending = 0
   private filtered = 0
   private readonly unclassified: string[] = []
+  private readonly manifestIds: string[] = []
   private runStartedAt = performance.now()
 
   getEvidenceSnapshot(): Pick<DbContractEvidence, 'collected' | 'passed' | 'skipped' | 'todo' | 'pending' | 'filtered'> {
@@ -165,6 +181,10 @@ export default class ZeroSkipReporter implements DbContractReporter {
       pending: this.pending,
       filtered: this.filtered,
     }
+  }
+
+  getManifestIds(): readonly string[] {
+    return [...this.manifestIds]
   }
 
   onTestCaseResult(testCase: ReporterTestCaseLike, explicitResult?: ReporterTestResultLike): void {
@@ -182,6 +202,7 @@ export default class ZeroSkipReporter implements DbContractReporter {
 
     const resolved = resolveTestId(testPath(testCase), testTitle(testCase))
     if (!resolved) this.unclassified.push('unclassified')
+    else this.manifestIds.push(resolved.id)
   }
 
   onTestRunStart(): void {
@@ -213,6 +234,7 @@ export default class ZeroSkipReporter implements DbContractReporter {
       pending: this.pending,
       filtered: this.filtered,
       unclassified: this.unclassified,
+      manifestIds: this.manifestIds,
       exactHead: process.env.DB_CONTRACT_EXACT_HEAD ?? process.env.GITHUB_SHA,
       cleanupComplete: false,
       expectedExactHead: process.env.DB_CONTRACT_EXACT_HEAD,
