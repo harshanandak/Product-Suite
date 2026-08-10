@@ -104,6 +104,81 @@ export const FULL = "full-suite";
 export const SCOPED = "scoped";
 
 export const FAST_NOTE = "mode: fast (lint+typecheck only, tests deferred to CI)";
+export const CI_PLAN_SCHEMA_VERSION = "ci-change-plan.v1";
+
+const SHA_PATTERN = /^[0-9a-f]{40}$/i;
+
+// CI-impacting paths are intentionally owned by this module rather than by a
+// second set of workflow regexes.  The normal pre-push classifier remains
+// backwards-compatible; the CI plan adds the stricter DB-authority boundary.
+const CI_DB_REQUIRED = [
+  /^apps\/platform-api(?:\/|$)/,
+  /^packages\/db(?:\/|$)/,
+  /^infra\//,
+  /(^|\/)migrations?(?:\/|$)/i,
+  /^security(?:\/|$)/i,
+  /^\.github\//,
+  /^\.sonarcloud\.properties$/,
+  /^scripts\/(?:.*(?:authority|security|secret|migration|neon|db-contract|preflight).*|prepush-classify\.mjs|ci-change-plan\.mjs)$/i,
+];
+
+export function isValidSha(value) {
+  return typeof value === "string" && SHA_PATTERN.test(value.trim());
+}
+
+function normalizedFiles(files) {
+  if (!Array.isArray(files)) return files;
+  return files.map((file) =>
+    typeof file === "string" ? file.trim().replaceAll("\\", "/").replace(/^\.\//, "") : String(file),
+  );
+}
+
+export function ciDbEvidenceRequired(files, result = classify(files)) {
+  if (result.kind === FULL || result.kind === SCOPED && files === null) return true;
+  if (!Array.isArray(files) || files.length === 0) return true;
+  return files.some((file) => CI_DB_REQUIRED.some((pattern) => pattern.test(file)));
+}
+
+function ciClassification(files, result) {
+  if (ciDbEvidenceRequired(files, result) && result.kind !== FULL) return FULL;
+  return result.kind;
+}
+
+/**
+ * Build the deterministic plan consumed by the CI workflow.  Existing
+ * classify()/describeClassification() callers intentionally remain unchanged.
+ * The second argument accepts either a SHA string or an options object so the
+ * pure API is convenient for both tests and the CLI adapter.
+ */
+export function buildCiPlan(filesOrOptions, exactSha) {
+  const options = Array.isArray(filesOrOptions) || filesOrOptions === null
+    ? { files: filesOrOptions, exactSha }
+    : filesOrOptions ?? {};
+  const files = normalizedFiles(options.files);
+  const validSha = isValidSha(options.exactSha);
+  const result = classify(files);
+  const dbEvidenceRequired = !validSha || ciDbEvidenceRequired(files, result);
+  const classification = !validSha ? FULL : ciClassification(files, result);
+  const reason = !validSha
+    ? "invalid exact head SHA"
+    : classification === FULL && result.kind !== FULL
+      ? "authority/security/migration/CI change"
+      : result.reason ?? "scoped changed workspace";
+  const cheapScripts = classification === DOCS
+    ? ["check:source-test"]
+    : suitesFor(classification === FULL ? new Set(WORKSPACE_DIRS) : affectedDirsFor(result));
+
+  return {
+    schemaVersion: CI_PLAN_SCHEMA_VERSION,
+    exactSha: validSha ? options.exactSha.trim().toLowerCase() : null,
+    inputValid: validSha,
+    classification,
+    reason,
+    cheapScripts,
+    dbEvidenceRequired,
+    dbEvidenceReason: dbEvidenceRequired ? "authority/security/migration or ambiguous change" : "non-authority change",
+  };
+}
 
 function readJSON(file) {
   try {

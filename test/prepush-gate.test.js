@@ -2,6 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import {
+  buildCiPlan,
+  CI_PLAN_SCHEMA_VERSION,
+} from "../scripts/prepush-classify.mjs";
+import { planFromInputs } from "../scripts/ci-change-plan.mjs";
 
 // This file covers the gate's impure CLI shell: that it reads its env toggles and
 // reports the classification it computed. The routing RULES themselves are pure and
@@ -105,6 +110,91 @@ describe("prepush-gate CLI wiring", () => {
     },
     SPAWN_TIMEOUT_MS,
   );
+});
+
+describe("change-aware CI plan", () => {
+  const SHA = "a".repeat(40);
+  const BASE = "b".repeat(40);
+
+  test("scoped workspace changes include ordered cheap gates and no DB evidence", () => {
+    const plan = buildCiPlan(["apps/platform-web/src/x.tsx"], SHA);
+    expect(plan).toMatchObject({
+      schemaVersion: CI_PLAN_SCHEMA_VERSION,
+      exactSha: SHA,
+      classification: "scoped",
+      dbEvidenceRequired: false,
+    });
+    expect(plan.cheapScripts).toEqual([
+      "check:source-test",
+      "test:repo-tooling",
+      "verify:platform-web",
+    ]);
+  });
+
+  test("docs-only changes permit explicit N/A and only run integrity", () => {
+    const plan = buildCiPlan(["docs/work/example/plan.md"], SHA);
+    expect(plan.classification).toBe("docs-only");
+    expect(plan.cheapScripts).toEqual(["check:source-test"]);
+    expect(plan.dbEvidenceRequired).toBe(false);
+    expect(plan.dbEvidenceReason).toBe("non-authority change");
+  });
+
+  test("authority, API, DB, migration, security, and workflow changes require DB proof", () => {
+    for (const files of [
+      ["apps/platform-api/src/agent/tools.ts"],
+      ["packages/db/src/schema.ts"],
+      ["infra/neon/migrations/001.sql"],
+      ["scripts/check-worker-secrets.mjs"],
+      [".github/workflows/db-contract.yml"],
+    ]) {
+      const plan = buildCiPlan(files, SHA);
+      expect(plan.dbEvidenceRequired).toBe(true);
+      expect(plan.classification).toBe("full-suite");
+    }
+  });
+
+  test("ambiguous ranges and unowned paths fail closed to full DB validation", () => {
+    for (const input of [null, [], ["unknown-root-file.txt"], ["apps/platform-web/src/x.tsx", "README"]]) {
+      const plan = buildCiPlan(input, SHA);
+      expect(plan.classification).toBe("full-suite");
+      expect(plan.dbEvidenceRequired).toBe(true);
+    }
+  });
+
+  test("invalid exact SHA remains an explicit invalid full plan", () => {
+    const plan = buildCiPlan(["apps/platform-web/src/x.tsx"], "not-a-sha");
+    expect(plan.classification).toBe("full-suite");
+    expect(plan.dbEvidenceRequired).toBe(true);
+    expect(plan.exactSha).toBeNull();
+    expect(plan.inputValid).toBe(false);
+  });
+
+  test("CLI adapter validates refs and produces deterministic output", () => {
+    const plan = planFromInputs({
+      baseSha: BASE,
+      headSha: SHA,
+      files: ["apps/platform-web/src/x.tsx"],
+    });
+    expect(plan).toEqual(planFromInputs({
+      baseSha: BASE,
+      headSha: SHA,
+      files: ["apps/platform-web/src/x.tsx"],
+    }));
+    expect(plan.exactSha).toBe(SHA);
+    expect(plan.inputValid).toBe(true);
+  });
+
+  test("malformed base or missing file range produces full fail-closed plan", () => {
+    for (const input of [
+      { baseSha: "bad", headSha: SHA, files: ["docs/a.md"] },
+      { baseSha: BASE, headSha: SHA, files: null },
+    ]) {
+      const plan = planFromInputs(input);
+      expect(plan.classification).toBe("full-suite");
+      expect(plan.dbEvidenceRequired).toBe(true);
+      expect(plan.inputValid).toBe(false);
+    }
+  });
 });
 
 describe("prepush-gate harness env isolation (regression for #118)", () => {
