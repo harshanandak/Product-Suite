@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -135,7 +135,36 @@ describe('run-wide branch lease coordinator', () => {
       coordinator(root).acquire('dedicated'),
       coordinator(root).acquire('dedicated'),
     ])
+    expect(first.id).not.toBe(second.id)
+    expect([first.kind, second.kind]).toEqual(['dedicated', 'dedicated'])
     await Promise.all([first.release(), second.release()])
+  })
+
+  it('prunes a persisted expired waiter before admitting the live FIFO head', async () => {
+    const root = await rootWithSpaces()
+    const runTokenHash = createHash('sha256').update('run-a').digest('hex')
+    const runDir = join(root, runTokenHash)
+    await mkdir(runDir, { recursive: true })
+    await writeFile(join(runDir, 'state.json'), `${JSON.stringify({
+      version: 1,
+      runTokenHash,
+      nextSequence: 1,
+      active: [],
+      suiteWaiters: [],
+      dedicatedWaiters: [{
+        id: 'crashed-waiter', ownerId: 'dead-worker', kind: 'dedicated', sequence: 0, expiresAt: Date.now() - 1,
+      }],
+    })}\n`, 'utf8')
+
+    const lease = await settlesWithin(coordinator(root).acquire('dedicated'))
+    expect(lease.kind).toBe('dedicated')
+    const persisted = JSON.parse(await readFile(join(runDir, 'state.json'), 'utf8')) as {
+      active: Array<{ id: string }>
+      dedicatedWaiters: Array<{ id: string }>
+    }
+    expect(persisted.dedicatedWaiters).toEqual([])
+    expect(persisted.active.map(({ id }) => id)).toEqual([lease.id])
+    await lease.release()
   })
 
   it.each<BranchLeaseKind>(['suite', 'dedicated'])('preserves FIFO order within the %s class', async (kind) => {
@@ -187,6 +216,17 @@ describe('run-wide branch lease coordinator', () => {
     await active[1].release()
   })
 
+  it('admits a queued phase when capacity returns within the scaled acquisition budget', async () => {
+    const root = await rootWithSpaces()
+    const active = await coordinator(root, 'run-a', 200).acquire('suite')
+    const queued = coordinator(root, 'run-a', 200).acquire('suite')
+    await remainsPending(queued, 40)
+    await active.release()
+    const admitted = await settlesWithin(queued, 500)
+    expect(admitted.kind).toBe('suite')
+    await admitted.release()
+  })
+
   it('retains capacity when deletion is uncertain because the lease is not released', async () => {
     const root = await rootWithSpaces()
     const retained = await coordinator(root).acquire('suite')
@@ -206,6 +246,16 @@ describe('run-wide branch lease coordinator', () => {
       coordinator(root, 'run-a').acquire('dedicated'),
     ])
     const runB = await settlesWithin(coordinator(root, 'run-b').acquire('suite'))
+    expect(runA.map(({ kind }) => kind)).toEqual(['dedicated', 'dedicated'])
+    expect(runB.kind).toBe('suite')
+    const runAState = JSON.parse(await readFile(join(
+      root, createHash('sha256').update('run-a').digest('hex'), 'state.json',
+    ), 'utf8')) as { active: Array<{ id: string }> }
+    const runBState = JSON.parse(await readFile(join(
+      root, createHash('sha256').update('run-b').digest('hex'), 'state.json',
+    ), 'utf8')) as { active: Array<{ id: string }> }
+    expect(runAState.active.map(({ id }) => id).sort()).toEqual(runA.map(({ id }) => id).sort())
+    expect(runBState.active.map(({ id }) => id)).toEqual([runB.id])
     await Promise.all([...runA.map((lease) => lease.release()), runB.release()])
   })
 

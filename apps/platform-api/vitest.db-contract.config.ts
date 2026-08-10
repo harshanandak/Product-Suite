@@ -25,7 +25,7 @@ export function createDbContractVitestConfig(): ViteUserConfig {
       maxConcurrency: 1,
       // DB provisioning and migration hooks are network-bound; ordinary test
       // timeouts remain owned by the suites themselves.
-      hookTimeout: 180_000,
+      hookTimeout: 540_000,
     },
   }
 }

@@ -56,7 +56,7 @@ export interface BranchLeaseCoordinator {
 }
 
 const DEFAULT_ROOT = join(tmpdir(), 'product-suite-db-contract-branch-leases')
-const DEFAULT_ACQUISITION_TIMEOUT_MS = 120_000
+const DEFAULT_ACQUISITION_TIMEOUT_MS = 300_000
 const DEFAULT_POLL_INTERVAL_MS = 50
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
@@ -77,9 +77,18 @@ function validLease(value: unknown): value is LeaseRecord {
 }
 
 function validWaiter(value: unknown): value is WaiterRecord {
-  return validLease(value) && Number.isSafeInteger((value as unknown as Record<string, unknown>).sequence)
-    && Number((value as unknown as Record<string, unknown>).sequence) >= 0
-    && Number.isFinite((value as unknown as Record<string, unknown>).expiresAt)
+  const record = value as unknown as Record<string, unknown>
+  return validLease(value) && Number.isSafeInteger(record.sequence)
+    && Number(record.sequence) >= 0 && Number.isFinite(record.expiresAt)
+}
+
+function queueFor(state: LeaseState, kind: BranchLeaseKind): WaiterRecord[] {
+  return kind === 'suite' ? state.suiteWaiters : state.dedicatedWaiters
+}
+
+function pruneExpiredWaiters(state: LeaseState, now: number): void {
+  state.suiteWaiters = state.suiteWaiters.filter(({ expiresAt }) => expiresAt > now)
+  state.dedicatedWaiters = state.dedicatedWaiters.filter(({ expiresAt }) => expiresAt > now)
 }
 
 function validateState(value: unknown, expectedHash: string): LeaseState {
@@ -131,6 +140,9 @@ export function createBranchLeaseCoordinator(options: BranchLeaseCoordinatorOpti
       }
     }
 
+    let result: T | undefined
+    let primary: unknown
+    let hasPrimary = false
     try {
       let state: LeaseState
       try {
@@ -152,7 +164,7 @@ export function createBranchLeaseCoordinator(options: BranchLeaseCoordinatorOpti
           throw stable('DB_CONTRACT_BRANCH_LEASE_STATE_UNCERTAIN')
         }
       }
-      const result = await operation(state)
+      result = await operation(state)
       const temporary = join(dirname(statePath), `.state-${process.pid}-${randomBytes(6).toString('hex')}.tmp`)
       await writeFile(temporary, `${JSON.stringify(state)}\n`, { encoding: 'utf8', flag: 'wx' })
       try {
@@ -161,18 +173,20 @@ export function createBranchLeaseCoordinator(options: BranchLeaseCoordinatorOpti
         await rm(temporary, { force: true }).catch(() => undefined)
         throw stable('DB_CONTRACT_BRANCH_LEASE_STATE_UNCERTAIN')
       }
-      return result
-    } finally {
-      try {
-        await rmdir(lockPath)
-      } catch {
-        throw stable('DB_CONTRACT_BRANCH_LEASE_LOCK_UNCERTAIN')
-      }
+    } catch (error) {
+      primary = error
+      hasPrimary = true
     }
-  }
-
-  function queue(state: LeaseState, kind: BranchLeaseKind): WaiterRecord[] {
-    return kind === 'suite' ? state.suiteWaiters : state.dedicatedWaiters
+    let cleanup: BranchLeaseError | undefined
+    try {
+      await rmdir(lockPath)
+    } catch {
+      cleanup = stable('DB_CONTRACT_BRANCH_LEASE_LOCK_UNCERTAIN')
+    }
+    if (hasPrimary && cleanup) throw new AggregateError([primary, cleanup], 'DB_CONTRACT_BRANCH_LEASE_AND_CLEANUP_FAILED')
+    if (hasPrimary) throw primary
+    if (cleanup) throw cleanup
+    return result as T
   }
 
   async function removeWaiter(id: string): Promise<void> {
@@ -190,14 +204,15 @@ export function createBranchLeaseCoordinator(options: BranchLeaseCoordinatorOpti
       await withLock(deadline, (state) => {
         const waiter: WaiterRecord = { id, ownerId, kind, sequence: state.nextSequence, expiresAt: deadline }
         state.nextSequence += 1
-        queue(state, kind).push(waiter)
+        queueFor(state, kind).push(waiter)
       })
 
       while (Date.now() < deadline) {
         const admitted = await withLock(deadline, (state) => {
-          const waiters = queue(state, kind)
+          pruneExpiredWaiters(state, Date.now())
+          const waiters = queueFor(state, kind)
           const index = waiters.findIndex((waiter) => waiter.id === id && waiter.ownerId === ownerId)
-          if (index < 0) throw stable('DB_CONTRACT_BRANCH_LEASE_OWNERSHIP_MISMATCH')
+          if (index < 0) return 'expired' as const
           const suiteActive = state.active.some((lease) => lease.kind === 'suite')
           const eligible = index === 0 && state.active.length < 2 && (kind === 'dedicated' || !suiteActive)
           if (!eligible) return false
@@ -205,6 +220,9 @@ export function createBranchLeaseCoordinator(options: BranchLeaseCoordinatorOpti
           state.active.push({ id, ownerId, kind })
           return true
         })
+        if (admitted === 'expired') {
+          break
+        }
         if (admitted) {
           const lease: BranchLease = {
             id,

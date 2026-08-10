@@ -14,7 +14,7 @@
  * the exact driver/UUID-cast behavior the wave is hardening.
  */
 
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash, randomBytes, randomInt } from 'node:crypto'
 
 import {
   DB_CONTRACT_DATABASE_NAME,
@@ -31,6 +31,8 @@ const SAFE_REQUEST_MAX_DELAY_MS = 1_000
 const RETRYABLE_STATUSES = new Set([423, 429, 503])
 const CREATE_RECOVERY_TIMEOUT_MS = 5_000
 const CREATE_RECOVERY_POLL_MS = 100
+const OPERATION_LIST_PAGE_LIMIT = 100
+const MAX_LIST_PAGES = 100
 
 /**
  * Prefix every ephemeral test branch shares. Encoded once so the create path and
@@ -175,7 +177,7 @@ function retryDelayMs(response: Response, attempt: number): number {
     }
   }
   const backoff = Math.min(100 * (2 ** attempt), SAFE_REQUEST_MAX_DELAY_MS)
-  return Math.min(backoff + Math.floor(Math.random() * 50), SAFE_REQUEST_MAX_DELAY_MS)
+  return Math.min(backoff + randomInt(50), SAFE_REQUEST_MAX_DELAY_MS)
 }
 
 async function neonRequest(
@@ -185,7 +187,7 @@ async function neonRequest(
 ): Promise<Response> {
   const method = init.method.toUpperCase()
   const retrySafe = method === 'GET' || method === 'DELETE'
-  const deadline = Date.now() + SAFE_REQUEST_RETRY_DEADLINE_MS
+  const deadline = Date.now() + (retrySafe ? SAFE_REQUEST_RETRY_DEADLINE_MS : NEON_REQUEST_TIMEOUT_MS)
 
   for (let attempt = 0; attempt < SAFE_REQUEST_MAX_ATTEMPTS; attempt += 1) {
     const remainingMs = deadline - Date.now()
@@ -426,9 +428,9 @@ async function reconcileIndeterminateCreate(
 ): Promise<EphemeralBranch> {
   const runtime = workerRuntimeConfig()
   assertSupportedBranchConnectionTarget(runtime)
-  const deadline = Date.now() + CREATE_RECOVERY_TIMEOUT_MS
+  const discoveryDeadline = Date.now() + CREATE_RECOVERY_TIMEOUT_MS
   let match: BranchSummary | undefined
-  while (Date.now() <= deadline) {
+  while (Date.now() <= discoveryDeadline) {
     const matches = (await listAllBranches(apiKey, projectId)).filter((branch) =>
       branch.name === exactName && isEphemeralTestBranchName(branch.name))
     if (matches.length > 1) {
@@ -439,13 +441,15 @@ async function reconcileIndeterminateCreate(
     await sleep(CREATE_RECOVERY_POLL_MS)
   }
   if (!match) throw new NeonBranchError('DB_CONTRACT_BRANCH_CREATE_INCOMPLETE')
-  const expiresAt = Date.parse(match.expires_at ?? '')
-  const expectedExpiry = Date.parse(expectedExpiresAt)
-  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now() || expiresAt !== expectedExpiry) {
-    throw new NeonBranchError('DB_CONTRACT_BRANCH_CREATE_INCOMPLETE')
-  }
+  const readinessDeadline = Date.now() + CREATE_RECOVERY_TIMEOUT_MS
+  try {
+    const expiresAt = Date.parse(match.expires_at ?? '')
+    const expectedExpiry = Date.parse(expectedExpiresAt)
+    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now() || expiresAt !== expectedExpiry) {
+      throw new NeonBranchError('DB_CONTRACT_BRANCH_CREATE_INCOMPLETE')
+    }
 
-  while (Date.now() <= deadline) {
+  while (Date.now() <= readinessDeadline) {
     const branchOperations = (await listAllOperations(apiKey, projectId))
       .filter(({ branch_id }) => branch_id === match!.id)
     const operations = branchOperations.filter(({ action }) => action === 'create_branch')
@@ -484,15 +488,29 @@ async function reconcileIndeterminateCreate(
     }
     await sleep(CREATE_RECOVERY_POLL_MS)
   }
-  throw new NeonBranchError('DB_CONTRACT_BRANCH_CREATE_INCOMPLETE')
+    throw new NeonBranchError('DB_CONTRACT_BRANCH_CREATE_INCOMPLETE')
+  } catch (error) {
+    const primary = error instanceof NeonBranchError
+      ? error
+      : new NeonBranchError('DB_CONTRACT_BRANCH_CREATE_INCOMPLETE')
+    try {
+      await deleteEphemeralBranchStrict(match.id)
+    } catch {
+      throw new AggregateError([
+        primary,
+        new NeonBranchError('DB_CONTRACT_BRANCH_DELETION_UNPROVEN'),
+      ], 'DB_CONTRACT_CREATE_AND_CLEANUP_FAILED')
+    }
+    throw new NeonBranchError(primary.code, { absenceProven: true })
+  }
 }
 
 async function listAllOperations(apiKey: string, projectId: string): Promise<NeonOperation[]> {
   const all: NeonOperation[] = []
   const seen = new Set<string>()
   let cursor: string | undefined
-  for (let page = 0; page < 1000; page += 1) {
-    const params = new URLSearchParams({ limit: '1000' })
+  for (let page = 0; page < MAX_LIST_PAGES; page += 1) {
+    const params = new URLSearchParams({ limit: String(OPERATION_LIST_PAGE_LIMIT) })
     if (cursor) params.set('cursor', cursor)
     const body = (await neonFetch(apiKey, `/projects/${projectId}/operations?${params}`, {
       method: 'GET',

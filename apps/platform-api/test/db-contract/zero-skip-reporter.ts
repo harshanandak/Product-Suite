@@ -68,6 +68,26 @@ const fail = (code: DbContractFailureCode): never => {
   throw new DbContractEvidenceError(code)
 }
 
+function validateManifestIds(manifestIds: readonly string[]): void {
+  if (manifestIds.length !== EXPECTED_TOTAL_ASSERTIONS) fail(DB_CONTRACT_TOPOLOGY_MISMATCH)
+  const seen = new Set<string>()
+  for (const id of manifestIds) {
+    if (typeof id !== 'string' || seen.has(id) || !classifyTestId(id)) fail(DB_CONTRACT_TOPOLOGY_MISMATCH)
+    seen.add(id)
+  }
+  if (seen.size !== EXPECTED_TOTAL_ASSERTIONS || SUITE_MANIFEST.some(({ id }) => !seen.has(id))) {
+    fail(DB_CONTRACT_TOPOLOGY_MISMATCH)
+  }
+}
+
+function validateExactHead(evidence: DbContractEvidence): void {
+  const exactHead = typeof evidence.exactHead === 'string' ? evidence.exactHead.trim() : ''
+  if (!exactHead) fail(DB_CONTRACT_METADATA)
+  if (evidence.expectedExactHead != null && exactHead !== evidence.expectedExactHead.trim()) {
+    fail(DB_CONTRACT_METADATA)
+  }
+}
+
 /**
  * Validate a completed DB Contract run. Validation order is deliberate: zero
  * collected is reported before the generic count mismatch, giving automation a
@@ -94,28 +114,14 @@ export function assertDbContractPreliminaryEvidence(
   if (evidence.unclassified.length > 0) fail(DB_CONTRACT_UNCLASSIFIED)
   if (skipped > 0 || todo > 0 || pending > 0 || filtered > 0) fail(DB_CONTRACT_SKIPPED)
 
-  if (manifestIds.length !== EXPECTED_TOTAL_ASSERTIONS) fail(DB_CONTRACT_TOPOLOGY_MISMATCH)
-  const seenManifestIds = new Set<string>()
-  for (const id of manifestIds) {
-    if (typeof id !== 'string' || seenManifestIds.has(id) || !classifyTestId(id)) {
-      fail(DB_CONTRACT_TOPOLOGY_MISMATCH)
-    }
-    seenManifestIds.add(id)
-  }
-  if (seenManifestIds.size !== EXPECTED_TOTAL_ASSERTIONS || SUITE_MANIFEST.some((entry) => !seenManifestIds.has(entry.id))) {
-    fail(DB_CONTRACT_TOPOLOGY_MISMATCH)
-  }
+  validateManifestIds(manifestIds)
 
   const expectedCount = evidence.expectedCount ?? EXPECTED_TOTAL_ASSERTIONS
   if (expectedCount !== EXPECTED_TOTAL_ASSERTIONS || collected !== EXPECTED_TOTAL_ASSERTIONS) {
     fail(DB_CONTRACT_TOPOLOGY_MISMATCH)
   }
 
-  const exactHead = typeof evidence.exactHead === 'string' ? evidence.exactHead.trim() : ''
-  if (!exactHead) fail(DB_CONTRACT_METADATA)
-  if (evidence.expectedExactHead !== undefined && evidence.expectedExactHead !== null) {
-    if (exactHead !== evidence.expectedExactHead.trim()) fail(DB_CONTRACT_METADATA)
-  }
+  validateExactHead(evidence)
 
   return {
     collected,

@@ -226,9 +226,10 @@ describe('transactional suite resource', () => {
     await expect(handleDedicatedCreateFailure(absenceProven, lease)).rejects.toBe(absenceProven)
     expect(release).toHaveBeenCalledOnce()
 
+    release.mockClear()
     const indeterminate = new NeonBranchError('DB_CONTRACT_NEON_REQUEST_INDETERMINATE')
     await expect(handleDedicatedCreateFailure(indeterminate, lease)).rejects.toBe(indeterminate)
-    expect(release).toHaveBeenCalledOnce()
+    expect(release).not.toHaveBeenCalled()
 
     const failedRelease = { ...lease, release: vi.fn(async () => { throw new Error('postgres://release-secret') }) }
     const aggregate = await handleDedicatedCreateFailure(absenceProven, failedRelease)

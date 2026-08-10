@@ -55,7 +55,10 @@ describe('Neon branch control-plane rate handling', () => {
   it('retries bounded safe GET and DELETE calls for 423, 429, and 503', async () => {
     configure()
     const statuses = [429, 202, 423, 503, 404]
-    const fetchMock = vi.fn(async (_url: string | URL, _init?: RequestInit) => response(statuses.shift() ?? 404))
+    const fetchMock = vi.fn(async (url: string | URL, _init?: RequestInit) => {
+      expect(String(url)).toContain('/api/v2/')
+      return response(statuses.shift() ?? 404)
+    })
     vi.stubGlobal('fetch', fetchMock)
 
     await deleteEphemeralBranchStrict('opaque-id', 1_000)
@@ -158,6 +161,8 @@ describe('Neon branch control-plane rate handling', () => {
         throw new TypeError('redacted transport detail')
       }
       const path = String(url)
+      if (init?.method === 'DELETE') return response(202)
+      if (path.endsWith('/branches/opaque-id')) return response(404)
       if (path.includes('/operations?')) {
         return response(200, {
           operations: [{ id: 'operation-id', branch_id: 'opaque-id', action: 'suspend_compute', status: 'finished' }],
@@ -182,13 +187,16 @@ describe('Neon branch control-plane rate handling', () => {
     let createdName = ''
     let posts = 0
     let lists = 0
-    vi.stubGlobal('fetch', vi.fn(async (_url: string | URL, init?: RequestInit) => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL, init?: RequestInit) => {
       if (init?.method === 'POST') {
         posts += 1
         createdName = (JSON.parse(String(init.body)) as { branch: { name: string } }).branch.name
         throw new TypeError('transport detail must stay redacted')
       }
       lists += 1
+      const path = String(url)
+      if (init?.method === 'DELETE') return response(202)
+      if (path.endsWith('/branches/opaque-a')) return response(404)
       return response(200, {
         branches: [
           { id: 'opaque-a', name: createdName, expires_at: new Date(Date.now() + 60_000).toISOString() },
@@ -207,22 +215,60 @@ describe('Neon branch control-plane rate handling', () => {
   it('fails closed when an exact-name reconciliation duplicate is missing TTL', async () => {
     configure()
     let createdName = ''
-    vi.stubGlobal('fetch', vi.fn(async (_url: string | URL, init?: RequestInit) => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL, init?: RequestInit) => {
       if (init?.method === 'POST') {
         createdName = (JSON.parse(String(init.body)) as { branch: { name: string } }).branch.name
         throw new TypeError('transport detail must stay redacted')
       }
+      const path = String(url)
+      if (init?.method === 'DELETE') return response(202)
+      if (path.endsWith('/branches/opaque-a')) return response(404)
       return response(200, {
         branches: [
           { id: 'opaque-a', name: createdName },
-          { id: 'opaque-b', name: createdName, expires_at: new Date(Date.now() + 60_000).toISOString() },
+          { id: 'opaque-b', name: 'unrelated', expires_at: new Date(Date.now() + 60_000).toISOString() },
         ],
       })
     }))
 
     await expect(createEphemeralBranch(suiteBranchPrefix('rate-limit'))).rejects.toMatchObject({
-      code: 'DB_CONTRACT_BRANCH_CREATE_RECONCILIATION_AMBIGUOUS',
+      code: 'DB_CONTRACT_BRANCH_CREATE_INCOMPLETE',
+      absenceProven: true,
     })
+  })
+
+  it('strict-deletes and proves absence when recovered readiness is indeterminate', async () => {
+    configure()
+    let createdName = ''
+    let expectedExpiresAt = ''
+    const calls: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL, init?: RequestInit) => {
+      const path = String(url)
+      calls.push(`${init?.method ?? 'GET'} ${path}`)
+      if (init?.method === 'POST') {
+        const branch = (JSON.parse(String(init.body)) as { branch: { name: string; expires_at: string } }).branch
+        createdName = branch.name
+        expectedExpiresAt = branch.expires_at
+        throw new TypeError('redacted transport detail')
+      }
+      if (init?.method === 'DELETE') return response(202)
+      if (path.endsWith('/branches/opaque-id')) return response(404)
+      if (path.includes('/operations?')) {
+        return response(200, {
+          operations: [{ id: 'operation-id', branch_id: 'opaque-id', action: 'create_branch', status: 'failed' }],
+        })
+      }
+      return response(200, {
+        branches: [{ id: 'opaque-id', name: createdName, expires_at: expectedExpiresAt }],
+      })
+    }))
+
+    await expect(createEphemeralBranch(suiteBranchPrefix('rate-limit'))).rejects.toMatchObject({
+      code: 'DB_CONTRACT_BRANCH_CREATE_INCOMPLETE',
+      absenceProven: true,
+    })
+    expect(calls.some((call) => call.startsWith('DELETE ') && call.endsWith('/branches/opaque-id'))).toBe(true)
+    expect(calls.filter((call) => call.startsWith('GET ') && call.endsWith('/branches/opaque-id'))).toHaveLength(1)
   })
 
   it.each([
@@ -231,11 +277,14 @@ describe('Neon branch control-plane rate handling', () => {
   ])('rejects an exact-name reconciliation branch whose TTL is %s', async (_label, offsetMs) => {
     configure()
     let createdName = ''
-    vi.stubGlobal('fetch', vi.fn(async (_url: string | URL, init?: RequestInit) => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL, init?: RequestInit) => {
       if (init?.method === 'POST') {
         createdName = (JSON.parse(String(init.body)) as { branch: { name: string } }).branch.name
         throw new TypeError('transport detail must stay redacted')
       }
+      const path = String(url)
+      if (init?.method === 'DELETE') return response(202)
+      if (path.endsWith('/branches/opaque-expired')) return response(404)
       return response(200, {
         branches: [{
           id: 'opaque-expired',
@@ -268,6 +317,8 @@ describe('Neon branch control-plane rate handling', () => {
         throw new TypeError('redacted transport detail')
       }
       const path = String(url)
+      if (init?.method === 'DELETE') return response(202)
+      if (path.endsWith('/branches/opaque-id')) return response(404)
       if (path.includes('/operations?')) {
         if (path.includes('cursor=operation-page-2')) return response(200, secondPage)
         return response(200, {
