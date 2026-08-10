@@ -157,8 +157,27 @@ export function grantContractDigest(contract = productionPreflightGrantContract)
   return createHash("sha256").update(JSON.stringify(canonicalize(contract)), "utf8").digest("hex");
 }
 
+function controlledMigrationFailureCode(error) {
+  const message = String(error?.message ?? "");
+  const categories = [
+    ["required runtime role", "MIGRATION_ROLE_PREFLIGHT_FAILED"],
+    ["unauthorized administrative membership", "MIGRATION_ROLE_MEMBERSHIP_FAILED"],
+    ["catalog mismatch: missing relation for constraint", "MIGRATION_CATALOG_CONSTRAINT_RELATION_MISSING"],
+    ["catalog mismatch: meetings.visibility", "MIGRATION_CATALOG_VISIBILITY_MISMATCH"],
+    ["catalog mismatch: constraint", "MIGRATION_CATALOG_CONSTRAINT_MISMATCH"],
+    ["catalog mismatch: relation", "MIGRATION_CATALOG_RELATION_MISMATCH"],
+    ["catalog mismatch: column", "MIGRATION_CATALOG_COLUMN_MISMATCH"],
+    ["catalog mismatch: enum", "MIGRATION_CATALOG_ENUM_MISMATCH"],
+    ["catalog mismatch: index", "MIGRATION_CATALOG_INDEX_MISMATCH"],
+    ["runtime grant manifest table missing", "MIGRATION_RUNTIME_GRANT_TABLE_MISSING"],
+  ];
+  return categories.find(([fragment]) => message.includes(fragment))?.[1];
+}
+
 function redactError(error) {
-  const code = error?.code || (typeof error?.message === "string" && error.message.startsWith("MIGRATION_") ? error.message : "MIGRATION_FAILED");
+  const code = controlledMigrationFailureCode(error)
+    || error?.code
+    || (typeof error?.message === "string" && error.message.startsWith("MIGRATION_") ? error.message : "MIGRATION_FAILED");
   return new Error(code);
 }
 
@@ -169,6 +188,14 @@ function tagNumber(tag) {
 
 function failureTag(tag) {
   return /^(\d{4})/.exec(String(tag))?.[1] ?? "UNKNOWN";
+}
+
+function taggedMigrationFailure(tag, fallback, error) {
+  const message = String(error?.message ?? "");
+  const reason = message !== "MIGRATION_FAILED" && /^MIGRATION_[A-Z0-9_]+$/.test(message)
+    ? message.slice("MIGRATION_".length)
+    : fallback;
+  return new Error(`MIGRATION_${failureTag(tag)}_${reason}`);
 }
 
 function normalizeTag(value) {
@@ -744,13 +771,13 @@ export async function applyMigrations({ adapter, applied = [], declared = [], fi
       if (!file) throw new Error("MIGRATION_TAG_UNKNOWN");
       try {
         await query(adapter, runnableSql(file.sql));
-      } catch {
-        throw new Error(`MIGRATION_${failureTag(tag)}_EXECUTION_FAILED`);
+      } catch (error) {
+        throw taggedMigrationFailure(tag, "EXECUTION_FAILED", error);
       }
       try {
         await query(adapter, "INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES ($1, $2);", [file.hash, file.timestamp]);
-      } catch {
-        throw new Error(`MIGRATION_${failureTag(tag)}_HISTORY_WRITE_FAILED`);
+      } catch (error) {
+        throw taggedMigrationFailure(tag, "HISTORY_WRITE_FAILED", error);
       }
     }
     await query(adapter, "COMMIT;");

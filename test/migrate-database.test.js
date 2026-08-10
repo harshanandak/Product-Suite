@@ -471,6 +471,21 @@ describe("canonical migration runner", () => {
     })).rejects.toThrow("MIGRATION_0020_EXECUTION_FAILED");
   });
 
+  test("apply maps a controlled catalog assertion to a redacted tagged category", async () => {
+    await expect(applyMigrations({
+      adapter: {
+        query: async (sql) => {
+          if (sql.includes("FROM drizzle.__drizzle_migrations")) return { rows: [{ hash: "h19", timestamp: 19 }] };
+          if (sql === "undefined") {
+            throw Object.assign(new Error("catalog mismatch: column public.secret_table.secret_column"), { code: "P0001" });
+          }
+          return { rows: [] };
+        },
+      },
+      applied: ["0019"], files, declared: ["0020"], authority,
+    })).rejects.toThrow("MIGRATION_0020_CATALOG_COLUMN_MISMATCH");
+  });
+
   test("apply distinguishes a tagged history-write failure from SQL execution", async () => {
     await expect(applyMigrations({
       adapter: {
