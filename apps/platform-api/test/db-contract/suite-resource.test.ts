@@ -1,15 +1,15 @@
 import { resolve } from 'node:path'
+import { tmpdir } from 'node:os'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   connectPinnedForTest,
-  createSuiteResourceLimiter,
   createTransactionalDbSuite,
   SuiteResourceError,
   type TransactionalDbDependencies,
 } from './suite-resource'
-import { dedicatedCleanupFailure } from './harness'
+import { dedicatedCleanupFailure, finishDedicatedBranchLifecycle, handleDedicatedCreateFailure } from './harness'
 import { NeonBranchError } from './neon-branch'
 import {
   assertCurrentRunBranchesAbsent,
@@ -43,6 +43,7 @@ function fixture() {
     release: vi.fn(() => { events.push('release') }),
   }
   const seed = { tenantId: 'sentinel' } as never
+  const releaseLease = vi.fn(async () => undefined)
   const deps: TransactionalDbDependencies = {
     registerBeforeAll: (hook) => { setup = hook },
     registerAfterAll: (hook) => { teardown = hook },
@@ -54,93 +55,14 @@ function fixture() {
     seed: vi.fn(async () => { events.push('seed'); return seed }),
     observeSentinelAbsent: vi.fn(async (_uri, tenantId) => { events.push(`observe:${tenantId}`) }),
     deleteBranch: vi.fn(async () => { events.push('delete-404') }),
-    suiteLimiter: { acquire: vi.fn(async () => () => undefined) },
+    acquireLease: vi.fn(async () => ({
+      id: 'lease-id', ownerId: 'lease-owner', kind: 'suite' as const, release: releaseLease,
+    })),
   }
-  return { deps, events, client, get setup() { return setup }, get teardown() { return teardown } }
+  return { deps, events, client, releaseLease, get setup() { return setup }, get teardown() { return teardown } }
 }
 
 describe('transactional suite resource', () => {
-  it('never admits more than two active suite resources', async () => {
-    const limiter = createSuiteResourceLimiter(2)
-    const releases = Array.from({ length: 3 }, () => {
-      let resolve!: () => void
-      const promise = new Promise<void>((done) => { resolve = done })
-      return { promise, resolve }
-    })
-    let active = 0
-    let maximum = 0
-
-    const runs = releases.map(({ promise }, index) => limiter.run(async () => {
-      active += 1
-      maximum = Math.max(maximum, active)
-      await promise
-      active -= 1
-      return index
-    }))
-
-    await vi.waitFor(() => expect(active).toBe(2))
-    expect(maximum).toBe(2)
-    releases[0]?.resolve()
-    await vi.waitFor(() => expect(runs[0]).resolves.toBe(0))
-    await vi.waitFor(() => expect(active).toBe(2))
-    releases[1]?.resolve()
-    releases[2]?.resolve()
-    await expect(Promise.all(runs)).resolves.toEqual([0, 1, 2])
-    expect(maximum).toBe(2)
-  })
-
-  it.each([0, -1, 1.5, 3])('rejects suite concurrency %s outside the exact 1..2 bound', (limit) => {
-    expect(() => createSuiteResourceLimiter(limit)).toThrow('DB_CONTRACT_CONCURRENCY_INVALID')
-  })
-
-  it('overlaps two suite lifetimes while keeping branch and sentinel identity isolated', async () => {
-    const limiter = createSuiteResourceLimiter(2)
-    const first = fixture()
-    const second = fixture()
-    let arrivals = 0
-    let releaseCreates!: () => void
-    const bothCreating = new Promise<void>((resolve) => { releaseCreates = resolve })
-    let activeCreates = 0
-    let maximumCreates = 0
-    const observed: string[] = []
-
-    const configure = (f: ReturnType<typeof fixture>, suite: string, sentinel: string): void => {
-      f.deps.suiteLimiter = limiter
-      f.deps.branchPrefix = () => `prefix-${suite}`
-      f.deps.createBranch = vi.fn(async (prefix) => {
-        activeCreates += 1
-        maximumCreates = Math.max(maximumCreates, activeCreates)
-        arrivals += 1
-        if (arrivals === 2) releaseCreates()
-        await bothCreating
-        activeCreates -= 1
-        return { branchId: `branch-${suite}`, connectionUri: `uri-${prefix}` }
-      })
-      f.deps.seed = vi.fn(async () => ({ tenantId: sentinel }) as never)
-      f.deps.observeSentinelAbsent = vi.fn(async (uri, tenantId) => {
-        observed.push(`${uri}:${tenantId}`)
-      })
-    }
-
-    configure(first, 'accept-path', 'sentinel-a')
-    configure(second, 'memory-tier', 'sentinel-b')
-    const runFirst = createTransactionalDbSuite('accept-path', first.deps)
-    const runSecond = createTransactionalDbSuite('memory-tier', second.deps)
-
-    await Promise.all([first.setup(), second.setup()])
-    await Promise.all([
-      runFirst(async ({ seed }) => expect(seed.tenantId).toBe('sentinel-a')),
-      runSecond(async ({ seed }) => expect(seed.tenantId).toBe('sentinel-b')),
-    ])
-    await Promise.all([first.teardown(), second.teardown()])
-
-    expect(maximumCreates).toBe(2)
-    expect(observed.sort()).toEqual([
-      'uri-prefix-accept-path:sentinel-a',
-      'uri-prefix-memory-tier:sentinel-b',
-    ])
-  })
-
   it('migrates once, seeds every test, rolls back, observes absence, and strictly deletes', async () => {
     const f = fixture()
     const run = createTransactionalDbSuite('memory-tier', f.deps)
@@ -158,6 +80,7 @@ describe('transactional suite resource', () => {
       'BEGIN', 'SAVEPOINT db_contract_test_root', 'seed', 'ROLLBACK', 'observe:sentinel', 'release',
       'delete-404',
     ])
+    expect(f.releaseLease).toHaveBeenCalledOnce()
   })
 
   it('rolls back and proves absence after an assertion failure', async () => {
@@ -217,6 +140,7 @@ describe('transactional suite resource', () => {
     await expect(f.teardown()).rejects.toEqual(
       expect.objectContaining({ code: 'DB_CONTRACT_BRANCH_DELETION_UNPROVEN' }),
     )
+    expect(f.releaseLease).not.toHaveBeenCalled()
   })
 
   it('does not delete a setup-failed branch twice after strict deletion succeeds', async () => {
@@ -231,6 +155,88 @@ describe('transactional suite resource', () => {
     await expect(f.setup()).rejects.toThrow('migration failed')
     await f.teardown()
     expect(deleteBranch).toHaveBeenCalledOnce()
+  })
+
+  it('preserves a setup failure when strict deletion succeeds but suite lease release fails', async () => {
+    const f = fixture()
+    const primary = new Error('setup-failure')
+    f.releaseLease.mockRejectedValue(new Error('postgres://lease-secret'))
+    createTransactionalDbSuite('accept-path', {
+      ...f.deps,
+      prepare: async () => { throw primary },
+    })
+
+    const failure = await f.setup().catch((error: unknown) => error)
+    expect(failure).toBeInstanceOf(AggregateError)
+    expect((failure as AggregateError).errors).toEqual([
+      primary,
+      expect.objectContaining({ code: 'DB_CONTRACT_BRANCH_LEASE_RELEASE_UNPROVEN' }),
+    ])
+    expect(String((failure as AggregateError).errors[1])).not.toContain('lease-secret')
+  })
+
+  it('preserves a dedicated primary failure when strict deletion succeeds but lease release fails', async () => {
+    const primary = new Error('test-failure')
+    const lease = {
+      id: 'lease-id',
+      ownerId: 'lease-owner',
+      kind: 'dedicated' as const,
+      release: vi.fn(async () => { throw new Error('postgres://lease-secret') }),
+    }
+    const failure = await finishDedicatedBranchLifecycle(
+      'branch-id', lease, primary, true, async () => undefined,
+    ).catch((error: unknown) => error)
+    expect(failure).toBeInstanceOf(AggregateError)
+    expect((failure as AggregateError).errors).toEqual([
+      primary,
+      expect.objectContaining({ code: 'DB_CONTRACT_BRANCH_LEASE_RELEASE_UNPROVEN' }),
+    ])
+    expect(String((failure as AggregateError).errors[1])).not.toContain('lease-secret')
+  })
+
+  it('releases the suite lease only when failed creation proves branch absence', async () => {
+    const f = fixture()
+    const absenceProven = new NeonBranchError('DB_CONTRACT_BRANCH_CREATE_INCOMPLETE', { absenceProven: true })
+    createTransactionalDbSuite('accept-path', {
+      ...f.deps,
+      createBranch: async () => { throw absenceProven },
+    })
+
+    await expect(f.setup()).rejects.toBe(absenceProven)
+    expect(f.releaseLease).toHaveBeenCalledOnce()
+
+    const failing = fixture()
+    failing.releaseLease.mockRejectedValue(new Error('postgres://release-secret'))
+    createTransactionalDbSuite('accept-path', {
+      ...failing.deps,
+      createBranch: async () => { throw absenceProven },
+    })
+    const aggregate = await failing.setup().catch((error: unknown) => error) as AggregateError
+    expect(aggregate.errors).toEqual([
+      absenceProven,
+      expect.objectContaining({ code: 'DB_CONTRACT_BRANCH_LEASE_RELEASE_UNPROVEN' }),
+    ])
+  })
+
+  it('releases the dedicated lease only for an absence-proven create error', async () => {
+    const absenceProven = new NeonBranchError('DB_CONTRACT_BRANCH_CREATE_INCOMPLETE', { absenceProven: true })
+    const release = vi.fn(async () => undefined)
+    const lease = { id: 'lease-id', ownerId: 'owner-id', kind: 'dedicated' as const, release }
+
+    await expect(handleDedicatedCreateFailure(absenceProven, lease)).rejects.toBe(absenceProven)
+    expect(release).toHaveBeenCalledOnce()
+
+    const indeterminate = new NeonBranchError('DB_CONTRACT_NEON_REQUEST_INDETERMINATE')
+    await expect(handleDedicatedCreateFailure(indeterminate, lease)).rejects.toBe(indeterminate)
+    expect(release).toHaveBeenCalledOnce()
+
+    const failedRelease = { ...lease, release: vi.fn(async () => { throw new Error('postgres://release-secret') }) }
+    const aggregate = await handleDedicatedCreateFailure(absenceProven, failedRelease)
+      .catch((error: unknown) => error) as AggregateError
+    expect(aggregate.errors).toEqual([
+      absenceProven,
+      expect.objectContaining({ code: 'DB_CONTRACT_BRANCH_LEASE_RELEASE_UNPROVEN' }),
+    ])
   })
 
   it('closes the pool and redacts a pinned connection failure', async () => {
@@ -293,6 +299,7 @@ describe('required branch ownership and cleanup', () => {
     await createEphemeralBranch(suiteBranchPrefix('memory tier'))
 
     expect(requestBody.branch?.expires_at).toBeTruthy()
+    expect(Date.parse(requestBody.branch?.expires_at ?? '') % 1_000).toBe(0)
     expect(isCurrentRunBranchName(requestBody.branch?.name, 'run-42')).toBe(true)
     expect(isCurrentRunBranchName(requestBody.branch?.name, 'run-4')).toBe(false)
     expect(isCurrentRunBranchName('db-contract--run-42--memory-tier', 'run-42')).toBe(false)
@@ -367,9 +374,11 @@ describe('required branch ownership and cleanup', () => {
       return { ok: false, status: 404 } as Response
     }))
 
-    await expect(createEphemeralBranch(suiteBranchPrefix('failed-create'))).rejects.toThrow(
-      'DB_CONTRACT_BRANCH_CREATE_INCOMPLETE',
-    )
+    const failure = await createEphemeralBranch(suiteBranchPrefix('failed-create')).catch((error: unknown) => error)
+    expect(failure).toMatchObject({
+      code: 'DB_CONTRACT_BRANCH_CREATE_INCOMPLETE',
+      absenceProven: true,
+    })
     expect(methods).toEqual(['POST', 'DELETE', 'GET'])
   })
 
@@ -427,6 +436,9 @@ describe('required branch ownership and cleanup', () => {
       branchCap: 10,
       exactHead: 'unit-head',
       telemetryPath: 'unit-telemetry.json',
+      leaseRoot: 'unit-leases',
+      databaseName: 'neondb' as const,
+      roleName: 'neondb_owner' as const,
     }
 
     for (const required of [Number.NaN, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
@@ -483,6 +495,9 @@ describe('required branch ownership and cleanup', () => {
       branchCap: 10,
       exactHead: 'a'.repeat(40),
       telemetryPath: resolve('runtime-telemetry.json'),
+      leaseRoot: resolve(tmpdir(), 'product-suite-db-contract-leases'),
+      databaseName: 'neondb',
+      roleName: 'neondb_owner',
     }
     expect(provide).toHaveBeenCalledWith('dbContractRuntime', runtime)
     expect(preflight).toHaveBeenCalledWith(runtime)

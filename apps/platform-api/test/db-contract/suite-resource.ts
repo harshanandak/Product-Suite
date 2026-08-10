@@ -2,11 +2,12 @@ import { Pool } from '@neondatabase/serverless'
 import { createSql, type Sql } from '@product-suite/db'
 import { afterAll, beforeAll } from 'vitest'
 
+import { createBranchLeaseCoordinator, type BranchLease } from './branch-lease'
 import { prepareHarnessDatabase, seedBaseline, type Seed } from './harness'
-import { createEphemeralBranch, deleteEphemeralBranchStrict, suiteBranchPrefix, type EphemeralBranch } from './neon-branch'
+import { createEphemeralBranch, deleteEphemeralBranchStrict, NeonBranchError, suiteBranchPrefix, type EphemeralBranch } from './neon-branch'
 import { createTransactionSql, type PinnedPoolClient, type TransactionSql } from './transaction-sql'
 import { measurePhase, telemetryPathFromEnv, type TelemetryPhase } from './telemetry'
-import { DB_CONTRACT_SUITE_CONCURRENCY } from './runtime-config'
+import { workerRuntimeConfig } from './runtime-config'
 
 export { withDedicatedDbBranch } from './harness'
 
@@ -20,53 +21,10 @@ export class SuiteResourceError extends Error {
   }
 }
 
-export interface SuiteResourceLimiter {
-  acquire(): Promise<() => void>
-  run<T>(operation: () => Promise<T>): Promise<T>
+function acquireRunWideLease(kind: 'suite' | 'dedicated'): Promise<BranchLease> {
+  const runtime = workerRuntimeConfig()
+  return createBranchLeaseCoordinator({ runToken: runtime.runToken, rootDir: runtime.leaseRoot }).acquire(kind)
 }
-
-/** Fair process-local permit pool. Vitest's two-worker cap supplies the run-wide ceiling. */
-export function createSuiteResourceLimiter(limit: number = DB_CONTRACT_SUITE_CONCURRENCY): SuiteResourceLimiter {
-  if (!Number.isSafeInteger(limit) || limit < 1 || limit > DB_CONTRACT_SUITE_CONCURRENCY) {
-    throw new SuiteResourceError('DB_CONTRACT_CONCURRENCY_INVALID')
-  }
-
-  let active = 0
-  const waiters: Array<(release: () => void) => void> = []
-
-  const makeRelease = (): (() => void) => {
-    let released = false
-    return () => {
-      if (released) return
-      released = true
-      const next = waiters.shift()
-      if (next) next(makeRelease())
-      else active -= 1
-    }
-  }
-
-  const acquire = async (): Promise<() => void> => {
-    if (active < limit) {
-      active += 1
-      return makeRelease()
-    }
-    return new Promise<() => void>((resolve) => waiters.push(resolve))
-  }
-
-  return {
-    acquire,
-    async run<T>(operation: () => Promise<T>): Promise<T> {
-      const release = await acquire()
-      try {
-        return await operation()
-      } finally {
-        release()
-      }
-    },
-  }
-}
-
-const processSuiteResourceLimiter = createSuiteResourceLimiter()
 
 interface TransactionClient extends PinnedPoolClient {
   release(): void | Promise<void>
@@ -95,7 +53,7 @@ export interface TransactionalDbDependencies {
   observeSentinelAbsent(connectionUri: string, tenantId: string): Promise<void>
   deleteBranch(branchId: string): Promise<void>
   measure?<T>(phase: TelemetryPhase, operation: () => Promise<T>): Promise<T>
-  suiteLimiter?: Pick<SuiteResourceLimiter, 'acquire'>
+  acquireLease?(kind: 'suite'): Promise<BranchLease>
 }
 
 export async function connectPinnedForTest(
@@ -152,7 +110,7 @@ const defaultDependencies: TransactionalDbDependencies = {
   observeSentinelAbsent,
   deleteBranch: deleteEphemeralBranchStrict,
   measure: (phase, operation) => measurePhase(telemetryPathFromEnv(), phase, operation),
-  suiteLimiter: processSuiteResourceLimiter,
+  acquireLease: acquireRunWideLease,
 }
 
 function stableCleanupError(code: string): SuiteResourceError {
@@ -166,6 +124,15 @@ function throwCombined(primary: unknown, hasPrimary: boolean, cleanup: SuiteReso
   throw new AggregateError(errors, 'DB_CONTRACT_TEST_AND_CLEANUP_FAILED')
 }
 
+async function releaseSuiteLease(lease: BranchLease): Promise<SuiteResourceError | undefined> {
+  try {
+    await lease.release()
+    return undefined
+  } catch {
+    return stableCleanupError('DB_CONTRACT_BRANCH_LEASE_RELEASE_UNPROVEN')
+  }
+}
+
 export type TransactionalDbRunner = <T>(body: (context: TransactionalDbContext) => Promise<T>) => Promise<T>
 
 /** Register one migrated branch for the current suite and wrap each test in rollback isolation. */
@@ -174,28 +141,33 @@ export function createTransactionalDbSuite(
   dependencies: TransactionalDbDependencies = defaultDependencies,
 ): TransactionalDbRunner {
   let branch: EphemeralBranch | undefined
-  let releaseSuiteResource: (() => void) | undefined
+  let suiteLease: BranchLease | undefined
   const measured = <T>(phase: TelemetryPhase, operation: () => Promise<T>): Promise<T> =>
     dependencies.measure ? dependencies.measure(phase, operation) : operation()
 
   dependencies.registerBeforeAll(async () => {
-    releaseSuiteResource = await (dependencies.suiteLimiter ?? processSuiteResourceLimiter).acquire()
+    suiteLease = await (dependencies.acquireLease ?? acquireRunWideLease)('suite')
     try {
       branch = await measured('create', () => dependencies.createBranch(dependencies.branchPrefix(suiteName)))
       await measured('prepare', () => dependencies.prepare(branch!.connectionUri))
     } catch (error) {
-      if (branch) {
+      const absenceLease = suiteLease
+      if (!branch && error instanceof NeonBranchError && error.absenceProven && absenceLease) {
+        const releaseFailure = await releaseSuiteLease(absenceLease)
+        suiteLease = undefined
+        if (releaseFailure) throwCombined(error, true, [releaseFailure])
+      }
+      if (branch && absenceLease) {
         try {
           await measured('delete', () => dependencies.deleteBranch(branch!.branchId))
           branch = undefined
         } catch {
-          releaseSuiteResource?.()
-          releaseSuiteResource = undefined
           throwCombined(error, true, [stableCleanupError('DB_CONTRACT_BRANCH_DELETION_UNPROVEN')])
         }
+        const releaseFailure = await releaseSuiteLease(absenceLease)
+        suiteLease = undefined
+        if (releaseFailure) throwCombined(error, true, [releaseFailure])
       }
-      releaseSuiteResource?.()
-      releaseSuiteResource = undefined
       throw error
     }
   })
@@ -206,11 +178,11 @@ export function createTransactionalDbSuite(
       await measured('delete', () => dependencies.deleteBranch(branch!.branchId))
     } catch {
       throw stableCleanupError('DB_CONTRACT_BRANCH_DELETION_UNPROVEN')
-    } finally {
-      branch = undefined
-      releaseSuiteResource?.()
-      releaseSuiteResource = undefined
     }
+    branch = undefined
+    const releaseFailure = suiteLease ? await releaseSuiteLease(suiteLease) : undefined
+    suiteLease = undefined
+    if (releaseFailure) throw releaseFailure
   })
 
   return async <T>(body: (context: TransactionalDbContext) => Promise<T>): Promise<T> => {
