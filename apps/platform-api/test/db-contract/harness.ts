@@ -184,6 +184,15 @@ function controlPlaneSleep(delayMs: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, delayMs))
 }
 
+function controlPlaneFailureCode(status: number): string {
+  if (status === 401 || status === 403) return 'AUTH_FAILED'
+  if (status === 404) return 'NOT_FOUND'
+  if (status === 409) return 'CONFLICT'
+  if (status === 429) return 'RATE_LIMITED'
+  if (status >= 500 && status <= 599) return 'UNAVAILABLE'
+  return 'REQUEST_FAILED'
+}
+
 /** Fetch JSON without ever surfacing response bodies, URLs, or credentials. */
 async function controlPlaneFetchWith(
   apiKey: string,
@@ -207,7 +216,7 @@ async function controlPlaneFetchWith(
         await controlPlaneSleep(retryDelaysMs[attempt] ?? 0)
         continue
       }
-      conformanceFailure('NEON_CONTROL_PLANE_FAILED')
+      conformanceFailure('NETWORK_FAILED')
     }
     const body = await response.json().catch(() => ({})) as Record<string, unknown>
     if (response.ok || options.acceptedStatuses?.includes(response.status) || (init.method === 'DELETE' && ACCEPTED_DELETE_STATUSES.has(response.status))) {
@@ -220,7 +229,7 @@ async function controlPlaneFetchWith(
       await controlPlaneSleep(retryDelaysMs[attempt] ?? 0)
       continue
     }
-    conformanceFailure('NEON_CONTROL_PLANE_FAILED')
+    conformanceFailure(controlPlaneFailureCode(response.status))
   }
 }
 

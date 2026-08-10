@@ -676,6 +676,8 @@ describe("repo tooling", () => {
     );
     expect(exactHead.run).toContain('git rev-parse HEAD');
     expect(exactHead.run).toContain('DB_CONTRACT_EXACT_HEAD');
+    expect(focusedRun.id).toBe('conformance');
+    expect(requiredRun.id).toBe('suite');
     expect(focusedRun.run).toBe("bun run --cwd apps/platform-api test:db-contract:conformance");
     expect(focusedRun.env.NEON_API_KEY).toBe("${{ secrets.NEON_API_KEY }}");
     expect(focusedRun.env.NEON_PROJECT_ID).toBe("${{ secrets.NEON_PROJECT_ID }}");
@@ -698,6 +700,8 @@ describe("repo tooling", () => {
       expect(JSON.stringify(step)).not.toContain("secrets.NEON_");
     }
     expect(summary.run).toContain("test:db-contract:summary");
+    expect(summary.if).toContain("steps.conformance.outcome == 'success'");
+    expect(artifact.if).toContain("steps.conformance.outcome == 'success'");
     expect(dbContractTelemetry).toContain("Zero skip:");
     expect(dbContractTelemetry).toContain("Cleanup:");
     expect(dbContractTelemetry).toContain("finalizeTelemetry(path)");

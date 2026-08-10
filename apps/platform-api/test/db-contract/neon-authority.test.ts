@@ -409,7 +409,7 @@ describe('Neon authority conformance guards', () => {
     await expect(controlPlaneFetchForTest('opaque-key', '/projects', { method: 'POST' }, async (_input, init) => {
       calls.push(init?.method ?? 'GET')
       return new Response('', { status: 503 })
-    }, [0, 0])).rejects.toThrow('NEON_CONTROL_PLANE_FAILED')
+    }, [0, 0])).rejects.toThrow('UNAVAILABLE')
     expect(calls).toEqual(['POST'])
   })
 
