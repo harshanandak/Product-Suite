@@ -458,6 +458,32 @@ describe("canonical migration runner", () => {
     expect(calls.join("\n")).not.toContain("pg_available_extensions");
   });
 
+  test("apply reports the exact migration tag when SQL execution fails", async () => {
+    await expect(applyMigrations({
+      adapter: {
+        query: async (sql) => {
+          if (sql.includes("FROM drizzle.__drizzle_migrations")) return { rows: [{ hash: "h19", timestamp: 19 }] };
+          if (sql === "undefined") throw new Error("database detail must stay redacted");
+          return { rows: [] };
+        },
+      },
+      applied: ["0019"], files, declared: ["0020"], authority,
+    })).rejects.toThrow("MIGRATION_0020_EXECUTION_FAILED");
+  });
+
+  test("apply distinguishes a tagged history-write failure from SQL execution", async () => {
+    await expect(applyMigrations({
+      adapter: {
+        query: async (sql) => {
+          if (sql.includes("FROM drizzle.__drizzle_migrations")) return { rows: [{ hash: "h19", timestamp: 19 }] };
+          if (sql.startsWith("INSERT INTO drizzle.__drizzle_migrations")) throw new Error("database detail must stay redacted");
+          return { rows: [] };
+        },
+      },
+      applied: ["0019"], files, declared: ["0020"], authority,
+    })).rejects.toThrow("MIGRATION_0020_HISTORY_WRITE_FAILED");
+  });
+
   test("locked apply rejects a nineteenth reread row with an unknown hash", async () => {
     const migrationFiles = loadMigrationFiles();
     const vector = productionManifest.drizzle.historyVectors["original-production"].entries;

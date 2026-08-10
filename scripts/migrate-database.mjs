@@ -167,6 +167,10 @@ function tagNumber(tag) {
   return match ? Number(match[1]) : Number.NaN;
 }
 
+function failureTag(tag) {
+  return /^(\d{4})/.exec(String(tag))?.[1] ?? "UNKNOWN";
+}
+
 function normalizeTag(value) {
   if (typeof value === "string") return value;
   return value?.tag ?? value?.name;
@@ -738,8 +742,16 @@ export async function applyMigrations({ adapter, applied = [], declared = [], fi
     for (const tag of plan.pending) {
       const file = byTag.get(tag);
       if (!file) throw new Error("MIGRATION_TAG_UNKNOWN");
-      await query(adapter, runnableSql(file.sql));
-      await query(adapter, "INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES ($1, $2);", [file.hash, file.timestamp]);
+      try {
+        await query(adapter, runnableSql(file.sql));
+      } catch {
+        throw new Error(`MIGRATION_${failureTag(tag)}_EXECUTION_FAILED`);
+      }
+      try {
+        await query(adapter, "INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES ($1, $2);", [file.hash, file.timestamp]);
+      } catch {
+        throw new Error(`MIGRATION_${failureTag(tag)}_HISTORY_WRITE_FAILED`);
+      }
     }
     await query(adapter, "COMMIT;");
   } catch (error) {
