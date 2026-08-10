@@ -4,6 +4,7 @@
 // importable by the local pre-push and repo-tooling tests.
 import { appendFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 import { buildCiPlan, isValidSha } from "./prepush-classify.mjs";
 
 function changedFiles(baseSha, headSha) {
@@ -30,9 +31,12 @@ export function planFromInputs({ baseSha, headSha, files } = {}) {
   const validHead = isValidSha(headSha);
   const suppliedFiles = files === undefined ? (validBase && validHead ? changedFiles(baseSha, headSha) : null) : normalizeFiles(files);
   const validRange = validBase && validHead && Array.isArray(suppliedFiles);
-  const plan = buildCiPlan(suppliedFiles, validRange ? headSha : null);
+  // A malformed base or unavailable diff still has a trustworthy head supplied
+  // by GitHub. Preserve it so full cheap gates can run against that exact commit;
+  // only a malformed head prevents checkout and remains a hard failure.
+  const plan = buildCiPlan(suppliedFiles, validHead ? headSha : null);
   if (!validRange) {
-    plan.exactSha = null;
+    plan.exactSha = validHead ? headSha.trim().toLowerCase() : null;
     plan.inputValid = false;
     plan.classification = "full-suite";
     plan.reason = !validBase || !validHead ? "invalid base/head SHA" : "unable to resolve changed-file range";
@@ -54,6 +58,7 @@ function writeGitHubOutputs(plan) {
     `classification=${plan.classification}`,
     `reason=${plan.reason}`,
     `cheapScripts=${plan.cheapScripts.join(",")}`,
+    `cheapScriptsJson=${JSON.stringify(plan.cheapScripts)}`,
     `dbEvidenceRequired=${plan.dbEvidenceRequired}`,
     `planJson<<CI_PLAN_EOF`,
     JSON.stringify(plan),
@@ -72,4 +77,4 @@ function main() {
   writeGitHubOutputs(plan);
 }
 
-if (import.meta.main) main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();

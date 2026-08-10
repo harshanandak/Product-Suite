@@ -11,6 +11,6 @@ describe("CI change-plan adapter", () => {
     expect(plan.inputValid).toBe(false);
     expect(plan.classification).toBe("full-suite");
     expect(plan.dbEvidenceRequired).toBe(true);
-    expect(plan.exactSha).toBeNull();
+    expect(plan.exactSha).toBe("a".repeat(40));
   });
 });

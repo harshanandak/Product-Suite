@@ -1,17 +1,9 @@
 name: DB Contract
 
-# Real-DB contract tier (atomic-accept wave, Lane B). Runs the platform-api
-# `test/db-contract` suite against an EPHEMERAL Neon branch created per run, so the
-# accept/create path is exercised over the real neon-http driver + real migrations.
-# Isolated from the Platform Web CI job on purpose.
-#
-# Requires the `NEON_API_KEY` and `NEON_PROJECT_ID` secrets. `NEON_PROJECT_ID`
-# is the production/source project; the harness must create a distinct disposable
-# project for the empty-root proof. Missing credentials fail this required
-# lane closed; a green skipped job is not conformance evidence.
-
-# Every pull request reports this check. DB-irrelevant changes finish explicitly as N/A;
-# authority-relevant changes require the real-Neon lane and fail closed without credentials.
+# The required external context remains `DB Contract / db-contract`.  Cheap
+# changed-surface gates run first; only a successful exact-head plan can enter
+# the protected Neon runtime job.  The final sentinel is deliberately always()
+# so skipped/cancelled/malformed prerequisite jobs cannot look green.
 on:
   push:
     branches:
@@ -19,22 +11,27 @@ on:
   pull_request: {}
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
-  db-contract:
-    name: db-contract
+  classify:
+    name: classify
     runs-on: ubuntu-latest
-    # Neon secrets are scoped to ONLY the steps that need them (below), NOT the
-    # job level — otherwise `bun install`'s lifecycle scripts (e.g. `prepare`)
-    # would run with NEON_API_KEY in the environment, letting a compromised
-    # dependency exfiltrate it.
-    env:
-      CI: "true"
+    timeout-minutes: 5
+    outputs:
+      schemaVersion: ${{ steps.plan.outputs.schemaVersion }}
+      exactSha: ${{ steps.plan.outputs.exactSha }}
+      inputValid: ${{ steps.plan.outputs.inputValid }}
+      classification: ${{ steps.plan.outputs.classification }}
+      reason: ${{ steps.plan.outputs.reason }}
+      cheapScripts: ${{ steps.plan.outputs.cheapScripts }}
+      cheapScriptsJson: ${{ steps.plan.outputs.cheapScriptsJson }}
+      dbEvidenceRequired: ${{ steps.plan.outputs.dbEvidenceRequired }}
+      planJson: ${{ steps.plan.outputs.planJson }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -48,48 +45,113 @@ jobs:
         env:
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
+          set -euo pipefail
           actual_head="$(git rev-parse HEAD)"
           test "$actual_head" = "$EXPECTED_HEAD"
-          echo "DB_CONTRACT_EXACT_HEAD=$actual_head" >> "$GITHUB_ENV"
 
-      - name: Determine DB-contract relevance
-        id: relevance
+      - name: Produce validated changed-surface plan
+        id: plan
         shell: bash
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          EVENT_BEFORE: ${{ github.event.before }}
-          BASE_REF: ${{ github.base_ref }}
+          CI_CHANGE_PLAN_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          CI_CHANGE_PLAN_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: node scripts/ci-change-plan.mjs
+
+  cheap-gates:
+    name: cheap-gates
+    needs: classify
+    if: ${{ needs.classify.result == 'success' && needs.classify.outputs.exactSha != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs['classify'].outputs.exactSha }}
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Verify planned exact checkout
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ needs['classify'].outputs.exactSha }}
         run: |
-          if [ "$EVENT_NAME" = "pull_request" ]; then
-            range="origin/${BASE_REF}...HEAD"
-          elif git rev-parse --verify --quiet "${EVENT_BEFORE}^{commit}" >/dev/null; then
-            range="${EVENT_BEFORE}..HEAD"
-          else
-            range="HEAD^..HEAD"
-          fi
-          if git diff --name-only "$range" | grep -Eq '^(apps/platform-api/|packages/db/|package\.json$|bun\.lock$|\.github/workflows/db-contract\.yml$)'; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          fi
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
 
-      - name: Report DB-contract N/A
-        if: "${{ steps.relevance.outputs.run != 'true' }}"
-        run: 'echo "DB contract N/A: no authority-relevant files changed."'
-
-      - name: Setup Bun
-        if: "${{ steps.relevance.outputs.run == 'true' }}"
+      - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.3.6
 
       - name: Install dependencies
-        if: "${{ steps.relevance.outputs.run == 'true' }}"
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Run selected cheap gates sequentially
+        shell: bash
+        env:
+          CHEAP_SCRIPTS_JSON: ${{ needs['classify'].outputs.cheapScriptsJson }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { spawnSync } from 'node:child_process';
+
+          const scripts = JSON.parse(process.env.CHEAP_SCRIPTS_JSON ?? 'null');
+          if (!Array.isArray(scripts) || scripts.length === 0 || scripts.some((script) => typeof script !== 'string' || !/^[A-Za-z0-9:_-]+$/.test(script))) {
+            throw new Error('CI_CHANGE_PLAN_CHEAP_SELECTOR_INVALID');
+          }
+          for (const script of scripts) {
+            const result = spawnSync('bun', ['run', script], { stdio: 'inherit' });
+            if ((result.status ?? 1) !== 0) process.exit(result.status ?? 1);
+          }
+          NODE
+
+  db-contract-runtime:
+    name: db-contract-runtime
+    needs: [classify, cheap-gates]
+    if: ${{ needs.classify.result == 'success' && needs['cheap-gates'].result == 'success' && needs['classify'].outputs.dbEvidenceRequired == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: db-contract-production
+    permissions:
+      contents: read
+    # Secrets stay scoped to the two runtime steps below; lifecycle scripts and
+    # dependency installation never receive Neon credentials.
+    env:
+      CI: "true"
+    outputs:
+      evidenceSha: ${{ steps.evidence.outputs.evidenceSha }}
+      verdict: ${{ steps.evidence.outputs.verdict }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs['classify'].outputs.exactSha }}
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Verify planned exact checkout
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ needs['classify'].outputs.exactSha }}
+        run: |
+          set -euo pipefail
+          actual_head="$(git rev-parse HEAD)"
+          test "$actual_head" = "$EXPECTED_HEAD"
+          echo "DB_CONTRACT_EXACT_HEAD=$actual_head" >> "$GITHUB_ENV"
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.6
+
+      - name: Install dependencies
         run: bun install --frozen-lockfile --ignore-scripts
 
       - name: Run focused real-Neon conformance proof
         id: conformance
-        if: "${{ steps.relevance.outputs.run == 'true' }}"
         env:
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
           NEON_PROJECT_ID: ${{ secrets.NEON_PROJECT_ID }}
@@ -99,9 +161,8 @@ jobs:
 
       - name: Run required DB-contract suite
         id: suite
-        # GitHub's success() gate makes a failed focused proof stop before the
-        # expensive 57-test database suite starts.
-        if: "${{ steps.relevance.outputs.run == 'true' && success() }}"
+        # A failed focused proof stops before the expensive 57-test suite.
+        if: ${{ success() }}
         env:
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
           NEON_PROJECT_ID: ${{ secrets.NEON_PROJECT_ID }}
@@ -114,15 +175,86 @@ jobs:
         run: bun run --cwd apps/platform-api test:db-contract:required
 
       - name: Publish DB-contract summary
-        if: "${{ always() && steps.relevance.outputs.run == 'true' && steps.conformance.outcome == 'success' }}"
+        if: "${{ always() && steps.conformance.outcome == 'success' }}"
         env:
           DB_CONTRACT_TELEMETRY_PATH: ${{ github.workspace }}/apps/platform-api/db-contract-telemetry.json
         run: bun run --cwd apps/platform-api test:db-contract:summary
 
+      - name: Validate exact-head DB evidence
+        id: evidence
+        if: ${{ always() }}
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ needs['classify'].outputs.exactSha }}
+          DB_CONTRACT_TELEMETRY_PATH: ${{ github.workspace }}/apps/platform-api/db-contract-telemetry.json
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+
+          const output = process.env.GITHUB_OUTPUT;
+          let verdict = 'FAIL';
+          let evidenceSha = '';
+          try {
+            const telemetry = JSON.parse(readFileSync(process.env.DB_CONTRACT_TELEMETRY_PATH, 'utf8'));
+            evidenceSha = typeof telemetry.exactHead === 'string' ? telemetry.exactHead.toLowerCase() : '';
+            const counts = telemetry.counts;
+            const cleanup = telemetry.cleanup;
+            const pass = evidenceSha === process.env.EXPECTED_HEAD.toLowerCase()
+              && counts?.zeroSkip === true
+              && cleanup?.complete === true
+              && cleanup?.proof === 'current-run-absent';
+            if (pass) verdict = 'PASS';
+          } catch {
+            evidenceSha = '';
+          }
+          appendFileSync(output, `evidenceSha=${evidenceSha}\nverdict=${verdict}\n`);
+          NODE
+
       - name: Upload DB-contract telemetry
-        if: "${{ always() && steps.relevance.outputs.run == 'true' && steps.conformance.outcome == 'success' }}"
+        if: "${{ always() && steps.conformance.outcome == 'success' }}"
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: db-contract-telemetry-${{ env.DB_CONTRACT_EXACT_HEAD }}
+          name: db-contract-telemetry-${{ needs['classify'].outputs.exactSha }}
           path: apps/platform-api/db-contract-telemetry.json
           if-no-files-found: error
+          retention-days: 7
+
+  db-contract:
+    name: db-contract
+    needs: [classify, cheap-gates, db-contract-runtime]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Validate final DB-contract verdict
+        shell: bash
+        env:
+          CLASSIFY_RESULT: ${{ needs.classify.result }}
+          CHEAP_RESULT: ${{ needs['cheap-gates'].result }}
+          RUNTIME_RESULT: ${{ needs['db-contract-runtime'].result }}
+          DB_REQUIRED: ${{ needs['classify'].outputs.dbEvidenceRequired }}
+          EXACT_SHA: ${{ needs['classify'].outputs.exactSha }}
+          EVIDENCE_SHA: ${{ needs['db-contract-runtime'].outputs.evidenceSha }}
+          RUNTIME_VERDICT: ${{ needs['db-contract-runtime'].outputs.verdict }}
+        run: |
+          set -euo pipefail
+          test "$CLASSIFY_RESULT" = "success"
+          if [ "$CHEAP_RESULT" = "cancelled" ] || [ "$RUNTIME_RESULT" = "cancelled" ]; then
+            echo "DB contract failed: cancelled prerequisite or runtime evidence."
+            exit 1
+          fi
+          test "$CHEAP_RESULT" = "success"
+          if [ "$DB_REQUIRED" = "false" ]; then
+            test "$RUNTIME_RESULT" = "skipped"
+            echo "DB contract N/A: no authority-relevant files changed."
+            exit 0
+          fi
+          test "$DB_REQUIRED" = "true"
+          test "$RUNTIME_RESULT" = "success"
+          test "$RUNTIME_VERDICT" = "PASS"
+          test -n "$EXACT_SHA"
+          test "$EVIDENCE_SHA" = "$EXACT_SHA"
+          echo "DB contract PASS: exact-head evidence verified for $EXACT_SHA."

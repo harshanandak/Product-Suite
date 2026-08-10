@@ -145,6 +145,7 @@ describe("change-aware CI plan", () => {
       ["packages/db/src/schema.ts"],
       ["infra/neon/migrations/001.sql"],
       ["scripts/check-worker-secrets.mjs"],
+      ["scripts/prepush-gate.mjs"],
       [".github/workflows/db-contract.yml"],
     ]) {
       const plan = buildCiPlan(files, SHA);
@@ -193,6 +194,7 @@ describe("change-aware CI plan", () => {
       expect(plan.classification).toBe("full-suite");
       expect(plan.dbEvidenceRequired).toBe(true);
       expect(plan.inputValid).toBe(false);
+      expect(plan.exactSha).toBe(SHA);
     }
   });
 });

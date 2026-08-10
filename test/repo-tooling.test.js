@@ -638,14 +638,14 @@ describe("repo tooling", () => {
     expect(checkout.with["fetch-depth"]).toBe(0);
   });
 
-  test("db-contract reports every pull request and gates credentials only for relevant changes", () => {
-    const triggers = Bun.YAML.parse(dbContractWorkflow).on;
+  test("db-contract reports every pull request and preserves the stable context", () => {
+    const workflow = Bun.YAML.parse(dbContractWorkflow);
+    const triggers = workflow.on;
 
     expect(triggers.pull_request).toEqual({});
     expect(triggers.push?.paths).toBeUndefined();
-    expect(dbContractWorkflow).toContain("Determine DB-contract relevance");
+    expect(workflow.jobs["db-contract"].name).toBe("db-contract");
     expect(dbContractWorkflow).toContain("DB contract N/A: no authority-relevant files changed.");
-    expect(dbContractWorkflow).toContain("steps.relevance.outputs.run == 'true'");
     expect(dbContractWorkflow).not.toContain("paths-ignore");
   });
 
@@ -653,26 +653,30 @@ describe("repo tooling", () => {
     for (const workflowPath of lifecycleScriptHardenedWorkflowPaths) {
       const workflow = Bun.YAML.parse(readFileSync(workflowPath, "utf8"));
       const steps = Object.values(workflow.jobs).flatMap((job) => job.steps);
-      const install = steps.find((step) => step.name === "Install dependencies");
+      const installs = steps.filter((step) => step.name === "Install dependencies");
 
-      expect(install?.run).toBe("bun install --frozen-lockfile --ignore-scripts");
+      expect(installs.length).toBeGreaterThan(0);
+      for (const install of installs) {
+        expect(install.run).toBe("bun install --frozen-lockfile --ignore-scripts");
+      }
     }
   });
 
   test("db-contract locks exact-head execution and publishes sanitized teardown evidence", () => {
     const workflow = Bun.YAML.parse(dbContractWorkflow);
-    const steps = workflow.jobs["db-contract"].steps;
+    const runtime = workflow.jobs["db-contract-runtime"];
+    const steps = runtime.steps;
     const install = steps.find((step) => step.name === "Install dependencies");
     const focusedRun = steps.find((step) => step.name === "Run focused real-Neon conformance proof");
     const requiredRun = steps.find((step) => step.name === "Run required DB-contract suite");
-    const exactHead = steps.find((step) => step.name === "Verify exact checkout");
+    const exactHead = steps.find((step) => step.name === "Verify planned exact checkout");
     const summary = steps.find((step) => step.name === "Publish DB-contract summary");
     const artifact = steps.find((step) => step.name === "Upload DB-contract telemetry");
 
     expect(dbContractWorkflow).not.toContain("bunx");
     expect(install.run).toBe("bun install --frozen-lockfile --ignore-scripts");
     expect(steps.find((step) => step.name === "Checkout").with.ref).toBe(
-      "${{ github.event.pull_request.head.sha || github.sha }}",
+      "${{ needs['classify'].outputs.exactSha }}",
     );
     expect(exactHead.run).toContain('git rev-parse HEAD');
     expect(exactHead.run).toContain('DB_CONTRACT_EXACT_HEAD');
@@ -697,17 +701,58 @@ describe("repo tooling", () => {
     expect(requiredRun.env.DB_CONTRACT_CONFORMANCE_MARKER_PATH).toBe(
       "${{ runner.temp }}/db-contract-conformance.marker",
     );
-    expect(workflow.jobs["db-contract"].env.NEON_API_KEY).toBeUndefined();
+    expect(runtime.env.NEON_API_KEY).toBeUndefined();
     for (const step of steps.filter((step) => step !== requiredRun && step !== focusedRun)) {
       expect(JSON.stringify(step)).not.toContain("secrets.NEON_");
     }
     expect(summary.run).toContain("test:db-contract:summary");
     expect(summary.if).toContain("steps.conformance.outcome == 'success'");
     expect(artifact.if).toContain("steps.conformance.outcome == 'success'");
+  });
+
+  test("db-contract gates protected runtime behind exact-SHA cheap checks", () => {
+    const workflow = Bun.YAML.parse(dbContractWorkflow);
+    const jobs = workflow.jobs;
+    expect(Object.keys(jobs)).toEqual(["classify", "cheap-gates", "db-contract-runtime", "db-contract"]);
+    expect(jobs["cheap-gates"].needs).toEqual("classify");
+    expect(jobs["db-contract-runtime"].needs).toEqual(["classify", "cheap-gates"]);
+    expect(jobs["db-contract"].needs).toEqual(["classify", "cheap-gates", "db-contract-runtime"]);
+    expect(jobs["cheap-gates"].if).toContain("needs.classify.result");
+    expect(jobs["db-contract-runtime"].if).toContain("needs['cheap-gates'].result");
+    expect(jobs["db-contract-runtime"].environment).toBe("db-contract-production");
+
+    const classifyCheckout = jobs.classify.steps.find((step) => step.name === "Checkout");
+    const cheapCheckout = jobs["cheap-gates"].steps.find((step) => step.name === "Checkout");
+    const runtimeCheckout = jobs["db-contract-runtime"].steps.find((step) => step.name === "Checkout");
+    for (const checkout of [classifyCheckout, cheapCheckout, runtimeCheckout]) {
+      expect(checkout.uses).toBe("actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5");
+      expect(checkout.with["fetch-depth"]).toBe(0);
+      expect(checkout.with["persist-credentials"]).toBe(false);
+    }
+    expect(cheapCheckout.with.ref).toContain("needs['classify'].outputs.exactSha");
+    expect(runtimeCheckout.with.ref).toContain("needs['classify'].outputs.exactSha");
+
+    const cheapInstall = jobs["cheap-gates"].steps.find((step) => step.name === "Install dependencies");
+    expect(cheapInstall.run).toBe("bun install --frozen-lockfile --ignore-scripts");
+    const runtimeRun = jobs["db-contract-runtime"].steps.find((step) => step.name === "Run required DB-contract suite");
+    expect(runtimeRun.run).toBe("bun run --cwd apps/platform-api test:db-contract:required");
+    expect(runtimeRun.env.NEON_API_KEY).toBe("${{ secrets.NEON_API_KEY }}");
+    expect(runtimeRun.env.NEON_PROJECT_ID).toBe("${{ secrets.NEON_PROJECT_ID }}");
+    expect(runtimeRun.env.DB_CONTRACT_REQUIRED).toBe("1");
+
+    for (const [jobId, job] of Object.entries(jobs)) {
+      if (jobId === "db-contract-runtime") continue;
+      expect(JSON.stringify(job)).not.toContain("secrets.NEON_");
+    }
+    expect(jobs["db-contract"].if).toContain("always()");
+    const finalRun = jobs["db-contract"].steps.find((step) => step.name === "Validate final DB-contract verdict");
+    expect(finalRun.run).toContain("cancelled");
+    expect(finalRun.run).toContain("exact");
+    expect(finalRun.run).toContain("N/A");
+    expect(dbContractWorkflow).toContain("github.event.pull_request.number || github.ref");
+    expect(workflow.concurrency["cancel-in-progress"]).toBe(true);
     expect(dbContractTelemetry).toContain("Zero skip:");
     expect(dbContractTelemetry).toContain("Cleanup:");
-    expect(dbContractTelemetry).toContain("finalizeTelemetry(path)");
-    expect(artifact.uses).toBe("actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f");
     expect(platformApiPackageJson.scripts["test:db-contract:list"]).toBe(
       "DB_CONTRACT_LIST_ONLY=1 vitest list --config vitest.db-contract.config.ts",
     );

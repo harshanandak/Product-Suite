@@ -119,7 +119,7 @@ const CI_DB_REQUIRED = [
   /^security(?:\/|$)/i,
   /^\.github\//,
   /^\.sonarcloud\.properties$/,
-  /^scripts\/(?:.*(?:authority|security|secret|migration|neon|db-contract|preflight).*|prepush-classify\.mjs|ci-change-plan\.mjs)$/i,
+  /^scripts\/(?:.*(?:authority|security|secret|migration|neon|db-contract|preflight).*|prepush-.*|ci-.*|check-(?:source-test|migration-parity|database-authority|worker-secrets)|migrate-database\.mjs)$/i,
 ];
 
 export function isValidSha(value) {
