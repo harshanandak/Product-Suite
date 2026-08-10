@@ -85,7 +85,7 @@ jobs:
 
       - name: Install dependencies
         if: "${{ steps.relevance.outputs.run == 'true' }}"
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --ignore-scripts
 
       - name: Run required DB-contract suite
         if: "${{ steps.relevance.outputs.run == 'true' }}"

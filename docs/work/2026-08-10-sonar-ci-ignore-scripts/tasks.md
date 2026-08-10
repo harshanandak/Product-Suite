@@ -27,4 +27,3 @@ TDD steps:
 Expected output: all parsed install steps use the exact hardened command, focused
 repo-tooling tests pass, and the production diff contains only the three command
 changes.
-

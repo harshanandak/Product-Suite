@@ -64,7 +64,7 @@ jobs:
 
       - name: Install dependencies
         if: steps.changes.outputs.run == 'true'
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --ignore-scripts
 
       - name: Design-system tests (packages/ui)
         if: steps.changes.outputs.run == 'true'

@@ -77,4 +77,3 @@ boundary. No Sonar exemption or global configuration is needed.
 3. Regression: existing repo-tooling assertions continue proving the DB contract
    secret scope, exact-head behavior, and action pins; source/test coupling and
    YAML parsing remain green.
-

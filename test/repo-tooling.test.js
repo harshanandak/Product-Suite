@@ -111,6 +111,11 @@ const dbContractWorkflowPath = join(
   "db-contract.yml",
 );
 const dbContractWorkflow = readFileSync(dbContractWorkflowPath, "utf8");
+const lifecycleScriptHardenedWorkflowPaths = [
+  dbContractWorkflowPath,
+  join(rootDir, ".github", "workflows", "platform-web-ci.yml"),
+  join(rootDir, ".github", "workflows", "platform-web-deploy.yml"),
+];
 const dbContractTelemetry = readFileSync(
   join(rootDir, "apps", "platform-api", "test", "db-contract", "telemetry.ts"),
   "utf8",
@@ -644,6 +649,16 @@ describe("repo tooling", () => {
     expect(dbContractWorkflow).not.toContain("paths-ignore");
   });
 
+  test("reported CI workflows disable dependency lifecycle scripts", () => {
+    for (const workflowPath of lifecycleScriptHardenedWorkflowPaths) {
+      const workflow = Bun.YAML.parse(readFileSync(workflowPath, "utf8"));
+      const steps = Object.values(workflow.jobs).flatMap((job) => job.steps);
+      const install = steps.find((step) => step.name === "Install dependencies");
+
+      expect(install?.run).toBe("bun install --frozen-lockfile --ignore-scripts");
+    }
+  });
+
   test("db-contract locks exact-head execution and publishes sanitized teardown evidence", () => {
     const workflow = Bun.YAML.parse(dbContractWorkflow);
     const steps = workflow.jobs["db-contract"].steps;
@@ -654,7 +669,7 @@ describe("repo tooling", () => {
     const artifact = steps.find((step) => step.name === "Upload DB-contract telemetry");
 
     expect(dbContractWorkflow).not.toContain("bunx");
-    expect(install.run).toBe("bun install --frozen-lockfile");
+    expect(install.run).toBe("bun install --frozen-lockfile --ignore-scripts");
     expect(steps.find((step) => step.name === "Checkout").with.ref).toBe(
       "${{ github.event.pull_request.head.sha || github.sha }}",
     );
