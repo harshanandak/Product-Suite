@@ -281,35 +281,130 @@ interface ValidatedProjectResponse {
   connectionUri: string
 }
 
-function assertNeondbConnection(connectionUri: string, code: string): void {
-  try {
-    if (new URL(connectionUri).pathname !== '/neondb') conformanceFailure(code)
-  } catch {
-    conformanceFailure(code)
+type NeonConnectionPurpose = 'migration' | 'runtime'
+
+interface NeonConnectionBinding {
+  projectId: string
+  branchId: string
+  purpose: NeonConnectionPurpose
+}
+
+interface NeonConnectionParameters {
+  database?: unknown
+  password?: unknown
+  role?: unknown
+  host?: unknown
+  pooler_host?: unknown
+}
+
+interface NeonConnectionDetails {
+  connection_uri?: unknown
+  connection_parameters?: NeonConnectionParameters
+}
+
+interface NeonEndpointDetails {
+  id?: unknown
+  host?: unknown
+  project_id?: unknown
+  branch_id?: unknown
+  type?: unknown
+}
+
+const NEON_RESOURCE_ID = /^[a-z0-9-]{1,60}$/
+const NEON_HOSTNAME = /^ep-[a-z0-9-]+(?:\.[a-z0-9-]+)+\.neon\.tech$/
+const NEON_TLS_MODES = new Set(['require', 'verify-ca', 'verify-full'])
+
+function validatedNeonConnectionUri(
+  body: Record<string, unknown>,
+  expected: NeonConnectionBinding,
+): string {
+  const connections = Array.isArray(body.connection_uris) ? body.connection_uris as NeonConnectionDetails[] : []
+  const endpoints = Array.isArray(body.endpoints) ? body.endpoints as NeonEndpointDetails[] : []
+  if (connections.length !== 1 || endpoints.length !== 1) conformanceFailure('NEON_CONNECTION_BINDING_INVALID')
+
+  const connection = connections[0]
+  const parameters = connection?.connection_parameters
+  const endpoint = endpoints[0]
+  const connectionUri = typeof connection?.connection_uri === 'string' ? connection.connection_uri : ''
+  const endpointId = typeof endpoint?.id === 'string' ? endpoint.id : ''
+  const endpointHost = typeof endpoint?.host === 'string' ? endpoint.host : ''
+  const directHost = typeof parameters?.host === 'string' ? parameters.host : ''
+  const poolerHost = typeof parameters?.pooler_host === 'string' ? parameters.pooler_host : ''
+  if (
+    endpoint?.project_id !== expected.projectId
+    || endpoint.branch_id !== expected.branchId
+    || endpoint.type !== 'read_write'
+    || !NEON_RESOURCE_ID.test(endpointId)
+    || !NEON_HOSTNAME.test(endpointHost)
+    || endpointHost !== directHost
+    || !NEON_HOSTNAME.test(poolerHost)
+  ) {
+    conformanceFailure('NEON_CONNECTION_BINDING_INVALID')
   }
+
+  let url: URL
+  try {
+    url = new URL(connectionUri)
+  } catch {
+    conformanceFailure('NEON_CONNECTION_URL_INVALID')
+  }
+  if (!['postgres:', 'postgresql:'].includes(url.protocol) || !NEON_HOSTNAME.test(url.hostname)) {
+    conformanceFailure('NEON_CONNECTION_PROVIDER_INVALID')
+  }
+  if (url.pathname !== '/neondb' || parameters?.database !== 'neondb') {
+    conformanceFailure('NEON_CONNECTION_DATABASE_INVALID')
+  }
+  if (!NEON_TLS_MODES.has(url.searchParams.get('sslmode') ?? '')) {
+    conformanceFailure('NEON_CONNECTION_TLS_REQUIRED')
+  }
+  const expectedHost = expected.purpose === 'runtime' ? poolerHost : directHost
+  const expectedPrefix = expected.purpose === 'runtime' ? `${endpointId}-pooler.` : `${endpointId}.`
+  if (url.hostname !== expectedHost || !url.hostname.startsWith(expectedPrefix)) {
+    conformanceFailure('NEON_CONNECTION_PURPOSE_INVALID')
+  }
+  return connectionUri
+}
+
+/** Redaction-safe structural and control-plane binding proof for a Neon URL. */
+export function assertNeonConnectionBinding(
+  body: Record<string, unknown>,
+  expected: NeonConnectionBinding,
+): { status: 'READY' } {
+  validatedNeonConnectionUri(body, expected)
+  return { status: 'READY' }
+}
+
+function safeProjectIdentity(
+  body: Record<string, unknown>,
+  expectedName: string,
+  sourceProjectId: string,
+): { projectId: string; projectName: string } {
+  const project = body.project as { id?: unknown; name?: unknown } | undefined
+  const projectId = typeof project?.id === 'string' ? project.id : ''
+  const projectName = typeof project?.name === 'string' ? project.name : ''
+  if (!NEON_RESOURCE_ID.test(projectId) || projectId === sourceProjectId || projectName !== expectedName) {
+    conformanceFailure('NEON_PROJECT_RESPONSE_INVALID')
+  }
+  return { projectId, projectName }
 }
 
 function projectResponse(
   body: Record<string, unknown>,
-  expectedName: string,
-  sourceProjectId: string,
+  safeIdentity: { projectId: string; projectName: string },
 ): ValidatedProjectResponse {
   const project = body.project as { id?: unknown; name?: unknown; default_branch_id?: unknown } | undefined
   const branch = body.branch as { id?: unknown; parent_id?: unknown; default?: unknown } | undefined
-  const uris = body.connection_uris as Array<{ connection_uri?: unknown }> | undefined
   const projectId = typeof project?.id === 'string' ? project.id : ''
   const projectName = typeof project?.name === 'string' ? project.name : ''
   const defaultBranchId = typeof project?.default_branch_id === 'string' ? project.default_branch_id : ''
   const branchId = typeof branch?.id === 'string' ? branch.id : ''
-  const connectionUri = typeof uris?.[0]?.connection_uri === 'string' ? uris[0].connection_uri : ''
-  if (!projectId || projectId === sourceProjectId || projectName !== expectedName) {
+  if (projectId !== safeIdentity.projectId || projectName !== safeIdentity.projectName) {
     conformanceFailure('NEON_PROJECT_RESPONSE_INVALID')
   }
-  if (!branchId || defaultBranchId !== branchId || branch?.default !== true || branch.parent_id != null) {
+  if (!NEON_RESOURCE_ID.test(branchId) || defaultBranchId !== branchId || branch?.default !== true || branch.parent_id != null) {
     conformanceFailure('NEON_PROJECT_ROOT_INVALID')
   }
-  if (!connectionUri) conformanceFailure('NEON_PROJECT_RESPONSE_INVALID')
-  assertNeondbConnection(connectionUri, 'NEON_PROJECT_DATABASE_INVALID')
+  const connectionUri = validatedNeonConnectionUri(body, { projectId, branchId, purpose: 'migration' })
   return { projectId, projectName, branchId, connectionUri }
 }
 
@@ -339,21 +434,38 @@ function assertNeondbRead(body: Record<string, unknown>): void {
 
 function branchResponse(
   body: Record<string, unknown>,
-  expected: { branchName: string; parentBranchId: string; protectedBranchIds: readonly string[] },
+  expected: { projectId: string; branchId: string; branchName: string; parentBranchId: string },
 ): { branchId: string; connectionUri: string } {
   const branch = body.branch as { id?: unknown; name?: unknown; parent_id?: unknown; default?: unknown } | undefined
-  const uris = body.connection_uris as Array<{ connection_uri?: unknown }> | undefined
   const branchId = typeof branch?.id === 'string' ? branch.id : ''
-  const connectionUri = typeof uris?.[0]?.connection_uri === 'string' ? uris[0].connection_uri : ''
-  if (!branchId || expected.protectedBranchIds.includes(branchId) || branch?.name !== expected.branchName) {
+  if (branchId !== expected.branchId || branch?.name !== expected.branchName) {
     conformanceFailure('NEON_BRANCH_RESPONSE_INVALID')
   }
   if (branch.parent_id !== expected.parentBranchId || branch.default !== false) {
     conformanceFailure('PRODUCTION_DERIVED_PARENT_MISMATCH')
   }
-  if (!connectionUri) conformanceFailure('NEON_BRANCH_RESPONSE_INVALID')
-  assertNeondbConnection(connectionUri, 'NEON_BRANCH_DATABASE_INVALID')
+  const connectionUri = validatedNeonConnectionUri(body, {
+    projectId: expected.projectId,
+    branchId,
+    purpose: 'migration',
+  })
   return { branchId, connectionUri }
+}
+
+function safeBranchIdentity(
+  body: Record<string, unknown>,
+  expected: { branchName: string; protectedBranchIds: readonly string[] },
+): { branchId: string } {
+  const branch = body.branch as { id?: unknown; name?: unknown } | undefined
+  const branchId = typeof branch?.id === 'string' ? branch.id : ''
+  if (
+    !NEON_RESOURCE_ID.test(branchId)
+    || expected.protectedBranchIds.includes(branchId)
+    || branch?.name !== expected.branchName
+  ) {
+    conformanceFailure('NEON_BRANCH_RESPONSE_INVALID')
+  }
+  return { branchId }
 }
 
 function assertDerivedBranchRead(
@@ -416,8 +528,9 @@ export function createNeonControlPlane(env: NeonControlPlaneEnv = process.env, f
         method: 'POST',
         body: { project: { name: projectName, pg_version: 17 } },
       })
-      const created = projectResponse(result.body, projectName, sourceProjectId)
-      retainedProjectId = created.projectId
+      const safeIdentity = safeProjectIdentity(result.body, projectName, sourceProjectId)
+      retainedProjectId = safeIdentity.projectId
+      const created = projectResponse(result.body, safeIdentity)
       await waitControlPlaneOperations(apiKey, created.projectId, (result.body.operations ?? []) as NeonOperation[], fetcher)
       const projectRead = await request(`/projects/${created.projectId}`, { method: 'GET' })
       assertProjectRead(projectRead.body, created)
@@ -449,17 +562,22 @@ export function createNeonControlPlane(env: NeonControlPlaneEnv = process.env, f
         branch: { name: branchName, parent_id: parentBranchId, expires_at: expiresAt },
       }
       const result = await request(`/projects/${sourceProjectId}/branches`, { method: 'POST', body })
-      const created = branchResponse(result.body, {
+      const safeIdentity = safeBranchIdentity(result.body, {
         branchName,
-        parentBranchId,
         protectedBranchIds: [parentBranchId],
       })
       retainedBranch = {
         projectId: sourceProjectId,
-        branchId: created.branchId,
+        branchId: safeIdentity.branchId,
         parentBranchId,
         defaultBranchId: parentBranchId,
       }
+      const created = branchResponse(result.body, {
+        projectId: sourceProjectId,
+        branchId: safeIdentity.branchId,
+        branchName,
+        parentBranchId,
+      })
       await waitControlPlaneOperations(apiKey, sourceProjectId, (result.body.operations ?? []) as NeonOperation[], fetcher)
       const branchRead = await request(`/projects/${sourceProjectId}/branches/${created.branchId}`, { method: 'GET' })
       assertDerivedBranchRead(branchRead.body, { branchId: created.branchId, branchName, parentBranchId })
