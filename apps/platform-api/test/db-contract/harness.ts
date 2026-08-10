@@ -963,6 +963,21 @@ export function variantMigrationContract(variant: NeonHistoryVariant): {
     : { baselineFloor: '0017', baselineCount: 18, declared: ['0018', '0019', '0020'], finalFloor: '0020' }
 }
 
+export function resolveDeclaredMigrationTags(
+  files: ReadonlyArray<{ tag: string }>,
+  declared: readonly string[],
+): string[] {
+  return declared.map((declaration) => {
+    const prefix = /^(\d+)/.exec(declaration)?.[1]
+    const matches = prefix
+      ? files.filter((file) => /^(\d+)/.exec(file.tag)?.[1] === prefix)
+      : []
+    const match = matches[0]
+    if (!match || matches.length !== 1) conformanceFailure('CANONICAL_FILE_LOAD_UNPROVEN')
+    return match.tag
+  })
+}
+
 async function proveCanonicalVariant(connectionUri: string, variant: NeonHistoryVariant): Promise<void> {
   // Dynamic loading keeps Vitest from transforming the Bun-native JSON import attribute in the canonical CLI module.
   // @ts-expect-error Canonical JavaScript runner has no declaration file; its surface is narrowed here.
@@ -1023,13 +1038,14 @@ async function proveCanonicalVariant(connectionUri: string, variant: NeonHistory
       timestamp: 20,
     }
     const files = [...canonicalFiles, synthetic]
+    const declared = resolveDeclaredMigrationTags(files, contract.declared)
     const applied = await canonicalBootstrapStep(
       'SYNTHETIC_0020_APPLY_UNPROVEN',
       () => migrationRunner.applyMigrations({
         adapter,
         applied: appliedTags(baseline),
         files,
-        declared: contract.declared,
+        declared,
         authority,
         observedVariant: variant,
       }),

@@ -13,6 +13,7 @@ import {
   conformanceCredentialStatus,
   hasNeonCreds,
   prepareHarnessDatabase,
+  resolveDeclaredMigrationTags,
   runRequiredNeonConformance,
   variantMigrationContract,
   type CleanupEvidence,
@@ -100,6 +101,21 @@ describe('Neon authority conformance guards', () => {
   it('requires both history variants to apply synthetic 0020 and finish at a 0020 NOOP floor', () => {
     expect(variantMigrationContract('repaired-bootstrap')).toEqual({ baselineFloor: '0019', baselineCount: 20, declared: ['0020'], finalFloor: '0020' })
     expect(variantMigrationContract('original-production')).toEqual({ baselineFloor: '0017', baselineCount: 18, declared: ['0018', '0019', '0020'], finalFloor: '0020' })
+  })
+
+  it('resolves numeric conformance declarations to the unique canonical migration tags', () => {
+    expect(resolveDeclaredMigrationTags([
+      { tag: '0018_collaboration_fabric' },
+      { tag: '0019_neon_authority_reconciliation' },
+      { tag: '0020' },
+    ], ['0018', '0019', '0020'])).toEqual([
+      '0018_collaboration_fabric',
+      '0019_neon_authority_reconciliation',
+      '0020',
+    ])
+
+    expect(() => resolveDeclaredMigrationTags([{ tag: '0018_one' }, { tag: '0018_two' }], ['0018']))
+      .toThrow('CANONICAL_FILE_LOAD_UNPROVEN')
   })
 
   it('accepts only an empty test-only root with the repaired variant', () => {
