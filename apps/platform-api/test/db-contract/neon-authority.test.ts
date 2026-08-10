@@ -123,6 +123,12 @@ describe('Neon authority conformance guards', () => {
     }
     const expectedBinding = { projectId: 'test-project', branchId: 'test-root', purpose: 'migration' as const }
     expect(assertNeonConnectionBinding(connectionBody, expectedBinding)).toEqual({ status: 'READY' })
+    const pooledUri = directUri.replace('ep-safe-compute.', 'ep-safe-compute-pooler.')
+    const runtimeBinding = { ...expectedBinding, purpose: 'runtime' as const }
+    expect(assertNeonConnectionBinding(connectionBody, runtimeBinding, pooledUri)).toEqual({ status: 'READY' })
+    expect(() => assertNeonConnectionBinding(connectionBody, runtimeBinding, directUri)).toThrow(
+      'NEON_CONNECTION_PURPOSE_INVALID',
+    )
     for (const malformed of [
       { ...connectionBody, connection_uris: [{ ...connectionBody.connection_uris[0], connection_uri: directUri.replace('postgresql:', 'https:') }] },
       { ...connectionBody, connection_uris: [{ ...connectionBody.connection_uris[0], connection_uri: directUri.replace('.neon.tech', '.neon.tech.evil.example') }] },
@@ -164,6 +170,7 @@ describe('Neon authority conformance guards', () => {
     for (const malformedBranch of [
       { parent_id: 'not-production-root', default: false },
       { parent_id: 'production-root', default: true },
+      { parent_id: 'production-root', default: false, name: 'wrong-generated-name' },
     ]) {
       const calls: string[] = []
       const plane = createNeonControlPlane(
@@ -286,14 +293,22 @@ describe('Neon authority conformance guards', () => {
     const plane: NeonControlPlane = {
       async createDisposableProject() {
         events.push('create-project')
-        return { ...disposable, connectionUri: 'opaque-test-connection' }
+        return {
+          ...disposable,
+          connectionUri: 'opaque-test-direct-connection',
+          runtimeConnectionUri: 'opaque-test-pooled-connection',
+        }
       },
       async createProductionDerivedBranch() {
         events.push('create-branch')
-        return { ...derived, connectionUri: 'opaque-production-connection' }
+        return {
+          ...derived,
+          connectionUri: 'opaque-production-direct-connection',
+          runtimeConnectionUri: 'opaque-production-pooled-connection',
+        }
       },
-      async proveVariant(_connectionUri, variant) { events.push(`prove-${variant}`) },
-      async probeLeastPrivilege() { events.push('probe') },
+      async proveVariant(connectionUri, variant) { events.push(`prove:${connectionUri}:${variant}`) },
+      async probeLeastPrivilege(connectionUri) { events.push(`probe:${connectionUri}`) },
       async deleteProject() { events.push('delete-project') },
       async verifyProjectDeleted() { events.push('verify-delete') },
       async deleteBranch() { events.push('delete-branch') },
@@ -308,9 +323,10 @@ describe('Neon authority conformance guards', () => {
       status: 'PASS',
     })
     expect(events).toEqual([
-      'create-project', 'prove-repaired-bootstrap',
-      'create-branch', 'prove-original-production',
-      'probe', 'probe', 'delete-branch', 'verify-branch-delete', 'delete-project', 'verify-delete',
+      'create-project', 'prove:opaque-test-direct-connection:repaired-bootstrap',
+      'create-branch', 'prove:opaque-production-direct-connection:original-production',
+      'probe:opaque-test-pooled-connection', 'probe:opaque-production-pooled-connection',
+      'delete-branch', 'verify-branch-delete', 'delete-project', 'verify-delete',
     ])
 
     cleanupFails = true
@@ -325,7 +341,11 @@ describe('Neon authority conformance guards', () => {
     const plane: NeonControlPlane = {
       async createDisposableProject() {
         events.push('create-project')
-        return { ...disposable, connectionUri: 'opaque-test-connection' }
+        return {
+          ...disposable,
+          connectionUri: 'opaque-test-direct-connection',
+          runtimeConnectionUri: 'opaque-test-pooled-connection',
+        }
       },
       async createProductionDerivedBranch() {
         events.push('create-branch')
@@ -411,6 +431,11 @@ describe('Neon authority conformance guards', () => {
       (projectName: string) => ({
         project: { id: 'test-project', name: projectName, default_branch_id: 'test-root' },
         branch: { id: 'test-root', parent_id: null, default: false },
+        connection_uris: [{ connection_uri: 'postgresql://opaque:opaque@ep.neon.tech/neondb?sslmode=require' }],
+      }),
+      (_projectName: string) => ({
+        project: { id: 'test-project', name: 'wrong-generated-name', default_branch_id: 'test-root' },
+        branch: { id: 'test-root', parent_id: null, default: true },
         connection_uris: [{ connection_uri: 'postgresql://opaque:opaque@ep.neon.tech/neondb?sslmode=require' }],
       }),
     ]

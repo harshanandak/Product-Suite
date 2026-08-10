@@ -131,10 +131,12 @@ export function conformanceCredentialStatus(
 
 export interface NeonProjectHandle extends DisposableTestProject {
   connectionUri: string
+  runtimeConnectionUri: string
 }
 
 export interface NeonDerivedHandle extends ProductionDerivedBranch {
   connectionUri: string
+  runtimeConnectionUri: string
 }
 
 export interface NeonControlPlane {
@@ -279,6 +281,7 @@ interface ValidatedProjectResponse {
   projectName: string
   branchId: string
   connectionUri: string
+  runtimeConnectionUri: string
 }
 
 type NeonConnectionPurpose = 'migration' | 'runtime'
@@ -317,6 +320,7 @@ const NEON_TLS_MODES = new Set(['require', 'verify-ca', 'verify-full'])
 function validatedNeonConnectionUri(
   body: Record<string, unknown>,
   expected: NeonConnectionBinding,
+  candidateConnectionUri?: string,
 ): string {
   const connections = Array.isArray(body.connection_uris) ? body.connection_uris as NeonConnectionDetails[] : []
   const endpoints = Array.isArray(body.endpoints) ? body.endpoints as NeonEndpointDetails[] : []
@@ -325,7 +329,7 @@ function validatedNeonConnectionUri(
   const connection = connections[0]
   const parameters = connection?.connection_parameters
   const endpoint = endpoints[0]
-  const connectionUri = typeof connection?.connection_uri === 'string' ? connection.connection_uri : ''
+  const directConnectionUri = typeof connection?.connection_uri === 'string' ? connection.connection_uri : ''
   const endpointId = typeof endpoint?.id === 'string' ? endpoint.id : ''
   const endpointHost = typeof endpoint?.host === 'string' ? endpoint.host : ''
   const directHost = typeof parameters?.host === 'string' ? parameters.host : ''
@@ -342,6 +346,22 @@ function validatedNeonConnectionUri(
     conformanceFailure('NEON_CONNECTION_BINDING_INVALID')
   }
 
+  let directUrl: URL
+  try {
+    directUrl = new URL(directConnectionUri)
+  } catch {
+    conformanceFailure('NEON_CONNECTION_URL_INVALID')
+  }
+  if (directUrl.hostname !== directHost) conformanceFailure('NEON_CONNECTION_BINDING_INVALID')
+  let connectionUri = candidateConnectionUri
+  if (!connectionUri) {
+    if (expected.purpose === 'migration') {
+      connectionUri = directConnectionUri
+    } else {
+      directUrl.hostname = poolerHost
+      connectionUri = directUrl.toString()
+    }
+  }
   let url: URL
   try {
     url = new URL(connectionUri)
@@ -369,28 +389,28 @@ function validatedNeonConnectionUri(
 export function assertNeonConnectionBinding(
   body: Record<string, unknown>,
   expected: NeonConnectionBinding,
+  candidateConnectionUri?: string,
 ): { status: 'READY' } {
-  validatedNeonConnectionUri(body, expected)
+  validatedNeonConnectionUri(body, expected, candidateConnectionUri)
   return { status: 'READY' }
 }
 
 function safeProjectIdentity(
   body: Record<string, unknown>,
-  expectedName: string,
   sourceProjectId: string,
-): { projectId: string; projectName: string } {
-  const project = body.project as { id?: unknown; name?: unknown } | undefined
+): { projectId: string } {
+  const project = body.project as { id?: unknown } | undefined
   const projectId = typeof project?.id === 'string' ? project.id : ''
-  const projectName = typeof project?.name === 'string' ? project.name : ''
-  if (!NEON_RESOURCE_ID.test(projectId) || projectId === sourceProjectId || projectName !== expectedName) {
+  if (!NEON_RESOURCE_ID.test(projectId) || projectId === sourceProjectId) {
     conformanceFailure('NEON_PROJECT_RESPONSE_INVALID')
   }
-  return { projectId, projectName }
+  return { projectId }
 }
 
 function projectResponse(
   body: Record<string, unknown>,
-  safeIdentity: { projectId: string; projectName: string },
+  safeIdentity: { projectId: string },
+  expectedName: string,
 ): ValidatedProjectResponse {
   const project = body.project as { id?: unknown; name?: unknown; default_branch_id?: unknown } | undefined
   const branch = body.branch as { id?: unknown; parent_id?: unknown; default?: unknown } | undefined
@@ -398,14 +418,15 @@ function projectResponse(
   const projectName = typeof project?.name === 'string' ? project.name : ''
   const defaultBranchId = typeof project?.default_branch_id === 'string' ? project.default_branch_id : ''
   const branchId = typeof branch?.id === 'string' ? branch.id : ''
-  if (projectId !== safeIdentity.projectId || projectName !== safeIdentity.projectName) {
+  if (projectId !== safeIdentity.projectId || projectName !== expectedName) {
     conformanceFailure('NEON_PROJECT_RESPONSE_INVALID')
   }
   if (!NEON_RESOURCE_ID.test(branchId) || defaultBranchId !== branchId || branch?.default !== true || branch.parent_id != null) {
     conformanceFailure('NEON_PROJECT_ROOT_INVALID')
   }
   const connectionUri = validatedNeonConnectionUri(body, { projectId, branchId, purpose: 'migration' })
-  return { projectId, projectName, branchId, connectionUri }
+  const runtimeConnectionUri = validatedNeonConnectionUri(body, { projectId, branchId, purpose: 'runtime' })
+  return { projectId, projectName, branchId, connectionUri, runtimeConnectionUri }
 }
 
 function assertProjectRead(
@@ -435,7 +456,7 @@ function assertNeondbRead(body: Record<string, unknown>): void {
 function branchResponse(
   body: Record<string, unknown>,
   expected: { projectId: string; branchId: string; branchName: string; parentBranchId: string },
-): { branchId: string; connectionUri: string } {
+): { branchId: string; connectionUri: string; runtimeConnectionUri: string } {
   const branch = body.branch as { id?: unknown; name?: unknown; parent_id?: unknown; default?: unknown } | undefined
   const branchId = typeof branch?.id === 'string' ? branch.id : ''
   if (branchId !== expected.branchId || branch?.name !== expected.branchName) {
@@ -449,19 +470,23 @@ function branchResponse(
     branchId,
     purpose: 'migration',
   })
-  return { branchId, connectionUri }
+  const runtimeConnectionUri = validatedNeonConnectionUri(body, {
+    projectId: expected.projectId,
+    branchId,
+    purpose: 'runtime',
+  })
+  return { branchId, connectionUri, runtimeConnectionUri }
 }
 
 function safeBranchIdentity(
   body: Record<string, unknown>,
-  expected: { branchName: string; protectedBranchIds: readonly string[] },
+  protectedBranchIds: readonly string[],
 ): { branchId: string } {
-  const branch = body.branch as { id?: unknown; name?: unknown } | undefined
+  const branch = body.branch as { id?: unknown } | undefined
   const branchId = typeof branch?.id === 'string' ? branch.id : ''
   if (
     !NEON_RESOURCE_ID.test(branchId)
-    || expected.protectedBranchIds.includes(branchId)
-    || branch?.name !== expected.branchName
+    || protectedBranchIds.includes(branchId)
   ) {
     conformanceFailure('NEON_BRANCH_RESPONSE_INVALID')
   }
@@ -528,9 +553,9 @@ export function createNeonControlPlane(env: NeonControlPlaneEnv = process.env, f
         method: 'POST',
         body: { project: { name: projectName, pg_version: 17 } },
       })
-      const safeIdentity = safeProjectIdentity(result.body, projectName, sourceProjectId)
+      const safeIdentity = safeProjectIdentity(result.body, sourceProjectId)
       retainedProjectId = safeIdentity.projectId
-      const created = projectResponse(result.body, safeIdentity)
+      const created = projectResponse(result.body, safeIdentity, projectName)
       await waitControlPlaneOperations(apiKey, created.projectId, (result.body.operations ?? []) as NeonOperation[], fetcher)
       const projectRead = await request(`/projects/${created.projectId}`, { method: 'GET' })
       assertProjectRead(projectRead.body, created)
@@ -549,6 +574,7 @@ export function createNeonControlPlane(env: NeonControlPlaneEnv = process.env, f
         historyVariant: 'repaired-bootstrap',
         catalogCount: Number(rows[0]?.count ?? 0),
         connectionUri: created.connectionUri,
+        runtimeConnectionUri: created.runtimeConnectionUri,
       }
     },
     async createProductionDerivedBranch() {
@@ -562,10 +588,7 @@ export function createNeonControlPlane(env: NeonControlPlaneEnv = process.env, f
         branch: { name: branchName, parent_id: parentBranchId, expires_at: expiresAt },
       }
       const result = await request(`/projects/${sourceProjectId}/branches`, { method: 'POST', body })
-      const safeIdentity = safeBranchIdentity(result.body, {
-        branchName,
-        protectedBranchIds: [parentBranchId],
-      })
+      const safeIdentity = safeBranchIdentity(result.body, [parentBranchId])
       retainedBranch = {
         projectId: sourceProjectId,
         branchId: safeIdentity.branchId,
@@ -929,8 +952,8 @@ export async function runRequiredNeonConformance(
     derived = await plane.createProductionDerivedBranch()
     assertProductionDerivedBranch(derived)
     await plane.proveVariant(derived.connectionUri, 'original-production')
-    await plane.probeLeastPrivilege(disposable.connectionUri)
-    await plane.probeLeastPrivilege(derived.connectionUri)
+    await plane.probeLeastPrivilege(disposable.runtimeConnectionUri)
+    await plane.probeLeastPrivilege(derived.runtimeConnectionUri)
     evidence = { status: 'PASS' }
   } catch {
     evidence = { status: 'INCOMPLETE', code: 'REAL_NEON_CONFORMANCE_FAILED' }
