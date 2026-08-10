@@ -164,6 +164,30 @@ describe("canonical migration runner", () => {
     }
   });
 
+  test("fails the fixed production preflight command before opening a pool when attestation is unconfigured", async () => {
+    const errors = [];
+    let opened = false;
+    const previousExitCode = process.exitCode ?? 0;
+    process.exitCode = 0;
+    try {
+      await runMigrationCli({
+        args: ["verify", "--environment", "production", "--history-variant", "original-production", "--expected-floor", "0017"],
+        databaseUrl: "postgresql://reader:secret@ep-test-endpoint.us-east-2.aws.neon.tech/neondb?sslmode=require",
+        poolFactory: async () => { opened = true; return { query: async () => ({ rows: [] }) }; },
+        preflightAttestation: { configured: false, schemaVersion: "neon-production-preflight-attestation.v1" },
+        preflightTrust: { schemaVersion: "neon-production-preflight-trust.v1", keys: [] },
+        preflightFileBytes: '{"configured":false,"schemaVersion":"neon-production-preflight-attestation.v1"}',
+        runContext: { runSha: "d".repeat(40), repository: "befach/product-suite", runId: "123" },
+        writeError: (message) => errors.push(message),
+      });
+      expect(opened).toBe(false);
+      expect(errors).toEqual(["migration verify rejected: PREFLIGHT_ATTESTATION_UNCONFIGURED"]);
+      expect(process.exitCode).toBe(1);
+    } finally {
+      process.exitCode = previousExitCode;
+    }
+  });
+
   test("plans an exact contiguous suffix and rejects reordered extras", () => {
     expect(buildMigrationPlan({ applied: ["0019"], declared: ["0020"], files, authority })).toMatchObject({
       ok: true,

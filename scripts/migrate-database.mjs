@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { createHash } from "node:crypto";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { createHash, createPublicKey, verify as verifySignature } from "node:crypto";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -9,7 +9,7 @@ import authorityContract from "../config/database-authority.json" with { type: "
 import productionPreflightGrantContract from "../config/neon-production-preflight-grants.json" with { type: "json" };
 import { parseNeonUrl } from "./check-database-authority.mjs";
 import { createDatabasePool } from "./database-pool.mjs";
-import { createMigrationEvidence } from "./migration-evidence.mjs";
+import { createMigrationEvidence, verifyMigrationEvidence } from "./migration-evidence.mjs";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 export const MIGRATIONS_ROOT = join(SCRIPT_DIR, "..", "packages", "db", "migrations");
@@ -24,6 +24,60 @@ function canonicalize(value) {
   if (Array.isArray(value)) return value.map(canonicalize);
   if (value && typeof value === "object") return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalize(value[key])]));
   return value;
+}
+
+export function canonicalPreflightPayload(attestation = {}) {
+  const { signature: _signature, ...payload } = attestation;
+  return JSON.stringify(canonicalize(payload));
+}
+
+function gitBlobId(bytes) {
+  const buffer = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
+  return createHash("sha1").update(`blob ${buffer.length}\0`).update(buffer).digest("hex");
+}
+
+export function verifyProductionPreflightAttestation({ attestation = {}, trust = {}, fileBytes = "", fileBlobId, runSha, repository, now = new Date() } = {}) {
+  if (attestation.configured !== true) return fail("PREFLIGHT_ATTESTATION_UNCONFIGURED");
+  if (attestation.schemaVersion !== "neon-production-preflight-attestation.v1" || trust.schemaVersion !== "neon-production-preflight-trust.v1") return fail("PREFLIGHT_ATTESTATION_SCHEMA_INVALID");
+  if (!/^[a-f0-9]{40}$/i.test(runSha ?? "") || !/^[a-z0-9_.-]+\/[a-z0-9_.-]+$/i.test(repository ?? "")) return fail("PREFLIGHT_RUN_CONTEXT_INVALID");
+  const target = attestation.target ?? {};
+  const role = attestation.role ?? {};
+  const recovery = attestation.recovery ?? {};
+  const source = attestation.source ?? {};
+  const validity = attestation.validity ?? {};
+  const signature = attestation.signature ?? {};
+  const identifier = /^[a-z0-9][a-z0-9_.-]{2,127}$/i;
+  if (![target.projectId, target.productionBranchId, target.endpointId, role.loginIdentifier, recovery.id, recovery.projectId, recovery.sourceBranchId].every((value) => identifier.test(value ?? ""))) return fail("PREFLIGHT_ATTESTATION_IDENTITY_INVALID");
+  if (target.database !== "neondb" || target.schema !== "public" || recovery.projectId !== target.projectId || recovery.sourceBranchId !== target.productionBranchId) return fail("PREFLIGHT_ATTESTATION_TARGET_MISMATCH");
+  if (role.grantContract !== productionPreflightGrantContract.name || role.grantContractSha256 !== grantContractDigest()) return fail("PREFLIGHT_ATTESTATION_GRANT_MISMATCH");
+  if (![role.grantContractSha256, attestation.catalog?.catalogSha256, source.immutableSourceSha256].every((value) => /^[a-f0-9]{64}$/i.test(value ?? ""))) return fail("PREFLIGHT_ATTESTATION_DIGEST_INVALID");
+  if (!["branch", "snapshot"].includes(recovery.kind) || !["neon-control-plane-export", "independently-signed-export"].includes(source.kind)) return fail("PREFLIGHT_ATTESTATION_SOURCE_INVALID");
+  const payload = canonicalPreflightPayload(attestation);
+  const payloadDigest = canonicalHash(payload);
+  if (signature.algorithm !== "Ed25519" || signature.canonicalPayloadSha256 !== payloadDigest || typeof signature.value !== "string") return fail("PREFLIGHT_ATTESTATION_SIGNATURE_INVALID");
+  const trustedKey = trust.keys?.find((key) => key.keyId === signature.keyId && key.algorithm === "Ed25519");
+  if (!trustedKey) return fail("PREFLIGHT_ATTESTATION_KEY_UNTRUSTED");
+  try {
+    if (!verifySignature(null, Buffer.from(payload), createPublicKey(trustedKey.publicKeyPem), Buffer.from(signature.value, "base64"))) return fail("PREFLIGHT_ATTESTATION_SIGNATURE_INVALID");
+  } catch { return fail("PREFLIGHT_ATTESTATION_SIGNATURE_INVALID"); }
+  const parsedFile = (() => { try { return JSON.parse(String(fileBytes)); } catch { return null; } })();
+  if (!parsedFile || JSON.stringify(canonicalize(parsedFile)) !== JSON.stringify(canonicalize(attestation))) return fail("PREFLIGHT_ATTESTATION_FILE_MISMATCH");
+  const observedBlobId = gitBlobId(fileBytes);
+  if (!/^[a-f0-9]{40}$/i.test(fileBlobId ?? "") || observedBlobId !== fileBlobId) return fail("PREFLIGHT_ATTESTATION_BLOB_MISMATCH");
+  const instant = now instanceof Date ? now.getTime() : new Date(now).getTime();
+  const notBefore = Date.parse(validity.notBefore);
+  const expiresAt = Date.parse(validity.expiresAt);
+  const recoveryCreatedAt = Date.parse(recovery.createdAt);
+  const recoveryExpiresAt = Date.parse(recovery.expiresAt);
+  const sourceProducedAt = Date.parse(source.producedAt);
+  if (![instant, notBefore, expiresAt, recoveryCreatedAt, recoveryExpiresAt, sourceProducedAt].every(Number.isFinite) || instant < notBefore || instant >= expiresAt || instant >= recoveryExpiresAt || sourceProducedAt > instant || recoveryCreatedAt > instant) return fail("PREFLIGHT_ATTESTATION_STALE");
+  return {
+    ok: true, runSha, repository,
+    attestationBlobId: observedBlobId,
+    attestationFileSha256: canonicalHash(fileBytes),
+    attestationCanonicalPayloadSha256: payloadDigest,
+    signatureKeyId: signature.keyId,
+  };
 }
 
 export function grantContractDigest(contract = productionPreflightGrantContract) {
@@ -176,7 +230,7 @@ export function buildMigrationPlan({ applied = [], declared = [], files = [], au
 }
 
 function migrationRows(rows, files = []) {
-  const byHash = new Map(files.filter((file) => file.hash).map((file) => [file.hash, file.tag]));
+  const byHash = new Map(files.flatMap((file) => [file.hash, ...(file.acceptedHashes ?? [])].filter(Boolean).map((hash) => [hash, file.tag])));
   return (rows ?? []).map((row) => ({
     tag: row.tag ?? row.name ?? row.migration_tag ?? byHash.get(row.hash),
     hash: row.hash ?? row.hash_value,
@@ -384,7 +438,18 @@ export async function verifyProductionPreflight({ adapter, files = loadMigration
       operation: "verify", status: "PREFLIGHT_READY", reasonCodes: ["PREFLIGHT_READY"],
       historyVariant: plan.historyVariant, expectedFloor, expectedCount: 18,
       repository: runContext.repository, runId: runContext.runId, runSha: runContext.runSha,
-      endpointId, loginIdentifier: validated.loginIdentifier,
+      projectId: attestation.target?.projectId, branchId: attestation.target?.productionBranchId,
+      endpointId, database: attestation.target?.database, schema: attestation.target?.schema,
+      proofSource: attestation.source?.kind, sourceImmutableSha256: attestation.source?.immutableSourceSha256,
+      sourceProducedAt: attestation.source?.producedAt,
+      attestationBlobId: runContext.attestationBlobId,
+      attestationFileSha256: runContext.attestationFileSha256,
+      attestationCanonicalPayloadSha256: runContext.attestationCanonicalPayloadSha256,
+      signatureKeyId: runContext.signatureKeyId,
+      recoveryKind: attestation.recovery?.kind, recoveryId: attestation.recovery?.id,
+      recoverySourceBranchId: attestation.recovery?.sourceBranchId,
+      observedAt: new Date().toISOString(), expiresAt: attestation.validity?.expiresAt,
+      loginIdentifier: validated.loginIdentifier,
       grantContract: grantContract.name, grantContractSha256: grantContractDigest(grantContract),
       catalogDigest: validated.catalogDigest, grantDigest: validated.grantDigest,
       aggregateRowCounts: validated.aggregateRowCounts,
@@ -497,12 +562,41 @@ function parseArgs(args) {
   return options;
 }
 
+function readPreflightConfig(name) {
+  const path = join(SCRIPT_DIR, "..", "config", name);
+  return { bytes: readFileSync(path, "utf8"), value: JSON.parse(readFileSync(path, "utf8")) };
+}
+
+function productionPreflightFiles(files) {
+  const manifest = JSON.parse(readFileSync(join(SCRIPT_DIR, "..", "docs", "history", "database-migrations", "manifest.json"), "utf8"));
+  const journal = JSON.parse(readFileSync(join(MIGRATIONS_ROOT, "meta", "_journal.json"), "utf8"));
+  const timestamps = new Map((journal.entries ?? []).map((entry) => [entry.tag, Number(entry.when)]));
+  const repairs = new Map((manifest.drizzle?.repairs ?? []).map((entry) => [entry.path.replace(/\.sql$/, ""), entry]));
+  return files.map((file) => {
+    const repair = repairs.get(file.tag);
+    const acceptedHashes = repair ? [
+      repair.original?.lfSha256, repair.original?.crlfSha256,
+      repair.repaired?.lfSha256, repair.repaired?.sha256,
+    ].filter(Boolean) : [file.hash];
+    return { ...file, timestamp: timestamps.get(file.tag) ?? file.timestamp, acceptedHashes };
+  });
+}
+
 export async function runMigrationCli({
   args = process.argv.slice(2),
   databaseUrl = process.env.MIGRATION_DATABASE_URL,
   poolFactory = createDatabasePool,
   writeError = (message) => console.error(message),
   writeOutput = (message) => console.log(message),
+  preflightAttestation,
+  preflightTrust,
+  preflightFileBytes,
+  preflightFileBlobId,
+  runContext = {
+    runSha: process.env.GITHUB_SHA,
+    repository: process.env.GITHUB_REPOSITORY,
+    runId: process.env.GITHUB_RUN_ID,
+  },
 } = {}) {
   const options = parseArgs(args);
   if (!options?.operation || !options.historyVariant || !options.environment) {
@@ -512,23 +606,46 @@ export async function runMigrationCli({
   }
   const url = databaseUrl;
   if (!url) { writeError("MIGRATION_DATABASE_URL is required"); process.exitCode = 1; return; }
-  if (options.environment === "production") parseNeonUrl(url, "migration");
+  let endpoint;
+  if (options.environment === "production") endpoint = parseNeonUrl(url, "migration");
+  let attestationProof;
+  const productionPreflight = options.operation === "verify" && options.environment === "production" && options.historyVariant === "original-production" && options.expectedFloor === "0017";
+  if (productionPreflight) {
+    const attestationConfig = preflightAttestation === undefined ? readPreflightConfig("neon-production-preflight-attestation.json") : null;
+    const trustConfig = preflightTrust === undefined ? readPreflightConfig("neon-production-preflight-trust.json") : null;
+    const attestation = preflightAttestation ?? attestationConfig.value;
+    const trust = preflightTrust ?? trustConfig.value;
+    const fileBytes = preflightFileBytes ?? attestationConfig.bytes;
+    attestationProof = verifyProductionPreflightAttestation({
+      attestation, trust, fileBytes,
+      fileBlobId: preflightFileBlobId ?? gitBlobId(fileBytes),
+      runSha: runContext.runSha, repository: runContext.repository,
+    });
+    if (!attestationProof.ok) { writeError(`migration verify rejected: ${attestationProof.code}`); process.exitCode = 1; return; }
+    runContext = { ...runContext, ...attestationProof };
+    preflightAttestation = attestation;
+  }
   let pool;
   try {
     pool = await poolFactory({ databaseUrl: url, environment: options.environment });
-    const files = loadMigrationFiles();
+    const loadedFiles = loadMigrationFiles();
+    const files = productionPreflight ? productionPreflightFiles(loadedFiles) : loadedFiles;
     const authority = { environment: options.environment, historyVariant: options.historyVariant };
     let result;
     if (options.operation === "bootstrap") result = await bootstrapMigrations({ adapter: pool, files, declared: options.declared.length ? options.declared : files.map((file) => file.tag), authority });
     else if (options.operation === "apply") result = await applyMigrations({ adapter: pool, files, declared: options.declared, authority });
+    else if (productionPreflight) result = await verifyProductionPreflight({ adapter: pool, files, expectedFloor: options.expectedFloor, authority, attestation: preflightAttestation, endpointId: endpoint.endpointId, runContext });
     else result = await verifyMigrations({ adapter: pool, files, declared: [], expectedFloor: options.expectedFloor, authority });
     if (!result.ok) { writeError(`migration ${options.operation} rejected: ${result.code}`); process.exitCode = 1; return; }
-    writeOutput(JSON.stringify(result));
+    const checked = verifyMigrationEvidence(result);
+    if (!checked.ok) { writeError(`migration ${options.operation} rejected: ${checked.code}`); process.exitCode = 1; return; }
+    if (productionPreflight) writeFileSync(join(process.cwd(), "neon-production-preflight-evidence.json"), `${JSON.stringify(checked, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+    writeOutput(JSON.stringify(checked));
   } catch (error) {
     writeError(`migration ${options.operation} failed: ${error?.message || "unknown"}`);
     process.exitCode = 1;
   } finally {
-    await pool?.end();
+    await pool?.end?.();
   }
 }
 
