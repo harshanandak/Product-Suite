@@ -33,3 +33,52 @@ floor is present, and no migration is pending.
 Historical Supabase, Alembic, and raw SQL roots remain manifest-verified
 non-authoritative artifacts. They are not consulted for pending order and must
 not be invoked by CI or deployment.
+
+## Protected production preflight
+
+Production inspection and migration apply use separate GitHub environments and
+separate direct credentials. `db-preflight-production` may contain only a
+distinct read-only `MIGRATION_DATABASE_URL` for the signed attestation's exact
+`loginIdentifier`. `db-migrate-production` retains the separately approved
+owner/apply authority. Never reuse or use the owner/apply LOGIN for preflight.
+
+The preflight LOGIN must match the named
+`product-suite-neon-preflight-reader-v1` grant-contract digest. The contract
+allows `CONNECT`, schema `USAGE`, and only its named migration-ledger reads. It
+requires all table and sequence write privileges to be false through direct,
+inherited, `PUBLIC`, built-in/default-role, and default-ACL paths. Database or
+schema `CREATE`, temporary authority, and sequence `USAGE`, `UPDATE`, or
+`SELECT` are denied. Safe autocommit and explicit-transaction probes for
+`INSERT`, `UPDATE`, `DELETE`, DDL, and `nextval` must each fail with an
+allowlisted read-only or insufficient-privilege code. Probe success is a hard
+failure; no business row is a probe target.
+
+Before credentials enter scope, the manual workflow validates
+`config/neon-production-preflight-attestation.json` against its JSON Schema and
+repository trust file. An authentic configured attestation uses Ed25519 and
+binds the canonical payload, immutable control-plane or independently signed
+source hash, project, production branch, endpoint, `neondb`, `public`, role,
+grant digest, catalog digest, validity/freshness window, and recovery reference.
+The job also binds the file SHA-256 and Git blob to the exact current-main run
+SHA. A hostname proves an endpoint only; the hostname does not prove the Neon
+project or production branch. A shape-only identifier is forbidden and is not
+proof.
+
+The checked-in file currently says `HUMAN_INFRASTRUCTURE_REQUIRED`. That state,
+an empty trust set, a stale/forged signature, or any target/recovery mismatch
+fails before a database pool is opened. Infrastructure reviewers must replace
+it with authentic non-secret signed inputs; agents must not invent production
+IDs or signing material.
+
+After that separate infrastructure gate, dispatch only the exact reviewed main
+SHA and fixed command:
+
+```text
+bun run migrate:database -- verify --environment production --history-variant original-production --expected-floor 0017
+```
+
+Success is the redacted `PREFLIGHT_READY` artifact for the exact 18-row
+`0000..0017` original-production vector and derived `0018,0019` suffix. It needs
+independent artifact review. A PASS artifact never dispatches, authorizes, or
+implies apply; rollout apply requires a fresh lease proof and separate apply
+approval in `db-migrate-production`.

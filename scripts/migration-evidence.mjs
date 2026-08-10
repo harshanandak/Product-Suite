@@ -68,7 +68,7 @@ function isSafeScalar(value) {
 }
 
 function safeValue(key, value) {
-  if (SECRET_KEY.test(key) || !ALLOWED_KEYS.has(key)) return undefined;
+  if (!ALLOWED_KEYS.has(key) || (SECRET_KEY.test(key) && key !== "attestationCanonicalPayloadSha256")) return undefined;
   if (Array.isArray(value)) {
     if (key === "reasonCodes") return value.every((entry) => typeof entry === "string" && SAFE_IDENTIFIER.test(entry)) ? [...value] : undefined;
     return undefined;
@@ -157,7 +157,13 @@ export function verifyMigrationEvidence(evidence = {}) {
     for (const entry of safe.pending ?? []) if (!MIGRATION_TAG.test(entry.tag) || !MIGRATION_HASH.test(entry.hash ?? "")) issues.push("pending migration record is incomplete");
     if (!SAFE_IDENTIFIER.test(safe.loginIdentifier ?? "") || safe.grantContract !== "product-suite-neon-preflight-reader-v1") issues.push("preflight role contract invalid");
     for (const field of ["grantContractSha256", "catalogDigest", "grantDigest"]) if (!MIGRATION_HASH.test(safe[field] ?? "")) issues.push(`${field} invalid`);
-    if (safe.runSha !== undefined && !SHA.test(safe.runSha)) issues.push("run SHA invalid");
+    for (const field of ["attestationFileSha256", "attestationCanonicalPayloadSha256", "sourceImmutableSha256"]) if (!MIGRATION_HASH.test(safe[field] ?? "")) issues.push(`${field} invalid`);
+    if (!SHA.test(safe.runSha ?? "") || !SHA.test(safe.attestationBlobId ?? "")) issues.push("run or blob SHA invalid");
+    for (const field of ["projectId", "branchId", "endpointId", "database", "schema", "signatureKeyId", "recoveryKind", "recoveryId", "recoverySourceBranchId"]) if (!SAFE_IDENTIFIER.test(safe[field] ?? "")) issues.push(`${field} invalid`);
+    if (!/^[a-z0-9_.-]+\/[a-z0-9_.-]+$/i.test(safe.repository ?? "") || safe.runId === undefined) issues.push("run identity invalid");
+    if (!['neon-control-plane-export', 'independently-signed-export'].includes(safe.proofSource) || !Number.isFinite(Date.parse(safe.sourceProducedAt)) || !Number.isFinite(Date.parse(safe.observedAt)) || !Number.isFinite(Date.parse(safe.expiresAt))) issues.push("attestation provenance invalid");
+    if (safe.reasonCodes?.join(",") !== "PREFLIGHT_READY") issues.push("preflight reason invalid");
+    if (safe.aggregateRowCounts?.length !== 1 || safe.aggregateRowCounts[0]?.metric !== "drizzle_migration_rows" || safe.aggregateRowCounts[0]?.count !== 18) issues.push("preflight row-count evidence invalid");
   }
   return issues.length === 0 ? { ok: true, ...safe } : { ok: false, code: "EVIDENCE_INVALID", issues };
 }

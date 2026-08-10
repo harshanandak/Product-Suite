@@ -20,6 +20,10 @@ function canonicalHash(value) {
   return createHash("sha256").update(String(value).replace(/\r\n?/g, "\n"), "utf8").digest("hex");
 }
 
+function rawSha256(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
 function canonicalize(value) {
   if (Array.isArray(value)) return value.map(canonicalize);
   if (value && typeof value === "object") return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalize(value[key])]));
@@ -74,7 +78,7 @@ export function verifyProductionPreflightAttestation({ attestation = {}, trust =
   return {
     ok: true, runSha, repository,
     attestationBlobId: observedBlobId,
-    attestationFileSha256: canonicalHash(fileBytes),
+    attestationFileSha256: rawSha256(fileBytes),
     attestationCanonicalPayloadSha256: payloadDigest,
     signatureKeyId: signature.keyId,
   };
@@ -433,7 +437,7 @@ export async function verifyProductionPreflight({ adapter, files = loadMigration
     const plan = buildMigrationPlan({ applied: rows, declared: pendingFiles, files, expectedCount: 18, expectedFloor, authority, observedVariant: "original-production" });
     if (!plan.ok) return plan;
     if (plan.pending.join(",") !== "0018,0019") return fail("PREFLIGHT_PENDING_SUFFIX_MISMATCH");
-    return createMigrationEvidence({
+    const evidence = createMigrationEvidence({
       schemaVersion: "neon-production-preflight-evidence.v1",
       operation: "verify", status: "PREFLIGHT_READY", reasonCodes: ["PREFLIGHT_READY"],
       historyVariant: plan.historyVariant, expectedFloor, expectedCount: 18,
@@ -456,6 +460,8 @@ export async function verifyProductionPreflight({ adapter, files = loadMigration
       applied: rows.map((entry) => ({ tag: entry.tag, timestamp: Number(entry.timestamp), hash: entry.hash })),
       pending: pendingFiles.map((entry) => ({ tag: entry.tag, hash: entry.hash })),
     });
+    const checked = verifyMigrationEvidence(evidence);
+    return checked.ok ? evidence : fail(checked.code);
   } finally {
     client.release?.();
   }

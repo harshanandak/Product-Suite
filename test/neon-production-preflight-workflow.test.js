@@ -123,13 +123,14 @@ describe("protected Neon production preflight workflow", () => {
 
   test("verifies a fresh trusted Ed25519 attestation and binds file/blob/run context", () => {
     const fixture = signedFixture();
+    const fileBytes = fixture.fileBytes.replace(/\n/g, "\r\n");
     expect(verifyProductionPreflightAttestation({
-      ...fixture,
-      fileBlobId: blobId(fixture.fileBytes),
+      ...fixture, fileBytes,
+      fileBlobId: blobId(fileBytes),
       runSha: "d".repeat(40),
       repository: "befach/product-suite",
       now: new Date("2026-08-10T10:00:00.000Z"),
-    })).toMatchObject({ ok: true, runSha: "d".repeat(40), attestationFileSha256: sha256(fixture.fileBytes) });
+    })).toMatchObject({ ok: true, runSha: "d".repeat(40), attestationFileSha256: sha256(fileBytes) });
   });
 
   test.each([

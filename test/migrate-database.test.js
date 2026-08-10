@@ -47,13 +47,16 @@ describe("canonical migration runner", () => {
   };
   const loginIdentifier = "product_suite_neon_preflight_reader";
   const preflightAttestation = {
-    target: { endpointId: "test-endpoint", database: "neondb", schema: "public" },
+    target: { projectId: "project-test", productionBranchId: "branch-test", endpointId: "test-endpoint", database: "neondb", schema: "public" },
     role: {
       loginIdentifier,
       grantContract: preflightContract.name,
       grantContractSha256: grantContractDigest(preflightContract),
     },
     catalog: { catalogSha256: "a".repeat(64) },
+    recovery: { kind: "branch", id: "recovery-test", sourceBranchId: "branch-test" },
+    source: { kind: "independently-signed-export", immutableSourceSha256: "b".repeat(64), producedAt: "2026-08-10T09:00:00.000Z" },
+    validity: { expiresAt: "2026-08-11T09:00:00.000Z" },
   };
   const privilegeFacts = [...preflightContract.positivePrivileges, ...preflightContract.negativePrivileges];
   const denialProbes = ["autocommit", "transaction"].flatMap((mode) =>
@@ -130,7 +133,11 @@ describe("canonical migration runner", () => {
       attestation: preflightAttestation,
       grantContract: preflightContract,
       endpointId: "test-endpoint",
-      runContext: { runSha: "c".repeat(40), repository: "befach/product-suite", runId: "123" },
+      runContext: {
+        runSha: "c".repeat(40), repository: "befach/product-suite", runId: "123",
+        attestationBlobId: "d".repeat(40), attestationFileSha256: "e".repeat(64),
+        attestationCanonicalPayloadSha256: "f".repeat(64), signatureKeyId: "test-key-v1",
+      },
     });
 
     expect(result).toMatchObject({

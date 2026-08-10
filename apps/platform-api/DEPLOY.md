@@ -41,6 +41,15 @@ declared suffix under an advisory lock, and then runs a read-only `verify` that
 must report `NOOP`. Runtime `DATABASE_URL` remains pooled and is checked by the
 Worker secret guard.
 
+Production preflight is not a mode of this deployment workflow. It runs only in
+the separate `db-preflight-production` environment, with a different direct
+read-only credential and the fixed verify command documented in
+`docs/deployment/DATABASE_AUTHORITY.md`. Reviewers must first replace the
+`HUMAN_INFRASTRUCTURE_REQUIRED` attestation template with authentic signed
+infrastructure evidence. A `PREFLIGHT_READY` result requires independent
+artifact review and separate apply approval; PASS never dispatches or
+authorizes the `db-migrate-production` apply/deploy graph.
+
 ### 2. Deploy
 ```bash
 cd apps/platform-api
