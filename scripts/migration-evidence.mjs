@@ -122,6 +122,26 @@ export function createMigrationEvidence(input = {}) {
   return Object.freeze(evidence);
 }
 
+export function createPreflightFailureEvidence(input = {}) {
+  const code = typeof input.code === "string" && /^[A-Z0-9_]+$/.test(input.code)
+    ? input.code
+    : "PREFLIGHT_FAILED";
+  return createMigrationEvidence({
+    schemaVersion: "neon-production-preflight-evidence.v1",
+    operation: "verify",
+    status: "FAIL",
+    code,
+    reasonCodes: [code],
+    historyVariant: "original-production",
+    applied: [],
+    repository: input.repository,
+    runId: input.runId,
+    runSha: input.runSha,
+    attestationBlobId: input.attestationBlobId,
+    attestationFileSha256: input.attestationFileSha256,
+  });
+}
+
 /** Evidence for role provisioning is not migration history. */
 export function createRoleProvisioningEvidence(input = {}) {
   const evidence = { ok: true, ...redactEvidence(input), operation: "provision-roles", status: "READY" };

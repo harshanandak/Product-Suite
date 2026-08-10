@@ -28,6 +28,11 @@ function workflowContractIssues(workflow) {
   if ((workflow.match(/MIGRATION_DATABASE_URL:/g) ?? []).length !== 1) issues.push("secret scope changed");
   if (/provision:database-roles|migrate:database -- (?:apply|bootstrap)|wrangler|NEON_API_KEY/.test(workflow)) issues.push("forbidden authority present");
   if (!workflow.includes("timeout-minutes: 15") || !workflow.includes("cancel-in-progress: true")) issues.push("bounded execution missing");
+  if (/^\s*if:\s*github\.ref\s*==\s*'refs\/heads\/main'/m.test(workflow)) issues.push("non-main dispatch skips instead of failing");
+  if (!workflow.includes('[[ "${GITHUB_REF}" == "refs/heads/main" ]]')) issues.push("non-main fail check missing");
+  if (!workflow.includes("PREFLIGHT_ATTESTATION_BLOB_ID: ${{ steps.attestation.outputs.blob_id }}")) issues.push("attestation blob provenance not persisted");
+  if (workflow.includes("preflightFileBlobId ?? gitBlobId(fileBytes)")) issues.push("self-hash provenance tautology");
+  if (!workflow.includes("if-no-files-found: warn")) issues.push("missing artifact can fail upload");
   return issues;
 }
 
@@ -81,6 +86,7 @@ describe("protected Neon production preflight workflow", () => {
     ]) expect(existsSync(pathFor(path))).toBe(true);
 
     const workflow = read(".github/workflows/neon-production-preflight.yml");
+    const migrationScript = read("scripts/migrate-database.mjs");
     const attestation = JSON.parse(read("config/neon-production-preflight-attestation.json"));
     const schema = JSON.parse(read("config/neon-production-preflight-attestation.schema.json"));
     const grantContract = JSON.parse(read("config/neon-production-preflight-grants.json"));
@@ -108,6 +114,14 @@ describe("protected Neon production preflight workflow", () => {
       for (const privilege of ["INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"]) expect(hasNegative(source, "table", privilege)).toBe(true);
       for (const privilege of ["USAGE", "UPDATE", "SELECT"]) expect(hasNegative(source, "sequence", privilege)).toBe(true);
     }
+    for (const source of ["effective", "direct", "inherited", "PUBLIC", "built-in-default-role", "default-acl"]) {
+      expect(hasNegative(source, "database", "CREATE")).toBe(true);
+      expect(hasNegative(source, "schema", "CREATE")).toBe(true);
+    }
+    expect(workflow).not.toContain("if: github.ref == 'refs/heads/main'");
+    expect(migrationScript).toContain("has_database_privilege");
+    expect(migrationScript).not.toContain("preflightFileBlobId ?? gitBlobId(fileBytes)");
+    expect(migrationScript).not.toContain("error?.message ||");
   });
 
   test.each([

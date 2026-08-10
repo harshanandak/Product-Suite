@@ -5,7 +5,10 @@ import {
   bootstrapMigrations,
   buildMigrationPlan,
   grantContractDigest,
+  loadMigrationFiles,
+  productionPreflightFiles,
   runMigrationCli,
+  validateProductionHistoryRows,
   validatePreflightSnapshot,
   verifyMigrations,
   verifyProductionPreflight,
@@ -164,7 +167,7 @@ describe("canonical migration runner", () => {
         writeError: (message) => errors.push(message),
       });
 
-      expect(errors).toEqual(["migration verify failed: DATABASE_POOL_UNAVAILABLE"]);
+      expect(errors).toEqual(["migration verify failed: MIGRATION_FAILED"]);
       expect(process.exitCode).toBe(1);
     } finally {
       process.exitCode = previousExitCode;
@@ -173,6 +176,7 @@ describe("canonical migration runner", () => {
 
   test("fails the fixed production preflight command before opening a pool when attestation is unconfigured", async () => {
     const errors = [];
+    const evidence = [];
     let opened = false;
     const previousExitCode = process.exitCode ?? 0;
     process.exitCode = 0;
@@ -186,13 +190,73 @@ describe("canonical migration runner", () => {
         preflightFileBytes: '{"configured":false,"schemaVersion":"neon-production-preflight-attestation.v1"}',
         runContext: { runSha: "d".repeat(40), repository: "befach/product-suite", runId: "123" },
         writeError: (message) => errors.push(message),
+        writeEvidence: (packet) => evidence.push(packet),
       });
       expect(opened).toBe(false);
       expect(errors).toEqual(["migration verify rejected: PREFLIGHT_ATTESTATION_UNCONFIGURED"]);
+      expect(evidence).toHaveLength(1);
+      expect(evidence[0]).toMatchObject({ status: "FAIL", code: "PREFLIGHT_ATTESTATION_UNCONFIGURED" });
+      expect(JSON.stringify(evidence[0])).not.toContain("secret");
       expect(process.exitCode).toBe(1);
     } finally {
       process.exitCode = previousExitCode;
     }
+  });
+
+  test("preserves every production journal row and rejects unknown or repaired hashes before planning", () => {
+    const strictFiles = preflightFiles.map((file, index) => index === 0
+      ? { ...file, hash: "a".repeat(64), acceptedHashes: ["a".repeat(64)], strictAcceptedHashes: true }
+      : { ...file, acceptedHashes: [file.hash], strictAcceptedHashes: true });
+    const exactRows = strictFiles.slice(0, 18).map((file) => ({ hash: file.hash, timestamp: file.timestamp }));
+    expect(validateProductionHistoryRows(exactRows, strictFiles)).toMatchObject({ ok: true, rows: expect.any(Array) });
+    expect(validateProductionHistoryRows([...exactRows.slice(0, 17), { hash: "f".repeat(64), timestamp: 17 }], strictFiles)).toEqual({ ok: false, code: "MIGRATION_HASH_UNKNOWN" });
+    expect(validateProductionHistoryRows([{ hash: "0".repeat(64), timestamp: 0 }, ...exactRows.slice(1)], strictFiles)).toEqual({ ok: false, code: "MIGRATION_HASH_UNKNOWN" });
+    expect(validateProductionHistoryRows([{ ...exactRows[0], tag: "0099" }, ...exactRows.slice(1)], strictFiles)).toEqual({ ok: false, code: "MIGRATION_TAG_HASH_MISMATCH" });
+    expect(validateProductionHistoryRows([...exactRows, { hash: strictFiles[18].hash, timestamp: 18 }], strictFiles)).toEqual({ ok: false, code: "MIGRATION_COUNT_MISMATCH" });
+
+    const realOriginalFiles = productionPreflightFiles(loadMigrationFiles());
+    const realOriginalRows = realOriginalFiles.slice(0, 18).map((file) => ({ hash: file.hash, timestamp: file.timestamp }));
+    const repaired0000Hash = "d3ac8d18d56871931ad7eeabbbd3468a1237e89647e85fb05be822da5f548cd2";
+    expect(validateProductionHistoryRows(realOriginalRows, realOriginalFiles)).toMatchObject({ ok: true });
+    expect(validateProductionHistoryRows([{ ...realOriginalRows[0], hash: repaired0000Hash }, ...realOriginalRows.slice(1)], realOriginalFiles)).toEqual({ ok: false, code: "MIGRATION_HASH_UNKNOWN" });
+  });
+
+  test("returns a stable redacted code when the read-only transaction cannot roll back", async () => {
+    const adapter = {
+      query: async (sql) => {
+        if (sql === "ROLLBACK;") { const error = new Error("password=secret"); error.code = "08006"; throw error; }
+        if (sql.includes("preflight:identity")) return { rows: [snapshot.identity] };
+        if (sql.includes("preflight:privileges")) return { rows: privilegeFacts };
+        if (sql.includes("preflight:default-acl")) return { rows: [] };
+        if (sql.includes("preflight:catalog")) return { rows: [{ catalog_digest: snapshot.catalogDigest }] };
+        if (sql.includes("preflight:row-counts")) return { rows: snapshot.aggregateRowCounts };
+        if (sql.includes("SELECT hash, created_at AS timestamp FROM drizzle.__drizzle_migrations")) return { rows: preflightFiles.slice(0, 18) };
+        if (/^(?:INSERT|UPDATE|DELETE|CREATE TABLE|SELECT nextval)/i.test(sql)) { const error = new Error("secret"); error.code = "25006"; throw error; }
+        return { rows: [] };
+      },
+    };
+    const result = await verifyProductionPreflight({
+      adapter, files: preflightFiles, expectedFloor: "0017",
+      authority: { environment: "production", historyVariant: "original-production" },
+      attestation: preflightAttestation, grantContract: preflightContract,
+      endpointId: "test-endpoint", runContext: {},
+    });
+    expect(result).toEqual({ ok: false, code: "PREFLIGHT_READ_ONLY_ROLLBACK_FAILED" });
+    expect(JSON.stringify(result)).not.toContain("secret");
+  });
+
+  test("starts the verifier read-only transaction before catalog reads and redacts setup failure", async () => {
+    const calls = [];
+    const result = await verifyProductionPreflight({
+      adapter: { query: async (sql) => { calls.push(sql); const error = new Error("postgresql://reader:secret@example.invalid"); error.code = "08006"; throw error; } },
+      files: preflightFiles, expectedFloor: "0017",
+      authority: { environment: "production", historyVariant: "original-production" },
+      attestation: preflightAttestation, grantContract: preflightContract,
+      endpointId: "test-endpoint", runContext: {},
+    });
+    expect(calls[0]).toBe("BEGIN READ ONLY;");
+    expect(result).toEqual({ ok: false, code: "PREFLIGHT_READ_ONLY_SETUP_FAILED" });
+    expect(JSON.stringify(result)).not.toContain("postgresql://");
   });
 
   test("plans an exact contiguous suffix and rejects reordered extras", () => {

@@ -5,12 +5,15 @@ its `meta/_journal.json` journal. Neon PostgreSQL 17 with the `vector`
 extension is the supported hosted authority; the application schema is
 `public`, and `neondb` is the canonical database.
 
-There are two URL scopes:
+There are three protected URL scopes:
 
 - `DATABASE_URL` is a pooled, least-privilege runtime URL for a service.
-- `MIGRATION_DATABASE_URL` is a direct owner-scoped URL available only to the
-  gated migration job. It is never a Worker secret and never appears in
-  evidence or logs.
+- `MIGRATION_DATABASE_URL` in `db-migrate-production` is a direct owner-scoped
+  URL available only to the gated apply job.
+- `MIGRATION_DATABASE_URL` in `db-preflight-production` is a different direct,
+  read-only LOGIN URL available only to the isolated verify job.
+
+Neither protected URL is a Worker secret or may appear in evidence or logs.
 
 The environment pins the migration-history variant. Production uses
 `original-production`; fresh, staging, and test use `repaired-bootstrap`.
@@ -46,8 +49,9 @@ The preflight LOGIN must match the named
 `product-suite-neon-preflight-reader-v1` grant-contract digest. The contract
 allows `CONNECT`, schema `USAGE`, and only its named migration-ledger reads. It
 requires all table and sequence write privileges to be false through direct,
-inherited, `PUBLIC`, built-in/default-role, and default-ACL paths. Database or
-schema `CREATE`, temporary authority, and sequence `USAGE`, `UPDATE`, or
+inherited, `PUBLIC`, built-in/default-role, and default-ACL paths. Database and
+schema `CREATE` through effective, direct, inherited, `PUBLIC`, default-role,
+and default-ACL paths, temporary authority, and sequence `USAGE`, `UPDATE`, or
 `SELECT` are denied. Safe autocommit and explicit-transaction probes for
 `INSERT`, `UPDATE`, `DELETE`, DDL, and `nextval` must each fail with an
 allowlisted read-only or insufficient-privilege code. Probe success is a hard
@@ -63,6 +67,13 @@ The job also binds the file SHA-256 and Git blob to the exact current-main run
 SHA. A hostname proves an endpoint only; the hostname does not prove the Neon
 project or production branch. A shape-only identifier is forbidden and is not
 proof.
+
+A dispatch from a non-main ref runs the guard and fails; it is never converted
+to a successful skipped job. The independently resolved Git blob ID is carried
+into the credentialed verifier step. Pre-credential failures retain the
+initialized structured redacted `FAIL` packet; verifier and database failures
+overwrite it with a more specific allowlisted code. Missing artifacts never
+turn upload handling into the primary failure.
 
 The checked-in file currently says `HUMAN_INFRASTRUCTURE_REQUIRED`. That state,
 an empty trust set, a stale/forged signature, or any target/recovery mismatch

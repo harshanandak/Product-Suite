@@ -9,7 +9,7 @@ import authorityContract from "../config/database-authority.json" with { type: "
 import productionPreflightGrantContract from "../config/neon-production-preflight-grants.json" with { type: "json" };
 import { parseNeonUrl } from "./check-database-authority.mjs";
 import { createDatabasePool } from "./database-pool.mjs";
-import { createMigrationEvidence, verifyMigrationEvidence } from "./migration-evidence.mjs";
+import { createMigrationEvidence, createPreflightFailureEvidence, verifyMigrationEvidence } from "./migration-evidence.mjs";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 export const MIGRATIONS_ROOT = join(SCRIPT_DIR, "..", "packages", "db", "migrations");
@@ -150,7 +150,7 @@ function compareHashes(applied, files) {
   for (const entry of applied) {
     const expected = byTag.get(entry.tag);
     if (!expected) return "MIGRATION_TAG_UNKNOWN";
-    const acceptedHashes = new Set([expected.hash, ...(expected.acceptedHashes ?? [])].filter(Boolean));
+    const acceptedHashes = new Set((expected.strictAcceptedHashes ? expected.acceptedHashes : [expected.hash, ...(expected.acceptedHashes ?? [])]).filter(Boolean));
     if (entry.hash && acceptedHashes.size > 0 && !acceptedHashes.has(entry.hash)) return "MIGRATION_HASH_MISMATCH";
     if (entry.timestamp !== undefined && expected.timestamp !== undefined && Number(entry.timestamp) !== Number(expected.timestamp)) return "MIGRATION_TIMESTAMP_MISMATCH";
   }
@@ -283,6 +283,27 @@ function normalizeIdentity(row = {}) {
   };
 }
 
+export function validateProductionHistoryRows(historyRows, files) {
+  if (!Array.isArray(historyRows)) return fail("MIGRATION_HISTORY_UNAVAILABLE");
+  const byHash = new Map();
+  for (const file of files ?? []) {
+    const hashes = file.strictAcceptedHashes ? file.acceptedHashes : [file.hash, ...(file.acceptedHashes ?? [])];
+    for (const hash of hashes ?? []) if (hash) byHash.set(hash, file.tag);
+  }
+  const rows = [];
+  for (const row of historyRows) {
+    const hash = row?.hash ?? row?.hash_value;
+    const mappedTag = byHash.get(hash);
+    if (!mappedTag) return fail("MIGRATION_HASH_UNKNOWN");
+    const suppliedTag = row?.tag ?? row?.name ?? row?.migration_tag;
+    if (suppliedTag !== undefined && suppliedTag !== mappedTag) return fail("MIGRATION_TAG_HASH_MISMATCH");
+    rows.push({ tag: mappedTag, hash, timestamp: row?.timestamp ?? row?.created_at ?? row?.when });
+  }
+  if (rows.length !== 18) return fail("MIGRATION_COUNT_MISMATCH");
+  if (new Set(rows.map((row) => row.tag)).size !== rows.length) return fail("MIGRATION_DUPLICATE_TAG");
+  return { ok: true, rows };
+}
+
 function normalizeFact(row = {}) {
   return {
     source: row.source,
@@ -389,18 +410,26 @@ const PROBE_SQL = Object.freeze({
   nextval: "SELECT nextval('drizzle.__drizzle_migrations_id_seq'::regclass);",
 });
 
-async function runDenialProbes(client, operations) {
+async function runAutocommitDenialProbes(client, operations) {
   const results = [];
   await client.query("SET default_transaction_read_only = on;");
   for (const operation of operations) {
     try { await client.query(PROBE_SQL[operation]); results.push({ mode: "autocommit", operation, code: null }); }
     catch (error) { results.push({ mode: "autocommit", operation, code: error?.code ?? null }); }
   }
+  return results;
+}
+
+async function runTransactionDenialProbes(client, operations) {
+  const results = [];
   for (const operation of operations) {
-    await client.query("BEGIN READ ONLY;");
+    await client.query("SAVEPOINT preflight_denial_probe;");
     try { await client.query(PROBE_SQL[operation]); results.push({ mode: "transaction", operation, code: null }); }
     catch (error) { results.push({ mode: "transaction", operation, code: error?.code ?? null }); }
-    finally { await client.query("ROLLBACK;"); }
+    finally {
+      await client.query("ROLLBACK TO SAVEPOINT preflight_denial_probe;");
+      await client.query("RELEASE SAVEPOINT preflight_denial_probe;");
+    }
   }
   return results;
 }
@@ -410,14 +439,13 @@ async function collectPreflightSnapshot(client, contract) {
   const expectedFacts = [...(contract.positivePrivileges ?? []), ...(contract.negativePrivileges ?? [])];
   const privileges = await client.query(PRIVILEGE_SQL, [JSON.stringify(expectedFacts)]);
   const defaultAcl = await client.query(DEFAULT_ACL_SQL);
-  const denialProbes = await runDenialProbes(client, contract.denialProbes ?? []);
   const catalog = await client.query(CATALOG_SQL);
   const rowCounts = await client.query(ROW_COUNTS_SQL);
   return {
     identity: normalizeIdentity(identity?.rows?.[0]),
     privilegeFacts: (privileges?.rows ?? []).map(normalizeFact),
     defaultAclWritePaths: defaultAcl?.rows ?? [],
-    denialProbes,
+    denialProbes: [],
     catalogDigest: catalog?.rows?.[0]?.catalog_digest ?? canonicalHash(canonicalize(catalog?.rows ?? [])),
     aggregateRowCounts: (rowCounts?.rows ?? []).map((entry) => ({ metric: entry.metric, count: Number(entry.count) })),
   };
@@ -428,11 +456,32 @@ export async function verifyProductionPreflight({ adapter, files = loadMigration
   if (!adapter?.query && !adapter?.connect) return fail("PREFLIGHT_DATABASE_UNAVAILABLE");
   const client = adapter.connect ? await adapter.connect() : adapter;
   try {
-    const snapshot = await collectPreflightSnapshot(client, grantContract);
+    try { await client.query("BEGIN READ ONLY;"); }
+    catch { return fail("PREFLIGHT_READ_ONLY_SETUP_FAILED"); }
+    let snapshot;
+    let historyRows;
+    let transactionProbes;
+    let readFailure = null;
+    try {
+      snapshot = await collectPreflightSnapshot(client, grantContract);
+      const history = await query(client, HISTORY_SQL);
+      historyRows = history?.rows;
+      transactionProbes = await runTransactionDenialProbes(client, grantContract.denialProbes ?? []);
+    } catch {
+      readFailure = fail("PREFLIGHT_DATABASE_READ_FAILED");
+    }
+    try { await client.query("ROLLBACK;"); }
+    catch { return fail("PREFLIGHT_READ_ONLY_ROLLBACK_FAILED"); }
+    if (readFailure) return readFailure;
+    let autocommitProbes;
+    try { autocommitProbes = await runAutocommitDenialProbes(client, grantContract.denialProbes ?? []); }
+    catch { return fail("PREFLIGHT_READ_ONLY_SETUP_FAILED"); }
+    snapshot.denialProbes = [...autocommitProbes, ...transactionProbes];
     const validated = validatePreflightSnapshot({ snapshot, attestation, grantContract, expectedEndpointId: endpointId });
     if (!validated.ok) return validated;
-    const history = await query(client, HISTORY_SQL);
-    const rows = migrationRows(history?.rows, files);
+    const history = validateProductionHistoryRows(historyRows, files);
+    if (!history.ok) return history;
+    const rows = history.rows;
     const pendingFiles = files.filter((file) => tagNumber(file.tag) > 17);
     const plan = buildMigrationPlan({ applied: rows, declared: pendingFiles, files, expectedCount: 18, expectedFloor, authority, observedVariant: "original-production" });
     if (!plan.ok) return plan;
@@ -573,18 +622,23 @@ function readPreflightConfig(name) {
   return { bytes: readFileSync(path, "utf8"), value: JSON.parse(readFileSync(path, "utf8")) };
 }
 
-function productionPreflightFiles(files) {
+export function productionPreflightFiles(files) {
   const manifest = JSON.parse(readFileSync(join(SCRIPT_DIR, "..", "docs", "history", "database-migrations", "manifest.json"), "utf8"));
   const journal = JSON.parse(readFileSync(join(MIGRATIONS_ROOT, "meta", "_journal.json"), "utf8"));
   const timestamps = new Map((journal.entries ?? []).map((entry) => [entry.tag, Number(entry.when)]));
   const repairs = new Map((manifest.drizzle?.repairs ?? []).map((entry) => [entry.path.replace(/\.sql$/, ""), entry]));
   return files.map((file) => {
     const repair = repairs.get(file.tag);
-    const acceptedHashes = repair ? [
-      repair.original?.lfSha256, repair.original?.crlfSha256,
-      repair.repaired?.lfSha256, repair.repaired?.sha256,
-    ].filter(Boolean) : [file.hash];
-    return { ...file, timestamp: timestamps.get(file.tag) ?? file.timestamp, acceptedHashes };
+    const acceptedHashes = repair
+      ? [repair.original?.lfSha256, repair.original?.crlfSha256].filter(Boolean)
+      : [file.hash];
+    return {
+      ...file,
+      hash: repair?.original?.lfSha256 ?? file.hash,
+      timestamp: timestamps.get(file.tag) ?? file.timestamp,
+      acceptedHashes,
+      strictAcceptedHashes: true,
+    };
   });
 }
 
@@ -597,7 +651,8 @@ export async function runMigrationCli({
   preflightAttestation,
   preflightTrust,
   preflightFileBytes,
-  preflightFileBlobId,
+  preflightFileBlobId = process.env.PREFLIGHT_ATTESTATION_BLOB_ID,
+  writeEvidence = (packet) => writeFileSync(join(process.cwd(), "neon-production-preflight-evidence.json"), `${JSON.stringify(packet, null, 2)}\n`, { encoding: "utf8", mode: 0o600 }),
   runContext = {
     runSha: process.env.GITHUB_SHA,
     repository: process.env.GITHUB_REPOSITORY,
@@ -610,24 +665,48 @@ export async function runMigrationCli({
     process.exitCode = 1;
     return;
   }
-  const url = databaseUrl;
-  if (!url) { writeError("MIGRATION_DATABASE_URL is required"); process.exitCode = 1; return; }
-  let endpoint;
-  if (options.environment === "production") endpoint = parseNeonUrl(url, "migration");
-  let attestationProof;
   const productionPreflight = options.operation === "verify" && options.environment === "production" && options.historyVariant === "original-production" && options.expectedFloor === "0017";
+  const emitFailure = (code, extra = {}) => {
+    if (!productionPreflight) return;
+    try { writeEvidence(createPreflightFailureEvidence({ code, ...runContext, ...extra })); }
+    catch { /* the workflow's initialized failure artifact remains authoritative */ }
+  };
+  const url = databaseUrl;
+  if (!url) {
+    emitFailure("PREFLIGHT_DATABASE_URL_REQUIRED");
+    writeError("MIGRATION_DATABASE_URL is required"); process.exitCode = 1; return;
+  }
+  let endpoint;
+  if (options.environment === "production") {
+    try { endpoint = parseNeonUrl(url, "migration"); }
+    catch {
+      emitFailure("PREFLIGHT_DATABASE_URL_INVALID");
+      writeError(`migration ${options.operation} rejected: PREFLIGHT_DATABASE_URL_INVALID`); process.exitCode = 1; return;
+    }
+  }
+  let attestationProof;
   if (productionPreflight) {
-    const attestationConfig = preflightAttestation === undefined ? readPreflightConfig("neon-production-preflight-attestation.json") : null;
-    const trustConfig = preflightTrust === undefined ? readPreflightConfig("neon-production-preflight-trust.json") : null;
+    let attestationConfig;
+    let trustConfig;
+    try {
+      attestationConfig = preflightAttestation === undefined ? readPreflightConfig("neon-production-preflight-attestation.json") : null;
+      trustConfig = preflightTrust === undefined ? readPreflightConfig("neon-production-preflight-trust.json") : null;
+    } catch {
+      emitFailure("PREFLIGHT_ATTESTATION_CONFIG_INVALID");
+      writeError("migration verify rejected: PREFLIGHT_ATTESTATION_CONFIG_INVALID"); process.exitCode = 1; return;
+    }
     const attestation = preflightAttestation ?? attestationConfig.value;
     const trust = preflightTrust ?? trustConfig.value;
     const fileBytes = preflightFileBytes ?? attestationConfig.bytes;
     attestationProof = verifyProductionPreflightAttestation({
       attestation, trust, fileBytes,
-      fileBlobId: preflightFileBlobId ?? gitBlobId(fileBytes),
+      fileBlobId: preflightFileBlobId,
       runSha: runContext.runSha, repository: runContext.repository,
     });
-    if (!attestationProof.ok) { writeError(`migration verify rejected: ${attestationProof.code}`); process.exitCode = 1; return; }
+    if (!attestationProof.ok) {
+      emitFailure(attestationProof.code, { attestationFileSha256: rawSha256(fileBytes) });
+      writeError(`migration verify rejected: ${attestationProof.code}`); process.exitCode = 1; return;
+    }
     runContext = { ...runContext, ...attestationProof };
     preflightAttestation = attestation;
   }
@@ -642,13 +721,14 @@ export async function runMigrationCli({
     else if (options.operation === "apply") result = await applyMigrations({ adapter: pool, files, declared: options.declared, authority });
     else if (productionPreflight) result = await verifyProductionPreflight({ adapter: pool, files, expectedFloor: options.expectedFloor, authority, attestation: preflightAttestation, endpointId: endpoint.endpointId, runContext });
     else result = await verifyMigrations({ adapter: pool, files, declared: [], expectedFloor: options.expectedFloor, authority });
-    if (!result.ok) { writeError(`migration ${options.operation} rejected: ${result.code}`); process.exitCode = 1; return; }
+    if (!result.ok) { emitFailure(result.code, attestationProof); writeError(`migration ${options.operation} rejected: ${result.code}`); process.exitCode = 1; return; }
     const checked = verifyMigrationEvidence(result);
-    if (!checked.ok) { writeError(`migration ${options.operation} rejected: ${checked.code}`); process.exitCode = 1; return; }
-    if (productionPreflight) writeFileSync(join(process.cwd(), "neon-production-preflight-evidence.json"), `${JSON.stringify(checked, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+    if (!checked.ok) { emitFailure(checked.code, attestationProof); writeError(`migration ${options.operation} rejected: ${checked.code}`); process.exitCode = 1; return; }
+    if (productionPreflight) writeEvidence(checked);
     writeOutput(JSON.stringify(checked));
-  } catch (error) {
-    writeError(`migration ${options.operation} failed: ${error?.message || "unknown"}`);
+  } catch {
+    emitFailure("MIGRATION_FAILED", attestationProof);
+    writeError(`migration ${options.operation} failed: MIGRATION_FAILED`);
     process.exitCode = 1;
   } finally {
     await pool?.end?.();

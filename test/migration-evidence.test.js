@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   redactEvidence,
   createMigrationEvidence,
+  createPreflightFailureEvidence,
   verifyMigrationEvidence,
 } from "../scripts/migration-evidence.mjs";
 
@@ -105,5 +106,16 @@ describe("migration evidence", () => {
     };
     expect(verifyMigrationEvidence({ ...base, unexpected: "value" })).toMatchObject({ ok: false, code: "EVIDENCE_INVALID" });
     expect(verifyMigrationEvidence({ ...base, recoveryId: "postgresql://secret" })).toMatchObject({ ok: false, code: "EVIDENCE_INVALID" });
+  });
+
+  test("creates a validated allowlisted FAIL artifact without driver details", () => {
+    const evidence = createPreflightFailureEvidence({
+      code: "PREFLIGHT_ATTESTATION_UNCONFIGURED",
+      repository: "befach/product-suite", runId: "123", runSha: "a".repeat(40),
+      error: "postgresql://reader:secret@example.invalid/neondb",
+    });
+    expect(verifyMigrationEvidence(evidence)).toMatchObject({ ok: true, status: "FAIL", code: "PREFLIGHT_ATTESTATION_UNCONFIGURED" });
+    expect(JSON.stringify(evidence)).not.toContain("postgresql://");
+    expect(JSON.stringify(evidence)).not.toContain("secret");
   });
 });
