@@ -44,6 +44,9 @@ import { createDb, createSql, type Database, type Sql } from '@product-suite/db'
 import { createBranchLeaseCoordinator, type BranchLease } from './branch-lease'
 import { createEphemeralBranch, deleteEphemeralBranchStrict, NeonBranchError, type EphemeralBranch } from './neon-branch'
 import { workerRuntimeConfig } from './runtime-config'
+import { assertConformanceMarker } from './conformance-marker'
+
+export { assertConformanceMarker } from './conformance-marker'
 
 /** The only migration-history variants accepted by the authority contract. */
 export type NeonHistoryVariant = 'original-production' | 'repaired-bootstrap'
@@ -927,7 +930,10 @@ export function assertExactConformancePass(
   evidence: RealNeonConformanceEvidence,
 ): { status: 'PASS' } {
   if (evidence.status !== 'PASS' || Object.keys(evidence).length !== 1) {
-    conformanceFailure('REAL_NEON_CONFORMANCE_REQUIRED')
+    const code = evidence.status === 'INCOMPLETE' && typeof evidence.code === 'string' && /^[A-Z0-9_]+$/.test(evidence.code)
+      ? evidence.code
+      : 'REAL_NEON_CONFORMANCE_REQUIRED'
+    conformanceFailure(code)
   }
   return { status: 'PASS' }
 }
@@ -955,8 +961,13 @@ export async function runRequiredNeonConformance(
     await plane.probeLeastPrivilege(disposable.runtimeConnectionUri)
     await plane.probeLeastPrivilege(derived.runtimeConnectionUri)
     evidence = { status: 'PASS' }
-  } catch {
-    evidence = { status: 'INCOMPLETE', code: 'REAL_NEON_CONFORMANCE_FAILED' }
+  } catch (error) {
+    evidence = {
+      status: 'INCOMPLETE',
+      code: error instanceof NeonConformanceError && /^[A-Z0-9_]+$/.test(error.code)
+        ? error.code
+        : 'REAL_NEON_CONFORMANCE_FAILED',
+    }
   } finally {
     try { await plane.cleanupRetainedResources() } catch { evidence = { status: 'INCOMPLETE', code: 'PROJECT_CLEANUP_UNPROVEN' } }
   }

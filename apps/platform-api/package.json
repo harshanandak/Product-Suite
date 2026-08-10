@@ -10,6 +10,7 @@
     "dev": "wrangler dev",
     "test": "vitest run",
     "test:db-contract:list": "DB_CONTRACT_LIST_ONLY=1 vitest list --config vitest.db-contract.config.ts",
+    "test:db-contract:conformance": "bun test/db-contract/conformance-cli.ts",
     "test:db-contract:required": "vitest run --config vitest.db-contract.config.ts",
     "test:db-contract:summary": "bun test/db-contract/telemetry.ts summary",
     "typecheck": "tsc --noEmit",
