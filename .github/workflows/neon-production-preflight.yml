@@ -33,13 +33,20 @@ jobs:
         run: |
           node --input-type=module <<'PREFLIGHT'
           import { writeFileSync } from "node:fs";
-          import { createPreflightFailureEvidence } from "./scripts/migration-evidence.mjs";
-          const evidence = createPreflightFailureEvidence({
+          const evidence = {
+            ok: true,
+            schemaVersion: "neon-production-preflight-evidence.v1",
+            operation: "verify",
+            status: "FAIL",
             code: "PREFLIGHT_RUN_INCOMPLETE",
+            reasonCodes: ["PREFLIGHT_RUN_INCOMPLETE"],
+            historyVariant: "original-production",
+            applied: [],
             repository: process.env.GITHUB_REPOSITORY,
             runId: process.env.GITHUB_RUN_ID,
             runSha: process.env.GITHUB_SHA,
-          });
+            count: 0,
+          };
           writeFileSync("neon-production-preflight-evidence.json", `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });
           PREFLIGHT
 

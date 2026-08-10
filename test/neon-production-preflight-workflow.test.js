@@ -19,6 +19,10 @@ const fixedCommand = "bun run migrate:database -- verify --environment productio
 
 function workflowContractIssues(workflow) {
   const issues = [];
+  const checkoutIndex = workflow.indexOf("name: Check out exact reviewed SHA");
+  const failureInitIndex = workflow.indexOf("name: Initialize redacted failure evidence");
+  const mainGuardIndex = workflow.indexOf("name: Prove exact current main SHA");
+  const beforeMainGuard = workflow.slice(Math.max(0, checkoutIndex), Math.max(0, mainGuardIndex));
   if (!workflow.includes("workflow_dispatch:")) issues.push("manual trigger missing");
   if (/(?:^|\n)\s*(?:push|schedule|workflow_run|repository_dispatch|workflow_call):/m.test(workflow)) issues.push("automatic trigger present");
   if (!workflow.includes("environment: db-preflight-production")) issues.push("environment mismatch");
@@ -33,6 +37,10 @@ function workflowContractIssues(workflow) {
   if (!workflow.includes("PREFLIGHT_ATTESTATION_BLOB_ID: ${{ steps.attestation.outputs.blob_id }}")) issues.push("attestation blob provenance not persisted");
   if (workflow.includes("preflightFileBlobId ?? gitBlobId(fileBytes)")) issues.push("self-hash provenance tautology");
   if (!workflow.includes("if-no-files-found: warn")) issues.push("missing artifact can fail upload");
+  if (!workflow.includes("if: always()")) issues.push("failure artifact is not always uploaded");
+  if (checkoutIndex < 0 || mainGuardIndex <= checkoutIndex) issues.push("exact-main guard order missing");
+  if (failureInitIndex <= checkoutIndex || failureInitIndex >= mainGuardIndex || !beforeMainGuard.includes('status: "FAIL"') || !beforeMainGuard.includes('code: "PREFLIGHT_RUN_INCOMPLETE"')) issues.push("safe pre-guard failure artifact missing");
+  if (/from\s+["']\.\//.test(beforeMainGuard) || /\b(?:bun|npm|pnpm|yarn)\s+(?:run|install|exec)\b/.test(beforeMainGuard) || /\b(?:node|bash|sh|python3?)\s+\.\.?[\\/]/.test(beforeMainGuard) || /^\s*\.\.?[\\/]/m.test(beforeMainGuard)) issues.push("repository code executes before exact-main guard");
   return issues;
 }
 
@@ -131,6 +139,7 @@ describe("protected Neon production preflight workflow", () => {
     ["apply command", (workflow) => workflow.replace("migrate:database -- verify", "migrate:database -- apply")],
     ["job-scoped duplicate secret", (workflow) => workflow.replace("jobs:\n", "jobs:\n  env:\n    MIGRATION_DATABASE_URL: forbidden\n")],
     ["provisioning", (workflow) => `${workflow}\n# provision:database-roles`],
+    ["pre-guard repository script", (workflow) => workflow.replace("      - name: Prove exact current main SHA", "      - name: Unsafe repository script\n        run: node ./scripts/migrate-database.mjs\n\n      - name: Prove exact current main SHA")],
   ])("rejects workflow mutation: %s", (_label, mutate) => {
     expect(workflowContractIssues(mutate(read(".github/workflows/neon-production-preflight.yml"))).length).toBeGreaterThan(0);
   });
