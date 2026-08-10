@@ -127,12 +127,6 @@ export function conformanceCredentialStatus(
   return { status: 'READY' }
 }
 
-export function requiredConformanceStatus(
-  env: NeonControlPlaneEnv = process.env,
-): ConformanceCredentialStatus {
-  return conformanceCredentialStatus(env)
-}
-
 export interface NeonProjectHandle extends DisposableTestProject {
   connectionUri: string
 }
@@ -383,8 +377,6 @@ export function createNeonControlPlane(env: NeonControlPlaneEnv = process.env, f
     async proveVariant(connectionUri, variant) { await proveCanonicalVariant(connectionUri, variant) },
     async probeLeastPrivilege(connectionUri) {
       const sql = createSql(connectionUri)
-      const roles = await query<RuntimeRoleSnapshot>(sql, `select rolname as name, rolcanlogin as "canLogin", rolsuper as "isSuperuser", rolcreaterole as "canCreateRole", rolcreatedb as "canCreateDb", '[]'::json as memberships from pg_roles where rolname in ('product_suite_platform_runtime','product_suite_meeting_runtime')`)
-      assertRuntimeRoleContract(roles, { allowedLogins: [] })
       await proveRuntimeLoginPrivileges(sql, connectionUri)
     },
     async deleteProject(projectId) { await request(`/projects/${projectId}`, { method: 'DELETE' }) },
@@ -567,33 +559,88 @@ async function expectPermissionDenied(operation: () => Promise<unknown>): Promis
   conformanceFailure('RUNTIME_DENIAL_UNPROVEN')
 }
 
+const RUNTIME_ROLE_CATALOG_SQL = `
+  select
+    role.rolname as name,
+    role.rolcanlogin as "canLogin",
+    role.rolsuper as "isSuperuser",
+    role.rolcreaterole as "canCreateRole",
+    role.rolcreatedb as "canCreateDb",
+    member.rolname as member,
+    membership.admin_option as "adminOption"
+  from pg_catalog.pg_roles role
+  left join pg_catalog.pg_auth_members membership on membership.roleid = role.oid
+  left join pg_catalog.pg_roles member on member.oid = membership.member
+  where role.rolname in ('product_suite_platform_runtime', 'product_suite_meeting_runtime')
+  order by role.rolname, member.rolname
+`
+
 async function proveRuntimeLoginPrivileges(ownerSql: Sql, connectionUri: string): Promise<void> {
   const suffix = randomUUID().replaceAll('-', '')
   const table = `runtime_privilege_probe_${suffix}`
   const sequence = `${table}_sequence`
-  const login = `runtime_login_${suffix}`
-  const password = randomBytes(24).toString('base64url')
-  const otherRuntimeRole = 'product_suite_meeting_runtime'
+  const platformLogin = `platform_runtime_${suffix}`
+  const meetingLogin = `meeting_runtime_${suffix}`
+  const platformPassword = randomBytes(24).toString('base64url')
+  const meetingPassword = randomBytes(24).toString('base64url')
+  const tenantId = `runtime-tenant-${suffix}`
+  const projectId = randomUUID()
   try {
     await exec(ownerSql, `create table public.${quoteIdentifier(table)} (id uuid primary key, value text not null)`)
     await exec(ownerSql, `create sequence public.${quoteIdentifier(sequence)}`)
-    await exec(ownerSql, `create role ${quoteIdentifier(login)} login password '${password.replaceAll("'", "''")}' nosuperuser nocreatedb nocreaterole inherit`)
-    await exec(ownerSql, `grant ${quoteIdentifier('product_suite_platform_runtime')} to ${quoteIdentifier(login)}`)
-    const runtimeSql = createSql(runtimeLoginUri(connectionUri, login, password))
-    const id = randomUUID()
-    await exec(runtimeSql, 'select 1')
+    await exec(ownerSql, `create role ${quoteIdentifier(platformLogin)} login password '${platformPassword.replaceAll("'", "''")}' nosuperuser nocreatedb nocreaterole inherit`)
+    await exec(ownerSql, `create role ${quoteIdentifier(meetingLogin)} login password '${meetingPassword.replaceAll("'", "''")}' nosuperuser nocreatedb nocreaterole inherit`)
+    await exec(ownerSql, `grant ${quoteIdentifier('product_suite_platform_runtime')} to ${quoteIdentifier(platformLogin)}`)
+    await exec(ownerSql, `grant ${quoteIdentifier('product_suite_meeting_runtime')} to ${quoteIdentifier(meetingLogin)}`)
+
+    const roles = runtimeRoleSnapshotsFromCatalogRows(
+      await query<RuntimeRoleCatalogRow>(ownerSql, RUNTIME_ROLE_CATALOG_SQL),
+    )
+    const roleEvidence = assertRuntimeRoleContract(roles, { allowedLogins: [platformLogin, meetingLogin] })
+    if (roleEvidence.membershipCount !== 2) conformanceFailure('RUNTIME_LOGIN_MEMBERSHIP_UNPROVEN')
+
+    const platformSql = createSql(runtimeLoginUri(connectionUri, platformLogin, platformPassword))
+    const meetingSql = createSql(runtimeLoginUri(connectionUri, meetingLogin, meetingPassword))
+    await exec(meetingSql, 'insert into public.tenants (id, slug, name) values ($1, $2, $3)', [tenantId, tenantId, 'runtime-probe'])
+    const insertedTenant = await query<{ name: string }>(meetingSql, 'select name from public.tenants where id = $1', [tenantId])
+    if (insertedTenant[0]?.name !== 'runtime-probe') conformanceFailure('RUNTIME_OWNED_CRUD_UNPROVEN')
+    await exec(meetingSql, 'update public.tenants set name = $2 where id = $1', [tenantId, 'runtime-probe-updated'])
+    const updatedTenant = await query<{ name: string }>(meetingSql, 'select name from public.tenants where id = $1', [tenantId])
+    if (updatedTenant[0]?.name !== 'runtime-probe-updated') conformanceFailure('RUNTIME_OWNED_CRUD_UNPROVEN')
+
+    await exec(platformSql, 'insert into public.projects (id, tenant_id, name) values ($1, $2, $3)', [projectId, tenantId, 'runtime-probe'])
+    const insertedProject = await query<{ name: string }>(platformSql, 'select name from public.projects where id = $1', [projectId])
+    if (insertedProject[0]?.name !== 'runtime-probe') conformanceFailure('RUNTIME_OWNED_CRUD_UNPROVEN')
+    await exec(platformSql, 'update public.projects set name = $2 where id = $1', [projectId, 'runtime-probe-updated'])
+    const updatedProject = await query<{ name: string }>(platformSql, 'select name from public.projects where id = $1', [projectId])
+    if (updatedProject[0]?.name !== 'runtime-probe-updated') conformanceFailure('RUNTIME_OWNED_CRUD_UNPROVEN')
+    await exec(platformSql, 'delete from public.projects where id = $1', [projectId])
+    const deletedProject = await query<{ count: string }>(platformSql, 'select count(*)::text as count from public.projects where id = $1', [projectId])
+    if (deletedProject[0]?.count !== '0') conformanceFailure('RUNTIME_OWNED_CRUD_UNPROVEN')
+    await exec(meetingSql, 'delete from public.tenants where id = $1', [tenantId])
+    const deletedTenant = await query<{ count: string }>(meetingSql, 'select count(*)::text as count from public.tenants where id = $1', [tenantId])
+    if (deletedTenant[0]?.count !== '0') conformanceFailure('RUNTIME_OWNED_CRUD_UNPROVEN')
+
     // This table and sequence are deliberately outside both product-owned
     // manifests.  The negative probes prove an unlisted object cannot be read
     // or written through a runtime role, including sequence side channels.
-    await expectPermissionDenied(() => exec(runtimeSql, `select * from public.${quoteIdentifier(table)}`))
-    await expectPermissionDenied(() => exec(runtimeSql, `insert into public.${quoteIdentifier(table)} (id, value) values ($1, $2)`, [id, 'probe']))
-    await expectPermissionDenied(() => exec(runtimeSql, `select nextval('public.${sequence}')`))
-    await expectPermissionDenied(() => exec(runtimeSql, `create table public.${quoteIdentifier(`${table}_denied`)} (id integer)`))
-    await expectPermissionDenied(() => exec(runtimeSql, `create role ${quoteIdentifier(`${login}_denied`)} login`))
-    await expectPermissionDenied(() => exec(runtimeSql, `set role ${quoteIdentifier(otherRuntimeRole)}`))
+    await expectPermissionDenied(() => exec(platformSql, `select * from public.${quoteIdentifier(table)}`))
+    await expectPermissionDenied(() => exec(platformSql, `insert into public.${quoteIdentifier(table)} (id, value) values ($1, $2)`, [randomUUID(), 'probe']))
+    await expectPermissionDenied(() => exec(platformSql, `select nextval('public.${quoteIdentifier(sequence)}')`))
+    await expectPermissionDenied(() => exec(platformSql, `create table public.${quoteIdentifier(`${table}_denied`)} (id integer)`))
+    await expectPermissionDenied(() => exec(platformSql, `alter table public.${quoteIdentifier(table)} add column denied integer`))
+    await expectPermissionDenied(() => exec(platformSql, `drop table public.${quoteIdentifier(table)}`))
+    await expectPermissionDenied(() => exec(platformSql, `create role ${quoteIdentifier(`${platformLogin}_denied`)} login`))
+    await expectPermissionDenied(() => exec(platformSql, `set role ${quoteIdentifier('product_suite_meeting_runtime')}`))
+    await expectPermissionDenied(() => exec(platformSql, 'select * from public.tenants'))
+    await expectPermissionDenied(() => exec(meetingSql, 'select * from public.projects'))
   } finally {
-    try { await exec(ownerSql, `revoke ${quoteIdentifier('product_suite_platform_runtime')} from ${quoteIdentifier(login)}`) } catch { /* opaque cleanup */ }
-    try { await exec(ownerSql, `drop role if exists ${quoteIdentifier(login)}`) } catch { /* opaque cleanup */ }
+    try { await exec(ownerSql, 'delete from public.projects where id = $1', [projectId]) } catch { /* opaque cleanup */ }
+    try { await exec(ownerSql, 'delete from public.tenants where id = $1', [tenantId]) } catch { /* opaque cleanup */ }
+    try { await exec(ownerSql, `revoke ${quoteIdentifier('product_suite_platform_runtime')} from ${quoteIdentifier(platformLogin)}`) } catch { /* opaque cleanup */ }
+    try { await exec(ownerSql, `revoke ${quoteIdentifier('product_suite_meeting_runtime')} from ${quoteIdentifier(meetingLogin)}`) } catch { /* opaque cleanup */ }
+    try { await exec(ownerSql, `drop role if exists ${quoteIdentifier(platformLogin)}`) } catch { /* opaque cleanup */ }
+    try { await exec(ownerSql, `drop role if exists ${quoteIdentifier(meetingLogin)}`) } catch { /* opaque cleanup */ }
     try { await exec(ownerSql, `drop sequence if exists public.${quoteIdentifier(sequence)}`) } catch { /* opaque cleanup */ }
     try { await exec(ownerSql, `drop table if exists public.${quoteIdentifier(table)}`) } catch { /* opaque cleanup */ }
   }
@@ -602,6 +649,16 @@ async function proveRuntimeLoginPrivileges(ownerSql: Sql, connectionUri: string)
 export interface RealNeonConformanceEvidence {
   status: 'PASS' | 'INCOMPLETE'
   code?: string
+}
+
+/** Accept only the single-field, redaction-safe success envelope. */
+export function assertExactConformancePass(
+  evidence: RealNeonConformanceEvidence,
+): { status: 'PASS' } {
+  if (evidence.status !== 'PASS' || Object.keys(evidence).length !== 1) {
+    conformanceFailure('REAL_NEON_CONFORMANCE_REQUIRED')
+  }
+  return { status: 'PASS' }
 }
 
 /** Execute the real proof when the required lane explicitly requests it. */
@@ -685,7 +742,42 @@ export interface RuntimeRoleSnapshot {
   memberships: RuntimeRoleMembership[]
 }
 
+export interface RuntimeRoleCatalogRow {
+  name: string
+  canLogin: boolean
+  isSuperuser: boolean
+  canCreateRole: boolean
+  canCreateDb: boolean
+  member: string | null
+  adminOption: boolean | null
+}
+
 const RUNTIME_ROLE_NAMES = ['product_suite_platform_runtime', 'product_suite_meeting_runtime'] as const
+
+/** Aggregate real pg_catalog membership rows into the opaque role contract. */
+export function runtimeRoleSnapshotsFromCatalogRows(
+  rows: RuntimeRoleCatalogRow[],
+): RuntimeRoleSnapshot[] {
+  const roles = new Map<string, RuntimeRoleSnapshot>()
+  for (const row of rows) {
+    const role = roles.get(row.name) ?? {
+      name: row.name,
+      canLogin: row.canLogin,
+      isSuperuser: row.isSuperuser,
+      canCreateRole: row.canCreateRole,
+      canCreateDb: row.canCreateDb,
+      memberships: [],
+    }
+    if (row.member) {
+      role.memberships.push({ member: row.member, adminOption: row.adminOption === true })
+    }
+    roles.set(row.name, role)
+  }
+  return RUNTIME_ROLE_NAMES.flatMap((name) => {
+    const role = roles.get(name)
+    return role ? [role] : []
+  })
+}
 
 /**
  * Validate the exact pre-0019 least-privilege contract without exposing role
@@ -722,12 +814,12 @@ export function assertRuntimeRoleContract(
 
 /** Probe names are intentionally semantic and contain no authored SQL payloads. */
 export function buildRuntimePrivilegeProbes(): {
-  allowed: readonly ['select_public', 'write_owned_rows']
-  denied: readonly ['ddl', 'role_escalation', 'cross_service_schema']
+  allowed: readonly ['service_login_membership', 'owned_table_crud']
+  denied: readonly ['unlisted_table', 'unlisted_sequence', 'ddl', 'role_escalation', 'set_role', 'cross_service_table']
 } {
   return {
-    allowed: ['select_public', 'write_owned_rows'],
-    denied: ['ddl', 'role_escalation', 'cross_service_schema'],
+    allowed: ['service_login_membership', 'owned_table_crud'],
+    denied: ['unlisted_table', 'unlisted_sequence', 'ddl', 'role_escalation', 'set_role', 'cross_service_table'],
   }
 }
 

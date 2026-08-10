@@ -4,13 +4,13 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   assertCleanupEvidence,
   assertDisposableTestProject,
+  assertExactConformancePass,
   assertProductionDerivedBranch,
   controlPlaneFetchForTest,
   createNeonControlPlane,
   conformanceCredentialStatus,
   hasNeonCreds,
   prepareHarnessDatabase,
-  requiredConformanceStatus,
   runRequiredNeonConformance,
   variantMigrationContract,
   type CleanupEvidence,
@@ -128,13 +128,21 @@ describe('Neon authority conformance guards', () => {
     expect(conformanceCredentialStatus({})).toEqual({ status: 'INCOMPLETE', code: 'NEON_CREDENTIALS_UNAVAILABLE' })
   })
 
-  it('fails the required real lane instead of silently skipping when requested', ({ skip }) => {
+  it('fails the required real lane instead of silently skipping when requested', async ({ skip }) => {
     if (process.env.DB_CONTRACT_REQUIRED !== '1') skip()
-    expect(requiredConformanceStatus(process.env)).toEqual({ status: 'READY' })
+    const evidence = await runRequiredNeonConformance(process.env)
+    expect(assertExactConformancePass(evidence)).toEqual({ status: 'PASS' })
   })
 
   it('does not claim real conformance without credentials', async () => {
     expect(await runRequiredNeonConformance({})).toEqual({ status: 'INCOMPLETE', code: 'NEON_CREDENTIALS_UNAVAILABLE' })
+    expect(assertExactConformancePass({ status: 'PASS' })).toEqual({ status: 'PASS' })
+    expect(() => assertExactConformancePass({ status: 'INCOMPLETE', code: 'REAL_NEON_CONFORMANCE_FAILED' })).toThrow(
+      'REAL_NEON_CONFORMANCE_REQUIRED',
+    )
+    expect(() => assertExactConformancePass({ status: 'PASS', code: 'FABRICATED_DETAIL' })).toThrow(
+      'REAL_NEON_CONFORMANCE_REQUIRED',
+    )
   })
 
   it('runs the required sequence through a mocked control plane and cleans up both resources', async () => {

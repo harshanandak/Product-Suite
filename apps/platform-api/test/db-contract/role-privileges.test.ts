@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { assertRuntimeRoleContract, buildRuntimePrivilegeProbes, type RuntimeRoleSnapshot } from './harness'
+import {
+  assertRuntimeRoleContract,
+  buildRuntimePrivilegeProbes,
+  runtimeRoleSnapshotsFromCatalogRows,
+  type RuntimeRoleSnapshot,
+} from './harness'
 
 const validRoles: RuntimeRoleSnapshot[] = [
   {
@@ -28,6 +33,34 @@ describe('Neon least-privilege runtime role contract', () => {
         allowedLogins: ['platform_runtime_login', 'meeting_runtime_login'],
       }),
     ).toMatchObject({ status: 'READY', roleCount: 2, membershipCount: 2 })
+
+    const catalogRoles = runtimeRoleSnapshotsFromCatalogRows([
+      {
+        name: 'product_suite_platform_runtime',
+        canLogin: false,
+        isSuperuser: false,
+        canCreateRole: false,
+        canCreateDb: false,
+        member: 'platform_runtime_rotated',
+        adminOption: false,
+      },
+      {
+        name: 'product_suite_meeting_runtime',
+        canLogin: false,
+        isSuperuser: false,
+        canCreateRole: false,
+        canCreateDb: false,
+        member: 'meeting_runtime_rotated',
+        adminOption: false,
+      },
+    ])
+    expect(catalogRoles).toEqual([
+      { ...validRoles[0], memberships: [{ member: 'platform_runtime_rotated', adminOption: false }] },
+      { ...validRoles[1], memberships: [{ member: 'meeting_runtime_rotated', adminOption: false }] },
+    ])
+    expect(assertRuntimeRoleContract(catalogRoles, {
+      allowedLogins: ['platform_runtime_rotated', 'meeting_runtime_rotated'],
+    })).toMatchObject({ status: 'READY', membershipCount: 2 })
   })
 
   it.each([
@@ -64,8 +97,19 @@ describe('Neon least-privilege runtime role contract', () => {
 
   it('describes allowed and denied probes without embedding credentials or SQL payloads', () => {
     const probes = buildRuntimePrivilegeProbes()
-    expect(probes.allowed).toEqual(expect.arrayContaining(['select_public', 'write_owned_rows']))
-    expect(probes.denied).toEqual(expect.arrayContaining(['ddl', 'role_escalation', 'cross_service_schema']))
+    expect(probes.allowed).toEqual(expect.arrayContaining([
+      'service_login_membership',
+      'owned_table_crud',
+    ]))
+    expect(probes.denied).toEqual(expect.arrayContaining([
+      'unlisted_table',
+      'unlisted_sequence',
+      'ddl',
+      'role_escalation',
+      'set_role',
+      'cross_service_table',
+    ]))
     expect(JSON.stringify(probes)).not.toMatch(/postgres|password|select .*from/i)
   })
+
 })
