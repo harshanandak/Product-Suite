@@ -4,6 +4,8 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { validateOriginalProductionVector } from "./check-historical-db-artifacts.mjs";
+
 // Anchored to this script's own location (repo-root/scripts/...) rather than
 // process.cwd(), so it doesn't matter where the CLI is invoked from — the
 // only migrations tree this script will ever read is the real
@@ -85,7 +87,36 @@ function classifyHash(value, fileName, manifest) {
   if (!entry) return null;
   if ([entry.original?.lfSha256, entry.original?.crlfSha256].filter(Boolean).includes(value)) return ORIGINAL_VARIANT;
   if ([entry.repaired?.lfSha256, entry.repaired?.sha256].filter(Boolean).includes(value)) return REPAIRED_VARIANT;
+  if (manifest?.drizzle?.historyVectors?.[ORIGINAL_VARIANT]?.entries?.some((candidate) => candidate.filename === fileName && candidate.observedSha256 === value)) return ORIGINAL_VARIANT;
   return null;
+}
+
+export function validateOriginalProductionRows(rows, { manifest, root, journal } = {}) {
+  const vector = validateOriginalProductionVector({ manifest, root });
+  if (!vector.ok) return { ok: false, code: "HISTORY_VECTOR_INVALID", issues: vector.issues };
+  let migrationJournal = journal;
+  try {
+    migrationJournal ??= JSON.parse(readFileSync(join(root ?? resolve(SCRIPT_DIR, ".."), "packages", "db", "migrations", "meta", "_journal.json"), "utf8"));
+  } catch {
+    return { ok: false, code: "HISTORY_JOURNAL_INVALID", issues: ["migration journal is unavailable"] };
+  }
+  const timestamps = new Map((migrationJournal.entries ?? []).map((entry) => [entry.tag.slice(0, 4), Number(entry.when)]));
+  const expected = vector.entries;
+  if (!Array.isArray(rows) || rows.length !== expected.length) return { ok: false, code: "HISTORY_COUNT_MISMATCH", issues: [`expected ${expected.length} production rows`] };
+  const byHash = new Map(expected.map((entry) => [entry.observedSha256, entry.tag]));
+  const normalized = [];
+  for (let index = 0; index < expected.length; index += 1) {
+    const row = rows[index] ?? {};
+    const expectedEntry = expected[index];
+    const hash = row.hash ?? row.hash_value;
+    const tag = row.tag ?? row.name ?? row.migration_tag ?? byHash.get(hash);
+    if (tag !== expectedEntry.tag) return { ok: false, code: "HISTORY_ORDER_INVALID", issues: [`production history row ${index} is not ${expectedEntry.tag}`] };
+    if (hash !== expectedEntry.observedSha256) return { ok: false, code: "HISTORY_HASH_UNKNOWN", issues: [`production history hash is not proven at ${expectedEntry.tag}`] };
+    const timestamp = row.timestamp ?? row.created_at ?? row.when;
+    if (Number(timestamp) !== timestamps.get(expectedEntry.tag)) return { ok: false, code: "HISTORY_TIMESTAMP_MISMATCH", issues: [`production history timestamp mismatch at ${expectedEntry.tag}`] };
+    normalized.push({ ...row, tag, hash, timestamp });
+  }
+  return { ok: true, code: "ORIGINAL_PRODUCTION_HISTORY_VALID", entries: normalized, count: normalized.length };
 }
 
 /**
@@ -93,21 +124,43 @@ function classifyHash(value, fileName, manifest) {
  * The manifest is only an allowlist of observed immutable bytes; it never
  * supplies pending migration order or acts as a second journal.
  */
-export function validateMigrationHistory({ journal, sqlFileNames, hashes = {}, historyVariant, manifest, snapshotHashes = {} } = {}) {
-  const parityIssues = journal && sqlFileNames ? analyzeMigrationParity(journal, sqlFileNames) : [];
-  if (parityIssues.length) return { ok: false, code: "MIGRATION_PARITY", issues: parityIssues };
-  if (![ORIGINAL_VARIANT, REPAIRED_VARIANT].includes(historyVariant)) return { ok: false, code: "HISTORY_VARIANT_UNKNOWN", issues: ["history variant is not recognized"] };
-
+function validateHistoryVariantHashes(hashes, historyVariant, manifest) {
   const modes = [...REPAIR_FILES].map((file) => classifyHash(hashes[file], file, manifest));
   if (modes.some((mode) => !mode)) return { ok: false, code: "HISTORY_HASH_UNKNOWN", issues: ["0000/0004 contains an unknown or fabricated hash"] };
   if (new Set(modes).size !== 1) return { ok: false, code: "HISTORY_VARIANT_MIXED", issues: ["0000 and 0004 must belong to the same history variant"] };
   if (modes[0] !== historyVariant) return { ok: false, code: "HISTORY_VARIANT_MISMATCH", issues: [`declared ${historyVariant} does not match observed ${modes[0]}`] };
+  return null;
+}
 
+function validateOriginalHistory({ manifest, historyRows, root }) {
+  const vector = validateOriginalProductionVector({ manifest, root });
+  if (!vector.ok) return { ok: false, code: "HISTORY_VECTOR_INVALID", issues: vector.issues };
+  if (historyRows === undefined) return null;
+  const rows = validateOriginalProductionRows(historyRows, { manifest, root });
+  return rows.ok ? null : rows;
+}
+
+function validateSnapshots(snapshotHashes, manifest) {
   const knownSnapshots = manifest?.snapshots ?? {};
   for (const [file, hash] of Object.entries(snapshotHashes)) {
     const expected = knownSnapshots[file]?.sha256 ?? knownSnapshots[file];
     if (!expected || expected !== hash) return { ok: false, code: "SNAPSHOT_HASH_UNKNOWN", issues: [`fabricated or unknown snapshot hash: ${file}`] };
   }
+  return null;
+}
+
+export function validateMigrationHistory({ journal, sqlFileNames, hashes = {}, historyVariant, manifest, snapshotHashes = {}, historyRows, root } = {}) {
+  const parityIssues = journal && sqlFileNames ? analyzeMigrationParity(journal, sqlFileNames) : [];
+  if (parityIssues.length) return { ok: false, code: "MIGRATION_PARITY", issues: parityIssues };
+  if (![ORIGINAL_VARIANT, REPAIRED_VARIANT].includes(historyVariant)) return { ok: false, code: "HISTORY_VARIANT_UNKNOWN", issues: ["history variant is not recognized"] };
+  const hashIssue = validateHistoryVariantHashes(hashes, historyVariant, manifest);
+  if (hashIssue) return hashIssue;
+  if (historyVariant === ORIGINAL_VARIANT) {
+    const vectorIssue = validateOriginalHistory({ manifest, historyRows, root });
+    if (vectorIssue) return vectorIssue;
+  }
+  const snapshotIssue = validateSnapshots(snapshotHashes, manifest);
+  if (snapshotIssue) return snapshotIssue;
   return { ok: true, historyVariant, issues: [] };
 }
 

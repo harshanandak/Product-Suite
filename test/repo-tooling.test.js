@@ -100,6 +100,10 @@ const repoToolingWorkflow = readFileSync(
   join(rootDir, ".github", "workflows", "repo-tooling-ci.yml"),
   "utf8",
 );
+const platformApiDeployWorkflow = readFileSync(
+  join(rootDir, ".github", "workflows", "platform-api-deploy.yml"),
+  "utf8",
+);
 const dbContractWorkflowPath = join(
   rootDir,
   ".github",
@@ -615,6 +619,18 @@ describe("repo tooling", () => {
     expect(repoToolingWorkflow).toContain("bun run test:hocuspocus");
     expect(repoToolingWorkflow).toContain("bun run test:roadmap-canvas-boundary");
     expect(repoToolingWorkflow).toContain("bun run test:repo-tooling");
+  });
+
+  test("repo-tooling CI fetches full Git history for immutable migration provenance", () => {
+    const workflow = Bun.YAML.parse(repoToolingWorkflow);
+    const checkout = workflow.jobs["repo-tooling"].steps.find((step) => step.name === "Checkout");
+    expect(checkout.with["fetch-depth"]).toBe(0);
+  });
+
+  test("protected platform-api preflight fetches immutable migration provenance", () => {
+    const workflow = Bun.YAML.parse(platformApiDeployWorkflow);
+    const checkout = workflow.jobs.preflight.steps.find((step) => step.name === "Checkout");
+    expect(checkout.with["fetch-depth"]).toBe(0);
   });
 
   test("db-contract reports every pull request and gates credentials only for relevant changes", () => {

@@ -9,6 +9,7 @@ import {
   inspectRepairSemantics,
   normalizeLineEndings,
   sha256,
+  validateOriginalProductionVector,
 } from "../scripts/check-historical-db-artifacts.mjs";
 
 const repoRoot = join(import.meta.dir, "..");
@@ -110,6 +111,34 @@ describe("historical database artifacts", () => {
     expect(() => detectHistoryVariant({ "0000_stale_jamie_braddock.sql": "original", "0004_minor_lockheed.sql": "repaired" })).toThrow(/mixed/i);
     expect(() => detectHistoryVariant({ "0000_stale_jamie_braddock.sql": "fabricated", "0004_minor_lockheed.sql": "fabricated" })).toThrow(/unknown|fabricated/i);
     expect(() => detectHistoryVariant({ "0000_stale_jamie_braddock.sql": "original", "0004_minor_lockheed.sql": "original", snapshot: { id: "not-a-journal-snapshot" } })).toThrow(/snapshot/i);
+  });
+
+  test("reproduces the exact original-production vector from Git blobs", () => {
+    const result = validateOriginalProductionVector({ manifest, root: repoRoot });
+    expect(result).toMatchObject({ ok: true, code: "ORIGINAL_PRODUCTION_VECTOR_VALID", count: 18 });
+    expect(result.entries.map(({ tag }) => tag)).toEqual(Array.from({ length: 18 }, (_, index) => String(index).padStart(4, "0")));
+    expect(result.entries.slice(0, 17).every(({ lineEnding }) => lineEnding === "CRLF")).toBe(true);
+    expect(result.entries.at(-1).lineEnding).toBe("LF");
+    expect(result.entries[0].sourceCommit).toBe("341caeb0072f6642ce9b2172c1d092f91bcd3265");
+    expect(result.entries.every(({ sourceCommit }) => /^[0-9a-f]{40}$/.test(sourceCommit))).toBe(true);
+  });
+
+  test.each([
+    ["hash", (entry) => { entry.observedSha256 = "0".repeat(64); }, "entry"],
+    ["blob OID", (entry) => { entry.gitBlobOid = "0".repeat(40); }, "entry"],
+    ["source commit", (entry) => { entry.sourceCommit = "0".repeat(40); }, "entry"],
+    ["line ending", (entry) => { entry.lineEnding = "LF"; }, "entry"],
+    ["tag", (entry) => { entry.tag = "0099"; }, "entry"],
+    ["filename", (entry) => { entry.filename = "other.sql"; }, "entry"],
+    ["order", (entries) => { [entries[0], entries[1]] = [entries[1], entries[0]]; }, "entries"],
+    ["duplicate", (entries) => { entries[1] = structuredClone(entries[0]); }, "entries"],
+    ["missing", (entries) => { entries.pop(); }, "entries"],
+    ["extra", (entries) => { entries.push(structuredClone(entries.at(-1))); }, "entries"],
+  ])("rejects original-production vector mutation: %s", (_label, mutate, target) => {
+    const candidate = structuredClone(manifest);
+    const entries = candidate.drizzle.historyVectors["original-production"].entries;
+    mutate(target === "entry" ? entries[0] : entries);
+    expect(validateOriginalProductionVector({ manifest: candidate, root: repoRoot }).ok).toBe(false);
   });
 
   test("retires executable Meeting migration surfaces while preserving manifest-verified history", () => {
