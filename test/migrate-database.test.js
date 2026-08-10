@@ -468,7 +468,7 @@ describe("canonical migration runner", () => {
         },
       },
       applied: ["0019"], files, declared: ["0020"], authority,
-    })).rejects.toThrow("MIGRATION_0020_EXECUTION_FAILED");
+    })).rejects.toEqual(new Error("MIGRATION_0020_EXECUTION_FAILED"));
   });
 
   test("apply maps a controlled catalog assertion to a redacted tagged category", async () => {
@@ -483,7 +483,7 @@ describe("canonical migration runner", () => {
         },
       },
       applied: ["0019"], files, declared: ["0020"], authority,
-    })).rejects.toThrow("MIGRATION_0020_CATALOG_COLUMN_MISMATCH");
+    })).rejects.toEqual(new Error("MIGRATION_0020_CATALOG_COLUMN_MISMATCH"));
   });
 
   test("apply distinguishes a tagged history-write failure from SQL execution", async () => {
@@ -496,7 +496,7 @@ describe("canonical migration runner", () => {
         },
       },
       applied: ["0019"], files, declared: ["0020"], authority,
-    })).rejects.toThrow("MIGRATION_0020_HISTORY_WRITE_FAILED");
+    })).rejects.toEqual(new Error("MIGRATION_0020_HISTORY_WRITE_FAILED"));
   });
 
   test("locked apply rejects a nineteenth reread row with an unknown hash", async () => {
