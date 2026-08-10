@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Security
+- GitHub Actions dependency installs for DB Contract and Platform Web now disable package lifecycle scripts while retaining frozen-lockfile enforcement (PR #171, Forge issue `808fbffa-8923-4083-9e5e-407b5b855454`)
+
 ### Added
 - Fail-closed T0-T3 delivery change classification with exact base/head evidence, adversarial downgrade coverage, and catalog-bound dependency proof (PR #167, Forge issue `9041eeab-6079-43e3-a95a-d555e076dddf`)
 - Authorization-scoped, memory-only TanStack Query orchestration for `platform-web` memory-impact reads, preserving repository, API, realtime, and run authority (PR #164, 5a03773c-b0df-4b96-9215-b2a0c9cd4031)
