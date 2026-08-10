@@ -92,6 +92,8 @@ export interface CleanupEvidence {
   projectCreated: boolean
   repairedBootstrapVerified: boolean
   productionDerivedBranchVerified: boolean
+  branchDeleteRequested: boolean
+  branchDeletionVerified: boolean
   projectDeleteRequested: boolean
   projectDeletionVerified: boolean
 }
@@ -272,34 +274,96 @@ async function waitControlPlaneOperations(
   }
 }
 
-function projectIdResponse(body: Record<string, unknown>): string {
-  const project = body.project as { id?: unknown } | undefined
-  return typeof project?.id === 'string' ? project.id : ''
+interface ValidatedProjectResponse {
+  projectId: string
+  projectName: string
+  branchId: string
+  connectionUri: string
 }
 
-function projectResponse(body: Record<string, unknown>): { projectId: string; branchId: string; connectionUri: string } {
-  const project = body.project as { id?: unknown; default_branch_id?: unknown } | undefined
-  const branch = body.branch as { id?: unknown } | undefined
-  const projectId = typeof project?.id === 'string' ? project.id : ''
-  const branchId = typeof branch?.id === 'string' ? branch.id : typeof project?.default_branch_id === 'string' ? project.default_branch_id : ''
-  const uris = body.connection_uris as Array<{ connection_uri?: unknown }> | undefined
-  const connectionUri = typeof uris?.[0]?.connection_uri === 'string' ? uris[0].connection_uri : ''
-  if (!projectId || !branchId || !connectionUri) conformanceFailure('NEON_PROJECT_RESPONSE_INVALID')
-  return { projectId, branchId, connectionUri }
+function assertNeondbConnection(connectionUri: string, code: string): void {
+  try {
+    if (new URL(connectionUri).pathname !== '/neondb') conformanceFailure(code)
+  } catch {
+    conformanceFailure(code)
+  }
 }
 
-function branchResponse(body: Record<string, unknown>): { branchId: string; connectionUri: string } {
+function projectResponse(
+  body: Record<string, unknown>,
+  expectedName: string,
+  sourceProjectId: string,
+): ValidatedProjectResponse {
+  const project = body.project as { id?: unknown; name?: unknown; default_branch_id?: unknown } | undefined
   const branch = body.branch as { id?: unknown; parent_id?: unknown; default?: unknown } | undefined
+  const uris = body.connection_uris as Array<{ connection_uri?: unknown }> | undefined
+  const projectId = typeof project?.id === 'string' ? project.id : ''
+  const projectName = typeof project?.name === 'string' ? project.name : ''
+  const defaultBranchId = typeof project?.default_branch_id === 'string' ? project.default_branch_id : ''
+  const branchId = typeof branch?.id === 'string' ? branch.id : ''
+  const connectionUri = typeof uris?.[0]?.connection_uri === 'string' ? uris[0].connection_uri : ''
+  if (!projectId || projectId === sourceProjectId || projectName !== expectedName) {
+    conformanceFailure('NEON_PROJECT_RESPONSE_INVALID')
+  }
+  if (!branchId || defaultBranchId !== branchId || branch?.default !== true || branch.parent_id != null) {
+    conformanceFailure('NEON_PROJECT_ROOT_INVALID')
+  }
+  if (!connectionUri) conformanceFailure('NEON_PROJECT_RESPONSE_INVALID')
+  assertNeondbConnection(connectionUri, 'NEON_PROJECT_DATABASE_INVALID')
+  return { projectId, projectName, branchId, connectionUri }
+}
+
+function assertProjectRead(
+  body: Record<string, unknown>,
+  expected: Pick<ValidatedProjectResponse, 'projectId' | 'projectName' | 'branchId'>,
+): void {
+  const project = body.project as { id?: unknown; name?: unknown; default_branch_id?: unknown } | undefined
+  if (project?.id !== expected.projectId || project.name !== expected.projectName || project.default_branch_id !== expected.branchId) {
+    conformanceFailure('NEON_PROJECT_METADATA_UNPROVEN')
+  }
+}
+
+function assertRootBranchRead(body: Record<string, unknown>, branchId: string): void {
+  const branch = body.branch as { id?: unknown; parent_id?: unknown; default?: unknown } | undefined
+  if (branch?.id !== branchId || branch.default !== true || branch.parent_id != null) {
+    conformanceFailure('NEON_PROJECT_ROOT_UNPROVEN')
+  }
+}
+
+function assertNeondbRead(body: Record<string, unknown>): void {
+  const databases = Array.isArray(body.databases) ? body.databases as Array<{ name?: unknown }> : []
+  if (databases.length !== 1 || databases[0]?.name !== 'neondb') {
+    conformanceFailure('NEON_PROJECT_DATABASE_UNPROVEN')
+  }
+}
+
+function branchResponse(
+  body: Record<string, unknown>,
+  expected: { branchName: string; parentBranchId: string; protectedBranchIds: readonly string[] },
+): { branchId: string; connectionUri: string } {
+  const branch = body.branch as { id?: unknown; name?: unknown; parent_id?: unknown; default?: unknown } | undefined
   const uris = body.connection_uris as Array<{ connection_uri?: unknown }> | undefined
   const branchId = typeof branch?.id === 'string' ? branch.id : ''
   const connectionUri = typeof uris?.[0]?.connection_uri === 'string' ? uris[0].connection_uri : ''
-  if (!branchId || !connectionUri) conformanceFailure('NEON_BRANCH_RESPONSE_INVALID')
+  if (!branchId || expected.protectedBranchIds.includes(branchId) || branch?.name !== expected.branchName) {
+    conformanceFailure('NEON_BRANCH_RESPONSE_INVALID')
+  }
+  if (branch.parent_id !== expected.parentBranchId || branch.default !== false) {
+    conformanceFailure('PRODUCTION_DERIVED_PARENT_MISMATCH')
+  }
+  if (!connectionUri) conformanceFailure('NEON_BRANCH_RESPONSE_INVALID')
+  assertNeondbConnection(connectionUri, 'NEON_BRANCH_DATABASE_INVALID')
   return { branchId, connectionUri }
 }
 
-function branchIdResponse(body: Record<string, unknown>): string {
-  const branch = body.branch as { id?: unknown } | undefined
-  return typeof branch?.id === 'string' ? branch.id : ''
+function assertDerivedBranchRead(
+  body: Record<string, unknown>,
+  expected: { branchId: string; branchName: string; parentBranchId: string },
+): void {
+  const branch = body.branch as { id?: unknown; name?: unknown; parent_id?: unknown; default?: unknown } | undefined
+  if (branch?.id !== expected.branchId || branch.name !== expected.branchName || branch.parent_id !== expected.parentBranchId || branch.default !== false) {
+    conformanceFailure('PRODUCTION_DERIVED_METADATA_UNPROVEN')
+  }
 }
 
 async function productionParentBranchId(
@@ -308,14 +372,20 @@ async function productionParentBranchId(
   requestedParentBranchId: string | undefined,
   fetcher: typeof fetch = fetch,
 ): Promise<string> {
-  if (requestedParentBranchId) return requestedParentBranchId
+  const projectResult = await controlPlaneFetchWith(apiKey, `/projects/${sourceProjectId}`, { method: 'GET' }, fetcher)
+  const project = projectResult.body.project as { id?: unknown; default_branch_id?: unknown } | undefined
+  const defaultBranchId = typeof project?.default_branch_id === 'string' ? project.default_branch_id : ''
+  if (project?.id !== sourceProjectId || !defaultBranchId) conformanceFailure('PRODUCTION_DERIVED_PARENT_UNAVAILABLE')
   const result = await controlPlaneFetchWith(apiKey, `/projects/${sourceProjectId}/branches?limit=100`, { method: 'GET' }, fetcher)
-  const branches = Array.isArray(result.body.branches) ? result.body.branches as Array<{ id?: unknown; default?: unknown }> : []
-  const parent = branches.find((branch) => branch.default === true) ?? branches[0]
-  if (typeof parent?.id !== 'string' || parent.id.length === 0) {
+  const branches = Array.isArray(result.body.branches)
+    ? result.body.branches as Array<{ id?: unknown; parent_id?: unknown; default?: unknown }>
+    : []
+  const selectedId = requestedParentBranchId ?? defaultBranchId
+  const parent = branches.find((branch) => branch.id === selectedId)
+  if (!parent || parent.id !== defaultBranchId || parent.default !== true || parent.parent_id != null) {
     conformanceFailure('PRODUCTION_DERIVED_PARENT_UNAVAILABLE')
   }
-  return parent.id
+  return defaultBranchId
 }
 
 /** Native-fetch control-plane adapter: project/root + production-derived branch. */
@@ -323,18 +393,38 @@ export function createNeonControlPlane(env: NeonControlPlaneEnv = process.env, f
   const { apiKey, sourceProjectId } = controlPlaneConfig(env)
   const request = (path: string, init: { method: string; body?: unknown }) => controlPlaneFetchWith(apiKey, path, init, fetcher)
   let retainedProjectId: string | undefined
-  let retainedBranch: { projectId: string; branchId: string } | undefined
+  let retainedBranch: { projectId: string; branchId: string; parentBranchId: string; defaultBranchId: string } | undefined
+
+  const assertSafeProjectDelete = (projectId: string): void => {
+    if (!retainedProjectId || projectId !== retainedProjectId || projectId === sourceProjectId) {
+      conformanceFailure('UNSAFE_PROJECT_DELETE_TARGET')
+    }
+  }
+  const assertSafeBranchDelete = (projectId: string, branchId: string): void => {
+    if (!retainedBranch || projectId !== sourceProjectId || projectId !== retainedBranch.projectId || branchId !== retainedBranch.branchId) {
+      conformanceFailure('UNSAFE_BRANCH_DELETE_TARGET')
+    }
+    if (branchId === retainedBranch.parentBranchId || branchId === retainedBranch.defaultBranchId) {
+      conformanceFailure('UNSAFE_BRANCH_DELETE_TARGET')
+    }
+  }
+
   return {
     async createDisposableProject() {
+      const projectName = `product-suite-test-only-repaired-bootstrap-${Date.now()}`
       const result = await request('/projects', {
         method: 'POST',
-        body: { project: { name: `product-suite-db-contract-${Date.now()}`, pg_version: 17 } },
+        body: { project: { name: projectName, pg_version: 17 } },
       })
-      const projectId = projectIdResponse(result.body)
-      if (!projectId) conformanceFailure('NEON_PROJECT_RESPONSE_INVALID')
-      retainedProjectId = projectId
-      await waitControlPlaneOperations(apiKey, projectId, (result.body.operations ?? []) as NeonOperation[], fetcher)
-      const created = projectResponse(result.body)
+      const created = projectResponse(result.body, projectName, sourceProjectId)
+      retainedProjectId = created.projectId
+      await waitControlPlaneOperations(apiKey, created.projectId, (result.body.operations ?? []) as NeonOperation[], fetcher)
+      const projectRead = await request(`/projects/${created.projectId}`, { method: 'GET' })
+      assertProjectRead(projectRead.body, created)
+      const branchRead = await request(`/projects/${created.projectId}/branches/${created.branchId}`, { method: 'GET' })
+      assertRootBranchRead(branchRead.body, created.branchId)
+      const databaseRead = await request(`/projects/${created.projectId}/branches/${created.branchId}/databases`, { method: 'GET' })
+      assertNeondbRead(databaseRead.body)
       const sql = createSql(created.connectionUri)
       const rows = await query<{ count: string }>(sql, `select count(*)::text as count from information_schema.tables where table_schema = 'public'`)
       return {
@@ -350,19 +440,29 @@ export function createNeonControlPlane(env: NeonControlPlaneEnv = process.env, f
     },
     async createProductionDerivedBranch() {
       const parentBranchId = await productionParentBranchId(apiKey, sourceProjectId, env.NEON_PARENT_BRANCH_ID, fetcher)
+      const branchName = `db-contract-production-original-${Date.now()}`
       // Production-derived conformance branches are disposable even when a
       // runner is cancelled between creation and cleanup.
       const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString()
       const body = {
         endpoints: [{ type: 'read_write' }],
-        branch: { name: `db-contract-production-${Date.now()}`, parent_id: parentBranchId, expires_at: expiresAt },
+        branch: { name: branchName, parent_id: parentBranchId, expires_at: expiresAt },
       }
       const result = await request(`/projects/${sourceProjectId}/branches`, { method: 'POST', body })
-      const branchId = branchIdResponse(result.body)
-      if (!branchId) conformanceFailure('NEON_BRANCH_RESPONSE_INVALID')
-      retainedBranch = { projectId: sourceProjectId, branchId }
+      const created = branchResponse(result.body, {
+        branchName,
+        parentBranchId,
+        protectedBranchIds: [parentBranchId],
+      })
+      retainedBranch = {
+        projectId: sourceProjectId,
+        branchId: created.branchId,
+        parentBranchId,
+        defaultBranchId: parentBranchId,
+      }
       await waitControlPlaneOperations(apiKey, sourceProjectId, (result.body.operations ?? []) as NeonOperation[], fetcher)
-      const created = branchResponse(result.body)
+      const branchRead = await request(`/projects/${sourceProjectId}/branches/${created.branchId}`, { method: 'GET' })
+      assertDerivedBranchRead(branchRead.body, { branchId: created.branchId, branchName, parentBranchId })
       return {
         ...created,
         projectId: sourceProjectId,
@@ -379,14 +479,21 @@ export function createNeonControlPlane(env: NeonControlPlaneEnv = process.env, f
       const sql = createSql(connectionUri)
       await proveRuntimeLoginPrivileges(sql, connectionUri)
     },
-    async deleteProject(projectId) { await request(`/projects/${projectId}`, { method: 'DELETE' }) },
+    async deleteProject(projectId) {
+      assertSafeProjectDelete(projectId)
+      await request(`/projects/${projectId}`, { method: 'DELETE' })
+    },
     async verifyProjectDeleted(projectId) { await pollControlPlaneDeletion(apiKey, `/projects/${projectId}`, 'PROJECT_DELETION_UNPROVEN', fetcher) },
-    async deleteBranch(projectId, branchId) { await request(`/projects/${projectId}/branches/${branchId}`, { method: 'DELETE' }) },
+    async deleteBranch(projectId, branchId) {
+      assertSafeBranchDelete(projectId, branchId)
+      await request(`/projects/${projectId}/branches/${branchId}`, { method: 'DELETE' })
+    },
     async verifyBranchDeleted(projectId, branchId) { await pollControlPlaneDeletion(apiKey, `/projects/${projectId}/branches/${branchId}`, 'BRANCH_DELETION_UNPROVEN', fetcher) },
     async cleanupRetainedResources() {
       let cleanupFailed = false
       if (retainedBranch) {
         try {
+          assertSafeBranchDelete(retainedBranch.projectId, retainedBranch.branchId)
           await request(`/projects/${retainedBranch.projectId}/branches/${retainedBranch.branchId}`, { method: 'DELETE' })
           await pollControlPlaneDeletion(apiKey, `/projects/${retainedBranch.projectId}/branches/${retainedBranch.branchId}`, 'BRANCH_DELETION_UNPROVEN', fetcher)
           retainedBranch = undefined
@@ -394,6 +501,7 @@ export function createNeonControlPlane(env: NeonControlPlaneEnv = process.env, f
       }
       if (retainedProjectId) {
         try {
+          assertSafeProjectDelete(retainedProjectId)
           await request(`/projects/${retainedProjectId}`, { method: 'DELETE' })
           await pollControlPlaneDeletion(apiKey, `/projects/${retainedProjectId}`, 'PROJECT_DELETION_UNPROVEN', fetcher)
           retainedProjectId = undefined
@@ -567,6 +675,7 @@ const RUNTIME_ROLE_CATALOG_SQL = `
     role.rolcreaterole as "canCreateRole",
     role.rolcreatedb as "canCreateDb",
     member.rolname as member,
+    member.rolcanlogin as "memberCanLogin",
     membership.admin_option as "adminOption"
   from pg_catalog.pg_roles role
   left join pg_catalog.pg_auth_members membership on membership.roleid = role.oid
@@ -575,14 +684,28 @@ const RUNTIME_ROLE_CATALOG_SQL = `
   order by role.rolname, member.rolname
 `
 
-async function proveRuntimeLoginPrivileges(ownerSql: Sql, connectionUri: string): Promise<void> {
-  const suffix = randomUUID().replaceAll('-', '')
+export interface RuntimePrivilegeProbeOptions {
+  suffix?: string
+  platformPassword?: string
+  meetingPassword?: string
+  createRuntimeSql?: (connectionUri: string) => Sql
+}
+
+export async function proveRuntimeLoginPrivileges(
+  ownerSql: Sql,
+  connectionUri: string,
+  options: RuntimePrivilegeProbeOptions = {},
+): Promise<void> {
+  const suffix = options.suffix ?? randomUUID().replaceAll('-', '')
   const table = `runtime_privilege_probe_${suffix}`
   const sequence = `${table}_sequence`
+  const deniedTable = `${table}_denied`
   const platformLogin = `platform_runtime_${suffix}`
   const meetingLogin = `meeting_runtime_${suffix}`
-  const platformPassword = randomBytes(24).toString('base64url')
-  const meetingPassword = randomBytes(24).toString('base64url')
+  const deniedRole = `${platformLogin}_denied`
+  const platformPassword = options.platformPassword ?? randomBytes(24).toString('base64url')
+  const meetingPassword = options.meetingPassword ?? randomBytes(24).toString('base64url')
+  const createRuntimeClient = options.createRuntimeSql ?? createSql
   const tenantId = `runtime-tenant-${suffix}`
   const projectId = randomUUID()
   try {
@@ -599,8 +722,8 @@ async function proveRuntimeLoginPrivileges(ownerSql: Sql, connectionUri: string)
     const roleEvidence = assertRuntimeRoleContract(roles, { allowedLogins: [platformLogin, meetingLogin] })
     if (roleEvidence.membershipCount !== 2) conformanceFailure('RUNTIME_LOGIN_MEMBERSHIP_UNPROVEN')
 
-    const platformSql = createSql(runtimeLoginUri(connectionUri, platformLogin, platformPassword))
-    const meetingSql = createSql(runtimeLoginUri(connectionUri, meetingLogin, meetingPassword))
+    const platformSql = createRuntimeClient(runtimeLoginUri(connectionUri, platformLogin, platformPassword))
+    const meetingSql = createRuntimeClient(runtimeLoginUri(connectionUri, meetingLogin, meetingPassword))
     await exec(meetingSql, 'insert into public.tenants (id, slug, name) values ($1, $2, $3)', [tenantId, tenantId, 'runtime-probe'])
     const insertedTenant = await query<{ name: string }>(meetingSql, 'select name from public.tenants where id = $1', [tenantId])
     if (insertedTenant[0]?.name !== 'runtime-probe') conformanceFailure('RUNTIME_OWNED_CRUD_UNPROVEN')
@@ -627,22 +750,29 @@ async function proveRuntimeLoginPrivileges(ownerSql: Sql, connectionUri: string)
     await expectPermissionDenied(() => exec(platformSql, `select * from public.${quoteIdentifier(table)}`))
     await expectPermissionDenied(() => exec(platformSql, `insert into public.${quoteIdentifier(table)} (id, value) values ($1, $2)`, [randomUUID(), 'probe']))
     await expectPermissionDenied(() => exec(platformSql, `select nextval('public.${quoteIdentifier(sequence)}')`))
-    await expectPermissionDenied(() => exec(platformSql, `create table public.${quoteIdentifier(`${table}_denied`)} (id integer)`))
+    await expectPermissionDenied(() => exec(platformSql, `create table public.${quoteIdentifier(deniedTable)} (id integer)`))
     await expectPermissionDenied(() => exec(platformSql, `alter table public.${quoteIdentifier(table)} add column denied integer`))
     await expectPermissionDenied(() => exec(platformSql, `drop table public.${quoteIdentifier(table)}`))
-    await expectPermissionDenied(() => exec(platformSql, `create role ${quoteIdentifier(`${platformLogin}_denied`)} login`))
+    await expectPermissionDenied(() => exec(platformSql, `create role ${quoteIdentifier(deniedRole)} login`))
     await expectPermissionDenied(() => exec(platformSql, `set role ${quoteIdentifier('product_suite_meeting_runtime')}`))
     await expectPermissionDenied(() => exec(platformSql, 'select * from public.tenants'))
     await expectPermissionDenied(() => exec(meetingSql, 'select * from public.projects'))
   } finally {
-    try { await exec(ownerSql, 'delete from public.projects where id = $1', [projectId]) } catch { /* opaque cleanup */ }
-    try { await exec(ownerSql, 'delete from public.tenants where id = $1', [tenantId]) } catch { /* opaque cleanup */ }
-    try { await exec(ownerSql, `revoke ${quoteIdentifier('product_suite_platform_runtime')} from ${quoteIdentifier(platformLogin)}`) } catch { /* opaque cleanup */ }
-    try { await exec(ownerSql, `revoke ${quoteIdentifier('product_suite_meeting_runtime')} from ${quoteIdentifier(meetingLogin)}`) } catch { /* opaque cleanup */ }
-    try { await exec(ownerSql, `drop role if exists ${quoteIdentifier(platformLogin)}`) } catch { /* opaque cleanup */ }
-    try { await exec(ownerSql, `drop role if exists ${quoteIdentifier(meetingLogin)}`) } catch { /* opaque cleanup */ }
-    try { await exec(ownerSql, `drop sequence if exists public.${quoteIdentifier(sequence)}`) } catch { /* opaque cleanup */ }
-    try { await exec(ownerSql, `drop table if exists public.${quoteIdentifier(table)}`) } catch { /* opaque cleanup */ }
+    let cleanupFailed = false
+    const cleanup = async (operation: () => Promise<unknown>): Promise<void> => {
+      try { await operation() } catch { cleanupFailed = true }
+    }
+    await cleanup(() => exec(ownerSql, 'delete from public.projects where id = $1', [projectId]))
+    await cleanup(() => exec(ownerSql, 'delete from public.tenants where id = $1', [tenantId]))
+    await cleanup(() => exec(ownerSql, `revoke ${quoteIdentifier('product_suite_platform_runtime')} from ${quoteIdentifier(platformLogin)}`))
+    await cleanup(() => exec(ownerSql, `revoke ${quoteIdentifier('product_suite_meeting_runtime')} from ${quoteIdentifier(meetingLogin)}`))
+    await cleanup(() => exec(ownerSql, `drop role if exists ${quoteIdentifier(platformLogin)}`))
+    await cleanup(() => exec(ownerSql, `drop role if exists ${quoteIdentifier(meetingLogin)}`))
+    await cleanup(() => exec(ownerSql, `drop role if exists ${quoteIdentifier(deniedRole)}`))
+    await cleanup(() => exec(ownerSql, `drop sequence if exists public.${quoteIdentifier(sequence)}`))
+    await cleanup(() => exec(ownerSql, `drop table if exists public.${quoteIdentifier(table)}`))
+    await cleanup(() => exec(ownerSql, `drop table if exists public.${quoteIdentifier(deniedTable)}`))
+    if (cleanupFailed) conformanceFailure('RUNTIME_PROBE_CLEANUP_UNPROVEN')
   }
 }
 
@@ -723,6 +853,8 @@ export function assertCleanupEvidence(evidence: CleanupEvidence): { status: 'PAS
   if (!evidence.projectCreated) conformanceFailure('PROJECT_CREATE_REQUIRED')
   if (!evidence.repairedBootstrapVerified) conformanceFailure('REPAIRED_BOOTSTRAP_UNPROVEN')
   if (!evidence.productionDerivedBranchVerified) conformanceFailure('PRODUCTION_DERIVED_UNPROVEN')
+  if (!evidence.branchDeleteRequested) conformanceFailure('BRANCH_CLEANUP_REQUIRED')
+  if (!evidence.branchDeletionVerified) conformanceFailure('BRANCH_DELETION_UNPROVEN')
   if (!evidence.projectDeleteRequested) conformanceFailure('PROJECT_CLEANUP_REQUIRED')
   if (!evidence.projectDeletionVerified) conformanceFailure('PROJECT_DELETION_UNPROVEN')
   return { status: 'PASS' }
@@ -749,6 +881,7 @@ export interface RuntimeRoleCatalogRow {
   canCreateRole: boolean
   canCreateDb: boolean
   member: string | null
+  memberCanLogin: boolean | null
   adminOption: boolean | null
 }
 
@@ -769,6 +902,7 @@ export function runtimeRoleSnapshotsFromCatalogRows(
       memberships: [],
     }
     if (row.member) {
+      if (row.memberCanLogin !== true) conformanceFailure('RUNTIME_MEMBER_MUST_BE_LOGIN')
       role.memberships.push({ member: row.member, adminOption: row.adminOption === true })
     }
     roles.set(row.name, role)

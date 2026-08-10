@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import type { Sql } from '@product-suite/db'
 
 import {
   assertRuntimeRoleContract,
   buildRuntimePrivilegeProbes,
+  proveRuntimeLoginPrivileges,
   runtimeRoleSnapshotsFromCatalogRows,
   type RuntimeRoleSnapshot,
 } from './harness'
@@ -42,6 +44,7 @@ describe('Neon least-privilege runtime role contract', () => {
         canCreateRole: false,
         canCreateDb: false,
         member: 'platform_runtime_rotated',
+        memberCanLogin: true,
         adminOption: false,
       },
       {
@@ -51,6 +54,7 @@ describe('Neon least-privilege runtime role contract', () => {
         canCreateRole: false,
         canCreateDb: false,
         member: 'meeting_runtime_rotated',
+        memberCanLogin: true,
         adminOption: false,
       },
     ])
@@ -61,6 +65,16 @@ describe('Neon least-privilege runtime role contract', () => {
     expect(assertRuntimeRoleContract(catalogRoles, {
       allowedLogins: ['platform_runtime_rotated', 'meeting_runtime_rotated'],
     })).toMatchObject({ status: 'READY', membershipCount: 2 })
+    expect(() => runtimeRoleSnapshotsFromCatalogRows([{
+      name: 'product_suite_platform_runtime',
+      canLogin: false,
+      isSuperuser: false,
+      canCreateRole: false,
+      canCreateDb: false,
+      member: 'not-a-login',
+      memberCanLogin: false,
+      adminOption: false,
+    }])).toThrow('RUNTIME_MEMBER_MUST_BE_LOGIN')
   })
 
   it.each([
@@ -95,7 +109,7 @@ describe('Neon least-privilege runtime role contract', () => {
     )
   })
 
-  it('describes allowed and denied probes without embedding credentials or SQL payloads', () => {
+  it('describes allowed and denied probes without embedding credentials or SQL payloads', async () => {
     const probes = buildRuntimePrivilegeProbes()
     expect(probes.allowed).toEqual(expect.arrayContaining([
       'service_login_membership',
@@ -110,6 +124,98 @@ describe('Neon least-privilege runtime role contract', () => {
       'cross_service_table',
     ]))
     expect(JSON.stringify(probes)).not.toMatch(/postgres|password|select .*from/i)
+
+    const createRuntimeSql = (allowDeniedTable: boolean) => {
+      let runtimeIndex = 0
+      let tenantRead = 0
+      let projectRead = 0
+      return (_connectionUri: string): Sql => {
+        const kind = runtimeIndex++ === 0 ? 'platform' : 'meeting'
+        return {
+          query: async (text: string) => {
+            const normalized = text.trim().toLowerCase()
+            if (normalized.startsWith('select name from public.tenants')) {
+              tenantRead += 1
+              return [{ name: tenantRead === 1 ? 'runtime-probe' : 'runtime-probe-updated' }]
+            }
+            if (normalized.startsWith('select name from public.projects')) {
+              projectRead += 1
+              return [{ name: projectRead === 1 ? 'runtime-probe' : 'runtime-probe-updated' }]
+            }
+            if (normalized.startsWith('select count(*)::text as count')) return [{ count: '0' }]
+            const ownedWrite = kind === 'platform'
+              ? /^(insert into|update|delete from) public\.projects/.test(normalized)
+              : /^(insert into|update|delete from) public\.tenants/.test(normalized)
+            if (ownedWrite) return []
+            if (allowDeniedTable && normalized.startsWith('create table public."runtime_privilege_probe_fixed_denied"')) return []
+            throw Object.assign(new Error('opaque denied'), { code: '42501' })
+          },
+        } as unknown as Sql
+      }
+    }
+
+    const ownerEvents: string[] = []
+    const ownerSql = {
+      query: async (text: string) => {
+        ownerEvents.push(text)
+        if (text.includes('pg_catalog.pg_auth_members')) {
+          return [
+            {
+              name: 'product_suite_platform_runtime', canLogin: false, isSuperuser: false,
+              canCreateRole: false, canCreateDb: false, member: 'platform_runtime_fixed',
+              memberCanLogin: true, adminOption: false,
+            },
+            {
+              name: 'product_suite_meeting_runtime', canLogin: false, isSuperuser: false,
+              canCreateRole: false, canCreateDb: false, member: 'meeting_runtime_fixed',
+              memberCanLogin: true, adminOption: false,
+            },
+          ]
+        }
+        return []
+      },
+    } as unknown as Sql
+
+    await expect(proveRuntimeLoginPrivileges(ownerSql, 'postgresql://opaque:opaque@ep.neon.tech/neondb?sslmode=require', {
+      suffix: 'fixed',
+      platformPassword: 'opaque-platform',
+      meetingPassword: 'opaque-meeting',
+      createRuntimeSql: createRuntimeSql(true),
+    })).rejects.toThrow('RUNTIME_DENIAL_UNPROVEN')
+    for (const cleanupProof of [
+      'delete from public.projects',
+      'delete from public.tenants',
+      'revoke "product_suite_platform_runtime" from "platform_runtime_fixed"',
+      'revoke "product_suite_meeting_runtime" from "meeting_runtime_fixed"',
+      'drop role if exists "platform_runtime_fixed"',
+      'drop role if exists "meeting_runtime_fixed"',
+      'drop role if exists "platform_runtime_fixed_denied"',
+      'drop sequence if exists public."runtime_privilege_probe_fixed_sequence"',
+      'drop table if exists public."runtime_privilege_probe_fixed"',
+      'drop table if exists public."runtime_privilege_probe_fixed_denied"',
+    ]) {
+      expect(ownerEvents.some((text) => text.includes(cleanupProof))).toBe(true)
+    }
+
+    const cleanupOwnerSql = {
+      query: async (text: string) => {
+        if (text.includes('pg_catalog.pg_auth_members')) return ownerSql.query(text, [])
+        if (text.includes('drop role if exists "platform_runtime_fixed"')) throw new Error('raw cleanup detail')
+        return []
+      },
+    } as unknown as Sql
+    const cleanupFailure = await proveRuntimeLoginPrivileges(
+      cleanupOwnerSql,
+      'postgresql://opaque:opaque@ep.neon.tech/neondb?sslmode=require',
+      {
+        suffix: 'fixed',
+        platformPassword: 'opaque-platform',
+        meetingPassword: 'opaque-meeting',
+        createRuntimeSql: createRuntimeSql(false),
+      },
+    ).catch((error: unknown) => error)
+    expect(cleanupFailure).toMatchObject({ code: 'RUNTIME_PROBE_CLEANUP_UNPROVEN' })
+    expect(String(cleanupFailure)).not.toContain('raw cleanup detail')
   })
 
 })

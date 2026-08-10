@@ -95,7 +95,7 @@ describe('Neon authority conformance guards', () => {
     }
   })
 
-  it('requires a separate non-root branch derived from production history', () => {
+  it('requires a separate non-root branch derived from production history', async () => {
     expect(assertProductionDerivedBranch(derived)).toMatchObject({
       authority: 'production-derived',
       historyVariant: 'original-production',
@@ -104,6 +104,76 @@ describe('Neon authority conformance guards', () => {
     expect(() => assertProductionDerivedBranch({ ...derived, parentBranchId: undefined })).toThrow(
       'PRODUCTION_DERIVED_PARENT_REQUIRED',
     )
+
+    for (const explicitParent of [undefined, 'unlisted-parent']) {
+      const calls: string[] = []
+      const plane = createNeonControlPlane(
+        {
+          NEON_API_KEY: 'opaque-key',
+          NEON_PROJECT_ID: 'production-project',
+          ...(explicitParent ? { NEON_PARENT_BRANCH_ID: explicitParent } : {}),
+        },
+        async (input, init) => {
+          const path = String(input)
+          calls.push(`${init?.method ?? 'GET'} ${path}`)
+          if (path.endsWith('/projects/production-project')) {
+            return new Response(JSON.stringify({ project: { id: 'production-project', default_branch_id: 'production-root' } }))
+          }
+          if (path.includes('/branches?')) {
+            return new Response(JSON.stringify({ branches: [{ id: 'not-default', default: false, parent_id: 'production-root' }] }))
+          }
+          return new Response(JSON.stringify({
+            branch: { id: 'unsafe-derived', parent_id: 'not-default', default: false },
+            connection_uris: [{ connection_uri: 'postgresql://opaque:opaque@ep.neon.tech/neondb?sslmode=require' }],
+          }))
+        },
+      )
+      await expect(plane.createProductionDerivedBranch()).rejects.toThrow('PRODUCTION_DERIVED_PARENT_UNAVAILABLE')
+      expect(calls.some((call) => call.startsWith('POST '))).toBe(false)
+    }
+
+    for (const unsafeBranch of [
+      { parent_id: 'not-production-root', default: false },
+      { parent_id: 'production-root', default: true },
+    ]) {
+      const calls: string[] = []
+      const plane = createNeonControlPlane(
+        { NEON_API_KEY: 'opaque-key', NEON_PROJECT_ID: 'production-project' },
+        async (input, init) => {
+          const path = String(input)
+          calls.push(`${init?.method ?? 'GET'} ${path}`)
+          if (path.endsWith('/projects/production-project')) {
+            return new Response(JSON.stringify({ project: { id: 'production-project', default_branch_id: 'production-root' } }))
+          }
+          if (path.includes('/branches?')) {
+            return new Response(JSON.stringify({ branches: [{ id: 'production-root', default: true, parent_id: null }] }))
+          }
+          if (init?.method === 'POST') {
+            const request = JSON.parse(String(init.body)) as { branch: { name: string } }
+            return new Response(JSON.stringify({
+              branch: { id: 'unsafe-derived', name: request.branch.name, ...unsafeBranch },
+              connection_uris: [{ connection_uri: 'postgresql://opaque:opaque@ep.neon.tech/neondb?sslmode=require' }],
+            }))
+          }
+          return new Response('{}', { status: 404 })
+        },
+      )
+      await expect(plane.createProductionDerivedBranch()).rejects.toBeInstanceOf(Error)
+      await plane.cleanupRetainedResources()
+      expect(calls.some((call) => call.startsWith('DELETE '))).toBe(false)
+    }
+
+    const guardedCalls: string[] = []
+    const guardedPlane = createNeonControlPlane(
+      { NEON_API_KEY: 'opaque-key', NEON_PROJECT_ID: 'production-project' },
+      async (input, init) => {
+        guardedCalls.push(`${init?.method ?? 'GET'} ${String(input)}`)
+        return new Response('{}')
+      },
+    )
+    await expect(guardedPlane.deleteProject('production-project')).rejects.toThrow('UNSAFE_PROJECT_DELETE_TARGET')
+    await expect(guardedPlane.deleteBranch('production-project', 'production-root')).rejects.toThrow('UNSAFE_BRANCH_DELETE_TARGET')
+    expect(guardedCalls).toEqual([])
   })
 
   it('requires create, bootstrap, verify, delete, and deletion proof in cleanup evidence', () => {
@@ -111,6 +181,8 @@ describe('Neon authority conformance guards', () => {
       projectCreated: true,
       repairedBootstrapVerified: true,
       productionDerivedBranchVerified: true,
+      branchDeleteRequested: true,
+      branchDeletionVerified: true,
       projectDeleteRequested: true,
       projectDeletionVerified: true,
     }
@@ -120,6 +192,12 @@ describe('Neon authority conformance guards', () => {
     )
     expect(() => assertCleanupEvidence({ ...complete, projectDeleteRequested: false })).toThrow(
       'PROJECT_CLEANUP_REQUIRED',
+    )
+    expect(() => assertCleanupEvidence({ ...complete, branchDeleteRequested: false })).toThrow(
+      'BRANCH_CLEANUP_REQUIRED',
+    )
+    expect(() => assertCleanupEvidence({ ...complete, branchDeletionVerified: false })).toThrow(
+      'BRANCH_DELETION_UNPROVEN',
     )
   })
 
@@ -261,5 +339,37 @@ describe('Neon authority conformance guards', () => {
     )
     await expect(plane.verifyProjectDeleted('test-project')).resolves.toBeUndefined()
     expect(calls).toEqual(['GET', 'GET'])
+
+    const unsafeCreates = [
+      (projectName: string) => ({
+        project: { id: 'production-project', name: projectName, default_branch_id: 'production-root' },
+        branch: { id: 'production-root', parent_id: null, default: true },
+        connection_uris: [{ connection_uri: 'postgresql://opaque:opaque@ep.neon.tech/neondb?sslmode=require' }],
+      }),
+      (projectName: string) => ({
+        project: { id: 'test-project', name: projectName, default_branch_id: 'test-root' },
+        branch: { id: 'test-root', parent_id: 'unexpected-parent', default: true },
+        connection_uris: [{ connection_uri: 'postgresql://opaque:opaque@ep.neon.tech/neondb?sslmode=require' }],
+      }),
+      (projectName: string) => ({
+        project: { id: 'test-project', name: projectName, default_branch_id: 'test-root' },
+        branch: { id: 'test-root', parent_id: null, default: false },
+        connection_uris: [{ connection_uri: 'postgresql://opaque:opaque@ep.neon.tech/neondb?sslmode=require' }],
+      }),
+    ]
+    for (const unsafeCreate of unsafeCreates) {
+      const unsafeCalls: string[] = []
+      const unsafePlane = createNeonControlPlane(
+        { NEON_API_KEY: 'opaque-key', NEON_PROJECT_ID: 'production-project' },
+        async (input, init) => {
+          unsafeCalls.push(`${init?.method ?? 'GET'} ${String(input)}`)
+          const request = JSON.parse(String(init?.body)) as { project: { name: string } }
+          return new Response(JSON.stringify(unsafeCreate(request.project.name)))
+        },
+      )
+      await expect(unsafePlane.createDisposableProject()).rejects.toBeInstanceOf(Error)
+      await unsafePlane.cleanupRetainedResources()
+      expect(unsafeCalls.some((call) => call.startsWith('DELETE '))).toBe(false)
+    }
   })
 })
