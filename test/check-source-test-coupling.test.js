@@ -5,6 +5,7 @@ import {
   TEST_MARKERS,
   buildCandidateTestPaths,
   getMissingSourceTests,
+  selectFilesForCheck,
   hasCorrespondingTest,
   isSourceFile,
   isTestFile,
@@ -84,5 +85,44 @@ describe("check-source-test-coupling", () => {
 
     expect(hasCorrespondingTest("package.json", stagedFiles)).toBe(true);
     expect(getMissingSourceTests(stagedFiles)).toEqual([]);
+  });
+
+  test("uses the exact base/head range in CI instead of the empty index", () => {
+    const rangeCalls = [];
+    const files = selectFilesForCheck({
+      baseSha: "a".repeat(40),
+      headSha: "b".repeat(40),
+      readRange: (baseSha, headSha) => {
+        rangeCalls.push([baseSha, headSha]);
+        return ["scripts/check-source-test-coupling.mjs", "test/check-source-test-coupling.test.js"];
+      },
+      readStaged: () => {
+        throw new Error("staged files must not be read in CI mode");
+      },
+    });
+
+    expect(rangeCalls).toEqual([["a".repeat(40), "b".repeat(40)]]);
+    expect(files).toEqual([
+      "scripts/check-source-test-coupling.mjs",
+      "test/check-source-test-coupling.test.js",
+    ]);
+  });
+
+  test("keeps staged-file behavior locally and fails closed on malformed CI ranges", () => {
+    expect(selectFilesForCheck({
+      baseSha: "",
+      headSha: "",
+      readStaged: () => ["package.json"],
+    })).toEqual(["package.json"]);
+    expect(() => selectFilesForCheck({
+      baseSha: "not-a-sha",
+      headSha: "b".repeat(40),
+      readRange: () => [],
+    })).toThrow("SOURCE_TEST_RANGE_INVALID");
+    expect(() => selectFilesForCheck({
+      baseSha: "a".repeat(40),
+      headSha: "b".repeat(40),
+      readRange: () => null,
+    })).toThrow("SOURCE_TEST_RANGE_UNAVAILABLE");
   });
 });

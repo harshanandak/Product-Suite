@@ -767,6 +767,9 @@ describe("repo tooling", () => {
     const cheapMeetingInstall = jobs["cheap-gates"].steps.find((step) => step.name === "Install Meeting API dependencies");
     expect(cheapMeetingInstall.if).toBe("${{ contains(needs.classify.outputs.cheapScriptsJson, '\"ci:meeting-api\"') }}");
     expect(cheapMeetingInstall.run).toBe("bun run install:meeting-api");
+    const cheapRun = jobs["cheap-gates"].steps.find((step) => step.name === "Run selected cheap gates sequentially");
+    expect(cheapRun.env.SOURCE_TEST_BASE_SHA).toBe("${{ github.event.pull_request.base.sha || github.event.before }}");
+    expect(cheapRun.env.SOURCE_TEST_HEAD_SHA).toBe("${{ needs['classify'].outputs.exactSha }}");
     const runtimeRun = jobs["db-contract-runtime"].steps.find((step) => step.name === "Run required DB-contract suite");
     expect(runtimeRun.run).toBe("bun run --cwd apps/platform-api test:db-contract:required");
     expect(runtimeRun.env.NEON_API_KEY).toBe("${{ secrets.NEON_API_KEY }}");

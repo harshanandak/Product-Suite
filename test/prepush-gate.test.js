@@ -192,7 +192,26 @@ describe("change-aware CI plan", () => {
       "apps/roadmap-web/src/app/api/review-links/by-token/[token]/route.ts",
       "apps/meeting-api/backend/db.py",
       "apps/meeting-api/backend/config.py",
+      "apps/meeting-api/backend/server.py",
+      "apps/meeting-api/backend/settings.py",
+      "apps/meeting-api/backend/repositories/history.py",
+      "apps/meeting-api/backend/routes/history.py",
+      "apps/meeting-api/backend/routes/tools.py",
+      "apps/meeting-api/backend/alembic/versions/0001_multi_user_jobs.py",
+      "apps/meeting-api/backend/migrate.py",
       "apps/meeting-api/backend/alembic/versions/0005_remove_workos_session_id.py",
+      "apps/roadmap-web/src/middleware.ts",
+      "apps/roadmap-web/src/lib/supabase/middleware.ts",
+      "apps/roadmap-web/src/lib/supabase/server.ts",
+      "apps/roadmap-web/src/lib/supabase/database.types.ts",
+      "apps/roadmap-web/supabase/config.toml",
+      "apps/roadmap-web/src/app/api/team/members/[id]/route.ts",
+      "apps/roadmap-web/src/app/api/team/phase-assignments/route.ts",
+      "apps/roadmap-web/src/app/api/invitations/send/route.ts",
+      "apps/roadmap-web/src/app/api/departments/[id]/route.ts",
+      "apps/roadmap-web/src/app/api/workspaces/[id]/mode/route.ts",
+      "apps/roadmap-web/src/app/api/debug/member-status/route.ts",
+      "apps/roadmap-web/src/app/api/admin/setup-users-table/route.ts",
     ];
 
     for (const file of authorityPaths) {
@@ -206,6 +225,12 @@ describe("change-aware CI plan", () => {
     ], SHA);
     expect(roadmapAuthorityPlan.cheapScripts).toContain("verify:roadmap-web");
     expect(roadmapAuthorityPlan.cheapScripts).not.toContain("test:roadmap-canvas-boundary");
+
+    const roadmapMembershipPlan = buildCiPlan([
+      "apps/roadmap-web/src/app/api/team/members/[id]/route.ts",
+    ], SHA);
+    expect(roadmapMembershipPlan.cheapScripts).toContain("verify:roadmap-web");
+    expect(roadmapMembershipPlan.cheapScripts).not.toContain("test:roadmap-canvas-boundary");
   });
 
   test("the monolithic contracts declaration entrypoint requires DB proof", () => {
