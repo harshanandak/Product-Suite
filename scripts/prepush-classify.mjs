@@ -112,14 +112,18 @@ const SHA_PATTERN = /^[0-9a-f]{40}$/i;
 // second set of workflow regexes.  The normal pre-push classifier remains
 // backwards-compatible; the CI plan adds the stricter DB-authority boundary.
 const CI_DB_REQUIRED = [
+  /(^|\/)package\.json$/i,
   /^apps\/platform-api(?:\/|$)/,
   /^packages\/db(?:\/|$)/,
   /^apps\/meeting-api\/backend\/(?:tenant_context|db|config|server|settings|migrate)\.py$/i,
   /^apps\/meeting-api\/backend\/(?:repositories|routes|alembic)(?:\/|$)/i,
   /^apps\/roadmap-web\/src\/(?:middleware\.ts|lib\/supabase(?:\/|$))/i,
   /^apps\/roadmap-web\/supabase(?:\/|$)/i,
-  /^apps\/roadmap-web\/src\/app\/api\/(?:team|user\/teams|invitations|departments|admin|debug\/member-status|workspaces\/[^/]+\/mode)(?:\/|$)/i,
-  /^packages\/contracts\/src\/index\.d\.ts$/i,
+  /^apps\/roadmap-web\/src\/app\/api(?:\/|$)/i,
+  /^apps\/roadmap-web\/src\/app\/(?:\(dashboard\)|\(auth\))(?:\/|$)/i,
+  /^apps\/meeting-web\/src\/lib\/api\.js$/i,
+  /^apps\/platform-web\/src\/(?:AppRoot\.tsx|fixtures-mode\.ts|data\/work-items\/RepositoryProvider\.tsx)$/i,
+  /^packages\/contracts\/src\/index(?:\.js|\.d\.ts)$/i,
   /^docs\/history\/database-migrations\/manifest\.json$/i,
   /^infra\//,
   /(^|\/)migrations?(?:\/|$)/i,

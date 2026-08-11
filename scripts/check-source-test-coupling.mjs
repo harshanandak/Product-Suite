@@ -82,18 +82,24 @@ export function getRangeFiles(baseSha, headSha) {
 export function selectFilesForCheck({
   baseSha = process.env.SOURCE_TEST_BASE_SHA,
   headSha = process.env.SOURCE_TEST_HEAD_SHA,
+  allowLocalFallback = false,
   readRange = getRangeFiles,
   readStaged = getStagedFiles,
 } = {}) {
   const hasBase = typeof baseSha === "string" && baseSha.length > 0;
   const hasHead = typeof headSha === "string" && headSha.length > 0;
-  if (!hasBase && !hasHead) return readStaged();
+  if (!hasBase && !hasHead && allowLocalFallback) return readStaged();
   if (!hasBase || !hasHead || !SHA_PATTERN.test(baseSha) || !SHA_PATTERN.test(headSha)) {
     throw new Error("SOURCE_TEST_RANGE_INVALID");
   }
   const files = readRange(baseSha.toLowerCase(), headSha.toLowerCase());
   if (!Array.isArray(files)) throw new Error("SOURCE_TEST_RANGE_UNAVAILABLE");
   return files.map(normalizePath);
+}
+
+export function isCiEnvironment(value) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return normalized !== "" && normalized !== "false" && normalized !== "0";
 }
 
 export function isIgnored(file) {
@@ -244,7 +250,9 @@ export function getMissingSourceTests(stagedFiles) {
 }
 
 function main() {
-  const changedFiles = selectFilesForCheck();
+  const changedFiles = selectFilesForCheck({
+    allowLocalFallback: !isCiEnvironment(process.env.CI),
+  });
   const missingSourceTests = getMissingSourceTests(changedFiles);
 
   if (missingSourceTests.length === 0) {

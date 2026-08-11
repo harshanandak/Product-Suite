@@ -21,4 +21,16 @@ describe("CI change-plan adapter", () => {
     expect(plan.dbEvidenceRequired).toBe(true);
     expect(plan.exactSha).toBe("a".repeat(40));
   });
+
+  test("rejects all-zero GitHub SHAs with a full DB-required plan", () => {
+    for (const input of [
+      { baseSha: "0".repeat(40), headSha: "a".repeat(40) },
+      { baseSha: "a".repeat(40), headSha: "0".repeat(40) },
+    ]) {
+      const plan = planFromInputs({ ...input, files: ["docs/only.md"] });
+      expect(plan.inputValid).toBe(false);
+      expect(plan.classification).toBe("full-suite");
+      expect(plan.dbEvidenceRequired).toBe(true);
+    }
+  });
 });

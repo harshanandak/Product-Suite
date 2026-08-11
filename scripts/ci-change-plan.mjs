@@ -42,8 +42,8 @@ function normalizeFiles(files) {
 }
 
 export function planFromInputs({ baseSha, headSha, files } = {}) {
-  const validBase = isValidSha(baseSha);
-  const validHead = isValidSha(headSha);
+  const validBase = isValidSha(baseSha) && !/^0{40}$/.test(baseSha);
+  const validHead = isValidSha(headSha) && !/^0{40}$/.test(headSha);
   let suppliedFiles;
   if (files !== undefined) suppliedFiles = normalizeFiles(files);
   else if (validBase && validHead) suppliedFiles = changedFiles(baseSha, headSha);

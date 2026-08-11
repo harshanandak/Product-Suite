@@ -212,6 +212,16 @@ describe("change-aware CI plan", () => {
       "apps/roadmap-web/src/app/api/workspaces/[id]/mode/route.ts",
       "apps/roadmap-web/src/app/api/debug/member-status/route.ts",
       "apps/roadmap-web/src/app/api/admin/setup-users-table/route.ts",
+      "apps/roadmap-web/src/app/api/user/profile/route.ts",
+      "apps/roadmap-web/src/app/api/dependencies/route.ts",
+      "apps/roadmap-web/src/app/api/work-items/route.ts",
+      "apps/meeting-web/src/lib/api.js",
+      "apps/platform-web/src/data/work-items/RepositoryProvider.tsx",
+      "apps/roadmap-web/src/app/(dashboard)/layout.tsx",
+      "apps/roadmap-web/src/app/(dashboard)/workspaces/[id]/page.tsx",
+      "apps/roadmap-web/src/app/(auth)/accept-invite/page.tsx",
+      "apps/roadmap-web/src/app/(auth)/layout.tsx",
+      "apps/roadmap-web/src/app/(auth)/auth/callback/route.ts",
     ];
 
     for (const file of authorityPaths) {
@@ -231,12 +241,47 @@ describe("change-aware CI plan", () => {
     ], SHA);
     expect(roadmapMembershipPlan.cheapScripts).toContain("verify:roadmap-web");
     expect(roadmapMembershipPlan.cheapScripts).not.toContain("test:roadmap-canvas-boundary");
+
+    const roadmapIdentityPlan = buildCiPlan([
+      "apps/roadmap-web/src/app/api/user/profile/route.ts",
+    ], SHA);
+    expect(roadmapIdentityPlan.cheapScripts).toContain("verify:roadmap-web");
+    expect(roadmapIdentityPlan.cheapScripts).not.toContain("test:roadmap-canvas-boundary");
+
+    const roadmapApiPlan = buildCiPlan([
+      "apps/roadmap-web/src/app/api/dependencies/route.ts",
+    ], SHA);
+    expect(roadmapApiPlan.cheapScripts).toContain("verify:roadmap-web");
+    expect(roadmapApiPlan.cheapScripts).not.toContain("test:roadmap-canvas-boundary");
   });
 
-  test("the monolithic contracts declaration entrypoint requires DB proof", () => {
-    const plan = buildCiPlan(["packages/contracts/src/index.d.ts"], SHA);
-    expect(plan.dbEvidenceRequired).toBe(true);
-    expect(plan.classification).toBe("full-suite");
+  test("the contracts authority entrypoints require DB proof", () => {
+    for (const file of ["packages/contracts/src/index.js", "packages/contracts/src/index.d.ts"]) {
+      const plan = buildCiPlan([file], SHA);
+      expect(plan.dbEvidenceRequired).toBe(true);
+      expect(plan.classification).toBe("full-suite");
+    }
+  });
+
+  test("platform-web authentication roots require DB proof", () => {
+    for (const file of ["apps/platform-web/src/AppRoot.tsx", "apps/platform-web/src/fixtures-mode.ts"]) {
+      const plan = buildCiPlan([file], SHA);
+      expect(plan.dbEvidenceRequired).toBe(true);
+      expect(plan.classification).toBe("full-suite");
+    }
+  });
+
+  test("root and workspace manifests require the full canonical DB path", () => {
+    for (const file of [
+      "package.json",
+      "apps/platform-web/package.json",
+      "packages/contracts/package.json",
+      "packages/ui-meeting/package.json",
+    ]) {
+      const plan = buildCiPlan([file], SHA);
+      expect(plan.dbEvidenceRequired).toBe(true);
+      expect(plan.classification).toBe("full-suite");
+    }
   });
 
   test("unrelated surfaces remain scoped and do not acquire DB proof", () => {

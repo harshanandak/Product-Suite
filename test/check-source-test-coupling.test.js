@@ -5,6 +5,7 @@ import {
   TEST_MARKERS,
   buildCandidateTestPaths,
   getMissingSourceTests,
+  isCiEnvironment,
   selectFilesForCheck,
   hasCorrespondingTest,
   isSourceFile,
@@ -12,6 +13,15 @@ import {
 } from "../scripts/check-source-test-coupling.mjs";
 
 describe("check-source-test-coupling", () => {
+  test("treats every truthy CI spelling as CI and preserves explicit local modes", () => {
+    for (const value of ["true", "TRUE", "1", "yes", "on"]) {
+      expect(isCiEnvironment(value)).toBe(true);
+    }
+    for (const value of [undefined, "", "false", "FALSE", "0", " 0 "]) {
+      expect(isCiEnvironment(value)).toBe(false);
+    }
+  });
+
   test("tracks the expanded source-language coverage", () => {
     expect(SOURCE_EXTENSIONS.has(".mjs")).toBe(true);
     expect(SOURCE_EXTENSIONS.has(".go")).toBe(true);
@@ -112,8 +122,16 @@ describe("check-source-test-coupling", () => {
     expect(selectFilesForCheck({
       baseSha: "",
       headSha: "",
+      allowLocalFallback: true,
       readStaged: () => ["package.json"],
     })).toEqual(["package.json"]);
+    expect(() => selectFilesForCheck({
+      baseSha: "",
+      headSha: "",
+      readStaged: () => {
+        throw new Error("staged files must not be read without explicit local mode");
+      },
+    })).toThrow("SOURCE_TEST_RANGE_INVALID");
     expect(() => selectFilesForCheck({
       baseSha: "not-a-sha",
       headSha: "b".repeat(40),
