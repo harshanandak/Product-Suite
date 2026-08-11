@@ -62,7 +62,7 @@ describe('runtime Neon authority and readiness', () => {
   it('returns opaque readiness only when the canonical floor is present', async () => {
     const ready = await databaseReadiness(
       { DATABASE_URL: 'postgresql://runtime:secret@ep-cool-fire-123456-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require' },
-      async () => ({ rows: [{ hash: 'dc6ac02c11a113e9e7e3ff884d1073cb5977d4c2fc2376f2c21b9d6e8536d2c8' }] }),
+      async () => ({ rows: [{ hash: '085f11d79d41b4ae973341d8ecb931eb38da15c9db1eca410a6d53b61e0b7d85' }] }),
     )
     expect(ready).toEqual({ ok: true, provider: 'neon', schema: 'public', revision: '0019_neon_authority_reconciliation' })
 
@@ -76,7 +76,7 @@ describe('runtime Neon authority and readiness', () => {
       { DATABASE_URL: 'postgresql://runtime:secret@ep-cool-fire-123456-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require' },
       async () => ({ rows: [
         { hash: 'later-migration-hash' },
-        { hash: 'dc6ac02c11a113e9e7e3ff884d1073cb5977d4c2fc2376f2c21b9d6e8536d2c8' },
+        { hash: '085f11d79d41b4ae973341d8ecb931eb38da15c9db1eca410a6d53b61e0b7d85' },
       ] }),
     )
     expect(laterRevision.ok).toBe(true)

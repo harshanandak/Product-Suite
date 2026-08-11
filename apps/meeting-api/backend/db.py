@@ -6,7 +6,7 @@ from sqlalchemy import JSON, MetaData, Table, Column, DateTime, Float, Integer, 
 from sqlalchemy.engine import Engine
 
 CANONICAL_SCHEMA_REVISION = "0019_neon_authority_reconciliation"
-CANONICAL_SCHEMA_MIGRATION_HASH = "dc6ac02c11a113e9e7e3ff884d1073cb5977d4c2fc2376f2c21b9d6e8536d2c8"
+CANONICAL_SCHEMA_MIGRATION_HASH = "085f11d79d41b4ae973341d8ecb931eb38da15c9db1eca410a6d53b61e0b7d85"
 CANONICAL_SCHEMA_TABLES = (
     "tenants",
     "users",

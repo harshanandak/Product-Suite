@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 const contract = JSON.parse(readFileSync(new URL('../config/database-authority.json', import.meta.url), 'utf8'))
-const NEON_HOST = /^ep-([a-z0-9-]+?)(-pooler)?\.[a-z0-9-]+\.aws\.neon\.tech$/
+const NEON_HOST = /^ep-([a-z0-9-]+?)(-pooler)?(?:\.[a-z0-9-]+)+\.neon\.tech$/
 
 function failure(code) {
   return { ok: false, code }

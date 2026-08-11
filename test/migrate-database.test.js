@@ -424,6 +424,23 @@ describe("canonical migration runner", () => {
     expect(result).toMatchObject({ ok: false, code: "MIGRATION_TAG_UNKNOWN" });
   });
 
+  test("rejects a truncated original-production baseline even when its floor matches", async () => {
+    const migrationFiles = loadMigrationFiles();
+    const vector = productionManifest.drizzle.historyVectors["original-production"].entries;
+    const timestamps = new Map(productionPreflightFiles(migrationFiles).map((file) => [file.tag.slice(0, 4), file.timestamp]));
+    const rows = vector.slice(1).map((entry) => ({ hash: entry.observedSha256, timestamp: timestamps.get(entry.tag) }));
+
+    const result = await verifyMigrations({
+      adapter: { query: async () => ({ rows }) },
+      files: migrationFiles,
+      expectedFloor: "0017",
+      expectedCount: 18,
+      authority: { environment: "conformance-original", historyVariant: "original-production" },
+      history: { manifest: productionManifest },
+    });
+    expect(result).toEqual({ ok: false, code: "MIGRATION_COUNT_MISMATCH" });
+  });
+
   test("apply rereads under an advisory lock before executing", async () => {
     const calls = [];
     const result = await applyMigrations({
@@ -439,6 +456,47 @@ describe("canonical migration runner", () => {
     expect(result.ok).toBe(true);
     expect(calls.join("\n")).toContain("pg_advisory_xact_lock");
     expect(calls.join("\n")).not.toContain("pg_available_extensions");
+  });
+
+  test("apply reports the exact migration tag when SQL execution fails", async () => {
+    await expect(applyMigrations({
+      adapter: {
+        query: async (sql) => {
+          if (sql.includes("FROM drizzle.__drizzle_migrations")) return { rows: [{ hash: "h19", timestamp: 19 }] };
+          if (sql === "undefined") throw new Error("database detail must stay redacted");
+          return { rows: [] };
+        },
+      },
+      applied: ["0019"], files, declared: ["0020"], authority,
+    })).rejects.toEqual(new Error("MIGRATION_0020_EXECUTION_FAILED"));
+  });
+
+  test("apply maps a controlled catalog assertion to a redacted tagged category", async () => {
+    await expect(applyMigrations({
+      adapter: {
+        query: async (sql) => {
+          if (sql.includes("FROM drizzle.__drizzle_migrations")) return { rows: [{ hash: "h19", timestamp: 19 }] };
+          if (sql === "undefined") {
+            throw Object.assign(new Error("catalog mismatch: column public.secret_table.secret_column"), { code: "P0001" });
+          }
+          return { rows: [] };
+        },
+      },
+      applied: ["0019"], files, declared: ["0020"], authority,
+    })).rejects.toEqual(new Error("MIGRATION_0020_CATALOG_COLUMN_MISMATCH"));
+  });
+
+  test("apply distinguishes a tagged history-write failure from SQL execution", async () => {
+    await expect(applyMigrations({
+      adapter: {
+        query: async (sql) => {
+          if (sql.includes("FROM drizzle.__drizzle_migrations")) return { rows: [{ hash: "h19", timestamp: 19 }] };
+          if (sql.startsWith("INSERT INTO drizzle.__drizzle_migrations")) throw new Error("database detail must stay redacted");
+          return { rows: [] };
+        },
+      },
+      applied: ["0019"], files, declared: ["0020"], authority,
+    })).rejects.toEqual(new Error("MIGRATION_0020_HISTORY_WRITE_FAILED"));
   });
 
   test("locked apply rejects a nineteenth reread row with an unknown hash", async () => {
@@ -599,11 +657,33 @@ describe("canonical migration runner", () => {
     ["test-only original conformance", { environment: "conformance-original", historyVariant: "original-production" }],
   ])("provisions roles before applying synthetic 0020 then verifies NOOP for %s", async (_label, variantAuthority) => {
     const calls = [];
+    const original = variantAuthority.historyVariant === "original-production";
+    const migrationFiles = loadMigrationFiles();
+    const vector = productionManifest.drizzle.historyVectors["original-production"].entries;
+    const timestamps = new Map(productionPreflightFiles(migrationFiles).map((file) => [file.tag.slice(0, 4), file.timestamp]));
+    const originalHistory = vector.map((entry) => ({
+      hash: entry.observedSha256,
+      timestamp: timestamps.get(entry.tag),
+    }));
+    const variantFiles = original
+      ? [...migrationFiles, files.find((file) => file.tag === "0020")]
+      : files;
+    const appliedFloor = original ? "0017" : "0019";
+    const declared = original
+      ? variantFiles.filter((file) => Number(file.tag.slice(0, 4)) > 17).map((file) => file.tag)
+      : ["0020"];
+    const journalRows = original
+      ? originalHistory.map(({ hash, timestamp }) => ({ hash, timestamp }))
+      : [{ hash: "h19", timestamp: 19 }];
     const adapter = {
-      query: async (sql) => {
+      query: async (sql, params) => {
         calls.push(sql);
         if (sql.includes("current_user AS rolname")) return { rows: [{ rolname: "neondb_owner", rolcanlogin: true, rolsuper: true, rolcreaterole: true, rolcreatedb: true }] };
-        if (sql.includes("FROM drizzle.__drizzle_migrations")) return { rows: [{ hash: "h19", timestamp: 19 }] };
+        if (sql.includes("FROM drizzle.__drizzle_migrations")) return { rows: journalRows.map((row) => ({ ...row })) };
+        if (sql.startsWith("INSERT INTO drizzle.__drizzle_migrations") && params?.length === 2) {
+          journalRows.push({ hash: params[0], timestamp: params[1] });
+          return { rows: [] };
+        }
         if (sql.includes("FROM pg_roles r") && sql.includes("product_suite_platform_runtime")) return {
           rows: [
             { rolname: "product_suite_platform_runtime", rolcanlogin: false, rolsuper: false, rolcreaterole: false, rolcreatedb: false },
@@ -621,23 +701,28 @@ describe("canonical migration runner", () => {
     });
     const applied = await applyMigrations({
       adapter,
-      applied: ["0019"],
-      files,
-      declared: ["0020"],
+      applied: original ? originalHistory : [appliedFloor],
+      files: variantFiles,
+      declared,
       authority: variantAuthority,
+      ...(original ? { history: { manifest: productionManifest } } : {}),
     });
     const noop = await verifyMigrations({
       adapter,
-      applied: ["0019", "0020"],
-      files,
+      applied: original ? applied.applied : ["0019", "0020"],
+      files: variantFiles,
       declared: [],
       expectedFloor: "0020",
       authority: variantAuthority,
+      ...(original ? { history: { manifest: productionManifest } } : {}),
     });
 
     expect(provisioned.ok).toBe(true);
     expect(applied).toMatchObject({ ok: true, status: "APPLIED", historyVariant: variantAuthority.historyVariant });
     expect(noop).toMatchObject({ ok: true, status: "NOOP" });
+    expect(applied.applied.map((entry) => entry.tag)).toEqual(
+      (original ? variantFiles : [{ tag: "0019" }, { tag: "0020" }]).map((entry) => entry.tag),
+    );
     expect(calls.findIndex((sql) => sql.includes("product-suite:database-roles"))).toBeLessThan(
       calls.findIndex((sql) => sql.includes("product-suite:database-migrations")),
     );

@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   BranchLeaseError,
   createBranchLeaseCoordinator,
+  isRetryableLockContention,
   type BranchLease,
   type BranchLeaseKind,
 } from './branch-lease'
@@ -91,6 +92,13 @@ async function releaseChild(child: ChildProcessWithoutNullStreams): Promise<void
 }
 
 describe('run-wide branch lease coordinator', () => {
+  it('retries transient Windows lock contention without masking other filesystem failures', () => {
+    expect(isRetryableLockContention({ code: 'EEXIST' }, 'linux')).toBe(true)
+    expect(isRetryableLockContention({ code: 'EPERM' }, 'win32')).toBe(true)
+    expect(isRetryableLockContention({ code: 'EPERM' }, 'linux')).toBe(false)
+    expect(isRetryableLockContention({ code: 'EACCES' }, 'win32')).toBe(false)
+  })
+
   it('coordinates isolated worker processes under one run token', async () => {
     const root = await rootWithSpaces()
     const suiteWorker = await childLease(root, 'suite')
@@ -230,13 +238,11 @@ describe('run-wide branch lease coordinator', () => {
   it('retains capacity when deletion is uncertain because the lease is not released', async () => {
     const root = await rootWithSpaces()
     const retained = await coordinator(root).acquire('suite')
-    const secondSuite = coordinator(root).acquire('suite')
-    await remainsPending(secondSuite)
     await expect(coordinator(root, 'run-a', 40).acquire('suite')).rejects.toMatchObject({
       code: 'DB_CONTRACT_BRANCH_LEASE_ACQUISITION_TIMEOUT',
     })
     await retained.release()
-    await (await settlesWithin(secondSuite)).release()
+    await (await settlesWithin(coordinator(root).acquire('suite'))).release()
   })
 
   it('isolates capacity by run token', async () => {

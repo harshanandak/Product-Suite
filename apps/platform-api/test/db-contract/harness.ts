@@ -44,23 +44,114 @@ import { createDb, createSql, type Database, type Sql } from '@product-suite/db'
 import { createBranchLeaseCoordinator, type BranchLease } from './branch-lease'
 import { createEphemeralBranch, deleteEphemeralBranchStrict, NeonBranchError, type EphemeralBranch } from './neon-branch'
 import { workerRuntimeConfig } from './runtime-config'
+export { assertConformanceMarker } from './conformance-marker'
 
 /** The only migration-history variants accepted by the authority contract. */
 export type NeonHistoryVariant = 'original-production' | 'repaired-bootstrap'
 
+const CONFORMANCE_PHASES = [
+  'disposable-create',
+  'disposable-bootstrap',
+  'derived-create',
+  'derived-bootstrap',
+  'runtime-probe-disposable',
+  'runtime-probe-derived',
+  'cleanup',
+  'unknown',
+] as const
+
+export type ConformancePhase = typeof CONFORMANCE_PHASES[number]
+
+const CANONICAL_BOOTSTRAP_CODES = [
+  'DISPOSABLE_BOOTSTRAP_UNPROVEN',
+  'RUNTIME_ROLE_PROVISION_UNPROVEN',
+  'CANONICAL_FILE_LOAD_UNPROVEN',
+  'REPAIRED_BOOTSTRAP_UNPROVEN',
+  'REPAIRED_BASELINE_VERIFY_UNPROVEN',
+  'ORIGINAL_PRODUCTION_FLOOR_UNPROVEN',
+  'SYNTHETIC_0020_APPLY_UNPROVEN',
+  'SYNTHETIC_0020_NOOP_UNPROVEN',
+  'DB_SESSION_UNPROVEN',
+  'ROLE_PROVISION_BEGIN_FAILED',
+  'ROLE_PROVISION_AUTHORITY_FAILED',
+  'ROLE_PROVISION_LOCK_FAILED',
+  'ROLE_PROVISION_CREATE_ROLES_FAILED',
+  'ROLE_PROVISION_GRANTS_FAILED',
+  'ROLE_PROVISION_ROLE_STATE_FAILED',
+  'ROLE_PROVISION_MEMBERSHIP_FAILED',
+  'ROLE_PROVISION_COMMIT_FAILED',
+] as const
+
+type CanonicalBootstrapBaseCode = typeof CANONICAL_BOOTSTRAP_CODES[number]
+type CanonicalBootstrapCode = CanonicalBootstrapBaseCode | `${CanonicalBootstrapBaseCode}_${string}`
+
+function isCanonicalBootstrapCode(code: string): code is CanonicalBootstrapCode {
+  return CANONICAL_BOOTSTRAP_CODES.some((base) =>
+    code === base || (code.startsWith(`${base}_`) && /^[A-Z0-9_]+$/.test(code.slice(base.length + 1))),
+  )
+}
+
 /** A redaction-safe conformance failure.  Messages are stable codes only. */
+export interface ConformanceDiagnostic {
+  endpointCategory: string
+  statusClass: string
+}
+
 export class NeonConformanceError extends Error {
   readonly code: string
+  readonly diagnostic?: ConformanceDiagnostic
+  readonly phase?: string
 
-  constructor(code: string) {
+  constructor(code: string, diagnostic?: ConformanceDiagnostic, phase?: string) {
     super(code)
     this.name = 'NeonConformanceError'
     this.code = code
+    this.diagnostic = diagnostic
+    this.phase = phase
   }
 }
 
-function conformanceFailure(code: string): never {
-  throw new NeonConformanceError(code)
+function conformanceFailure(code: string, diagnostic?: ConformanceDiagnostic, phase?: string): never {
+  throw new NeonConformanceError(code, diagnostic, phase)
+}
+
+async function canonicalBootstrapStep<T>(
+  code: CanonicalBootstrapBaseCode,
+  operation: () => T | Promise<T>,
+): Promise<T> {
+  try {
+    return await operation()
+  } catch (error) {
+    if (error instanceof NeonConformanceError && isCanonicalBootstrapCode(error.code)) throw error
+    if (typeof error === 'object' && error !== null && 'code' in error && typeof error.code === 'string' && isCanonicalBootstrapCode(error.code)) {
+      throw new NeonConformanceError(error.code)
+    }
+    if (error instanceof Error && /^[A-Z0-9_]+$/.test(error.message)) {
+      throw new NeonConformanceError(`${code}_${error.message}`)
+    }
+    throw new NeonConformanceError(code)
+  }
+}
+
+function redactedConformanceDiagnostic(
+  diagnostic: ConformanceDiagnostic | undefined,
+): ConformanceDiagnostic | undefined {
+  if (!diagnostic) return undefined
+  return {
+    endpointCategory: /^(?:projects|project|project-branches|project-operations|control-plane)$/.test(diagnostic.endpointCategory)
+      ? diagnostic.endpointCategory
+      : 'control-plane',
+    statusClass: /^(?:[1-5]xx|network|unknown)$/.test(diagnostic.statusClass)
+      ? diagnostic.statusClass
+      : 'unknown',
+  }
+}
+
+function redactedConformancePhase(phase: string | undefined): ConformancePhase | undefined {
+  if (phase === undefined) return undefined
+  return (CONFORMANCE_PHASES as readonly string[]).includes(phase)
+    ? phase as ConformancePhase
+    : 'unknown'
 }
 
 /** The minimum project/root evidence required for the disposable bootstrap lane. */
@@ -92,6 +183,8 @@ export interface CleanupEvidence {
   projectCreated: boolean
   repairedBootstrapVerified: boolean
   productionDerivedBranchVerified: boolean
+  branchDeleteRequested: boolean
+  branchDeletionVerified: boolean
   projectDeleteRequested: boolean
   projectDeletionVerified: boolean
 }
@@ -127,18 +220,14 @@ export function conformanceCredentialStatus(
   return { status: 'READY' }
 }
 
-export function requiredConformanceStatus(
-  env: NeonControlPlaneEnv = process.env,
-): ConformanceCredentialStatus {
-  return conformanceCredentialStatus(env)
-}
-
 export interface NeonProjectHandle extends DisposableTestProject {
   connectionUri: string
+  runtimeConnectionUri: string
 }
 
 export interface NeonDerivedHandle extends ProductionDerivedBranch {
   connectionUri: string
+  runtimeConnectionUri: string
 }
 
 export interface NeonControlPlane {
@@ -183,6 +272,30 @@ function controlPlaneSleep(delayMs: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, delayMs))
 }
 
+function controlPlaneFailureCode(status: number): string {
+  if (status === 401 || status === 403) return 'AUTH_FAILED'
+  if (status === 404) return 'NOT_FOUND'
+  if (status === 409) return 'CONFLICT'
+  if (status === 429) return 'RATE_LIMITED'
+  if (status >= 500 && status <= 599) return 'UNAVAILABLE'
+  return 'REQUEST_FAILED'
+}
+
+function controlPlaneEndpointCategory(path: string): string {
+  const pathname = path.split('?', 1)[0] ?? path
+  if (pathname === '/projects') return 'projects'
+  if (/^\/projects\/[^/]+\/operations\/[^/]+$/.test(pathname)) return 'project-operations'
+  if (/^\/projects\/[^/]+\/branches(?:\/[^/]+)?$/.test(pathname)) return 'project-branches'
+  if (/^\/projects\/[^/]+$/.test(pathname)) return 'project'
+  return 'control-plane'
+}
+
+function controlPlaneStatusClass(status: number): string {
+  return Number.isInteger(status) && status >= 100 && status <= 599
+    ? `${Math.floor(status / 100)}xx`
+    : 'unknown'
+}
+
 /** Fetch JSON without ever surfacing response bodies, URLs, or credentials. */
 async function controlPlaneFetchWith(
   apiKey: string,
@@ -206,7 +319,10 @@ async function controlPlaneFetchWith(
         await controlPlaneSleep(retryDelaysMs[attempt] ?? 0)
         continue
       }
-      conformanceFailure('NEON_CONTROL_PLANE_FAILED')
+      conformanceFailure('NETWORK_FAILED', {
+        endpointCategory: controlPlaneEndpointCategory(path),
+        statusClass: 'network',
+      })
     }
     const body = await response.json().catch(() => ({})) as Record<string, unknown>
     if (response.ok || options.acceptedStatuses?.includes(response.status) || (init.method === 'DELETE' && ACCEPTED_DELETE_STATUSES.has(response.status))) {
@@ -219,7 +335,10 @@ async function controlPlaneFetchWith(
       await controlPlaneSleep(retryDelaysMs[attempt] ?? 0)
       continue
     }
-    conformanceFailure('NEON_CONTROL_PLANE_FAILED')
+    conformanceFailure(controlPlaneFailureCode(response.status), {
+      endpointCategory: controlPlaneEndpointCategory(path),
+      statusClass: controlPlaneStatusClass(response.status),
+    })
   }
 }
 
@@ -278,34 +397,293 @@ async function waitControlPlaneOperations(
   }
 }
 
-function projectIdResponse(body: Record<string, unknown>): string {
+interface ValidatedProjectResponse {
+  projectId: string
+  projectName: string
+  branchId: string
+  connectionUri: string
+  runtimeConnectionUri: string
+}
+
+type NeonConnectionPurpose = 'migration' | 'runtime'
+
+interface NeonConnectionBinding {
+  projectId: string
+  branchId: string
+  purpose: NeonConnectionPurpose
+}
+
+interface NeonConnectionParameters {
+  database?: unknown
+  password?: unknown
+  role?: unknown
+  host?: unknown
+  pooler_host?: unknown
+}
+
+interface NeonConnectionDetails {
+  connection_uri?: unknown
+  connection_parameters?: NeonConnectionParameters
+}
+
+interface NeonEndpointDetails {
+  id?: unknown
+  host?: unknown
+  project_id?: unknown
+  branch_id?: unknown
+  type?: unknown
+}
+
+const NEON_RESOURCE_ID = /^[a-z0-9-]{1,60}$/
+const NEON_HOSTNAME = /^ep-[a-z0-9-]+(?:\.[a-z0-9-]+)+\.neon\.tech$/
+const NEON_TLS_MODES = new Set(['require', 'verify-ca', 'verify-full'])
+
+function validatedNeonConnectionUri(
+  body: Record<string, unknown>,
+  expected: NeonConnectionBinding,
+  candidateConnectionUri?: string,
+): string {
+  const connections = Array.isArray(body.connection_uris) ? body.connection_uris as NeonConnectionDetails[] : []
+  const endpoints = Array.isArray(body.endpoints) ? body.endpoints as NeonEndpointDetails[] : []
+  if (connections.length !== 1 || endpoints.length !== 1) conformanceFailure('NEON_CONNECTION_BINDING_INVALID')
+
+  const connection = connections[0]
+  const parameters = connection?.connection_parameters
+  const endpoint = endpoints[0]
+  const directConnectionUri = typeof connection?.connection_uri === 'string' ? connection.connection_uri : ''
+  const endpointId = typeof endpoint?.id === 'string' ? endpoint.id : ''
+  const endpointHost = typeof endpoint?.host === 'string' ? endpoint.host : ''
+  const directHost = typeof parameters?.host === 'string' ? parameters.host : ''
+  const poolerHost = typeof parameters?.pooler_host === 'string' ? parameters.pooler_host : ''
+  if (
+    endpoint?.project_id !== expected.projectId
+    || endpoint.branch_id !== expected.branchId
+    || endpoint.type !== 'read_write'
+    || !NEON_RESOURCE_ID.test(endpointId)
+    || !NEON_HOSTNAME.test(endpointHost)
+    || endpointHost !== directHost
+    || !NEON_HOSTNAME.test(poolerHost)
+  ) {
+    conformanceFailure('NEON_CONNECTION_BINDING_INVALID')
+  }
+
+  let directUrl: URL
+  try {
+    directUrl = new URL(directConnectionUri)
+  } catch {
+    conformanceFailure('NEON_CONNECTION_URL_INVALID')
+  }
+  if (directUrl.hostname !== directHost) conformanceFailure('NEON_CONNECTION_BINDING_INVALID')
+  let connectionUri = candidateConnectionUri
+  if (!connectionUri) {
+    if (expected.purpose === 'migration') {
+      connectionUri = directConnectionUri
+    } else {
+      directUrl.hostname = poolerHost
+      connectionUri = directUrl.toString()
+    }
+  }
+  let url: URL
+  try {
+    url = new URL(connectionUri)
+  } catch {
+    conformanceFailure('NEON_CONNECTION_URL_INVALID')
+  }
+  if (!['postgres:', 'postgresql:'].includes(url.protocol) || !NEON_HOSTNAME.test(url.hostname)) {
+    conformanceFailure('NEON_CONNECTION_PROVIDER_INVALID')
+  }
+  if (url.pathname !== '/neondb' || parameters?.database !== 'neondb') {
+    conformanceFailure('NEON_CONNECTION_DATABASE_INVALID')
+  }
+  if (!NEON_TLS_MODES.has(url.searchParams.get('sslmode') ?? '')) {
+    conformanceFailure('NEON_CONNECTION_TLS_REQUIRED')
+  }
+  const expectedHost = expected.purpose === 'runtime' ? poolerHost : directHost
+  const expectedPrefix = expected.purpose === 'runtime' ? `${endpointId}-pooler.` : `${endpointId}.`
+  if (url.hostname !== expectedHost || !url.hostname.startsWith(expectedPrefix)) {
+    conformanceFailure('NEON_CONNECTION_PURPOSE_INVALID')
+  }
+  return connectionUri
+}
+
+/** Redaction-safe structural and control-plane binding proof for a Neon URL. */
+export function assertNeonConnectionBinding(
+  body: Record<string, unknown>,
+  expected: NeonConnectionBinding,
+  candidateConnectionUri?: string,
+): { status: 'READY' } {
+  validatedNeonConnectionUri(body, expected, candidateConnectionUri)
+  return { status: 'READY' }
+}
+
+function safeProjectIdentity(
+  body: Record<string, unknown>,
+  sourceProjectId: string,
+): { projectId: string } {
   const project = body.project as { id?: unknown } | undefined
-  return typeof project?.id === 'string' ? project.id : ''
-}
-
-function projectResponse(body: Record<string, unknown>): { projectId: string; branchId: string; connectionUri: string } {
-  const project = body.project as { id?: unknown; default_branch_id?: unknown } | undefined
-  const branch = body.branch as { id?: unknown } | undefined
   const projectId = typeof project?.id === 'string' ? project.id : ''
-  const branchId = typeof branch?.id === 'string' ? branch.id : typeof project?.default_branch_id === 'string' ? project.default_branch_id : ''
-  const uris = body.connection_uris as Array<{ connection_uri?: unknown }> | undefined
-  const connectionUri = typeof uris?.[0]?.connection_uri === 'string' ? uris[0].connection_uri : ''
-  if (!projectId || !branchId || !connectionUri) conformanceFailure('NEON_PROJECT_RESPONSE_INVALID')
-  return { projectId, branchId, connectionUri }
+  if (!NEON_RESOURCE_ID.test(projectId) || projectId === sourceProjectId) {
+    conformanceFailure('NEON_PROJECT_RESPONSE_INVALID')
+  }
+  return { projectId }
 }
 
-function branchResponse(body: Record<string, unknown>): { branchId: string; connectionUri: string } {
+async function sourceProjectOrganizationId(
+  apiKey: string,
+  sourceProjectId: string,
+  fetcher: typeof fetch,
+): Promise<string> {
+  if (!NEON_RESOURCE_ID.test(sourceProjectId)) conformanceFailure('NEON_SOURCE_PROJECT_INVALID')
+  const result = await controlPlaneFetchWith(apiKey, `/projects/${sourceProjectId}`, { method: 'GET' }, fetcher)
+  const project = result.body.project as { id?: unknown; org_id?: unknown } | undefined
+  const organizationId = typeof project?.org_id === 'string' ? project.org_id : ''
+  if (project?.id !== sourceProjectId || !NEON_RESOURCE_ID.test(organizationId)) {
+    conformanceFailure('NEON_SOURCE_PROJECT_METADATA_INVALID')
+  }
+  return organizationId
+}
+
+function projectResponse(
+  body: Record<string, unknown>,
+  safeIdentity: { projectId: string },
+  expectedName: string,
+): ValidatedProjectResponse {
+  const project = body.project as { id?: unknown; name?: unknown } | undefined
   const branch = body.branch as { id?: unknown; parent_id?: unknown; default?: unknown } | undefined
-  const uris = body.connection_uris as Array<{ connection_uri?: unknown }> | undefined
+  const projectId = typeof project?.id === 'string' ? project.id : ''
+  const projectName = typeof project?.name === 'string' ? project.name : ''
   const branchId = typeof branch?.id === 'string' ? branch.id : ''
-  const connectionUri = typeof uris?.[0]?.connection_uri === 'string' ? uris[0].connection_uri : ''
-  if (!branchId || !connectionUri) conformanceFailure('NEON_BRANCH_RESPONSE_INVALID')
-  return { branchId, connectionUri }
+  if (projectId !== safeIdentity.projectId || projectName !== expectedName) {
+    conformanceFailure('NEON_PROJECT_RESPONSE_INVALID')
+  }
+  if (!NEON_RESOURCE_ID.test(branchId) || branch?.default !== true || branch.parent_id != null) {
+    conformanceFailure('NEON_PROJECT_ROOT_INVALID')
+  }
+  const connectionUri = validatedNeonConnectionUri(body, { projectId, branchId, purpose: 'migration' })
+  const runtimeConnectionUri = validatedNeonConnectionUri(body, { projectId, branchId, purpose: 'runtime' })
+  return { projectId, projectName, branchId, connectionUri, runtimeConnectionUri }
 }
 
-function branchIdResponse(body: Record<string, unknown>): string {
+function assertProjectRead(
+  body: Record<string, unknown>,
+  expected: Pick<ValidatedProjectResponse, 'projectId' | 'projectName'>,
+): void {
+  const project = body.project as { id?: unknown; name?: unknown } | undefined
+  if (project?.id !== expected.projectId || project.name !== expected.projectName) {
+    conformanceFailure('NEON_PROJECT_METADATA_UNPROVEN')
+  }
+}
+
+function assertRootBranchRead(body: Record<string, unknown>, branchId: string): void {
+  const branch = body.branch as { id?: unknown; parent_id?: unknown; default?: unknown } | undefined
+  if (branch?.id !== branchId || branch.default !== true || branch.parent_id != null) {
+    conformanceFailure('NEON_PROJECT_ROOT_UNPROVEN')
+  }
+}
+
+function assertNeondbRead(body: Record<string, unknown>): void {
+  const databases = Array.isArray(body.databases) ? body.databases as Array<{ name?: unknown }> : []
+  if (databases.length !== 1 || databases[0]?.name !== 'neondb') {
+    conformanceFailure('NEON_PROJECT_DATABASE_UNPROVEN')
+  }
+}
+
+function branchResponse(
+  body: Record<string, unknown>,
+  expected: { projectId: string; branchId: string; branchName: string; parentBranchId: string },
+): { branchId: string; connectionUri: string; runtimeConnectionUri: string } {
+  const branch = body.branch as { id?: unknown; name?: unknown; parent_id?: unknown; default?: unknown } | undefined
+  const branchId = typeof branch?.id === 'string' ? branch.id : ''
+  if (branchId !== expected.branchId || branch?.name !== expected.branchName) {
+    conformanceFailure('NEON_BRANCH_RESPONSE_INVALID')
+  }
+  if (branch.parent_id !== expected.parentBranchId || branch.default !== false) {
+    conformanceFailure('PRODUCTION_DERIVED_PARENT_MISMATCH')
+  }
+  const connectionUri = validatedNeonConnectionUri(body, {
+    projectId: expected.projectId,
+    branchId,
+    purpose: 'migration',
+  })
+  const runtimeConnectionUri = validatedNeonConnectionUri(body, {
+    projectId: expected.projectId,
+    branchId,
+    purpose: 'runtime',
+  })
+  return { branchId, connectionUri, runtimeConnectionUri }
+}
+
+function safeBranchIdentity(
+  body: Record<string, unknown>,
+  protectedBranchIds: readonly string[],
+): { branchId: string } {
   const branch = body.branch as { id?: unknown } | undefined
-  return typeof branch?.id === 'string' ? branch.id : ''
+  const branchId = typeof branch?.id === 'string' ? branch.id : ''
+  if (
+    !NEON_RESOURCE_ID.test(branchId)
+    || protectedBranchIds.includes(branchId)
+  ) {
+    conformanceFailure('NEON_BRANCH_RESPONSE_INVALID')
+  }
+  return { branchId }
+}
+
+function assertDerivedBranchRead(
+  body: Record<string, unknown>,
+  expected: { branchId: string; branchName: string; parentBranchId: string },
+): void {
+  const branch = body.branch as { id?: unknown; name?: unknown; parent_id?: unknown; default?: unknown } | undefined
+  if (branch?.id !== expected.branchId || branch.name !== expected.branchName || branch.parent_id !== expected.parentBranchId || branch.default !== false) {
+    conformanceFailure('PRODUCTION_DERIVED_METADATA_UNPROVEN')
+  }
+}
+
+const PRODUCTION_BRANCH_PAGE_LIMIT = 100
+const PRODUCTION_BRANCH_MAX_PAGES = 1000
+type ProductionBranchSummary = { id?: unknown; parent_id?: unknown; default?: unknown }
+
+async function listAllProductionBranches(
+  apiKey: string,
+  sourceProjectId: string,
+  fetcher: typeof fetch,
+): Promise<ProductionBranchSummary[]> {
+  const all: ProductionBranchSummary[] = []
+  const seenCursors = new Set<string>()
+  let cursor: string | undefined
+
+  for (let page = 0; page < PRODUCTION_BRANCH_MAX_PAGES; page += 1) {
+    const params = new URLSearchParams({ limit: String(PRODUCTION_BRANCH_PAGE_LIMIT) })
+    if (cursor) params.set('cursor', cursor)
+    const result = await controlPlaneFetchWith(
+      apiKey,
+      `/projects/${sourceProjectId}/branches?${params.toString()}`,
+      { method: 'GET' },
+      fetcher,
+    )
+    const rawBranches = result.body.branches
+    if (!Array.isArray(rawBranches) || rawBranches.length === 0 || rawBranches.some((branch) => (
+      !branch || typeof branch !== 'object' || Array.isArray(branch)
+    ))) {
+      conformanceFailure('PRODUCTION_DERIVED_PARENT_UNAVAILABLE')
+    }
+    all.push(...rawBranches as ProductionBranchSummary[])
+
+    const pagination = result.body.pagination
+    if (pagination !== undefined && (
+      !pagination || typeof pagination !== 'object' || Array.isArray(pagination)
+    )) {
+      conformanceFailure('PRODUCTION_DERIVED_PARENT_UNAVAILABLE')
+    }
+    const next = (pagination as { next?: unknown } | undefined)?.next
+    if (next === undefined) return all
+    if (typeof next !== 'string' || next.length === 0 || seenCursors.has(next)) {
+      conformanceFailure('PRODUCTION_DERIVED_PARENT_UNAVAILABLE')
+    }
+    seenCursors.add(next)
+    cursor = next
+  }
+
+  conformanceFailure('PRODUCTION_DERIVED_PARENT_UNAVAILABLE')
 }
 
 async function productionParentBranchId(
@@ -314,14 +692,25 @@ async function productionParentBranchId(
   requestedParentBranchId: string | undefined,
   fetcher: typeof fetch = fetch,
 ): Promise<string> {
-  if (requestedParentBranchId) return requestedParentBranchId
-  const result = await controlPlaneFetchWith(apiKey, `/projects/${sourceProjectId}/branches?limit=100`, { method: 'GET' }, fetcher)
-  const branches = Array.isArray(result.body.branches) ? result.body.branches as Array<{ id?: unknown; default?: unknown }> : []
-  const parent = branches.find((branch) => branch.default === true) ?? branches[0]
-  if (typeof parent?.id !== 'string' || parent.id.length === 0) {
+  const projectResult = await controlPlaneFetchWith(apiKey, `/projects/${sourceProjectId}`, { method: 'GET' }, fetcher)
+  const project = projectResult.body.project as { id?: unknown } | undefined
+  if (project?.id !== sourceProjectId) conformanceFailure('PRODUCTION_DERIVED_PARENT_UNAVAILABLE')
+  const branches = await listAllProductionBranches(apiKey, sourceProjectId, fetcher)
+  const malformed = branches.some((branch) => (
+    typeof branch.id !== 'string'
+    || !NEON_RESOURCE_ID.test(branch.id)
+    || typeof branch.default !== 'boolean'
+    || (branch.parent_id !== undefined && branch.parent_id !== null && typeof branch.parent_id !== 'string')
+  ))
+  const roots = branches.filter((branch) => branch.default === true && (branch.parent_id === null || branch.parent_id === undefined))
+  if (malformed || roots.length !== 1) {
     conformanceFailure('PRODUCTION_DERIVED_PARENT_UNAVAILABLE')
   }
-  return parent.id
+  const rootBranchId = roots[0]!.id as string
+  if (requestedParentBranchId !== undefined && requestedParentBranchId !== rootBranchId) {
+    conformanceFailure('PRODUCTION_DERIVED_PARENT_UNAVAILABLE')
+  }
+  return rootBranchId
 }
 
 /** Native-fetch control-plane adapter: project/root + production-derived branch. */
@@ -329,18 +718,40 @@ export function createNeonControlPlane(env: NeonControlPlaneEnv = process.env, f
   const { apiKey, sourceProjectId } = controlPlaneConfig(env)
   const request = (path: string, init: { method: string; body?: unknown }) => controlPlaneFetchWith(apiKey, path, init, fetcher)
   let retainedProjectId: string | undefined
-  let retainedBranch: { projectId: string; branchId: string } | undefined
+  let retainedBranch: { projectId: string; branchId: string; parentBranchId: string; rootBranchId: string } | undefined
+
+  const assertSafeProjectDelete = (projectId: string): void => {
+    if (!retainedProjectId || projectId !== retainedProjectId || projectId === sourceProjectId) {
+      conformanceFailure('UNSAFE_PROJECT_DELETE_TARGET')
+    }
+  }
+  const assertSafeBranchDelete = (projectId: string, branchId: string): void => {
+    if (!retainedBranch || projectId !== sourceProjectId || projectId !== retainedBranch.projectId || branchId !== retainedBranch.branchId) {
+      conformanceFailure('UNSAFE_BRANCH_DELETE_TARGET')
+    }
+    if (branchId === retainedBranch.parentBranchId || branchId === retainedBranch.rootBranchId) {
+      conformanceFailure('UNSAFE_BRANCH_DELETE_TARGET')
+    }
+  }
+
   return {
     async createDisposableProject() {
+      const projectName = `product-suite-test-only-repaired-bootstrap-${Date.now()}`
+      const organizationId = await sourceProjectOrganizationId(apiKey, sourceProjectId, fetcher)
       const result = await request('/projects', {
         method: 'POST',
-        body: { project: { name: `product-suite-db-contract-${Date.now()}`, pg_version: 17 } },
+        body: { project: { name: projectName, pg_version: 17, org_id: organizationId } },
       })
-      const projectId = projectIdResponse(result.body)
-      if (!projectId) conformanceFailure('NEON_PROJECT_RESPONSE_INVALID')
-      retainedProjectId = projectId
-      await waitControlPlaneOperations(apiKey, projectId, (result.body.operations ?? []) as NeonOperation[], fetcher)
-      const created = projectResponse(result.body)
+      const safeIdentity = safeProjectIdentity(result.body, sourceProjectId)
+      retainedProjectId = safeIdentity.projectId
+      const created = projectResponse(result.body, safeIdentity, projectName)
+      await waitControlPlaneOperations(apiKey, created.projectId, (result.body.operations ?? []) as NeonOperation[], fetcher)
+      const projectRead = await request(`/projects/${created.projectId}`, { method: 'GET' })
+      assertProjectRead(projectRead.body, created)
+      const branchRead = await request(`/projects/${created.projectId}/branches/${created.branchId}`, { method: 'GET' })
+      assertRootBranchRead(branchRead.body, created.branchId)
+      const databaseRead = await request(`/projects/${created.projectId}/branches/${created.branchId}/databases`, { method: 'GET' })
+      assertNeondbRead(databaseRead.body)
       const sql = createSql(created.connectionUri)
       const rows = await query<{ count: string }>(sql, `select count(*)::text as count from information_schema.tables where table_schema = 'public'`)
       return {
@@ -352,23 +763,36 @@ export function createNeonControlPlane(env: NeonControlPlaneEnv = process.env, f
         historyVariant: 'repaired-bootstrap',
         catalogCount: Number(rows[0]?.count ?? 0),
         connectionUri: created.connectionUri,
+        runtimeConnectionUri: created.runtimeConnectionUri,
       }
     },
     async createProductionDerivedBranch() {
       const parentBranchId = await productionParentBranchId(apiKey, sourceProjectId, env.NEON_PARENT_BRANCH_ID, fetcher)
+      const branchName = `db-contract-production-original-${Date.now()}`
       // Production-derived conformance branches are disposable even when a
       // runner is cancelled between creation and cleanup.
       const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString()
       const body = {
         endpoints: [{ type: 'read_write' }],
-        branch: { name: `db-contract-production-${Date.now()}`, parent_id: parentBranchId, expires_at: expiresAt },
+        branch: { name: branchName, parent_id: parentBranchId, expires_at: expiresAt },
       }
       const result = await request(`/projects/${sourceProjectId}/branches`, { method: 'POST', body })
-      const branchId = branchIdResponse(result.body)
-      if (!branchId) conformanceFailure('NEON_BRANCH_RESPONSE_INVALID')
-      retainedBranch = { projectId: sourceProjectId, branchId }
+      const safeIdentity = safeBranchIdentity(result.body, [parentBranchId])
+      retainedBranch = {
+        projectId: sourceProjectId,
+        branchId: safeIdentity.branchId,
+        parentBranchId,
+        rootBranchId: parentBranchId,
+      }
+      const created = branchResponse(result.body, {
+        projectId: sourceProjectId,
+        branchId: safeIdentity.branchId,
+        branchName,
+        parentBranchId,
+      })
       await waitControlPlaneOperations(apiKey, sourceProjectId, (result.body.operations ?? []) as NeonOperation[], fetcher)
-      const created = branchResponse(result.body)
+      const branchRead = await request(`/projects/${sourceProjectId}/branches/${created.branchId}`, { method: 'GET' })
+      assertDerivedBranchRead(branchRead.body, { branchId: created.branchId, branchName, parentBranchId })
       return {
         ...created,
         projectId: sourceProjectId,
@@ -383,18 +807,23 @@ export function createNeonControlPlane(env: NeonControlPlaneEnv = process.env, f
     async proveVariant(connectionUri, variant) { await proveCanonicalVariant(connectionUri, variant) },
     async probeLeastPrivilege(connectionUri) {
       const sql = createSql(connectionUri)
-      const roles = await query<RuntimeRoleSnapshot>(sql, `select rolname as name, rolcanlogin as "canLogin", rolsuper as "isSuperuser", rolcreaterole as "canCreateRole", rolcreatedb as "canCreateDb", '[]'::json as memberships from pg_roles where rolname in ('product_suite_platform_runtime','product_suite_meeting_runtime')`)
-      assertRuntimeRoleContract(roles, { allowedLogins: [] })
       await proveRuntimeLoginPrivileges(sql, connectionUri)
     },
-    async deleteProject(projectId) { await request(`/projects/${projectId}`, { method: 'DELETE' }) },
+    async deleteProject(projectId) {
+      assertSafeProjectDelete(projectId)
+      await request(`/projects/${projectId}`, { method: 'DELETE' })
+    },
     async verifyProjectDeleted(projectId) { await pollControlPlaneDeletion(apiKey, `/projects/${projectId}`, 'PROJECT_DELETION_UNPROVEN', fetcher) },
-    async deleteBranch(projectId, branchId) { await request(`/projects/${projectId}/branches/${branchId}`, { method: 'DELETE' }) },
+    async deleteBranch(projectId, branchId) {
+      assertSafeBranchDelete(projectId, branchId)
+      await request(`/projects/${projectId}/branches/${branchId}`, { method: 'DELETE' })
+    },
     async verifyBranchDeleted(projectId, branchId) { await pollControlPlaneDeletion(apiKey, `/projects/${projectId}/branches/${branchId}`, 'BRANCH_DELETION_UNPROVEN', fetcher) },
     async cleanupRetainedResources() {
       let cleanupFailed = false
       if (retainedBranch) {
         try {
+          assertSafeBranchDelete(retainedBranch.projectId, retainedBranch.branchId)
           await request(`/projects/${retainedBranch.projectId}/branches/${retainedBranch.branchId}`, { method: 'DELETE' })
           await pollControlPlaneDeletion(apiKey, `/projects/${retainedBranch.projectId}/branches/${retainedBranch.branchId}`, 'BRANCH_DELETION_UNPROVEN', fetcher)
           retainedBranch = undefined
@@ -402,6 +831,7 @@ export function createNeonControlPlane(env: NeonControlPlaneEnv = process.env, f
       }
       if (retainedProjectId) {
         try {
+          assertSafeProjectDelete(retainedProjectId)
           await request(`/projects/${retainedProjectId}`, { method: 'DELETE' })
           await pollControlPlaneDeletion(apiKey, `/projects/${retainedProjectId}`, 'PROJECT_DELETION_UNPROVEN', fetcher)
           retainedProjectId = undefined
@@ -430,23 +860,67 @@ type SessionAdapter = {
   query(text: string, params?: unknown[]): Promise<{ rows: Record<string, unknown>[] }>
 }
 
-async function withDatabaseSession<T>(connectionUri: string, body: (adapter: SessionAdapter) => Promise<T>): Promise<T> {
-  const pool = new Pool({ connectionString: connectionUri, max: 1 })
+type SessionClient = {
+  query(text: string, params?: unknown[]): Promise<{ rows: unknown[] }>
+  release(): void
+}
+
+type SessionPool = {
+  connect(): Promise<SessionClient>
+  end(): Promise<void>
+}
+
+export type SessionPoolFactory = () => SessionPool
+
+async function preservePrimaryOnCleanup<T>(
+  body: () => Promise<T>,
+  cleanup: () => Promise<void>,
+): Promise<T> {
+  let value!: T
+  let primary: unknown
+  let hasPrimary = false
+  let hasFailure = false
   try {
-    const client = await pool.connect()
-    try {
-      return await body({
+    value = await body()
+  } catch (error) {
+    primary = error
+    hasPrimary = true
+    hasFailure = true
+  }
+  try {
+    await cleanup()
+  } catch (error) {
+    hasFailure = true
+    if (!hasPrimary) primary = error
+  }
+  if (hasFailure) throw primary
+  return value
+}
+
+async function withDatabaseSession<T>(
+  connectionUri: string,
+  body: (adapter: SessionAdapter) => Promise<T>,
+  poolFactory: SessionPoolFactory = () => new Pool({ connectionString: connectionUri, max: 1 }) as unknown as SessionPool,
+): Promise<T> {
+  const pool = poolFactory()
+  let client: SessionClient | undefined
+  return preservePrimaryOnCleanup(
+    async () => {
+      client = await pool.connect()
+      return body({
         query: async (text, params = []) => {
-          const result = await client.query(text, params)
+          const result = await client!.query(text, params)
           return { rows: result.rows as Record<string, unknown>[] }
         },
       })
-    } finally {
-      client.release()
-    }
-  } finally {
-    await pool.end()
-  }
+    },
+    async () => {
+      let cleanupError: unknown
+      try { client?.release() } catch (error) { cleanupError = error }
+      try { await pool.end() } catch (error) { if (cleanupError === undefined) cleanupError = error }
+      if (cleanupError !== undefined) throw cleanupError
+    },
+  )
 }
 
 function canonicalFilesForVariant(
@@ -467,6 +941,16 @@ function canonicalFilesForVariant(
   return files.map((file) => ({ ...file, hash: originalHashes.get(file.file) ?? file.hash }))
 }
 
+export function loadCanonicalFilesForVariant(
+  variant: NeonHistoryVariant,
+  loadFiles: () => CanonicalMigrationFile[],
+): Promise<CanonicalMigrationFile[]> {
+  return canonicalBootstrapStep(
+    'CANONICAL_FILE_LOAD_UNPROVEN',
+    () => canonicalFilesForVariant(variant, loadFiles),
+  )
+}
+
 function appliedTags(evidence: CanonicalEvidence): string[] {
   return (evidence.applied ?? []).flatMap((entry) => {
     const tag = typeof entry === 'string' ? entry : entry.tag
@@ -475,13 +959,50 @@ function appliedTags(evidence: CanonicalEvidence): string[] {
 }
 
 export function variantMigrationContract(variant: NeonHistoryVariant): {
-  baselineFloor: '0018' | '0019'
+  baselineFloor: '0017' | '0018' | '0019'
+  baselineCount: 18 | 20
   declared: string[]
   finalFloor: '0020'
 } {
   return variant === 'repaired-bootstrap'
-    ? { baselineFloor: '0019', declared: ['0020'], finalFloor: '0020' }
-    : { baselineFloor: '0018', declared: ['0019', '0020'], finalFloor: '0020' }
+    ? { baselineFloor: '0019', baselineCount: 20, declared: ['0020'], finalFloor: '0020' }
+    : { baselineFloor: '0017', baselineCount: 18, declared: ['0018', '0019', '0020'], finalFloor: '0020' }
+}
+
+export function nextSyntheticMigrationTimestamp(
+  files: ReadonlyArray<Pick<CanonicalMigrationFile, 'timestamp'>>,
+): number {
+  const timestamps = files.map((file) => file.timestamp)
+  const latest = Math.max(...timestamps)
+  if (timestamps.length === 0 || !Number.isSafeInteger(latest) || latest < 0 || latest === Number.MAX_SAFE_INTEGER) {
+    conformanceFailure('CANONICAL_FILE_LOAD_UNPROVEN')
+  }
+  return latest + 1
+}
+
+export function effectiveTimestampFilesForVariant<T>(
+  variant: NeonHistoryVariant,
+  canonicalFiles: T[],
+  normalizeProduction: (files: T[]) => T[],
+): T[] {
+  return variant === 'original-production'
+    ? normalizeProduction(canonicalFiles)
+    : canonicalFiles
+}
+
+export function resolveDeclaredMigrationTags(
+  files: ReadonlyArray<{ tag: string }>,
+  declared: readonly string[],
+): string[] {
+  return declared.map((declaration) => {
+    const prefix = /^(\d+)/.exec(declaration)?.[1]
+    const matches = prefix
+      ? files.filter((file) => /^(\d+)/.exec(file.tag)?.[1] === prefix)
+      : []
+    const match = matches[0]
+    if (!match || matches.length !== 1) conformanceFailure('CANONICAL_FILE_LOAD_UNPROVEN')
+    return match.tag
+  })
 }
 
 async function proveCanonicalVariant(connectionUri: string, variant: NeonHistoryVariant): Promise<void> {
@@ -491,57 +1012,82 @@ async function proveCanonicalVariant(connectionUri: string, variant: NeonHistory
     applyMigrations(input: Record<string, unknown>): Promise<CanonicalEvidence>
     bootstrapMigrations(input: Record<string, unknown>): Promise<CanonicalEvidence>
     loadMigrationFiles(): CanonicalMigrationFile[]
+    productionPreflightFiles(files: CanonicalMigrationFile[]): CanonicalMigrationFile[]
     verifyMigrations(input: Record<string, unknown>): Promise<CanonicalEvidence>
   }
   // @ts-expect-error Canonical JavaScript provisioner has no declaration file; its surface is narrowed here.
   const roleProvisioner = await import('../../../../scripts/provision-database-roles.mjs') as {
     provisionDatabaseRoles(input: Record<string, unknown>): Promise<CanonicalEvidence>
   }
-  await withDatabaseSession(connectionUri, async (adapter) => {
+  await withCanonicalDatabaseSession(connectionUri, async (adapter) => {
     const authority = {
       environment: variant === 'original-production' ? 'conformance-original' : 'test',
       historyVariant: variant,
     }
-    const provisioned = await roleProvisioner.provisionDatabaseRoles({ adapter, databaseUrl: connectionUri, environment: authority.environment })
+    const provisioned = await canonicalBootstrapStep(
+      'RUNTIME_ROLE_PROVISION_UNPROVEN',
+      () => roleProvisioner.provisionDatabaseRoles({ adapter, databaseUrl: connectionUri, environment: authority.environment }),
+    )
     if (!provisioned.ok) conformanceFailure('RUNTIME_ROLE_PROVISION_UNPROVEN')
 
-    const canonicalFiles = canonicalFilesForVariant(variant, migrationRunner.loadMigrationFiles)
+    const canonicalFiles = await loadCanonicalFilesForVariant(variant, migrationRunner.loadMigrationFiles)
     const contract = variantMigrationContract(variant)
     let baseline: CanonicalEvidence
     if (variant === 'repaired-bootstrap') {
-      const bootstrapped = await migrationRunner.bootstrapMigrations({
-        adapter,
-        files: canonicalFiles,
-        declared: canonicalFiles.map((file) => file.tag),
-        authority,
-      })
+      const bootstrapped = await canonicalBootstrapStep(
+        'REPAIRED_BOOTSTRAP_UNPROVEN',
+        () => migrationRunner.bootstrapMigrations({
+          adapter,
+          files: canonicalFiles,
+          declared: canonicalFiles.map((file) => file.tag),
+          authority,
+        }),
+      )
       if (!bootstrapped.ok || bootstrapped.status !== 'BOOTSTRAPPED') conformanceFailure('REPAIRED_BOOTSTRAP_UNPROVEN')
-      baseline = await migrationRunner.verifyMigrations({ adapter, files: canonicalFiles, declared: [], expectedFloor: contract.baselineFloor, authority, observedVariant: variant })
-      if (!baseline.ok || baseline.status !== 'NOOP') conformanceFailure('REPAIRED_BOOTSTRAP_UNPROVEN')
+      baseline = await canonicalBootstrapStep(
+        'REPAIRED_BASELINE_VERIFY_UNPROVEN',
+        () => migrationRunner.verifyMigrations({ adapter, files: canonicalFiles, declared: [], expectedFloor: contract.baselineFloor, expectedCount: contract.baselineCount, authority, observedVariant: variant }),
+      )
+      if (!baseline.ok || baseline.status !== 'NOOP') conformanceFailure('REPAIRED_BASELINE_VERIFY_UNPROVEN')
     } else {
-      baseline = await migrationRunner.verifyMigrations({ adapter, files: canonicalFiles, declared: [], expectedFloor: contract.baselineFloor, authority, observedVariant: variant })
+      baseline = await canonicalBootstrapStep(
+        'ORIGINAL_PRODUCTION_FLOOR_UNPROVEN',
+        () => migrationRunner.verifyMigrations({ adapter, files: canonicalFiles, declared: [], expectedFloor: contract.baselineFloor, expectedCount: contract.baselineCount, authority, observedVariant: variant }),
+      )
       if (!baseline.ok || baseline.status !== 'NOOP') conformanceFailure('ORIGINAL_PRODUCTION_FLOOR_UNPROVEN')
     }
 
+    const effectiveTimestampFiles = effectiveTimestampFilesForVariant(
+      variant,
+      canonicalFiles,
+      migrationRunner.productionPreflightFiles,
+    )
     const syntheticSql = 'SELECT 1;'
     const synthetic: CanonicalMigrationFile = {
       tag: '0020',
       file: '0020_task8_synthetic.sql',
       sql: syntheticSql,
       hash: createHash('sha256').update(syntheticSql.replace(/\r\n?/g, '\n'), 'utf8').digest('hex'),
-      timestamp: 20,
+      timestamp: nextSyntheticMigrationTimestamp(effectiveTimestampFiles),
     }
     const files = [...canonicalFiles, synthetic]
-    const applied = await migrationRunner.applyMigrations({
-      adapter,
-      applied: appliedTags(baseline),
-      files,
-      declared: contract.declared,
-      authority,
-      observedVariant: variant,
-    })
+    const declared = resolveDeclaredMigrationTags(files, contract.declared)
+    const applied = await canonicalBootstrapStep(
+      'SYNTHETIC_0020_APPLY_UNPROVEN',
+      () => migrationRunner.applyMigrations({
+        adapter,
+        applied: appliedTags(baseline),
+        files,
+        declared,
+        authority,
+        observedVariant: variant,
+      }),
+    )
     if (!applied.ok || applied.status !== 'APPLIED') conformanceFailure('SYNTHETIC_0020_APPLY_UNPROVEN')
-    const verified = await migrationRunner.verifyMigrations({ adapter, files, declared: [], expectedFloor: contract.finalFloor, authority, observedVariant: variant })
+    const verified = await canonicalBootstrapStep(
+      'SYNTHETIC_0020_NOOP_UNPROVEN',
+      () => migrationRunner.verifyMigrations({ adapter, files, declared: [], expectedFloor: contract.finalFloor, authority, observedVariant: variant }),
+    )
     if (!verified.ok || verified.status !== 'NOOP') conformanceFailure('SYNTHETIC_0020_NOOP_UNPROVEN')
   })
 }
@@ -567,41 +1113,160 @@ async function expectPermissionDenied(operation: () => Promise<unknown>): Promis
   conformanceFailure('RUNTIME_DENIAL_UNPROVEN')
 }
 
-async function proveRuntimeLoginPrivileges(ownerSql: Sql, connectionUri: string): Promise<void> {
-  const suffix = randomUUID().replaceAll('-', '')
+const RUNTIME_ROLE_CATALOG_SQL = `
+  select
+    role.rolname as name,
+    role.rolcanlogin as "canLogin",
+    role.rolsuper as "isSuperuser",
+    role.rolcreaterole as "canCreateRole",
+    role.rolcreatedb as "canCreateDb",
+    member.rolname as member,
+    member.rolcanlogin as "memberCanLogin",
+    membership.admin_option as "adminOption"
+  from pg_catalog.pg_roles role
+  left join pg_catalog.pg_auth_members membership on membership.roleid = role.oid
+  left join pg_catalog.pg_roles member on member.oid = membership.member
+  where role.rolname in ('product_suite_platform_runtime', 'product_suite_meeting_runtime')
+`
+
+function runtimeRoleCatalogSql(logins: readonly string[]): string {
+  const quotedLogins = logins.map((login) => `'${login.replaceAll("'", "''")}'`).join(', ')
+  return `${RUNTIME_ROLE_CATALOG_SQL.trimEnd()}\n    and member.rolname in (${quotedLogins})\n  order by role.rolname, member.rolname\n`
+}
+
+export interface RuntimePrivilegeProbeOptions {
+  suffix?: string
+  platformPassword?: string
+  meetingPassword?: string
+  createRuntimeSql?: (connectionUri: string) => Sql
+}
+
+export async function proveRuntimeLoginPrivileges(
+  ownerSql: Sql,
+  connectionUri: string,
+  options: RuntimePrivilegeProbeOptions = {},
+): Promise<void> {
+  const suffix = options.suffix ?? randomUUID().replaceAll('-', '')
   const table = `runtime_privilege_probe_${suffix}`
   const sequence = `${table}_sequence`
-  const login = `runtime_login_${suffix}`
-  const password = randomBytes(24).toString('base64url')
-  const otherRuntimeRole = 'product_suite_meeting_runtime'
+  const deniedTable = `${table}_denied`
+  const platformLogin = `platform_runtime_${suffix}`
+  const meetingLogin = `meeting_runtime_${suffix}`
+  const deniedRole = `${platformLogin}_denied`
+  const platformPassword = options.platformPassword ?? randomBytes(24).toString('base64url')
+  const meetingPassword = options.meetingPassword ?? randomBytes(24).toString('base64url')
+  const createRuntimeClient = options.createRuntimeSql ?? createSql
+  const tenantId = `runtime-tenant-${suffix}`
+  const projectId = randomUUID()
+  let probeFailed = false
   try {
     await exec(ownerSql, `create table public.${quoteIdentifier(table)} (id uuid primary key, value text not null)`)
     await exec(ownerSql, `create sequence public.${quoteIdentifier(sequence)}`)
-    await exec(ownerSql, `create role ${quoteIdentifier(login)} login password '${password.replaceAll("'", "''")}' nosuperuser nocreatedb nocreaterole inherit`)
-    await exec(ownerSql, `grant ${quoteIdentifier('product_suite_platform_runtime')} to ${quoteIdentifier(login)}`)
-    const runtimeSql = createSql(runtimeLoginUri(connectionUri, login, password))
-    const id = randomUUID()
-    await exec(runtimeSql, 'select 1')
+    await exec(ownerSql, `create role ${quoteIdentifier(platformLogin)} login password '${platformPassword.replaceAll("'", "''")}' nosuperuser nocreatedb nocreaterole inherit`)
+    await exec(ownerSql, `create role ${quoteIdentifier(meetingLogin)} login password '${meetingPassword.replaceAll("'", "''")}' nosuperuser nocreatedb nocreaterole inherit`)
+    await exec(ownerSql, `grant ${quoteIdentifier('product_suite_platform_runtime')} to ${quoteIdentifier(platformLogin)}`)
+    await exec(ownerSql, `grant ${quoteIdentifier('product_suite_meeting_runtime')} to ${quoteIdentifier(meetingLogin)}`)
+
+    const roles = runtimeRoleSnapshotsFromCatalogRows(
+      await query<RuntimeRoleCatalogRow>(ownerSql, runtimeRoleCatalogSql([platformLogin, meetingLogin])),
+      { memberFilter: [platformLogin, meetingLogin] },
+    )
+    const roleEvidence = assertRuntimeRoleContract(roles, { allowedLogins: [platformLogin, meetingLogin] })
+    if (roleEvidence.membershipCount !== 2) conformanceFailure('RUNTIME_LOGIN_MEMBERSHIP_UNPROVEN')
+
+    const platformSql = createRuntimeClient(runtimeLoginUri(connectionUri, platformLogin, platformPassword))
+    const meetingSql = createRuntimeClient(runtimeLoginUri(connectionUri, meetingLogin, meetingPassword))
+    await exec(meetingSql, 'insert into public.tenants (id, slug, name) values ($1, $2, $3)', [tenantId, tenantId, 'runtime-probe'])
+    const insertedTenant = await query<{ name: string }>(meetingSql, 'select name from public.tenants where id = $1', [tenantId])
+    if (insertedTenant[0]?.name !== 'runtime-probe') conformanceFailure('RUNTIME_OWNED_CRUD_UNPROVEN')
+    await exec(meetingSql, 'update public.tenants set name = $2 where id = $1', [tenantId, 'runtime-probe-updated'])
+    const updatedTenant = await query<{ name: string }>(meetingSql, 'select name from public.tenants where id = $1', [tenantId])
+    if (updatedTenant[0]?.name !== 'runtime-probe-updated') conformanceFailure('RUNTIME_OWNED_CRUD_UNPROVEN')
+
+    await exec(platformSql, 'insert into public.projects (id, tenant_id, name) values ($1, $2, $3)', [projectId, tenantId, 'runtime-probe'])
+    const insertedProject = await query<{ name: string }>(platformSql, 'select name from public.projects where id = $1', [projectId])
+    if (insertedProject[0]?.name !== 'runtime-probe') conformanceFailure('RUNTIME_OWNED_CRUD_UNPROVEN')
+    await exec(platformSql, 'update public.projects set name = $2 where id = $1', [projectId, 'runtime-probe-updated'])
+    const updatedProject = await query<{ name: string }>(platformSql, 'select name from public.projects where id = $1', [projectId])
+    if (updatedProject[0]?.name !== 'runtime-probe-updated') conformanceFailure('RUNTIME_OWNED_CRUD_UNPROVEN')
+    await exec(platformSql, 'delete from public.projects where id = $1', [projectId])
+    const deletedProject = await query<{ count: string }>(platformSql, 'select count(*)::text as count from public.projects where id = $1', [projectId])
+    if (deletedProject[0]?.count !== '0') conformanceFailure('RUNTIME_OWNED_CRUD_UNPROVEN')
+    await exec(meetingSql, 'delete from public.tenants where id = $1', [tenantId])
+    const deletedTenant = await query<{ count: string }>(meetingSql, 'select count(*)::text as count from public.tenants where id = $1', [tenantId])
+    if (deletedTenant[0]?.count !== '0') conformanceFailure('RUNTIME_OWNED_CRUD_UNPROVEN')
+
     // This table and sequence are deliberately outside both product-owned
     // manifests.  The negative probes prove an unlisted object cannot be read
     // or written through a runtime role, including sequence side channels.
-    await expectPermissionDenied(() => exec(runtimeSql, `select * from public.${quoteIdentifier(table)}`))
-    await expectPermissionDenied(() => exec(runtimeSql, `insert into public.${quoteIdentifier(table)} (id, value) values ($1, $2)`, [id, 'probe']))
-    await expectPermissionDenied(() => exec(runtimeSql, `select nextval('public.${sequence}')`))
-    await expectPermissionDenied(() => exec(runtimeSql, `create table public.${quoteIdentifier(`${table}_denied`)} (id integer)`))
-    await expectPermissionDenied(() => exec(runtimeSql, `create role ${quoteIdentifier(`${login}_denied`)} login`))
-    await expectPermissionDenied(() => exec(runtimeSql, `set role ${quoteIdentifier(otherRuntimeRole)}`))
+    await expectPermissionDenied(() => exec(platformSql, `select * from public.${quoteIdentifier(table)}`))
+    await expectPermissionDenied(() => exec(platformSql, `insert into public.${quoteIdentifier(table)} (id, value) values ($1, $2)`, [randomUUID(), 'probe']))
+    await expectPermissionDenied(() => exec(platformSql, `select nextval('public.${quoteIdentifier(sequence)}')`))
+    await expectPermissionDenied(() => exec(platformSql, `create table public.${quoteIdentifier(deniedTable)} (id integer)`))
+    await expectPermissionDenied(() => exec(platformSql, `alter table public.${quoteIdentifier(table)} add column denied integer`))
+    await expectPermissionDenied(() => exec(platformSql, `drop table public.${quoteIdentifier(table)}`))
+    await expectPermissionDenied(() => exec(platformSql, `create role ${quoteIdentifier(deniedRole)} login`))
+    await expectPermissionDenied(() => exec(platformSql, `set role ${quoteIdentifier('product_suite_meeting_runtime')}`))
+    await expectPermissionDenied(() => exec(platformSql, 'select * from public.tenants'))
+    await expectPermissionDenied(() => exec(meetingSql, 'select * from public.projects'))
+  } catch (error) {
+    probeFailed = true
+    throw error
   } finally {
-    try { await exec(ownerSql, `revoke ${quoteIdentifier('product_suite_platform_runtime')} from ${quoteIdentifier(login)}`) } catch { /* opaque cleanup */ }
-    try { await exec(ownerSql, `drop role if exists ${quoteIdentifier(login)}`) } catch { /* opaque cleanup */ }
-    try { await exec(ownerSql, `drop sequence if exists public.${quoteIdentifier(sequence)}`) } catch { /* opaque cleanup */ }
-    try { await exec(ownerSql, `drop table if exists public.${quoteIdentifier(table)}`) } catch { /* opaque cleanup */ }
+    let cleanupFailed = false
+    const cleanup = async (operation: () => Promise<unknown>): Promise<void> => {
+      try { await operation() } catch { cleanupFailed = true }
+    }
+    await cleanup(() => exec(ownerSql, 'delete from public.projects where id = $1', [projectId]))
+    await cleanup(() => exec(ownerSql, 'delete from public.tenants where id = $1', [tenantId]))
+    await cleanup(() => exec(ownerSql, `revoke ${quoteIdentifier('product_suite_platform_runtime')} from ${quoteIdentifier(platformLogin)}`))
+    await cleanup(() => exec(ownerSql, `revoke ${quoteIdentifier('product_suite_meeting_runtime')} from ${quoteIdentifier(meetingLogin)}`))
+    await cleanup(() => exec(ownerSql, `drop role if exists ${quoteIdentifier(platformLogin)}`))
+    await cleanup(() => exec(ownerSql, `drop role if exists ${quoteIdentifier(meetingLogin)}`))
+    await cleanup(() => exec(ownerSql, `drop role if exists ${quoteIdentifier(deniedRole)}`))
+    await cleanup(() => exec(ownerSql, `drop sequence if exists public.${quoteIdentifier(sequence)}`))
+    await cleanup(() => exec(ownerSql, `drop table if exists public.${quoteIdentifier(table)}`))
+    await cleanup(() => exec(ownerSql, `drop table if exists public.${quoteIdentifier(deniedTable)}`))
+    if (cleanupFailed && !probeFailed) conformanceFailure('RUNTIME_PROBE_CLEANUP_UNPROVEN')
+  }
+}
+
+export async function withCanonicalDatabaseSession<T>(
+  connectionUri: string,
+  body: (adapter: SessionAdapter) => Promise<T>,
+  poolFactory?: SessionPoolFactory,
+): Promise<T> {
+  try {
+    return await withDatabaseSession(connectionUri, body, poolFactory)
+  } catch (error) {
+    if (error instanceof NeonConformanceError && isCanonicalBootstrapCode(error.code)) throw error
+    throw new NeonConformanceError('DB_SESSION_UNPROVEN')
   }
 }
 
 export interface RealNeonConformanceEvidence {
   status: 'PASS' | 'INCOMPLETE'
   code?: string
+  diagnostic?: ConformanceDiagnostic
+  phase?: ConformancePhase
+}
+
+/** Accept only the single-field, redaction-safe success envelope. */
+export function assertExactConformancePass(
+  evidence: RealNeonConformanceEvidence,
+): { status: 'PASS' } {
+  if (evidence.status !== 'PASS' || Object.keys(evidence).length !== 1) {
+    const hasStableCode = evidence.status === 'INCOMPLETE' && typeof evidence.code === 'string' && /^[A-Z0-9_]+$/.test(evidence.code)
+    const code = hasStableCode
+      ? evidence.code!
+      : 'REAL_NEON_CONFORMANCE_REQUIRED'
+    conformanceFailure(
+      code,
+      hasStableCode ? redactedConformanceDiagnostic(evidence.diagnostic) : undefined,
+      hasStableCode ? redactedConformancePhase(evidence.phase) : undefined,
+    )
+  }
+  return { status: 'PASS' }
 }
 
 /** Execute the real proof when the required lane explicitly requests it. */
@@ -617,20 +1282,46 @@ export async function runRequiredNeonConformance(
   let disposable: NeonProjectHandle | undefined
   let derived: NeonDerivedHandle | undefined
   let evidence: RealNeonConformanceEvidence = { status: 'INCOMPLETE', code: 'REAL_NEON_CONFORMANCE_FAILED' }
+  let phase: ConformancePhase = 'unknown'
   try {
+    phase = 'disposable-create'
     disposable = await plane.createDisposableProject()
+    phase = 'disposable-bootstrap'
     assertDisposableTestProject(disposable, env.NEON_PROJECT_ID!)
     await plane.proveVariant(disposable.connectionUri, 'repaired-bootstrap')
+    phase = 'derived-create'
     derived = await plane.createProductionDerivedBranch()
+    phase = 'derived-bootstrap'
     assertProductionDerivedBranch(derived)
     await plane.proveVariant(derived.connectionUri, 'original-production')
-    await plane.probeLeastPrivilege(disposable.connectionUri)
-    await plane.probeLeastPrivilege(derived.connectionUri)
+    phase = 'runtime-probe-disposable'
+    await plane.probeLeastPrivilege(disposable.runtimeConnectionUri)
+    phase = 'runtime-probe-derived'
+    await plane.probeLeastPrivilege(derived.runtimeConnectionUri)
     evidence = { status: 'PASS' }
-  } catch {
-    evidence = { status: 'INCOMPLETE', code: 'REAL_NEON_CONFORMANCE_FAILED' }
+  } catch (error) {
+    const fallbackCode = phase === 'disposable-bootstrap'
+      ? 'DISPOSABLE_BOOTSTRAP_UNPROVEN'
+      : 'REAL_NEON_CONFORMANCE_FAILED'
+    evidence = {
+      status: 'INCOMPLETE',
+      code: error instanceof NeonConformanceError && /^[A-Z0-9_]+$/.test(error.code)
+        ? error.code
+        : fallbackCode,
+      ...(error instanceof NeonConformanceError && error.diagnostic
+        ? { diagnostic: redactedConformanceDiagnostic(error.diagnostic) }
+        : {}),
+      phase: redactedConformancePhase(phase) ?? 'unknown',
+    }
   } finally {
-    try { await plane.cleanupRetainedResources() } catch { evidence = { status: 'INCOMPLETE', code: 'PROJECT_CLEANUP_UNPROVEN' } }
+    phase = 'cleanup'
+    try {
+      await plane.cleanupRetainedResources()
+    } catch {
+      if (evidence.status === 'PASS') {
+        evidence = { status: 'INCOMPLETE', code: 'PROJECT_CLEANUP_UNPROVEN', phase: 'cleanup' }
+      }
+    }
   }
   return evidence
 }
@@ -666,6 +1357,8 @@ export function assertCleanupEvidence(evidence: CleanupEvidence): { status: 'PAS
   if (!evidence.projectCreated) conformanceFailure('PROJECT_CREATE_REQUIRED')
   if (!evidence.repairedBootstrapVerified) conformanceFailure('REPAIRED_BOOTSTRAP_UNPROVEN')
   if (!evidence.productionDerivedBranchVerified) conformanceFailure('PRODUCTION_DERIVED_UNPROVEN')
+  if (!evidence.branchDeleteRequested) conformanceFailure('BRANCH_CLEANUP_REQUIRED')
+  if (!evidence.branchDeletionVerified) conformanceFailure('BRANCH_DELETION_UNPROVEN')
   if (!evidence.projectDeleteRequested) conformanceFailure('PROJECT_CLEANUP_REQUIRED')
   if (!evidence.projectDeletionVerified) conformanceFailure('PROJECT_DELETION_UNPROVEN')
   return { status: 'PASS' }
@@ -685,7 +1378,46 @@ export interface RuntimeRoleSnapshot {
   memberships: RuntimeRoleMembership[]
 }
 
+export interface RuntimeRoleCatalogRow {
+  name: string
+  canLogin: boolean
+  isSuperuser: boolean
+  canCreateRole: boolean
+  canCreateDb: boolean
+  member: string | null
+  memberCanLogin: boolean | null
+  adminOption: boolean | null
+}
+
 const RUNTIME_ROLE_NAMES = ['product_suite_platform_runtime', 'product_suite_meeting_runtime'] as const
+
+/** Aggregate real pg_catalog membership rows into the opaque role contract. */
+export function runtimeRoleSnapshotsFromCatalogRows(
+  rows: RuntimeRoleCatalogRow[],
+  options: { memberFilter?: readonly string[] } = {},
+): RuntimeRoleSnapshot[] {
+  const roles = new Map<string, RuntimeRoleSnapshot>()
+  const memberFilter = options.memberFilter ? new Set(options.memberFilter) : undefined
+  for (const row of rows) {
+    const role = roles.get(row.name) ?? {
+      name: row.name,
+      canLogin: row.canLogin,
+      isSuperuser: row.isSuperuser,
+      canCreateRole: row.canCreateRole,
+      canCreateDb: row.canCreateDb,
+      memberships: [],
+    }
+    if (row.member && (!memberFilter || memberFilter.has(row.member))) {
+      if (row.memberCanLogin !== true) conformanceFailure('RUNTIME_MEMBER_MUST_BE_LOGIN')
+      role.memberships.push({ member: row.member, adminOption: row.adminOption === true })
+    }
+    roles.set(row.name, role)
+  }
+  return RUNTIME_ROLE_NAMES.flatMap((name) => {
+    const role = roles.get(name)
+    return role ? [role] : []
+  })
+}
 
 /**
  * Validate the exact pre-0019 least-privilege contract without exposing role
@@ -722,12 +1454,12 @@ export function assertRuntimeRoleContract(
 
 /** Probe names are intentionally semantic and contain no authored SQL payloads. */
 export function buildRuntimePrivilegeProbes(): {
-  allowed: readonly ['select_public', 'write_owned_rows']
-  denied: readonly ['ddl', 'role_escalation', 'cross_service_schema']
+  allowed: readonly ['service_login_membership', 'owned_table_crud']
+  denied: readonly ['unlisted_table', 'unlisted_sequence', 'ddl', 'role_escalation', 'set_role', 'cross_service_table']
 } {
   return {
-    allowed: ['select_public', 'write_owned_rows'],
-    denied: ['ddl', 'role_escalation', 'cross_service_schema'],
+    allowed: ['service_login_membership', 'owned_table_crud'],
+    denied: ['unlisted_table', 'unlisted_sequence', 'ddl', 'role_escalation', 'set_role', 'cross_service_table'],
   }
 }
 

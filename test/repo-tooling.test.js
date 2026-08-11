@@ -663,6 +663,7 @@ describe("repo tooling", () => {
     const workflow = Bun.YAML.parse(dbContractWorkflow);
     const steps = workflow.jobs["db-contract"].steps;
     const install = steps.find((step) => step.name === "Install dependencies");
+    const focusedRun = steps.find((step) => step.name === "Run focused real-Neon conformance proof");
     const requiredRun = steps.find((step) => step.name === "Run required DB-contract suite");
     const exactHead = steps.find((step) => step.name === "Verify exact checkout");
     const summary = steps.find((step) => step.name === "Publish DB-contract summary");
@@ -675,17 +676,34 @@ describe("repo tooling", () => {
     );
     expect(exactHead.run).toContain('git rev-parse HEAD');
     expect(exactHead.run).toContain('DB_CONTRACT_EXACT_HEAD');
+    expect(focusedRun.id).toBe('conformance');
+    expect(requiredRun.id).toBe('suite');
+    expect(focusedRun.run).toBe("bun run --cwd apps/platform-api test:db-contract:conformance");
+    expect(focusedRun.env.NEON_API_KEY).toBe("${{ secrets.NEON_API_KEY }}");
+    expect(focusedRun.env.NEON_PROJECT_ID).toBe("${{ secrets.NEON_PROJECT_ID }}");
+    expect(focusedRun.env.NEON_PARENT_BRANCH_ID).toBe("${{ secrets.NEON_PARENT_BRANCH_ID }}");
+    expect(focusedRun.env.DB_CONTRACT_CONFORMANCE_MARKER_PATH).toBe(
+      "${{ runner.temp }}/db-contract-conformance.marker",
+    );
+    expect(steps.indexOf(focusedRun)).toBeLessThan(steps.indexOf(requiredRun));
+    expect(requiredRun.if).toContain("success()");
     expect(requiredRun.run).toBe("bun run --cwd apps/platform-api test:db-contract:required");
     expect(requiredRun.env.VITEST_SKIP_INSTALL_CHECKS).toBe("1");
     expect(requiredRun.env.DB_CONTRACT_BRANCH_CAP).toBe("${{ vars.DB_CONTRACT_BRANCH_CAP }}");
     expect(requiredRun.env.NEON_API_KEY).toBe("${{ secrets.NEON_API_KEY }}");
     expect(requiredRun.env.NEON_PROJECT_ID).toBe("${{ secrets.NEON_PROJECT_ID }}");
+    expect(requiredRun.env.NEON_PARENT_BRANCH_ID).toBe("${{ secrets.NEON_PARENT_BRANCH_ID }}");
     expect(requiredRun.env.DB_CONTRACT_REQUIRED).toBe("1");
+    expect(requiredRun.env.DB_CONTRACT_CONFORMANCE_MARKER_PATH).toBe(
+      "${{ runner.temp }}/db-contract-conformance.marker",
+    );
     expect(workflow.jobs["db-contract"].env.NEON_API_KEY).toBeUndefined();
-    for (const step of steps.filter((step) => step !== requiredRun)) {
+    for (const step of steps.filter((step) => step !== requiredRun && step !== focusedRun)) {
       expect(JSON.stringify(step)).not.toContain("secrets.NEON_");
     }
     expect(summary.run).toContain("test:db-contract:summary");
+    expect(summary.if).toContain("steps.conformance.outcome == 'success'");
+    expect(artifact.if).toContain("steps.conformance.outcome == 'success'");
     expect(dbContractTelemetry).toContain("Zero skip:");
     expect(dbContractTelemetry).toContain("Cleanup:");
     expect(dbContractTelemetry).toContain("finalizeTelemetry(path)");
@@ -695,6 +713,9 @@ describe("repo tooling", () => {
     );
     expect(platformApiPackageJson.scripts["test:db-contract:required"]).toBe(
       "vitest run --config vitest.db-contract.config.ts",
+    );
+    expect(platformApiPackageJson.scripts["test:db-contract:conformance"]).toBe(
+      "bun test/db-contract/conformance-cli.ts",
     );
   });
 

@@ -87,26 +87,40 @@ jobs:
         if: "${{ steps.relevance.outputs.run == 'true' }}"
         run: bun install --frozen-lockfile --ignore-scripts
 
-      - name: Run required DB-contract suite
+      - name: Run focused real-Neon conformance proof
+        id: conformance
         if: "${{ steps.relevance.outputs.run == 'true' }}"
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ secrets.NEON_PROJECT_ID }}
+          NEON_PARENT_BRANCH_ID: ${{ secrets.NEON_PARENT_BRANCH_ID }}
+          DB_CONTRACT_CONFORMANCE_MARKER_PATH: ${{ runner.temp }}/db-contract-conformance.marker
+        run: bun run --cwd apps/platform-api test:db-contract:conformance
+
+      - name: Run required DB-contract suite
+        id: suite
+        # GitHub's success() gate makes a failed focused proof stop before the
+        # expensive 57-test database suite starts.
+        if: "${{ steps.relevance.outputs.run == 'true' && success() }}"
         env:
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
           NEON_PROJECT_ID: ${{ secrets.NEON_PROJECT_ID }}
           NEON_PARENT_BRANCH_ID: ${{ secrets.NEON_PARENT_BRANCH_ID }}
           DB_CONTRACT_BRANCH_CAP: ${{ vars.DB_CONTRACT_BRANCH_CAP }}
           DB_CONTRACT_REQUIRED: "1"
+          DB_CONTRACT_CONFORMANCE_MARKER_PATH: ${{ runner.temp }}/db-contract-conformance.marker
           DB_CONTRACT_TELEMETRY_PATH: ${{ github.workspace }}/apps/platform-api/db-contract-telemetry.json
           VITEST_SKIP_INSTALL_CHECKS: "1"
         run: bun run --cwd apps/platform-api test:db-contract:required
 
       - name: Publish DB-contract summary
-        if: "${{ always() && steps.relevance.outputs.run == 'true' }}"
+        if: "${{ always() && steps.relevance.outputs.run == 'true' && steps.conformance.outcome == 'success' }}"
         env:
           DB_CONTRACT_TELEMETRY_PATH: ${{ github.workspace }}/apps/platform-api/db-contract-telemetry.json
         run: bun run --cwd apps/platform-api test:db-contract:summary
 
       - name: Upload DB-contract telemetry
-        if: "${{ always() && steps.relevance.outputs.run == 'true' }}"
+        if: "${{ always() && steps.relevance.outputs.run == 'true' && steps.conformance.outcome == 'success' }}"
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: db-contract-telemetry-${{ env.DB_CONTRACT_EXACT_HEAD }}

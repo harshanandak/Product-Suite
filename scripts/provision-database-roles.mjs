@@ -9,6 +9,17 @@ export const REQUIRED_GRANT_ROLES = Object.freeze([
   "product_suite_meeting_runtime",
 ]);
 
+export const ROLE_PROVISION_STEP_CODES = Object.freeze([
+  "ROLE_PROVISION_BEGIN_FAILED",
+  "ROLE_PROVISION_AUTHORITY_FAILED",
+  "ROLE_PROVISION_LOCK_FAILED",
+  "ROLE_PROVISION_CREATE_ROLES_FAILED",
+  "ROLE_PROVISION_GRANTS_FAILED",
+  "ROLE_PROVISION_ROLE_STATE_FAILED",
+  "ROLE_PROVISION_MEMBERSHIP_FAILED",
+  "ROLE_PROVISION_COMMIT_FAILED",
+]);
+
 const DEFAULT_LOGIN_ROLES = new Set([
   "deploy_login",
   "platform_login",
@@ -22,7 +33,23 @@ const DEFAULT_LOGIN_ROLES = new Set([
 function redactError(error) {
   const message = typeof error?.message === "string" ? error.message : "";
   const code = error?.code || (/^(?:SQL_|CREATEROLE_|ROLE_|UNAUTHORIZED_|ADMIN_OPTION_|WRONG_LOGIN_)/.test(message) ? message : "ROLE_PROVISIONING_FAILED");
-  return new Error(code);
+  const safe = new Error(code);
+  safe.code = code;
+  return safe;
+}
+
+function stepFailure(code) {
+  const error = new Error(code);
+  error.code = code;
+  return error;
+}
+
+async function runStep(code, operation) {
+  try {
+    return await operation();
+  } catch {
+    throw stepFailure(code);
+  }
 }
 
 function memberName(membership) {
@@ -51,11 +78,12 @@ function validateAuthority(admin = {}, snapshot = {}) {
   const authorityName = admin.rolname ?? admin.role ?? admin.name;
   if (authorityName && authorityName !== "neondb_owner" && admin.approvedEquivalent !== true) throw new Error("SQL_AUTHORITY_ROLE_INVALID");
   const canCreateRoles = admin.rolcreaterole === true || admin.createrole === true || admin.canCreateRole === true;
+  const isNeonSuperuserMember = admin.neon_superuser === true || admin.neonSuperuser === true;
   const hasAdminOption = admin.admin_option === true || admin.adminOption === true || admin.isAdmin === true ||
     (snapshot.adminMemberships ?? snapshot.memberships ?? []).some((membership) =>
       authorityName && memberName(membership) === authorityName && (membership.admin_option === true || membership.adminOption === true));
   if (admin.rolcanlogin !== true && admin.canLogin !== true) throw new Error("SQL_AUTHORITY_LOGIN_REQUIRED");
-  if (!canCreateRoles && !hasAdminOption) throw new Error("CREATEROLE_OR_ADMIN_OPTION_REQUIRED");
+  if (!canCreateRoles && !hasAdminOption && !isNeonSuperuserMember) throw new Error("CREATEROLE_OR_ADMIN_OPTION_REQUIRED");
 }
 
 /**
@@ -131,6 +159,12 @@ SELECT
   EXISTS (
     SELECT 1
     FROM pg_auth_members m
+    JOIN pg_roles parent ON parent.oid = m.roleid
+    WHERE m.member = r.oid AND parent.rolname = 'neon_superuser'
+  ) AS neon_superuser,
+  EXISTS (
+    SELECT 1
+    FROM pg_auth_members m
     WHERE m.member = r.oid AND m.admin_option
   ) AS admin_option
 FROM pg_roles r
@@ -195,37 +229,46 @@ export async function provisionDatabaseRoles({ adapter, databaseUrl, environment
     }
   };
 
-  await run("BEGIN;");
+  let transactionStarted = false;
   try {
-    const authorityRows = await run(AUTHORITY_SQL);
-    const authorityRow = authorityRows?.rows?.[0];
-    if (!authorityRow) throw new Error("SQL_AUTHORITY_NOT_FOUND");
-    let localAuthority = false;
-    try { localAuthority = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(new URL(databaseUrl ?? "").hostname); } catch { /* URL validation above owns the error */ }
-    // Local CI uses PostgreSQL's `postgres` owner.  It is still read from
-    // pg_catalog; only this explicitly non-production local authority is an
-    // approved equivalent to Neon `neondb_owner`.
-    const authority = localAuthority && environment !== "production"
-      ? { ...authorityRow, approvedEquivalent: true }
-      : authorityRow;
-    validateAuthority(authority, { allowedLogins, platformLogin, meetingLogin });
-    await run("SELECT pg_advisory_xact_lock(hashtext('product-suite:database-roles'));");
-    await run(CREATE_ROLES_SQL);
-    if (platformLogin) await run(`GRANT ${quoteRoleIdentifier("product_suite_platform_runtime")} TO ${quoteRoleIdentifier(platformLogin)};`);
-    if (meetingLogin) await run(`GRANT ${quoteRoleIdentifier("product_suite_meeting_runtime")} TO ${quoteRoleIdentifier(meetingLogin)};`);
-    const roleRows = await run(ROLE_STATE_SQL);
-    const membershipRows = await run(MEMBERSHIP_SQL);
-    analyzeRoleProvisioning({
+    await runStep("ROLE_PROVISION_BEGIN_FAILED", () => run("BEGIN;"));
+    transactionStarted = true;
+    const authority = await runStep("ROLE_PROVISION_AUTHORITY_FAILED", async () => {
+      const authorityRows = await run(AUTHORITY_SQL);
+      const authorityRow = authorityRows?.rows?.[0];
+      if (!authorityRow) throw new Error("SQL_AUTHORITY_NOT_FOUND");
+      let localAuthority = false;
+      try { localAuthority = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(new URL(databaseUrl ?? "").hostname); } catch { /* URL validation above owns the error */ }
+      // Local CI uses PostgreSQL's `postgres` owner.  It is still read from
+      // pg_catalog; only this explicitly non-production local authority is an
+      // approved equivalent to Neon `neondb_owner`.
+      const approvedAuthority = localAuthority && environment !== "production"
+        ? { ...authorityRow, approvedEquivalent: true }
+        : authorityRow;
+      validateAuthority(approvedAuthority, { allowedLogins, platformLogin, meetingLogin });
+      return approvedAuthority;
+    });
+    await runStep("ROLE_PROVISION_LOCK_FAILED", () => run("SELECT pg_advisory_xact_lock(hashtext('product-suite:database-roles'));"));
+    await runStep("ROLE_PROVISION_CREATE_ROLES_FAILED", () => run(CREATE_ROLES_SQL));
+    await runStep("ROLE_PROVISION_GRANTS_FAILED", async () => {
+      if (platformLogin) await run(`GRANT ${quoteRoleIdentifier("product_suite_platform_runtime")} TO ${quoteRoleIdentifier(platformLogin)};`);
+      if (meetingLogin) await run(`GRANT ${quoteRoleIdentifier("product_suite_meeting_runtime")} TO ${quoteRoleIdentifier(meetingLogin)};`);
+    });
+    const roleRows = await runStep("ROLE_PROVISION_ROLE_STATE_FAILED", () => run(ROLE_STATE_SQL));
+    const membershipRows = await runStep("ROLE_PROVISION_MEMBERSHIP_FAILED", () => run(MEMBERSHIP_SQL));
+    await runStep("ROLE_PROVISION_MEMBERSHIP_FAILED", () => analyzeRoleProvisioning({
       admin: authority,
       roles: roleRows?.rows ?? [],
       memberships: membershipRows?.rows ?? [],
       allowedLogins,
       platformLogin,
       meetingLogin,
-    });
-    await run("COMMIT;");
+    }));
+    await runStep("ROLE_PROVISION_COMMIT_FAILED", () => run("COMMIT;"));
   } catch (error) {
-    try { await run("ROLLBACK;"); } catch { /* preserve the original fail-closed error */ }
+    if (transactionStarted) {
+      try { await run("ROLLBACK;"); } catch { /* preserve the original fail-closed error */ }
+    }
     throw redactError(error);
   }
 

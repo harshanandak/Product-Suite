@@ -20,6 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Schema and domain ownership inventory for roadmap and meeting surfaces, including canonical ownership boundaries, overlap rules, and guarded discoverability links (PR #3, product-suite-waq)
 
 ### Changed
+- Real-Neon authority conformance now proves disposable-project and production-derived-branch cleanup, direct migration versus pooled runtime binding, least-privilege CRUD and denial behavior, and exact opaque PASS evidence (PR #173, Forge issue `25faf39b-3017-42fe-94c0-87acad7279a0`)
 - DB Contract real-Neon tests now reuse migrated suite branches with transaction rollback for safe cases, preserve dedicated isolation-sensitive proofs, and emit exact-head phase evidence to reduce runtime without weakening isolation (PR #168, Forge issue `9a808ed4-16c1-48c7-8ffb-2e8a2c8aaaaf`)
 - DB Contract suites now coordinate at most two ephemeral Neon branches across test workers, safely reconcile ambiguous control-plane responses, and run isolated files concurrently without weakening exact-test or cleanup proof (PR #169, Forge issue `9a808ed4-16c1-48c7-8ffb-2e8a2c8aaaaf`)
 - Canonical live Postgres authority is now Neon `neondb`/`public` with Drizzle as the sole migration plane; guarded original-production and repaired-bootstrap histories reconcile at the `0019` floor, runtime roles remain least-privilege, and executable Supabase/Alembic authority surfaces are retired while historical artifacts stay validation-only (PR #165, Forge issue `59efc6dc-07a1-4b31-9942-ba2f1fcac8e1`)

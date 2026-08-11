@@ -66,6 +66,14 @@ function stable(code: string): BranchLeaseError {
   return new BranchLeaseError(code)
 }
 
+export function isRetryableLockContention(
+  error: unknown,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  const code = (error as NodeJS.ErrnoException)?.code
+  return code === 'EEXIST' || (platform === 'win32' && code === 'EPERM')
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -132,7 +140,7 @@ export function createBranchLeaseCoordinator(options: BranchLeaseCoordinatorOpti
         await mkdir(lockPath)
         break
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+        if (!isRetryableLockContention(error)) {
           throw stable('DB_CONTRACT_BRANCH_LEASE_LOCK_UNCERTAIN')
         }
         if (Date.now() >= deadline) throw stable('DB_CONTRACT_BRANCH_LEASE_LOCK_UNCERTAIN')
