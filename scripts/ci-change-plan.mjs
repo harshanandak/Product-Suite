@@ -2,15 +2,30 @@
 // Workflow-facing adapter for the pure changed-surface CI plan.  Git and env
 // access live here; scripts/prepush-classify.mjs remains deterministic and
 // importable by the local pre-push and repo-tooling tests.
-import { appendFileSync } from "node:fs";
+import { appendFileSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { buildCiPlan, isValidSha } from "./prepush-classify.mjs";
 
+const GIT_EXECUTABLES = Object.freeze({
+  win32: Object.freeze([
+    String.raw`C:\Program Files\Git\cmd\git.exe`,
+    String.raw`C:\Program Files\Git\bin\git.exe`,
+  ]),
+  linux: Object.freeze(["/usr/bin/git"]),
+  darwin: Object.freeze(["/usr/bin/git", "/opt/homebrew/bin/git", "/usr/local/bin/git"]),
+});
+
+export function resolveGitExecutable({ platform = process.platform, fileExists = existsSync } = {}) {
+  return GIT_EXECUTABLES[platform]?.find((candidate) => fileExists(candidate)) ?? null;
+}
+
 function changedFiles(baseSha, headSha) {
+  const gitExecutable = resolveGitExecutable();
+  if (!gitExecutable) return null;
   try {
     const output = execFileSync(
-      "git",
+      gitExecutable,
       ["diff", "--no-renames", "--name-only", `${baseSha}...${headSha}`],
       { encoding: "utf8" },
     );
@@ -29,7 +44,10 @@ function normalizeFiles(files) {
 export function planFromInputs({ baseSha, headSha, files } = {}) {
   const validBase = isValidSha(baseSha);
   const validHead = isValidSha(headSha);
-  const suppliedFiles = files === undefined ? (validBase && validHead ? changedFiles(baseSha, headSha) : null) : normalizeFiles(files);
+  let suppliedFiles;
+  if (files !== undefined) suppliedFiles = normalizeFiles(files);
+  else if (validBase && validHead) suppliedFiles = changedFiles(baseSha, headSha);
+  else suppliedFiles = null;
   const validRange = validBase && validHead && Array.isArray(suppliedFiles);
   // A malformed base or unavailable diff still has a trustworthy head supplied
   // by GitHub. Preserve it so full cheap gates can run against that exact commit;

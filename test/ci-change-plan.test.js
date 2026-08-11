@@ -1,7 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { planFromInputs } from "../scripts/ci-change-plan.mjs";
+import { planFromInputs, resolveGitExecutable } from "../scripts/ci-change-plan.mjs";
 
 describe("CI change-plan adapter", () => {
+  test("uses only fixed Git executable locations", () => {
+    expect(resolveGitExecutable({
+      platform: "linux",
+      fileExists: (candidate) => candidate === "/usr/bin/git",
+    })).toBe("/usr/bin/git");
+    expect(resolveGitExecutable({ platform: "unsupported", fileExists: () => true })).toBeNull();
+  });
+
   test("rejects an invalid range with a full DB-required plan", () => {
     const plan = planFromInputs({
       baseSha: "not-a-sha",

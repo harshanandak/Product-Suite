@@ -161,6 +161,8 @@ describe("change-aware CI plan", () => {
       "apps/meeting-api/backend/auth.py",
       "scripts/delivery/classify-change.mjs",
       "scripts/delivery/security-routing.mjs",
+      "scripts/check-source-test-coupling.mjs",
+      "scripts/check-historical-db-artifacts.mjs",
       "packages/contracts/src/auth/index.d.ts",
       "packages/contracts/src/authorization/policy.ts",
       "packages/contracts/src/permissions/index.d.ts",
@@ -170,6 +172,8 @@ describe("change-aware CI plan", () => {
       "apps/platform-web/src/access/guard.ts",
       "apps/platform-web/src/permission/check.ts",
       "apps/platform-web/src/security/csp.ts",
+      "apps/meeting-web/src/lib/authContracts.js",
+      "apps/meeting-web/src/lib/hostedAuthFlow.js",
     ];
     for (const file of authorityPaths) {
       const plan = buildCiPlan([file], SHA);
@@ -181,9 +185,13 @@ describe("change-aware CI plan", () => {
   test("executable migration authority and existing OAuth, token, and session surfaces fail closed", () => {
     const authorityPaths = [
       "docs/history/database-migrations/manifest.json",
+      "scripts/provision-database-roles.mjs",
+      "scripts/database-pool.mjs",
       "apps/roadmap-web/src/lib/integrations/oauth-providers.ts",
       "apps/roadmap-web/src/app/api/integrations/oauth/callback/[provider]/route.ts",
       "apps/roadmap-web/src/app/api/review-links/by-token/[token]/route.ts",
+      "apps/meeting-api/backend/db.py",
+      "apps/meeting-api/backend/config.py",
       "apps/meeting-api/backend/alembic/versions/0005_remove_workos_session_id.py",
     ];
 
@@ -192,6 +200,12 @@ describe("change-aware CI plan", () => {
       expect(plan.dbEvidenceRequired, file).toBe(true);
       expect(plan.classification, file).toBe("full-suite");
     }
+
+    const roadmapAuthorityPlan = buildCiPlan([
+      "apps/roadmap-web/src/app/api/integrations/oauth/callback/[provider]/route.ts",
+    ], SHA);
+    expect(roadmapAuthorityPlan.cheapScripts).toContain("verify:roadmap-web");
+    expect(roadmapAuthorityPlan.cheapScripts).not.toContain("test:roadmap-canvas-boundary");
   });
 
   test("the monolithic contracts declaration entrypoint requires DB proof", () => {

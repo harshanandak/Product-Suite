@@ -24,9 +24,9 @@
 
 ## Deferred
 
-- Consolidating/removing existing independent CI workflows after measured production evidence.
-- Cache and runner-size tuning.
-- Unrelated flaky-test remediation.
+- Consolidating/removing existing independent CI workflows after measured production evidence (Forge `a2e6e381-05d8-46d0-baf3-25042fd0168f`).
+- Cache and runner-size tuning (Forge `4ed034f3-a9b7-4c99-a272-28e0ec86c8aa`).
+- Unrelated flaky-test remediation (Forge `28ae0e84-7817-4ceb-b959-4f231b801d00`).
 
 ## Base freshness authority
 

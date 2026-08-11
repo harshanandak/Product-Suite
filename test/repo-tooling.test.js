@@ -10,6 +10,9 @@ const packageJson = JSON.parse(
 const platformApiPackageJson = JSON.parse(
   readFileSync(join(rootDir, "apps", "platform-api", "package.json"), "utf8"),
 );
+const platformWebPackageJson = JSON.parse(
+  readFileSync(join(rootDir, "apps", "platform-web", "package.json"), "utf8"),
+);
 const roadmapWebPackageJson = JSON.parse(
   readFileSync(join(rootDir, "apps", "roadmap-web", "package.json"), "utf8"),
 );
@@ -662,6 +665,13 @@ describe("repo tooling", () => {
     }
   });
 
+  test("linted authority workspaces own the lint executable", () => {
+    const eslintVersion = platformWebPackageJson.devDependencies.eslint;
+    expect(eslintVersion).toMatch(/\S/);
+    expect(platformApiPackageJson.devDependencies.eslint).toBe(eslintVersion);
+    expect(dbPackageJson.devDependencies.eslint).toBe(eslintVersion);
+  });
+
   test("db-contract locks exact-head execution and publishes sanitized teardown evidence", () => {
     const workflow = Bun.YAML.parse(dbContractWorkflow);
     const runtime = workflow.jobs["db-contract-runtime"];
@@ -713,12 +723,17 @@ describe("repo tooling", () => {
   test("db-contract gates protected runtime behind exact-SHA cheap checks", () => {
     const workflow = Bun.YAML.parse(dbContractWorkflow);
     const jobs = workflow.jobs;
+    expect(workflow.permissions).toBeUndefined();
     expect(Object.keys(jobs)).toEqual(["classify", "cheap-gates", "db-contract-runtime", "db-contract"]);
+    expect(jobs.classify.permissions).toEqual({ contents: "read" });
+    expect(jobs["cheap-gates"].permissions).toEqual({ contents: "read" });
+    expect(jobs["db-contract-runtime"].permissions).toEqual({ contents: "read" });
+    expect(jobs["db-contract"].permissions).toEqual({});
     expect(jobs["cheap-gates"].needs).toEqual("classify");
     expect(jobs["db-contract-runtime"].needs).toEqual(["classify", "cheap-gates"]);
     expect(jobs["db-contract"].needs).toEqual(["classify", "cheap-gates", "db-contract-runtime"]);
-    expect(jobs["cheap-gates"].if).toContain("needs.classify.result");
-    expect(jobs["db-contract-runtime"].if).toContain("needs['cheap-gates'].result");
+    expect(jobs["cheap-gates"].if).toBe("${{ needs.classify.result == 'success' && needs.classify.outputs.exactSha != '' }}");
+    expect(jobs["db-contract-runtime"].if).toBe("${{ needs.classify.result == 'success' && needs['cheap-gates'].result == 'success' && needs['classify'].outputs.dbEvidenceRequired == 'true' }}");
     expect(jobs["db-contract-runtime"].environment).toBe("db-contract-production");
 
     const classifyCheckout = jobs.classify.steps.find((step) => step.name === "Checkout");
@@ -729,22 +744,41 @@ describe("repo tooling", () => {
       expect(checkout.with["fetch-depth"]).toBe(0);
       expect(checkout.with["persist-credentials"]).toBe(false);
     }
-    expect(cheapCheckout.with.ref).toContain("needs['classify'].outputs.exactSha");
-    expect(runtimeCheckout.with.ref).toContain("needs['classify'].outputs.exactSha");
+    const actionUses = Object.values(jobs)
+      .flatMap((job) => job.steps)
+      .map((step) => step.uses)
+      .filter(Boolean);
+    for (const uses of actionUses) {
+      expect(uses).toMatch(/^[^@]+@[0-9a-f]{40}$/);
+    }
+    expect(new Set(actionUses)).toEqual(new Set([
+      "actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5",
+      "oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6",
+      "actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065",
+      "actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f",
+    ]));
+    expect(cheapCheckout.with.ref).toBe("${{ needs['classify'].outputs.exactSha }}");
+    expect(runtimeCheckout.with.ref).toBe("${{ needs['classify'].outputs.exactSha }}");
 
     const cheapInstall = jobs["cheap-gates"].steps.find((step) => step.name === "Install dependencies");
     expect(cheapInstall.run).toBe("bun install --frozen-lockfile --ignore-scripts");
+    const cheapPython = jobs["cheap-gates"].steps.find((step) => step.name === "Set up Python");
+    expect(cheapPython.with["python-version"]).toBe("3.13");
+    const cheapMeetingInstall = jobs["cheap-gates"].steps.find((step) => step.name === "Install Meeting API dependencies");
+    expect(cheapMeetingInstall.if).toBe("${{ contains(needs.classify.outputs.cheapScriptsJson, '\"ci:meeting-api\"') }}");
+    expect(cheapMeetingInstall.run).toBe("bun run install:meeting-api");
     const runtimeRun = jobs["db-contract-runtime"].steps.find((step) => step.name === "Run required DB-contract suite");
     expect(runtimeRun.run).toBe("bun run --cwd apps/platform-api test:db-contract:required");
     expect(runtimeRun.env.NEON_API_KEY).toBe("${{ secrets.NEON_API_KEY }}");
     expect(runtimeRun.env.NEON_PROJECT_ID).toBe("${{ secrets.NEON_PROJECT_ID }}");
     expect(runtimeRun.env.DB_CONTRACT_REQUIRED).toBe("1");
+    expect(jobs["db-contract-runtime"].env).toEqual({ CI: "true" });
 
     for (const [jobId, job] of Object.entries(jobs)) {
       if (jobId === "db-contract-runtime") continue;
       expect(JSON.stringify(job)).not.toContain("secrets.NEON_");
     }
-    expect(jobs["db-contract"].if).toContain("always()");
+    expect(jobs["db-contract"].if).toBe("${{ always() }}");
     const finalRun = jobs["db-contract"].steps.find((step) => step.name === "Validate final DB-contract verdict");
     expect(finalRun.run).toContain("cancelled");
     expect(finalRun.run).toContain("exact");

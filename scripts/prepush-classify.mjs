@@ -115,6 +115,7 @@ const CI_DB_REQUIRED = [
   /^apps\/platform-api(?:\/|$)/,
   /^packages\/db(?:\/|$)/,
   /^apps\/meeting-api\/backend\/tenant_context\.py$/i,
+  /^apps\/meeting-api\/backend\/(?:db|config)\.py$/i,
   /^packages\/contracts\/src\/index\.d\.ts$/i,
   /^docs\/history\/database-migrations\/manifest\.json$/i,
   /^infra\//,
@@ -130,14 +131,20 @@ const CI_DB_REQUIRED = [
   // Fail closed on authority-bearing path segments and filename keywords. The
   // separators include `_`, `.`, and `-` so tenant_context.py/auth.d.ts are
   // covered without treating unrelated words such as oauth as auth.
-  /(?:^|[\/_\-.])(?:tenant|tenants|identity|identities|access|permission|permissions|authorization|auth|security|secrets?)(?=$|[\/_\-.])/i,
+  /(?:^|[/_.-])(?:tenant|tenants|identity|identities|access|permission|permissions|authorization|auth|security|secrets?)(?=$|[/_.-])/i,
+  // Camel-case authority modules do not have a path separator after `auth`.
+  /[Aa]uth[A-Z]/,
   // Security authority can be embedded in compound names rather than an
   // `auth` segment. Keep these matchers explicit so design tokens and
   // non-auth application sessions do not acquire DB proof.
-  /(?:^|[\/_\-.])(?:oauth|oidc)(?=$|[\/_\-.])/i,
-  /(?:^|[\/_\-.])by[-_]tokens?(?=$|[\/_\-.])/i,
-  /(?:^|[\/_\-.])workos[-_]sessions?(?=$|[\/_\-.])/i,
-  /^scripts\/(?:.*(?:authority|security|secret|migration|neon|db-contract|preflight).*|prepush-.*|ci-.*|check-(?:source-test|migration-parity|database-authority|worker-secrets)|migrate-database\.mjs)$/i,
+  /(?:^|[/_.-])(?:oauth|oidc)(?=$|[/_.-])/i,
+  /(?:^|[/_.-])by[-_]tokens?(?=$|[/_.-])/i,
+  /(?:^|[/_.-])workos[-_]sessions?(?=$|[/_.-])/i,
+  /^scripts\/.*(?:authority|security|secret|migration|neon|db-contract|preflight).*$/i,
+  /^scripts\/(?:prepush-|ci-).*/i,
+  /^scripts\/check-(?:source-test(?:-coupling)?|historical-db-artifacts|migration-parity|database-authority|worker-secrets)(?:\.mjs)?$/i,
+  /^scripts\/migrate-database\.mjs$/i,
+  /^scripts\/(?:provision-database-roles|database-pool)\.mjs$/i,
 ];
 
 export function isValidSha(value) {
@@ -169,23 +176,34 @@ function ciClassification(files, result) {
  * pure API is convenient for both tests and the CLI adapter.
  */
 export function buildCiPlan(filesOrOptions, exactSha) {
-  const options = Array.isArray(filesOrOptions) || filesOrOptions === null
-    ? { files: filesOrOptions, exactSha }
-    : filesOrOptions ?? {};
+  let options;
+  if (Array.isArray(filesOrOptions) || filesOrOptions === null) {
+    options = { files: filesOrOptions, exactSha };
+  } else {
+    options = filesOrOptions ?? {};
+  }
   const files = normalizedFiles(options.files ?? null);
   const requestedSha = options.exactSha ?? options.headSha ?? options.head;
   const validSha = isValidSha(requestedSha);
   const result = classify(files);
   const dbEvidenceRequired = !validSha || ciDbEvidenceRequired(files, result);
   const classification = !validSha ? FULL : ciClassification(files, result);
-  const reason = !validSha
-    ? "invalid exact head SHA"
-    : classification === FULL && result.kind !== FULL
-      ? "authority/security/migration/CI change"
-      : result.reason ?? "scoped changed workspace";
-  const cheapScripts = classification === DOCS
-    ? ["check:source-test"]
-    : suitesFor(classification === FULL ? new Set(WORKSPACE_DIRS) : affectedDirsFor(result));
+  let reason = result.reason ?? "scoped changed workspace";
+  if (!validSha) reason = "invalid exact head SHA";
+  else if (classification === FULL && result.kind !== FULL) reason = "authority/security/migration/CI change";
+
+  let cheapScripts;
+  if (classification === DOCS) {
+    cheapScripts = ["check:source-test"];
+  } else {
+    const affectedWorkspaces = classification === FULL ? new Set(WORKSPACE_DIRS) : affectedDirsFor(result);
+    cheapScripts = suitesFor(affectedWorkspaces);
+    if (dbEvidenceRequired) {
+      cheapScripts = cheapScripts.map((script) =>
+        script === "test:roadmap-canvas-boundary" ? "verify:roadmap-web" : script,
+      );
+    }
+  }
 
   return {
     schemaVersion: CI_PLAN_SCHEMA_VERSION,
