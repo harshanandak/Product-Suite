@@ -53,3 +53,19 @@ TDD steps:
 5. Commit: `docs(ci): document change-aware DB gating`
 
 Expected output: one reviewable PR, exact-head green evidence, no bypasses, and no duplicate local full-suite run.
+
+## Task 4: Close authority routing and freshness-review gaps
+
+OWNS: `scripts/prepush-classify.mjs`, `test/prepush-gate.test.js`, CI workflow/tooling tests, and this plan's documentation
+
+What to implement: Route the executable migration manifest and actual OAuth, token, and session authority surfaces to full DB proof with explicit negative controls. Remove the pull-request-only base-freshness workflow, helper, and tests because they cannot retrigger when `main` advances. Document live strict branch protection as the merge-time authority and local ship/pre-push checks as supplementary only.
+
+TDD steps:
+
+1. Add actual-path table cases and observe the authority paths route `N/A` before the matcher fix.
+2. Add the smallest explicit matchers; keep design tokens, the non-auth AI session router, and unrelated docs scoped.
+3. Remove the misleading workflow-only freshness implementation and references.
+4. Run focused classifier/repo-tooling tests, YAML parsing, targeted lint/syntax, source-test coupling, and diff checks once.
+5. Commit both review corrections together without pushing or opening a PR.
+
+Expected output: authority paths fail closed, unrelated paths remain narrow, and only authoritative server-side strict branch protection is described as merge-time base-freshness enforcement.

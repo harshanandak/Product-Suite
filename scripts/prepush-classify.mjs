@@ -116,6 +116,7 @@ const CI_DB_REQUIRED = [
   /^packages\/db(?:\/|$)/,
   /^apps\/meeting-api\/backend\/tenant_context\.py$/i,
   /^packages\/contracts\/src\/index\.d\.ts$/i,
+  /^docs\/history\/database-migrations\/manifest\.json$/i,
   /^infra\//,
   /(^|\/)migrations?(?:\/|$)/i,
   /^security(?:\/|$)/i,
@@ -130,6 +131,12 @@ const CI_DB_REQUIRED = [
   // separators include `_`, `.`, and `-` so tenant_context.py/auth.d.ts are
   // covered without treating unrelated words such as oauth as auth.
   /(?:^|[\/_\-.])(?:tenant|tenants|identity|identities|access|permission|permissions|authorization|auth|security|secrets?)(?=$|[\/_\-.])/i,
+  // Security authority can be embedded in compound names rather than an
+  // `auth` segment. Keep these matchers explicit so design tokens and
+  // non-auth application sessions do not acquire DB proof.
+  /(?:^|[\/_\-.])(?:oauth|oidc)(?=$|[\/_\-.])/i,
+  /(?:^|[\/_\-.])by[-_]tokens?(?=$|[\/_\-.])/i,
+  /(?:^|[\/_\-.])workos[-_]sessions?(?=$|[\/_\-.])/i,
   /^scripts\/(?:.*(?:authority|security|secret|migration|neon|db-contract|preflight).*|prepush-.*|ci-.*|check-(?:source-test|migration-parity|database-authority|worker-secrets)|migrate-database\.mjs)$/i,
 ];
 

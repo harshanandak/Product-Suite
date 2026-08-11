@@ -18,7 +18,9 @@ Stop spending protected Neon/DB-contract capacity on a commit that has already f
 4. A proven non-authority change emits an explicit deterministic `N/A` verdict without starting the credentialed DB job; the stable required check context remains `DB Contract / db-contract`.
 5. Superseded runs cancel before consuming more capacity, using a PR-number-or-ref concurrency key that does not collide across unrelated PRs.
 6. Routing and workflow invariants are covered by deterministic tests with no network, credentials, wall-clock timing, or live GitHub dependency.
-7. No product code, database migration, production secret, environment protection rule, or branch-protection context is changed.
+7. Executable migration-manifest and OAuth/token/session authority paths fail closed without treating design tokens, non-auth application sessions, or unrelated documentation as DB-required.
+8. Merge-time base freshness remains enforced by GitHub's authoritative `strict: true` branch protection; no point-in-time PR workflow claims to replace that server-side rule.
+9. No product code, database migration, production secret, environment protection rule, or branch-protection configuration is changed.
 
 ## Approach selected
 
@@ -39,6 +41,7 @@ This is preferable to `workflow_run` because cross-workflow dependencies are ind
 - The credentialed DB job never runs in parallel with or before its prerequisites.
 - A final sentinel evaluates explicit job results and validated outputs; GitHub's default skipped-job propagation is not treated as success.
 - Reuse `bun@1.3.6`, pinned actions, `fetch-depth: 0`, `persist-credentials: false`, and `bun install --frozen-lockfile --ignore-scripts`.
+- Treat local ship/pre-push freshness checks as supplementary point-in-time feedback only. The server-side strict branch-protection rule is the merge authority.
 
 ## Edge cases
 
@@ -48,7 +51,8 @@ This is preferable to `workflow_run` because cross-workflow dependencies are ind
 - Root manifest, lockfile, workflow, CI selector, security policy, database authority, migration, or infra change: full cheap suite and DB evidence required.
 - Cheap job fails/cancels/times out: DB runtime never starts; final sentinel fails.
 - DB runtime skips when required, reports a different SHA, produces no verdict, or is cancelled: final sentinel fails.
-- New commit pushed: prior run is cancelled by concurrency; only the new exact-head run can produce merge evidence.
+- New commit pushed: prior DB-contract run is cancelled by concurrency; only the new exact-head run can produce DB evidence.
+- Base branch advances after a PR check: strict branch protection requires the PR branch to be current before merge; a pull-request-only workflow result is not treated as durable freshness evidence.
 
 ## Security and reliability review
 
@@ -60,10 +64,10 @@ This is preferable to `workflow_run` because cross-workflow dependencies are ind
 ## TDD scenarios
 
 1. Scoped UI change selects UI plus dependent workspace checks and `dbEvidenceRequired=false`.
-2. Platform API/DB/migration/security/workflow/unknown-range inputs select the full cheap suite and `dbEvidenceRequired=true`.
+2. Platform API/DB/migration/security/workflow/unknown-range inputs, including the executable migration manifest and actual OAuth/token/session authority paths, select the full cheap suite and `dbEvidenceRequired=true`.
 3. Workflow fixture proves runtime `needs` cheap gates, final sentinel uses `always()`, and required DB evidence rejects skipped/cancelled/missing/wrong-SHA outcomes.
 4. Docs-only plan allows explicit `N/A` only after the cheap integrity job succeeds.
-5. Two pushes to one PR share a concurrency group and cancel the obsolete run, while separate PR numbers do not collide.
+5. Negative controls prove design tokens, non-auth session routing, and unrelated docs retain scoped/docs-only behavior.
 
 ## Out of scope
 

@@ -178,6 +178,22 @@ describe("change-aware CI plan", () => {
     }
   });
 
+  test("executable migration authority and existing OAuth, token, and session surfaces fail closed", () => {
+    const authorityPaths = [
+      "docs/history/database-migrations/manifest.json",
+      "apps/roadmap-web/src/lib/integrations/oauth-providers.ts",
+      "apps/roadmap-web/src/app/api/integrations/oauth/callback/[provider]/route.ts",
+      "apps/roadmap-web/src/app/api/review-links/by-token/[token]/route.ts",
+      "apps/meeting-api/backend/alembic/versions/0005_remove_workos_session_id.py",
+    ];
+
+    for (const file of authorityPaths) {
+      const plan = buildCiPlan([file], SHA);
+      expect(plan.dbEvidenceRequired, file).toBe(true);
+      expect(plan.classification, file).toBe("full-suite");
+    }
+  });
+
   test("the monolithic contracts declaration entrypoint requires DB proof", () => {
     const plan = buildCiPlan(["packages/contracts/src/index.d.ts"], SHA);
     expect(plan.dbEvidenceRequired).toBe(true);
@@ -190,11 +206,19 @@ describe("change-aware CI plan", () => {
       "apps/meeting-api/backend/health.py",
       "packages/contracts/src/work-item.d.ts",
       "packages/ui/src/button.tsx",
+      "packages/ui/src/styles/tokens.css",
+      "apps/roadmap-web/src/lib/ai/session-router.ts",
     ]) {
       const plan = buildCiPlan([file], SHA);
       expect(plan.dbEvidenceRequired, file).toBe(false);
       expect(plan.classification, file).toBe("scoped");
     }
+  });
+
+  test("unrelated documentation remains docs-only even when it discusses design tokens", () => {
+    const plan = buildCiPlan(["docs/design/tokens.css"], SHA);
+    expect(plan.dbEvidenceRequired).toBe(false);
+    expect(plan.classification).toBe("docs-only");
   });
 
   test("ambiguous ranges and unowned paths fail closed to full DB validation", () => {
