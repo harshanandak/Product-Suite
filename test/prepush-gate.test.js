@@ -310,6 +310,13 @@ describe("change-aware CI plan", () => {
       expect(plan.dbEvidenceRequired, file).toBe(false);
       expect(plan.classification, file).toBe("scoped");
     }
+
+    const roadmapComponentPlan = buildCiPlan(
+      ["apps/roadmap-web/src/components/roadmap-card.tsx"],
+      SHA,
+    );
+    expect(roadmapComponentPlan.cheapScripts).toContain("test:roadmap-canvas-boundary");
+    expect(roadmapComponentPlan.cheapScripts).not.toContain("verify:roadmap-web");
   });
 
   test("unrelated documentation remains docs-only even when it discusses design tokens", () => {
