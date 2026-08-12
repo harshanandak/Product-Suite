@@ -220,12 +220,17 @@ describe("change-aware CI plan", () => {
       "apps/platform-web/src/data/meeting-actions/MeetingActionsRepositoryProvider.tsx",
       "apps/platform-web/src/data/proposals/ProposalRepositoryProvider.tsx",
       "apps/platform-web/src/data/memories/MemoriesProvider.tsx",
+      "apps/platform-web/src/data/meeting-actions/network-repository.ts",
+      "apps/platform-web/src/data/proposals/network-repository.ts",
+      "apps/platform-web/src/data/agent/transport.ts",
+      "apps/platform-web/src/data/memories/adapter.ts",
       "apps/roadmap-web/src/app/(dashboard)/layout.tsx",
       "apps/roadmap-web/src/app/(dashboard)/workspaces/[id]/page.tsx",
       "apps/roadmap-web/src/app/(auth)/accept-invite/page.tsx",
       "apps/roadmap-web/src/app/(auth)/layout.tsx",
       "apps/roadmap-web/src/app/(auth)/auth/callback/route.ts",
       "apps/roadmap-web/src/lib/ai/agent-executor.ts",
+      "apps/roadmap-web/src/lib/ai/context-builder.ts",
       "apps/roadmap-web/src/lib/ai/compression/l2-summarizer.ts",
       "apps/roadmap-web/src/lib/ai/embeddings/document-processor.ts",
     ];
@@ -297,7 +302,7 @@ describe("change-aware CI plan", () => {
       "packages/contracts/src/work-item.d.ts",
       "packages/ui/src/button.tsx",
       "packages/ui/src/styles/tokens.css",
-      "apps/roadmap-web/src/lib/ai/session-router.ts",
+      "apps/roadmap-web/src/components/roadmap-card.tsx",
     ]) {
       const plan = buildCiPlan([file], SHA);
       expect(plan.dbEvidenceRequired, file).toBe(false);
