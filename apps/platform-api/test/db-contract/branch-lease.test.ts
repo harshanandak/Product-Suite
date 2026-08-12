@@ -16,6 +16,8 @@ import {
 } from './branch-lease'
 
 const roots: string[] = []
+const DEFAULT_ACQUISITION_TIMEOUT_MS = 1_000
+const DEFAULT_SETTLE_TIMEOUT_MS = DEFAULT_ACQUISITION_TIMEOUT_MS + 250
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
@@ -27,7 +29,7 @@ async function rootWithSpaces(): Promise<string> {
   return root
 }
 
-function coordinator(rootDir: string, runToken = 'run-a', timeout = 1_000) {
+function coordinator(rootDir: string, runToken = 'run-a', timeout = DEFAULT_ACQUISITION_TIMEOUT_MS) {
   return createBranchLeaseCoordinator({
     rootDir,
     runToken,
@@ -36,7 +38,7 @@ function coordinator(rootDir: string, runToken = 'run-a', timeout = 1_000) {
   })
 }
 
-async function settlesWithin<T>(promise: Promise<T>, timeoutMs = 500): Promise<T> {
+async function settlesWithin<T>(promise: Promise<T>, timeoutMs = DEFAULT_SETTLE_TIMEOUT_MS): Promise<T> {
   return Promise.race([
     promise,
     new Promise<never>((_, reject) => setTimeout(() => reject(new Error('TEST_TIMEOUT')), timeoutMs)),
@@ -146,6 +148,20 @@ describe('run-wide branch lease coordinator', () => {
     expect(first.id).not.toBe(second.id)
     expect([first.kind, second.kind]).toEqual(['dedicated', 'dedicated'])
     await Promise.all([first.release(), second.release()])
+  })
+
+  it('observes the full configured acquisition budget before timing out the test observer', async () => {
+    const root = await rootWithSpaces()
+    const active = await coordinator(root).acquire('suite')
+    const queued = coordinator(root).acquire('suite').then(async (lease) => {
+      await lease.release()
+      return lease.kind
+    })
+    const observed = settlesWithin(queued)
+    await remainsPending(queued, 20)
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    await active.release()
+    await expect(observed).resolves.toBe('suite')
   })
 
   it('prunes a persisted expired waiter before admitting the live FIFO head', async () => {
