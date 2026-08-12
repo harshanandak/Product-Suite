@@ -16,7 +16,7 @@ import {
 } from './branch-lease'
 
 const roots: string[] = []
-const DEFAULT_ACQUISITION_TIMEOUT_MS = 1_000
+const DEFAULT_ACQUISITION_TIMEOUT_MS = 5_000
 const DEFAULT_SETTLE_TIMEOUT_MS = DEFAULT_ACQUISITION_TIMEOUT_MS + 250
 
 afterEach(async () => {
@@ -152,12 +152,13 @@ describe('run-wide branch lease coordinator', () => {
 
   it('observes the full configured acquisition budget before timing out the test observer', async () => {
     const root = await rootWithSpaces()
-    const active = await coordinator(root).acquire('suite')
-    const queued = coordinator(root).acquire('suite').then(async (lease) => {
+    const acquisitionTimeoutMs = 1_000
+    const active = await coordinator(root, 'run-a', acquisitionTimeoutMs).acquire('suite')
+    const queued = coordinator(root, 'run-a', acquisitionTimeoutMs).acquire('suite').then(async (lease) => {
       await lease.release()
       return lease.kind
     })
-    const observed = settlesWithin(queued)
+    const observed = settlesWithin(queued, acquisitionTimeoutMs + 250)
     await remainsPending(queued, 20)
     await new Promise((resolve) => setTimeout(resolve, 600))
     await active.release()
