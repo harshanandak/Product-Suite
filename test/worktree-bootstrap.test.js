@@ -134,4 +134,49 @@ describe("worktree bootstrap", () => {
       ],
     ]);
   });
+
+  test("requires explicit Forge issue authority before creating anything", () => {
+    const { root } = makeFixture();
+    const calls = [];
+
+    expect(() => createWorktree("feature-c", [], {
+      repoRoot: root,
+      spawnSync: (command, args) => {
+        calls.push([command, args]);
+        return { status: 0, signal: null };
+      },
+      stdio: "pipe",
+    })).toThrow("--issue requires a value");
+    expect(calls).toEqual([]);
+  });
+
+  test("removes only its new worktree and branch when Forge registration fails", () => {
+    const { root } = makeFixture();
+    const worktree = join(root, ".worktrees", "feature-d");
+    const calls = [];
+    const spawn = (command, args) => {
+      calls.push([command, args]);
+      if (command === "git" && args[0] === "show-ref") return { status: 1, signal: null };
+      if (command === "git" && args[0] === "worktree" && args[1] === "add") {
+        mkdirSync(worktree, { recursive: true });
+        writeFileSync(join(worktree, ".git"), "gitdir: fixture");
+      }
+      if (command === "git" && args[0] === "worktree" && args[1] === "remove") {
+        rmSync(worktree, { recursive: true, force: true });
+      }
+      if (command === "forge") return { status: 1, signal: null };
+      return { status: 0, signal: null };
+    };
+
+    expect(() => createWorktree(
+      "feature-d",
+      ["--branch", "codex/feature-d", "--base", "origin/main", "--issue", "issue-id"],
+      { repoRoot: root, spawnSync: spawn, stdio: "pipe" },
+    )).toThrow("forge worktree create");
+    expect(calls.slice(-2)).toEqual([
+      ["git", ["worktree", "remove", "--force", worktree]],
+      ["git", ["branch", "-D", "codex/feature-d"]],
+    ]);
+    expect(existsSync(worktree)).toBe(false);
+  });
 });
