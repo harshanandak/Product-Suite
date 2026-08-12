@@ -27,6 +27,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Canonical live Postgres authority is now Neon `neondb`/`public` with Drizzle as the sole migration plane; guarded original-production and repaired-bootstrap histories reconcile at the `0019` floor, runtime roles remain least-privilege, and executable Supabase/Alembic authority surfaces are retired while historical artifacts stay validation-only (PR #165, Forge issue `59efc6dc-07a1-4b31-9942-ba2f1fcac8e1`)
 
 ### Fixed
+- Windows feature worktrees now use exact-base Forge-linked creation, isolated frozen Bun installs, verified local tool binaries, and suite-load-safe branch-lease test budgets instead of sharing mutable dependency links (PR #175, Forge issues `3ae3fb92-d1c0-4cf3-bec2-c002ae0fa28a`, `eb0a9d20-cba0-4075-8861-2bee51d957a4`)
 - ESLint 9.39.2 now resolves its compatible AJV 6 draft-04 schema from isolated worktrees without depending on stale cross-worktree junctions (PR #166, Forge issue `168d9c20-7cf5-40a1-a7f6-9aa85ff71746`)
 - Agent-created work items now preserve trusted proposal provenance and expose tenant-safe proposal, run, actor, and approval context on item details (PR #162, 163c617a-2ec7-4ffc-8575-eea4085f8e4f)
 - Review Inbox deep links no longer select a different proposal; draft-time target snapshots now stabilize proposal previews, while accept-time staleness fencing protects writes instead of silently rebasing (PR #156, 496d0f55-3cad-447c-b901-93c666dd65a5, 2ef40a29-794e-4839-a64b-16f35d30d16c)
