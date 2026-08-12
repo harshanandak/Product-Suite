@@ -128,12 +128,9 @@ describe("worktree bootstrap", () => {
         "worktree",
         "create",
         "feature-b",
-        "--branch",
-        "codex/feature-b",
-        "--base",
-        "origin/main",
-        "--issue",
-        "issue-id",
+        "--branch=codex/feature-b",
+        "--base=origin/main",
+        "--issue=issue-id",
       ],
     ]);
   });
