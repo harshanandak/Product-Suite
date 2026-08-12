@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 
 import { STATUS_CATEGORY_VALUES, type Status, type StatusCategory } from '@product-suite/contracts'
 
-import { callerTenantIds, callerUserId } from '../auth/tenant-scope'
+import { authorizeCapability } from '../auth/capabilities'
 import { sqlFrom } from '../db'
 import type { AuthedEnv } from '../middleware/clerk-auth'
 import { recordWrite } from '../provenance/record-write'
@@ -86,7 +86,7 @@ statusesRoutes.get('/', async (c) => {
 /**
  * Add a status to one of the caller's teams. `team_id` must name a team in one of
  * the caller's active orgs (never trusted from the client: a team from another
- * tenant fails the ownership guard and is rejected as unknown, no leak). `name`
+ * tenant fails the ownership guard with 404, no leak). `name`
  * and `category` are required; `category` must be a valid {@link StatusCategory}.
  * `name` is unique per team (a duplicate surfaces as a 409).
  */
@@ -96,11 +96,6 @@ statusesRoutes.post('/', async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as CreateStatusBody
 
   try {
-    const tenantIds = await callerTenantIds(sql, claims)
-    if (tenantIds.length === 0) {
-      return c.json({ error: 'No active organization' }, 403)
-    }
-
     if (!body.team_id) {
       return c.json({ error: 'team_id is required' }, 400)
     }
@@ -113,20 +108,30 @@ statusesRoutes.post('/', async (c) => {
     }
 
     // The team must belong to one of the caller's orgs — never trust the id.
-    const ownedTeam = (await sql`
-      select 1 from teams where id = ${body.team_id} and tenant_id = any(${tenantIds})
-    `) as unknown[]
-    if (ownedTeam.length === 0) {
-      return c.json({ error: 'Unknown team' }, 400)
+    const scopedTeams = (await sql`
+      select t.tenant_id
+      from teams t
+      where t.id = ${body.team_id}
+        and exists (
+          select 1
+          from organization_memberships om
+          join user_auth_identities uai on uai.user_id = om.user_id
+          where om.tenant_id = t.tenant_id
+            and om.status = 'active'
+            and uai.provider = ${claims.provider}
+            and uai.provider_user_id = ${claims.subject}
+        )
+    `) as { tenant_id: string }[]
+    const scopedTeam = scopedTeams.length === 1 ? scopedTeams[0] : undefined
+    if (!scopedTeam) return c.json({ error: 'Not found' }, 404)
+
+    const authorization = await authorizeCapability(sql, claims, scopedTeam.tenant_id, 'configure')
+    if (!authorization.ok) {
+      return c.json({ error: authorization.reason === 'forbidden' ? 'Forbidden' : 'Not found' }, authorization.status)
     }
 
     const position = Number.isFinite(body.position) ? Number(body.position) : 0
-    // The human actor for provenance (resolves for any caller past tenant scoping).
-    const actorId = await callerUserId(sql, claims)
-    if (!actorId) {
-      console.error('[statuses] create: tenant resolved but no user identity for subject')
-      return c.json({ error: 'Failed to create status' }, 500)
-    }
+    // The human actor comes from the authorized database context.
     let created: StatusRow
     try {
       created = await recordWrite<StatusRow>(
@@ -136,7 +141,7 @@ statusesRoutes.post('/', async (c) => {
           operation: 'insert',
           values: { team_id: body.team_id, name, category: body.category, position },
         },
-        { actorType: 'human', actorId },
+        { actorType: 'human', actorId: authorization.context.userId },
       )
     } catch (cause) {
       // Unique (team_id, name) violation → a friendly 409 (not a 500).

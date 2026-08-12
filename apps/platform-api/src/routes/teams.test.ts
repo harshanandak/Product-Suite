@@ -15,6 +15,7 @@ const ROW = {
   created_at: '2026-07-01T00:00:00.000Z',
   updated_at: '2026-07-02T00:00:00.000Z',
 }
+const ADMIN_MEMBERSHIP = { user_id: 'u_1', tenant_id: 't_1', role: 'admin', status: 'active' }
 
 const auth = {
   headers: { Authorization: 'Bearer token', 'Content-Type': 'application/json' },
@@ -78,7 +79,7 @@ describe('POST /api/teams', () => {
     const sql = vi.fn()
     sql
       .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds (tagged)
-      .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId (tagged)
+      .mockResolvedValueOnce([ADMIN_MEMBERSHIP]) // capability context (tagged)
     // recordWrite writes through sql.query(text, params) (neon v1.x).
     const sqlQuery = vi.fn().mockResolvedValueOnce([ROW])
     ;(sql as unknown as { query: typeof sqlQuery }).query = sqlQuery
@@ -107,7 +108,7 @@ describe('POST /api/teams', () => {
     const sql = vi.fn()
     sql
       .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
-      .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId
+      .mockResolvedValueOnce([ADMIN_MEMBERSHIP]) // capability context
     const sqlQuery = vi.fn().mockResolvedValueOnce([ROW]) // recordWrite insert (sql.query)
     ;(sql as unknown as { query: typeof sqlQuery }).query = sqlQuery
     createSql.mockReturnValue(sql)
@@ -127,11 +128,11 @@ describe('POST /api/teams', () => {
     expect(insertParams).toContain('human')
   })
 
-  it('returns 500 when the tenant resolves but the user identity does not', async () => {
+  it('returns 404 when the tenant resolves but capability context does not', async () => {
     const sql = vi.fn()
     sql
       .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
-      .mockResolvedValueOnce([]) // callerUserId -> no row
+      .mockResolvedValueOnce([]) // capability context -> no row
     createSql.mockReturnValue(sql)
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
@@ -140,13 +141,13 @@ describe('POST /api/teams', () => {
       ...auth,
       body: JSON.stringify({ name: 'Engineering' }),
     })
-    expect(res.status).toBe(500)
-    // No write is attempted without an attributable actor: only the two lookups ran.
+    expect(res.status).toBe(404)
+    // No write is attempted without an attributable authorized actor.
     expect(sql).toHaveBeenCalledTimes(2)
     errorSpy.mockRestore()
   })
 
-  it('returns 403 when the caller is in no org', async () => {
+  it('returns 404 when the caller is in no org', async () => {
     const sql = vi.fn().mockResolvedValueOnce([]) // callerTenantIds -> []
     createSql.mockReturnValue(sql)
     const res = await app.request('/api/teams', {
@@ -154,10 +155,10 @@ describe('POST /api/teams', () => {
       ...auth,
       body: JSON.stringify({ name: 'Engineering' }),
     })
-    expect(res.status).toBe(403)
+    expect(res.status).toBe(404)
   })
 
-  it('returns 400 when the caller is in multiple orgs (ambiguous target)', async () => {
+  it('returns 404 when the caller is in multiple orgs (ambiguous target)', async () => {
     const sql = vi.fn().mockResolvedValueOnce([{ tenant_id: 't_1' }, { tenant_id: 't_2' }])
     createSql.mockReturnValue(sql)
     const res = await app.request('/api/teams', {
@@ -165,7 +166,7 @@ describe('POST /api/teams', () => {
       ...auth,
       body: JSON.stringify({ name: 'Engineering' }),
     })
-    expect(res.status).toBe(400)
+    expect(res.status).toBe(404)
   })
 
   it('returns 400 when name is missing (no insert)', async () => {

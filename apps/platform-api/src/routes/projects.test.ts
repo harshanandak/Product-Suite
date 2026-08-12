@@ -18,6 +18,7 @@ const ROW = {
   created_at: '2026-07-01T00:00:00.000Z',
   updated_at: '2026-07-02T00:00:00.000Z',
 }
+const ADMIN_MEMBERSHIP = { user_id: 'u_1', tenant_id: 't_1', role: 'admin', status: 'active' }
 
 /** {@link ROW} plus the list query's `left join` rollup columns. */
 const LIST_ROW = { ...ROW, total_count: 3, done_count: 1 }
@@ -128,7 +129,7 @@ describe('POST /api/projects', () => {
     const sql = vi.fn()
     sql
       .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
-      .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId
+      .mockResolvedValueOnce([ADMIN_MEMBERSHIP]) // capability context
     const sqlQuery = vi.fn().mockResolvedValueOnce([ROW]) // insert ... returning (recordWrite)
     ;(sql as unknown as { query: typeof sqlQuery }).query = sqlQuery
     createSql.mockReturnValue(sql)
@@ -152,7 +153,7 @@ describe('POST /api/projects', () => {
     const sql = vi.fn()
     sql
       .mockResolvedValueOnce([{ tenant_id: 't_1' }])
-      .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId
+      .mockResolvedValueOnce([ADMIN_MEMBERSHIP]) // capability context
     const sqlQuery = vi
       .fn()
       .mockResolvedValueOnce([
@@ -197,7 +198,7 @@ describe('POST /api/projects', () => {
     expect(sql).toHaveBeenCalledTimes(1)
   })
 
-  it('returns 403 when the caller is in no org', async () => {
+  it('returns 404 when the caller is in no org', async () => {
     const sql = vi.fn().mockResolvedValueOnce([]) // callerTenantIds -> []
     createSql.mockReturnValue(sql)
     const res = await app.request('/api/projects', {
@@ -205,10 +206,10 @@ describe('POST /api/projects', () => {
       ...auth,
       body: JSON.stringify({ name: 'Platform' }),
     })
-    expect(res.status).toBe(403)
+    expect(res.status).toBe(404)
   })
 
-  it('returns 400 when the caller is in multiple orgs (ambiguous target)', async () => {
+  it('returns 404 when the caller is in multiple orgs (ambiguous target)', async () => {
     const sql = vi.fn().mockResolvedValueOnce([{ tenant_id: 't_1' }, { tenant_id: 't_2' }])
     createSql.mockReturnValue(sql)
     const res = await app.request('/api/projects', {
@@ -216,7 +217,7 @@ describe('POST /api/projects', () => {
       ...auth,
       body: JSON.stringify({ name: 'Platform' }),
     })
-    expect(res.status).toBe(400)
+    expect(res.status).toBe(404)
   })
 
   it('returns 400 when name is missing (no insert)', async () => {
@@ -242,8 +243,8 @@ describe('PATCH /api/projects/:id', () => {
     const sql = vi.fn()
     sql
       .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
-      .mockResolvedValueOnce([ROW]) // select existing
-      .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId
+      .mockResolvedValueOnce([{ ...ROW, tenant_id: 't_1' }]) // select existing
+      .mockResolvedValueOnce([ADMIN_MEMBERSHIP]) // capability context
       .mockResolvedValueOnce([updated]) // update returning
     createSql.mockReturnValue(sql)
 
