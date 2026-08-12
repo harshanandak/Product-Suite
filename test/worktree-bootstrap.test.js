@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import {
   bootstrapWorktree,
+  createWorktree,
   resolveWorktreePath,
 } from "../scripts/worktree-bootstrap.mjs";
 
@@ -85,5 +86,55 @@ describe("worktree bootstrap", () => {
     const { root } = makeFixture();
     expect(resolveWorktreePath(root, "cp0-tools")).toBe(join(root, ".worktrees", "cp0-tools"));
     expect(() => resolveWorktreePath(root, "../escape")).toThrow("Invalid worktree slug");
+  });
+
+  test("creates the exact branch and base before asking Forge to register the worktree", () => {
+    const { root } = makeFixture();
+    const worktree = join(root, ".worktrees", "feature-b");
+    const calls = [];
+    const spawn = (command, args, options) => {
+      calls.push([command, args]);
+      if (command === "git" && args[0] === "show-ref") {
+        return { status: 1, signal: null };
+      }
+      if (command === "git" && args[0] === "worktree") {
+        mkdirSync(join(worktree, "apps", "platform-api"), { recursive: true });
+        mkdirSync(join(worktree, "apps", "platform-web"), { recursive: true });
+        writeFileSync(join(worktree, ".git"), "gitdir: fixture");
+        writeFileSync(
+          join(worktree, "package.json"),
+          JSON.stringify({ workspaces: ["apps/platform-api", "apps/platform-web"] }),
+        );
+      }
+      if (command === "bun") return installStub(worktree)(command, args, options);
+      return { status: 0, signal: null };
+    };
+
+    createWorktree(
+      "feature-b",
+      ["--branch", "codex/feature-b", "--base", "origin/main", "--issue", "issue-id"],
+      { repoRoot: root, spawnSync: spawn, stdio: "pipe" },
+    );
+
+    expect(calls.slice(0, 4)).toEqual([
+      ["git", ["check-ref-format", "--branch", "codex/feature-b"]],
+      ["git", ["rev-parse", "--verify", "origin/main^{commit}"]],
+      ["git", ["show-ref", "--verify", "--quiet", "refs/heads/codex/feature-b"]],
+      ["git", ["worktree", "add", worktree, "-b", "codex/feature-b", "origin/main"]],
+    ]);
+    expect(calls[4]).toEqual([
+      "forge",
+      [
+        "worktree",
+        "create",
+        "feature-b",
+        "--branch",
+        "codex/feature-b",
+        "--base",
+        "origin/main",
+        "--issue",
+        "issue-id",
+      ],
+    ]);
   });
 });
