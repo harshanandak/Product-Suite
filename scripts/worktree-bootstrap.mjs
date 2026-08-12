@@ -151,14 +151,63 @@ function repoRootFrom(cwd) {
   return dirname(commonGitDir);
 }
 
+function flagValue(args, flag, fallback) {
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] === flag) {
+      const value = args[index + 1];
+      if (!value || value.startsWith("--")) throw new Error(`${flag} requires a value`);
+      return value;
+    }
+    if (args[index].startsWith(`${flag}=`)) {
+      const value = args[index].slice(flag.length + 1);
+      if (!value) throw new Error(`${flag} requires a value`);
+      return value;
+    }
+  }
+  return fallback;
+}
+
+function branchExists(repoRoot, branch, spawn) {
+  const result = spawn(
+    "git",
+    ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`],
+    { cwd: repoRoot, stdio: "pipe" },
+  );
+  if (result?.error || result?.signal || ![0, 1].includes(result?.status)) {
+    throw new Error(commandFailure("git", ["show-ref", "--verify", branch], result));
+  }
+  return result.status === 0;
+}
+
 export function createWorktree(slug, forgeArgs = [], options = {}) {
   const repoRoot = options.repoRoot ?? repoRootFrom(options.cwd ?? process.cwd());
   const worktreePath = resolveWorktreePath(repoRoot, slug);
   const runSpawn = options.spawnSync ?? spawnSync;
+  const commandOptions = { cwd: repoRoot, stdio: options.stdio ?? "inherit" };
+  const branch = flagValue(forgeArgs, "--branch", `codex/${slug}`);
+  const base = flagValue(forgeArgs, "--base", "origin/HEAD");
+  if (existsSync(worktreePath)) {
+    throw new Error(`Worktree already exists; use worktree:bootstrap instead: ${worktreePath}`);
+  }
+
+  runChecked("git", ["check-ref-format", "--branch", branch], commandOptions, runSpawn);
+  runChecked("git", ["rev-parse", "--verify", `${base}^{commit}`], commandOptions, runSpawn);
+  const addArgs = branchExists(repoRoot, branch, runSpawn)
+    ? ["worktree", "add", worktreePath, branch]
+    : ["worktree", "add", worktreePath, "-b", branch, base];
+  runChecked("git", addArgs, commandOptions, runSpawn);
+
+  const registrationArgs = [...forgeArgs];
+  if (flagValue(forgeArgs, "--branch", null) === null) {
+    registrationArgs.push("--branch", branch);
+  }
+  if (flagValue(forgeArgs, "--base", null) === null) {
+    registrationArgs.push("--base", base);
+  }
   runChecked(
     "forge",
-    ["worktree", "create", slug, ...forgeArgs],
-    { cwd: repoRoot, stdio: options.stdio ?? "inherit" },
+    ["worktree", "create", slug, ...registrationArgs],
+    commandOptions,
     runSpawn,
   );
   return bootstrapWorktree(worktreePath, repoRoot, options);
