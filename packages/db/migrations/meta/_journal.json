@@ -141,6 +141,13 @@
       "when": 1786229538854,
       "tag": "0019_neon_authority_reconciliation",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1786531020892,
+      "tag": "0020_canonical_membership_roles",
+      "breakpoints": true
     }
   ]
 }

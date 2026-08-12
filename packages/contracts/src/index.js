@@ -15,6 +15,11 @@ export {
   validateClerkJwtPayload,
 } from "./auth.js";
 export { identityScopeContract } from "./identity.js";
+export {
+  MEMBERSHIP_ROLE_VALUES,
+  isMembershipRole,
+  parseMembershipRole,
+} from "./membership-roles.js";
 export { meetingCoreContract } from "./meeting.js";
 export {
   PHASE_VALUES,

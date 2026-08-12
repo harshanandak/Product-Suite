@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
 import {
+  check,
   customType,
   doublePrecision,
   index,
@@ -336,6 +337,10 @@ export const organizationMemberships = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => ({
+    canonicalRole: check(
+      'organization_memberships_role_canonical',
+      sql`${table.role} in ('viewer', 'member', 'admin', 'owner')`,
+    ),
     tenantUserUnique: unique('organization_memberships_tenant_id_user_id_key').on(table.tenantId, table.userId),
     byTenantUser: index('idx_org_memberships_tenant_user').on(table.tenantId, table.userId),
   }),
