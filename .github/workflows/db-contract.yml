@@ -248,7 +248,7 @@ jobs:
               command('apps/roadmap-web', 'bun', ['x', '--no-install', 'vitest', 'run']),
             ],
             'test:roadmap-canvas-boundary': [
-              command('apps/roadmap-web', 'bun', ['test', 'src/components/blocksuite/__tests__/canvas-boundary.test.ts']),
+              command('apps/roadmap-web', 'bun', ['x', '--no-install', 'vitest', 'run', 'src/components/blocksuite/__tests__/canvas-boundary.test.ts']),
             ],
             'ci:meeting-api': [
               command('.', 'node', ['scripts/meeting-api-validation.mjs', 'lint', 'apps/meeting-api/backend', 'apps/meeting-api/tests/backend']),

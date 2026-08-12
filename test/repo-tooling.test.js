@@ -894,6 +894,9 @@ describe("repo tooling", () => {
       expect(cheapRun.run).toContain(`'${script}': [`);
     }
     expect(cheapRun.run).toContain("const commands = canonicalCommands[script]");
+    expect(cheapRun.run).toContain(
+      "command('apps/roadmap-web', 'bun', ['x', '--no-install', 'vitest', 'run', 'src/components/blocksuite/__tests__/canvas-boundary.test.ts'])",
+    );
     expect(cheapRun.run).toContain("CI_CHANGE_PLAN_CANONICAL_COMMAND_MISSING");
     expect(cheapRun.run).toContain("spawnSync(command.executable, command.args");
     expect(cheapRun.run).not.toContain("spawnSync('bun', ['run', script]");
