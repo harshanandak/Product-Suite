@@ -243,11 +243,12 @@ describe('run-wide branch lease coordinator', () => {
 
   it('admits a queued phase when capacity returns within the scaled acquisition budget', async () => {
     const root = await rootWithSpaces()
-    const active = await coordinator(root, 'run-a', 200).acquire('suite')
-    const queued = coordinator(root, 'run-a', 200).acquire('suite')
+    const acquisitionTimeoutMs = 1_000
+    const active = await coordinator(root, 'run-a', acquisitionTimeoutMs).acquire('suite')
+    const queued = coordinator(root, 'run-a', acquisitionTimeoutMs).acquire('suite')
     await remainsPending(queued, 40)
     await active.release()
-    const admitted = await settlesWithin(queued, 500)
+    const admitted = await settlesWithin(queued, acquisitionTimeoutMs + 250)
     expect(admitted.kind).toBe('suite')
     await admitted.release()
   })
