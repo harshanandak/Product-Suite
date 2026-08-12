@@ -164,6 +164,9 @@ describe("change-aware CI plan", () => {
       "scripts/check-source-test-coupling.mjs",
       "scripts/check-historical-db-artifacts.mjs",
       "packages/contracts/src/auth/index.d.ts",
+      "packages/contracts/src/conversation.js",
+      "packages/contracts/src/meeting.js",
+      "packages/contracts/src/work-items.js",
       "packages/contracts/src/authorization/policy.ts",
       "packages/contracts/src/permissions/index.d.ts",
       "packages/contracts/src/identity/user.ts",
@@ -299,7 +302,6 @@ describe("change-aware CI plan", () => {
     for (const file of [
       "apps/platform-web/src/components/board.tsx",
       "apps/meeting-api/backend/health.py",
-      "packages/contracts/src/work-item.d.ts",
       "packages/ui/src/button.tsx",
       "packages/ui/src/styles/tokens.css",
       "apps/roadmap-web/src/components/roadmap-card.tsx",
@@ -314,6 +316,21 @@ describe("change-aware CI plan", () => {
     const plan = buildCiPlan(["docs/design/tokens.css"], SHA);
     expect(plan.dbEvidenceRequired).toBe(false);
     expect(plan.classification).toBe("docs-only");
+  });
+
+  test("ordinary authority documentation stays docs-only while executable DB history remains protected", () => {
+    for (const file of [
+      "docs/plans/2026-05-16-pr5-auth-contracts-and-adapters-design.md",
+      "docs/security/authorization-model.md",
+    ]) {
+      const plan = buildCiPlan([file], SHA);
+      expect(plan.dbEvidenceRequired, file).toBe(false);
+      expect(plan.classification, file).toBe("docs-only");
+    }
+
+    const manifestPlan = buildCiPlan(["docs/history/database-migrations/manifest.json"], SHA);
+    expect(manifestPlan.dbEvidenceRequired).toBe(true);
+    expect(manifestPlan.classification).toBe("full-suite");
   });
 
   test("ambiguous ranges and unowned paths fail closed to full DB validation", () => {

@@ -125,7 +125,7 @@ const CI_DB_REQUIRED = [
   /^apps\/meeting-web\/src\/lib\/api\.js$/i,
   /^apps\/platform-web\/src\/(?:AppRoot\.tsx|fixtures-mode\.ts)$/i,
   /^apps\/platform-web\/src\/data(?:\/|$)/i,
-  /^packages\/contracts\/src\/index(?:\.js|\.d\.ts)$/i,
+  /^packages\/contracts\/src(?:\/|$)/i,
   /^docs\/history\/database-migrations\/manifest\.json$/i,
   /^infra\//,
   /(^|\/)migrations?(?:\/|$)/i,
@@ -170,6 +170,12 @@ function normalizedFiles(files) {
 export function ciDbEvidenceRequired(files, result = classify(files)) {
   if (result.kind === FULL || result.kind === SCOPED && files === null) return true;
   if (!Array.isArray(files) || files.length === 0) return true;
+  if (result.kind === DOCS) {
+    return files.some((file) =>
+      /^docs\/history\/database-migrations\/manifest\.json$/i.test(file)
+      || /^\.sonarcloud\.properties$/.test(file),
+    );
+  }
   return files.some((file) => CI_DB_REQUIRED.some((pattern) => pattern.test(file)));
 }
 
