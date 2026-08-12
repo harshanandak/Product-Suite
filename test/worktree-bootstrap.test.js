@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
   bootstrapWorktree,
   createWorktree,
+  resolveGitExecutable,
   resolveWorktreePath,
 } from "../scripts/worktree-bootstrap.mjs";
 
@@ -88,6 +89,21 @@ describe("worktree bootstrap", () => {
     expect(() => resolveWorktreePath(root, "../escape")).toThrow("Invalid worktree slug");
   });
 
+  test("resolves Git only from fixed platform allowlists and fails closed", () => {
+    const windowsBin = "C:\\Program Files\\Git\\bin\\git.exe";
+    expect(resolveGitExecutable({
+      platform: "win32",
+      fileExists: (candidate) => candidate === windowsBin,
+    })).toBe(windowsBin);
+    expect(resolveGitExecutable({
+      platform: "linux",
+      fileExists: (candidate) => candidate === "/usr/bin/git",
+    })).toBe("/usr/bin/git");
+    expect(() => resolveGitExecutable({ platform: "freebsd", fileExists: () => true })).toThrow(
+      "trusted Git executable",
+    );
+  });
+
   test("creates the exact branch and base before asking Forge to register the worktree", () => {
     const { root } = makeFixture();
     const worktree = join(root, ".worktrees", "feature-b");
@@ -113,7 +129,7 @@ describe("worktree bootstrap", () => {
     createWorktree(
       "feature-b",
       ["--branch", "codex/feature-b", "--base", "origin/main", "--issue", "issue-id"],
-      { repoRoot: root, spawnSync: spawn, stdio: "pipe" },
+      { repoRoot: root, gitExecutable: "git", spawnSync: spawn, stdio: "pipe" },
     );
 
     expect(calls.slice(0, 4)).toEqual([
@@ -141,6 +157,7 @@ describe("worktree bootstrap", () => {
 
     expect(() => createWorktree("feature-c", [], {
       repoRoot: root,
+      gitExecutable: "git",
       spawnSync: (command, args) => {
         calls.push([command, args]);
         return { status: 0, signal: null };
@@ -171,7 +188,7 @@ describe("worktree bootstrap", () => {
     expect(() => createWorktree(
       "feature-d",
       ["--branch", "codex/feature-d", "--base", "origin/main", "--issue", "issue-id"],
-      { repoRoot: root, spawnSync: spawn, stdio: "pipe" },
+      { repoRoot: root, gitExecutable: "git", spawnSync: spawn, stdio: "pipe" },
     )).toThrow("forge worktree create");
     expect(calls.slice(-2)).toEqual([
       ["git", ["worktree", "remove", "--force", worktree]],

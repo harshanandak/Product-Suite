@@ -21,6 +21,19 @@ const REQUIRED_BINARIES = [
   ["apps", "platform-web", "node_modules", ".bin", "vitest"],
 ];
 
+const GIT_EXECUTABLES = Object.freeze({
+  win32: Object.freeze([
+    "C:\\Program Files\\Git\\cmd\\git.exe",
+    "C:\\Program Files\\Git\\bin\\git.exe",
+  ]),
+  linux: Object.freeze(["/usr/bin/git"]),
+  darwin: Object.freeze([
+    "/usr/bin/git",
+    "/opt/homebrew/bin/git",
+    "/usr/local/bin/git",
+  ]),
+});
+
 function commandFailure(command, args, result) {
   if (result.error) return `${command} could not start: ${result.error.message}`;
   if (result.signal) return `${command} ${args.join(" ")} was killed by ${result.signal}`;
@@ -66,7 +79,7 @@ function workspacePaths(worktreePath) {
     ? manifest.workspaces
     : manifest.workspaces?.packages;
   if (!Array.isArray(workspaces)) {
-    throw new Error("package.json must declare an array of workspaces");
+    throw new TypeError("package.json must declare an array of workspaces");
   }
   if (workspaces.some((workspace) => /[*?[\]{}]/u.test(workspace))) {
     throw new Error("Worktree bootstrap requires explicit workspace paths, not globs");
@@ -140,9 +153,20 @@ export function bootstrapWorktree(worktreePath, repoRoot, options = {}) {
   };
 }
 
-function repoRootFrom(cwd) {
+export function resolveGitExecutable({
+  platform = process.platform,
+  fileExists = existsSync,
+} = {}) {
+  const executable = GIT_EXECUTABLES[platform]?.find((candidate) => fileExists(candidate));
+  if (!executable) {
+    throw new Error(`Could not find a trusted Git executable for ${platform}`);
+  }
+  return executable;
+}
+
+function repoRootFrom(cwd, gitExecutable = resolveGitExecutable()) {
   const commonGitDir = execFileSync(
-    "git",
+    gitExecutable,
     ["-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"],
     {
     encoding: "utf8",
@@ -167,14 +191,14 @@ function flagValue(args, flag, fallback) {
   return fallback;
 }
 
-function branchExists(repoRoot, branch, spawn) {
+function branchExists(repoRoot, branch, gitExecutable, spawn) {
   const result = spawn(
-    "git",
+    gitExecutable,
     ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`],
     { cwd: repoRoot, stdio: "pipe" },
   );
   if (result?.error || result?.signal || ![0, 1].includes(result?.status)) {
-    throw new Error(commandFailure("git", ["show-ref", "--verify", branch], result));
+    throw new Error(commandFailure(gitExecutable, ["show-ref", "--verify", branch], result));
   }
   return result.status === 0;
 }
@@ -194,18 +218,27 @@ function normalizedForgeArgs(args, branch, base) {
   return normalized;
 }
 
-function rollbackCreatedWorktree(repoRoot, worktreePath, branch, branchWasCreated, spawn) {
-  spawn("git", ["worktree", "remove", "--force", worktreePath], {
+function rollbackCreatedWorktree(
+  repoRoot,
+  worktreePath,
+  branch,
+  branchWasCreated,
+  gitExecutable,
+  spawn,
+) {
+  spawn(gitExecutable, ["worktree", "remove", "--force", worktreePath], {
     cwd: repoRoot,
     stdio: "pipe",
   });
   if (branchWasCreated) {
-    spawn("git", ["branch", "-D", branch], { cwd: repoRoot, stdio: "pipe" });
+    spawn(gitExecutable, ["branch", "-D", branch], { cwd: repoRoot, stdio: "pipe" });
   }
 }
 
 export function createWorktree(slug, forgeArgs = [], options = {}) {
-  const repoRoot = options.repoRoot ?? repoRootFrom(options.cwd ?? process.cwd());
+  const gitExecutable = options.gitExecutable ?? resolveGitExecutable();
+  const repoRoot = options.repoRoot
+    ?? repoRootFrom(options.cwd ?? process.cwd(), gitExecutable);
   const worktreePath = resolveWorktreePath(repoRoot, slug);
   const runSpawn = options.spawnSync ?? spawnSync;
   const commandOptions = { cwd: repoRoot, stdio: options.stdio ?? "inherit" };
@@ -216,13 +249,13 @@ export function createWorktree(slug, forgeArgs = [], options = {}) {
     throw new Error(`Worktree already exists; use worktree:bootstrap instead: ${worktreePath}`);
   }
 
-  runChecked("git", ["check-ref-format", "--branch", branch], commandOptions, runSpawn);
-  runChecked("git", ["rev-parse", "--verify", `${base}^{commit}`], commandOptions, runSpawn);
-  const existingBranch = branchExists(repoRoot, branch, runSpawn);
+  runChecked(gitExecutable, ["check-ref-format", "--branch", branch], commandOptions, runSpawn);
+  runChecked(gitExecutable, ["rev-parse", "--verify", `${base}^{commit}`], commandOptions, runSpawn);
+  const existingBranch = branchExists(repoRoot, branch, gitExecutable, runSpawn);
   const addArgs = existingBranch
     ? ["worktree", "add", worktreePath, branch]
     : ["worktree", "add", worktreePath, "-b", branch, base];
-  runChecked("git", addArgs, commandOptions, runSpawn);
+  runChecked(gitExecutable, addArgs, commandOptions, runSpawn);
 
   try {
     runChecked(
@@ -232,7 +265,14 @@ export function createWorktree(slug, forgeArgs = [], options = {}) {
       runSpawn,
     );
   } catch (error) {
-    rollbackCreatedWorktree(repoRoot, worktreePath, branch, !existingBranch, runSpawn);
+    rollbackCreatedWorktree(
+      repoRoot,
+      worktreePath,
+      branch,
+      !existingBranch,
+      gitExecutable,
+      runSpawn,
+    );
     throw error;
   }
   return bootstrapWorktree(worktreePath, repoRoot, options);
