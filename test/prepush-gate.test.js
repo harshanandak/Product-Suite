@@ -217,11 +217,17 @@ describe("change-aware CI plan", () => {
       "apps/roadmap-web/src/app/api/work-items/route.ts",
       "apps/meeting-web/src/lib/api.js",
       "apps/platform-web/src/data/work-items/RepositoryProvider.tsx",
+      "apps/platform-web/src/data/meeting-actions/MeetingActionsRepositoryProvider.tsx",
+      "apps/platform-web/src/data/proposals/ProposalRepositoryProvider.tsx",
+      "apps/platform-web/src/data/memories/MemoriesProvider.tsx",
       "apps/roadmap-web/src/app/(dashboard)/layout.tsx",
       "apps/roadmap-web/src/app/(dashboard)/workspaces/[id]/page.tsx",
       "apps/roadmap-web/src/app/(auth)/accept-invite/page.tsx",
       "apps/roadmap-web/src/app/(auth)/layout.tsx",
       "apps/roadmap-web/src/app/(auth)/auth/callback/route.ts",
+      "apps/roadmap-web/src/lib/ai/agent-executor.ts",
+      "apps/roadmap-web/src/lib/ai/compression/l2-summarizer.ts",
+      "apps/roadmap-web/src/lib/ai/embeddings/document-processor.ts",
     ];
 
     for (const file of authorityPaths) {
