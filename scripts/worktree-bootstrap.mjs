@@ -179,6 +179,21 @@ function branchExists(repoRoot, branch, spawn) {
   return result.status === 0;
 }
 
+function normalizedForgeArgs(args, branch, base) {
+  const supported = new Set(["--branch", "--base", "--issue", "--work-folder"]);
+  for (let index = 0; index < args.length; index += 1) {
+    const [flag] = args[index].split("=", 1);
+    if (!supported.has(flag)) throw new Error(`Unsupported forge worktree flag: ${args[index]}`);
+    if (!args[index].includes("=")) index += 1;
+  }
+  const normalized = [`--branch=${branch}`, `--base=${base}`];
+  for (const flag of ["--issue", "--work-folder"]) {
+    const value = flagValue(args, flag, null);
+    if (value !== null) normalized.push(`${flag}=${value}`);
+  }
+  return normalized;
+}
+
 export function createWorktree(slug, forgeArgs = [], options = {}) {
   const repoRoot = options.repoRoot ?? repoRootFrom(options.cwd ?? process.cwd());
   const worktreePath = resolveWorktreePath(repoRoot, slug);
@@ -186,6 +201,7 @@ export function createWorktree(slug, forgeArgs = [], options = {}) {
   const commandOptions = { cwd: repoRoot, stdio: options.stdio ?? "inherit" };
   const branch = flagValue(forgeArgs, "--branch", `codex/${slug}`);
   const base = flagValue(forgeArgs, "--base", "origin/HEAD");
+  const registrationArgs = normalizedForgeArgs(forgeArgs, branch, base);
   if (existsSync(worktreePath)) {
     throw new Error(`Worktree already exists; use worktree:bootstrap instead: ${worktreePath}`);
   }
@@ -197,13 +213,6 @@ export function createWorktree(slug, forgeArgs = [], options = {}) {
     : ["worktree", "add", worktreePath, "-b", branch, base];
   runChecked("git", addArgs, commandOptions, runSpawn);
 
-  const registrationArgs = [...forgeArgs];
-  if (flagValue(forgeArgs, "--branch", null) === null) {
-    registrationArgs.push("--branch", branch);
-  }
-  if (flagValue(forgeArgs, "--base", null) === null) {
-    registrationArgs.push("--base", base);
-  }
   runChecked(
     "forge",
     ["worktree", "create", slug, ...registrationArgs],
