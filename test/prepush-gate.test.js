@@ -219,6 +219,9 @@ describe("change-aware CI plan", () => {
       "apps/roadmap-web/src/app/api/dependencies/route.ts",
       "apps/roadmap-web/src/app/api/work-items/route.ts",
       "apps/meeting-web/src/lib/api.js",
+      "apps/meeting-web/src/hooks/useBuddyAgent.js",
+      "apps/meeting-web/src/hooks/useMeetingState.js",
+      "apps/meeting-web/src/hooks/useRealtimeTranscript.js",
       "apps/platform-web/src/data/work-items/RepositoryProvider.tsx",
       "apps/platform-web/src/data/meeting-actions/MeetingActionsRepositoryProvider.tsx",
       "apps/platform-web/src/data/proposals/ProposalRepositoryProvider.tsx",
@@ -236,6 +239,7 @@ describe("change-aware CI plan", () => {
       "apps/roadmap-web/src/lib/ai/context-builder.ts",
       "apps/roadmap-web/src/lib/ai/compression/l2-summarizer.ts",
       "apps/roadmap-web/src/lib/ai/embeddings/document-processor.ts",
+      "apps/roadmap-web/scripts/upgrade-user-to-pro.ts",
     ];
 
     for (const file of authorityPaths) {
