@@ -186,12 +186,22 @@ function normalizedForgeArgs(args, branch, base) {
     if (!supported.has(flag)) throw new Error(`Unsupported forge worktree flag: ${args[index]}`);
     if (!args[index].includes("=")) index += 1;
   }
-  const normalized = [`--branch=${branch}`, `--base=${base}`];
-  for (const flag of ["--issue", "--work-folder"]) {
-    const value = flagValue(args, flag, null);
-    if (value !== null) normalized.push(`${flag}=${value}`);
-  }
+  const issue = flagValue(args, "--issue", null);
+  if (issue === null) throw new Error("--issue requires a value");
+  const normalized = [`--branch=${branch}`, `--base=${base}`, `--issue=${issue}`];
+  const workFolder = flagValue(args, "--work-folder", null);
+  if (workFolder !== null) normalized.push(`--work-folder=${workFolder}`);
   return normalized;
+}
+
+function rollbackCreatedWorktree(repoRoot, worktreePath, branch, branchWasCreated, spawn) {
+  spawn("git", ["worktree", "remove", "--force", worktreePath], {
+    cwd: repoRoot,
+    stdio: "pipe",
+  });
+  if (branchWasCreated) {
+    spawn("git", ["branch", "-D", branch], { cwd: repoRoot, stdio: "pipe" });
+  }
 }
 
 export function createWorktree(slug, forgeArgs = [], options = {}) {
@@ -208,17 +218,23 @@ export function createWorktree(slug, forgeArgs = [], options = {}) {
 
   runChecked("git", ["check-ref-format", "--branch", branch], commandOptions, runSpawn);
   runChecked("git", ["rev-parse", "--verify", `${base}^{commit}`], commandOptions, runSpawn);
-  const addArgs = branchExists(repoRoot, branch, runSpawn)
+  const existingBranch = branchExists(repoRoot, branch, runSpawn);
+  const addArgs = existingBranch
     ? ["worktree", "add", worktreePath, branch]
     : ["worktree", "add", worktreePath, "-b", branch, base];
   runChecked("git", addArgs, commandOptions, runSpawn);
 
-  runChecked(
-    "forge",
-    ["worktree", "create", slug, ...registrationArgs],
-    commandOptions,
-    runSpawn,
-  );
+  try {
+    runChecked(
+      "forge",
+      ["worktree", "create", slug, ...registrationArgs],
+      commandOptions,
+      runSpawn,
+    );
+  } catch (error) {
+    rollbackCreatedWorktree(repoRoot, worktreePath, branch, !existingBranch, runSpawn);
+    throw error;
+  }
   return bootstrapWorktree(worktreePath, repoRoot, options);
 }
 
