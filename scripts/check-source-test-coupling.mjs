@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { resolveGitExecutable } from "./ci-change-plan.mjs";
 
 export const SOURCE_EXTENSIONS = new Set([
   ".js",
@@ -55,6 +56,50 @@ export function getStagedFiles() {
     .map((line) => line.trim())
     .filter(Boolean)
     .map(normalizePath);
+}
+
+const SHA_PATTERN = /^[0-9a-f]{40}$/i;
+
+export function getRangeFiles(baseSha, headSha) {
+  const gitExecutable = resolveGitExecutable();
+  if (!gitExecutable) return null;
+  try {
+    const output = execFileSync(
+      gitExecutable,
+      ["diff", "--no-renames", "--name-only", "--diff-filter=ACMR", `${baseSha}...${headSha}`],
+      { encoding: "utf8" },
+    );
+    return output
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map(normalizePath);
+  } catch {
+    return null;
+  }
+}
+
+export function selectFilesForCheck({
+  baseSha = process.env.SOURCE_TEST_BASE_SHA,
+  headSha = process.env.SOURCE_TEST_HEAD_SHA,
+  allowLocalFallback = false,
+  readRange = getRangeFiles,
+  readStaged = getStagedFiles,
+} = {}) {
+  const hasBase = typeof baseSha === "string" && baseSha.length > 0;
+  const hasHead = typeof headSha === "string" && headSha.length > 0;
+  if (!hasBase && !hasHead && allowLocalFallback) return readStaged();
+  if (!hasBase || !hasHead || !SHA_PATTERN.test(baseSha) || !SHA_PATTERN.test(headSha)) {
+    throw new Error("SOURCE_TEST_RANGE_INVALID");
+  }
+  const files = readRange(baseSha.toLowerCase(), headSha.toLowerCase());
+  if (!Array.isArray(files)) throw new Error("SOURCE_TEST_RANGE_UNAVAILABLE");
+  return files.map(normalizePath);
+}
+
+export function isCiEnvironment(value) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return normalized !== "" && normalized !== "false" && normalized !== "0";
 }
 
 export function isIgnored(file) {
@@ -205,19 +250,21 @@ export function getMissingSourceTests(stagedFiles) {
 }
 
 function main() {
-  const stagedFiles = getStagedFiles();
-  const missingSourceTests = getMissingSourceTests(stagedFiles);
+  const changedFiles = selectFilesForCheck({
+    allowLocalFallback: !isCiEnvironment(process.env.CI),
+  });
+  const missingSourceTests = getMissingSourceTests(changedFiles);
 
   if (missingSourceTests.length === 0) {
     process.exit(0);
   }
 
-  console.error("Blocked commit: source files are staged without corresponding test files.");
-  console.error("Staged source files missing tests:");
+  console.error("Blocked change: source files are missing corresponding tests.");
+  console.error("Changed source files missing tests:");
   for (const file of missingSourceTests) {
     console.error(`- ${file}`);
   }
-  console.error("Stage matching tests for each changed source file and try again.");
+  console.error("Add matching tests for each changed source file and try again.");
   process.exit(1);
 }
 

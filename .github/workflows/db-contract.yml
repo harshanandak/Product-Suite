@@ -1,17 +1,9 @@
 name: DB Contract
 
-# Real-DB contract tier (atomic-accept wave, Lane B). Runs the platform-api
-# `test/db-contract` suite against an EPHEMERAL Neon branch created per run, so the
-# accept/create path is exercised over the real neon-http driver + real migrations.
-# Isolated from the Platform Web CI job on purpose.
-#
-# Requires the `NEON_API_KEY` and `NEON_PROJECT_ID` secrets. `NEON_PROJECT_ID`
-# is the production/source project; the harness must create a distinct disposable
-# project for the empty-root proof. Missing credentials fail this required
-# lane closed; a green skipped job is not conformance evidence.
-
-# Every pull request reports this check. DB-irrelevant changes finish explicitly as N/A;
-# authority-relevant changes require the real-Neon lane and fail closed without credentials.
+# The required external context remains `DB Contract / db-contract`.  Cheap
+# changed-surface gates run first; only a successful exact-head plan can enter
+# the protected Neon runtime job.  The final sentinel is deliberately always()
+# so skipped/cancelled/malformed prerequisite jobs cannot look green.
 on:
   push:
     branches:
@@ -19,22 +11,26 @@ on:
   pull_request: {}
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
-permissions:
-  contents: read
-
 jobs:
-  db-contract:
-    name: db-contract
+  classify:
+    name: classify
     runs-on: ubuntu-latest
-    # Neon secrets are scoped to ONLY the steps that need them (below), NOT the
-    # job level — otherwise `bun install`'s lifecycle scripts (e.g. `prepare`)
-    # would run with NEON_API_KEY in the environment, letting a compromised
-    # dependency exfiltrate it.
-    env:
-      CI: "true"
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      schemaVersion: ${{ steps.plan.outputs.schemaVersion }}
+      exactSha: ${{ steps.plan.outputs.exactSha }}
+      inputValid: ${{ steps.plan.outputs.inputValid }}
+      classification: ${{ steps.plan.outputs.classification }}
+      reason: ${{ steps.plan.outputs.reason }}
+      cheapScripts: ${{ steps.plan.outputs.cheapScripts }}
+      cheapScriptsJson: ${{ steps.plan.outputs.cheapScriptsJson }}
+      dbEvidenceRequired: ${{ steps.plan.outputs.dbEvidenceRequired }}
+      planJson: ${{ steps.plan.outputs.planJson }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -48,60 +44,325 @@ jobs:
         env:
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
+          set -euo pipefail
+          actual_head="$(git rev-parse HEAD)"
+          test "$actual_head" = "$EXPECTED_HEAD"
+
+      - name: Detect selector ownership boundary
+        id: selector-boundary
+        shell: bash
+        env:
+          CI_CHANGE_PLAN_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          CI_CHANGE_PLAN_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          selector_owned_change=false
+          base_sha_zero=false
+          case "$CI_CHANGE_PLAN_BASE_SHA" in
+            0000000000000000000000000000000000000000)
+              selector_owned_change=true
+              base_sha_zero=true
+              ;;
+            *)
+              changed_paths="$(git --no-replace-objects diff --no-renames --name-only --diff-filter=ACMRD \
+                "${CI_CHANGE_PLAN_BASE_SHA}...${CI_CHANGE_PLAN_HEAD_SHA}")"
+              while IFS= read -r changed_path; do
+                case "$changed_path" in
+                  .github/workflows/db-contract.yml|scripts/ci-change-plan.mjs|scripts/prepush-classify.mjs)
+                    selector_owned_change=true
+                    ;;
+                esac
+              done <<< "$changed_paths"
+              ;;
+          esac
+          echo "selectorOwnedChange=$selector_owned_change" >> "$GITHUB_OUTPUT"
+          echo "baseShaZero=$base_sha_zero" >> "$GITHUB_OUTPUT"
+
+      - name: Produce validated changed-surface plan
+        id: plan
+        shell: bash
+        env:
+          CI_CHANGE_PLAN_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          CI_CHANGE_PLAN_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: node scripts/ci-change-plan.mjs
+
+      - name: Enforce selector ownership boundary
+        shell: bash
+        env:
+          SELECTOR_OWNED_CHANGE: ${{ steps.selector-boundary.outputs.selectorOwnedChange }}
+          SELECTOR_BASE_SHA_ZERO: ${{ steps.selector-boundary.outputs.baseShaZero }}
+          CI_CHANGE_PLAN_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          PLANNED_SCHEMA_VERSION: ${{ steps.plan.outputs.schemaVersion }}
+          PLANNED_EXACT_SHA: ${{ steps.plan.outputs.exactSha }}
+          PLANNED_INPUT_VALID: ${{ steps.plan.outputs.inputValid }}
+          PLANNED_CLASSIFICATION: ${{ steps.plan.outputs.classification }}
+          PLANNED_CHEAP_SCRIPTS_JSON: ${{ steps.plan.outputs.cheapScriptsJson }}
+          PLANNED_DB_EVIDENCE_REQUIRED: ${{ steps.plan.outputs.dbEvidenceRequired }}
+        run: |
+          set -euo pipefail
+          if [ "$SELECTOR_OWNED_CHANGE" = "true" ]; then
+            expected_cheap_scripts='["check:source-test","test:repo-tooling","verify:platform-web","verify:platform-api","verify:meeting-web","verify:roadmap-web","ci:meeting-api","test:contracts","verify:db","test:sdk","test:ui","test:ui-chat","test:ui-canvas","test:ui-meeting","test:ui-planning","test:ui-charting","test:agent-core","test:hocuspocus"]'
+            test "$PLANNED_SCHEMA_VERSION" = "ci-change-plan.v1"
+            test "$PLANNED_EXACT_SHA" = "$CI_CHANGE_PLAN_HEAD_SHA"
+            if [ "$SELECTOR_BASE_SHA_ZERO" = "true" ]; then
+              test "$PLANNED_INPUT_VALID" = "false"
+            else
+              test "$PLANNED_INPUT_VALID" = "true"
+            fi
+            test "$PLANNED_CLASSIFICATION" = "full-suite"
+            test "$PLANNED_DB_EVIDENCE_REQUIRED" = "true"
+            test "$PLANNED_CHEAP_SCRIPTS_JSON" = "$expected_cheap_scripts"
+          fi
+
+  cheap-gates:
+    name: cheap-gates
+    needs: classify
+    if: ${{ needs.classify.result == 'success' && needs.classify.outputs.exactSha != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.6-pg17@sha256:7ae6051efd0e60444282c27c7e141af07f322ce033300e727a49c3dd11075e38
+        env:
+          POSTGRES_DB: meeting_agent
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d meeting_agent"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      CI: "true"
+      PYTHONPATH: apps/meeting-api
+      DEPLOYMENT_MODE: oss
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/meeting_agent
+      MIGRATION_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/meeting_agent
+      DATABASE_ENVIRONMENT: fresh
+      MEETING_TARGET_SMOKE_REQUIRED: "1"
+      MEETING_TARGET_SMOKE_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/meeting_agent
+      MEETING_TARGET_SMOKE_DATABASE_PROVIDER: postgres
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs['classify'].outputs.exactSha }}
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Verify planned exact checkout
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ needs['classify'].outputs.exactSha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.6
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Install Meeting API dependencies
+        if: ${{ contains(needs.classify.outputs.cheapScriptsJson, '"ci:meeting-api"') }}
+        run: node scripts/meeting-api-validation.mjs install apps/meeting-api/backend/requirements.txt
+
+      - name: Provision Meeting database roles
+        if: ${{ contains(needs.classify.outputs.cheapScriptsJson, '"ci:meeting-api"') }}
+        run: node scripts/provision-database-roles.mjs
+
+      - name: Run Meeting database migrations
+        if: ${{ contains(needs.classify.outputs.cheapScriptsJson, '"ci:meeting-api"') }}
+        run: >-
+          node scripts/migrate-database.mjs bootstrap --environment fresh
+          --history-variant repaired-bootstrap
+          --expected-pending
+          0000_stale_jamie_braddock,0001_dear_the_enforcers,0002_polite_orphan,0003_tranquil_tattoo,0004_minor_lockheed,0005_rename_tasks_to_checks,0006_provenance_foundation,0007_proposals,0008_agent_transcript,0009_chat_threads,0010_memory_brain,0011_memory_source_proposal_uniq,0012_proposals_reflected_at,0013_knowledge_base,0014_work_item_applied_from_proposal_partial,0015_meeting_promotions,0016_memory_ownership_axis,0017_proposal_target_snapshot,0018_collaboration_fabric,0019_neon_authority_reconciliation
+
+      - name: Verify Meeting database history
+        if: ${{ contains(needs.classify.outputs.cheapScriptsJson, '"ci:meeting-api"') }}
+        run: node scripts/migrate-database.mjs verify --environment fresh --history-variant repaired-bootstrap --expected-floor 0019
+
+      - name: Assert Meeting target smoke is required
+        if: ${{ contains(needs.classify.outputs.cheapScriptsJson, '"ci:meeting-api"') }}
+        shell: bash
+        run: |
+          test "$MEETING_TARGET_SMOKE_REQUIRED" = "1"
+          test "$MEETING_TARGET_SMOKE_DATABASE_PROVIDER" = "postgres"
+          test "$MEETING_TARGET_SMOKE_DATABASE_URL" = "$DATABASE_URL"
+
+      - name: Run selected cheap gates sequentially
+        shell: bash
+        env:
+          CHEAP_SCRIPTS_JSON: ${{ needs['classify'].outputs.cheapScriptsJson }}
+          SOURCE_TEST_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          SOURCE_TEST_HEAD_SHA: ${{ needs['classify'].outputs.exactSha }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { spawnSync } from 'node:child_process';
+
+          const scripts = JSON.parse(process.env.CHEAP_SCRIPTS_JSON ?? 'null');
+          if (!Array.isArray(scripts) || scripts.length === 0 || scripts.some((script) => typeof script !== 'string' || !/^[A-Za-z0-9:_-]+$/.test(script))) {
+            throw new Error('CI_CHANGE_PLAN_CHEAP_SELECTOR_INVALID');
+          }
+          const command = (cwd, executable, args) => ({ cwd, executable, args });
+          const canonicalCommands = Object.freeze({
+            'check:source-test': [command('.', 'node', ['scripts/check-source-test-coupling.mjs'])],
+            'test:repo-tooling': [command('.', 'bun', ['test',
+              'test/repo-tooling.test.js', 'test/domain-inventory.test.js',
+              'test/check-source-test-coupling.test.js', 'test/check-migration-parity.test.js',
+              'test/check-historical-db-artifacts.test.js', 'test/check-worker-secrets.test.js',
+              'test/prepush-gate.test.js', 'test/prepush-classify.test.js',
+              'test/ci-change-plan.test.js', 'test/neon-production-preflight-workflow.test.js',
+            ])],
+            'verify:platform-web': [
+              command('apps/platform-web', 'bun', ['x', '--no-install', 'eslint', 'src']),
+              command('apps/platform-web', 'bun', ['x', '--no-install', 'tsc', '--noEmit']),
+              command('apps/platform-web', 'bun', ['x', '--no-install', 'vitest', 'run']),
+            ],
+            'verify:platform-api': [
+              command('apps/platform-api', 'bun', ['x', '--no-install', 'eslint', '--max-warnings', '0', 'src']),
+              command('apps/platform-api', 'bun', ['x', '--no-install', 'tsc', '--noEmit']),
+              command('apps/platform-api', 'bun', ['x', '--no-install', 'vitest', 'run']),
+            ],
+            'verify:meeting-web': [
+              command('apps/meeting-web', 'bun', ['x', '--no-install', 'eslint', 'src', '--ext', '.js,.jsx']),
+              command('apps/meeting-web', 'bun', ['x', '--no-install', 'vitest', 'run']),
+            ],
+            'verify:roadmap-web': [
+              command('apps/roadmap-web', 'bun', ['x', '--no-install', 'eslint']),
+              command('apps/roadmap-web', 'bun', ['x', '--no-install', 'tsc', '--noEmit']),
+              command('apps/roadmap-web', 'bun', ['x', '--no-install', 'vitest', 'run']),
+            ],
+            'test:roadmap-canvas-boundary': [
+              command('apps/roadmap-web', 'bun', ['x', '--no-install', 'vitest', 'run', 'src/components/blocksuite/__tests__/canvas-boundary.test.ts']),
+            ],
+            'ci:meeting-api': [
+              command('.', 'node', ['scripts/meeting-api-validation.mjs', 'lint', 'apps/meeting-api/backend', 'apps/meeting-api/tests/backend']),
+              command('.', 'node', ['scripts/meeting-api-validation.mjs', 'test', 'apps/meeting-api/tests/backend']),
+            ],
+            'test:contracts': [command('packages/contracts', 'bun', ['test'])],
+            'verify:db': [
+              command('packages/db', 'bun', ['x', '--no-install', 'eslint', '--max-warnings', '0', 'src', 'drizzle.config.ts']),
+              command('packages/db', 'bun', ['x', '--no-install', 'tsc', '--noEmit']),
+              command('packages/db', 'bun', ['x', '--no-install', 'vitest', 'run']),
+            ],
+            'test:sdk': [command('packages/sdk', 'bun', ['test'])],
+            'test:ui': [command('packages/ui', 'bun', ['test'])],
+            'test:ui-chat': [command('packages/ui-chat', 'bun', ['test'])],
+            'test:ui-canvas': [command('packages/ui-canvas', 'bun', ['test'])],
+            'test:ui-meeting': [
+              command('packages/ui-meeting', 'bun', ['build', 'src/meeting-summary-block.jsx', '--outfile', 'src/meeting-summary-block.js', '--target=browser', '--format=esm', '--external', 'react']),
+              command('packages/ui-meeting', 'bun', ['test']),
+            ],
+            'test:ui-planning': [command('packages/ui-planning', 'bun', ['test'])],
+            'test:ui-charting': [command('packages/ui-charting', 'bun', ['test'])],
+            'test:agent-core': [command('services/agent-core', 'bun', ['test', 'src/index.test.ts'])],
+            'test:hocuspocus': [command('services/hocuspocus', 'bun', ['test', 'src/server.test.ts', 'src/runtime.test.ts', 'src/index.test.ts'])],
+          });
+          const meetingEnvironmentKeys = [
+            'PYTHONPATH',
+            'DEPLOYMENT_MODE',
+            'DATABASE_URL',
+            'MIGRATION_DATABASE_URL',
+            'DATABASE_ENVIRONMENT',
+            'MEETING_TARGET_SMOKE_REQUIRED',
+            'MEETING_TARGET_SMOKE_DATABASE_URL',
+            'MEETING_TARGET_SMOKE_DATABASE_PROVIDER',
+          ];
+          for (const script of scripts) {
+            const commands = canonicalCommands[script];
+            if (!Array.isArray(commands) || commands.length === 0) {
+              throw new Error('CI_CHANGE_PLAN_CANONICAL_COMMAND_MISSING');
+            }
+            const childEnvironment = { ...process.env };
+            if (script !== 'ci:meeting-api') {
+              for (const key of meetingEnvironmentKeys) delete childEnvironment[key];
+            }
+            for (const command of commands) {
+              if (!command || typeof command.cwd !== 'string' || typeof command.executable !== 'string' || !Array.isArray(command.args)) {
+                throw new Error('CI_CHANGE_PLAN_CANONICAL_COMMAND_INVALID');
+              }
+              const result = spawnSync(command.executable, command.args, {
+                cwd: command.cwd,
+                stdio: 'inherit',
+                env: childEnvironment,
+              });
+              if ((result.status ?? 1) !== 0) process.exit(result.status ?? 1);
+            }
+          }
+          NODE
+
+  db-contract-runtime:
+    name: db-contract-runtime
+    needs: [classify, cheap-gates]
+    if: ${{ needs.classify.result == 'success' && needs['cheap-gates'].result == 'success' && needs['classify'].outputs.dbEvidenceRequired == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: db-contract-production
+    permissions:
+      contents: read
+    # Secrets stay scoped to the two runtime steps below; lifecycle scripts and
+    # dependency installation never receive Neon credentials.
+    env:
+      CI: "true"
+    outputs:
+      evidenceSha: ${{ steps.evidence.outputs.evidenceSha }}
+      verdict: ${{ steps.evidence.outputs.verdict }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs['classify'].outputs.exactSha }}
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Verify planned exact checkout
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ needs['classify'].outputs.exactSha }}
+        run: |
+          set -euo pipefail
           actual_head="$(git rev-parse HEAD)"
           test "$actual_head" = "$EXPECTED_HEAD"
           echo "DB_CONTRACT_EXACT_HEAD=$actual_head" >> "$GITHUB_ENV"
 
-      - name: Determine DB-contract relevance
-        id: relevance
-        shell: bash
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          EVENT_BEFORE: ${{ github.event.before }}
-          BASE_REF: ${{ github.base_ref }}
-        run: |
-          if [ "$EVENT_NAME" = "pull_request" ]; then
-            range="origin/${BASE_REF}...HEAD"
-          elif git rev-parse --verify --quiet "${EVENT_BEFORE}^{commit}" >/dev/null; then
-            range="${EVENT_BEFORE}..HEAD"
-          else
-            range="HEAD^..HEAD"
-          fi
-          if git diff --name-only "$range" | grep -Eq '^(apps/platform-api/|packages/db/|package\.json$|bun\.lock$|\.github/workflows/db-contract\.yml$)'; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Report DB-contract N/A
-        if: "${{ steps.relevance.outputs.run != 'true' }}"
-        run: 'echo "DB contract N/A: no authority-relevant files changed."'
-
-      - name: Setup Bun
-        if: "${{ steps.relevance.outputs.run == 'true' }}"
+      - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.3.6
 
       - name: Install dependencies
-        if: "${{ steps.relevance.outputs.run == 'true' }}"
         run: bun install --frozen-lockfile --ignore-scripts
 
       - name: Run focused real-Neon conformance proof
         id: conformance
-        if: "${{ steps.relevance.outputs.run == 'true' }}"
+        working-directory: apps/platform-api
         env:
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
           NEON_PROJECT_ID: ${{ secrets.NEON_PROJECT_ID }}
           NEON_PARENT_BRANCH_ID: ${{ secrets.NEON_PARENT_BRANCH_ID }}
           DB_CONTRACT_CONFORMANCE_MARKER_PATH: ${{ runner.temp }}/db-contract-conformance.marker
-        run: bun run --cwd apps/platform-api test:db-contract:conformance
+        run: bun test/db-contract/conformance-cli.ts
 
       - name: Run required DB-contract suite
         id: suite
-        # GitHub's success() gate makes a failed focused proof stop before the
-        # expensive 57-test database suite starts.
-        if: "${{ steps.relevance.outputs.run == 'true' && success() }}"
+        # A failed focused proof stops before the expensive 57-test suite.
+        if: ${{ success() }}
+        working-directory: apps/platform-api
         env:
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
           NEON_PROJECT_ID: ${{ secrets.NEON_PROJECT_ID }}
@@ -111,18 +372,89 @@ jobs:
           DB_CONTRACT_CONFORMANCE_MARKER_PATH: ${{ runner.temp }}/db-contract-conformance.marker
           DB_CONTRACT_TELEMETRY_PATH: ${{ github.workspace }}/apps/platform-api/db-contract-telemetry.json
           VITEST_SKIP_INSTALL_CHECKS: "1"
-        run: bun run --cwd apps/platform-api test:db-contract:required
+        run: bun x --no-install vitest run --config vitest.db-contract.config.ts
 
       - name: Publish DB-contract summary
-        if: "${{ always() && steps.relevance.outputs.run == 'true' && steps.conformance.outcome == 'success' }}"
+        if: "${{ always() && steps.conformance.outcome == 'success' }}"
+        working-directory: apps/platform-api
         env:
           DB_CONTRACT_TELEMETRY_PATH: ${{ github.workspace }}/apps/platform-api/db-contract-telemetry.json
-        run: bun run --cwd apps/platform-api test:db-contract:summary
+        run: bun test/db-contract/telemetry.ts summary
+
+      - name: Validate exact-head DB evidence
+        id: evidence
+        if: ${{ always() }}
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ needs['classify'].outputs.exactSha }}
+          DB_CONTRACT_TELEMETRY_PATH: ${{ github.workspace }}/apps/platform-api/db-contract-telemetry.json
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+
+          const output = process.env.GITHUB_OUTPUT;
+          let verdict = 'FAIL';
+          let evidenceSha = '';
+          try {
+            const telemetry = JSON.parse(readFileSync(process.env.DB_CONTRACT_TELEMETRY_PATH, 'utf8'));
+            evidenceSha = typeof telemetry.exactHead === 'string' ? telemetry.exactHead.toLowerCase() : '';
+            const counts = telemetry.counts;
+            const cleanup = telemetry.cleanup;
+            const pass = evidenceSha === process.env.EXPECTED_HEAD.toLowerCase()
+              && counts?.zeroSkip === true
+              && cleanup?.complete === true
+              && cleanup?.proof === 'current-run-absent';
+            if (pass) verdict = 'PASS';
+          } catch {
+            evidenceSha = '';
+          }
+          appendFileSync(output, `evidenceSha=${evidenceSha}\nverdict=${verdict}\n`);
+          NODE
 
       - name: Upload DB-contract telemetry
-        if: "${{ always() && steps.relevance.outputs.run == 'true' && steps.conformance.outcome == 'success' }}"
+        if: "${{ always() && steps.conformance.outcome == 'success' }}"
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: db-contract-telemetry-${{ env.DB_CONTRACT_EXACT_HEAD }}
+          name: db-contract-telemetry-${{ needs['classify'].outputs.exactSha }}
           path: apps/platform-api/db-contract-telemetry.json
           if-no-files-found: error
+          retention-days: 7
+
+  db-contract:
+    name: db-contract
+    needs: [classify, cheap-gates, db-contract-runtime]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Validate final DB-contract verdict
+        shell: bash
+        env:
+          CLASSIFY_RESULT: ${{ needs.classify.result }}
+          CHEAP_RESULT: ${{ needs['cheap-gates'].result }}
+          RUNTIME_RESULT: ${{ needs['db-contract-runtime'].result }}
+          DB_REQUIRED: ${{ needs['classify'].outputs.dbEvidenceRequired }}
+          EXACT_SHA: ${{ needs['classify'].outputs.exactSha }}
+          EVIDENCE_SHA: ${{ needs['db-contract-runtime'].outputs.evidenceSha }}
+          RUNTIME_VERDICT: ${{ needs['db-contract-runtime'].outputs.verdict }}
+        run: |
+          set -euo pipefail
+          test "$CLASSIFY_RESULT" = "success"
+          if [ "$CHEAP_RESULT" = "cancelled" ] || [ "$RUNTIME_RESULT" = "cancelled" ]; then
+            echo "DB contract failed: cancelled prerequisite or runtime evidence."
+            exit 1
+          fi
+          test "$CHEAP_RESULT" = "success"
+          if [ "$DB_REQUIRED" = "false" ]; then
+            test "$RUNTIME_RESULT" = "skipped"
+            echo "DB contract N/A: no authority-relevant files changed."
+            exit 0
+          fi
+          test "$DB_REQUIRED" = "true"
+          test "$RUNTIME_RESULT" = "success"
+          test "$RUNTIME_VERDICT" = "PASS"
+          test -n "$EXACT_SHA"
+          test "$EVIDENCE_SHA" = "$EXACT_SHA"
+          echo "DB contract PASS: exact-head evidence verified for $EXACT_SHA."

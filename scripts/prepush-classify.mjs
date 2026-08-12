@@ -104,6 +104,135 @@ export const FULL = "full-suite";
 export const SCOPED = "scoped";
 
 export const FAST_NOTE = "mode: fast (lint+typecheck only, tests deferred to CI)";
+export const CI_PLAN_SCHEMA_VERSION = "ci-change-plan.v1";
+
+const SHA_PATTERN = /^[0-9a-f]{40}$/i;
+
+// CI-impacting paths are intentionally owned by this module rather than by a
+// second set of workflow regexes.  The normal pre-push classifier remains
+// backwards-compatible; the CI plan adds the stricter DB-authority boundary.
+const CI_DB_REQUIRED = [
+  /(^|\/)package\.json$/i,
+  /^apps\/platform-api(?:\/|$)/,
+  /^packages\/db(?:\/|$)/,
+  /^apps\/meeting-api\/backend\/(?:tenant_context|db|config|server|settings|migrate)\.py$/i,
+  /^apps\/meeting-api\/backend\/(?:repositories|routes|alembic)(?:\/|$)/i,
+  /^apps\/roadmap-web\/src\/(?:middleware\.ts|lib\/supabase(?:\/|$))/i,
+  /^apps\/roadmap-web\/src\/lib\/ai(?:\/|$)/i,
+  /^apps\/roadmap-web\/supabase(?:\/|$)/i,
+  /^apps\/roadmap-web\/scripts\/upgrade-user-to-pro\.ts$/i,
+  /^apps\/roadmap-web\/src\/app\/api(?:\/|$)/i,
+  /^apps\/roadmap-web\/src\/app\/(?:\(dashboard\)|\(auth\))(?:\/|$)/i,
+  /^apps\/meeting-web\/src\/lib\/api\.js$/i,
+  /^apps\/meeting-web\/src\/hooks\/use(?:BuddyAgent|MeetingState|RealtimeTranscript)\.js$/,
+  /^apps\/platform-web\/src\/(?:AppRoot\.tsx|fixtures-mode\.ts)$/i,
+  /^apps\/platform-web\/src\/data(?:\/|$)/i,
+  /^packages\/contracts\/src(?:\/|$)/i,
+  /^docs\/history\/database-migrations\/manifest\.json$/i,
+  /^infra\//,
+  /(^|\/)migrations?(?:\/|$)/i,
+  /^security(?:\/|$)/i,
+  /(^|\/)(?:auth|authorization|security|secrets?)(?:\/|[._-]|$)/i,
+  /^\.github\//,
+  /^\.sonarcloud\.properties$/,
+  // Delivery classifiers and security-routing helpers can change the impact
+  // decision itself, so the whole family is DB-required even when the file is
+  // otherwise repo tooling.
+  /^scripts\/delivery(?:\/|$)/i,
+  // Fail closed on authority-bearing path segments and filename keywords. The
+  // separators include `_`, `.`, and `-` so tenant_context.py/auth.d.ts are
+  // covered without treating unrelated words such as oauth as auth.
+  /(?:^|[/_.-])(?:tenant|tenants|identity|identities|access|permission|permissions|authorization|auth|security|secrets?)(?=$|[/_.-])/i,
+  // Camel-case authority modules do not have a path separator after `auth`.
+  /[Aa]uth[A-Z]/,
+  // Security authority can be embedded in compound names rather than an
+  // `auth` segment. Keep these matchers explicit so design tokens and
+  // non-auth application sessions do not acquire DB proof.
+  /(?:^|[/_.-])(?:oauth|oidc)(?=$|[/_.-])/i,
+  /(?:^|[/_.-])by[-_]tokens?(?=$|[/_.-])/i,
+  /(?:^|[/_.-])workos[-_]sessions?(?=$|[/_.-])/i,
+  /^scripts\/.*(?:authority|security|secret|migration|neon|db-contract|preflight).*$/i,
+  /^scripts\/(?:prepush-|ci-).*/i,
+  /^scripts\/check-(?:source-test(?:-coupling)?|historical-db-artifacts|migration-parity|database-authority|worker-secrets)(?:\.mjs)?$/i,
+  /^scripts\/migrate-database\.mjs$/i,
+  /^scripts\/(?:provision-database-roles|database-pool)\.mjs$/i,
+];
+
+export function isValidSha(value) {
+  return typeof value === "string" && SHA_PATTERN.test(value.trim());
+}
+
+function normalizedFiles(files) {
+  if (!Array.isArray(files)) return files;
+  return files.map((file) =>
+    typeof file === "string" ? file.trim().replaceAll("\\", "/").replace(/^\.\//, "") : String(file),
+  );
+}
+
+export function ciDbEvidenceRequired(files, result = classify(files)) {
+  if (result.kind === FULL || result.kind === SCOPED && files === null) return true;
+  if (!Array.isArray(files) || files.length === 0) return true;
+  if (result.kind === DOCS) {
+    return files.some((file) =>
+      /^docs\/history\/database-migrations\/manifest\.json$/i.test(file)
+      || /^\.sonarcloud\.properties$/.test(file),
+    );
+  }
+  return files.some((file) => CI_DB_REQUIRED.some((pattern) => pattern.test(file)));
+}
+
+function ciClassification(files, result) {
+  if (ciDbEvidenceRequired(files, result) && result.kind !== FULL) return FULL;
+  return result.kind;
+}
+
+/**
+ * Build the deterministic plan consumed by the CI workflow.  Existing
+ * classify()/describeClassification() callers intentionally remain unchanged.
+ * The second argument accepts either a SHA string or an options object so the
+ * pure API is convenient for both tests and the CLI adapter.
+ */
+export function buildCiPlan(filesOrOptions, exactSha) {
+  let options;
+  if (Array.isArray(filesOrOptions) || filesOrOptions === null) {
+    options = { files: filesOrOptions, exactSha };
+  } else {
+    options = filesOrOptions ?? {};
+  }
+  const files = normalizedFiles(options.files ?? null);
+  const requestedSha = options.exactSha ?? options.headSha ?? options.head;
+  const validSha = isValidSha(requestedSha);
+  const result = classify(files);
+  const dbEvidenceRequired = !validSha || ciDbEvidenceRequired(files, result);
+  const classification = !validSha ? FULL : ciClassification(files, result);
+  let reason = result.reason ?? "scoped changed workspace";
+  if (!validSha) reason = "invalid exact head SHA";
+  else if (classification === FULL && result.kind !== FULL) reason = "authority/security/migration/CI change";
+
+  let cheapScripts;
+  if (classification === DOCS) {
+    cheapScripts = ["check:source-test"];
+  } else {
+    const affectedWorkspaces = classification === FULL ? new Set(WORKSPACE_DIRS) : affectedDirsFor(result);
+    cheapScripts = suitesFor(affectedWorkspaces);
+    if (dbEvidenceRequired) {
+      cheapScripts = cheapScripts.map((script) =>
+        script === "test:roadmap-canvas-boundary" ? "verify:roadmap-web" : script,
+      );
+    }
+  }
+
+  return {
+    schemaVersion: CI_PLAN_SCHEMA_VERSION,
+    exactSha: validSha ? requestedSha.trim().toLowerCase() : null,
+    inputValid: validSha,
+    classification,
+    reason,
+    cheapScripts,
+    dbEvidenceRequired,
+    dbEvidenceReason: dbEvidenceRequired ? "authority/security/migration or ambiguous change" : "non-authority change",
+  };
+}
 
 function readJSON(file) {
   try {

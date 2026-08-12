@@ -2,6 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import {
+  buildCiPlan,
+  CI_PLAN_SCHEMA_VERSION,
+} from "../scripts/prepush-classify.mjs";
+import { planFromInputs } from "../scripts/ci-change-plan.mjs";
 
 // This file covers the gate's impure CLI shell: that it reads its env toggles and
 // reports the classification it computed. The routing RULES themselves are pure and
@@ -105,6 +110,283 @@ describe("prepush-gate CLI wiring", () => {
     },
     SPAWN_TIMEOUT_MS,
   );
+});
+
+describe("change-aware CI plan", () => {
+  const SHA = "a".repeat(40);
+  const BASE = "b".repeat(40);
+
+  test("scoped workspace changes include ordered cheap gates and no DB evidence", () => {
+    const plan = buildCiPlan(["apps/platform-web/src/x.tsx"], SHA);
+    expect(plan).toMatchObject({
+      schemaVersion: CI_PLAN_SCHEMA_VERSION,
+      exactSha: SHA,
+      classification: "scoped",
+      dbEvidenceRequired: false,
+    });
+    expect(plan.cheapScripts).toEqual([
+      "check:source-test",
+      "test:repo-tooling",
+      "verify:platform-web",
+    ]);
+  });
+
+  test("docs-only changes permit explicit N/A and only run integrity", () => {
+    const plan = buildCiPlan(["docs/work/example/plan.md"], SHA);
+    expect(plan.classification).toBe("docs-only");
+    expect(plan.cheapScripts).toEqual(["check:source-test"]);
+    expect(plan.dbEvidenceRequired).toBe(false);
+    expect(plan.dbEvidenceReason).toBe("non-authority change");
+  });
+
+  test("authority, API, DB, migration, security, and workflow changes require DB proof", () => {
+    for (const files of [
+      ["apps/platform-api/src/agent/tools.ts"],
+      ["packages/db/src/schema.ts"],
+      ["infra/neon/migrations/001.sql"],
+      ["scripts/check-worker-secrets.mjs"],
+      ["scripts/prepush-gate.mjs"],
+      ["apps/platform-web/src/auth/session.ts"],
+      [".github/workflows/db-contract.yml"],
+    ]) {
+      const plan = buildCiPlan(files, SHA);
+      expect(plan.dbEvidenceRequired).toBe(true);
+      expect(plan.classification).toBe("full-suite");
+    }
+  });
+
+  test("authority/security ownership rules fail closed across explicit and keyword surfaces", () => {
+    const authorityPaths = [
+      "apps/meeting-api/backend/tenant_context.py",
+      "apps/meeting-api/backend/auth.py",
+      "scripts/delivery/classify-change.mjs",
+      "scripts/delivery/security-routing.mjs",
+      "scripts/check-source-test-coupling.mjs",
+      "scripts/check-historical-db-artifacts.mjs",
+      "packages/contracts/src/auth/index.d.ts",
+      "packages/contracts/src/conversation.js",
+      "packages/contracts/src/meeting.js",
+      "packages/contracts/src/work-items.js",
+      "packages/contracts/src/authorization/policy.ts",
+      "packages/contracts/src/permissions/index.d.ts",
+      "packages/contracts/src/identity/user.ts",
+      "apps/platform-web/src/tenant/route.ts",
+      "apps/platform-web/src/identity/session.ts",
+      "apps/platform-web/src/access/guard.ts",
+      "apps/platform-web/src/permission/check.ts",
+      "apps/platform-web/src/security/csp.ts",
+      "apps/meeting-web/src/lib/authContracts.js",
+      "apps/meeting-web/src/lib/hostedAuthFlow.js",
+    ];
+    for (const file of authorityPaths) {
+      const plan = buildCiPlan([file], SHA);
+      expect(plan.dbEvidenceRequired, file).toBe(true);
+      expect(plan.classification, file).toBe("full-suite");
+    }
+  });
+
+  test("executable migration authority and existing OAuth, token, and session surfaces fail closed", () => {
+    const authorityPaths = [
+      "docs/history/database-migrations/manifest.json",
+      "scripts/provision-database-roles.mjs",
+      "scripts/database-pool.mjs",
+      "apps/roadmap-web/src/lib/integrations/oauth-providers.ts",
+      "apps/roadmap-web/src/app/api/integrations/oauth/callback/[provider]/route.ts",
+      "apps/roadmap-web/src/app/api/review-links/by-token/[token]/route.ts",
+      "apps/meeting-api/backend/db.py",
+      "apps/meeting-api/backend/config.py",
+      "apps/meeting-api/backend/server.py",
+      "apps/meeting-api/backend/settings.py",
+      "apps/meeting-api/backend/repositories/history.py",
+      "apps/meeting-api/backend/routes/history.py",
+      "apps/meeting-api/backend/routes/tools.py",
+      "apps/meeting-api/backend/alembic/versions/0001_multi_user_jobs.py",
+      "apps/meeting-api/backend/migrate.py",
+      "apps/meeting-api/backend/alembic/versions/0005_remove_workos_session_id.py",
+      "apps/roadmap-web/src/middleware.ts",
+      "apps/roadmap-web/src/lib/supabase/middleware.ts",
+      "apps/roadmap-web/src/lib/supabase/server.ts",
+      "apps/roadmap-web/src/lib/supabase/database.types.ts",
+      "apps/roadmap-web/supabase/config.toml",
+      "apps/roadmap-web/src/app/api/team/members/[id]/route.ts",
+      "apps/roadmap-web/src/app/api/team/phase-assignments/route.ts",
+      "apps/roadmap-web/src/app/api/invitations/send/route.ts",
+      "apps/roadmap-web/src/app/api/departments/[id]/route.ts",
+      "apps/roadmap-web/src/app/api/workspaces/[id]/mode/route.ts",
+      "apps/roadmap-web/src/app/api/debug/member-status/route.ts",
+      "apps/roadmap-web/src/app/api/admin/setup-users-table/route.ts",
+      "apps/roadmap-web/src/app/api/user/profile/route.ts",
+      "apps/roadmap-web/src/app/api/dependencies/route.ts",
+      "apps/roadmap-web/src/app/api/work-items/route.ts",
+      "apps/meeting-web/src/lib/api.js",
+      "apps/meeting-web/src/hooks/useBuddyAgent.js",
+      "apps/meeting-web/src/hooks/useMeetingState.js",
+      "apps/meeting-web/src/hooks/useRealtimeTranscript.js",
+      "apps/platform-web/src/data/work-items/RepositoryProvider.tsx",
+      "apps/platform-web/src/data/meeting-actions/MeetingActionsRepositoryProvider.tsx",
+      "apps/platform-web/src/data/proposals/ProposalRepositoryProvider.tsx",
+      "apps/platform-web/src/data/memories/MemoriesProvider.tsx",
+      "apps/platform-web/src/data/meeting-actions/network-repository.ts",
+      "apps/platform-web/src/data/proposals/network-repository.ts",
+      "apps/platform-web/src/data/agent/transport.ts",
+      "apps/platform-web/src/data/memories/adapter.ts",
+      "apps/roadmap-web/src/app/(dashboard)/layout.tsx",
+      "apps/roadmap-web/src/app/(dashboard)/workspaces/[id]/page.tsx",
+      "apps/roadmap-web/src/app/(auth)/accept-invite/page.tsx",
+      "apps/roadmap-web/src/app/(auth)/layout.tsx",
+      "apps/roadmap-web/src/app/(auth)/auth/callback/route.ts",
+      "apps/roadmap-web/src/lib/ai/agent-executor.ts",
+      "apps/roadmap-web/src/lib/ai/context-builder.ts",
+      "apps/roadmap-web/src/lib/ai/compression/l2-summarizer.ts",
+      "apps/roadmap-web/src/lib/ai/embeddings/document-processor.ts",
+      "apps/roadmap-web/scripts/upgrade-user-to-pro.ts",
+    ];
+
+    for (const file of authorityPaths) {
+      const plan = buildCiPlan([file], SHA);
+      expect(plan.dbEvidenceRequired, file).toBe(true);
+      expect(plan.classification, file).toBe("full-suite");
+    }
+
+    const roadmapAuthorityPlan = buildCiPlan([
+      "apps/roadmap-web/src/app/api/integrations/oauth/callback/[provider]/route.ts",
+    ], SHA);
+    expect(roadmapAuthorityPlan.cheapScripts).toContain("verify:roadmap-web");
+    expect(roadmapAuthorityPlan.cheapScripts).not.toContain("test:roadmap-canvas-boundary");
+
+    const roadmapMembershipPlan = buildCiPlan([
+      "apps/roadmap-web/src/app/api/team/members/[id]/route.ts",
+    ], SHA);
+    expect(roadmapMembershipPlan.cheapScripts).toContain("verify:roadmap-web");
+    expect(roadmapMembershipPlan.cheapScripts).not.toContain("test:roadmap-canvas-boundary");
+
+    const roadmapIdentityPlan = buildCiPlan([
+      "apps/roadmap-web/src/app/api/user/profile/route.ts",
+    ], SHA);
+    expect(roadmapIdentityPlan.cheapScripts).toContain("verify:roadmap-web");
+    expect(roadmapIdentityPlan.cheapScripts).not.toContain("test:roadmap-canvas-boundary");
+
+    const roadmapApiPlan = buildCiPlan([
+      "apps/roadmap-web/src/app/api/dependencies/route.ts",
+    ], SHA);
+    expect(roadmapApiPlan.cheapScripts).toContain("verify:roadmap-web");
+    expect(roadmapApiPlan.cheapScripts).not.toContain("test:roadmap-canvas-boundary");
+  });
+
+  test("the contracts authority entrypoints require DB proof", () => {
+    for (const file of ["packages/contracts/src/index.js", "packages/contracts/src/index.d.ts"]) {
+      const plan = buildCiPlan([file], SHA);
+      expect(plan.dbEvidenceRequired).toBe(true);
+      expect(plan.classification).toBe("full-suite");
+    }
+  });
+
+  test("platform-web authentication roots require DB proof", () => {
+    for (const file of ["apps/platform-web/src/AppRoot.tsx", "apps/platform-web/src/fixtures-mode.ts"]) {
+      const plan = buildCiPlan([file], SHA);
+      expect(plan.dbEvidenceRequired).toBe(true);
+      expect(plan.classification).toBe("full-suite");
+    }
+  });
+
+  test("root and workspace manifests require the full canonical DB path", () => {
+    for (const file of [
+      "package.json",
+      "apps/platform-web/package.json",
+      "packages/contracts/package.json",
+      "packages/ui-meeting/package.json",
+    ]) {
+      const plan = buildCiPlan([file], SHA);
+      expect(plan.dbEvidenceRequired).toBe(true);
+      expect(plan.classification).toBe("full-suite");
+    }
+  });
+
+  test("unrelated surfaces remain scoped and do not acquire DB proof", () => {
+    for (const file of [
+      "apps/platform-web/src/components/board.tsx",
+      "apps/meeting-api/backend/health.py",
+      "packages/ui/src/button.tsx",
+      "packages/ui/src/styles/tokens.css",
+      "apps/roadmap-web/src/components/roadmap-card.tsx",
+    ]) {
+      const plan = buildCiPlan([file], SHA);
+      expect(plan.dbEvidenceRequired, file).toBe(false);
+      expect(plan.classification, file).toBe("scoped");
+    }
+
+    const roadmapComponentPlan = buildCiPlan(
+      ["apps/roadmap-web/src/components/roadmap-card.tsx"],
+      SHA,
+    );
+    expect(roadmapComponentPlan.cheapScripts).toContain("test:roadmap-canvas-boundary");
+    expect(roadmapComponentPlan.cheapScripts).not.toContain("verify:roadmap-web");
+  });
+
+  test("unrelated documentation remains docs-only even when it discusses design tokens", () => {
+    const plan = buildCiPlan(["docs/design/tokens.css"], SHA);
+    expect(plan.dbEvidenceRequired).toBe(false);
+    expect(plan.classification).toBe("docs-only");
+  });
+
+  test("ordinary authority documentation stays docs-only while executable DB history remains protected", () => {
+    for (const file of [
+      "docs/plans/2026-05-16-pr5-auth-contracts-and-adapters-design.md",
+      "docs/security/authorization-model.md",
+    ]) {
+      const plan = buildCiPlan([file], SHA);
+      expect(plan.dbEvidenceRequired, file).toBe(false);
+      expect(plan.classification, file).toBe("docs-only");
+    }
+
+    const manifestPlan = buildCiPlan(["docs/history/database-migrations/manifest.json"], SHA);
+    expect(manifestPlan.dbEvidenceRequired).toBe(true);
+    expect(manifestPlan.classification).toBe("full-suite");
+  });
+
+  test("ambiguous ranges and unowned paths fail closed to full DB validation", () => {
+    for (const input of [null, [], ["unknown-root-file.txt"], ["apps/platform-web/src/x.tsx", "README"]]) {
+      const plan = buildCiPlan(input, SHA);
+      expect(plan.classification).toBe("full-suite");
+      expect(plan.dbEvidenceRequired).toBe(true);
+    }
+  });
+
+  test("invalid exact SHA remains an explicit invalid full plan", () => {
+    const plan = buildCiPlan(["apps/platform-web/src/x.tsx"], "not-a-sha");
+    expect(plan.classification).toBe("full-suite");
+    expect(plan.dbEvidenceRequired).toBe(true);
+    expect(plan.exactSha).toBeNull();
+    expect(plan.inputValid).toBe(false);
+  });
+
+  test("CLI adapter validates refs and produces deterministic output", () => {
+    const plan = planFromInputs({
+      baseSha: BASE,
+      headSha: SHA,
+      files: ["apps/platform-web/src/x.tsx"],
+    });
+    expect(plan).toEqual(planFromInputs({
+      baseSha: BASE,
+      headSha: SHA,
+      files: ["apps/platform-web/src/x.tsx"],
+    }));
+    expect(plan.exactSha).toBe(SHA);
+    expect(plan.inputValid).toBe(true);
+  });
+
+  test("malformed base or missing file range produces full fail-closed plan", () => {
+    for (const input of [
+      { baseSha: "bad", headSha: SHA, files: ["docs/a.md"] },
+      { baseSha: BASE, headSha: SHA, files: null },
+    ]) {
+      const plan = planFromInputs(input);
+      expect(plan.classification).toBe("full-suite");
+      expect(plan.dbEvidenceRequired).toBe(true);
+      expect(plan.inputValid).toBe(false);
+      expect(plan.exactSha).toBe(SHA);
+    }
+  });
 });
 
 describe("prepush-gate harness env isolation (regression for #118)", () => {
