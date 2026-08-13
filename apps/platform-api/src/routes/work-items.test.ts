@@ -2,9 +2,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { verifyToken } = vi.hoisted(() => ({ verifyToken: vi.fn() }))
 const { createSql } = vi.hoisted(() => ({ createSql: vi.fn() }))
+const { createWorkItem, updateWorkItem } = vi.hoisted(() => ({
+  createWorkItem: vi.fn(),
+  updateWorkItem: vi.fn(),
+}))
 
 vi.mock('@clerk/backend', () => ({ verifyToken }))
 vi.mock('@product-suite/db', () => ({ createSql }))
+vi.mock('../domain/work-items', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../domain/work-items')>()),
+  createWorkItem,
+  updateWorkItem,
+}))
 
 import app from '../app'
 
@@ -24,6 +33,7 @@ const ROW = {
   assignee_id: null,
   due_date: null,
   archived: false,
+  version: 7,
   created_at: '2026-07-01T00:00:00.000Z',
   updated_at: '2026-07-02T00:00:00.000Z',
 }
@@ -71,6 +81,7 @@ describe('GET /api/work-items', () => {
       status_id: 'status_1',
       archived: false,
       due_date: null,
+      version: 7,
     })
 
     // The query is scoped by the caller's Clerk subject — proves no cross-tenant leak.
@@ -272,5 +283,45 @@ describe('GET /api/work-items', () => {
 
     expect(res.status).toBe(401)
     expect(sql).not.toHaveBeenCalled()
+  })
+})
+
+describe('public work-item mutation responses', () => {
+  beforeEach(() => {
+    verifyToken.mockReset()
+    createSql.mockReset()
+    createWorkItem.mockReset()
+    updateWorkItem.mockReset()
+    process.env.CLERK_SECRET_KEY = 'sk_test'
+    process.env.DATABASE_URL = 'postgresql://user:pass@host/db'
+    verifyToken.mockResolvedValue({ sub: 'user_clerk_1', email: 'u@example.com', exp: 9999999999 })
+  })
+
+  it('returns the current CAS version after create', async () => {
+    createSql.mockReturnValue(vi.fn(async () => [{ tenant_id: 'tenant_1' }]))
+    createWorkItem.mockResolvedValue({ ...ROW, version: 1 })
+
+    const res = await app.request('/api/work-items', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer token', 'content-type': 'application/json' },
+      body: JSON.stringify({ title: 'Created' }),
+    })
+
+    expect(res.status).toBe(201)
+    await expect(res.json()).resolves.toMatchObject({ id: 'wi_1', version: 1 })
+  })
+
+  it('returns the incremented CAS version after update', async () => {
+    createSql.mockReturnValue(vi.fn(async () => [{ tenant_id: 'tenant_1' }]))
+    updateWorkItem.mockResolvedValue({ ...ROW, title: 'Updated', version: 8 })
+
+    const res = await app.request('/api/work-items/wi_1', {
+      method: 'PATCH',
+      headers: { Authorization: 'Bearer token', 'content-type': 'application/json' },
+      body: JSON.stringify({ title: 'Updated' }),
+    })
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({ id: 'wi_1', version: 8 })
   })
 })

@@ -83,6 +83,11 @@ function makeSql(
   )
 
   const query = vi.fn(async (text: string, params: unknown[]) => {
+    if (text.includes("status = case when") && text.includes("status = 'pending'")) {
+      if (status !== 'pending') return []
+      status = params[3] === null ? 'accepted' : 'accepted_with_edits'
+      return [{ ...proposal, status, decided_by: params[2], edited_payload: params[3] }]
+    }
     if (text.includes("set status = 'applied'")) {
       if (status === 'pending') {
         status = 'applied'
@@ -108,7 +113,7 @@ function makeSql(
 
   const sql = vi.fn(async (strings: TemplateStringsArray, ..._params: unknown[]) => {
     const text = Array.isArray(strings) ? strings.join('?') : String(strings)
-    if (text.includes('organization_memberships')) return [{ tenant_id: 't_1' }]
+    if (text.includes('organization_memberships')) return [{ tenant_id: 't_1', user_id: 'u_approver', role: 'member', status: 'active' }]
     if (text.includes('user_auth_identities')) return opts.noUserIdentity ? [] : [{ user_id: 'u_approver' }]
     if (text.includes('from teams')) return [{ n: 1 }]
     if (text.includes('from statuses')) return [{ n: 1 }]
@@ -251,6 +256,19 @@ describe('/api/agent/proposals', () => {
     const body = (await res.json()) as { status: string; proposal_id: string; item_id: string }
     expect(body).toEqual({ status: 'applied', proposal_id: 'p1', item_id: 'wi_new' })
     expect(getStatus()).toBe('applied')
+  })
+
+  it('POST /:id/approve-command stores approval without applying and requires edit authority', async () => {
+    const proposalId = '33333333-3333-4333-8333-333333333333'
+    const { sql, getStatus } = makeSql({ proposal: { id: proposalId } })
+    createSql.mockReturnValue(sql)
+    const res = await app.request(`/api/agent/proposals/${proposalId}/approve-command`, {
+      method: 'POST',
+      headers: { ...auth.headers, 'x-workspace-id': 't_1' },
+    })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ proposal: { id: proposalId, status: 'accepted', run_id: 'run_1' } })
+    expect(getStatus()).toBe('accepted')
   })
 
   it('POST /:id/accept forwards edited_payload to the claim (persists the human gold-label edit)', async () => {

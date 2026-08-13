@@ -180,6 +180,7 @@ export const workItemsCore = {
     WorkItem: {
       fields: {
         id: { type: "string", readonly: true },
+        version: { type: "number", readonly: true },
         title: { type: "string" },
         description: { type: "string", optional: true },
         phase: { type: { kind: "enum", enum: "phase" } },

@@ -10,6 +10,27 @@ import * as schema from './schema'
 const MIGRATIONS_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'migrations')
 
 describe('workboard schema', () => {
+  it('defines migration 0021 command persistence and real work-item versions', () => {
+    expect(Object.keys(schema.workItems)).toContain('version')
+    expect(schema.commandIdempotency).toBeDefined()
+    expect(schema.commandAuditEvents).toBeDefined()
+
+    const journal = JSON.parse(readFileSync(join(MIGRATIONS_DIR, 'meta', '_journal.json'), 'utf8'))
+    expect(journal.entries.at(-1)?.tag).toBe('0021_command_kernel')
+    const migration = readFileSync(join(MIGRATIONS_DIR, '0021_command_kernel.sql'), 'utf8')
+    expect(migration).toContain('"last_command_marker" uuid')
+    expect(migration).toContain('command_idempotency')
+    expect(migration).toContain('command_audit_events')
+    expect(migration).toMatch(/work_items[^;]*add column[^;]*version/i)
+    expect(migration).toContain('command_idempotency_scope_uniq')
+    expect(migration).toContain('command_audit_events_immutable')
+    expect(migration.trimStart()).not.toMatch(/^BEGIN;/i)
+    expect(migration.trimEnd()).not.toMatch(/COMMIT;$/i)
+    expect(migration).toContain('command_idempotency_audit_identity_uniq')
+    expect(migration).toContain('command_audit_events_idempotency_identity_fk')
+    expect(migration).toMatch(/grant select, insert/i)
+  })
+
   it('exports the workboard tables', () => {
     for (const table of [
       'projects',

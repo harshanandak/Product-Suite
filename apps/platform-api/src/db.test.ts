@@ -64,7 +64,7 @@ describe('runtime Neon authority and readiness', () => {
       { DATABASE_URL: 'postgresql://runtime:secret@ep-cool-fire-123456-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require' },
       async () => ({ rows: [{ hash: CANONICAL_REVISION_HASH }] }),
     )
-    expect(ready).toEqual({ ok: true, provider: 'neon', schema: 'public', revision: '0020_canonical_membership_roles' })
+    expect(ready).toEqual({ ok: true, provider: 'neon', schema: 'public', revision: '0021_command_kernel' })
 
     const notReady = await databaseReadiness(
       { DATABASE_URL: 'postgresql://runtime:secret@ep-cool-fire-123456-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require' },
@@ -96,7 +96,7 @@ describe('runtime Neon authority and readiness', () => {
       ok: true,
       provider: 'neon',
       schema: 'public',
-      revision: '0020_canonical_membership_roles',
+      revision: '0021_command_kernel',
     })
     expect(sql).toHaveBeenCalledOnce()
   })

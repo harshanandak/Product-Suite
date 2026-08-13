@@ -19,6 +19,7 @@ import { proposalsRoutes } from './routes/proposals'
 import { statusesRoutes } from './routes/statuses'
 import { teamsRoutes } from './routes/teams'
 import { workItemsRoutes } from './routes/work-items'
+import { commandsRoutes } from './commands/routes'
 
 const READINESS_TTL_MS = 5_000
 type ReadinessResult = Awaited<ReturnType<typeof databaseReadiness>>
@@ -74,6 +75,7 @@ app.get('/api/me', (c) => c.json({ claims: c.get('claims') }))
 // Workboard: tenant-scoped reads backed by the real Neon schema.
 app.route('/api/conversations', conversationsRoutes)
 app.route('/api/work-items', workItemsRoutes)
+app.route('/api/v1/commands', commandsRoutes)
 app.route('/api/checks', checksRoutes)
 app.route('/api/dependencies', dependenciesRoutes)
 app.route('/api/projects', projectsRoutes)

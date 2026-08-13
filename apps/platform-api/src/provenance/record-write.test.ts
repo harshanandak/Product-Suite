@@ -232,6 +232,20 @@ describe('recordWrite', () => {
 })
 
 describe('recordWriteTx', () => {
+  it('does not assert rows returned by transaction tail queries', async () => {
+    const query = vi.fn((t: string) => ({ t }))
+    const transaction = vi.fn(async () => [[{ id: 'wi_1' }], [{ id: 'ev_1' }], []])
+    const sql = { query, transaction } as unknown as Sql
+    await expect(recordWriteTx(
+      sql,
+      [
+        { table: 'work_items', operation: 'insert', values: { id: 'wi_1', tenant_id: 't_1', title: 'X' } },
+        { table: 'activity_events', operation: 'insert', values: { id: 'ev_1', work_item_id: 'wi_1', kind: 'created', summary: 'X' } },
+      ],
+      human,
+      [{ tail: true }],
+    )).resolves.toEqual([{ id: 'wi_1' }, { id: 'ev_1' }])
+  })
   it('runs all specs as one atomic batch and returns the first row of each', async () => {
     const query = vi.fn((t: string) => ({ t }))
     const transaction = vi.fn(async (_queries: unknown[]) => [[{ id: 'wi_1' }], [{ id: 'ev_1' }]])

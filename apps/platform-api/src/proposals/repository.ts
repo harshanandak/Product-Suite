@@ -194,3 +194,22 @@ export async function getProposalScoped(
   `) as ProposalRow[]
   return rows[0] ?? null
 }
+
+/** Store a human approval decision without executing the proposal. */
+export async function approveProposalForCommand(
+  sql: Sql,
+  input: { tenantId: string; approverUserId: string; proposalId: string; editedPayload?: Record<string, unknown> },
+): Promise<ProposalRow | null> {
+  const rows = await runQuery<ProposalRow>(sql,
+    `update proposals set
+       status = case when $4::jsonb is null then 'accepted'::proposal_status else 'accepted_with_edits'::proposal_status end,
+       decided_by = $3, decided_at = now(), edited_payload = $4::jsonb, updated_at = now()
+     where id = $1 and tenant_id = $2 and status = 'pending'
+       and target_type = 'work_item'
+       and operation in ('create', 'update')
+       and run_id is not null
+     returning *`,
+    [input.proposalId, input.tenantId, input.approverUserId, input.editedPayload ? JSON.stringify(input.editedPayload) : null],
+  )
+  return rows[0] ?? null
+}

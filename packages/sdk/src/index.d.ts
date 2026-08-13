@@ -1,3 +1,44 @@
+import type {
+  CommandErrorCode,
+  CommandExecuteRequest,
+  CommandRequest,
+  CommandResult,
+} from "@product-suite/contracts";
+
+export interface CommandApiTransport {
+  post(path: string, body: unknown, options?: unknown): Promise<unknown>;
+}
+
+export interface CommandPreview {
+  command: CommandRequest["command"];
+  targetCommand: CommandRequest["command"];
+  capability: { required: "edit"; granted: true };
+  approval: CommandResult["approval"];
+  actor: CommandResult["actor"];
+  onBehalfOf?: CommandResult["onBehalfOf"];
+  expectedVersion?: number;
+  previewHash: string;
+  input: Record<string, unknown>;
+}
+
+export class CommandApiError extends Error {
+  readonly code: CommandErrorCode;
+  readonly requestId: string;
+  readonly retryable: boolean;
+  readonly details?: Record<string, unknown>;
+}
+
+export interface CommandClient {
+  preview(request: CommandRequest): Promise<CommandPreview>;
+  execute(request: CommandRequest, previewHash: string): Promise<CommandResult>;
+}
+
+export function createCommandClient(options: {
+  transport: CommandApiTransport;
+  workspaceId: string;
+  createRequestId?: () => string;
+}): CommandClient;
+
 export interface MeetingApiTransport {
   delete(path: string, options?: unknown): Promise<unknown>;
   get(path: string, options?: unknown): Promise<unknown>;

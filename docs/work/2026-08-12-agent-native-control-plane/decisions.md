@@ -17,6 +17,21 @@
 11. Pre-PR CodeRabbit CLI and batched feedback replace repeated reviewer cycles.
 12. The requested 10-minute exact-head stable-green window remains the merge handoff
     rule.
+13. CP1 is one medium PR with one owner and four sequential tasks (4-7).
+14. CP1 owns canonical migration `0021`; it preserves and advances the exact
+    `0018`/`0019`/`0020` topology, harness, evidence, and readiness contracts without
+    production apply, compatibility, or backfill work.
+15. `work-item.create` and `work-item.update` require server-derived CP0 `edit`, are
+    non-sensitive for direct authenticated humans, reject client delegation, and are
+    the only direct work-item command verticals.
+16. Agent-proposed writes execute only through `proposal.apply`, whose command,
+    capability, approval, snapshot, expected version, preview hash, tenant, actor,
+    and proposing-agent provenance are derived and bound server-side from the stored
+    accepted/approved proposal.
+17. Cross-tenant is `404`; known insufficient capability is `403`; stale version,
+    preview drift, and idempotency changed-input are `409`; same-input replay returns
+    the original terminal result. Domain mutation, CAS, idempotency, and audit are one
+    transaction using the existing domain command as mutation authority.
 
 ## Deferred deliberately
 

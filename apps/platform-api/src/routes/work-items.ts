@@ -52,6 +52,7 @@ function toWorkItem(row: WorkItemRow): WorkItem {
     assignee_id: row.assignee_id,
     due_date: row.due_date == null ? null : String(row.due_date),
     archived: row.archived ?? false,
+    version: row.version,
     created_at: String(row.created_at),
     updated_at: String(row.updated_at),
   }
@@ -140,7 +141,7 @@ workItemsRoutes.get('/', async (c) => {
       select wi.id, wi.title, wi.description, wi.phase, wi.type, wi.priority, wi.tags,
              wi.source, wi.project_id, wi.team_id, wi.status_id, wi.parent_id, wi.depth,
              wi.department, wi.assignee_id,
-             wi.due_date, wi.archived, wi.created_at, wi.updated_at,
+             wi.due_date, wi.archived, wi.version, wi.created_at, wi.updated_at,
              wi.applied_from_proposal_id,
              p.id is not null as proposal_available,
              wi.actor_type, wi.actor_id, wi.on_behalf_of,

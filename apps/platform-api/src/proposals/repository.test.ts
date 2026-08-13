@@ -2,7 +2,35 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { Sql } from '@product-suite/db'
 
-import { createProposal, getProposalScoped, listPending } from './repository'
+import { approveProposalForCommand, createProposal, getProposalScoped, listPending } from './repository'
+
+describe('approveProposalForCommand', () => {
+  it('atomically stores human approval without applying the proposal', async () => {
+    const query = vi.fn(async () => [{ id: 'p1', tenant_id: 't_1', status: 'accepted', run_id: 'run_1', target_snapshot: { title: 'Old' } }])
+    const sql = { query } as unknown as Sql
+    await expect(approveProposalForCommand(sql, {
+      tenantId: 't_1', approverUserId: 'user-1', proposalId: 'p1', editedPayload: undefined,
+    })).resolves.toMatchObject({ status: 'accepted', run_id: 'run_1', target_snapshot: { title: 'Old' } })
+    const [text, params] = query.mock.calls[0] as unknown as [string, unknown[]]
+    expect(text).toContain("where id = $1 and tenant_id = $2 and status = 'pending'")
+    expect(text).not.toContain("status = 'applied'")
+    expect(params).toEqual(['p1', 't_1', 'user-1', null])
+  })
+
+  it('atomically limits command approval to executable work-item proposals with a run', async () => {
+    const query = vi.fn(async () => [])
+    const sql = { query } as unknown as Sql
+
+    await expect(approveProposalForCommand(sql, {
+      tenantId: 't_1', approverUserId: 'user-1', proposalId: 'p1',
+    })).resolves.toBeNull()
+
+    const [text] = query.mock.calls[0] as unknown as [string, unknown[]]
+    expect(text).toMatch(/target_type = 'work_item'/)
+    expect(text).toMatch(/operation in \('create', 'update'\)/)
+    expect(text).toMatch(/run_id is not null/)
+  })
+})
 
 describe('listPending', () => {
   it('scopes by tenant array and pending status', async () => {

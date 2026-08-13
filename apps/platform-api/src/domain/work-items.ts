@@ -2,7 +2,7 @@ import type { Sql } from '@product-suite/db'
 
 import type { WorkItem, WorkItemPatch } from '@product-suite/contracts'
 
-import { actorAssignments, recordWrite, recordWriteTx, type ActorContext } from '../provenance/record-write'
+import { actorAssignments, buildWrite, recordWrite, recordWriteTx, type ActorContext } from '../provenance/record-write'
 import { DomainError } from './errors'
 
 /**
@@ -30,7 +30,17 @@ export interface WorkItemRow {
   archived: boolean | null
   created_at: string | Date
   updated_at: string | Date
+  version: number
 }
+
+export interface CommandTransactionState {
+  resourceId: string
+  resourceVersion: number
+  before: Record<string, unknown> | null
+  after: Record<string, unknown>
+}
+
+export type CommandTransactionTail = (state: CommandTransactionState) => readonly unknown[]
 
 /**
  * The server-derived actor, supplied either eagerly (an already-resolved
@@ -137,7 +147,13 @@ export async function resolveDefaultTeamId(sql: Sql, tenantId: string): Promise<
  */
 export async function createWorkItem(
   sql: Sql,
-  ctx: { tenantId: string; actor: ActorSource; appliedFromProposalId?: string },
+  ctx: {
+    tenantId: string
+    actor: ActorSource
+    appliedFromProposalId?: string
+    workItemId?: string
+    commandTransactionTail?: CommandTransactionTail
+  },
   input: CreateWorkItemInput,
 ): Promise<WorkItemRow> {
   const { tenantId } = ctx
@@ -216,9 +232,11 @@ export async function createWorkItem(
   }
 
   const actor = await resolveActor(ctx.actor)
+  const provenance = actorAssignments(actor)
 
-  const workItemId = crypto.randomUUID()
+  const workItemId = ctx.workItemId ?? crypto.randomUUID()
   const title = input.title ?? 'Untitled work item'
+  const createdAt = new Date().toISOString()
   // Idempotency for the proposal-apply path (design §14): when this create is
   // driven by an accepted proposal, stamp `applied_from_proposal_id`. A UNIQUE
   // (non-null) index guarantees a re-drive after a crash between the proposal
@@ -244,6 +262,8 @@ export async function createWorkItem(
     assignee_id: input.assignee_id ?? null,
     due_date: input.due_date ?? null,
     archived: input.archived ?? false,
+    created_at: createdAt,
+    updated_at: createdAt,
   }
   if (ctx.appliedFromProposalId != null) {
     workItemValues.applied_from_proposal_id = ctx.appliedFromProposalId
@@ -251,6 +271,20 @@ export async function createWorkItem(
 
   let created: WorkItemRow | undefined
   try {
+    const commandTail = ctx.commandTransactionTail?.({
+      resourceId: workItemId,
+      resourceVersion: 1,
+      before: null,
+      after: {
+        ...workItemValues,
+        id: workItemId,
+        version: 1,
+        actor_type: provenance.actorType,
+        actor_id: provenance.actorId,
+        on_behalf_of: provenance.onBehalfOf,
+        run_id: provenance.runId,
+      },
+    }) ?? []
     ;[created] = await recordWriteTx<WorkItemRow>(
       sql,
       [
@@ -267,6 +301,7 @@ export async function createWorkItem(
         },
       ],
       actor,
+      commandTail,
     )
   } catch (cause) {
     // Idempotent re-drive: a prior apply attempt already created this row. The
@@ -274,7 +309,7 @@ export async function createWorkItem(
     // fetch and return the existing row (NOT an error; the apply is exactly-once).
     const message = cause instanceof Error ? cause.message : String(cause)
     if (
-      ctx.appliedFromProposalId != null &&
+      ctx.appliedFromProposalId != null && !ctx.commandTransactionTail &&
       (message.includes('work_items_applied_from_proposal_uniq') || message.includes('duplicate key'))
     ) {
       const existingRows = (await sql`
@@ -339,6 +374,7 @@ export async function updateWorkItem(
      * matches on both sides and a timestamp can never false-conflict).
      */
     expectedValues?: Record<string, unknown> | null
+    commandTransactionTail?: CommandTransactionTail
   },
   id: string,
   patch: UpdateWorkItemInput,
@@ -351,7 +387,6 @@ export async function updateWorkItem(
   // proposal-apply claim-flip. It is threaded through so the apply path and its
   // callers already pass it; when a version column lands, condition the UPDATE on it
   // and throw `DomainError('stale')` on a mismatch. (No column is invented now.)
-  void ctx.expectedVersion
 
   const existing = (await sql`
     select * from work_items where id = ${id} and tenant_id = any(${tenantIds})
@@ -453,7 +488,35 @@ export async function updateWorkItem(
   const fence =
     ctx.expectedValues == null ? null : JSON.stringify(ctx.expectedValues)
 
-  const rows = (await sql`
+  const commandWriteMarker = ctx.commandTransactionTail ? crypto.randomUUID() : null
+  const commandUpdatedAt = ctx.commandTransactionTail ? new Date().toISOString() : null
+  const assignedAfter = {
+    ...current,
+    title: next.title,
+    description: next.description ?? '',
+    phase: next.phase,
+    type: next.type,
+    priority: next.priority,
+    tags: next.tags ?? [],
+    source: ctx.provenanceSource ?? current.source,
+    project_id: next.project_id ?? null,
+    team_id: next.team_id,
+    status_id: next.status_id,
+    parent_id: nextParentId,
+    depth: nextDepth,
+    department: next.department,
+    assignee_id: next.assignee_id ?? null,
+    due_date: next.due_date ?? null,
+    archived: next.archived ?? false,
+    actor_type: actor.actorType,
+    actor_id: actor.actorId,
+    on_behalf_of: actor.onBehalfOf,
+    run_id: actor.runId,
+    last_command_marker: commandWriteMarker,
+    version: current.version + 1,
+    ...(commandUpdatedAt ? { updated_at: commandUpdatedAt } : {}),
+  }
+  const updateQuery = sql`
     update work_items set
       title = ${next.title},
       description = ${next.description ?? ''},
@@ -475,8 +538,11 @@ export async function updateWorkItem(
       actor_id = ${actor.actorId},
       on_behalf_of = ${actor.onBehalfOf},
       run_id = ${actor.runId},
-      updated_at = now()
+      last_command_marker = ${commandWriteMarker}::uuid,
+      version = version + 1,
+      updated_at = coalesce(${commandUpdatedAt}::timestamptz, now())
     where id = ${id} and tenant_id = any(${tenantIds})
+      and (${ctx.expectedVersion ?? null}::integer is null or version = ${ctx.expectedVersion ?? null})
       and (
         ${fence}::jsonb is null
         or not exists (
@@ -500,7 +566,34 @@ export async function updateWorkItem(
         )
       )
     returning *
-  `) as WorkItemRow[]
+  `
+  let rows: WorkItemRow[]
+  if (ctx.commandTransactionTail) {
+    const assertUpdateQuery = sql`
+      select case when exists (
+        select 1 from work_items
+        where id = ${id} and tenant_id = any(${tenantIds})
+          and last_command_marker = ${commandWriteMarker}::uuid
+      ) then 1 else cast('COMMAND_VERSION_CONFLICT' as integer) end as command_write_applied
+    `
+    const event = buildWrite(
+      { table: 'activity_events', operation: 'insert', values: { work_item_id: id, kind: 'updated', summary: summarizeUpdate(patch) } },
+      resolvedActor,
+    )
+    const eventQuery = (sql as unknown as { query: (text: string, params: unknown[]) => unknown }).query(event.text, event.params)
+    const tail = ctx.commandTransactionTail({
+      resourceId: id,
+      resourceVersion: current.version + 1,
+      before: current as unknown as Record<string, unknown>,
+      after: assignedAfter as unknown as Record<string, unknown>,
+    })
+    const results = await (sql as unknown as { transaction: (queries: unknown[]) => Promise<WorkItemRow[][]> }).transaction(
+      [updateQuery, assertUpdateQuery, eventQuery, ...tail],
+    )
+    rows = results[0] ?? []
+  } else {
+    rows = (await updateQuery) as WorkItemRow[]
+  }
   const updated = rows[0]
   if (!updated) {
     // A FENCED update that matched nothing means the row moved out from under the
@@ -510,6 +603,9 @@ export async function updateWorkItem(
     // write did NOT happen, so no concurrent edit was overwritten. Checked first
     // because a fenced caller's drift is the overwhelmingly likely cause, and it can
     // only fire for a caller that opted in.
+    if (ctx.expectedVersion !== undefined) {
+      throw new DomainError('stale', 'the item version changed while this write was being applied')
+    }
     if (fence !== null) {
       throw new DomainError(
         'guard_failed',
@@ -529,7 +625,7 @@ export async function updateWorkItem(
   // phantom one. It is stamped with the SAME real actor as the UPDATE above — an
   // agent-applied update records an `agent` event (run + on_behalf_of), never a
   // spoofed `human`.
-  await recordWrite(
+  if (!ctx.commandTransactionTail) await recordWrite(
     sql,
     {
       table: 'activity_events',

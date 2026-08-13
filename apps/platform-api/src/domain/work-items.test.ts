@@ -462,6 +462,80 @@ describe('updateWorkItem — expectedValues fence', () => {
 })
 
 describe('updateWorkItem', () => {
+  it('passes the exact committed update assignments to command audit tails', async () => {
+    const sql = vi.fn()
+    sql.mockResolvedValueOnce([{ ...WI_ROW, version: 1 }])
+    const query = vi.fn((text: string) => ({ text }))
+    const transaction = vi.fn(async () => [[{ ...WI_ROW, source: 'agent', actor_type: 'agent', actor_id: 'run_1', on_behalf_of: 'user_1', run_id: 'run_1', version: 2 }], [{}], [{}], [{}]])
+    Object.assign(sql, { query, transaction })
+    const tail = vi.fn(() => [{ ledger: true }])
+    await updateWorkItem(sql as unknown as Sql, {
+      tenantIds: ['t_1'],
+      actor: { actorType: 'agent', actorId: 'run_1', onBehalfOf: 'user_1', runId: 'run_1' },
+      expectedVersion: 1,
+      provenanceSource: 'agent',
+      commandTransactionTail: tail,
+    }, 'wi_1', { title: 'After' })
+    expect(tail).toHaveBeenCalledWith(expect.objectContaining({ after: expect.objectContaining({
+      title: 'After', source: 'agent', actor_type: 'agent', actor_id: 'run_1', on_behalf_of: 'user_1', run_id: 'run_1', version: 2,
+    }) }))
+  })
+
+  it('passes the exact server-stamped create row to command audit tails', async () => {
+    const sql = vi.fn()
+    sql.mockResolvedValueOnce([{ n: 1 }]).mockResolvedValueOnce([{ n: 1 }])
+    const query = vi.fn((text: string) => ({ text }))
+    const transaction = vi.fn(async () => [[{ ...WI_ROW, actor_type: 'agent', actor_id: 'run_1', on_behalf_of: 'user_1', run_id: 'run_1', version: 1 }], [{}], [{}]])
+    Object.assign(sql, { query, transaction })
+    const tail = vi.fn(() => [{ ledger: true }])
+
+    await createWorkItem(sql as unknown as Sql, {
+      tenantId: 't_1',
+      actor: { actorType: 'agent', actorId: 'run_1', onBehalfOf: 'user_1', runId: 'run_1' },
+      commandTransactionTail: tail,
+    }, { title: 'A', team_id: 'team_1', status_id: 'status_1', source: 'agent' })
+
+    expect(tail).toHaveBeenCalledWith(expect.objectContaining({ after: expect.objectContaining({
+      actor_type: 'agent', actor_id: 'run_1', on_behalf_of: 'user_1', run_id: 'run_1',
+      created_at: expect.any(String), updated_at: expect.any(String), source: 'agent', version: 1,
+    }) }))
+    const tailCalls = tail.mock.calls as unknown as Array<[{ after: Record<string, unknown> }]>
+    const after = tailCalls[0]?.[0].after
+    expect(insertParam(query, 'created_at')).toBe(after?.created_at)
+    expect(insertParam(query, 'updated_at')).toBe(after?.updated_at)
+  })
+  it('places a write-marker assertion before dependent command transaction writes', async () => {
+    const sql = vi.fn()
+    sql.mockResolvedValueOnce([WI_ROW])
+    const query = vi.fn((text: string) => ({ text }))
+    const transaction = vi.fn(async () => [[{ ...WI_ROW, version: 2 }], [{ command_write_applied: 1 }], [{}], [{}]])
+    Object.assign(sql, { query, transaction })
+
+    await updateWorkItem(
+      sql as unknown as Sql,
+      {
+        tenantIds: ['t_1'],
+        actor,
+        expectedVersion: 1,
+        commandTransactionTail: () => [{ ledger: true }],
+      },
+      'wi_1',
+      { phase: 'done' },
+    )
+
+    const queries = (transaction.mock.calls as unknown[][])[0]?.[0] as unknown[]
+    expect(queries).toHaveLength(4)
+    const updateSql = (sql.mock.calls[1]?.[0] as string[]).join('')
+    const assertionSql = (sql.mock.calls[2]?.[0] as string[]).join('')
+    expect(updateSql).toContain('last_command_marker = ')
+    expect(assertionSql).toContain('last_command_marker = ')
+    const marker = taggedParam(sql, 1, 'last_command_marker')
+    expect(marker).toMatch(/^[0-9a-f-]{36}$/)
+    expect((sql.mock.calls[2] as unknown[]).slice(1)).toContain(marker)
+    expect(assertionSql).toContain('command_write_applied')
+    expect(queries[3]).toEqual({ ledger: true })
+  })
+
   it('throws DomainError not_found for an item outside the caller orgs', async () => {
     const sql = vi.fn(async () => []) as unknown as Sql // scoped select → []
     await expect(
@@ -587,5 +661,21 @@ describe('updateWorkItem', () => {
     expect(p.filter((v) => v === 'run_1')).toHaveLength(2)
     // and it is NOT stamped as a human
     expect(p).not.toContain('human')
+  })
+})
+
+describe('command proposal create conflicts', () => {
+  it('never returns an existing proposal-created row after the command transaction rolled back', async () => {
+    const sql = vi.fn()
+    sql.mockResolvedValueOnce([{ id: 'team_1' }]).mockResolvedValueOnce([{ id: 'status_1' }])
+    const query = vi.fn((text: string) => ({ text }))
+    const duplicate = Object.assign(new Error('duplicate key work_items_applied_from_proposal_uniq'), { code: '23505' })
+    const transaction = vi.fn(async () => { throw duplicate })
+    Object.assign(sql, { query, transaction })
+    await expect(createWorkItem(sql as unknown as Sql, {
+      tenantId: 't_1', actor, appliedFromProposalId: '11111111-1111-4111-8111-111111111111',
+      commandTransactionTail: () => [{ ledger: true }],
+    }, { title: 'Proposed' })).rejects.toBe(duplicate)
+    expect(sql).toHaveBeenCalledTimes(2)
   })
 })

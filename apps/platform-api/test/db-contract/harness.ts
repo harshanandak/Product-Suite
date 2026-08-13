@@ -39,7 +39,7 @@ import { fileURLToPath } from 'node:url'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 
 import { Pool } from '@neondatabase/serverless'
-import { createDb, createSql, type Database, type Sql } from '@product-suite/db'
+import { createDb, createSql, migrationStatements, type Database, type Sql } from '@product-suite/db'
 
 import { createBranchLeaseCoordinator, type BranchLease } from './branch-lease'
 import { createEphemeralBranch, deleteEphemeralBranchStrict, NeonBranchError, type EphemeralBranch } from './neon-branch'
@@ -961,12 +961,13 @@ function appliedTags(evidence: CanonicalEvidence): string[] {
 export function variantMigrationContract(variant: NeonHistoryVariant): {
   baselineFloor: '0017' | '0020'
   baselineCount: 18 | 21
+  bootstrapDeclared?: string[]
   declared: string[]
-  finalFloor: '0020'
+  finalFloor: '0021'
 } {
   return variant === 'repaired-bootstrap'
-    ? { baselineFloor: '0020', baselineCount: 21, declared: [], finalFloor: '0020' }
-    : { baselineFloor: '0017', baselineCount: 18, declared: ['0018', '0019', '0020'], finalFloor: '0020' }
+    ? { baselineFloor: '0020', baselineCount: 21, bootstrapDeclared: Array.from({ length: 21 }, (_, index) => String(index).padStart(4, '0')), declared: ['0021'], finalFloor: '0021' }
+    : { baselineFloor: '0017', baselineCount: 18, declared: ['0018', '0019', '0020', '0021'], finalFloor: '0021' }
 }
 
 export function resolveDeclaredMigrationTags(
@@ -1013,12 +1014,14 @@ async function proveCanonicalVariant(connectionUri: string, variant: NeonHistory
     const contract = variantMigrationContract(variant)
     let baseline: CanonicalEvidence
     if (variant === 'repaired-bootstrap') {
+      const bootstrapTags = resolveDeclaredMigrationTags(canonicalFiles, contract.bootstrapDeclared ?? [])
+      const bootstrapFiles = canonicalFiles.filter((file) => bootstrapTags.includes(file.tag))
       const bootstrapped = await canonicalBootstrapStep(
         'REPAIRED_BOOTSTRAP_UNPROVEN',
         () => migrationRunner.bootstrapMigrations({
           adapter,
-          files: canonicalFiles,
-          declared: canonicalFiles.map((file) => file.tag),
+          files: bootstrapFiles,
+          declared: bootstrapTags,
           authority,
         }),
       )
@@ -1570,10 +1573,7 @@ async function applyHarnessMigrations(sql: Sql, options: { recordJournal?: boole
 
   for (const entry of ordered) {
     const file = readFileSync(resolve(MIGRATIONS_DIR, `${entry.tag}.sql`), 'utf8')
-    const statements = file
-      .split('--> statement-breakpoint')
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0)
+    const statements = migrationStatements(file)
     for (const statement of statements) {
       await exec(sql, statement)
     }

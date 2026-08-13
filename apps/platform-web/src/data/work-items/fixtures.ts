@@ -258,6 +258,7 @@ function workItemOf(
   } = options;
   return {
     id,
+    version: 1,
     title,
     description,
     phase,

@@ -4,6 +4,8 @@ import { drizzle } from 'drizzle-orm/neon-http'
 import * as schema from './schema'
 
 export * from './schema'
+export * from './command-persistence'
+export * from './migration-statements'
 export { schema }
 
 /**

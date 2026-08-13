@@ -457,11 +457,16 @@ export const workItems = pgTable(
     // proposal claim and the write can't double-create — it finds the existing row.
     // Null for human-created items and for updates (updates use target_version).
     appliedFromProposalId: uuid('applied_from_proposal_id'),
+    version: integer('version').notNull().default(1),
+    // Internal cryptographic identity for proving a conditional command write
+    // affected this exact row before dependent ledger statements may commit.
+    lastCommandMarker: uuid('last_command_marker'),
     ...provenance,
     ...timestamps,
   },
   (t) => ({
     byTenant: index('work_items_tenant_idx').on(t.tenantId),
+    versionPositive: check('work_items_version_positive', sql`${t.version} > 0`),
     // At most ONE work item per source proposal — the idempotency key for the
     // proposal-apply write-first path (a re-drive returns the existing row instead of
     // double-creating). PARTIAL (WHERE NOT NULL) so the many human-created/updated rows
@@ -527,6 +532,68 @@ export const activityEvents = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({ byWorkItem: index('activity_events_work_item_idx').on(t.workItemId) }),
+)
+
+export const commandIdempotency = pgTable(
+  'command_idempotency',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: text('tenant_id').notNull(),
+    actorType: actorTypeEnum('actor_type').notNull(),
+    actorId: text('actor_id').notNull(),
+    command: text('command').notNull(),
+    idempotencyKey: text('idempotency_key').notNull(),
+    requestHash: text('request_hash').notNull(),
+    requestId: text('request_id').notNull(),
+    response: jsonb('response').notNull(),
+    resourceVersion: integer('resource_version').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    scopeUniq: uniqueIndex('command_idempotency_scope_uniq').on(
+      t.tenantId,
+      t.actorType,
+      t.actorId,
+      t.command,
+      t.idempotencyKey,
+    ),
+    byRequest: uniqueIndex('command_idempotency_tenant_request_uniq').on(t.tenantId, t.requestId),
+    auditIdentity: unique('command_idempotency_audit_identity_uniq').on(t.tenantId, t.id, t.requestId),
+    resourceVersionPositive: check('command_idempotency_resource_version_positive', sql`${t.resourceVersion} > 0`),
+    requestHashSha256: check('command_idempotency_request_hash_sha256', sql`${t.requestHash} ~ '^[0-9a-f]{64}$'`),
+  }),
+)
+
+export const commandAuditEvents = pgTable(
+  'command_audit_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: text('tenant_id').notNull(),
+    idempotencyId: uuid('idempotency_id').notNull(),
+    requestId: text('request_id').notNull(),
+    command: text('command').notNull(),
+    actorType: actorTypeEnum('actor_type').notNull(),
+    actorId: text('actor_id').notNull(),
+    onBehalfOf: text('on_behalf_of'),
+    capability: text('capability').notNull(),
+    approval: jsonb('approval').notNull(),
+    targetType: text('target_type').notNull(),
+    targetId: uuid('target_id'),
+    before: jsonb('before'),
+    after: jsonb('after').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    idempotencyIdentity: foreignKey({
+      columns: [t.tenantId, t.idempotencyId, t.requestId],
+      foreignColumns: [commandIdempotency.tenantId, commandIdempotency.id, commandIdempotency.requestId],
+      name: 'command_audit_events_idempotency_identity_fk',
+    }).onDelete('restrict'),
+    byTenant: index('command_audit_events_tenant_created_idx').on(t.tenantId, t.createdAt),
+    requestUniq: uniqueIndex('command_audit_events_tenant_request_uniq').on(t.tenantId, t.requestId),
+    approvalObject: check('command_audit_events_approval_object', sql`jsonb_typeof(${t.approval}) = 'object'`),
+    afterObject: check('command_audit_events_after_object', sql`jsonb_typeof(${t.after}) = 'object'`),
+  }),
 )
 
 // Proposal lifecycle (see docs/design/2026-07-12-proposals-queue-design.md +

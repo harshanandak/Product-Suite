@@ -196,6 +196,73 @@ export const MEMBERSHIP_ROLE_VALUES: readonly MembershipRole[];
 export function isMembershipRole(value: unknown): value is MembershipRole;
 export function parseMembershipRole(value: unknown): MembershipRole;
 
+export type CommandName = "work-item.create" | "work-item.update" | "proposal.apply";
+export type CommandErrorCode =
+  | "COMMAND_ENVELOPE_INVALID"
+  | "COMMAND_NOT_FOUND"
+  | "COMMAND_CAPABILITY_DENIED"
+  | "COMMAND_APPROVAL_REQUIRED"
+  | "COMMAND_VERSION_CONFLICT"
+  | "COMMAND_PREVIEW_DRIFT"
+  | "COMMAND_IDEMPOTENCY_CONFLICT"
+  | "COMMAND_EXECUTION_FAILED";
+export interface CommandRequest {
+  version: 1;
+  command: CommandName;
+  idempotencyKey: string;
+  expectedVersion?: number;
+  input: Record<string, unknown>;
+}
+export interface CommandExecuteRequest extends CommandRequest {
+  previewHash: string;
+}
+export interface CommandPrincipal {
+  type: "human" | "agent" | "service";
+  id: string;
+}
+export interface CommandResult {
+  version: 1;
+  command: CommandName;
+  requestId: string;
+  idempotencyKey: string;
+  actor: CommandPrincipal;
+  onBehalfOf?: CommandPrincipal;
+  capability: { required: "read" | "edit" | "configure"; granted: boolean };
+  approval: { state: "not_required" | "approved"; source?: string };
+  retryable: boolean;
+  previewHash: string;
+  resourceVersion: number;
+  data: unknown;
+}
+export interface CommandPreviewResult {
+  command: CommandName;
+  targetCommand: CommandName;
+  capability: { required: "edit"; granted: true };
+  approval: CommandResult["approval"];
+  actor: CommandPrincipal;
+  onBehalfOf?: CommandPrincipal;
+  expectedVersion?: number;
+  previewHash: string;
+  input: Record<string, unknown>;
+}
+export interface StableCommandError {
+  error: {
+    code: CommandErrorCode;
+    message: string;
+    requestId: string;
+    retryable: boolean;
+    details?: Record<string, unknown>;
+  };
+}
+export const COMMAND_API_VERSION: 1;
+export const COMMAND_NAMES: readonly CommandName[];
+export const COMMAND_ERROR_CODES: readonly CommandErrorCode[];
+export function parseCommandPreviewRequest(input: unknown): CommandRequest;
+export function parseCommandPreviewResult(input: unknown): CommandPreviewResult;
+export function parseCommandExecuteRequest(input: unknown): CommandExecuteRequest;
+export function parseCommandResult(input: unknown): CommandResult;
+export function parseStableCommandError(input: unknown): StableCommandError;
+
 export type AuthClaimsValidationResult =
   | {
       ok: true;
@@ -767,6 +834,8 @@ export interface WorkItemProvenance {
  */
 export interface WorkItem {
   readonly id: string;
+  /** Optimistic concurrency token required by governed update commands. */
+  readonly version: number;
   title: string;
   /** Free-form brief / description (plain text); absent or `""` = none. Editable. */
   description?: string;

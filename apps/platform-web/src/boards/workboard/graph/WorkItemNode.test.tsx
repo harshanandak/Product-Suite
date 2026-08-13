@@ -59,6 +59,7 @@ const NODE_TYPES: NodeTypes = { workItem: WorkItemNode };
 
 const ROW: WorkItemRow = {
   id: "wi_x",
+  version: 1,
   title: "Test item",
   phase: "execute",
   type: "feature",

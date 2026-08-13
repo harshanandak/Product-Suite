@@ -108,6 +108,8 @@ const WRITE_TABLES: Record<
       'due_date',
       'archived',
       'applied_from_proposal_id',
+      'created_at',
+      'updated_at',
     ],
   },
   activity_events: {
@@ -281,18 +283,19 @@ export async function recordWriteTx<Row = Record<string, unknown>>(
   sql: Sql,
   specs: WriteSpec[],
   actor: ActorContext,
+  tailQueries: readonly unknown[] = [],
 ): Promise<Row[]> {
   const queries = specs.map((spec) => {
     const { text, params } = buildWrite(spec, actor)
     return (sql as unknown as { query: (q: string, p: unknown[]) => unknown }).query(text, params)
   })
   const results = (await (sql as unknown as { transaction: (q: unknown[]) => Promise<Row[][]> }).transaction(
-    queries,
+    [...queries, ...tailQueries],
   )) as Row[][]
   // One output row per input spec, IN ORDER. Every spec uses `returning *`, so a
   // missing row is a real failure — dropping it (rather than throwing) would shift
   // later rows into the wrong statement's position and hand a caller the wrong row.
-  return results.map((rows, i) => {
+  return results.slice(0, specs.length).map((rows, i) => {
     const row = rows[0]
     if (!row) {
       throw new Error(`recordWriteTx: ${specs[i]?.operation} on "${specs[i]?.table}" returned no row`)

@@ -20,13 +20,14 @@ const files = [
   { tag: "0018", hash: "h18", timestamp: 18 },
   { tag: "0019", hash: "h19", timestamp: 19 },
   { tag: "0020", hash: "h20", timestamp: 20 },
+  { tag: "0021", hash: "h21", timestamp: 21 },
 ];
 
 const authority = { environment: "staging", historyVariant: "repaired-bootstrap" };
 const productionManifest = JSON.parse(await Bun.file("docs/history/database-migrations/manifest.json").text());
 
 describe("canonical migration runner", () => {
-  const preflightFiles = Array.from({ length: 21 }, (_, index) => ({
+  const preflightFiles = Array.from({ length: 22 }, (_, index) => ({
     tag: String(index).padStart(4, "0"),
     hash: String(index).padStart(64, "0"),
     timestamp: index,
@@ -193,6 +194,7 @@ describe("canonical migration runner", () => {
         { tag: "0018", hash: preflightFiles[18].hash },
         { tag: "0019", hash: preflightFiles[19].hash },
         { tag: "0020", hash: preflightFiles[20].hash },
+        { tag: "0021", hash: preflightFiles[21].hash },
       ],
     });
     expect(calls.join("\n")).toContain("has_schema_privilege");
@@ -392,6 +394,15 @@ describe("canonical migration runner", () => {
       pending: ["0020"],
     });
     expect(buildMigrationPlan({ applied: ["0019"], declared: ["0020", "0018"], files, authority }).ok).toBe(false);
+  });
+
+  test("accepts the completed production 0021 floor as a no-op", () => {
+    expect(buildMigrationPlan({
+      applied: preflightFiles.slice(0, 22).map((file) => file.tag),
+      declared: [],
+      files: preflightFiles,
+      authority: { environment: "production", historyVariant: "original-production" },
+    })).toMatchObject({ ok: true, pending: [] });
   });
 
   test("rejects environment/flag mismatch and P0 non-allowlisted suffix", () => {
@@ -670,13 +681,13 @@ describe("canonical migration runner", () => {
       timestamp: timestamps.get(entry.tag),
     }));
     const variantFiles = original ? migrationFiles : files;
-    const appliedFloor = original ? "0017" : "0019";
+    const appliedFloor = original ? "0017" : "0020";
     const declared = original
       ? variantFiles.filter((file) => Number(file.tag.slice(0, 4)) > 17).map((file) => file.tag)
-      : ["0020"];
+      : ["0021"];
     const journalRows = original
       ? originalHistory.map(({ hash, timestamp }) => ({ hash, timestamp }))
-      : [{ hash: "h19", timestamp: 19 }];
+      : [{ hash: "h20", timestamp: 20 }];
     const adapter = {
       query: async (sql, params) => {
         calls.push(sql);
@@ -711,10 +722,10 @@ describe("canonical migration runner", () => {
     });
     const noop = await verifyMigrations({
       adapter,
-      applied: original ? applied.applied : ["0019", "0020"],
+      applied: original ? applied.applied : ["0020", "0021"],
       files: variantFiles,
       declared: [],
-      expectedFloor: "0020",
+      expectedFloor: "0021",
       authority: variantAuthority,
       ...(original ? { history: { manifest: productionManifest } } : {}),
     });
@@ -723,7 +734,7 @@ describe("canonical migration runner", () => {
     expect(applied).toMatchObject({ ok: true, status: "APPLIED", historyVariant: variantAuthority.historyVariant });
     expect(noop).toMatchObject({ ok: true, status: "NOOP" });
     expect(applied.applied.map((entry) => entry.tag)).toEqual(
-      (original ? variantFiles : [{ tag: "0019" }, { tag: "0020" }]).map((entry) => entry.tag),
+      (original ? variantFiles : [{ tag: "0020" }, { tag: "0021" }]).map((entry) => entry.tag),
     );
     expect(calls.findIndex((sql) => sql.includes("product-suite:database-roles"))).toBeLessThan(
       calls.findIndex((sql) => sql.includes("product-suite:database-migrations")),
