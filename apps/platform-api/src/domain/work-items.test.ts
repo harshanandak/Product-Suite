@@ -483,7 +483,14 @@ describe('updateWorkItem', () => {
 
     const queries = (transaction.mock.calls as unknown[][])[0]?.[0] as unknown[]
     expect(queries).toHaveLength(4)
-    expect((sql.mock.calls[2]?.[0] as string[]).join('')).toContain('command_write_applied')
+    const updateSql = (sql.mock.calls[1]?.[0] as string[]).join('')
+    const assertionSql = (sql.mock.calls[2]?.[0] as string[]).join('')
+    expect(updateSql).toContain('last_command_marker = ')
+    expect(assertionSql).toContain('last_command_marker = ')
+    const marker = taggedParam(sql, 1, 'last_command_marker')
+    expect(marker).toMatch(/^[0-9a-f-]{36}$/)
+    expect((sql.mock.calls[2] as unknown[]).slice(1)).toContain(marker)
+    expect(assertionSql).toContain('command_write_applied')
     expect(queries[3]).toEqual({ ledger: true })
   })
 

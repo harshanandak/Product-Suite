@@ -1,6 +1,7 @@
 BEGIN;
 
 ALTER TABLE "work_items" ADD COLUMN "version" integer DEFAULT 1 NOT NULL;
+ALTER TABLE "work_items" ADD COLUMN "last_command_marker" uuid;
 ALTER TABLE "work_items" ADD CONSTRAINT "work_items_version_positive" CHECK ("version" > 0);
 
 CREATE TABLE "command_idempotency" (

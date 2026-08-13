@@ -476,7 +476,7 @@ export async function updateWorkItem(
   const fence =
     ctx.expectedValues == null ? null : JSON.stringify(ctx.expectedValues)
 
-  const commandWriteMarker = ctx.commandTransactionTail ? new Date().toISOString() : null
+  const commandWriteMarker = ctx.commandTransactionTail ? crypto.randomUUID() : null
   const updateQuery = sql`
     update work_items set
       title = ${next.title},
@@ -499,8 +499,9 @@ export async function updateWorkItem(
       actor_id = ${actor.actorId},
       on_behalf_of = ${actor.onBehalfOf},
       run_id = ${actor.runId},
+      last_command_marker = ${commandWriteMarker}::uuid,
       version = version + 1,
-      updated_at = coalesce(${commandWriteMarker}::timestamptz, now())
+      updated_at = now()
     where id = ${id} and tenant_id = any(${tenantIds})
       and (${ctx.expectedVersion ?? null}::integer is null or version = ${ctx.expectedVersion ?? null})
       and (
@@ -533,7 +534,7 @@ export async function updateWorkItem(
       select case when exists (
         select 1 from work_items
         where id = ${id} and tenant_id = any(${tenantIds})
-          and updated_at = ${commandWriteMarker}::timestamptz
+          and last_command_marker = ${commandWriteMarker}::uuid
       ) then 1 else cast('COMMAND_VERSION_CONFLICT' as integer) end as command_write_applied
     `
     const event = buildWrite(

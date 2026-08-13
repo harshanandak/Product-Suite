@@ -458,6 +458,9 @@ export const workItems = pgTable(
     // Null for human-created items and for updates (updates use target_version).
     appliedFromProposalId: uuid('applied_from_proposal_id'),
     version: integer('version').notNull().default(1),
+    // Internal cryptographic identity for proving a conditional command write
+    // affected this exact row before dependent ledger statements may commit.
+    lastCommandMarker: uuid('last_command_marker'),
     ...provenance,
     ...timestamps,
   },
