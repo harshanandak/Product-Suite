@@ -339,7 +339,8 @@ function isProductionP0Allowed(environment, applied, declared) {
   return (appliedLast === "0017" && pending.join(",") === "0018,0019,0020,0021")
     || (appliedLast === "0018" && pending.join(",") === "0019,0020,0021")
     || (appliedLast === "0019" && pending.join(",") === "0020,0021")
-    || (appliedLast === "0020" && pending.join(",") === "0021");
+    || (appliedLast === "0020" && pending.join(",") === "0021")
+    || (appliedLast === "0021" && pending.length === 0);
 }
 
 function resolvePlanVariant({ authority, observedVariant, hashes, history }) {

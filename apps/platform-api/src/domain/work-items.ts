@@ -476,6 +476,7 @@ export async function updateWorkItem(
   const fence =
     ctx.expectedValues == null ? null : JSON.stringify(ctx.expectedValues)
 
+  const commandWriteMarker = ctx.commandTransactionTail ? new Date().toISOString() : null
   const updateQuery = sql`
     update work_items set
       title = ${next.title},
@@ -499,7 +500,7 @@ export async function updateWorkItem(
       on_behalf_of = ${actor.onBehalfOf},
       run_id = ${actor.runId},
       version = version + 1,
-      updated_at = now()
+      updated_at = coalesce(${commandWriteMarker}::timestamptz, now())
     where id = ${id} and tenant_id = any(${tenantIds})
       and (${ctx.expectedVersion ?? null}::integer is null or version = ${ctx.expectedVersion ?? null})
       and (
@@ -528,6 +529,13 @@ export async function updateWorkItem(
   `
   let rows: WorkItemRow[]
   if (ctx.commandTransactionTail) {
+    const assertUpdateQuery = sql`
+      select 1 / case when exists (
+        select 1 from work_items
+        where id = ${id} and tenant_id = any(${tenantIds})
+          and updated_at = ${commandWriteMarker}::timestamptz
+      ) then 1 else 0 end as command_write_applied
+    `
     const event = buildWrite(
       { table: 'activity_events', operation: 'insert', values: { work_item_id: id, kind: 'updated', summary: summarizeUpdate(patch) } },
       resolvedActor,
@@ -540,7 +548,7 @@ export async function updateWorkItem(
       after: { ...(next as unknown as Record<string, unknown>), version: current.version + 1 },
     })
     const results = await (sql as unknown as { transaction: (queries: unknown[]) => Promise<WorkItemRow[][]> }).transaction(
-      [updateQuery, eventQuery, ...tail],
+      [updateQuery, assertUpdateQuery, eventQuery, ...tail],
     )
     rows = results[0] ?? []
   } else {

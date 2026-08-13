@@ -463,6 +463,7 @@ export const workItems = pgTable(
   },
   (t) => ({
     byTenant: index('work_items_tenant_idx').on(t.tenantId),
+    versionPositive: check('work_items_version_positive', sql`${t.version} > 0`),
     // At most ONE work item per source proposal — the idempotency key for the
     // proposal-apply write-first path (a re-drive returns the existing row instead of
     // double-creating). PARTIAL (WHERE NOT NULL) so the many human-created/updated rows
@@ -554,6 +555,8 @@ export const commandIdempotency = pgTable(
       t.idempotencyKey,
     ),
     byRequest: uniqueIndex('command_idempotency_tenant_request_uniq').on(t.tenantId, t.requestId),
+    resourceVersionPositive: check('command_idempotency_resource_version_positive', sql`${t.resourceVersion} > 0`),
+    requestHashSha256: check('command_idempotency_request_hash_sha256', sql`${t.requestHash} ~ '^[0-9a-f]{64}$'`),
   }),
 )
 
@@ -581,6 +584,8 @@ export const commandAuditEvents = pgTable(
   (t) => ({
     byTenant: index('command_audit_events_tenant_created_idx').on(t.tenantId, t.createdAt),
     requestUniq: uniqueIndex('command_audit_events_tenant_request_uniq').on(t.tenantId, t.requestId),
+    approvalObject: check('command_audit_events_approval_object', sql`jsonb_typeof(${t.approval}) = 'object'`),
+    afterObject: check('command_audit_events_after_object', sql`jsonb_typeof(${t.after}) = 'object'`),
   }),
 )
 

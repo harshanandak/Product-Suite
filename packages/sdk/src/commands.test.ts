@@ -135,4 +135,14 @@ describe("command SDK client", () => {
       retryable: false,
     });
   });
+
+  test("does not unwrap a canonical result whose domain data has a version field", async () => {
+    const versionedData = { ...result, data: { id: "wi-1", version: 8 } };
+    const client = createCommandClient({
+      transport: createTransport([versionedData]),
+      workspaceId: "workspace-1",
+    });
+
+    await expect(client.execute(request, preview.previewHash)).resolves.toEqual(versionedData);
+  });
 });

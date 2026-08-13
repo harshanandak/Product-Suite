@@ -104,6 +104,9 @@ describe("migration evidence", () => {
     expect(verifyMigrationEvidence(evidence)).toMatchObject({ ok: true, status: "PREFLIGHT_READY" });
     expect(verifyMigrationEvidence({ ...evidence, pending: evidence.pending.slice(0, 2) }))
       .toMatchObject({ ok: false, code: "EVIDENCE_INVALID" });
+    expect(() => verifyMigrationEvidence({ ...evidence, pending: [null] })).not.toThrow();
+    expect(verifyMigrationEvidence({ ...evidence, pending: [null] }))
+      .toMatchObject({ ok: false, code: "EVIDENCE_INVALID" });
     const serialized = JSON.stringify(evidence);
     expect(serialized).not.toContain("postgresql://");
     expect(serialized).not.toContain("DELETE FROM");

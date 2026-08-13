@@ -462,6 +462,31 @@ describe('updateWorkItem — expectedValues fence', () => {
 })
 
 describe('updateWorkItem', () => {
+  it('places a write-marker assertion before dependent command transaction writes', async () => {
+    const sql = vi.fn()
+    sql.mockResolvedValueOnce([WI_ROW])
+    const query = vi.fn((text: string) => ({ text }))
+    const transaction = vi.fn(async () => [[{ ...WI_ROW, version: 2 }], [{ command_write_applied: 1 }], [{}], [{}]])
+    Object.assign(sql, { query, transaction })
+
+    await updateWorkItem(
+      sql as unknown as Sql,
+      {
+        tenantIds: ['t_1'],
+        actor,
+        expectedVersion: 1,
+        commandTransactionTail: () => [{ ledger: true }],
+      },
+      'wi_1',
+      { phase: 'done' },
+    )
+
+    const queries = (transaction.mock.calls as unknown[][])[0]?.[0] as unknown[]
+    expect(queries).toHaveLength(4)
+    expect((sql.mock.calls[2]?.[0] as string[]).join('')).toContain('command_write_applied')
+    expect(queries[3]).toEqual({ ledger: true })
+  })
+
   it('throws DomainError not_found for an item outside the caller orgs', async () => {
     const sql = vi.fn(async () => []) as unknown as Sql // scoped select → []
     await expect(

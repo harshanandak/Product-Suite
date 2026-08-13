@@ -141,10 +141,13 @@ export function commandRegistryDependencies(sql: Sql): CommandRegistryDependenci
       const runId = proposal.run_id
       const flip = (state: { resourceId: string; resourceVersion: number; after: Record<string, unknown> }) => query(
         sql,
-        `update proposals set status = 'applied', decided_at = coalesce(decided_at, now()),
-           applied_write = $1::jsonb, updated_at = now()
-         where id = $2 and tenant_id = $3 and status in ('accepted', 'accepted_with_edits')
-         returning id`,
+        `with flipped as (
+           update proposals set status = 'applied', decided_at = coalesce(decided_at, now()),
+             applied_write = $1::jsonb, updated_at = now()
+           where id = $2 and tenant_id = $3 and status in ('accepted', 'accepted_with_edits')
+           returning id
+         )
+         select 1 / case when exists (select 1 from flipped) then 1 else 0 end as proposal_applied`,
         [JSON.stringify(state.after), proposalId, mutation.tenantId],
       )
       const tail = (state: CommandTransactionState) =>

@@ -396,6 +396,15 @@ describe("canonical migration runner", () => {
     expect(buildMigrationPlan({ applied: ["0019"], declared: ["0020", "0018"], files, authority }).ok).toBe(false);
   });
 
+  test("accepts the completed production 0021 floor as a no-op", () => {
+    expect(buildMigrationPlan({
+      applied: preflightFiles.slice(0, 22).map((file) => file.tag),
+      declared: [],
+      files: preflightFiles,
+      authority: { environment: "production", historyVariant: "original-production" },
+    })).toMatchObject({ ok: true, pending: [] });
+  });
+
   test("rejects environment/flag mismatch and P0 non-allowlisted suffix", () => {
     expect(buildMigrationPlan({ applied: ["0019"], declared: ["0020"], files, authority: { environment: "production", historyVariant: "repaired-bootstrap" } }).ok).toBe(false);
     expect(buildMigrationPlan({ applied: ["0017"], declared: ["0020"], files, authority: { environment: "production", historyVariant: "original-production" } }).ok).toBe(false);

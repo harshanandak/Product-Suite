@@ -28,7 +28,8 @@ export class CommandApiError extends Error {
 
 /** @param {unknown} response */
 function unwrapResponse(response) {
-  if (isRecord(response) && "data" in response && isRecord(response.data)) {
+  if (!isRecord(response) || "error" in response || "version" in response) return response;
+  if ("data" in response && isRecord(response.data)) {
     const wrapped = response.data;
     if ("error" in wrapped || "version" in wrapped) return wrapped;
   }

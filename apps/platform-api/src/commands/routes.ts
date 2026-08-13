@@ -25,8 +25,13 @@ export function createCommandsRoutes(factory?: RegistryFactory) {
     const requestId = c.req.header('x-request-id') ?? crypto.randomUUID()
     const tenantId = c.req.header('x-workspace-id')
     if (!tenantId) return c.json(stableError('COMMAND_ENVELOPE_INVALID', 'Workspace header is required', requestId), 400)
+    let raw: unknown
     try {
-      const raw = await c.req.json()
+      raw = await c.req.json()
+    } catch {
+      return c.json(stableError('COMMAND_ENVELOPE_INVALID', 'Invalid JSON body', requestId), 400)
+    }
+    try {
       const request = execute
         ? parseCommandExecuteRequest(raw) as CommandExecuteRequest
         : parseCommandPreviewRequest(raw) as CommandRequest
@@ -46,7 +51,7 @@ export function createCommandsRoutes(factory?: RegistryFactory) {
       if (cause instanceof CommandRegistryError) {
         return c.json(stableError(cause.code, cause.message, requestId, cause.code === 'COMMAND_VERSION_CONFLICT'), cause.status)
       }
-      if (cause instanceof TypeError && cause.message === 'COMMAND_ENVELOPE_INVALID') {
+      if (cause instanceof Error && cause.message === 'COMMAND_ENVELOPE_INVALID') {
         return c.json(stableError('COMMAND_ENVELOPE_INVALID', 'Invalid command envelope', requestId), 400)
       }
       console.error('[commands] request failed', cause)

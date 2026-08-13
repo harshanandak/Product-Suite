@@ -35,6 +35,18 @@ const create = {
 }
 
 describe('/api/v1 command routes', () => {
+  it('returns a non-retryable envelope error for malformed JSON', async () => {
+    const response = await app().request('/api/v1/commands/work-item.create/preview', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-workspace-id': 'tenant-1', 'x-request-id': 'req-json' },
+      body: '{',
+    })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({
+      error: { code: 'COMMAND_ENVELOPE_INVALID', requestId: 'req-json', retryable: false },
+    })
+  })
+
   it('returns a versioned preview without accepting authority from the body', async () => {
     const response = await app().request('/api/v1/commands/work-item.create/preview', {
       method: 'POST',
