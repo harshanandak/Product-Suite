@@ -1,6 +1,4 @@
 import type { Sql } from '@product-suite/db'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
@@ -14,7 +12,6 @@ import {
   createNeonControlPlane,
   conformanceCredentialStatus,
   hasNeonCreds,
-  harnessMigrationStatements,
   prepareHarnessDatabase,
   runRequiredNeonConformance,
   variantMigrationContract,
@@ -75,20 +72,6 @@ describe('Neon authority conformance guards', () => {
   it('advances both recognized histories through canonical 0021', () => {
     expect(variantMigrationContract('repaired-bootstrap')).toEqual({ baselineFloor: '0020', baselineCount: 21, bootstrapDeclared: ['0000', '0001', '0002', '0003', '0004', '0005', '0006', '0007', '0008', '0009', '0010', '0011', '0012', '0013', '0014', '0015', '0016', '0017', '0018', '0019', '0020'], declared: ['0021'], finalFloor: '0021' })
     expect(variantMigrationContract('original-production')).toEqual({ baselineFloor: '0017', baselineCount: 18, declared: ['0018', '0019', '0020', '0021'], finalFloor: '0021' })
-  })
-
-  it('segments canonical 0021 into one prepared statement per top-level command', () => {
-    const migration = readFileSync(
-      resolve(import.meta.dirname, '../../../../packages/db/migrations/0021_command_kernel.sql'),
-      'utf8',
-    )
-
-    const statements = harnessMigrationStatements(migration)
-
-    expect(statements).toHaveLength(16)
-    expect(statements[0]).toBe('ALTER TABLE "work_items" ADD COLUMN "version" integer DEFAULT 1 NOT NULL;')
-    expect(statements[13]).toContain('DO $immutable_triggers$')
-    expect(statements[15]).toBe('GRANT SELECT, INSERT ON TABLE "command_audit_events" TO product_suite_platform_runtime;')
   })
 
   it('accepts only an empty test-only root with the repaired variant', () => {

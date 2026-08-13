@@ -39,7 +39,7 @@ import { fileURLToPath } from 'node:url'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 
 import { Pool } from '@neondatabase/serverless'
-import { createDb, createSql, type Database, type Sql } from '@product-suite/db'
+import { createDb, createSql, migrationStatements, type Database, type Sql } from '@product-suite/db'
 
 import { createBranchLeaseCoordinator, type BranchLease } from './branch-lease'
 import { createEphemeralBranch, deleteEphemeralBranchStrict, NeonBranchError, type EphemeralBranch } from './neon-branch'
@@ -1573,7 +1573,7 @@ async function applyHarnessMigrations(sql: Sql, options: { recordJournal?: boole
 
   for (const entry of ordered) {
     const file = readFileSync(resolve(MIGRATIONS_DIR, `${entry.tag}.sql`), 'utf8')
-    const statements = harnessMigrationStatements(file)
+    const statements = migrationStatements(file)
     for (const statement of statements) {
       await exec(sql, statement)
     }
@@ -1582,13 +1582,6 @@ async function applyHarnessMigrations(sql: Sql, options: { recordJournal?: boole
       await exec(sql, `insert into drizzle.__drizzle_migrations (hash, created_at) values ($1, $2)`, [hash, entry.idx])
     }
   }
-}
-
-export function harnessMigrationStatements(file: string): string[] {
-  return file
-    .split('--> statement-breakpoint')
-    .map((statement) => statement.trim())
-    .filter((statement) => statement.length > 0)
 }
 
 export interface HarnessDatabaseSetup {

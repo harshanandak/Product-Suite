@@ -5,6 +5,7 @@ import * as schema from './schema'
 
 export * from './schema'
 export * from './command-persistence'
+export * from './migration-statements'
 export { schema }
 
 /**
