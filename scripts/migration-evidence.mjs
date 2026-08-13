@@ -204,7 +204,7 @@ export function verifyMigrationEvidence(evidence = {}) {
   if (safe.status === "PREFLIGHT_READY") {
     if (safe.schemaVersion !== "neon-production-preflight-evidence.v1") issues.push("preflight schema version invalid");
     if (safe.historyVariant !== "original-production" || safe.expectedFloor !== "0017" || safe.expectedCount !== 18) issues.push("preflight history contract invalid");
-    if (safe.applied?.length !== 18 || safe.pending?.map((entry) => entry.tag).join(",") !== "0018,0019") issues.push("preflight suffix invalid");
+    if (safe.applied?.length !== 18 || safe.pending?.map((entry) => entry.tag).join(",") !== "0018,0019,0020") issues.push("preflight suffix invalid");
     for (const entry of safe.pending ?? []) if (!MIGRATION_TAG.test(entry.tag) || !MIGRATION_HASH.test(entry.hash ?? "")) issues.push("pending migration record is incomplete");
     if (!SAFE_IDENTIFIER.test(safe.loginIdentifier ?? "") || safe.grantContract !== "product-suite-neon-preflight-reader-v1") issues.push("preflight role contract invalid");
     for (const field of ["grantContractSha256", "catalogDigest", "grantDigest"]) if (!MIGRATION_HASH.test(safe[field] ?? "")) issues.push(`${field} invalid`);

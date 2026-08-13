@@ -88,7 +88,7 @@ describe("migration evidence", () => {
       expectedFloor: "0017",
       expectedCount: 18,
       applied: Array.from({ length: 18 }, (_, index) => ({ tag: String(index).padStart(4, "0"), timestamp: index, hash })),
-      pending: [{ tag: "0018", hash }, { tag: "0019", hash }],
+      pending: [{ tag: "0018", hash }, { tag: "0019", hash }, { tag: "0020", hash }],
       loginIdentifier: "product_suite_neon_preflight_reader",
       grantContract: "product-suite-neon-preflight-reader-v1",
       grantContractSha256: hash,
@@ -102,6 +102,8 @@ describe("migration evidence", () => {
     });
 
     expect(verifyMigrationEvidence(evidence)).toMatchObject({ ok: true, status: "PREFLIGHT_READY" });
+    expect(verifyMigrationEvidence({ ...evidence, pending: evidence.pending.slice(0, 2) }))
+      .toMatchObject({ ok: false, code: "EVIDENCE_INVALID" });
     const serialized = JSON.stringify(evidence);
     expect(serialized).not.toContain("postgresql://");
     expect(serialized).not.toContain("DELETE FROM");
@@ -114,7 +116,7 @@ describe("migration evidence", () => {
       operation: "verify", status: "PREFLIGHT_READY", historyVariant: "original-production",
       expectedFloor: "0017", expectedCount: 18,
       applied: Array.from({ length: 18 }, (_, index) => ({ tag: String(index).padStart(4, "0"), timestamp: index, hash: "a".repeat(64) })),
-      pending: [{ tag: "0018", hash: "a".repeat(64) }, { tag: "0019", hash: "a".repeat(64) }],
+      pending: [{ tag: "0018", hash: "a".repeat(64) }, { tag: "0019", hash: "a".repeat(64) }, { tag: "0020", hash: "a".repeat(64) }],
       loginIdentifier: "product_suite_neon_preflight_reader",
       grantContract: "product-suite-neon-preflight-reader-v1",
       grantContractSha256: "a".repeat(64), catalogDigest: "a".repeat(64), grantDigest: "a".repeat(64),

@@ -26,7 +26,7 @@ const authority = { environment: "staging", historyVariant: "repaired-bootstrap"
 const productionManifest = JSON.parse(await Bun.file("docs/history/database-migrations/manifest.json").text());
 
 describe("canonical migration runner", () => {
-  const preflightFiles = Array.from({ length: 20 }, (_, index) => ({
+  const preflightFiles = Array.from({ length: 21 }, (_, index) => ({
     tag: String(index).padStart(4, "0"),
     hash: String(index).padStart(64, "0"),
     timestamp: index,
@@ -189,7 +189,11 @@ describe("canonical migration runner", () => {
     expect(result).toMatchObject({
       ok: true, status: "PREFLIGHT_READY", historyVariant: "original-production",
       expectedFloor: "0017", expectedCount: 18,
-      pending: [{ tag: "0018", hash: preflightFiles[18].hash }, { tag: "0019", hash: preflightFiles[19].hash }],
+      pending: [
+        { tag: "0018", hash: preflightFiles[18].hash },
+        { tag: "0019", hash: preflightFiles[19].hash },
+        { tag: "0020", hash: preflightFiles[20].hash },
+      ],
     });
     expect(calls.join("\n")).toContain("has_schema_privilege");
     expect(calls.join("\n")).toContain("has_table_privilege");
@@ -655,7 +659,7 @@ describe("canonical migration runner", () => {
   test.each([
     ["repaired bootstrap", { environment: "test", historyVariant: "repaired-bootstrap" }],
     ["test-only original conformance", { environment: "conformance-original", historyVariant: "original-production" }],
-  ])("provisions roles before applying synthetic 0020 then verifies NOOP for %s", async (_label, variantAuthority) => {
+  ])("provisions roles before applying the canonical suffix then verifies NOOP for %s", async (_label, variantAuthority) => {
     const calls = [];
     const original = variantAuthority.historyVariant === "original-production";
     const migrationFiles = loadMigrationFiles();
@@ -665,9 +669,7 @@ describe("canonical migration runner", () => {
       hash: entry.observedSha256,
       timestamp: timestamps.get(entry.tag),
     }));
-    const variantFiles = original
-      ? [...migrationFiles, files.find((file) => file.tag === "0020")]
-      : files;
+    const variantFiles = original ? migrationFiles : files;
     const appliedFloor = original ? "0017" : "0019";
     const declared = original
       ? variantFiles.filter((file) => Number(file.tag.slice(0, 4)) > 17).map((file) => file.tag)
