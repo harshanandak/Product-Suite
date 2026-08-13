@@ -297,7 +297,7 @@ export async function createWorkItem(
     // fetch and return the existing row (NOT an error; the apply is exactly-once).
     const message = cause instanceof Error ? cause.message : String(cause)
     if (
-      ctx.appliedFromProposalId != null &&
+      ctx.appliedFromProposalId != null && !ctx.commandTransactionTail &&
       (message.includes('work_items_applied_from_proposal_uniq') || message.includes('duplicate key'))
     ) {
       const existingRows = (await sql`
@@ -477,6 +477,33 @@ export async function updateWorkItem(
     ctx.expectedValues == null ? null : JSON.stringify(ctx.expectedValues)
 
   const commandWriteMarker = ctx.commandTransactionTail ? crypto.randomUUID() : null
+  const commandUpdatedAt = ctx.commandTransactionTail ? new Date().toISOString() : null
+  const assignedAfter = {
+    ...current,
+    title: next.title,
+    description: next.description ?? '',
+    phase: next.phase,
+    type: next.type,
+    priority: next.priority,
+    tags: next.tags ?? [],
+    source: ctx.provenanceSource ?? current.source,
+    project_id: next.project_id ?? null,
+    team_id: next.team_id,
+    status_id: next.status_id,
+    parent_id: nextParentId,
+    depth: nextDepth,
+    department: next.department,
+    assignee_id: next.assignee_id ?? null,
+    due_date: next.due_date ?? null,
+    archived: next.archived ?? false,
+    actor_type: actor.actorType,
+    actor_id: actor.actorId,
+    on_behalf_of: actor.onBehalfOf,
+    run_id: actor.runId,
+    last_command_marker: commandWriteMarker,
+    version: current.version + 1,
+    ...(commandUpdatedAt ? { updated_at: commandUpdatedAt } : {}),
+  }
   const updateQuery = sql`
     update work_items set
       title = ${next.title},
@@ -501,7 +528,7 @@ export async function updateWorkItem(
       run_id = ${actor.runId},
       last_command_marker = ${commandWriteMarker}::uuid,
       version = version + 1,
-      updated_at = now()
+      updated_at = coalesce(${commandUpdatedAt}::timestamptz, now())
     where id = ${id} and tenant_id = any(${tenantIds})
       and (${ctx.expectedVersion ?? null}::integer is null or version = ${ctx.expectedVersion ?? null})
       and (
@@ -546,7 +573,7 @@ export async function updateWorkItem(
       resourceId: id,
       resourceVersion: current.version + 1,
       before: current as unknown as Record<string, unknown>,
-      after: { ...(next as unknown as Record<string, unknown>), version: current.version + 1 },
+      after: assignedAfter as unknown as Record<string, unknown>,
     })
     const results = await (sql as unknown as { transaction: (queries: unknown[]) => Promise<WorkItemRow[][]> }).transaction(
       [updateQuery, assertUpdateQuery, eventQuery, ...tail],

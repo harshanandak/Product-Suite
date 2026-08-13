@@ -961,11 +961,12 @@ function appliedTags(evidence: CanonicalEvidence): string[] {
 export function variantMigrationContract(variant: NeonHistoryVariant): {
   baselineFloor: '0017' | '0020'
   baselineCount: 18 | 21
+  bootstrapDeclared?: string[]
   declared: string[]
   finalFloor: '0021'
 } {
   return variant === 'repaired-bootstrap'
-    ? { baselineFloor: '0020', baselineCount: 21, declared: ['0021'], finalFloor: '0021' }
+    ? { baselineFloor: '0020', baselineCount: 21, bootstrapDeclared: Array.from({ length: 21 }, (_, index) => String(index).padStart(4, '0')), declared: ['0021'], finalFloor: '0021' }
     : { baselineFloor: '0017', baselineCount: 18, declared: ['0018', '0019', '0020', '0021'], finalFloor: '0021' }
 }
 
@@ -1013,12 +1014,14 @@ async function proveCanonicalVariant(connectionUri: string, variant: NeonHistory
     const contract = variantMigrationContract(variant)
     let baseline: CanonicalEvidence
     if (variant === 'repaired-bootstrap') {
+      const bootstrapTags = resolveDeclaredMigrationTags(canonicalFiles, contract.bootstrapDeclared ?? [])
+      const bootstrapFiles = canonicalFiles.filter((file) => bootstrapTags.includes(file.tag))
       const bootstrapped = await canonicalBootstrapStep(
         'REPAIRED_BOOTSTRAP_UNPROVEN',
         () => migrationRunner.bootstrapMigrations({
           adapter,
-          files: canonicalFiles,
-          declared: canonicalFiles.map((file) => file.tag),
+          files: bootstrapFiles,
+          declared: bootstrapTags,
           authority,
         }),
       )

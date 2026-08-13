@@ -1,6 +1,7 @@
 import {
   parseCommandExecuteRequest,
   parseCommandPreviewRequest,
+  parseCommandPreviewResult,
   parseCommandResult,
   parseStableCommandError,
 } from "@product-suite/contracts";
@@ -59,7 +60,9 @@ function parsePreview(response, requestId) {
     const stable = parseStableCommandError(body);
     throw new CommandApiError(stable.error);
   }
-  if (!isRecord(body) || typeof body.previewHash !== "string" || body.previewHash.length === 0) {
+  try {
+    return parseCommandPreviewResult(body);
+  } catch {
     throw new CommandApiError({
       code: "COMMAND_EXECUTION_FAILED",
       message: "Invalid command preview",
@@ -67,7 +70,6 @@ function parsePreview(response, requestId) {
       retryable: false,
     });
   }
-  return body;
 }
 
 /**

@@ -125,6 +125,8 @@ Agent-proposed mutation is available only through `proposal.apply`, which derive
 target command/capability and approval from the stored accepted/approved proposal,
 binds the stored snapshot/version/preview, and records the proposing agent as
 server-derived `onBehalfOf` provenance.
+An update proposal whose server-captured snapshot does not cover every patched field
+is stale and must not write.
 
 TDD steps:
 1. Add happy path, duplicate retry, stale version, preview drift, denied capability,

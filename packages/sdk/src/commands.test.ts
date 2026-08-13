@@ -154,4 +154,12 @@ describe("command SDK client", () => {
 
     await expect(client.preview(request)).resolves.toEqual(preview);
   });
+
+  test("rejects an incomplete preview even when it has a hash", async () => {
+    const client = createCommandClient({
+      transport: createTransport([{ previewHash: "sha256:preview" }]),
+      workspaceId: "workspace-1",
+    });
+    await expect(client.preview(request)).rejects.toMatchObject({ code: "COMMAND_EXECUTION_FAILED" });
+  });
 });

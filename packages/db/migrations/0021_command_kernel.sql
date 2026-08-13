@@ -1,5 +1,3 @@
-BEGIN;
-
 ALTER TABLE "work_items" ADD COLUMN "version" integer DEFAULT 1 NOT NULL;
 ALTER TABLE "work_items" ADD COLUMN "last_command_marker" uuid;
 ALTER TABLE "work_items" ADD CONSTRAINT "work_items_version_positive" CHECK ("version" > 0);
@@ -24,6 +22,8 @@ CREATE UNIQUE INDEX "command_idempotency_scope_uniq" ON "command_idempotency"
   ("tenant_id", "actor_type", "actor_id", "command", "idempotency_key");
 CREATE UNIQUE INDEX "command_idempotency_tenant_request_uniq" ON "command_idempotency"
   ("tenant_id", "request_id");
+ALTER TABLE "command_idempotency" ADD CONSTRAINT "command_idempotency_audit_identity_uniq"
+  UNIQUE ("tenant_id", "id", "request_id");
 
 CREATE TABLE "command_audit_events" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
@@ -41,8 +41,9 @@ CREATE TABLE "command_audit_events" (
   "before" jsonb,
   "after" jsonb NOT NULL,
   "created_at" timestamp with time zone DEFAULT now() NOT NULL,
-  CONSTRAINT "command_audit_events_idempotency_fk" FOREIGN KEY ("idempotency_id")
-    REFERENCES "command_idempotency"("id") ON DELETE RESTRICT,
+  CONSTRAINT "command_audit_events_idempotency_identity_fk"
+    FOREIGN KEY ("tenant_id", "idempotency_id", "request_id")
+    REFERENCES "command_idempotency"("tenant_id", "id", "request_id") ON DELETE RESTRICT,
   CONSTRAINT "command_audit_events_approval_object" CHECK (jsonb_typeof("approval") = 'object'),
   CONSTRAINT "command_audit_events_after_object" CHECK (jsonb_typeof("after") = 'object')
 );
@@ -71,5 +72,3 @@ $immutable_triggers$;
 
 GRANT SELECT, INSERT ON TABLE "command_idempotency" TO product_suite_platform_runtime;
 GRANT SELECT, INSERT ON TABLE "command_audit_events" TO product_suite_platform_runtime;
-
-COMMIT;

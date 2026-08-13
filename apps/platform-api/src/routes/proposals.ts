@@ -3,11 +3,12 @@ import { Hono } from 'hono'
 import type { AcceptResult } from '@product-suite/contracts'
 
 import { callerTenantIds, callerUserId } from '../auth/tenant-scope'
+import { authorizeCapability } from '../auth/capabilities'
 import { curateProposal } from '../curator/curate'
 import { sqlFrom } from '../db'
 import type { AuthedEnv } from '../middleware/clerk-auth'
 import { acceptHttpStatus, applyProposal, isUuid } from '../proposals/apply'
-import { getProposalScoped, listPending } from '../proposals/repository'
+import { approveProposalForCommand, getProposalScoped, listPending } from '../proposals/repository'
 import { undoHttpStatus, undoProposal } from '../proposals/undo'
 
 /**
@@ -117,6 +118,27 @@ proposalsRoutes.post('/:id/accept', async (c) => {
     }
     return c.json(failure, acceptHttpStatus(failure))
   }
+})
+
+proposalsRoutes.post('/:id/approve-command', async (c) => {
+  const tenantId = c.req.header('x-workspace-id')
+  const id = c.req.param('id')
+  if (!tenantId || !isUuid(id)) return c.json({ error: 'Not found' }, 404)
+  const sql = sqlFrom(c.env ?? {})
+  const authorization = await authorizeCapability(sql, c.get('claims'), tenantId, 'edit')
+  if (!authorization.ok) return c.json({ error: authorization.reason }, authorization.status)
+  const body = (await c.req.json().catch(() => ({}))) as { edited_payload?: unknown }
+  if (body.edited_payload !== undefined && (body.edited_payload === null || typeof body.edited_payload !== 'object' || Array.isArray(body.edited_payload))) {
+    return c.json({ error: 'Invalid edited payload' }, 400)
+  }
+  const proposal = await approveProposalForCommand(sql, {
+    tenantId,
+    approverUserId: authorization.context.userId,
+    proposalId: id,
+    ...(body.edited_payload === undefined ? {} : { editedPayload: body.edited_payload as Record<string, unknown> }),
+  })
+  if (!proposal) return c.json({ error: 'Proposal is not pending' }, 409)
+  return c.json({ proposal })
 })
 
 /**

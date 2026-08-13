@@ -293,7 +293,7 @@ export async function recordWriteTx<Row = Record<string, unknown>>(
   // One output row per input spec, IN ORDER. Every spec uses `returning *`, so a
   // missing row is a real failure — dropping it (rather than throwing) would shift
   // later rows into the wrong statement's position and hand a caller the wrong row.
-  return results.map((rows, i) => {
+  return results.slice(0, specs.length).map((rows, i) => {
     const row = rows[0]
     if (!row) {
       throw new Error(`recordWriteTx: ${specs[i]?.operation} on "${specs[i]?.table}" returned no row`)

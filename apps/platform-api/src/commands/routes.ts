@@ -63,7 +63,11 @@ export function createCommandsRoutes(factory?: RegistryFactory) {
       if (isCommandVersionAssertion(cause)) {
         return c.json(stableError('COMMAND_VERSION_CONFLICT', 'COMMAND_VERSION_CONFLICT', requestId, true), 409)
       }
-      console.error('[commands] request failed', cause)
+      console.error('[commands] request failed', {
+        requestId,
+        name: cause instanceof Error ? cause.name : 'unknown',
+        code: (cause as { code?: string } | null)?.code,
+      })
       return c.json(stableError('COMMAND_EXECUTION_FAILED', 'Command execution failed', requestId, true), 500)
     }
   }

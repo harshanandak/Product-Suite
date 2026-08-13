@@ -234,6 +234,17 @@ export interface CommandResult {
   resourceVersion: number;
   data: unknown;
 }
+export interface CommandPreviewResult {
+  command: CommandName;
+  targetCommand: CommandName;
+  capability: { required: "edit"; granted: true };
+  approval: CommandResult["approval"];
+  actor: CommandPrincipal;
+  onBehalfOf?: CommandPrincipal;
+  expectedVersion?: number;
+  previewHash: string;
+  input: Record<string, unknown>;
+}
 export interface StableCommandError {
   error: {
     code: CommandErrorCode;
@@ -247,6 +258,7 @@ export const COMMAND_API_VERSION: 1;
 export const COMMAND_NAMES: readonly CommandName[];
 export const COMMAND_ERROR_CODES: readonly CommandErrorCode[];
 export function parseCommandPreviewRequest(input: unknown): CommandRequest;
+export function parseCommandPreviewResult(input: unknown): CommandPreviewResult;
 export function parseCommandExecuteRequest(input: unknown): CommandExecuteRequest;
 export function parseCommandResult(input: unknown): CommandResult;
 export function parseStableCommandError(input: unknown): StableCommandError;

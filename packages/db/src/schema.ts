@@ -558,6 +558,7 @@ export const commandIdempotency = pgTable(
       t.idempotencyKey,
     ),
     byRequest: uniqueIndex('command_idempotency_tenant_request_uniq').on(t.tenantId, t.requestId),
+    auditIdentity: unique('command_idempotency_audit_identity_uniq').on(t.tenantId, t.id, t.requestId),
     resourceVersionPositive: check('command_idempotency_resource_version_positive', sql`${t.resourceVersion} > 0`),
     requestHashSha256: check('command_idempotency_request_hash_sha256', sql`${t.requestHash} ~ '^[0-9a-f]{64}$'`),
   }),
@@ -568,9 +569,7 @@ export const commandAuditEvents = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     tenantId: text('tenant_id').notNull(),
-    idempotencyId: uuid('idempotency_id')
-      .notNull()
-      .references(() => commandIdempotency.id, { onDelete: 'restrict' }),
+    idempotencyId: uuid('idempotency_id').notNull(),
     requestId: text('request_id').notNull(),
     command: text('command').notNull(),
     actorType: actorTypeEnum('actor_type').notNull(),
@@ -585,6 +584,11 @@ export const commandAuditEvents = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
+    idempotencyIdentity: foreignKey({
+      columns: [t.tenantId, t.idempotencyId, t.requestId],
+      foreignColumns: [commandIdempotency.tenantId, commandIdempotency.id, commandIdempotency.requestId],
+      name: 'command_audit_events_idempotency_identity_fk',
+    }).onDelete('restrict'),
     byTenant: index('command_audit_events_tenant_created_idx').on(t.tenantId, t.createdAt),
     requestUniq: uniqueIndex('command_audit_events_tenant_request_uniq').on(t.tenantId, t.requestId),
     approvalObject: check('command_audit_events_approval_object', sql`jsonb_typeof(${t.approval}) = 'object'`),

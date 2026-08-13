@@ -140,7 +140,8 @@ export function commandRegistryDependencies(sql: Sql): CommandRegistryDependenci
            where id = $2 and tenant_id = $3 and status in ('accepted', 'accepted_with_edits')
            returning id
          )
-         select 1 / case when exists (select 1 from flipped) then 1 else 0 end as proposal_applied`,
+         select case when exists (select 1 from flipped) then 1
+           else cast('COMMAND_VERSION_CONFLICT' as integer) end as proposal_applied`,
         [JSON.stringify(state.after), proposalId, mutation.tenantId],
       )
       const tail = (state: CommandTransactionState) =>

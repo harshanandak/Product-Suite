@@ -124,4 +124,21 @@ describe('/api/v1 command routes', () => {
     expect(response.status).toBe(409)
     expect(await response.json()).toMatchObject({ error: { code: 'COMMAND_VERSION_CONFLICT', retryable: true } })
   })
+
+  it('redacts database parameters from unexpected failure logs', async () => {
+    const deps = dependencies()
+    deps.createWorkItem = vi.fn(async () => { throw Object.assign(new Error('query failed title=Secret tenant=tenant-1'), { code: 'XX000' }) })
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const previewResponse = await app(deps).request('/api/v1/commands/work-item.create/preview', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-workspace-id': 'tenant-1' }, body: JSON.stringify(create),
+    })
+    const preview = await previewResponse.json() as { previewHash: string }
+    await app(deps).request('/api/v1/commands/work-item.create/execute', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-workspace-id': 'tenant-1', 'x-request-id': 'req-secret' },
+      body: JSON.stringify({ ...create, previewHash: preview.previewHash }),
+    })
+    expect(error).toHaveBeenCalledWith('[commands] request failed', { requestId: 'req-secret', name: 'Error', code: 'XX000' })
+    expect(JSON.stringify(error.mock.calls)).not.toContain('Secret')
+    error.mockRestore()
+  })
 })

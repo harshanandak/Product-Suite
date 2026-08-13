@@ -20,6 +20,7 @@ export {
   COMMAND_NAMES,
   COMMAND_ERROR_CODES,
   parseCommandPreviewRequest,
+  parseCommandPreviewResult,
   parseCommandExecuteRequest,
   parseCommandResult,
   parseStableCommandError,

@@ -168,4 +168,38 @@ describe('governed command registry', () => {
       approval: { state: 'approved', source: 'stored_proposal' },
     })
   })
+
+  it('rejects proposal updates whose stored snapshot does not cover every patched field', async () => {
+    const proposal = {
+      id: 'proposal-1', tenant_id: 'tenant-1', status: 'accepted', target_type: 'work_item',
+      operation: 'update', target_id: 'item-1', target_version: 3,
+      target_snapshot: { title: 'Old' }, payload: { title: 'New', priority: 'high' }, run_id: 'agent-run-1',
+    }
+    const deps = dependencies({ loadProposal: vi.fn(async () => proposal) })
+    const registry = createCommandRegistry(deps)
+    await expect(registry.preview(
+      { claims: { provider: 'clerk', subject: 's' }, tenantId: 'tenant-1', requestId: 'r' },
+      { version: 1, command: 'proposal.apply', idempotencyKey: 'k', input: { proposalId: 'proposal-1' } },
+    )).rejects.toEqual(new CommandRegistryError('COMMAND_VERSION_CONFLICT', 409))
+    expect(deps.applyProposal).not.toHaveBeenCalled()
+  })
+
+  it('reloads a terminal replay when a concurrent idempotency insert wins', async () => {
+    const request = { ...base, previewHash: previewHash(base) }
+    const terminal = {
+      version: 1 as const, command: 'work-item.update' as const, requestId: 'winner', idempotencyKey: 'key-1',
+      actor: { type: 'human' as const, id: 'user-1' }, capability: { required: 'edit' as const, granted: true },
+      approval: { state: 'not_required' as const }, retryable: false, previewHash: request.previewHash,
+      resourceVersion: 4, data: { id: 'item-1' },
+    }
+    const findReplay = vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce({ sameInput: true, result: terminal })
+    const registry = createCommandRegistry(dependencies({
+      findReplay,
+      updateWorkItem: vi.fn(async () => { throw Object.assign(new Error('duplicate key'), { code: '23505' }) }),
+    }))
+    await expect(registry.execute(
+      { claims: { provider: 'clerk', subject: 's' }, tenantId: 'tenant-1', requestId: 'loser' }, request,
+    )).resolves.toEqual(terminal)
+    expect(findReplay).toHaveBeenCalledTimes(2)
+  })
 })

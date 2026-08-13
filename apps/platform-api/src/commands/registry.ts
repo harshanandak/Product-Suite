@@ -192,6 +192,13 @@ async function normalize(
     throw new CommandRegistryError('COMMAND_ENVELOPE_INVALID', 400)
   }
   const payload = record(proposal.edited_payload ?? proposal.payload)
+  if (proposal.operation === 'update') {
+    const snapshot = proposal.target_snapshot
+    if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)
+      || Object.keys(payload).some((key) => !Object.hasOwn(snapshot, key))) {
+      throw new CommandRegistryError('COMMAND_VERSION_CONFLICT', 409)
+    }
+  }
   const normalizedInput = proposal.operation === 'update'
     ? { workItemId: proposal.target_id, patch: payload, proposalId: proposal.id }
     : { ...payload, proposalId: proposal.id }
@@ -238,7 +245,7 @@ export function createCommandRegistry(deps: CommandRegistryDependencies) {
     },
     async execute(ctx: RegistryContext, request: CommandExecuteRequest) {
       const actor = await authority(deps, ctx)
-      const replay = await deps.findReplay({
+      const replayMutation = {
         invokedCommand: request.command,
         replayInput: request,
         command: request.command === 'work-item.update' ? 'work-item.update' : 'work-item.create',
@@ -250,7 +257,8 @@ export function createCommandRegistry(deps: CommandRegistryDependencies) {
         actor: { type: 'human', id: actor.userId },
         approval: { state: 'not_required' },
         previewHash: request.previewHash,
-      })
+      } satisfies RegistryMutation
+      const replay = await deps.findReplay(replayMutation)
       if (replay) {
         if (!replay.sameInput) throw new CommandRegistryError('COMMAND_IDEMPOTENCY_CONFLICT', 409)
         return replay.result
@@ -259,11 +267,20 @@ export function createCommandRegistry(deps: CommandRegistryDependencies) {
       if (request.previewHash !== mutation.previewHash) {
         throw new CommandRegistryError('COMMAND_PREVIEW_DRIFT', 409)
       }
-      const result = request.command === 'proposal.apply'
-        ? await deps.applyProposal(mutation)
-        : mutation.command === 'work-item.create'
-          ? await deps.createWorkItem(mutation)
-          : await deps.updateWorkItem(mutation)
+      let result: { id: string; version: number }
+      try {
+        result = request.command === 'proposal.apply'
+          ? await deps.applyProposal(mutation)
+          : mutation.command === 'work-item.create'
+            ? await deps.createWorkItem(mutation)
+            : await deps.updateWorkItem(mutation)
+      } catch (cause) {
+        if ((cause as { code?: string } | null)?.code !== '23505') throw cause
+        const concurrentReplay = await deps.findReplay(replayMutation)
+        if (!concurrentReplay) throw cause
+        if (!concurrentReplay.sameInput) throw new CommandRegistryError('COMMAND_IDEMPOTENCY_CONFLICT', 409)
+        return concurrentReplay.result
+      }
       return commandResult(mutation, result)
     },
   }

@@ -4,6 +4,7 @@ import {
   COMMAND_API_VERSION,
   parseCommandExecuteRequest,
   parseCommandPreviewRequest,
+  parseCommandPreviewResult,
   parseCommandResult,
   parseStableCommandError,
 } from './commands.js'
@@ -17,6 +18,16 @@ const previewRequest = {
 }
 
 describe('command envelopes', () => {
+  it('strictly parses the public preview result contract', () => {
+    const value = {
+      command: 'work-item.update', targetCommand: 'work-item.update',
+      capability: { required: 'edit', granted: true }, approval: { state: 'not_required' },
+      actor: { type: 'human', id: 'user-1' }, expectedVersion: 7,
+      previewHash: 'sha256:preview', input: previewRequest.input,
+    }
+    expect(parseCommandPreviewResult(value)).toEqual(value)
+    expect(() => parseCommandPreviewResult({ previewHash: 'sha256:preview' })).toThrow('COMMAND_ENVELOPE_INVALID')
+  })
   it('round-trips strict versioned preview and execute requests', () => {
     expect(COMMAND_API_VERSION).toBe(1)
     expect(parseCommandPreviewRequest(JSON.parse(JSON.stringify(previewRequest)))).toEqual(

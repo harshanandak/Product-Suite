@@ -24,6 +24,10 @@ describe('workboard schema', () => {
     expect(migration).toMatch(/work_items[^;]*add column[^;]*version/i)
     expect(migration).toContain('command_idempotency_scope_uniq')
     expect(migration).toContain('command_audit_events_immutable')
+    expect(migration.trimStart()).not.toMatch(/^BEGIN;/i)
+    expect(migration.trimEnd()).not.toMatch(/COMMIT;$/i)
+    expect(migration).toContain('command_idempotency_audit_identity_uniq')
+    expect(migration).toContain('command_audit_events_idempotency_identity_fk')
     expect(migration).toMatch(/grant select, insert/i)
   })
 

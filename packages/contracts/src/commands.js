@@ -152,6 +152,20 @@ export function parseCommandResult(input) {
   return input;
 }
 
+export function parseCommandPreviewResult(input) {
+  if (!isRecord(input)) invalid();
+  const allowed = new Set(["command", "targetCommand", "capability", "approval", "actor", "onBehalfOf", "expectedVersion", "previewHash", "input"]);
+  const required = ["command", "targetCommand", "capability", "approval", "actor", "previewHash", "input"];
+  if (!hasExactKeys(input, allowed, required)) invalid();
+  if (!COMMAND_NAMES.includes(input.command) || !COMMAND_NAMES.includes(input.targetCommand)) invalid();
+  if (!validPrincipal(input.actor) || (input.onBehalfOf !== undefined && !validPrincipal(input.onBehalfOf))) invalid();
+  if (!isRecord(input.capability) || input.capability.required !== "edit" || input.capability.granted !== true) invalid();
+  if (!isRecord(input.approval) || !["not_required", "approved"].includes(input.approval.state)) invalid();
+  if (input.expectedVersion !== undefined && (!Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 0)) invalid();
+  if (!isNonEmptyString(input.previewHash) || !isRecord(input.input)) invalid();
+  return input;
+}
+
 export function parseStableCommandError(input) {
   if (!isRecord(input) || !hasExactKeys(input, new Set(["error"]), ["error"])) invalid();
   const error = input.error;
