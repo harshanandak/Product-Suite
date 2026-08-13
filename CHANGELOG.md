@@ -11,7 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - GitHub Actions dependency installs for DB Contract and Platform Web now disable package lifecycle scripts while retaining frozen-lockfile enforcement (PR #171, Forge issue `808fbffa-8923-4083-9e5e-407b5b855454`)
 
 ### Added
-- Governed versioned command preview/execute APIs for work-item mutations and stored proposal application, with server-derived capability/approval authority, CAS, idempotent replay, append-only audit persistence, canonical migration `0021`, and a provider-neutral SDK client (PR #TBD, Forge issue `0f825242-6214-4661-81c4-28f878123b15`)
+- Governed versioned command preview/execute APIs for work-item mutations and stored proposal application, with server-derived capability/approval authority, CAS, idempotent replay, append-only audit persistence, canonical migration `0021`, and a provider-neutral SDK client (PR #177, Forge issue `0f825242-6214-4661-81c4-28f878123b15`)
 - Fail-closed T0-T3 delivery change classification with exact base/head evidence, adversarial downgrade coverage, and catalog-bound dependency proof (PR #167, Forge issue `9041eeab-6079-43e3-a95a-d555e076dddf`)
 - Authorization-scoped, memory-only TanStack Query orchestration for `platform-web` memory-impact reads, preserving repository, API, realtime, and run authority (PR #164, 5a03773c-b0df-4b96-9215-b2a0c9cd4031)
 - Canonical collaboration authority for stable actors, conversations, memberships, immutable ordered events, tenant-bound API access, and additive legacy-thread compatibility (PR #163, 2086343b-db19-4b13-a50f-c5e36c213b20)
