@@ -70,4 +70,28 @@ describe('/api/v1 command routes', () => {
     })
     expect(response.status).toBe(400)
   })
+
+  it('returns the canonical terminal result consumed by the SDK', async () => {
+    const previewResponse = await app().request('/api/v1/commands/work-item.create/preview', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-workspace-id': 'tenant-1', 'x-request-id': 'req-preview' },
+      body: JSON.stringify(create),
+    })
+    const preview = await previewResponse.json() as { previewHash: string }
+    const response = await app().request('/api/v1/commands/work-item.create/execute', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-workspace-id': 'tenant-1', 'x-request-id': 'req-execute' },
+      body: JSON.stringify({ ...create, previewHash: preview.previewHash }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      version: 1,
+      command: 'work-item.create',
+      requestId: 'req-execute',
+      idempotencyKey: 'key-1',
+      previewHash: preview.previewHash,
+      resourceVersion: 1,
+    })
+  })
 })

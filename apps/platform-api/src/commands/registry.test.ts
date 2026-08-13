@@ -43,7 +43,19 @@ describe('governed command registry', () => {
     )
     expect(preview.approval).toEqual({ state: 'not_required' })
     expect(deps.updateWorkItem).toHaveBeenCalledWith(expect.objectContaining({ actor: { type: 'human', id: 'user-1' } }))
-    expect(result.resourceVersion).toBe(4)
+    expect(result).toEqual({
+      version: 1,
+      command: 'work-item.update',
+      requestId: 'req-2',
+      idempotencyKey: 'key-1',
+      actor: { type: 'human', id: 'user-1' },
+      capability: { required: 'edit', granted: true },
+      approval: { state: 'not_required' },
+      retryable: false,
+      previewHash: preview.previewHash,
+      resourceVersion: 4,
+      data: { id: 'item-1' },
+    })
   })
 
   it('permits member edit and rejects a known viewer as 403', async () => {
@@ -77,7 +89,12 @@ describe('governed command registry', () => {
   })
 
   it('returns same-input replay and rejects changed-input idempotency at 409', async () => {
-    const terminal = { resourceVersion: 4, data: { id: 'item-1' } }
+    const terminal = {
+      version: 1 as const, command: 'work-item.update' as const, requestId: 'original', idempotencyKey: 'key-1',
+      actor: { type: 'human' as const, id: 'user-1' }, capability: { required: 'edit' as const, granted: true },
+      approval: { state: 'not_required' as const }, retryable: false, previewHash: previewHash(base),
+      resourceVersion: 4, data: { id: 'item-1' },
+    }
     const same = createCommandRegistry(dependencies({ findReplay: vi.fn(async () => ({ sameInput: true, result: terminal })) }))
     const normalized = { ...base, previewHash: previewHash(base) }
     await expect(same.execute({ claims: { provider: 'clerk', subject: 's' }, tenantId: 'tenant-1', requestId: 'r' }, normalized)).resolves.toEqual(terminal)
@@ -98,11 +115,16 @@ describe('governed command registry', () => {
     const registry = createCommandRegistry(deps)
     const request = { version: 1 as const, command: 'proposal.apply' as const, idempotencyKey: 'k', input: { proposalId: 'proposal-1' } }
     const preview = await registry.preview({ claims: { provider: 'clerk', subject: 's' }, tenantId: 'tenant-1', requestId: 'r' }, request)
-    await registry.execute({ claims: { provider: 'clerk', subject: 's' }, tenantId: 'tenant-1', requestId: 'r2' }, { ...request, previewHash: preview.previewHash })
+    const result = await registry.execute({ claims: { provider: 'clerk', subject: 's' }, tenantId: 'tenant-1', requestId: 'r2' }, { ...request, previewHash: preview.previewHash })
     expect(preview.approval).toEqual({ state: 'approved', source: 'stored_proposal' })
     expect(deps.applyProposal).toHaveBeenCalledWith(expect.objectContaining({
       command: 'work-item.update', expectedVersion: 3, snapshot: { title: 'Old' },
       actor: { type: 'human', id: 'user-1' }, onBehalfOf: { type: 'agent', id: 'agent-run-1' },
     }))
+    expect(result).toMatchObject({
+      command: 'proposal.apply',
+      onBehalfOf: { type: 'agent', id: 'agent-run-1' },
+      approval: { state: 'approved', source: 'stored_proposal' },
+    })
   })
 })

@@ -9,7 +9,7 @@ import {
 import { resolveCapabilityContext } from '../auth/capabilities'
 import { createWorkItem, updateWorkItem, type CommandTransactionState } from '../domain/work-items'
 import { getProposalScoped } from '../proposals/repository'
-import type { CommandRegistryDependencies, RegistryMutation, RegistryResult } from './registry'
+import { commandResult, type CommandRegistryDependencies, type RegistryMutation, type RegistryResult } from './registry'
 
 function query(sql: Sql, text: string, params: unknown[]): unknown {
   return (sql as unknown as { query: (queryText: string, queryParams: unknown[]) => unknown }).query(text, params)
@@ -17,7 +17,7 @@ function query(sql: Sql, text: string, params: unknown[]): unknown {
 
 function requestHash(mutation: RegistryMutation): string {
   return canonicalCommandRequestHash({
-    command: mutation.command,
+    command: mutation.invokedCommand,
     input: mutation.input,
     expectedVersion: mutation.expectedVersion,
     previewHash: mutation.previewHash,
@@ -32,12 +32,12 @@ function persistenceTail(sql: Sql, mutation: RegistryMutation, state: {
   before: Record<string, unknown> | null
   after: Record<string, unknown>
 }, prefix: readonly unknown[] = []): readonly unknown[] {
-  const response: RegistryResult = { resourceVersion: state.resourceVersion, data: { id: state.resourceId } }
+  const response: RegistryResult = commandResult(mutation, { id: state.resourceId, version: state.resourceVersion })
   const ledger = buildCommandPersistenceQueries(sql as never, {
     tenantId: mutation.tenantId,
     actorType: 'human',
     actorId: mutation.actor.id,
-    command: mutation.command,
+    command: mutation.invokedCommand,
     idempotencyKey: mutation.idempotencyKey,
     requestHash: requestHash(mutation),
     requestId: mutation.requestId,
@@ -71,7 +71,7 @@ export function commandRegistryDependencies(sql: Sql): CommandRegistryDependenci
           tenantId: mutation.tenantId,
           actorType: 'human',
           actorId: mutation.actor.id,
-          command: mutation.command,
+          command: mutation.invokedCommand,
           idempotencyKey: mutation.idempotencyKey,
           requestHash: requestHash(mutation),
         })
@@ -80,7 +80,10 @@ export function commandRegistryDependencies(sql: Sql): CommandRegistryDependenci
           : null
       } catch (cause) {
         if (cause instanceof CommandPersistenceError) {
-          return { sameInput: false, result: { resourceVersion: 0, data: { id: '' } } }
+          return {
+            sameInput: false,
+            result: commandResult(mutation, { id: '', version: 0 }),
+          }
         }
         throw cause
       }

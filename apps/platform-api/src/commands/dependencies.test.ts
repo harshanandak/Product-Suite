@@ -28,6 +28,7 @@ describe('command registry DB dependencies', () => {
     const sql = sqlClient([])
     const dependencies = commandRegistryDependencies(sql as never)
     await expect(dependencies.applyProposal({
+      invokedCommand: 'proposal.apply',
       command: 'work-item.update',
       tenantId: 'tenant-1',
       requestId: 'req-1',

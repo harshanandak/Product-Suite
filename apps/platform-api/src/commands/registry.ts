@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 
-import type { AuthClaims, CommandExecuteRequest, CommandName, CommandRequest } from '@product-suite/contracts'
+import type { AuthClaims, CommandExecuteRequest, CommandName, CommandRequest, CommandResult } from '@product-suite/contracts'
 
 type Capability = 'read' | 'edit' | 'configure'
 
@@ -36,12 +36,10 @@ export interface RegistryReplay {
   result: RegistryResult
 }
 
-export interface RegistryResult {
-  resourceVersion: number
-  data: { id: string }
-}
+export type RegistryResult = CommandResult
 
 export interface RegistryMutation {
+  invokedCommand: CommandName
   command: 'work-item.create' | 'work-item.update'
   tenantId: string
   requestId: string
@@ -78,6 +76,26 @@ export class CommandRegistryError extends Error {
   ) {
     super(code)
     this.name = 'CommandRegistryError'
+  }
+}
+
+export function commandResult(
+  mutation: RegistryMutation,
+  result: { id: string; version: number },
+): RegistryResult {
+  return {
+    version: 1,
+    command: mutation.invokedCommand,
+    requestId: mutation.requestId,
+    idempotencyKey: mutation.idempotencyKey,
+    actor: mutation.actor,
+    ...(mutation.onBehalfOf ? { onBehalfOf: mutation.onBehalfOf } : {}),
+    capability: { required: 'edit', granted: true },
+    approval: mutation.approval,
+    retryable: false,
+    previewHash: mutation.previewHash,
+    resourceVersion: result.version,
+    data: { id: result.id },
   }
 }
 
@@ -125,6 +143,7 @@ async function normalize(
   const input = record(request.input)
   if (request.command === 'work-item.create') {
     return {
+      invokedCommand: request.command,
       command: request.command,
       tenantId: ctx.tenantId,
       requestId: ctx.requestId,
@@ -144,6 +163,7 @@ async function normalize(
       throw new CommandRegistryError('COMMAND_VERSION_CONFLICT', 409)
     }
     return {
+      invokedCommand: request.command,
       command: request.command,
       tenantId: ctx.tenantId,
       requestId: ctx.requestId,
@@ -173,6 +193,7 @@ async function normalize(
     : { ...payload, proposalId: proposal.id }
   const { previewHash: _previewHash, ...requestWithoutPreview } = request as CommandExecuteRequest
   return {
+    invokedCommand: request.command,
     command: targetCommand as RegistryMutation['command'],
     tenantId: proposal.tenant_id,
     requestId: ctx.requestId,
@@ -225,7 +246,7 @@ export function createCommandRegistry(deps: CommandRegistryDependencies) {
         : mutation.command === 'work-item.create'
           ? await deps.createWorkItem(mutation)
           : await deps.updateWorkItem(mutation)
-      return { resourceVersion: result.version, data: { id: result.id } }
+      return commandResult(mutation, result)
     },
   }
 }
