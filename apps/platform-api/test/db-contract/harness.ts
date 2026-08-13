@@ -1573,10 +1573,7 @@ async function applyHarnessMigrations(sql: Sql, options: { recordJournal?: boole
 
   for (const entry of ordered) {
     const file = readFileSync(resolve(MIGRATIONS_DIR, `${entry.tag}.sql`), 'utf8')
-    const statements = file
-      .split('--> statement-breakpoint')
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0)
+    const statements = harnessMigrationStatements(file)
     for (const statement of statements) {
       await exec(sql, statement)
     }
@@ -1585,6 +1582,13 @@ async function applyHarnessMigrations(sql: Sql, options: { recordJournal?: boole
       await exec(sql, `insert into drizzle.__drizzle_migrations (hash, created_at) values ($1, $2)`, [hash, entry.idx])
     }
   }
+}
+
+export function harnessMigrationStatements(file: string): string[] {
+  return file
+    .split('--> statement-breakpoint')
+    .map((statement) => statement.trim())
+    .filter((statement) => statement.length > 0)
 }
 
 export interface HarnessDatabaseSetup {
