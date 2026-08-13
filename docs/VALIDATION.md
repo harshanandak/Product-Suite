@@ -44,19 +44,20 @@ Run validation from the repo root so every deployable uses one documented entryp
 
 ## Recommended Local Order
 
-1. Run `bun install` for the JavaScript workspaces.
-2. Run `bun run test:contracts` after changing `packages/contracts` so the shared wire-contract package stays honest.
-3. Run `bun run test:ui-chat` after changing `packages/ui-chat` so the shared chat block stays reusable.
-4. Run `bun run test:ui-canvas` after changing `packages/ui-canvas` so canvas boundaries stay shell-agnostic.
-5. Run `bun run test:ui-meeting` after changing `packages/ui-meeting` so the shared meeting block stays reusable.
-6. Run `bun run test:ui-planning` after changing `packages/ui-planning` so planning blocks stay shell-agnostic.
-7. Run `bun run test:ui-charting` after changing `packages/ui-charting` so charting blocks stay shell-agnostic.
-8. Run `bun run test:agent-core` after changing `services/agent-core` so long-running agent orchestration stays service-owned.
-9. Run `bun run test:hocuspocus` after changing `services/hocuspocus` so canonical canvas collaboration transport stays service-owned.
-10. Run `bun run test:roadmap-canvas-boundary` after changing Roadmap canvas realtime selection, token handling, or Hocuspocus provider-readiness wiring.
-11. Ensure Python `3.13` is available for the Meeting API toolchain.
-12. Run `bun run install:meeting-api` for the Python backend dependencies.
-13. Run `bun run validate` from the repo root.
+1. Create isolated feature worktrees with `bun run worktree:create -- <slug> --branch <branch> --base origin/main --issue <forge-issue-id>`. This preserves Forge linkage, replaces shared `node_modules` junctions with one frozen-lockfile copyfile install, and verifies the Platform API/Web tool binaries. For an existing worktree, run `bun run worktree:bootstrap -- <absolute-worktree-path>`.
+2. Run `bun install` for the JavaScript workspaces only in the primary checkout. Do not run a plain install inside a worktree because Bun's Windows hardlink backend can share mutable package files through the global cache.
+3. Run `bun run test:contracts` after changing `packages/contracts` so the shared wire-contract package stays honest.
+4. Run `bun run test:ui-chat` after changing `packages/ui-chat` so the shared chat block stays reusable.
+5. Run `bun run test:ui-canvas` after changing `packages/ui-canvas` so canvas boundaries stay shell-agnostic.
+6. Run `bun run test:ui-meeting` after changing `packages/ui-meeting` so the shared meeting block stays reusable.
+7. Run `bun run test:ui-planning` after changing `packages/ui-planning` so planning blocks stay shell-agnostic.
+8. Run `bun run test:ui-charting` after changing `packages/ui-charting` so charting blocks stay shell-agnostic.
+9. Run `bun run test:agent-core` after changing `services/agent-core` so long-running agent orchestration stays service-owned.
+10. Run `bun run test:hocuspocus` after changing `services/hocuspocus` so canonical canvas collaboration transport stays service-owned.
+11. Run `bun run test:roadmap-canvas-boundary` after changing Roadmap canvas realtime selection, token handling, or Hocuspocus provider-readiness wiring.
+12. Ensure Python `3.13` is available for the Meeting API toolchain.
+13. Run `bun run install:meeting-api` for the Python backend dependencies.
+14. Run `bun run validate` from the repo root.
 
 If only Python `3.14+` is installed, `bun run install:meeting-api` fails intentionally. The backend pins dependency versions that are currently validated in CI on Python `3.13`.
 

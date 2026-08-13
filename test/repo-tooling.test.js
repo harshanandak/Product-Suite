@@ -213,6 +213,8 @@ describe("repo tooling", () => {
     );
     expect(packageJson.scripts["check:source-test"]).toBeDefined();
     expect(packageJson.scripts["check:source-test"]).toContain("check-source-test-coupling");
+    expect(packageJson.scripts["worktree:create"]).toContain("worktree-bootstrap.mjs create");
+    expect(packageJson.scripts["worktree:bootstrap"]).toContain("worktree-bootstrap.mjs bootstrap");
     expect(packageJson.scripts["check:supabase-exposure"]).toBeUndefined();
     expect(packageJson.scripts["preflight:meeting-cutover"]).toBeUndefined();
     expect(packageJson.scripts["test:repo-tooling"]).toContain("check-source-test-coupling.test.js");
