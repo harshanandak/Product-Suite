@@ -79,7 +79,7 @@ teamsRoutes.post('/', async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as CreateTeamBody
 
   try {
-    const tenantIds = claims.tenant_id ? [claims.tenant_id] : await callerTenantIds(sql, claims)
+    const tenantIds = await callerTenantIds(sql, claims)
     if (tenantIds.length !== 1) return c.json({ error: 'Not found' }, 404)
     const tenantId = tenantIds[0]
     if (!tenantId) return c.json({ error: 'Not found' }, 404)

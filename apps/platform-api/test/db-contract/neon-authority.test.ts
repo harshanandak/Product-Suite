@@ -69,8 +69,8 @@ describe('Neon authority conformance guards', () => {
     expect(applyMigrations).not.toHaveBeenCalled()
   })
 
-  it('requires both history variants to apply synthetic 0020 and finish at a 0020 NOOP floor', () => {
-    expect(variantMigrationContract('repaired-bootstrap')).toEqual({ baselineFloor: '0019', baselineCount: 20, declared: ['0020'], finalFloor: '0020' })
+  it('treats canonical 0020 as the repaired bootstrap floor and preserves the production suffix', () => {
+    expect(variantMigrationContract('repaired-bootstrap')).toEqual({ baselineFloor: '0020', baselineCount: 21, declared: [], finalFloor: '0020' })
     expect(variantMigrationContract('original-production')).toEqual({ baselineFloor: '0017', baselineCount: 18, declared: ['0018', '0019', '0020'], finalFloor: '0020' })
   })
 

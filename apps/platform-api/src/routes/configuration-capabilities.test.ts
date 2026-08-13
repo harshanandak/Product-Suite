@@ -128,6 +128,23 @@ describe('configuration mutation capabilities', () => {
   })
 
   it.each([
+    ['/api/teams', { name: 'Platform' }],
+    ['/api/projects', { name: 'Control plane' }],
+  ])('resolves the internal tenant from membership instead of trusting Clerk org_id for %s', async (path, body) => {
+    verifyToken.mockResolvedValue({ sub: 'clerk_user_1', org_id: 'clerk_org_external', exp: 9999999999 })
+    const { query } = installSql({ role: 'admin' })
+
+    const response = await app.request(path, {
+      method: 'POST', ...auth, body: JSON.stringify(body),
+    })
+
+    expect(response.status).toBe(201)
+    const parameters = (query.mock.calls[0] as unknown as [string, unknown[]] | undefined)?.[1] ?? []
+    expect(parameters).toContain('tenant_1')
+    expect(parameters).not.toContain('clerk_org_external')
+  })
+
+  it.each([
     ['viewer', 403],
     ['member', 200],
     ['admin', 200],

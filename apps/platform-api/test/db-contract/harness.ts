@@ -69,8 +69,8 @@ const CANONICAL_BOOTSTRAP_CODES = [
   'REPAIRED_BOOTSTRAP_UNPROVEN',
   'REPAIRED_BASELINE_VERIFY_UNPROVEN',
   'ORIGINAL_PRODUCTION_FLOOR_UNPROVEN',
-  'SYNTHETIC_0020_APPLY_UNPROVEN',
-  'SYNTHETIC_0020_NOOP_UNPROVEN',
+  'CANONICAL_SUFFIX_APPLY_UNPROVEN',
+  'CANONICAL_FLOOR_VERIFY_UNPROVEN',
   'DB_SESSION_UNPROVEN',
   'ROLE_PROVISION_BEGIN_FAILED',
   'ROLE_PROVISION_AUTHORITY_FAILED',
@@ -959,35 +959,14 @@ function appliedTags(evidence: CanonicalEvidence): string[] {
 }
 
 export function variantMigrationContract(variant: NeonHistoryVariant): {
-  baselineFloor: '0017' | '0018' | '0019'
-  baselineCount: 18 | 20
+  baselineFloor: '0017' | '0020'
+  baselineCount: 18 | 21
   declared: string[]
   finalFloor: '0020'
 } {
   return variant === 'repaired-bootstrap'
-    ? { baselineFloor: '0019', baselineCount: 20, declared: ['0020'], finalFloor: '0020' }
+    ? { baselineFloor: '0020', baselineCount: 21, declared: [], finalFloor: '0020' }
     : { baselineFloor: '0017', baselineCount: 18, declared: ['0018', '0019', '0020'], finalFloor: '0020' }
-}
-
-export function nextSyntheticMigrationTimestamp(
-  files: ReadonlyArray<Pick<CanonicalMigrationFile, 'timestamp'>>,
-): number {
-  const timestamps = files.map((file) => file.timestamp)
-  const latest = Math.max(...timestamps)
-  if (timestamps.length === 0 || !Number.isSafeInteger(latest) || latest < 0 || latest === Number.MAX_SAFE_INTEGER) {
-    conformanceFailure('CANONICAL_FILE_LOAD_UNPROVEN')
-  }
-  return latest + 1
-}
-
-export function effectiveTimestampFilesForVariant<T>(
-  variant: NeonHistoryVariant,
-  canonicalFiles: T[],
-  normalizeProduction: (files: T[]) => T[],
-): T[] {
-  return variant === 'original-production'
-    ? normalizeProduction(canonicalFiles)
-    : canonicalFiles
 }
 
 export function resolveDeclaredMigrationTags(
@@ -1057,38 +1036,26 @@ async function proveCanonicalVariant(connectionUri: string, variant: NeonHistory
       if (!baseline.ok || baseline.status !== 'NOOP') conformanceFailure('ORIGINAL_PRODUCTION_FLOOR_UNPROVEN')
     }
 
-    const effectiveTimestampFiles = effectiveTimestampFilesForVariant(
-      variant,
-      canonicalFiles,
-      migrationRunner.productionPreflightFiles,
-    )
-    const syntheticSql = 'SELECT 1;'
-    const synthetic: CanonicalMigrationFile = {
-      tag: '0020',
-      file: '0020_task8_synthetic.sql',
-      sql: syntheticSql,
-      hash: createHash('sha256').update(syntheticSql.replace(/\r\n?/g, '\n'), 'utf8').digest('hex'),
-      timestamp: nextSyntheticMigrationTimestamp(effectiveTimestampFiles),
+    if (contract.declared.length > 0) {
+      const declared = resolveDeclaredMigrationTags(canonicalFiles, contract.declared)
+      const applied = await canonicalBootstrapStep(
+        'CANONICAL_SUFFIX_APPLY_UNPROVEN',
+        () => migrationRunner.applyMigrations({
+          adapter,
+          applied: appliedTags(baseline),
+          files: canonicalFiles,
+          declared,
+          authority,
+          observedVariant: variant,
+        }),
+      )
+      if (!applied.ok || applied.status !== 'APPLIED') conformanceFailure('CANONICAL_SUFFIX_APPLY_UNPROVEN')
     }
-    const files = [...canonicalFiles, synthetic]
-    const declared = resolveDeclaredMigrationTags(files, contract.declared)
-    const applied = await canonicalBootstrapStep(
-      'SYNTHETIC_0020_APPLY_UNPROVEN',
-      () => migrationRunner.applyMigrations({
-        adapter,
-        applied: appliedTags(baseline),
-        files,
-        declared,
-        authority,
-        observedVariant: variant,
-      }),
-    )
-    if (!applied.ok || applied.status !== 'APPLIED') conformanceFailure('SYNTHETIC_0020_APPLY_UNPROVEN')
     const verified = await canonicalBootstrapStep(
-      'SYNTHETIC_0020_NOOP_UNPROVEN',
-      () => migrationRunner.verifyMigrations({ adapter, files, declared: [], expectedFloor: contract.finalFloor, authority, observedVariant: variant }),
+      'CANONICAL_FLOOR_VERIFY_UNPROVEN',
+      () => migrationRunner.verifyMigrations({ adapter, files: canonicalFiles, declared: [], expectedFloor: contract.finalFloor, authority, observedVariant: variant }),
     )
-    if (!verified.ok || verified.status !== 'NOOP') conformanceFailure('SYNTHETIC_0020_NOOP_UNPROVEN')
+    if (!verified.ok || verified.status !== 'NOOP') conformanceFailure('CANONICAL_FLOOR_VERIFY_UNPROVEN')
   })
 }
 
