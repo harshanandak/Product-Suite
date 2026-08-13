@@ -106,4 +106,22 @@ describe('/api/v1 command routes', () => {
       resourceVersion: 1,
     })
   })
+
+  it('maps the exact in-transaction CAS assertion to a version conflict', async () => {
+    const deps = dependencies()
+    deps.updateWorkItem = vi.fn(async () => {
+      throw Object.assign(new Error('invalid input syntax for type integer: "COMMAND_VERSION_CONFLICT"'), { code: '22P02' })
+    })
+    const update = { version: 1, command: 'work-item.update', idempotencyKey: 'key-cas', expectedVersion: 1, input: { workItemId: 'item-1', patch: { title: 'New' } } }
+    const previewResponse = await app(deps).request('/api/v1/commands/work-item.update/preview', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-workspace-id': 'tenant-1' }, body: JSON.stringify(update),
+    })
+    const preview = await previewResponse.json() as { previewHash: string }
+    const response = await app(deps).request('/api/v1/commands/work-item.update/execute', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-workspace-id': 'tenant-1' },
+      body: JSON.stringify({ ...update, previewHash: preview.previewHash }),
+    })
+    expect(response.status).toBe(409)
+    expect(await response.json()).toMatchObject({ error: { code: 'COMMAND_VERSION_CONFLICT', retryable: true } })
+  })
 })

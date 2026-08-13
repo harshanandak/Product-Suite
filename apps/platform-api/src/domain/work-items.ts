@@ -530,11 +530,11 @@ export async function updateWorkItem(
   let rows: WorkItemRow[]
   if (ctx.commandTransactionTail) {
     const assertUpdateQuery = sql`
-      select 1 / case when exists (
+      select case when exists (
         select 1 from work_items
         where id = ${id} and tenant_id = any(${tenantIds})
           and updated_at = ${commandWriteMarker}::timestamptz
-      ) then 1 else 0 end as command_write_applied
+      ) then 1 else cast('COMMAND_VERSION_CONFLICT' as integer) end as command_write_applied
     `
     const event = buildWrite(
       { table: 'activity_events', operation: 'insert', values: { work_item_id: id, kind: 'updated', summary: summarizeUpdate(patch) } },

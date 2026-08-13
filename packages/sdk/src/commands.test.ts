@@ -145,4 +145,13 @@ describe("command SDK client", () => {
 
     await expect(client.execute(request, preview.previewHash)).resolves.toEqual(versionedData);
   });
+
+  test("unwraps a transport-wrapped preview", async () => {
+    const client = createCommandClient({
+      transport: createTransport([{ data: preview }]),
+      workspaceId: "workspace-1",
+    });
+
+    await expect(client.preview(request)).resolves.toEqual(preview);
+  });
 });

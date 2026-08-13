@@ -16,6 +16,12 @@ function stableError(code: string, message: string, requestId: string, retryable
   return { error: { code, message, requestId, retryable } }
 }
 
+function isCommandVersionAssertion(cause: unknown): cause is Error {
+  return cause instanceof Error
+    && (cause as Error & { code?: string }).code === '22P02'
+    && cause.message.includes('COMMAND_VERSION_CONFLICT')
+}
+
 type RegistryFactory = (env: AuthedEnv['Bindings']) => CommandRegistryDependencies
 
 export function createCommandsRoutes(factory?: RegistryFactory) {
@@ -53,6 +59,9 @@ export function createCommandsRoutes(factory?: RegistryFactory) {
       }
       if (cause instanceof Error && cause.message === 'COMMAND_ENVELOPE_INVALID') {
         return c.json(stableError('COMMAND_ENVELOPE_INVALID', 'Invalid command envelope', requestId), 400)
+      }
+      if (isCommandVersionAssertion(cause)) {
+        return c.json(stableError('COMMAND_VERSION_CONFLICT', 'COMMAND_VERSION_CONFLICT', requestId, true), 409)
       }
       console.error('[commands] request failed', cause)
       return c.json(stableError('COMMAND_EXECUTION_FAILED', 'Command execution failed', requestId, true), 500)

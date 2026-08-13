@@ -29,6 +29,10 @@ describe('command registry DB dependencies', () => {
     const dependencies = commandRegistryDependencies(sql as never)
     await expect(dependencies.applyProposal({
       invokedCommand: 'proposal.apply',
+      replayInput: {
+        version: 1, command: 'proposal.apply', idempotencyKey: 'key-1',
+        input: { proposalId: 'proposal-1' }, previewHash: 'sha256:hash',
+      },
       command: 'work-item.update',
       tenantId: 'tenant-1',
       requestId: 'req-1',

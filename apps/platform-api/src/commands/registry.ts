@@ -40,6 +40,7 @@ export type RegistryResult = CommandResult
 
 export interface RegistryMutation {
   invokedCommand: CommandName
+  replayInput: CommandExecuteRequest
   command: 'work-item.create' | 'work-item.update'
   tenantId: string
   requestId: string
@@ -138,12 +139,14 @@ async function normalize(
   deps: CommandRegistryDependencies,
   ctx: RegistryContext,
   request: CommandRequest,
+  resolvedActor?: RegistryAuthority,
 ): Promise<RegistryMutation> {
-  const actor = await authority(deps, ctx)
+  const actor = resolvedActor ?? await authority(deps, ctx)
   const input = record(request.input)
   if (request.command === 'work-item.create') {
     return {
       invokedCommand: request.command,
+      replayInput: request as CommandExecuteRequest,
       command: request.command,
       tenantId: ctx.tenantId,
       requestId: ctx.requestId,
@@ -164,6 +167,7 @@ async function normalize(
     }
     return {
       invokedCommand: request.command,
+      replayInput: request as CommandExecuteRequest,
       command: request.command,
       tenantId: ctx.tenantId,
       requestId: ctx.requestId,
@@ -194,6 +198,7 @@ async function normalize(
   const { previewHash: _previewHash, ...requestWithoutPreview } = request as CommandExecuteRequest
   return {
     invokedCommand: request.command,
+    replayInput: request as CommandExecuteRequest,
     command: targetCommand as RegistryMutation['command'],
     tenantId: proposal.tenant_id,
     requestId: ctx.requestId,
@@ -232,12 +237,25 @@ export function createCommandRegistry(deps: CommandRegistryDependencies) {
       }
     },
     async execute(ctx: RegistryContext, request: CommandExecuteRequest) {
-      const mutation = await normalize(deps, ctx, request)
-      const replay = await deps.findReplay(mutation)
+      const actor = await authority(deps, ctx)
+      const replay = await deps.findReplay({
+        invokedCommand: request.command,
+        replayInput: request,
+        command: request.command === 'work-item.update' ? 'work-item.update' : 'work-item.create',
+        tenantId: ctx.tenantId,
+        requestId: ctx.requestId,
+        idempotencyKey: request.idempotencyKey,
+        ...(request.expectedVersion === undefined ? {} : { expectedVersion: request.expectedVersion }),
+        input: request.input,
+        actor: { type: 'human', id: actor.userId },
+        approval: { state: 'not_required' },
+        previewHash: request.previewHash,
+      })
       if (replay) {
         if (!replay.sameInput) throw new CommandRegistryError('COMMAND_IDEMPOTENCY_CONFLICT', 409)
         return replay.result
       }
+      const mutation = await normalize(deps, ctx, request, actor)
       if (request.previewHash !== mutation.previewHash) {
         throw new CommandRegistryError('COMMAND_PREVIEW_DRIFT', 409)
       }

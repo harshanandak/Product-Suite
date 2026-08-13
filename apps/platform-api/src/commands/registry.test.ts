@@ -105,6 +105,47 @@ describe('governed command registry', () => {
     )
   })
 
+  it('returns an update replay before checking mutable resource version', async () => {
+    const terminal = {
+      version: 1 as const, command: 'work-item.update' as const, requestId: 'original', idempotencyKey: 'key-1',
+      actor: { type: 'human' as const, id: 'user-1' }, capability: { required: 'edit' as const, granted: true },
+      approval: { state: 'not_required' as const }, retryable: false, previewHash: previewHash(base),
+      resourceVersion: 4, data: { id: 'item-1' },
+    }
+    const findReplay = vi.fn(async () => ({ sameInput: true, result: terminal }))
+    const loadWorkItem = vi.fn(async () => ({ id: 'item-1', tenant_id: 'tenant-1', version: 99 }))
+    const registry = createCommandRegistry(dependencies({ findReplay, loadWorkItem }))
+
+    await expect(registry.execute(
+      { claims: { provider: 'clerk', subject: 's' }, tenantId: 'tenant-1', requestId: 'retry' },
+      { ...base, previewHash: previewHash(base) },
+    )).resolves.toEqual(terminal)
+    expect(findReplay).toHaveBeenCalledOnce()
+    expect(loadWorkItem).not.toHaveBeenCalled()
+  })
+
+  it('returns a proposal replay after the stored proposal becomes terminal', async () => {
+    const request = { version: 1 as const, command: 'proposal.apply' as const, idempotencyKey: 'proposal-key', input: { proposalId: 'proposal-1' } }
+    const terminal = {
+      version: 1 as const, command: 'proposal.apply' as const, requestId: 'original', idempotencyKey: 'proposal-key',
+      actor: { type: 'human' as const, id: 'user-1' }, onBehalfOf: { type: 'agent' as const, id: 'run-1' },
+      capability: { required: 'edit' as const, granted: true }, approval: { state: 'approved' as const, source: 'stored_proposal' },
+      retryable: false, previewHash: 'sha256:original', resourceVersion: 1, data: { id: 'item-1' },
+    }
+    const findReplay = vi.fn(async () => ({ sameInput: true, result: terminal }))
+    const loadProposal = vi.fn(async () => ({
+      id: 'proposal-1', tenant_id: 'tenant-1', status: 'applied', target_type: 'work_item', operation: 'create',
+      target_id: null, target_version: null, target_snapshot: null, payload: {}, run_id: 'run-1',
+    }))
+    const registry = createCommandRegistry(dependencies({ findReplay, loadProposal }))
+
+    await expect(registry.execute(
+      { claims: { provider: 'clerk', subject: 's' }, tenantId: 'tenant-1', requestId: 'retry' },
+      { ...request, previewHash: 'sha256:original' },
+    )).resolves.toEqual(terminal)
+    expect(loadProposal).not.toHaveBeenCalled()
+  })
+
   it('derives proposal command, stored approval, snapshot and proposing-agent provenance server-side', async () => {
     const proposal = {
       id: 'proposal-1', tenant_id: 'tenant-1', status: 'accepted', target_type: 'work_item',

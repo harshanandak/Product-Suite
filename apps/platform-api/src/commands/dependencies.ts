@@ -16,14 +16,7 @@ function query(sql: Sql, text: string, params: unknown[]): unknown {
 }
 
 function requestHash(mutation: RegistryMutation): string {
-  return canonicalCommandRequestHash({
-    command: mutation.invokedCommand,
-    input: mutation.input,
-    expectedVersion: mutation.expectedVersion,
-    previewHash: mutation.previewHash,
-    approval: mutation.approval,
-    onBehalfOf: mutation.onBehalfOf,
-  })
+  return canonicalCommandRequestHash(mutation.replayInput)
 }
 
 function persistenceTail(sql: Sql, mutation: RegistryMutation, state: {
