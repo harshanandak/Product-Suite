@@ -85,6 +85,13 @@ export async function commitCommandTransaction(
   outcome: CommandTransactionOutcome,
 ): Promise<void> {
   if (domainQueries.length === 0) throw new Error('COMMAND_DOMAIN_WRITE_REQUIRED')
+  await sql.transaction([...domainQueries, ...buildCommandPersistenceQueries(sql, outcome)])
+}
+
+export function buildCommandPersistenceQueries(
+  sql: Pick<CommandSql, 'query'>,
+  outcome: CommandTransactionOutcome,
+): unknown[] {
   const idempotencyId = crypto.randomUUID()
   const auditId = crypto.randomUUID()
   const idempotency = sql.query(
@@ -130,5 +137,5 @@ export async function commitCommandTransaction(
       JSON.stringify(outcome.after),
     ],
   )
-  await sql.transaction([...domainQueries, idempotency, audit])
+  return [idempotency, audit]
 }

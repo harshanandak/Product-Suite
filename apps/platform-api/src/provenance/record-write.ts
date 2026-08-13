@@ -281,13 +281,14 @@ export async function recordWriteTx<Row = Record<string, unknown>>(
   sql: Sql,
   specs: WriteSpec[],
   actor: ActorContext,
+  tailQueries: readonly unknown[] = [],
 ): Promise<Row[]> {
   const queries = specs.map((spec) => {
     const { text, params } = buildWrite(spec, actor)
     return (sql as unknown as { query: (q: string, p: unknown[]) => unknown }).query(text, params)
   })
   const results = (await (sql as unknown as { transaction: (q: unknown[]) => Promise<Row[][]> }).transaction(
-    queries,
+    [...queries, ...tailQueries],
   )) as Row[][]
   // One output row per input spec, IN ORDER. Every spec uses `returning *`, so a
   // missing row is a real failure — dropping it (rather than throwing) would shift
