@@ -75,8 +75,10 @@ OWNS: `packages/contracts/src/**`, `apps/platform-api/src/commands/**`, and cont
 tests.
 
 What to implement: versioned preview/execute envelopes, stable error shape, request ID,
-actor/on-behalf-of, capability decision, idempotency key, expected version, preview
-hash, approval state, and retryability.
+server-derived actor and optional server-derived on-behalf-of provenance, capability
+decision, idempotency key, expected version, preview hash, approval state, and
+retryability. Reject body-derived tenant, actor, role, approval, delegation, and
+`onBehalfOf`.
 
 TDD steps:
 1. Add serialization and invalid-envelope tests including tenant/actor forgery.
@@ -89,12 +91,15 @@ Expected output: one canonical request/result/error contract for UI, agent, and 
 
 ### Task 5: Durable version, idempotency, and audit authority
 
-OWNS: `packages/db/src/**`, the next canonical migration, migration tests/manifests,
+OWNS: `packages/db/src/**`, canonical migration `0021`, migration tests/manifests,
 and command persistence tests.
 
 What to implement: real work-item version/CAS, command idempotency records bound to
 canonical request hashes, and append-only command audit metadata in the same
-transaction as the domain write.
+transaction as the domain write. Preserve and advance the exact `0018`/`0019`/`0020`
+topology, harness, evidence, and readiness contracts. Do not apply the migration to
+production and do not add compatibility or backfill logic because there is no
+production data.
 
 TDD steps:
 1. Add tests for duplicate same-input replay, duplicate different-input conflict,
@@ -114,16 +119,29 @@ adapters, and focused integration tests.
 What to implement: register work-item create/update and proposal apply; preview the
 same normalized operation execute uses; require matching preview hash for sensitive
 execution; call existing domain commands rather than raw duplicate SQL.
+`work-item.create` and `work-item.update` require server-derived `edit`, are
+non-sensitive for a directly authenticated human, and reject client delegation.
+Agent-proposed mutation is available only through `proposal.apply`, which derives its
+target command/capability and approval from the stored accepted/approved proposal,
+binds the stored snapshot/version/preview, and records the proposing agent as
+server-derived `onBehalfOf` provenance.
 
 TDD steps:
 1. Add happy path, duplicate retry, stale version, preview drift, denied capability,
-   cross-tenant, approval, and transaction rollback tests.
+   cross-tenant, stored approval, body-forgery/delegation rejection, idempotency
+   changed-input, and transaction rollback tests. Assert `404` cross-tenant, `403`
+   known insufficient capability, `409` stale/drift/changed-input, original terminal
+   result on same-key/same-input replay, and no partial write/audit/idempotency state.
 2. Capture missing route/registry RED.
 3. Implement `/api/v1/commands/:command/preview|execute` and adapters.
 4. Run focused integration, platform-api, DB, lint, and typecheck gates.
 5. Commit `feat(commands): add governed preview and execution`.
 
 Expected output: humans and accepted agent proposals share one transactional write path.
+
+CP1 excludes CP2 UI/E2E/activity timeline, generic CRUD/workflow engines,
+modules/marketplace/arbitrary execution, Cloudflare, Meeting delivery, and production
+migration execution.
 
 ### Task 7: SDK command client
 

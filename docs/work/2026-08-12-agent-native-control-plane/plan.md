@@ -15,8 +15,9 @@ Forge epic: `fb7233b1-e825-4713-8663-77c03dde2dde`.
   execution, realtime, and future infrastructure adapters stay private.
 - The public product surfaces are Resource, Command, Automation, and Module APIs.
 - Canonical membership roles are exactly `viewer`, `member`, `admin`, and `owner`.
-  There is no production data, no `org_admin` compatibility alias, and no migration
-  requirement. Missing, inactive, malformed, and unknown roles deny by default.
+  Canonical migration `0020_canonical_membership_roles` enforces that contract. There
+  is no production data and no `org_admin` compatibility alias or backfill design.
+  Missing, inactive, malformed, and unknown roles deny by default.
 - Capability semantics start with `read`, `edit`, and `configure`:
   - `viewer`: `read`
   - `member`: `read`, `edit`
@@ -122,7 +123,11 @@ Add `/api/v1` command preview/execute contracts for work-item create/update and
 proposal apply. Persist resource version/CAS, idempotency results, request/audit
 metadata, and preview hashes. Human UI and accepted agent proposals use the same
 command registry and domain write path. Add SDK methods and a stable error envelope.
-Do not add generic CRUD, a generic workflow engine, or arbitrary module execution.
+This PR owns canonical migration `0021` and must preserve and advance the exact
+`0018`/`0019`/`0020` topology, harness, evidence, and readiness contracts. It never
+applies a production migration. Because there is no production data, it adds no
+compatibility or backfill path. Do not add generic CRUD, a generic workflow engine,
+or arbitrary module execution.
 
 ### CP2 — Governed command UX
 
@@ -170,9 +175,25 @@ Every command request and persisted outcome carries:
 - preview hash for sensitive commands;
 - append-only audit event with before/after or compensating-command metadata.
 
+For CP1, `work-item.create` and `work-item.update` require the server-derived CP0
+`edit` capability. A directly authenticated human actor may execute them without a
+sensitive approval, and request bodies may not supply delegation or `onBehalfOf`.
+Agent-proposed mutations execute only through `proposal.apply`.
+
+`proposal.apply` derives its target command and capability from the stored proposal.
+The stored accepted/approved proposal is the server-side approval source. Execution
+binds the server-derived actor and tenant to the stored proposal snapshot, expected
+resource version, and preview hash, while recording the proposing agent as
+server-derived `onBehalfOf` provenance. Request bodies cannot supply tenant, actor,
+role, approval, or delegation, and the command surface exposes no arbitrary
+delegation mechanism.
+
 Duplicate retries return the original terminal result. The same idempotency key with a
 different request hash fails. Stale versions and preview drift fail with `409` before a
-write. Cross-tenant targets are indistinguishable from missing resources.
+write. Cross-tenant targets are indistinguishable from missing resources (`404`), and
+a known caller lacking the required capability receives `403`. The domain write,
+version compare-and-swap, idempotency terminal result, and audit event commit in one
+transaction or not at all. Existing domain commands remain the mutation authority.
 
 ## Performance contracts
 
@@ -245,6 +266,8 @@ write. Cross-tenant targets are indistinguishable from missing resources.
 - Marketplace, arbitrary third-party modules, dynamic code loading, or module-owned
   migrations.
 - Generic resource CRUD or a generic workflow/runtime engine.
+- CP2 command UI, E2E coverage, or the activity timeline in CP1.
+- Production migration execution or compatibility/backfill design.
 - Full mobile canvas or offline-first editing; mobile initially supports review and
   approval flows.
 - Legacy retirement before the explicit checkpoints above.
