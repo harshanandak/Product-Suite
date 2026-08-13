@@ -88,7 +88,7 @@ describe("migration evidence", () => {
       expectedFloor: "0017",
       expectedCount: 18,
       applied: Array.from({ length: 18 }, (_, index) => ({ tag: String(index).padStart(4, "0"), timestamp: index, hash })),
-      pending: [{ tag: "0018", hash }, { tag: "0019", hash }, { tag: "0020", hash }],
+      pending: [{ tag: "0018", hash }, { tag: "0019", hash }, { tag: "0020", hash }, { tag: "0021", hash }],
       loginIdentifier: "product_suite_neon_preflight_reader",
       grantContract: "product-suite-neon-preflight-reader-v1",
       grantContractSha256: hash,

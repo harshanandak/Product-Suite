@@ -41,6 +41,15 @@ describe('authored migration SQL firewall', () => {
     expect(migration).not.toMatch(/\bCREATE\s+SCHEMA\s+meeting\b/i)
   })
 
+  it('accepts 0021 while keeping its grants explicit and bounded', () => {
+    const migration = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'migrations', '0021_command_kernel.sql'), 'utf8')
+    expect(() => assertMigrationSqlSafe(migration)).not.toThrow()
+    expect(migration).not.toMatch(/GRANT\s+[^;]+ON\s+ALL\s+TABLES/i)
+    expect(migration).not.toMatch(/ALTER\s+DEFAULT\s+PRIVILEGES[^;]+\bGRANT\b/i)
+    expect(migration).toContain('product_suite_platform_runtime')
+    expect(migration).not.toContain('product_suite_meeting_runtime')
+  })
+
   it('keeps runtime grants bounded to the product-owned manifests', () => {
     const migration = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'migrations', '0019_neon_authority_reconciliation.sql'), 'utf8')
     expect(migration).not.toMatch(/GRANT\s+[^;]+ON\s+ALL\s+TABLES/i)

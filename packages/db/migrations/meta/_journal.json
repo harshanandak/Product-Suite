@@ -148,6 +148,13 @@
       "when": 1786531020892,
       "tag": "0020_canonical_membership_roles",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1786608000000,
+      "tag": "0021_command_kernel",
+      "breakpoints": true
     }
   ]
 }

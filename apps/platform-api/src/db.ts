@@ -3,8 +3,8 @@ import { createSql, type Sql } from '@product-suite/db'
 const RUNTIME_NEON_HOST = /^ep-([a-z0-9-]+?)(-pooler)?\.[a-z0-9-]+\.aws\.neon\.tech$/i
 export const CANONICAL_DATABASE = 'neondb'
 export const CANONICAL_SCHEMA = 'public'
-export const CANONICAL_REVISION = '0020_canonical_membership_roles'
-export const CANONICAL_REVISION_HASH = '9f95e0b979117bffa4ad4a0165d09072cf9d297e0794b1351525bc070e689484'
+export const CANONICAL_REVISION = '0021_command_kernel'
+export const CANONICAL_REVISION_HASH = '05237ecdc859c815f34e78c14bcc0764db96ea0e0b521dec7f9d56fe5cd98a8e'
 
 export interface RuntimeNeonUrl {
   provider: 'neon'

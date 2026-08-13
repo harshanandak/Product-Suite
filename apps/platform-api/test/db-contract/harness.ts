@@ -962,11 +962,11 @@ export function variantMigrationContract(variant: NeonHistoryVariant): {
   baselineFloor: '0017' | '0020'
   baselineCount: 18 | 21
   declared: string[]
-  finalFloor: '0020'
+  finalFloor: '0021'
 } {
   return variant === 'repaired-bootstrap'
-    ? { baselineFloor: '0020', baselineCount: 21, declared: [], finalFloor: '0020' }
-    : { baselineFloor: '0017', baselineCount: 18, declared: ['0018', '0019', '0020'], finalFloor: '0020' }
+    ? { baselineFloor: '0020', baselineCount: 21, declared: ['0021'], finalFloor: '0021' }
+    : { baselineFloor: '0017', baselineCount: 18, declared: ['0018', '0019', '0020', '0021'], finalFloor: '0021' }
 }
 
 export function resolveDeclaredMigrationTags(

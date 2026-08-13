@@ -80,10 +80,10 @@ jobs:
           bun run migrate:database -- bootstrap --environment fresh
           --history-variant repaired-bootstrap
           --expected-pending
-          0000_stale_jamie_braddock,0001_dear_the_enforcers,0002_polite_orphan,0003_tranquil_tattoo,0004_minor_lockheed,0005_rename_tasks_to_checks,0006_provenance_foundation,0007_proposals,0008_agent_transcript,0009_chat_threads,0010_memory_brain,0011_memory_source_proposal_uniq,0012_proposals_reflected_at,0013_knowledge_base,0014_work_item_applied_from_proposal_partial,0015_meeting_promotions,0016_memory_ownership_axis,0017_proposal_target_snapshot,0018_collaboration_fabric,0019_neon_authority_reconciliation,0020_canonical_membership_roles
+          0000_stale_jamie_braddock,0001_dear_the_enforcers,0002_polite_orphan,0003_tranquil_tattoo,0004_minor_lockheed,0005_rename_tasks_to_checks,0006_provenance_foundation,0007_proposals,0008_agent_transcript,0009_chat_threads,0010_memory_brain,0011_memory_source_proposal_uniq,0012_proposals_reflected_at,0013_knowledge_base,0014_work_item_applied_from_proposal_partial,0015_meeting_promotions,0016_memory_ownership_axis,0017_proposal_target_snapshot,0018_collaboration_fabric,0019_neon_authority_reconciliation,0020_canonical_membership_roles,0021_command_kernel
 
       - name: Verify canonical history without writes
-        run: bun run migrate:database -- verify --environment fresh --history-variant repaired-bootstrap --expected-floor 0020
+        run: bun run migrate:database -- verify --environment fresh --history-variant repaired-bootstrap --expected-floor 0021
 
       - name: Assert transient target smoke is wired and required
         shell: bash

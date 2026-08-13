@@ -336,9 +336,10 @@ function isProductionP0Allowed(environment, applied, declared) {
   if (environment !== "production") return true;
   const appliedLast = applied.length ? applied.at(-1).tag : null;
   const pending = declared.map((entry) => normalizeTag(entry));
-  return (appliedLast === "0017" && pending.join(",") === "0018,0019,0020")
-    || (appliedLast === "0018" && pending.join(",") === "0019,0020")
-    || (appliedLast === "0019" && pending.join(",") === "0020");
+  return (appliedLast === "0017" && pending.join(",") === "0018,0019,0020,0021")
+    || (appliedLast === "0018" && pending.join(",") === "0019,0020,0021")
+    || (appliedLast === "0019" && pending.join(",") === "0020,0021")
+    || (appliedLast === "0020" && pending.join(",") === "0021");
 }
 
 function resolvePlanVariant({ authority, observedVariant, hashes, history }) {
@@ -717,7 +718,7 @@ export async function verifyProductionPreflight({ adapter, files = loadMigration
       history: { manifest: productionFiles.manifest, journal: productionFiles.journal },
     });
     if (!plan.ok) return plan;
-    if (plan.pending.join(",") !== "0018,0019,0020") return fail("PREFLIGHT_PENDING_SUFFIX_MISMATCH");
+    if (plan.pending.join(",") !== "0018,0019,0020,0021") return fail("PREFLIGHT_PENDING_SUFFIX_MISMATCH");
     const evidence = createMigrationEvidence({
       schemaVersion: "neon-production-preflight-evidence.v1",
       operation: "verify", status: "PREFLIGHT_READY", reasonCodes: ["PREFLIGHT_READY"],

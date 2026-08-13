@@ -457,6 +457,7 @@ export const workItems = pgTable(
     // proposal claim and the write can't double-create — it finds the existing row.
     // Null for human-created items and for updates (updates use target_version).
     appliedFromProposalId: uuid('applied_from_proposal_id'),
+    version: integer('version').notNull().default(1),
     ...provenance,
     ...timestamps,
   },
@@ -527,6 +528,60 @@ export const activityEvents = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({ byWorkItem: index('activity_events_work_item_idx').on(t.workItemId) }),
+)
+
+export const commandIdempotency = pgTable(
+  'command_idempotency',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: text('tenant_id').notNull(),
+    actorType: actorTypeEnum('actor_type').notNull(),
+    actorId: text('actor_id').notNull(),
+    command: text('command').notNull(),
+    idempotencyKey: text('idempotency_key').notNull(),
+    requestHash: text('request_hash').notNull(),
+    requestId: text('request_id').notNull(),
+    response: jsonb('response').notNull(),
+    resourceVersion: integer('resource_version').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    scopeUniq: uniqueIndex('command_idempotency_scope_uniq').on(
+      t.tenantId,
+      t.actorType,
+      t.actorId,
+      t.command,
+      t.idempotencyKey,
+    ),
+    byRequest: uniqueIndex('command_idempotency_tenant_request_uniq').on(t.tenantId, t.requestId),
+  }),
+)
+
+export const commandAuditEvents = pgTable(
+  'command_audit_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: text('tenant_id').notNull(),
+    idempotencyId: uuid('idempotency_id')
+      .notNull()
+      .references(() => commandIdempotency.id, { onDelete: 'restrict' }),
+    requestId: text('request_id').notNull(),
+    command: text('command').notNull(),
+    actorType: actorTypeEnum('actor_type').notNull(),
+    actorId: text('actor_id').notNull(),
+    onBehalfOf: text('on_behalf_of'),
+    capability: text('capability').notNull(),
+    approval: jsonb('approval').notNull(),
+    targetType: text('target_type').notNull(),
+    targetId: uuid('target_id'),
+    before: jsonb('before'),
+    after: jsonb('after').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    byTenant: index('command_audit_events_tenant_created_idx').on(t.tenantId, t.createdAt),
+    requestUniq: uniqueIndex('command_audit_events_tenant_request_uniq').on(t.tenantId, t.requestId),
+  }),
 )
 
 // Proposal lifecycle (see docs/design/2026-07-12-proposals-queue-design.md +
