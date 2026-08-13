@@ -480,6 +480,30 @@ describe('updateWorkItem', () => {
       title: 'After', source: 'agent', actor_type: 'agent', actor_id: 'run_1', on_behalf_of: 'user_1', run_id: 'run_1', version: 2,
     }) }))
   })
+
+  it('passes the exact server-stamped create row to command audit tails', async () => {
+    const sql = vi.fn()
+    sql.mockResolvedValueOnce([{ n: 1 }]).mockResolvedValueOnce([{ n: 1 }])
+    const query = vi.fn((text: string) => ({ text }))
+    const transaction = vi.fn(async () => [[{ ...WI_ROW, actor_type: 'agent', actor_id: 'run_1', on_behalf_of: 'user_1', run_id: 'run_1', version: 1 }], [{}], [{}]])
+    Object.assign(sql, { query, transaction })
+    const tail = vi.fn(() => [{ ledger: true }])
+
+    await createWorkItem(sql as unknown as Sql, {
+      tenantId: 't_1',
+      actor: { actorType: 'agent', actorId: 'run_1', onBehalfOf: 'user_1', runId: 'run_1' },
+      commandTransactionTail: tail,
+    }, { title: 'A', team_id: 'team_1', status_id: 'status_1', source: 'agent' })
+
+    expect(tail).toHaveBeenCalledWith(expect.objectContaining({ after: expect.objectContaining({
+      actor_type: 'agent', actor_id: 'run_1', on_behalf_of: 'user_1', run_id: 'run_1',
+      created_at: expect.any(String), updated_at: expect.any(String), source: 'agent', version: 1,
+    }) }))
+    const tailCalls = tail.mock.calls as unknown as Array<[{ after: Record<string, unknown> }]>
+    const after = tailCalls[0]?.[0].after
+    expect(insertParam(query, 'created_at')).toBe(after?.created_at)
+    expect(insertParam(query, 'updated_at')).toBe(after?.updated_at)
+  })
   it('places a write-marker assertion before dependent command transaction writes', async () => {
     const sql = vi.fn()
     sql.mockResolvedValueOnce([WI_ROW])

@@ -15,6 +15,14 @@ function query(sql: Sql, text: string, params: unknown[]): unknown {
   return (sql as unknown as { query: (queryText: string, queryParams: unknown[]) => unknown }).query(text, params)
 }
 
+async function trustedProposalSource(sql: Sql, proposalId: string, tenantId: string): Promise<'agent' | 'meeting'> {
+  const rows = await (sql as unknown as { query: (text: string, params: unknown[]) => Promise<unknown[]> }).query(
+    'select id from meeting_promotions where proposal_id = $1 and tenant_id = $2 limit 1',
+    [proposalId, tenantId],
+  )
+  return rows.length > 0 ? 'meeting' : 'agent'
+}
+
 function requestHash(mutation: RegistryMutation): string {
   return canonicalCommandRequestHash(mutation.replayInput)
 }
@@ -88,7 +96,7 @@ export function commandRegistryDependencies(sql: Sql): CommandRegistryDependenci
       return rows[0] ?? null
     },
     async createWorkItem(mutation) {
-      const input = mutation.input
+      const { source: _clientSource, ...input } = mutation.input
       const row = await createWorkItem(
         sql,
         {
@@ -147,6 +155,7 @@ export function commandRegistryDependencies(sql: Sql): CommandRegistryDependenci
       const tail = (state: CommandTransactionState) =>
         persistenceTail(sql, mutation, state, [flip(state)])
       if (mutation.command === 'work-item.create') {
+        const source = await trustedProposalSource(sql, proposalId, mutation.tenantId)
         const row = await createWorkItem(
           sql,
           {
@@ -160,7 +169,7 @@ export function commandRegistryDependencies(sql: Sql): CommandRegistryDependenci
             appliedFromProposalId: proposalId,
             commandTransactionTail: tail,
           },
-          mutation.input,
+          { ...mutation.input, source },
         )
         return { id: row.id, version: row.version }
       }

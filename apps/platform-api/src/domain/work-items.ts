@@ -232,9 +232,11 @@ export async function createWorkItem(
   }
 
   const actor = await resolveActor(ctx.actor)
+  const provenance = actorAssignments(actor)
 
   const workItemId = ctx.workItemId ?? crypto.randomUUID()
   const title = input.title ?? 'Untitled work item'
+  const createdAt = new Date().toISOString()
   // Idempotency for the proposal-apply path (design §14): when this create is
   // driven by an accepted proposal, stamp `applied_from_proposal_id`. A UNIQUE
   // (non-null) index guarantees a re-drive after a crash between the proposal
@@ -260,6 +262,8 @@ export async function createWorkItem(
     assignee_id: input.assignee_id ?? null,
     due_date: input.due_date ?? null,
     archived: input.archived ?? false,
+    created_at: createdAt,
+    updated_at: createdAt,
   }
   if (ctx.appliedFromProposalId != null) {
     workItemValues.applied_from_proposal_id = ctx.appliedFromProposalId
@@ -271,7 +275,15 @@ export async function createWorkItem(
       resourceId: workItemId,
       resourceVersion: 1,
       before: null,
-      after: { ...workItemValues, id: workItemId, version: 1 },
+      after: {
+        ...workItemValues,
+        id: workItemId,
+        version: 1,
+        actor_type: provenance.actorType,
+        actor_id: provenance.actorId,
+        on_behalf_of: provenance.onBehalfOf,
+        run_id: provenance.runId,
+      },
     }) ?? []
     ;[created] = await recordWriteTx<WorkItemRow>(
       sql,

@@ -108,6 +108,8 @@ const WRITE_TABLES: Record<
       'due_date',
       'archived',
       'applied_from_proposal_id',
+      'created_at',
+      'updated_at',
     ],
   },
   activity_events: {
