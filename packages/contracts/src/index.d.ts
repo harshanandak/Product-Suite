@@ -834,6 +834,8 @@ export interface WorkItemProvenance {
  */
 export interface WorkItem {
   readonly id: string;
+  /** Optimistic concurrency token required by governed update commands. */
+  readonly version: number;
   title: string;
   /** Free-form brief / description (plain text); absent or `""` = none. Editable. */
   description?: string;

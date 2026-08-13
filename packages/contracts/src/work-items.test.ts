@@ -182,6 +182,14 @@ describe("@product-suite/contracts work-items core — drift guard", () => {
     }
   });
 
+  test("WorkItem exposes the read-only optimistic concurrency version", () => {
+    expect(dtsText).toMatch(/^\s*readonly version: number;$/m);
+    expect(workItemsCore.objects.WorkItem.fields.version).toEqual({
+      type: "number",
+      readonly: true,
+    });
+  });
+
   test.each(
     Object.keys(workItemsCore.objects) as Array<keyof typeof workItemsCore.objects>,
   )("%s: JSON field set equals the .d.ts interface field set", (name) => {

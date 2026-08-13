@@ -205,6 +205,9 @@ export async function approveProposalForCommand(
        status = case when $4::jsonb is null then 'accepted'::proposal_status else 'accepted_with_edits'::proposal_status end,
        decided_by = $3, decided_at = now(), edited_payload = $4::jsonb, updated_at = now()
      where id = $1 and tenant_id = $2 and status = 'pending'
+       and target_type = 'work_item'
+       and operation in ('create', 'update')
+       and run_id is not null
      returning *`,
     [input.proposalId, input.tenantId, input.approverUserId, input.editedPayload ? JSON.stringify(input.editedPayload) : null],
   )

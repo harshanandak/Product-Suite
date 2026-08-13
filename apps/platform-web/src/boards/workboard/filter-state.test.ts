@@ -26,6 +26,7 @@ import {
 function rowOf(overrides: Partial<WorkItemRow> = {}): WorkItemRow {
   return {
     id: "wi_1",
+    version: 1,
     title: "Sample item",
     phase: "plan",
     type: "feature",

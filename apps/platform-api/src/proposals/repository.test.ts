@@ -16,6 +16,20 @@ describe('approveProposalForCommand', () => {
     expect(text).not.toContain("status = 'applied'")
     expect(params).toEqual(['p1', 't_1', 'user-1', null])
   })
+
+  it('atomically limits command approval to executable work-item proposals with a run', async () => {
+    const query = vi.fn(async () => [])
+    const sql = { query } as unknown as Sql
+
+    await expect(approveProposalForCommand(sql, {
+      tenantId: 't_1', approverUserId: 'user-1', proposalId: 'p1',
+    })).resolves.toBeNull()
+
+    const [text] = query.mock.calls[0] as unknown as [string, unknown[]]
+    expect(text).toMatch(/target_type = 'work_item'/)
+    expect(text).toMatch(/operation in \('create', 'update'\)/)
+    expect(text).toMatch(/run_id is not null/)
+  })
 })
 
 describe('listPending', () => {

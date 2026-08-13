@@ -284,6 +284,7 @@ export function createMockWorkItemRepository(
       const now = new Date().toISOString();
       const created: WorkItem = {
         id: nextId(),
+        version: 1,
         title: input.title ?? "Untitled work item",
         description: input.description ?? "",
         phase: input.phase ?? "plan",
@@ -429,6 +430,7 @@ export function createMockWorkItemRepository(
       const updated: WorkItem = {
         ...workItems[index],
         ...patch,
+        version: workItems[index].version + 1,
         // Copy any incoming tags so the store never aliases the caller's array.
         ...(patch.tags ? { tags: [...patch.tags] } : {}),
         // depth is derived, never patched directly: keep it consistent with a

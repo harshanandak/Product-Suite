@@ -16,6 +16,7 @@ const FUTURE = "2026-07-10T00:00:00.000Z";
 function workItem(overrides: Partial<WorkItem> = {}): WorkItem {
   return {
     id: "wi_test",
+    version: 1,
     title: "Test item",
     phase: "execute",
     type: "feature",
