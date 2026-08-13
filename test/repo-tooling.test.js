@@ -522,6 +522,8 @@ describe("repo tooling", () => {
     );
     expect(meetingApiWorkflow).toContain('--health-cmd "pg_isready -U postgres -d meeting_agent"');
     expect(meetingApiWorkflow).toContain("Run backend migrations");
+    expect(meetingApiWorkflow).toContain("0020_canonical_membership_roles");
+    expect(meetingApiWorkflow).toContain("--expected-floor 0020");
     expect(meetingApiWorkflow).toContain("Run backend tests");
     expect(meetingApiWorkflow).toContain("python -m pytest apps/meeting-api/tests/backend -q");
   });
@@ -641,6 +643,8 @@ describe("repo tooling", () => {
     const workflow = Bun.YAML.parse(platformApiDeployWorkflow);
     const checkout = workflow.jobs.preflight.steps.find((step) => step.name === "Checkout");
     expect(checkout.with["fetch-depth"]).toBe(0);
+    expect(platformApiDeployWorkflow).toContain("--expected-pending 0018,0019,0020");
+    expect(platformApiDeployWorkflow).toContain("--expected-floor 0020");
   });
 
   test("db-contract reports every pull request and preserves the stable context", () => {
@@ -852,7 +856,8 @@ describe("repo tooling", () => {
     }
     expect(meetingSetupSteps[0].run).toBe("node scripts/provision-database-roles.mjs");
     expect(meetingSetupSteps[1].run).toContain("node scripts/migrate-database.mjs bootstrap --environment fresh");
-    expect(meetingSetupSteps[2].run).toBe("node scripts/migrate-database.mjs verify --environment fresh --history-variant repaired-bootstrap --expected-floor 0019");
+    expect(meetingSetupSteps[1].run).toContain("0020_canonical_membership_roles");
+    expect(meetingSetupSteps[2].run).toBe("node scripts/migrate-database.mjs verify --environment fresh --history-variant repaired-bootstrap --expected-floor 0020");
     expect(meetingSetupSteps[3].run).toContain('test "$MEETING_TARGET_SMOKE_DATABASE_URL" = "$DATABASE_URL"');
     const cheapRun = jobs["cheap-gates"].steps.find((step) => step.name === "Run selected cheap gates sequentially");
     expect(cheapRun.env.SOURCE_TEST_BASE_SHA).toBe("${{ github.event.pull_request.base.sha || github.event.before }}");

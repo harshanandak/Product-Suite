@@ -62,9 +62,9 @@ describe('runtime Neon authority and readiness', () => {
   it('returns opaque readiness only when the canonical floor is present', async () => {
     const ready = await databaseReadiness(
       { DATABASE_URL: 'postgresql://runtime:secret@ep-cool-fire-123456-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require' },
-      async () => ({ rows: [{ hash: '085f11d79d41b4ae973341d8ecb931eb38da15c9db1eca410a6d53b61e0b7d85' }] }),
+      async () => ({ rows: [{ hash: CANONICAL_REVISION_HASH }] }),
     )
-    expect(ready).toEqual({ ok: true, provider: 'neon', schema: 'public', revision: '0019_neon_authority_reconciliation' })
+    expect(ready).toEqual({ ok: true, provider: 'neon', schema: 'public', revision: '0020_canonical_membership_roles' })
 
     const notReady = await databaseReadiness(
       { DATABASE_URL: 'postgresql://runtime:secret@ep-cool-fire-123456-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require' },
@@ -76,7 +76,7 @@ describe('runtime Neon authority and readiness', () => {
       { DATABASE_URL: 'postgresql://runtime:secret@ep-cool-fire-123456-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require' },
       async () => ({ rows: [
         { hash: 'later-migration-hash' },
-        { hash: '085f11d79d41b4ae973341d8ecb931eb38da15c9db1eca410a6d53b61e0b7d85' },
+        { hash: CANONICAL_REVISION_HASH },
       ] }),
     )
     expect(laterRevision.ok).toBe(true)
@@ -96,7 +96,7 @@ describe('runtime Neon authority and readiness', () => {
       ok: true,
       provider: 'neon',
       schema: 'public',
-      revision: '0019_neon_authority_reconciliation',
+      revision: '0020_canonical_membership_roles',
     })
     expect(sql).toHaveBeenCalledOnce()
   })

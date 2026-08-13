@@ -203,12 +203,12 @@ jobs:
       - name: Apply the exact P0 migration suffix against the shared DB
         env:
           MIGRATION_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
-        run: bun run migrate:database -- apply --environment production --history-variant original-production --expected-pending 0018,0019
+        run: bun run migrate:database -- apply --environment production --history-variant original-production --expected-pending 0018,0019,0020
 
       - name: Verify the production floor without writes
         env:
           MIGRATION_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
-        run: bun run migrate:database -- verify --environment production --history-variant original-production --expected-floor 0019
+        run: bun run migrate:database -- verify --environment production --history-variant original-production --expected-floor 0020
 
   deploy:
     needs: [migrate]
