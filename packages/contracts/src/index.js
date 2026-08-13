@@ -16,6 +16,15 @@ export {
 } from "./auth.js";
 export { identityScopeContract } from "./identity.js";
 export {
+  COMMAND_API_VERSION,
+  COMMAND_NAMES,
+  COMMAND_ERROR_CODES,
+  parseCommandPreviewRequest,
+  parseCommandExecuteRequest,
+  parseCommandResult,
+  parseStableCommandError,
+} from "./commands.js";
+export {
   MEMBERSHIP_ROLE_VALUES,
   isMembershipRole,
   parseMembershipRole,
