@@ -17,6 +17,7 @@ const ROW = {
   created_at: '2026-07-01T00:00:00.000Z',
   updated_at: '2026-07-02T00:00:00.000Z',
 }
+const ADMIN_MEMBERSHIP = { user_id: 'u_1', tenant_id: 't_1', role: 'admin', status: 'active' }
 
 const auth = {
   headers: { Authorization: 'Bearer token', 'Content-Type': 'application/json' },
@@ -96,9 +97,8 @@ describe('POST /api/statuses', () => {
   it('creates a status on a caller-owned team and returns 201', async () => {
     const sql = vi.fn()
     sql
-      .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
-      .mockResolvedValueOnce([{ n: 1 }]) // team ownership check (owned)
-      .mockResolvedValueOnce([{ user_id: 'u_1' }]) // callerUserId
+      .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // scoped team lookup
+      .mockResolvedValueOnce([ADMIN_MEMBERSHIP]) // capability context
     const sqlQuery = vi.fn().mockResolvedValueOnce([ROW]) // insert ... returning (recordWrite)
     ;(sql as unknown as { query: typeof sqlQuery }).query = sqlQuery
     createSql.mockReturnValue(sql)
@@ -111,7 +111,7 @@ describe('POST /api/statuses', () => {
     expect(res.status).toBe(201)
     expect(((await res.json()) as { id: string }).id).toBe('status_1')
     // The team was verified against the caller's resolved tenants, not trusted from the body.
-    const teamCheckParams = sql.mock.calls[1]?.slice(1) ?? []
+    const teamCheckParams = sql.mock.calls[0]?.slice(1) ?? []
     expect(teamCheckParams).toContain('team_1')
   })
 
@@ -125,23 +125,19 @@ describe('POST /api/statuses', () => {
     })
     expect(res.status).toBe(400)
     expect(await res.json()).toEqual({ error: 'Invalid category' })
-    // Rejected before any team lookup — only the tenant lookup ran.
-    expect(sql).toHaveBeenCalledTimes(1)
+    expect(sql).not.toHaveBeenCalled()
   })
 
-  it('returns 400 for a team outside the caller’s orgs (unknown team)', async () => {
-    const sql = vi.fn()
-    sql
-      .mockResolvedValueOnce([{ tenant_id: 't_1' }]) // callerTenantIds
-      .mockResolvedValueOnce([]) // team check: not the caller's -> unknown
+  it('returns 404 for a team outside the caller’s orgs', async () => {
+    const sql = vi.fn().mockResolvedValueOnce([])
     createSql.mockReturnValue(sql)
     const res = await app.request('/api/statuses', {
       method: 'POST',
       ...auth,
       body: JSON.stringify({ team_id: 'team_other', name: 'In Progress', category: 'started' }),
     })
-    expect(res.status).toBe(400)
-    expect(await res.json()).toEqual({ error: 'Unknown team' })
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({ error: 'Not found' })
   })
 
   it('returns 400 when name is missing (no insert)', async () => {
@@ -154,10 +150,10 @@ describe('POST /api/statuses', () => {
     })
     expect(res.status).toBe(400)
     expect(await res.json()).toEqual({ error: 'name is required' })
-    expect(sql).toHaveBeenCalledTimes(1)
+    expect(sql).not.toHaveBeenCalled()
   })
 
-  it('returns 403 when the caller is in no org', async () => {
+  it('returns 404 when the team is not visible to the caller', async () => {
     const sql = vi.fn().mockResolvedValueOnce([]) // callerTenantIds -> []
     createSql.mockReturnValue(sql)
     const res = await app.request('/api/statuses', {
@@ -165,6 +161,6 @@ describe('POST /api/statuses', () => {
       ...auth,
       body: JSON.stringify({ team_id: 'team_1', name: 'In Progress', category: 'started' }),
     })
-    expect(res.status).toBe(403)
+    expect(res.status).toBe(404)
   })
 })

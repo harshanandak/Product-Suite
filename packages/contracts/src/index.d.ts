@@ -191,6 +191,11 @@ export interface AuthClaims {
   provider_claims?: Record<string, unknown>;
 }
 
+export type MembershipRole = "viewer" | "member" | "admin" | "owner";
+export const MEMBERSHIP_ROLE_VALUES: readonly MembershipRole[];
+export function isMembershipRole(value: unknown): value is MembershipRole;
+export function parseMembershipRole(value: unknown): MembershipRole;
+
 export type AuthClaimsValidationResult =
   | {
       ok: true;

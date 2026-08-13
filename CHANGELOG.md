@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Security
+- Canonical tenant capability context now derives viewer/member/admin/owner authority from active database memberships and guards team, status, and project writes with fail-closed 404/403 behavior (PR #176, Forge issue `af872dc9-3c53-4f9d-9fc0-3e0bbdf6889f`)
 - GitHub Actions dependency installs for DB Contract and Platform Web now disable package lifecycle scripts while retaining frozen-lockfile enforcement (PR #171, Forge issue `808fbffa-8923-4083-9e5e-407b5b855454`)
 
 ### Added

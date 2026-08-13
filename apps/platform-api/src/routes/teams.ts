@@ -2,7 +2,8 @@ import { Hono } from 'hono'
 
 import type { Team } from '@product-suite/contracts'
 
-import { callerTenantIds, callerUserId } from '../auth/tenant-scope'
+import { authorizeCapability } from '../auth/capabilities'
+import { callerTenantIds } from '../auth/tenant-scope'
 import { sqlFrom } from '../db'
 import type { AuthedEnv } from '../middleware/clerk-auth'
 import { recordWrite } from '../provenance/record-write'
@@ -68,10 +69,9 @@ teamsRoutes.get('/', async (c) => {
 })
 
 /**
- * Create a team in the caller's org. The target org is the caller's single active
- * tenant — unambiguous now that org = workspace. Rejects when the caller is in no
- * org (403) or in several (400, ambiguous), or when `name` is missing (400). The
- * insert is tenant-anchored, so a team can never be created in another org.
+ * Create a team in the caller's org. A verified Clerk org claim may select the
+ * requested tenant, but database membership remains the authority. Missing or
+ * ambiguous scope is 404; malformed team input is 400.
  */
 teamsRoutes.post('/', async (c) => {
   const claims = c.get('claims')
@@ -80,35 +80,27 @@ teamsRoutes.post('/', async (c) => {
 
   try {
     const tenantIds = await callerTenantIds(sql, claims)
-    if (tenantIds.length > 1) {
-      return c.json({ error: 'Ambiguous organization' }, 400)
-    }
+    if (tenantIds.length !== 1) return c.json({ error: 'Not found' }, 404)
     const tenantId = tenantIds[0]
-    if (!tenantId) {
-      return c.json({ error: 'No active organization' }, 403)
-    }
+    if (!tenantId) return c.json({ error: 'Not found' }, 404)
 
     const name = body.name?.trim()
     if (!name) {
       return c.json({ error: 'name is required' }, 400)
     }
 
-    // The human actor for provenance. Any caller who passed tenant scoping above
-    // has a resolvable user id (same `user_auth_identities` row); a null here is a
-    // server-side integrity anomaly, not a client error.
-    const actorId = await callerUserId(sql, claims)
-    if (!actorId) {
-      console.error('[teams] create: tenant resolved but no user identity for subject')
-      return c.json({ error: 'Failed to create team' }, 500)
+    const authorization = await authorizeCapability(sql, claims, tenantId, 'configure')
+    if (!authorization.ok) {
+      return c.json({ error: authorization.reason === 'forbidden' ? 'Forbidden' : 'Not found' }, authorization.status)
     }
 
-    // Provenance is stamped by recordWrite from the server-derived actor; only the
-    // allowlisted `tenant_id`/`name` are passed, and `actor_*` can never be
+    // Provenance is stamped by recordWrite from the authorized database context;
+    // only the allowlisted `tenant_id`/`name` are passed, and `actor_*` can never be
     // supplied by the caller (the body is read field-by-field, never spread).
     const created = await recordWrite<TeamRow>(
       sql,
       { table: 'teams', operation: 'insert', values: { tenant_id: tenantId, name } },
-      { actorType: 'human', actorId },
+      { actorType: 'human', actorId: authorization.context.userId },
     )
     return c.json(toTeam(created), 201)
   } catch (cause) {

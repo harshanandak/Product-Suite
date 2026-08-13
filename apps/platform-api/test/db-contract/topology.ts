@@ -105,7 +105,7 @@ const REAL_ASSERTIONS: readonly TopologyEntry[] = [
 const CONTROL_PLANE_ASSERTIONS: readonly TopologyEntry[] = [
   controlPlane('neon-authority', 'neon-authority:1', 'provisions canonical runtime roles before applying per-test migrations'),
   controlPlane('neon-authority', 'neon-authority:2', 'fails closed before migrations when runtime role provisioning fails'),
-  controlPlane('neon-authority', 'neon-authority:3', 'requires both history variants to apply synthetic 0020 and finish at a 0020 NOOP floor'),
+  controlPlane('neon-authority', 'neon-authority:3', 'treats canonical 0020 as the repaired bootstrap floor and preserves the production suffix'),
   controlPlane('neon-authority', 'neon-authority:4', 'accepts only an empty test-only root with the repaired variant'),
   controlPlane('neon-authority', 'neon-authority:5', 'rejects production project id without exposing identifiers'),
   controlPlane('neon-authority', 'neon-authority:6', 'rejects production child claimed empty without exposing identifiers'),

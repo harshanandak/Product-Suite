@@ -2,7 +2,8 @@ import { Hono } from 'hono'
 
 import { PROJECT_STATUS_VALUES, type Project, type ProjectStatus } from '@product-suite/contracts'
 
-import { callerTenantIds, callerUserId } from '../auth/tenant-scope'
+import { authorizeCapability } from '../auth/capabilities'
+import { callerTenantIds } from '../auth/tenant-scope'
 import { sqlFrom } from '../db'
 import type { AuthedEnv } from '../middleware/clerk-auth'
 import { actorAssignments, recordWrite } from '../provenance/record-write'
@@ -17,6 +18,10 @@ interface ProjectRow {
   target_date: string | Date | null
   created_at: string | Date
   updated_at: string | Date
+}
+
+interface ScopedProjectRow extends ProjectRow {
+  tenant_id: string
 }
 
 function toProject(row: ProjectRow): Project {
@@ -146,10 +151,9 @@ projectsRoutes.get('/', async (c) => {
 })
 
 /**
- * Create a project in the caller's org. The target org is the caller's single
- * active tenant — unambiguous now that org = workspace. Rejects when the caller
- * is in no org (403) or in several (400, ambiguous), when `name` is missing
- * (400), or when a supplied `status` is not a known {@link ProjectStatus} (400).
+ * Create a project in the caller's org. A verified Clerk org claim may select
+ * the requested tenant, but database membership remains the authority. Missing
+ * or ambiguous scope is 404; malformed project input is 400.
  * `status` defaults to `backlog`. The insert is tenant-anchored, so a project can
  * never be created in another org. `lead_id` mirrors work-item `assignee_id`
  * rigor — stored as given (the DB FK to users(id) is the backstop), not validated
@@ -162,13 +166,9 @@ projectsRoutes.post('/', async (c) => {
 
   try {
     const tenantIds = await callerTenantIds(sql, claims)
-    if (tenantIds.length > 1) {
-      return c.json({ error: 'Ambiguous organization' }, 400)
-    }
+    if (tenantIds.length !== 1) return c.json({ error: 'Not found' }, 404)
     const tenantId = tenantIds[0]
-    if (!tenantId) {
-      return c.json({ error: 'No active organization' }, 403)
-    }
+    if (!tenantId) return c.json({ error: 'Not found' }, 404)
 
     const name = body.name?.trim()
     if (!name) {
@@ -181,12 +181,12 @@ projectsRoutes.post('/', async (c) => {
     const status: ProjectStatus = body.status ?? 'backlog'
     const kind = body.kind?.trim() || 'general'
 
-    // The human actor for provenance (resolves for any caller past tenant scoping).
-    const actorId = await callerUserId(sql, claims)
-    if (!actorId) {
-      console.error('[projects] create: tenant resolved but no user identity for subject')
-      return c.json({ error: 'Failed to create project' }, 500)
+    const authorization = await authorizeCapability(sql, claims, tenantId, 'edit')
+    if (!authorization.ok) {
+      return c.json({ error: authorization.reason === 'forbidden' ? 'Forbidden' : 'Not found' }, authorization.status)
     }
+
+    // The human actor comes from the authorized database context.
     const created = await recordWrite<ProjectRow>(
       sql,
       {
@@ -201,7 +201,7 @@ projectsRoutes.post('/', async (c) => {
           target_date: body.target_date ?? null,
         },
       },
-      { actorType: 'human', actorId },
+      { actorType: 'human', actorId: authorization.context.userId },
     )
     return c.json(toProject(created), 201)
   } catch (cause) {
@@ -231,9 +231,9 @@ projectsRoutes.patch('/:id', async (c) => {
     }
 
     const existing = (await sql`
-      select id, name, kind, status, lead_id, target_date, created_at, updated_at
+      select id, tenant_id, name, kind, status, lead_id, target_date, created_at, updated_at
       from projects where id = ${id} and tenant_id = any(${tenantIds})
-    `) as ProjectRow[]
+    `) as ScopedProjectRow[]
     const current = existing[0]
     if (!current) {
       return c.json({ error: 'Not found' }, 404)
@@ -241,6 +241,11 @@ projectsRoutes.patch('/:id', async (c) => {
 
     if (body.status !== undefined && !isProjectStatus(body.status)) {
       return c.json({ error: 'Unknown status' }, 400)
+    }
+
+    const authorization = await authorizeCapability(sql, claims, current.tenant_id, 'edit')
+    if (!authorization.ok) {
+      return c.json({ error: authorization.reason === 'forbidden' ? 'Forbidden' : 'Not found' }, authorization.status)
     }
 
     const next = {
@@ -254,12 +259,7 @@ projectsRoutes.patch('/:id', async (c) => {
     // Tier-2 escape hatch: this update keeps its array-scoped tenant match, so it
     // can't go through the generic builder — it stamps the same server-derived
     // provenance inline. All four actor_* columns are set on THIS update.
-    const actorId = await callerUserId(sql, claims)
-    if (!actorId) {
-      console.error('[projects] update: tenant resolved but no user identity for subject')
-      return c.json({ error: 'Failed to update project' }, 500)
-    }
-    const actor = actorAssignments({ actorType: 'human', actorId })
+    const actor = actorAssignments({ actorType: 'human', actorId: authorization.context.userId })
 
     const rows = (await sql`
       update projects set
@@ -273,7 +273,7 @@ projectsRoutes.patch('/:id', async (c) => {
         on_behalf_of = ${actor.onBehalfOf},
         run_id = ${actor.runId},
         updated_at = now()
-      where id = ${id} and tenant_id = any(${tenantIds})
+      where id = ${id} and tenant_id = ${current.tenant_id}
       returning id, name, kind, status, lead_id, target_date, created_at, updated_at
     `) as ProjectRow[]
     const updated = rows[0]
