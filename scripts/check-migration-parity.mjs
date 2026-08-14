@@ -26,6 +26,63 @@ function createCanonicalHash(value) {
  * without `drizzle-kit generate`). Pure function: takes the parsed journal
  * and a list of filenames so it can be unit tested without touching disk.
  */
+/**
+ * Journal entries whose meta/NNNN_snapshot.json was never written. drizzle-kit
+ * diffs the newest snapshot to produce the next migration, so a hole in the
+ * chain is exactly why every migration from 0012 on is hand-authored.
+ * Regenerating them is kernel issue 1c8d790e-68f9-4333-9dcd-0316b69d336b: they
+ * must be rebuilt in order from a clean checkout, never hand-written.
+ *
+ * This is a frozen baseline, not an exemption. A NEW migration without a
+ * snapshot is not on this list and therefore fails. Delete the constant once
+ * the chain is whole.
+ */
+export const SNAPSHOTLESS_MIGRATION_BASELINE = Object.freeze([
+  "0012_proposals_reflected_at",
+  "0013_knowledge_base",
+  "0014_work_item_applied_from_proposal_partial",
+  "0015_meeting_promotions",
+  "0016_memory_ownership_axis",
+  "0017_proposal_target_snapshot",
+  "0018_collaboration_fabric",
+  "0020_canonical_membership_roles",
+  "0021_command_kernel",
+]);
+
+/**
+ * Every journal entry should have a matching meta/<NNNN>_snapshot.json. Reports
+ * entries missing one that are NOT in the frozen baseline, and baseline entries
+ * that have since gained a snapshot — so the list shrinks as the chain is
+ * repaired instead of quietly outliving the problem.
+ */
+export function analyzeSnapshotParity(
+  journal,
+  snapshotFileNames,
+  baseline = SNAPSHOTLESS_MIGRATION_BASELINE,
+) {
+  const issues = [];
+  const entries = Array.isArray(journal?.entries) ? journal.entries : [];
+  const snapshots = new Set(snapshotFileNames);
+  const baselineTags = new Set(baseline);
+
+  for (const entry of entries) {
+    const snapshotName = `${String(entry.tag).slice(0, 4)}_snapshot.json`;
+    const hasSnapshot = snapshots.has(snapshotName);
+    if (!hasSnapshot && !baselineTags.has(entry.tag)) {
+      issues.push(
+        `journal entry "${entry.tag}" has no meta/${snapshotName}. Regenerate the snapshot chain (issue 1c8d790e) — do not hand-write a snapshot and do not extend SNAPSHOTLESS_MIGRATION_BASELINE.`,
+      );
+    }
+    if (hasSnapshot && baselineTags.has(entry.tag)) {
+      issues.push(
+        `"${entry.tag}" now has meta/${snapshotName} — drop it from SNAPSHOTLESS_MIGRATION_BASELINE.`,
+      );
+    }
+  }
+
+  return issues;
+}
+
 export function analyzeMigrationParity(journal, sqlFileNames) {
   const issues = [];
   const entries = Array.isArray(journal?.entries) ? journal.entries : [];
@@ -188,10 +245,16 @@ function assertWithinExpectedTree(migrationsDir) {
 
 function loadAndCheck(migrationsDir) {
   const resolvedDir = assertWithinExpectedTree(migrationsDir);
-  const journalPath = join(resolvedDir, "meta", "_journal.json");
+  const metaDir = join(resolvedDir, "meta");
+  const journalPath = join(metaDir, "_journal.json");
   const journal = JSON.parse(readFileSync(journalPath, "utf8"));
   const sqlFileNames = readdirSync(resolvedDir).filter((name) => name.endsWith(".sql"));
-  return { issues: analyzeMigrationParity(journal, sqlFileNames), journal, sqlFileNames, resolvedDir };
+  const snapshotFileNames = readdirSync(metaDir).filter((name) => name.endsWith("_snapshot.json"));
+  const issues = [
+    ...analyzeMigrationParity(journal, sqlFileNames),
+    ...analyzeSnapshotParity(journal, snapshotFileNames),
+  ];
+  return { issues, journal, sqlFileNames, snapshotFileNames, resolvedDir };
 }
 
 function runCli(migrationsDir) {
@@ -234,7 +297,9 @@ function runCli(migrationsDir) {
     console.error(`Migration schema-parity check failed for ${migrationsDir}:\n${formattedIssues}`);
     process.exitCode = 1;
   } else {
-    console.log(`Migration schema-parity check passed for ${migrationsDir} (journal and .sql files agree).`);
+    console.log(
+      `Migration schema-parity check passed for ${migrationsDir} (journal, .sql files, and the snapshot chain agree; ${SNAPSHOTLESS_MIGRATION_BASELINE.length} historical snapshots still missing — issue 1c8d790e).`,
+    );
   }
 }
 

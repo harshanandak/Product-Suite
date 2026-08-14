@@ -1,263 +1,400 @@
-# Project Workflow Instructions
+# Product-Suite
 
-## Default TDD-First Workflow Template
+## 1. What this is
 
-This project ships a **default TDD-first workflow template** with 6 workflow stages plus a composable **research** skill (a phase of `/plan` and usable standalone). In v3, these stages are one configurable composition over Forge runtime building blocks, not a product-wide mandatory ladder. Commands may be invoked as full stages or as smaller skill fragments when the active plan permits it. Pre-merge is an embedded gate in `/ship` and `/review` (not a numbered stage); `/status` and `/shepherd` are utilities (not stages).
+Product-Suite is an open-source, composable work-and-agent platform. The atom is a
+flat **item** with **connections** — boards, canvas, and agent chat are separable
+surfaces that compose into one stack. Think of it as an open alternative to Linear +
+Notion + an agent console, where the ceiling is user-authored rather than
+vendor-decided.
 
-| Stage | Command     | Purpose                                                   | Required For |
-|-------|-------------|-----------------------------------------------------------|--------------|
-| 1     | `/plan`     | Design intent → research → branch + worktree + task list | Critical, Standard, Refactor |
-| 2     | `/dev`      | Subagent-driven TDD per task (spec + quality review)     | All types    |
-| 3     | `/validate`    | Validate + 4-phase debug mode on failure                    | All types    |
-| 4     | `/ship`     | Create PR with documentation                             | All types    |
-| 5     | `/review`   | Address ALL PR feedback                                  | Critical, Standard |
-| 6     | `/verify`   | Post-merge health check (CI, deployments)                | All types    |
+Everything below is written so you can make a change here without breaking something
+you could not see. Read §2–§9 before your first edit in a new area; §10 onward is
+reference you can come back to.
 
-**Pre-merge gate (not a numbered stage)**: Completing docs on the feature branch and handing off the PR for merge is a **task-type gate and checkpoint**, not a standalone workflow stage. The gate runs for Critical, Standard, and Refactor work and is embedded in the `/ship` and `/review` stages — finish the doc updates, confirm CI is green, then hand off the PR. Simple, Hotfix, and Docs work skip the gate.
+> *Provenance: product framing mined from 406 Codex + 4 Claude sessions in this repo,
+> Apr–Aug 2026 (`Roadmap/agent-transcript-mining-2026-08-13.md`), and the section
+> architecture from `Roadmap/theo-file-structures-and-ours-2026-08-13.md` Part C3.*
 
-**Utility**: `/status` — Context check before starting work (not a numbered stage)
+## 2. What we can never compromise on
 
-**Utility**: `/shepherd <pr>` — Monitor-driven PR shepherd: one bounded pass that reads CI and check state, re-runs a flaky required check (Tier-A), or escalates, then hands off. It is a utility command, **not** a workflow stage, and does not sit between `/review` and the handoff. It **never merges** (the human merges in the GitHub UI) and **never resolves review threads** (that stays with `/review`). `--auto-rebase` is opt-in and default OFF. See [docs/reference/shepherd.md](docs/reference/shepherd.md).
+Check your own diff against this list before you propose it. If a change hurts one of
+these, it is the wrong change — say so and propose a different one.
 
-## Automatic Change Classification
+- **Open source and composable.** Surfaces stay separable. Nothing may only work
+  because two surfaces are secretly coupled.
+- **The ceiling is user-authored.** Custom modes and custom views exist so a user can
+  build their own application right here. Do not close a door a user could have opened.
+- **Flat items plus connections.** No forced hierarchy, no deep nesting. When you feel
+  the pull to add a parent level, add a connection instead.
+- **UI labels are plain English.** Never code-shaped. `owner_user_id` is a column;
+  "Owner" is a label. A label that reads like an identifier is a bug.
+- **Throughput under a budget.** Speed *and* quality, measured against real usage
+  limits. Neither alone is the goal.
+- **Agent-native.** Chat is a dispatch surface, not a chatbot. Anything a user can do
+  by clicking, an agent should be able to do by asking.
 
-When the user requests work, **you MUST automatically classify** the change type:
+## 3. A note from Harsha
 
-### Critical (Full default workflow template)
-**Triggers:** Security, authentication, payments, breaking changes, new architecture, data migrations
-**Example:** "Add OAuth login", "Migrate database schema", "Implement payment gateway"
-**Workflow:** plan → dev → validate → ship → review → verify (pre-merge gate before merge)
+> **DRAFT — Harsha to rewrite in his own words before this ships as final.**
+> Everything below is reconstructed from mined session transcripts, not dictated. It is
+> reference input only. *(See `agent-setup-overhaul-2026-08-12.md` §5.6 note 14: this
+> block is hand-written by Harsha; agent drafts are input, not the article.)*
 
-### Standard (default workflow without post-merge verify)
-**Triggers:** Normal features, enhancements, new components
-**Example:** "Add user profile page", "Create notification system"
-**Workflow:** plan → dev → validate → ship → review (pre-merge gate before merge)
+Don't spend three hours on thirty lines. If a change is small, make it small and move.
 
-### Simple (3-stage workflow, skip plan)
-**Triggers:** Bug fixes, UI tweaks, small changes, minor refactors
-**Example:** "Fix button color", "Update validation message", "Adjust padding"
-**Workflow:** dev → validate → ship
+Don't stop to ask. If you found the next step while doing the first one, do the next
+step. Tell me what you did, not what you're about to do. Asking permission for the
+mechanical middle of a task you were already given is the single thing that costs us
+the most time.
 
-### Hotfix (Emergency 3-stage workflow)
-**Triggers:** Production emergencies, critical bugs affecting users
-**Example:** "Production payment processing down", "Security vulnerability fix"
-**Workflow:** dev → validate → ship (immediate merge allowed)
+Research before deciding. Use context7 and parallel-ai. When it's a build-or-buy call,
+answer the three axes out loud: is it open source, what does integration cost, and is
+the future scope something we want to own?
 
-### Docs (Documentation-only workflow)
-**Triggers:** Documentation updates, README changes, comment improvements
-**Example:** "Update README", "Add API documentation"
-**Workflow:** verify → ship
+Say what you actually verified and what you didn't. "Written but unverified" is a fine
+sentence. A confident wrong one is not.
 
-### Refactor (5-stage workflow for safe cleanup)
-**Triggers:** Code cleanup, performance optimization, technical debt reduction
-**Example:** "Refactor auth service", "Extract utility functions"
-**Workflow:** plan → dev → validate → ship (pre-merge gate before merge)
+## 4. Good defaults, not hard rules
 
-## Enforcement Philosophy
+Everything here is the default. The human in the session overrides any of it, and a
+more specific `AGENTS.md` deeper in the tree overrides this one. If a rule is getting
+in the way of obviously-correct work, say which rule and why — don't quietly route
+around it, and don't stop and wait either.
 
-**Conversational, not blocking** - Offer solutions when prerequisites are missing:
+## 5. People and words
 
-❌ **Don't:** "ERROR: Research required for critical features"
-✅ **Do:** "Before implementation, I should research OAuth best practices. I can:
-   1. Auto-research now with parallel-deep-research (~5 min)
-   2. Use your research if you have it
-   3. Skip (not recommended for security features)
+**People.** *You* = the agent reading this. *We/us* = Harsha and whoever is building.
+*User* = the person driving the session. *Harness* = whatever runtime you happen to be
+running in.
 
-   What would you prefer?"
+**Glossary — these are the user's words, use them back:**
 
-**Create accountability for skips:**
+| Word | What it means |
+|---|---|
+| **item** | The atom. An item is the epic, the backlog entry, and the task — one flat kind, not three. |
+| **connected** | How items relate. A "sub-item" is just a connected item. |
+| **board / items board / agent board** | The plural list surfaces. |
+| **canvas** | The spatial surface (BlockSuite / excalidraw-style). |
+| **blocks** | Composable content units inside canvas and docs. |
+| **custom mode** | A user-authored configuration of a surface — the ceiling. |
+| **agent chat** | The dispatch surface. |
+| **multipliers** | Parallel agent slots. |
+| **Sol / Luna** | Model tiers. |
+| **limits** | The usage budget work is measured against. |
+| **stacked lineup** | A PR train. |
+| **memory brain** | The decision/knowledge store behind chat and agents. |
+| **Forge kernel** vs **PS tracker** | Two different trackers. See §7. |
 
-"Skipping tests creates technical debt. I'll:
- ✓ Allow this commit
- ✓ Create follow-up issue for tests
- ✓ Document in commit message as [tech-debt]
+**Anti-terms — never write these:**
 
- Proceed?"
+- **"work item"** → say **item**. ("The work items can be just named as items… having
+  single-worded things makes things simpler.")
+- **"cycle"** → not the user's vocabulary. Every occurrence in this repo is agent or
+  code context. Do not put it in a UI label or a design doc as though it were his word.
+- **"nested"** → say **connected**. He repeatedly rejects hierarchy depth.
+- *capture / injection / proposal / holdout* are **our** words for memory-brain
+  internals, not his. Fine in code; wrong in a label or a conversation with him.
 
-**Dynamic commands — no hardcoded examples:**
+## 6. Ways to hurt yourself
 
-Command files (`.claude/commands/*.md` and agent equivalents) must never hardcode example output when a script generates that output dynamically. Reference the script and describe what it does — don't duplicate its output with fake data that becomes stale.
+Each of these has already happened here at least once.
 
-## TDD Development (`/dev` Command)
+1. **`drizzle-kit generate` is forbidden.** Migration SQL in this repo is
+   hand-authored. `generate` needs an intact snapshot chain and ours is broken (§7),
+   so it will produce a wrong or empty diff that looks plausible. See §9 for what to
+   do instead.
+2. **The ledger id is offset from the journal idx.** `__drizzle_migrations.id` is
+   1-based; `_journal.json` `idx` is 0-based. Ledger id *N* records journal idx *N−1*.
+   Sixteen ledger rows means 0000–0015 applied, **not** 0016. Cross-check
+   `created_at` against the journal's `when` before you conclude anything. Misreading
+   this nearly deleted a live migration record.
+3. **Snapshot drift.** 9 of 22 migrations have no `meta/*_snapshot.json`. Do not
+   hand-write one to "fix" the count — see §7 and kernel issue
+   `1c8d790e-68f9-4333-9dcd-0316b69d336b`.
+4. **Stopping to ask instead of executing.** The most-repeated correction in this
+   repo's history by a wide margin (~48 occurrences). Finish the task you were given,
+   including the mechanical steps it implies. Silence means continue.
+5. **Filing PS issues in the Forge kernel, or Forge issues in the PS tracker.** They
+   are different trackers with different backlogs. Check which repo the work belongs
+   to before you file.
+6. **Merging with unresolved review threads.** Count threads via the GraphQL
+   `reviewThreads { isResolved }` field. Summary scripts under-report — one of ours
+   only counted a single bot and hid the rest.
+7. **Asserting absence from the working tree.** This checkout is often detached or
+   behind. Zero grep hits are only meaningful on the ref that matters — check
+   `git show origin/main:<path>`, not your local file.
+8. **Running the DB tests while the unit tests are red.** They are slow. Get the fast
+   lanes green first.
+9. **Two agents in one checkout.** Concurrent git work needs one worktree each
+   (`bun run worktree:create`). Sharing the primary checkout collides on HEAD
+   mid-task.
+10. **Fake absolute paths in tests.** `'/repo'` or `'/gcd'` write to real drive roots
+    on Windows — vacuously green locally, red on Linux CI. Use temp paths.
 
-**Subagent-driven per-task implementation loop:**
+## 7. Hit every surface
 
-1. **Read task list** → Pre-made task list from `/plan` Phase 3 at `docs/work/YYYY-MM-DD-<slug>/tasks.md`
-2. **Dispatch implementer subagent per task** → Fresh context, complete task text, relevant design doc sections
-3. **TDD inside implementer** → RED-GREEN-REFACTOR enforced by HARD-GATE:
-   - RED: Write failing test first (must run test and show failing output)
-   - GREEN: Implement minimal code to pass (must show passing output)
-   - REFACTOR: Clean up while keeping tests green
-4. **Spec compliance review** → Spec reviewer checks every task before quality review
-5. **Code quality review** → Quality reviewer checks after spec compliance ✅
-6. **Decision gate** → 7-dimension impact scoring when spec gap found; score routes to PROCEED/SPEC-REVIEWER/BLOCKED
+**Walk this list out loud and say which rows apply to your change** before you start,
+and again before you call it done. Naming a row and dismissing it is fine. Silently
+skipping one is how half-built changes ship.
 
-**Example execution:**
+| Change | Every surface it touches |
+|---|---|
+| **Schema** | `packages/db/src/schema.ts` → hand-authored `packages/db/migrations/NNNN_name.sql` → an entry in `migrations/meta/_journal.json` → the snapshot chain (`meta/NNNN_snapshot.json`) → a test in `packages/db/src/schema.test.ts` → **manually** `bun run migrate` from `packages/db` → **re-fetch the ledger to prove it applied** |
+| **API** | `packages/contracts` (the wire contract) → `packages/sdk` → every consuming app in `apps/` |
+| **UI** | `packages/ui/src/styles/tokens.css` semantic tokens → the *right* `ui-*` package (`ui`, `ui-chat`, `ui-canvas`, `ui-meeting`, `ui-planning`, `ui-charting`) → the consuming app → dark mode |
+| **Reverse states** | Every forward action needs its inverse: archive ⇒ unarchive, block ⇒ unblock, connect ⇒ disconnect. Ship both or say which you deliberately left. |
+| **Agent surfaces** | chat + board + canvas — a capability added to one usually belongs in all three |
+| **Docs** | user-facing vs maintainer-facing are different documents |
+
+**On the schema row specifically:** the deploy pipeline has never run migrations
+automatically. `bun run migrate` from `packages/db` is a manual step a human does
+against a live Neon database. The DB contract check cannot detect a migration that was
+written but never applied — only re-fetching the ledger can.
+
+**On the snapshot chain:** `meta/` currently holds 13 snapshots (0000–0011, 0019)
+against 22 journal entries and 22 `.sql` files. Missing: 0012–0018, 0020, 0021. The
+parity check freezes that list as a baseline, so a **new** migration without a snapshot
+fails CI while the historical gap stays quarantined. Regenerating the 9 is tracked in
+`1c8d790e-68f9-4333-9dcd-0316b69d336b`; the surface-index follow-up is
+`f354bdc2-55f3-40fe-9ae5-2c22985d7b18`. Do not guess at snapshot contents — they must
+be rebuilt in order from a clean checkout.
+
+## 8. Where the code lives
+
 ```
-/dev starts:
-  ✓ Read task list: docs/work/2026-02-26-stripe-billing/tasks.md (8 tasks)
-  ✓ Created decisions log: docs/work/2026-02-26-stripe-billing/decisions.md
-
-Task 1: Types and interfaces
-  ✓ Implementer: test written → failing → implementation → passing → committed
-  ✓ Spec review: ✅
-  ✓ Quality review: ✅
-  Decision gates: 0
-
-Task 2: Validation logic
-  ✓ Implementer: test written → failing → implementation → passing
-  ⚠️  Decision gate fired (score: 2/14 — PROCEED)
-     Gap: Error message format not specified in design doc
-     Choice: Use { code, message } object (conservative, documented)
-  ✓ Spec review: ✅
-  ✓ Quality review: ✅
+apps/         meeting-api  meeting-web  platform-api  platform-web  roadmap-web
+packages/     db  contracts  sdk  ui  ui-canvas  ui-charting  ui-chat  ui-meeting  ui-planning
+services/     agent-core  hocuspocus
+scripts/      repo-level checks (migration parity, source/test coupling, DB authority…)
 ```
 
-## State Management (Single Source of Truth)
+Bun workspaces; `bun@1.3.6` is pinned in the root `package.json`.
 
-> GitHub issue lifecycle may sync to Beads via CI -- see [docs/guides/BEADS_GITHUB_SYNC.md](docs/guides/BEADS_GITHUB_SYNC.md).
+**Taste.** Push complexity to the adapter boundary and keep orchestration pure. UI
+components stay dumb. Prefer inferred types over hand-written ones; `any` is the enemy.
+Labels in plain English (§2).
 
-**Current implementation**: The Forge Kernel is the default issue-state authority; issue commands read and write the kernel store unless Beads is explicitly selected (`--issue-backend beads`, `FORGE_ISSUE_BACKEND=beads`, or `issueBackend: beads` in `.forge/config.yaml`), where it serves as an import/export/projection compatibility layer. **Direction (D44)**: continue consolidating issue/workflow/run authority in the Kernel with Beads remaining a compatibility projection. New authority work must follow [docs/work/2026-04-28-skeleton-pivot/forge-kernel-authority-control-plane.md](docs/work/2026-04-28-skeleton-pivot/forge-kernel-authority-control-plane.md) and [docs/reference/FORGE_KERNEL_STORAGE_MODEL.md](docs/reference/FORGE_KERNEL_STORAGE_MODEL.md).
+## 9. Runbook — the exact spellings
 
-```json
-{
-  "id": "9f2c41d7-3a8e-4b6f-9c21-5e7d0a184c3b",
-  "type": "critical",
-  "currentStage": "dev",
-  "completedStages": ["plan"],
-  "skippedStages": [],
-  "workflowDecisions": {
-    "classification": "critical",
-    "reason": "Payment processing, PCI compliance required",
-    "userOverride": false
-  },
-  "parallelTracks": [
-    {
-      "name": "API endpoints",
-      "agent": "backend-architect",
-      "status": "in_progress",
-      "tddPhase": "GREEN"
-    }
-  ]
-}
+```bash
+bun install                                  # root, once
+bun run worktree:create <slug>               # never raw `git worktree add`
+bun run --cwd packages/db test               # the db package's own vitest
+bun run check:migration-parity               # journal ↔ .sql ↔ snapshot chain
+bun run check:source-test                    # source/test coupling gate
+bun run test:repo-tooling                    # the repo-level script tests
+bun run test:prepush                         # what the pre-push hook runs
 ```
 
-## Git Hooks & Push Workflow (Automatic Enforcement)
+**Migrations — the one procedure worth memorising:**
 
-This project uses the **Professional Git Workflow** with Lefthook for automated quality gates.
+```bash
+# 1. Edit packages/db/src/schema.ts
+# 2. Hand-author packages/db/migrations/NNNN_short_name.sql
+#    NEVER `drizzle-kit generate` — the snapshot chain is broken (§7)
+#    Separate statements with:  --> statement-breakpoint
+#    Head-comment WHY, not what.
+# 3. Add the entry to packages/db/migrations/meta/_journal.json (idx is 0-based)
+# 4. bun run check:migration-parity
+# 5. bun run --cwd packages/db test
+# 6. Apply it — manual, against the live database:
+bun run --cwd packages/db migrate
+# 7. Re-fetch __drizzle_migrations and prove your tag landed.
+#    Remember the offset: ledger id N == journal idx N-1.
+```
 
-**Pre-commit hook enforces TDD:**
-- Blocks commits if source code modified without test files
-- Offers guided recovery (add tests now, skip with tech debt tracking, emergency override)
-- No AI decision required - automatic validation
-- **Strong default, not a hard floor.** The TDD gate is the default-ON `rail.tdd_intent` rail; turn it off with `forge gate disable rail.tdd_intent` (the `minimal` adoption profile ships it off). The installed hooks read the resolved config at run time, so a disabled rail makes them genuinely inert — enforcement honestly follows your config.
+**CLAUDE.md is a pointer to this file, never a copy.** It drifted across ~10 worktrees
+when it was a manual copy. If you find any harness file duplicating this content,
+replace it with a pointer.
 
-**Pre-push hook validates tests:**
-- Branch protection: blocks direct push to `main`/`master`
-- ESLint: blocks on errors and warnings (strict mode, `--max-warnings 0`)
-- All tests must pass before push
-- Can skip for hotfixes with documentation
+**Test data.** Temp paths only. Never `'/repo'`, never `'/gcd'` (§6.10).
 
-**Pull Request workflow:**
-- PR template auto-fills with a standardized format; the self-review checklist catches most bugs before review
-- Reference the issue id in the PR body (e.g. the Forge Kernel issue id); **all review comments must be resolved** before merge
-- Squash-only merging for a clean, linear history
+## 10. Verification
 
-**⚠️ AI agents must NEVER use `LEFTHOOK=0`, `--no-verify`, or any hook bypass.** If a hook fails, fix the underlying issue. Only humans may bypass hooks in emergencies, documented in the PR description.
+Targeted checks over full builds — run the lane that covers what you touched, not the
+whole matrix, and say which lane you ran.
 
-**Preferred push workflow (AI agents and humans):**
+Anything user-visible gets **one integrated pass in the running app** before you call
+it done, not just a green unit test.
+
+"Ready to merge" means CI is green, not that it passed locally. Local green is not
+matrix green.
+
+Never let a search summary settle a decision. For anything decision-gating, fetch the
+actual doc, schema, or file and read it.
+
+## 11. Pull requests
+
+- **Merge train, not fan-out.** Update only the PR that is next at bat.
+- **Zero unresolved threads**, counted via GraphQL `reviewThreads { isResolved }` —
+  never a summary script (§6.6).
+- **One lead agent per PR.** No nested subagents owning the same PR.
+- **Review at the head SHA.** Let the head settle before reading review state.
+- PR bodies lead with the problem, then the change. Attribute where the finding came
+  from.
+
+## 12. Standards — what "good" feels like
+
+These are user-perceived symptoms, not metrics:
+
+- Board interactions feel instant.
+- No lying spinners — a spinner means work is actually happening.
+- Optimistic updates always reconcile; a row never silently keeps a wrong value.
+- No stale labels after a rename.
+- Security effort is proportionate. Do not run a full threat model over a
+  maintainer-only dev script.
+
+## 13. Escape hatch
+
+If following this file would make you do something obviously wrong — the rule is
+stale, the surface moved, the instruction contradicts what the code plainly says —
+**do the right thing and say which rule you broke and why, in one line.** Then file an
+issue to fix the rule. Never silently ignore it, and never stop and wait for
+permission to be correct.
+
+If you genuinely cannot proceed: change nothing, file the issue, say so plainly.
+
+---
+
+# Contributor workflow (Forge)
+
+*Everything below is the Forge toolchain and workflow layer. It is real and in use, but
+it is about **how we work**, not about **what we're building** — read §1–§13 first.*
+
+## Issue tracking
+
+This project uses the **Forge Kernel** for issue tracking — the **PS tracker**, which is
+distinct from Forge's own backlog (§6.5). Run `forge prime` for full context.
+
+```bash
+forge ready           # Find available work
+forge show <id>       # View issue details
+forge claim <id>      # Claim work
+forge close <id>      # Complete work
+```
+
+More commands (`forge <command> --help` for full usage):
+
+```bash
+forge remember <note>           # Persist a project-memory note
+forge recall [query]            # Read it back
+forge insights                  # Detect recurring evidence patterns
+forge gate <verb> <gate-id>     # Toggle a workflow gate / record a human-gate approval
+forge role <role> --use <skill> # Bind a role to a skill in .forge/config.yaml
+```
+
+**Rules**
+
+- Use `forge` as the routine surface for issue tracking — not TodoWrite, TaskCreate, or
+  markdown TODO lists. Exception: `/plan` Phase 3 writes task lists to
+  `docs/work/YYYY-MM-DD-<slug>/tasks.md`, which `/dev` consumes.
+- Use `forge remember` / `forge recall` for persistent knowledge — not MEMORY.md files.
+- **Nothing discussed goes missing.** Anything raised in a session — a bug, an idea, a
+  decision, a follow-up, a risk noticed in passing — becomes a kernel issue via
+  `forge issue create` before it can be forgotten, triaged with a type and a parent.
+  When you defer scope, file the follow-up and reference it. Canonicalized in
+  `rules/kernel-tracking.md`, governed by the default-on `rail.kernel_tracking` rail
+  (`forge gate disable rail.kernel_tracking` to turn it off deliberately).
+
+## Stage workflow
+
+A default TDD-first workflow template: six stages plus a composable **research** skill.
+These are one configurable composition over Forge runtime building blocks, not a
+mandatory ladder — commands may run as full stages or as smaller fragments when the
+active plan permits.
+
+| Stage | Command | Purpose | Required for |
+|---|---|---|---|
+| 1 | `/plan` | Design intent → research → branch + worktree + task list | Critical, Standard, Refactor |
+| 2 | `/dev` | Subagent-driven TDD per task (spec + quality review) | All |
+| 3 | `/validate` | Validate + 4-phase debug mode on failure | All |
+| 4 | `/ship` | Create PR with documentation | All |
+| 5 | `/review` | Address ALL PR feedback | Critical, Standard |
+| 6 | `/verify` | Post-merge health check (CI, deployments) | All |
+
+**Pre-merge gate** (not a numbered stage): finish doc updates on the feature branch,
+confirm CI is green, hand off the PR. Embedded in `/ship` and `/review`; runs for
+Critical, Standard, and Refactor work. Simple, Hotfix, and Docs work skip it.
+
+**Utilities** (not stages): `/status` — context check before starting work.
+`/shepherd <pr>` — one bounded pass that reads CI and check state, re-runs a flaky
+required check, or escalates, then hands off. It never merges (the human merges in the
+GitHub UI) and never resolves review threads (that stays with `/review`).
+`--auto-rebase` is opt-in and default OFF. See
+[docs/reference/shepherd.md](docs/reference/shepherd.md).
+
+### Change classification
+
+Classify the request, then run the matching path:
+
+- **Critical** (security, auth, payments, breaking changes, new architecture, data
+  migrations) → plan → dev → validate → ship → review → verify
+- **Standard** (features, enhancements, new components) → plan → dev → validate → ship → review
+- **Simple** (bug fixes, UI tweaks, minor refactors) → dev → validate → ship
+- **Hotfix** (production emergencies) → dev → validate → ship, immediate merge allowed
+- **Docs** (documentation only) → verify → ship
+- **Refactor** (cleanup, perf, tech debt) → plan → dev → validate → ship
+
+### Enforcement philosophy
+
+Conversational, not blocking. When a prerequisite is missing, offer options and a
+default rather than erroring out. When a step is skipped, create accountability for it:
+allow the commit, file the follow-up issue, mark it `[tech-debt]` in the message.
+
+Command files (`.claude/commands/*.md` and agent equivalents) must never hardcode
+example output that a script generates dynamically — reference the script and describe
+what it does.
+
+### `/dev` loop
+
+Read the task list from `/plan` Phase 3 → dispatch one implementer subagent per task
+with fresh context → RED-GREEN-REFACTOR enforced by a hard gate (failing output shown
+before implementation, passing output shown after) → spec-compliance review → code
+quality review → decision gate with 7-dimension impact scoring when a spec gap appears,
+routing to PROCEED / SPEC-REVIEWER / BLOCKED.
+
+## Git hooks and push
+
+Lefthook drives the gates.
+
+- **Pre-commit** blocks source changes without accompanying tests. Strong default, not
+  a hard floor: it is the default-ON `rail.tdd_intent` rail
+  (`forge gate disable rail.tdd_intent`; the `minimal` profile ships it off). Hooks read
+  the resolved config at run time, so a disabled rail is genuinely inert.
+- **Pre-push** blocks direct pushes to `main`/`master`, runs ESLint at
+  `--max-warnings 0`, and requires tests to pass.
+- **PRs** squash-merge for a linear history. Reference the kernel issue id in the body.
+
+**Never use `LEFTHOOK=0`, `--no-verify`, or any hook bypass.** If a hook fails, fix the
+cause. Only humans may bypass, documented in the PR description.
 
 ```bash
 forge push                    # Branch protection + lint + tests, then push
 forge push --quick            # Review-cycle: lint-only push (CI runs full suite)
 forge worktree create <slug>  # Create a worktree
 forge test                    # Run tests with correct timeouts
-forge sync                    # Sync issue data
-forge clean                   # Remove merged worktrees
+forge clean                   # Remove merged worktrees (from the primary root)
 ```
 
-> The pre-push gate honors `PREPUSH_GATE_FAST=1` — the `forge push --quick` contract: for each affected workspace whose gate includes lint, it runs lint + typecheck and defers that workspace's tests to CI. A workspace with no lint step (e.g. platform-api, db, test-only packages — where tests are the only local safety net) still runs its full suite incl. tests. Branch protection and the always-on cheap checks always apply; default (unset) runs the full verify incl. tests for every workspace.
+## Shell and MCP
 
-## Build, Shell, and MCP
-
-**Package manager**: Bun (preferred for performance).
-
-```bash
-bun install      # Install dependencies
-bun run dev      # Start development
-bun run build    # Production build
-bun test         # Run tests
-```
-
-**GitHub CLI**: `gh auth login` for the PR workflow.
-
-### Shell Model
-
-| Platform | Shell used by Forge commands and scripts |
-| --- | --- |
-| Windows | Git Bash for helper-backed Forge stage flows |
+| Platform | Shell for Forge stage flows |
+|---|---|
+| Windows | Git Bash |
 | macOS/Linux | Default login shell |
 
-On Windows, Forge runtime health enforces Git Bash for helper-backed stage flows. Native PowerShell is still used by some bootstrap paths, and WSL may be useful for adjacent development tasks. See [docs/reference/TOOLCHAIN.md](docs/reference/TOOLCHAIN.md#shell-model).
+Optional MCP servers that improve research: **Context7** (library docs) and **grep.app**
+(search real-world code across GitHub). See [.mcp.json.example](.mcp.json.example) and
+[docs/reference/TOOLCHAIN.md](docs/reference/TOOLCHAIN.md).
 
-### MCP Servers (Optional)
+## Stage handoff context
 
-If your agent supports MCP, these enhance research:
+Every stage transition should carry Summary / Decisions / Artifacts / Next so the next
+stage — or a fresh session — can resume without re-reading the design doc. **Advisory:**
+missing fields never block a transition.
 
-- **Context7** - up-to-date library documentation and API reference
-- **grep.app** - search 1M+ GitHub repos for real-world code examples
-
-See [.mcp.json.example](.mcp.json.example) for configuration (Claude Code: copy it to `.mcp.json`) and [docs/reference/TOOLCHAIN.md](docs/reference/TOOLCHAIN.md) for detailed setup.
-
-## Documentation Index (Context Pointers)
-
-**Detailed stage skill instructions** are located in:
-- [skills/status/SKILL.md](skills/status/SKILL.md) - How to check current context (utility)
-- [skills/plan/SKILL.md](skills/plan/SKILL.md) - How to plan features (3 phases: design intent + research + branch/worktree/tasks)
-- [skills/dev/SKILL.md](skills/dev/SKILL.md) - How to implement with subagent-driven TDD and decision gate
-- [skills/validate/SKILL.md](skills/validate/SKILL.md) - How to run validation (with HARD-GATE exit)
-- [skills/ship/SKILL.md](skills/ship/SKILL.md) - How to create PRs
-- [skills/review/SKILL.md](skills/review/SKILL.md) - How to address PR feedback (with HARD-GATE exit)
-- [skills/shepherd/SKILL.md](skills/shepherd/SKILL.md) - How to run a bounded PR monitor pass (utility; never merges, never resolves threads)
-- [skills/verify/SKILL.md](skills/verify/SKILL.md) - How to verify post-merge health
-
-**Planning documents** (created by `/plan`, consumed by `/dev`):
-- `docs/work/YYYY-MM-DD-<slug>/plan.md` - Design intent + technical research
-- `docs/work/YYYY-MM-DD-<slug>/tasks.md` - Task list with TDD steps
-- `docs/work/YYYY-MM-DD-<slug>/decisions.md` - Decisions log from /dev
-
-**Comprehensive workflow guide:**
-- This file (AGENTS.md) is the single source of truth for the complete workflow
-- [docs/reference/TOOLCHAIN.md](docs/reference/TOOLCHAIN.md) - Tool setup and configuration
-- [docs/reference/VALIDATION.md](docs/reference/VALIDATION.md) - Enforcement and validation details
-
-**Forge v3 / Kernel Plan (active design):**
-- [docs/work/2026-04-28-skeleton-pivot/forge-kernel-authority-control-plane.md](docs/work/2026-04-28-skeleton-pivot/forge-kernel-authority-control-plane.md) — canonical Forge Kernel authority reset plan for issue authority, local broker, team authority, adapters, storage, and gates
-- [docs/work/2026-04-28-skeleton-pivot/locked-decisions.md](docs/work/2026-04-28-skeleton-pivot/locked-decisions.md) — D1–D44 decisions ledger with rationale + tradeoffs + anti-decisions; D44 supersedes Beads-only authority portions of earlier decisions
-- [docs/work/2026-04-28-skeleton-pivot/v3-redesign-strategy.md](docs/work/2026-04-28-skeleton-pivot/v3-redesign-strategy.md) — historical v3 strategy and background; do not use its legacy default-substrate language over D44
-- See [docs/INDEX.md](docs/INDEX.md) for the full reading order across the v3 design folder
-
-**Load these files when you need detailed instructions for a specific stage.**
-
-## Descriptive Context Convention
-
-Every stage transition should carry structured context so the next stage (or a new session) can resume without re-reading the full design doc. This convention is **advisory** — warnings are informational, not blocking.
-
-### Required Fields at Each Stage Exit
-
-| Stage Exit | Summary | Decisions | Artifacts | Next |
-|------------|---------|-----------|-----------|------|
-| /plan      | Design approach chosen | Key trade-offs resolved | Design doc, task list paths | First dev task focus |
-| /dev       | Tasks completed, gate count | Spec gaps encountered | Changed files, test files | Validation priorities |
-| /validate  | All checks pass/fail summary | Failures diagnosed | Scripts/commands run | Ship readiness |
-| /ship      | PR created, checks pending | Template sections filled | PR URL, branch name | Review focus areas |
-| /review    | All feedback addressed | Comment resolutions | Fixed files, commit SHAs | Doc update needs |
-| pre-merge gate | Docs updated, CI green | N/A | Updated doc files | Merge instructions |
-
-### Recording Stage Context
-
-Record the stage-exit context as a kernel issue comment so the next stage (or a
-fresh session) can resume from the issue record itself:
+Record it on the issue itself:
 
 ```bash
 forge issue comment <issue-id> "stage: dev -> validate
@@ -267,99 +404,37 @@ artifacts: lib/parser.js test/parser.test.js
 next: Run lint first — streaming approach may trigger no-await rule"
 ```
 
-Check-after-write verification (`gate.issue_verify`, default-on) confirms the
-comment actually landed. Read context back with `forge show <issue-id>` (or
-`forge recap <issue-id>` for the bounded orientation envelope).
+`gate.issue_verify` (default-on) confirms the comment actually landed. Read it back with
+`forge show <issue-id>`, or `forge recap <issue-id>` for the bounded envelope.
 
-### Field Definitions
+## Skills
 
-- **Summary**: 1-2 sentence recap of what was accomplished in this stage. Example: `--summary "All 5 tasks done, 1 decision gate fired"`
-- **Decisions**: Key choices made during this stage that affect downstream work. Example: `--decisions "Used streaming parser over DOM for memory efficiency"`
-- **Artifacts**: File paths or URLs produced by this stage. Example: `--artifacts "lib/parser.js test/parser.test.js docs/work/2026-03-26-parser/plan.md"`
-- **Next**: Guidance for the next stage on what to focus on. Example: `--next "Run lint first — streaming approach may trigger no-await rule"`
+Skills live at `.claude/skills/<name>/SKILL.md`, each with an `evals/evals.json`
+alongside it. They are committed. Edit the SKILL.md directly.
 
-### Enforcement Level
+A skill's description is the only part always in context, so it must carry every
+trigger: what the skill does, when to reach for it, the phrasings that should fire it,
+and explicitly which sibling skills it is *not*.
 
-This convention is **advisory only** — missing fields never block a stage
-transition. The goal is to build good habits, not to create friction.
+## Documentation index
 
-## Forge Issue Tracker
+- [docs/INDEX.md](docs/INDEX.md) — full reading order
+- [docs/reference/TOOLCHAIN.md](docs/reference/TOOLCHAIN.md) — tool setup
+- [docs/reference/VALIDATION.md](docs/reference/VALIDATION.md) — enforcement details
+- `docs/work/YYYY-MM-DD-<slug>/` — `plan.md`, `tasks.md`, `decisions.md` per feature
 
-This project uses the **Forge Kernel** for issue tracking. Run `forge prime` to see full workflow context and commands.
+## Session completion
 
-### Quick Reference
-
-```bash
-forge ready           # Find available work
-forge show <id>       # View issue details
-forge claim <id>      # Claim work
-forge close <id>      # Complete work
-```
-
-**More commands worth knowing** (run `forge <command> --help` for full usage):
+Work is not complete until `git push` succeeds. File issues for remaining work, run the
+quality gates, update issue status, then:
 
 ```bash
-forge remember <note>          # Persist a project-memory note to a file-backed store
-forge recall [query]           # Retrieve project-memory notes back (the read half of remember)
-forge insights                 # Detect recurring evidence patterns, suggest conservative follow-ups
-forge upgrade                  # Preview and self-heal safe Forge upgrade readiness
-forge gate <verb> <gate-id>    # Toggle a workflow gate, or record/query human-gate approval events
-forge role <role> --use <skill> # Bind a role to a skill/ideology in .forge/config.yaml
-forge merge --auto <pr>        # Opt-in conditional auto-merge — merges only when configured rules pass (OFF by default)
+git pull --rebase
+forge sync
+git push
+git status   # must show up to date with origin
 ```
 
-### Rules
-
-- Use `forge` as the routine command surface for issue tracking and sync workflows — do NOT use TodoWrite, TaskCreate, or markdown TODO lists. Exception: `/plan` Phase 3 generates task lists at `docs/work/YYYY-MM-DD-<slug>/tasks.md` — these are approved artifacts consumed by `/dev`. New issue-authority work routes through the Forge Kernel design. Use `forge issue` subcommands (e.g. `forge issue dep`, `forge issue comment`) for operations beyond the shortcuts above. GitHub issues may be used for external/public tracking; CI may sync GitHub issue lifecycle to the issue store.
-- Run `forge prime` for detailed command reference and session close protocol
-- Use `forge remember` for persistent knowledge and `forge recall` to retrieve it back — do NOT use MEMORY.md files
-
-### Kernel Tracking (nothing discussed goes missing)
-
-**NON-NEGOTIABLE, default-on.** Anything raised in a session — a bug, an idea, a
-design decision, a follow-up, a TODO, a risk noticed in passing — MUST become a
-Forge Kernel issue **immediately** via `forge issue create`, before it can be
-forgotten. Triage it (set a type, link its epic/parent) so it is discoverable.
-When you defer scope, file the follow-up issue and reference it — never leave
-work unfiled. The Kernel is the single source of truth; do NOT substitute
-TodoWrite, markdown TODO lists, or memory notes for a filed issue.
-
-This policy is canonicalized in `rules/kernel-tracking.md` (rendered to every
-port: `.cursor/rules/kernel-tracking.mdc` for Cursor, this projection for
-Claude/Codex/Hermes) and governed by the default-on `rail.kernel_tracking`
-runtime rail. Turn it off only deliberately: `forge gate disable rail.kernel_tracking`.
-
-## Project Learnings
-
-- **Scope discipline**: Do ONLY what was explicitly asked. Answer a question → stop. Check something → stop. Never auto-continue to next steps or pending work unless told to.
-- **Stage names**: The validation stage command is `/validate` — renamed in PR #50; do not use the old name.
-- **Unused params**: Prefix with `_` (e.g., `_searchTerm`) — ESLint `no-unused-vars` enforced with `--max-warnings 0`.
-- **Pre-push test env**: `test-env/` fixture tests can fail during actual `git push` due to git mid-push state. Fix the root cause — never use `LEFTHOOK=0`.
-- **Skill sync**: Canonical skills live in `skills/<name>/SKILL.md`; per-agent copies are generated from them. `.agents/skills` (Codex's repo-local discovery path) is committed so a fresh clone gets discovery without `forge setup` — a pre-commit hook keeps it byte-identical to `skills/` and the drift gate enforces it. The other mirrors (`.claude/skills`, `.codex/skills`, `.cursor/skills`, `.hermes/skills`) are gitignored and regenerated at `forge setup`. Never hand-edit a generated mirror — edit the canonical `skills/` source.
-
-## Session Completion
-
-**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
-
-**MANDATORY WORKFLOW:**
-
-1. **File issues for remaining work** - Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
-3. **Update issue status** - Close finished work, update in-progress items
-4. **PUSH TO REMOTE** - This is MANDATORY:
-   ```bash
-    git pull --rebase
-    forge sync     # wraps the supported issue-store sync flow when the issue store is configured
-    git push
-    git status  # MUST show "up to date with origin"
-   ```
-5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All changes committed AND pushed
-7. **Hand off** - Provide context for next session
-
-**CRITICAL RULES:**
-- Work is NOT complete until `git push` succeeds
-- NEVER stop before pushing - that leaves work stranded locally
-- NEVER say "ready to push when you are" - YOU must push
-- If push fails, resolve and retry until it succeeds
-- After fixing review feedback, always push the changes and resolve the related GitHub review threads via the GraphQL API before considering the work complete
+Then clean up stashes and pruned branches, and hand off context for the next session.
+Never say "ready to push when you are" — push. After fixing review feedback, push and
+resolve the GitHub review threads via GraphQL before considering the work done.

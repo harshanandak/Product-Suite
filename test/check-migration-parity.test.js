@@ -4,7 +4,13 @@ import { join } from "node:path";
 
 import { describe, expect, test } from "bun:test";
 
-import { analyzeMigrationParity, validateMigrationHistory, validateOriginalProductionRows } from "../scripts/check-migration-parity.mjs";
+import {
+  analyzeMigrationParity,
+  analyzeSnapshotParity,
+  SNAPSHOTLESS_MIGRATION_BASELINE,
+  validateMigrationHistory,
+  validateOriginalProductionRows,
+} from "../scripts/check-migration-parity.mjs";
 
 const SCRIPT_PATH = join(import.meta.dir, "..", "scripts", "check-migration-parity.mjs");
 const REAL_MIGRATIONS_DIR = join(import.meta.dir, "..", "packages", "db", "migrations");
@@ -34,6 +40,53 @@ function journal(tags) {
     entries: tags.map((tag, idx) => ({ idx, version: "7", when: idx, tag, breakpoints: true })),
   };
 }
+
+describe("snapshot-chain parity", () => {
+  test("passes when every journal entry has a snapshot", () => {
+    const issues = analyzeSnapshotParity(journal(["0000_a", "0001_b"]), ["0000_snapshot.json", "0001_snapshot.json"], []);
+
+    expect(issues).toEqual([]);
+  });
+
+  test("flags a new migration shipped without a snapshot", () => {
+    const issues = analyzeSnapshotParity(journal(["0000_a", "0001_b"]), ["0000_snapshot.json"], []);
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toContain('journal entry "0001_b" has no meta/0001_snapshot.json');
+  });
+
+  test("does not flag a baseline entry that is still missing its snapshot", () => {
+    const issues = analyzeSnapshotParity(journal(["0000_a", "0001_b"]), ["0000_snapshot.json"], ["0001_b"]);
+
+    expect(issues).toEqual([]);
+  });
+
+  test("flags a baseline entry once its snapshot is regenerated, so the list shrinks", () => {
+    const issues = analyzeSnapshotParity(journal(["0000_a", "0001_b"]), ["0000_snapshot.json", "0001_snapshot.json"], ["0001_b"]);
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toContain("drop it from SNAPSHOTLESS_MIGRATION_BASELINE");
+  });
+
+  test("the real repo tree has no snapshot drift outside the frozen baseline", () => {
+    const snapshotFileNames = readdirSync(join(REAL_MIGRATIONS_DIR, "meta")).filter((name) =>
+      name.endsWith("_snapshot.json"),
+    );
+
+    expect(analyzeSnapshotParity(JOURNAL, snapshotFileNames)).toEqual([]);
+  });
+
+  test("the frozen baseline names exactly the entries the real tree is missing", () => {
+    const snapshots = new Set(
+      readdirSync(join(REAL_MIGRATIONS_DIR, "meta")).filter((name) => name.endsWith("_snapshot.json")),
+    );
+    const missing = JOURNAL.entries
+      .filter((entry) => !snapshots.has(`${entry.tag.slice(0, 4)}_snapshot.json`))
+      .map((entry) => entry.tag);
+
+    expect(missing).toEqual([...SNAPSHOTLESS_MIGRATION_BASELINE]);
+  });
+});
 
 describe("check-migration-parity", () => {
   test("passes when journal entries and .sql files agree", () => {
