@@ -234,6 +234,21 @@ actual doc, schema, or file and read it.
 - PR bodies lead with the problem, then the change. Attribute where the finding came
   from.
 
+**Shipping regime (pre-user).** Product-Suite has no outside users yet, so a feature PR
+is reviewed as a feature, not as a diff:
+
+- The merge artifact is a **demo** (recording or screenshots from the integrated pass in
+  §10) plus the plan's acceptance checklist walked out loud, item by item. Line-level
+  correctness is the in-PR agent loop's job — implementer, spec review, quality review.
+- **Completeness gates the merge, size does not.** Every state and transition, entry
+  point and reverse path the plan named gets walked before ship. Half-built is the
+  failure mode; big is not.
+- **Bot feedback is advisory** except secrets, injection, and a broken build, and it
+  never expands the PR — file the follow-up. Threads still get resolved before merge
+  (that is the mechanical gate above), but resolving one can mean "filed as <id>".
+- **Main is recoverable:** squash-only, branch deleted on merge, revert or fix forward
+  within the hour, never debug on a red main. No merge queue.
+
 ## 12. Standards — what "good" feels like
 
 These are user-perceived symptoms, not metrics:
