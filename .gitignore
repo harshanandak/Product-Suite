@@ -23,3 +23,17 @@ tsconfig.tsbuildinfo
 # Beads / Dolt files (added by bd init)
 .dolt/
 .beads-credential-key
+
+# Forge local runtime artifacts (config.yaml + hooks + protected-paths stay tracked)
+.forge/log.jsonl
+.forge/pr-monitor/
+.forge/*.local-backup-*
+.worktrees/
+
+# Local-only doc backups and agent scratch output
+*.local-backup.md
+.superpowers/
+parallel-research/
+
+# Windows shell redirection artifacts
+NUL
