@@ -50,24 +50,71 @@ export const SNAPSHOTLESS_MIGRATION_BASELINE = Object.freeze([
 ]);
 
 /**
+ * Structural keys drizzle writes into every meta/NNNN_snapshot.json. A file
+ * missing any of them is not a snapshot, whatever it is named.
+ */
+const REQUIRED_SNAPSHOT_KEYS = Object.freeze(["id", "prevId", "version", "dialect", "tables"]);
+
+/** `prevId` drizzle gives the first snapshot in a chain. */
+const ROOT_PREV_ID = "00000000-0000-0000-0000-000000000000";
+
+/**
  * Every journal entry should have a matching meta/<NNNN>_snapshot.json. Reports
  * entries missing one that are NOT in the frozen baseline, and baseline entries
  * that have since gained a snapshot — so the list shrinks as the chain is
  * repaired instead of quietly outliving the problem.
+ *
+ * Presence is necessary but nowhere near sufficient: the filename is chosen by
+ * whoever created the file, so name-only checking accepts an empty, malformed,
+ * or copied-and-renamed snapshot as proof of a real one. That is the exact
+ * failure this gate exists to stop — a copied snapshot records the OLD schema
+ * as the new baseline, which is how the existing drift started. So each present
+ * snapshot is also checked for structure and for its link in the chain:
+ *
+ *   - it parses as JSON and carries every key in REQUIRED_SNAPSHOT_KEYS;
+ *   - its `id` is unique (a copied file re-uses the source's id);
+ *   - its `prevId` equals the `id` of the previous PRESENT snapshot in journal
+ *     order — ROOT_PREV_ID for the first one.
+ *
+ * The chain hops over absent snapshots deliberately: with 0012–0018 missing,
+ * 0019.prevId already points at 0011.id, so the present snapshots still form
+ * one unbroken chain and can be verified as such today.
+ *
+ * `snapshotDocuments` maps snapshot filename → parsed JSON, or `null` where the
+ * file could not be read or parsed. Taking parsed documents rather than a
+ * directory keeps this a pure function the tests can drive without a disk.
  */
 export function analyzeSnapshotParity(
   journal,
-  snapshotFileNames,
+  snapshotDocuments,
   baseline = SNAPSHOTLESS_MIGRATION_BASELINE,
 ) {
   const issues = [];
   const entries = Array.isArray(journal?.entries) ? journal.entries : [];
-  const snapshots = new Set(snapshotFileNames);
+  const documents =
+    snapshotDocuments instanceof Map
+      ? snapshotDocuments
+      : new Map(Object.entries(snapshotDocuments ?? {}));
   const baselineTags = new Set(baseline);
+
+  const expectedNames = new Set(
+    entries.map((entry) => `${String(entry.tag).slice(0, 4)}_snapshot.json`),
+  );
+
+  // A snapshot nobody's journal entry asked for. Left unchecked, the CLI would
+  // report the chain "agrees" while the two sets plainly differ.
+  for (const snapshotName of documents.keys()) {
+    if (!expectedNames.has(snapshotName)) {
+      issues.push(`meta/${snapshotName} has no matching entry in meta/_journal.json`);
+    }
+  }
+
+  const idOwners = new Map();
+  let previousId = ROOT_PREV_ID;
 
   for (const entry of entries) {
     const snapshotName = `${String(entry.tag).slice(0, 4)}_snapshot.json`;
-    const hasSnapshot = snapshots.has(snapshotName);
+    const hasSnapshot = documents.has(snapshotName);
     if (!hasSnapshot && !baselineTags.has(entry.tag)) {
       issues.push(
         `journal entry "${entry.tag}" has no meta/${snapshotName}. Regenerate the snapshot chain (issue 1c8d790e) — do not hand-write a snapshot and do not extend SNAPSHOTLESS_MIGRATION_BASELINE.`,
@@ -78,6 +125,38 @@ export function analyzeSnapshotParity(
         `"${entry.tag}" now has meta/${snapshotName} — drop it from SNAPSHOTLESS_MIGRATION_BASELINE.`,
       );
     }
+    if (!hasSnapshot) continue;
+
+    const document = documents.get(snapshotName);
+    if (document === null || document === undefined || typeof document !== "object" || Array.isArray(document)) {
+      issues.push(`meta/${snapshotName} is not readable as a JSON snapshot object`);
+      continue;
+    }
+
+    const missingKeys = REQUIRED_SNAPSHOT_KEYS.filter(
+      (key) => document[key] === undefined || document[key] === null,
+    );
+    if (missingKeys.length > 0) {
+      issues.push(`meta/${snapshotName} is missing required snapshot ${missingKeys.length === 1 ? "key" : "keys"}: ${missingKeys.join(", ")}`);
+      continue;
+    }
+
+    const owner = idOwners.get(document.id);
+    if (owner) {
+      issues.push(
+        `meta/${snapshotName} re-uses the snapshot id of meta/${owner} — it is a copy, not a generated snapshot. Regenerate the chain (issue 1c8d790e).`,
+      );
+    } else {
+      idOwners.set(document.id, snapshotName);
+    }
+
+    if (document.prevId !== previousId) {
+      issues.push(
+        `meta/${snapshotName} does not link to the previous snapshot: prevId is "${document.prevId}", expected "${previousId}".`,
+      );
+    }
+
+    previousId = document.id;
   }
 
   return issues;
@@ -250,9 +329,21 @@ function loadAndCheck(migrationsDir) {
   const journal = JSON.parse(readFileSync(journalPath, "utf8"));
   const sqlFileNames = readdirSync(resolvedDir).filter((name) => name.endsWith(".sql"));
   const snapshotFileNames = readdirSync(metaDir).filter((name) => name.endsWith("_snapshot.json"));
+  // Parsed here rather than inside analyzeSnapshotParity so that function stays
+  // pure. An unreadable or malformed file becomes `null`, which the analyzer
+  // reports — it must never be silently skipped.
+  const snapshotDocuments = new Map(
+    snapshotFileNames.map((name) => {
+      try {
+        return [name, JSON.parse(readFileSync(join(metaDir, name), "utf8"))];
+      } catch {
+        return [name, null];
+      }
+    }),
+  );
   const issues = [
     ...analyzeMigrationParity(journal, sqlFileNames),
-    ...analyzeSnapshotParity(journal, snapshotFileNames),
+    ...analyzeSnapshotParity(journal, snapshotDocuments),
   ];
   return { issues, journal, sqlFileNames, snapshotFileNames, resolvedDir };
 }

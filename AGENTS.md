@@ -36,10 +36,14 @@ these, it is the wrong change — say so and propose a different one.
 
 ## 3. A note from Harsha
 
-> **DRAFT — Harsha to rewrite in his own words before this ships as final.**
-> Everything below is reconstructed from mined session transcripts, not dictated. It is
-> reference input only. *(See `agent-setup-overhaul-2026-08-12.md` §5.6 note 14: this
-> block is hand-written by Harsha; agent drafts are input, not the article.)*
+> ⚠️ **PENDING HARSHA'S VOICE — not yet authoritative. Do not cite this section as
+> product policy.** Unlike the rest of this file, the text below was reconstructed from
+> mined session transcripts rather than written or dictated by Harsha. It is *input for
+> his rewrite*, kept here so the draft is not lost — treat it as a strong hint about
+> working style, never as a rule you can point at. Every other section of this file is
+> authoritative; this one becomes authoritative when Harsha replaces it in his own words.
+> *(See `agent-setup-overhaul-2026-08-12.md` §5.6 note 14: this block is hand-written by
+> Harsha; agent drafts are input, not the article.)*
 
 Don't spend three hours on thirty lines. If a change is small, make it small and move.
 
@@ -162,7 +166,7 @@ be rebuilt in order from a clean checkout.
 
 ## 8. Where the code lives
 
-```
+```text
 apps/         meeting-api  meeting-web  platform-api  platform-web  roadmap-web
 packages/     db  contracts  sdk  ui  ui-canvas  ui-charting  ui-chat  ui-meeting  ui-planning
 services/     agent-core  hocuspocus

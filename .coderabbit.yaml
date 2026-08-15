@@ -17,13 +17,14 @@
 # `request_changes_workflow` stays ON below: it is the only thing that supplies
 # the required approving review on a solo repo, so it is a merge mechanism here,
 # not a strictness setting.
+# The schema caps `tone_instructions` at 250 characters (maxLength in
+# schema.v2.json), so this stays terse by necessity — the longer rationale lives
+# in AGENTS.md §11, not here.
 tone_instructions: >-
-  This product has no outside users yet and ships fast. Only flag what is always
-  wrong: leaked secrets or credentials, injection and auth holes, and changes
-  that break the build or documented behaviour. Style, naming,
-  micro-performance and nits are optional suggestions — say so plainly. Never
-  propose widening the scope of the pull request; if something else needs
-  doing, say it belongs in a follow-up issue.
+  No outside users yet; this repo ships fast. Only flag leaked secrets,
+  injection or auth holes, and anything that breaks the build or documented
+  behaviour. Style, naming and nits are optional — say so. Never widen a PR's
+  scope; file a follow-up.
 reviews:
   profile: chill
   auto_review:

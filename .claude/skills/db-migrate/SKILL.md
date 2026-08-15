@@ -51,6 +51,21 @@ order from a clean checkout (worktrees cannot resolve `drizzle-orm`). Adding a t
 check is the same mistake wearing a hat — that list is a frozen baseline of historical
 debt, never a place to put new work.
 
+### What a NEW migration does about its snapshot
+
+Two different problems, one rule. The **historical** gap (0012–0018, 0020, 0021) is
+quarantined by the frozen baseline and is fixed only by regenerating the chain in order
+(`1c8d790e`). A **new** migration is not on that list, so the parity gate requires a real
+snapshot for it — and "real" is enforced, not assumed: the check rejects a snapshot whose
+`id` duplicates another (the signature of a copied file) and one whose `prevId` does not
+link to the previous present snapshot.
+
+So there is no approved copy-forward shortcut. A correct snapshot for a schema change is a
+full materialised model of the new schema and cannot be written by hand; copying the
+previous one records the *old* schema as the new baseline, which is precisely how the
+current gap started. If your change needs a snapshot, the chain has to be regenerated —
+otherwise the schema change waits on `1c8d790e`. Say which of the two you are doing.
+
 ## Procedure
 
 1. **Edit** `packages/db/src/schema.ts`.
