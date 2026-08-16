@@ -211,6 +211,18 @@ describe("check-migration-parity", () => {
     expect(issues).toEqual([]);
   });
 
+  test("rejects a migration tag whose numeric prefix differs from idx", () => {
+    const badJournal = journal(["0000_a", "0042_skipped_number"]);
+    const issues = analyzeMigrationParity(badJournal, [
+      "0000_a.sql",
+      "0042_skipped_number.sql",
+    ]);
+
+    expect(issues).toContain(
+      'journal entry "0042_skipped_number" (idx 1) must start with 0001_',
+    );
+  });
+
   test("flags a journal entry with no matching .sql file", () => {
     const issues = analyzeMigrationParity(journal(["0000_a", "0001_b"]), ["0000_a.sql"]);
 

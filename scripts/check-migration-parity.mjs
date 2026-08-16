@@ -203,6 +203,12 @@ export function analyzeMigrationParity(journal, sqlFileNames) {
 
   const journalFiles = new Set();
   for (const entry of entries) {
+    const expectedPrefix = String(entry.idx).padStart(4, "0");
+    if (!String(entry.tag).startsWith(`${expectedPrefix}_`)) {
+      issues.push(
+        `journal entry "${entry.tag}" (idx ${entry.idx}) must start with ${expectedPrefix}_`,
+      );
+    }
     const fileName = `${entry.tag}.sql`;
     journalFiles.add(fileName);
     if (!sqlFiles.has(fileName)) {
