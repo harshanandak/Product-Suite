@@ -71,7 +71,8 @@ const ROOT_PREV_ID = "00000000-0000-0000-0000-000000000000";
  * as the new baseline, which is how the existing drift started. So each present
  * snapshot is also checked for structure and for its link in the chain:
  *
- *   - it parses as JSON and carries every key in REQUIRED_SNAPSHOT_KEYS;
+ *   - it parses as JSON and carries every key in REQUIRED_SNAPSHOT_KEYS, each with
+ *     the right type (strings, except `tables` which is a non-array object);
  *   - its `id` is unique (a copied file re-uses the source's id);
  *   - its `prevId` equals the `id` of the previous PRESENT snapshot in journal
  *     order — ROOT_PREV_ID for the first one.
@@ -138,6 +139,18 @@ export function analyzeSnapshotParity(
     );
     if (missingKeys.length > 0) {
       issues.push(`meta/${snapshotName} is missing required snapshot ${missingKeys.length === 1 ? "key" : "keys"}: ${missingKeys.join(", ")}`);
+      continue;
+    }
+
+    // Present-but-wrong-shape is the same failure as absent: a numeric `id` never
+    // matches a `prevId` string, and an array `tables` is not a drizzle schema map.
+    const badTypes = REQUIRED_SNAPSHOT_KEYS.filter((key) =>
+      key === "tables"
+        ? typeof document[key] !== "object" || Array.isArray(document[key])
+        : typeof document[key] !== "string",
+    );
+    if (badTypes.length > 0) {
+      issues.push(`meta/${snapshotName} has the wrong type for snapshot ${badTypes.length === 1 ? "key" : "keys"}: ${badTypes.join(", ")} (id, prevId, version, dialect must be strings; tables must be an object)`);
       continue;
     }
 

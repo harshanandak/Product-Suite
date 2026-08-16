@@ -151,6 +151,16 @@ describe("snapshot-chain parity", () => {
     expect(issues[0]).toContain("missing required snapshot keys: version, dialect, tables");
   });
 
+  test("rejects structural keys that are present but the wrong type", () => {
+    const documents = snapshotChain(["0000_snapshot.json"]);
+    documents.set("0000_snapshot.json", { id: 0, prevId: ROOT_PREV_ID, version: 7, dialect: "postgresql", tables: [] });
+
+    const issues = analyzeSnapshotParity(journal(["0000_a"]), documents, []);
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toContain("wrong type for snapshot keys: id, version, tables");
+  });
+
   test("the chain hops over baseline gaps, as the real 0011 -> 0019 link does", () => {
     const documents = snapshotChain(["0000_snapshot.json", "0002_snapshot.json"]);
 
