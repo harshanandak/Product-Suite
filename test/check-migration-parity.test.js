@@ -169,6 +169,29 @@ describe("snapshot-chain parity", () => {
     expect(issues).toEqual([]);
   });
 
+  // Pinned literally, NOT derived from the tree or from the constant. Deriving
+  // either side makes the check circular: appending a new tag to both the journal
+  // and SNAPSHOTLESS_MIGRATION_BASELINE would stay green and quietly grow the
+  // exemption. These nine are the historical hole (issue 1c8d790e) and the list
+  // may only ever shrink.
+  const FROZEN_BASELINE_TAGS = [
+    "0012_proposals_reflected_at",
+    "0013_knowledge_base",
+    "0014_work_item_applied_from_proposal_partial",
+    "0015_meeting_promotions",
+    "0016_memory_ownership_axis",
+    "0017_proposal_target_snapshot",
+    "0018_collaboration_fabric",
+    "0020_canonical_membership_roles",
+    "0021_command_kernel",
+  ];
+
+  test("the baseline constant cannot grow past the nine historical entries", () => {
+    // Fails on ANY addition, so a new snapshotless migration cannot be waved
+    // through by appending its tag to the constant.
+    expect([...SNAPSHOTLESS_MIGRATION_BASELINE]).toEqual(FROZEN_BASELINE_TAGS);
+  });
+
   test("the frozen baseline names exactly the entries the real tree is missing", () => {
     const snapshots = new Set(
       readdirSync(join(REAL_MIGRATIONS_DIR, "meta")).filter((name) => name.endsWith("_snapshot.json")),
@@ -177,7 +200,7 @@ describe("snapshot-chain parity", () => {
       .filter((entry) => !snapshots.has(`${entry.tag.slice(0, 4)}_snapshot.json`))
       .map((entry) => entry.tag);
 
-    expect(missing).toEqual([...SNAPSHOTLESS_MIGRATION_BASELINE]);
+    expect(missing).toEqual(FROZEN_BASELINE_TAGS);
   });
 });
 
