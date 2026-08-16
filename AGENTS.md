@@ -226,6 +226,11 @@ replace it with a pointer.
 
 ## 10. Verification
 
+**Load [CODING_STANDARDS.md](CODING_STANDARDS.md) before you review anything** — your
+own diff, someone else's PR, or a `/review` pass. It is the line-level rulebook
+(validators, naming, error handling, the review-feedback policy) that §12's
+user-perceived standards sit on top of. Reviewing without it means the rules are inert.
+
 Targeted checks over full builds — run the lane that covers what you touched, not the
 whole matrix, and say which lane you ran.
 
