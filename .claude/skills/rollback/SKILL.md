@@ -51,8 +51,8 @@ Interactive menu with 6 options:
 - Shell metacharacters: Rejected (`;`, `|`, `&`, `$`, `` ` ``, `(`, `)`, `<`, `>`, `\n`, `\r`)
 
 **3. USER Section Preservation**
-- Automatically extracts USER sections before rollback
-- Restores USER sections after rollback
+- Automatically extracts and saves a byte-exact USER-section snapshot before rollback
+- Restores USER sections and compares them byte-for-byte with that snapshot
 - Re-establishes repository-declared pointer/generated entry points after rollback
 - Preserves custom commands in `.claude/commands/custom/`
 - Amends rollback commit to include restored content
@@ -82,10 +82,10 @@ Named USER section
 ```
 
 **Process**:
-1. Extract all USER sections from canonical instruction files such as AGENTS.md.
+1. Extract all USER sections from canonical instruction files such as AGENTS.md and save a byte-exact pre-rollback snapshot.
 2. Backup custom commands from `.claude/commands/custom/`.
 3. Execute the rollback operation.
-4. Restore USER sections to current canonical file content.
+4. Restore USER sections to current canonical file content and compare the extracted result byte-for-byte with the saved snapshot before continuing.
 5. Re-establish repository-declared pointer/generated entry points; in this repository, `CLAUDE.md` must remain exactly `@AGENTS.md` rather than restoring historical copied content.
 6. Restore custom command files.
 7. Amend the rollback commit to include restored content and pointer repairs.

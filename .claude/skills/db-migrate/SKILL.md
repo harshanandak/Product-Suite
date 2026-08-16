@@ -4,8 +4,9 @@ description: >
   Change the Product-Suite database schema safely: edit packages/db/src/schema.ts, HAND-AUTHOR
   the migration SQL (`drizzle-kit generate` is FORBIDDEN here — the meta snapshot chain is
   broken, so it emits a wrong or empty diff that looks plausible), add the 0-based journal
-  entry, run the parity check, then apply it manually with `bun run --cwd packages/db migrate`
-  and RE-FETCH `__drizzle_migrations` to prove it landed. Carries the ledger-offset landmine:
+  entry, run the parity check, then apply it to a development database only with
+  `bun run --cwd packages/db migrate`. Production uses the guarded `migrate:database`
+  executor and remains blocked for new suffixes until its allowlist is extended. RE-FETCH `__drizzle_migrations` to prove it landed. Carries the ledger-offset landmine:
   `__drizzle_migrations.id` is 1-based while `_journal.json` idx is 0-based, so ledger id N
   records journal idx N−1 — 16 rows means 0000–0015 applied, NOT 0016; misreading it nearly
   deleted a live migration record. Use whenever the task touches a table, column, enum, index,
@@ -99,7 +100,11 @@ otherwise the schema change waits on `1c8d790e`. Say which of the two you are do
      --history-variant original-production --expected-pending <tags>
    ```
    Never point the first command at production — it would hit whatever
-   `DATABASE_URL` happens to be and skip every safety check.
+   `DATABASE_URL` happens to be and skip every safety check. Before prescribing
+   the production command for a new migration, inspect `isProductionP0Allowed` in
+   `scripts/migrate-database.mjs`: it currently permits suffixes only through
+   0021. Later suffixes remain production-blocked until the executor and deploy
+   workflow are extended in the same change.
 7. **Re-fetch and prove it.** Query `__drizzle_migrations`, find *your* tag by its hash and
    timestamp, and say so. A migration that was written but never applied is invisible to
    every check in this repo — only the ledger knows.
