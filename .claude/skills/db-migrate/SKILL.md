@@ -86,11 +86,20 @@ otherwise the schema change waits on `1c8d790e`. Say which of the two you are do
    bun run check:migration-parity      # journal ↔ .sql ↔ snapshot chain
    bun run --cwd packages/db test
    ```
-6. **Apply — manual, against the live Neon database.** The deploy pipeline has never run
-   migrations automatically:
+6. **Apply — manual. The deploy pipeline has never run migrations automatically.**
+   Which command depends on which database, and they are not interchangeable:
    ```bash
+   # Your own dev database. drizzle-kit, reads DATABASE_URL, no guards.
    bun run --cwd packages/db migrate
+
+   # Production. The guarded executor the deploy workflow uses: reads
+   # MIGRATION_DATABASE_URL and enforces the history variant and the exact
+   # pending set (.github/workflows/platform-api-deploy.yml).
+   bun run migrate:database -- apply --environment production \
+     --history-variant original-production --expected-pending <tags>
    ```
+   Never point the first command at production — it would hit whatever
+   `DATABASE_URL` happens to be and skip every safety check.
 7. **Re-fetch and prove it.** Query `__drizzle_migrations`, find *your* tag by its hash and
    timestamp, and say so. A migration that was written but never applied is invisible to
    every check in this repo — only the ledger knows.

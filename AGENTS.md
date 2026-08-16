@@ -13,8 +13,10 @@ you could not see. Read §2–§9 before your first edit in a new area; §10 onw
 reference you can come back to.
 
 > *Provenance: product framing mined from 406 Codex + 4 Claude sessions in this repo,
-> Apr–Aug 2026 (`Roadmap/agent-transcript-mining-2026-08-13.md`), and the section
-> architecture from `Roadmap/theo-file-structures-and-ours-2026-08-13.md` Part C3.*
+> Apr–Aug 2026. The mining write-ups live in Harsha's separate `Roadmap` working
+> directory and are **not tracked in this repository** — do not go looking for them
+> here, and do not treat this note as a citation you can follow. This section stands
+> on its own; correct it against the code and the user, not against those files.*
 
 ## 2. What we can never compromise on
 
@@ -42,8 +44,9 @@ these, it is the wrong change — say so and propose a different one.
 > his rewrite*, kept here so the draft is not lost — treat it as a strong hint about
 > working style, never as a rule you can point at. Every other section of this file is
 > authoritative; this one becomes authoritative when Harsha replaces it in his own words.
-> *(See `agent-setup-overhaul-2026-08-12.md` §5.6 note 14: this block is hand-written by
-> Harsha; agent drafts are input, not the article.)*
+> *(The rule, recorded in Harsha's untracked overhaul notes and restated here so it
+> does not depend on them: this block is hand-written by Harsha; agent drafts are
+> input, not the article.)*
 
 Don't spend three hours on thirty lines. If a change is small, make it small and move.
 
