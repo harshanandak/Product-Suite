@@ -405,8 +405,9 @@ Pre-merge is a doc-update **gate/checkpoint**, not a separate stage — run it h
 1. **Finish the docs on the feature branch** (update only what genuinely changed):
    - `CHANGELOG.md` (always) — entry under `## [Unreleased]` using Keep a Changelog categories, with PR number + issue ID.
    - `README.md` (user-facing), `docs/reference/API_REFERENCE.md` (API), architecture docs (structural).
-   - `CLAUDE.md` — **USER section only** (between the USER markers); never touch other managed blocks.
-   - `AGENTS.md` (agent config, skills, or cross-agent workflow changes).
+   - `AGENTS.md` — the single editable source for agent config, skills, and cross-agent
+     workflow. `CLAUDE.md` is a one-line `@AGENTS.md` pointer with no USER markers and no
+     managed blocks: never edit it, never restore content into it.
    Commit the doc updates to the feature branch and push.
 2. **Confirm CI is green** — doc commits re-trigger CI; poll briefly (~60s), then hand off if still pending.
 3. **Sync the issue store** — `forge sync`.

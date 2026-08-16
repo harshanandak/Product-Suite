@@ -67,8 +67,14 @@ in a UI label or in a summary written back to him.
   `packages/db/src/schema.ts` and the ownership axis landed in
   `0016_memory_ownership_axis.sql`. Read that migration's header comment; it explains why
   visibility is a separate axis from scope and why the CHECK is biconditional.
-- Privacy is enforced at the database, not in application code. A nullable flag fails open
-  on every path that forgets it. Do not move that boundary up into TypeScript.
+- The database enforces the *shape* of privacy, not the filtering. The
+  `memories_private_requires_owner` CHECK guarantees a private row always names an owner
+  (and an org row never does), so the flag cannot fail open — but it does not filter
+  anything. **Every retrieval query must still carry the owner predicate itself**
+  (`visibility = 'private' AND owner_user_id = :asker`, as in
+  `apps/platform-api/src/agent/memory-retrieval.ts`). Drop the predicate and an
+  unfiltered query returns other users' private memories; the CHECK will not stop it.
+  Keep both halves — do not treat either as sufficient on its own.
 - Attribution is only recoverable going forward. If a change would make early runs
   unattributable, do it now rather than "later" — retrofitting permanently loses the cohort.
 

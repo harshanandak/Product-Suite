@@ -202,8 +202,15 @@ bun run test:prepush                         # what the pre-push hook runs
 # 3. Add the entry to packages/db/migrations/meta/_journal.json (idx is 0-based)
 # 4. bun run check:migration-parity
 # 5. bun run --cwd packages/db test
-# 6. Apply it — manual, against the live database:
+# 6. Apply it. Locally, against YOUR dev database (reads DATABASE_URL):
 bun run --cwd packages/db migrate
+#    Against production, never that command — go through the executor the deploy
+#    workflow uses, which reads MIGRATION_DATABASE_URL and enforces the history
+#    variant and the exact pending set (.github/workflows/platform-api-deploy.yml):
+#    bun run migrate:database -- apply --environment production \
+#      --history-variant original-production --expected-pending <tags>
+#    `packages/db migrate` would hit whatever DATABASE_URL points at and skip
+#    those checks entirely.
 # 7. Re-fetch __drizzle_migrations and prove your tag landed.
 #    Remember the offset: ledger id N == journal idx N-1.
 ```
