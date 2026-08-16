@@ -53,6 +53,7 @@ Interactive menu with 6 options:
 **3. USER Section Preservation**
 - Automatically extracts USER sections before rollback
 - Restores USER sections after rollback
+- Re-establishes repository-declared pointer/generated entry points after rollback
 - Preserves custom commands in `.claude/commands/custom/`
 - Amends rollback commit to include restored content
 
@@ -81,12 +82,13 @@ Named USER section
 ```
 
 **Process**:
-1. Extract all USER sections from AGENTS.md, CLAUDE.md, etc.
-2. Backup custom commands from `.claude/commands/custom/`
-3. Execute rollback operation
-4. Restore USER sections to current file content
-5. Restore custom command files
-6. Amend rollback commit to include restored content
+1. Extract all USER sections from canonical instruction files such as AGENTS.md.
+2. Backup custom commands from `.claude/commands/custom/`.
+3. Execute the rollback operation.
+4. Restore USER sections to current canonical file content.
+5. Re-establish repository-declared pointer/generated entry points; in this repository, `CLAUDE.md` must remain exactly `@AGENTS.md` rather than restoring historical copied content.
+6. Restore custom command files.
+7. Amend the rollback commit to include restored content and pointer repairs.
 
 **Result**: Your customizations survive rollback operations.
 

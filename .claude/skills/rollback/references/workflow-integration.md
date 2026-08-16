@@ -277,7 +277,8 @@ if (/[;|&$`()<>\r\n]/.test(file)) {
 ### Data Preservation
 
 **Always preserved**:
-- USER sections in all files
+- USER sections in canonical instruction files
+- Repository-declared pointer/generated entry points (`CLAUDE.md` is exactly `@AGENTS.md` here)
 - Custom commands in `.claude/commands/custom/`
 - Git history (revert creates new commits)
 - Untracked files (not affected)
@@ -302,8 +303,9 @@ bunx forge rollback
 bunx forge rollback
 # Select appropriate method
 
-# 4. Verify USER sections preserved
+# 4. Verify USER sections and pointer invariants preserved
 grep -A5 "USER:START" AGENTS.md
+test "$(cat CLAUDE.md)" = "@AGENTS.md"
 
 # 5. Push if needed (after verification)
 git push
@@ -424,7 +426,9 @@ bunx forge rollback
 #
 #   USER sections that would be preserved:
 #     - AGENTS.md: 2 sections
-#     - CLAUDE.md: 1 section
+#
+#   Pointer invariants that would be re-established:
+#     - CLAUDE.md: @AGENTS.md
 #
 #   Custom commands that would be preserved:
 #     - .claude/commands/custom/deploy.md
