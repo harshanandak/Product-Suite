@@ -36,8 +36,8 @@ export async function GET(request: Request) {
 ## CRITICAL RULES
 
 - **ALWAYS** use `requireAuth()` for protected routes that do not require team membership; do not call `supabase.auth.getUser()` directly.
-- **ALWAYS** call `requireTeamMembership()` once when `team_id` comes from the request; it authenticates and verifies membership. When the team is derived from the caller, call `requireAuth()` once, then use an explicit or active team context with `requireTeamMembership()`; use `resolveCallerTeam()` only where the data model guarantees one membership, never to infer a team for multi-team callers.
-- **ALWAYS** scope queries to the resource's canonical parent. For a request-supplied `workspace_id`, load its `team_id`, call `requireTeamMembership(supabase, workspace.team_id)`, and filter resource queries by `workspace_id`. Use `resolveCallerTeam()` only when deriving the team from the caller.
+- **ALWAYS** call `requireTeamMembership()` once when `team_id` comes from the request; it authenticates and verifies membership. When the team is derived from the caller, use the caller's explicit or active team context and call `requireTeamMembership(supabase, teamId)` once; do not call `requireAuth()` separately first. For a data model that guarantees one membership, call `requireAuth()` once and then `resolveCallerTeam()`.
+- **ALWAYS** scope queries to the resource's canonical parent. For a request-supplied `workspace_id`, load its `team_id`, call `requireTeamMembership(supabase, workspace.team_id)`, and filter resource queries by `workspace_id`. Use `resolveCallerTeam()` only for single-membership caller-derived cases.
 - **ALWAYS** document intentionally public or token-authenticated routes and apply their endpoint-specific verification instead of copying the protected pattern.
 - **NEVER** return raw Supabase errors to client
 - Use `NextResponse.json()` for responses
