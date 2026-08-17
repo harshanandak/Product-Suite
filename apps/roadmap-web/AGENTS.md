@@ -22,7 +22,7 @@ src/
 | Task | Location |
 |------|----------|
 | Add page | Maintain an existing legacy page under `src/app/(dashboard)/`; new product pages go in `apps/platform-web` |
-| Add API | `src/app/api/[resource]/route.ts` |
+| Add API | Maintain an existing route under `src/app/api/[resource]/route.ts`; new product APIs go in `apps/platform-api` |
 | Add component | `src/components/[feature]/` |
 | Add hook | `src/hooks/use-[name].ts` |
 | Add types | `src/lib/types/` (extend existing) |
