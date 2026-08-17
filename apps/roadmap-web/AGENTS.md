@@ -1,6 +1,6 @@
 # Next.js Application
 
-**Scope**: UI, API routes, hooks, state management
+**Scope**: UI, API routes, hooks, and state management in this transitional legacy app. Do not add new product feature code here; new product pages belong in `apps/platform-web`.
 
 ## STRUCTURE
 
@@ -21,7 +21,7 @@ src/
 
 | Task | Location |
 |------|----------|
-| Add page | `src/app/(dashboard)/` |
+| Add page | Maintain an existing legacy page under `src/app/(dashboard)/`; new product pages go in `apps/platform-web` |
 | Add API | `src/app/api/[resource]/route.ts` |
 | Add component | `src/components/[feature]/` |
 | Add hook | `src/hooks/use-[name].ts` |
