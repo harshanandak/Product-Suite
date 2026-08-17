@@ -277,7 +277,8 @@ if (/[;|&$`()<>\r\n]/.test(file)) {
 ### Data Preservation
 
 **Always preserved**:
-- USER sections in all files
+- USER sections in canonical instruction files
+- Repository-declared pointer/generated entry points (`CLAUDE.md` is exactly `@AGENTS.md` here)
 - Custom commands in `.claude/commands/custom/`
 - Git history (revert creates new commits)
 - Untracked files (not affected)
@@ -290,22 +291,30 @@ if (/[;|&$`()<>\r\n]/.test(file)) {
 ### Recommended Workflow
 
 ```bash
-# 1. Always commit work before rollback
+# 1. Save a byte-exact USER-section snapshot before rollback
+user_snapshot="$(mktemp)"
+sed -n '/<!-- USER:START/,/<!-- USER:END/p' AGENTS.md > "$user_snapshot"
+
+# 2. Always commit work before rollback
 git add .
 git commit -m "wip: current state"
 
-# 2. Use dry run to preview
+# 3. Use dry run to preview
 bunx forge rollback
 # Select: 6. Preview rollback (dry run)
 
-# 3. Execute rollback
+# 4. Execute rollback
 bunx forge rollback
 # Select appropriate method
 
-# 4. Verify USER sections preserved
-grep -A5 "USER:START" AGENTS.md
+# 5. Verify USER sections and pointer invariants byte-for-byte
+restored_snapshot="$(mktemp)"
+sed -n '/<!-- USER:START/,/<!-- USER:END/p' AGENTS.md > "$restored_snapshot"
+cmp -s "$user_snapshot" "$restored_snapshot"
+printf '%s\n' '@AGENTS.md' | cmp -s - CLAUDE.md
+rm -f "$user_snapshot" "$restored_snapshot"
 
-# 5. Push if needed (after verification)
+# 6. Push if needed (after verification)
 git push
 ```
 
@@ -424,7 +433,9 @@ bunx forge rollback
 #
 #   USER sections that would be preserved:
 #     - AGENTS.md: 2 sections
-#     - CLAUDE.md: 1 section
+#
+#   Pointer invariants that would be re-established:
+#     - CLAUDE.md: @AGENTS.md
 #
 #   Custom commands that would be preserved:
 #     - .claude/commands/custom/deploy.md

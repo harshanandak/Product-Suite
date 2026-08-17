@@ -111,20 +111,22 @@ git commit -m "chore: rollback <files>"
 ```bash
 bunx forge rollback
 # Select: 4. Rollback specific files
-# Enter: AGENTS.md,CLAUDE.md
+# Enter: AGENTS.md
 
 ✓ Validating file paths...
 ✓ Working directory is clean
 ✓ Extracting USER sections...
-✓ Executing: git checkout HEAD~1 -- AGENTS.md CLAUDE.md
+✓ Executing: git checkout HEAD~1 -- AGENTS.md
 ✓ Committing changes...
 ✓ Restoring USER sections...
 ✓ Amended commit to preserve USER content
 
 Rollback complete!
-  Commit: q4r5s6t "chore: rollback AGENTS.md, CLAUDE.md"
-  Files affected: 2
+  Commit: q4r5s6t "chore: rollback AGENTS.md"
+  Files affected: 1
 ```
+
+After any rollback that touches instruction files, restore repository-declared entry-point invariants. In this repository, `CLAUDE.md` remains exactly `@AGENTS.md`; never restore an older copied instruction body into it.
 
 **Path validation**:
 - Comma-separated file paths

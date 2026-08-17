@@ -11,7 +11,22 @@
 # The companion workflow .github/workflows/coderabbit-after-tests.yml comments
 # "@coderabbitai review" once CI passes — that command runs the review on those
 # PRs too, after tests are green.
+#
+# Pre-user shipping regime (decided 2026-08-16): review feedback is advisory
+# except secrets, injection, and a broken build — and it never expands the PR.
+# `request_changes_workflow` stays ON below: it is the only thing that supplies
+# the required approving review on a solo repo, so it is a merge mechanism here,
+# not a strictness setting.
+# The schema caps `tone_instructions` at 250 characters (maxLength in
+# schema.v2.json), so this stays terse by necessity — the longer rationale lives
+# in AGENTS.md §11, not here.
+tone_instructions: >-
+  No outside users yet; this repo ships fast. Only flag leaked secrets,
+  injection or auth holes, and anything that breaks the build or documented
+  behaviour. Style, naming and nits are optional — say so. Never widen a PR's
+  scope; file a follow-up.
 reviews:
+  profile: chill
   auto_review:
     enabled: true
     auto_incremental_review: true

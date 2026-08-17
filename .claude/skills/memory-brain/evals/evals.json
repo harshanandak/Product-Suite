@@ -1,0 +1,46 @@
+[
+  {
+    "query": "Improve the memory injection ranker so the most relevant decisions surface first.",
+    "should_trigger": true
+  },
+  {
+    "query": "Why doesn't the agent remember the decision we made about the canvas last week?",
+    "should_trigger": true
+  },
+  {
+    "query": "Pick up the memory brain issue about reflection and get it moving.",
+    "should_trigger": true
+  },
+  {
+    "query": "Wire the knowledge base into agent chat so it can cite past decisions.",
+    "should_trigger": true
+  },
+  {
+    "query": "Add a holdout so we can measure whether injected memories actually change behaviour.",
+    "should_trigger": true
+  },
+  {
+    "query": "Should a private memory be modelled as scope_type='user' or as its own visibility axis?",
+    "should_trigger": true
+  },
+  {
+    "query": "Is capture actually writing anything yet, or are we optimizing an empty table?",
+    "should_trigger": true
+  },
+  {
+    "query": "Use forge remember to save this convention so the next session picks it up.",
+    "should_trigger": false
+  },
+  {
+    "query": "Add an index to the proposals table and write the migration SQL.",
+    "should_trigger": false
+  },
+  {
+    "query": "Update my global CLAUDE.md with what we learned this session.",
+    "should_trigger": false
+  },
+  {
+    "query": "The chat input loses focus after sending a message — fix it.",
+    "should_trigger": false
+  }
+]

@@ -4,7 +4,13 @@ import { join } from "node:path";
 
 import { describe, expect, test } from "bun:test";
 
-import { analyzeMigrationParity, validateMigrationHistory, validateOriginalProductionRows } from "../scripts/check-migration-parity.mjs";
+import {
+  analyzeMigrationParity,
+  analyzeSnapshotParity,
+  SNAPSHOTLESS_MIGRATION_BASELINE,
+  validateMigrationHistory,
+  validateOriginalProductionRows,
+} from "../scripts/check-migration-parity.mjs";
 
 const SCRIPT_PATH = join(import.meta.dir, "..", "scripts", "check-migration-parity.mjs");
 const REAL_MIGRATIONS_DIR = join(import.meta.dir, "..", "packages", "db", "migrations");
@@ -35,11 +41,186 @@ function journal(tags) {
   };
 }
 
+const ROOT_PREV_ID = "00000000-0000-0000-0000-000000000000";
+
+/**
+ * Builds a structurally valid, correctly linked snapshot chain for the given
+ * filenames — the shape the analyzer should accept. Tests that exercise a
+ * specific defect mutate one entry of the result rather than hand-rolling a
+ * whole tree, so the defect under test is the only thing that differs.
+ */
+function snapshotChain(names) {
+  const documents = new Map();
+  let prevId = ROOT_PREV_ID;
+  for (const name of names) {
+    const id = `id-${name.slice(0, 4)}`;
+    documents.set(name, { id, prevId, version: "7", dialect: "postgresql", tables: {} });
+    prevId = id;
+  }
+  return documents;
+}
+
+function realSnapshotDocuments() {
+  const metaDir = join(REAL_MIGRATIONS_DIR, "meta");
+  return new Map(
+    readdirSync(metaDir)
+      .filter((name) => name.endsWith("_snapshot.json"))
+      .map((name) => [name, JSON.parse(readFileSync(join(metaDir, name), "utf8"))]),
+  );
+}
+
+describe("snapshot-chain parity", () => {
+  test("passes when every journal entry has a snapshot", () => {
+    const issues = analyzeSnapshotParity(journal(["0000_a", "0001_b"]), snapshotChain(["0000_snapshot.json", "0001_snapshot.json"]), []);
+
+    expect(issues).toEqual([]);
+  });
+
+  test("flags a new migration shipped without a snapshot", () => {
+    const issues = analyzeSnapshotParity(journal(["0000_a", "0001_b"]), snapshotChain(["0000_snapshot.json"]), []);
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toContain('journal entry "0001_b" has no meta/0001_snapshot.json');
+  });
+
+  test("does not flag a baseline entry that is still missing its snapshot", () => {
+    const issues = analyzeSnapshotParity(journal(["0000_a", "0001_b"]), snapshotChain(["0000_snapshot.json"]), ["0001_b"]);
+
+    expect(issues).toEqual([]);
+  });
+
+  test("flags a baseline entry once its snapshot is regenerated, so the list shrinks", () => {
+    const issues = analyzeSnapshotParity(journal(["0000_a", "0001_b"]), snapshotChain(["0000_snapshot.json", "0001_snapshot.json"]), ["0001_b"]);
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toContain("drop it from SNAPSHOTLESS_MIGRATION_BASELINE");
+  });
+
+  test("the real repo tree has no snapshot drift outside the frozen baseline", () => {
+    expect(analyzeSnapshotParity(JOURNAL, realSnapshotDocuments())).toEqual([]);
+  });
+
+  test("rejects a copied-and-renamed snapshot, which re-uses the source's id", () => {
+    // The whole point of the gate: a copy records the OLD schema as the new
+    // baseline. Presence-only checking accepted this.
+    const documents = snapshotChain(["0000_snapshot.json", "0001_snapshot.json"]);
+    documents.set("0001_snapshot.json", { ...documents.get("0000_snapshot.json") });
+
+    const issues = analyzeSnapshotParity(journal(["0000_a", "0001_b"]), documents, []);
+
+    expect(issues.some((issue) => issue.includes("re-uses the snapshot id of meta/0000_snapshot.json"))).toBe(true);
+  });
+
+  test("rejects a snapshot that does not link to the previous one", () => {
+    const documents = snapshotChain(["0000_snapshot.json", "0001_snapshot.json"]);
+    documents.set("0001_snapshot.json", { ...documents.get("0001_snapshot.json"), prevId: "id-of-nothing" });
+
+    const issues = analyzeSnapshotParity(journal(["0000_a", "0001_b"]), documents, []);
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toContain("does not link to the previous snapshot");
+  });
+
+  test("rejects a snapshot that has no journal entry at all", () => {
+    const documents = snapshotChain(["0000_snapshot.json"]);
+    documents.set("9999_snapshot.json", { id: "id-9999", prevId: ROOT_PREV_ID, version: "7", dialect: "postgresql", tables: {} });
+
+    const issues = analyzeSnapshotParity(journal(["0000_a"]), documents, []);
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toContain("meta/9999_snapshot.json has no matching entry in meta/_journal.json");
+  });
+
+  test("rejects an unparseable or unreadable snapshot instead of skipping it", () => {
+    const documents = snapshotChain(["0000_snapshot.json"]);
+    documents.set("0000_snapshot.json", null);
+
+    const issues = analyzeSnapshotParity(journal(["0000_a"]), documents, []);
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toContain("is not readable as a JSON snapshot object");
+  });
+
+  test("rejects a snapshot missing the structural keys drizzle always writes", () => {
+    const documents = snapshotChain(["0000_snapshot.json"]);
+    documents.set("0000_snapshot.json", { id: "id-0000", prevId: ROOT_PREV_ID });
+
+    const issues = analyzeSnapshotParity(journal(["0000_a"]), documents, []);
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toContain("missing required snapshot keys: version, dialect, tables");
+  });
+
+  test("rejects structural keys that are present but the wrong type", () => {
+    const documents = snapshotChain(["0000_snapshot.json"]);
+    documents.set("0000_snapshot.json", { id: 0, prevId: ROOT_PREV_ID, version: 7, dialect: "postgresql", tables: [] });
+
+    const issues = analyzeSnapshotParity(journal(["0000_a"]), documents, []);
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toContain("wrong type for snapshot keys: id, version, tables");
+  });
+
+  test("the chain hops over baseline gaps, as the real 0011 -> 0019 link does", () => {
+    const documents = snapshotChain(["0000_snapshot.json", "0002_snapshot.json"]);
+
+    const issues = analyzeSnapshotParity(journal(["0000_a", "0001_b", "0002_c"]), documents, ["0001_b"]);
+
+    expect(issues).toEqual([]);
+  });
+
+  // Pinned literally, NOT derived from the tree or from the constant. Deriving
+  // either side makes the check circular: appending a new tag to both the journal
+  // and SNAPSHOTLESS_MIGRATION_BASELINE would stay green and quietly grow the
+  // exemption. These nine are the historical hole (issue 1c8d790e) and the list
+  // may only ever shrink.
+  const FROZEN_BASELINE_TAGS = [
+    "0012_proposals_reflected_at",
+    "0013_knowledge_base",
+    "0014_work_item_applied_from_proposal_partial",
+    "0015_meeting_promotions",
+    "0016_memory_ownership_axis",
+    "0017_proposal_target_snapshot",
+    "0018_collaboration_fabric",
+    "0020_canonical_membership_roles",
+    "0021_command_kernel",
+  ];
+
+  test("the baseline constant cannot grow past the nine historical entries", () => {
+    // Fails on ANY addition, so a new snapshotless migration cannot be waved
+    // through by appending its tag to the constant.
+    expect([...SNAPSHOTLESS_MIGRATION_BASELINE]).toEqual(FROZEN_BASELINE_TAGS);
+  });
+
+  test("the frozen baseline names exactly the entries the real tree is missing", () => {
+    const snapshots = new Set(
+      readdirSync(join(REAL_MIGRATIONS_DIR, "meta")).filter((name) => name.endsWith("_snapshot.json")),
+    );
+    const missing = JOURNAL.entries
+      .filter((entry) => !snapshots.has(`${entry.tag.slice(0, 4)}_snapshot.json`))
+      .map((entry) => entry.tag);
+
+    expect(missing).toEqual(FROZEN_BASELINE_TAGS);
+  });
+});
+
 describe("check-migration-parity", () => {
   test("passes when journal entries and .sql files agree", () => {
     const issues = analyzeMigrationParity(journal(["0000_a", "0001_b"]), ["0000_a.sql", "0001_b.sql"]);
 
     expect(issues).toEqual([]);
+  });
+
+  test("rejects a migration tag whose numeric prefix differs from idx", () => {
+    const badJournal = journal(["0000_a", "0042_skipped_number"]);
+    const issues = analyzeMigrationParity(badJournal, [
+      "0000_a.sql",
+      "0042_skipped_number.sql",
+    ]);
+
+    expect(issues).toContain(
+      'journal entry "0042_skipped_number" (idx 1) must start with 0001_',
+    );
   });
 
   test("flags a journal entry with no matching .sql file", () => {
@@ -130,6 +311,52 @@ describe("check-migration-parity", () => {
 
       expect(status).not.toBe(0);
       expect(stderr).toContain("outside the expected migrations tree");
+    });
+
+    test("exits non-zero for a new migration paired with a copied snapshot", () => {
+      // End-to-end regression for the reported bypass: before snapshot content
+      // was validated, adding 0022.sql + a journal entry + a renamed copy of
+      // 0019_snapshot.json passed the CLI, silently making the 0019 schema the
+      // baseline for every later diff.
+      const fixture = mkdtempSync(join(REAL_MIGRATIONS_DIR, ".parity-test-"));
+      try {
+        for (const file of readdirSync(REAL_MIGRATIONS_DIR).filter((name) => name.endsWith(".sql"))) {
+          copyFileSync(join(REAL_MIGRATIONS_DIR, file), join(fixture, file));
+        }
+        cpSync(join(REAL_MIGRATIONS_DIR, "meta"), join(fixture, "meta"), { recursive: true });
+
+        const tag = "0022_copied_snapshot_probe";
+        writeFileSync(join(fixture, `${tag}.sql`), "SELECT 1;\n");
+        const fixtureJournal = JSON.parse(readFileSync(join(fixture, "meta", "_journal.json"), "utf8"));
+        fixtureJournal.entries.push({ idx: fixtureJournal.entries.length, version: "7", when: Date.now(), tag, breakpoints: true });
+        writeFileSync(join(fixture, "meta", "_journal.json"), JSON.stringify(fixtureJournal, null, 2));
+        copyFileSync(join(fixture, "meta", "0019_snapshot.json"), join(fixture, "meta", "0022_snapshot.json"));
+
+        const { status, stderr } = runCli([fixture]);
+
+        expect(status).not.toBe(0);
+        expect(stderr).toContain("re-uses the snapshot id");
+      } finally {
+        rmSync(fixture, { recursive: true, force: true });
+      }
+    });
+
+    test("exits non-zero for a snapshot with no journal entry", () => {
+      const fixture = mkdtempSync(join(REAL_MIGRATIONS_DIR, ".parity-test-"));
+      try {
+        for (const file of readdirSync(REAL_MIGRATIONS_DIR).filter((name) => name.endsWith(".sql"))) {
+          copyFileSync(join(REAL_MIGRATIONS_DIR, file), join(fixture, file));
+        }
+        cpSync(join(REAL_MIGRATIONS_DIR, "meta"), join(fixture, "meta"), { recursive: true });
+        copyFileSync(join(fixture, "meta", "0019_snapshot.json"), join(fixture, "meta", "9999_snapshot.json"));
+
+        const { status, stderr } = runCli([fixture]);
+
+        expect(status).not.toBe(0);
+        expect(stderr).toContain("meta/9999_snapshot.json has no matching entry in meta/_journal.json");
+      } finally {
+        rmSync(fixture, { recursive: true, force: true });
+      }
     });
 
     test("exits non-zero when a manifest-pinned snapshot is changed", () => {

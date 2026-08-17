@@ -1,0 +1,46 @@
+[
+  {
+    "query": "I need to add an `archived_at` timestamp to the items table — walk me through it.",
+    "should_trigger": true
+  },
+  {
+    "query": "Can I just run drizzle-kit generate to create this migration?",
+    "should_trigger": true
+  },
+  {
+    "query": "The ledger has 16 rows in __drizzle_migrations. Does that mean 0016 has been applied?",
+    "should_trigger": true
+  },
+  {
+    "query": "check:migration-parity is failing on my branch with a snapshot complaint. What do I do?",
+    "should_trigger": true
+  },
+  {
+    "query": "I wrote the SQL and the journal entry and CI is green — is the migration live on Neon?",
+    "should_trigger": true
+  },
+  {
+    "query": "Add a new enum value to memory_visibility and make sure it actually lands.",
+    "should_trigger": true
+  },
+  {
+    "query": "Why are all the migrations after 0011 hand-written instead of generated?",
+    "should_trigger": true
+  },
+  {
+    "query": "Write a query that lists every item connected to a given board for the dashboard.",
+    "should_trigger": false
+  },
+  {
+    "query": "Add a Supabase migration under infra/supabase for the legacy roadmap app.",
+    "should_trigger": false
+  },
+  {
+    "query": "File a Forge kernel issue about the flaky branch-lease test.",
+    "should_trigger": false
+  },
+  {
+    "query": "The board list renders the owner column as owner_user_id — fix the label.",
+    "should_trigger": false
+  }
+]

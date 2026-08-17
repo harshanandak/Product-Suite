@@ -1,0 +1,46 @@
+[
+  {
+    "query": "Build the item detail panel to match the mockup in the design folder.",
+    "should_trigger": true
+  },
+  {
+    "query": "What colour should the raised surface be on the board? I was going to use #f4f4f5.",
+    "should_trigger": true
+  },
+  {
+    "query": "Dark mode looks broken on the chat sidebar after my change.",
+    "should_trigger": true
+  },
+  {
+    "query": "These column headers read like code — owner_user_id, created_at. Clean them up.",
+    "should_trigger": true
+  },
+  {
+    "query": "Add a compact variant to the card component and use it on the canvas.",
+    "should_trigger": true
+  },
+  {
+    "query": "Which ui-* package should this new chart legend component live in?",
+    "should_trigger": true
+  },
+  {
+    "query": "Check the contrast on the muted text token before I ship this.",
+    "should_trigger": true
+  },
+  {
+    "query": "Add a status column to the items table and write the migration.",
+    "should_trigger": false
+  },
+  {
+    "query": "The SDK's listItems call is returning a 500 — trace the contract.",
+    "should_trigger": false
+  },
+  {
+    "query": "Should we build our own canvas engine or adopt BlockSuite?",
+    "should_trigger": false
+  },
+  {
+    "query": "Count how many rows are in the memories table.",
+    "should_trigger": false
+  }
+]
