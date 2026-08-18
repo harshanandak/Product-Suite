@@ -5,10 +5,12 @@ const CLASSIFIER_VERSION = "1.0.0";
 const SHA_PATTERN = /^[a-f0-9]{40}$/i;
 const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/;
 const ROOT_DEPENDENCY_FILES = new Set(["package.json", "bun.lock"]);
+const ROADMAP_API_DOCUMENTATION_PATTERN = /^apps\/roadmap-web\/src\/app\/api(?:\/[^/]+)*\/(?:agents|claude)\.md$/i;
 
 const T0_ALLOWLIST = [
   /^README\.md$/,
   /^docs\/(?!deployment\/)[^/]+(?:\/[^/]+)*\.md$/,
+  ROADMAP_API_DOCUMENTATION_PATTERN,
   /^\.editorconfig$/,
   /^\.markdownlint(?:-cli2)?(?:\.jsonc?|\.ya?ml)?$/,
   /^cspell\.json$/,
@@ -134,6 +136,7 @@ const isRootAuthorityPath = (lower) => [
   lower.startsWith(".github/workflows/"),
   lower.startsWith("scripts/delivery/"),
   lower.startsWith("apps/platform-api/"),
+  lower.startsWith("apps/roadmap-web/src/app/api/"),
   lower.startsWith("packages/db/"),
   lower === "docs/deployment.md",
   lower.startsWith("docs/deployment/"),
@@ -145,6 +148,7 @@ const isSensitiveNamePath = (lower) => [
 ].some((pattern) => pattern.test(lower));
 
 const isSensitiveOrAuthorityPath = (path) => {
+  if (ROADMAP_API_DOCUMENTATION_PATTERN.test(path)) return false;
   const lower = path.toLowerCase();
   return isRootAuthorityPath(lower) || AUTHORITY_CONFIG_PATTERN.test(lower) || isSensitiveNamePath(lower);
 };
