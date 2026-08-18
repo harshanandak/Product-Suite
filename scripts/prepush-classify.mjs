@@ -107,6 +107,17 @@ export const FAST_NOTE = "mode: fast (lint+typecheck only, tests deferred to CI)
 export const CI_PLAN_SCHEMA_VERSION = "ci-change-plan.v1";
 
 const SHA_PATTERN = /^[0-9a-f]{40}$/i;
+export const ROADMAP_API_CLAUDE_PATTERN =
+  /^apps\/roadmap-web\/src\/app\/api(?:\/[^/]+)*\/claude\.md$/i;
+const ROADMAP_API_CLAUDE_POINTER = "@AGENTS.md\n";
+
+const exactFileContent = (fileContents, file) =>
+  fileContents && typeof fileContents === "object" && !Array.isArray(fileContents)
+    ? fileContents[file]
+    : undefined;
+
+const isRoadmapApiClaudePointer = (file, fileContents) =>
+  ROADMAP_API_CLAUDE_PATTERN.test(file) && exactFileContent(fileContents, file) === ROADMAP_API_CLAUDE_POINTER;
 
 // CI-impacting paths are intentionally owned by this module rather than by a
 // second set of workflow regexes.  The normal pre-push classifier remains
@@ -169,7 +180,7 @@ function normalizedFiles(files) {
   );
 }
 
-export function ciDbEvidenceRequired(files, result = classify(files)) {
+export function ciDbEvidenceRequired(files, result = classify(files), fileContents) {
   if (result.kind === FULL || result.kind === SCOPED && files === null) return true;
   if (!Array.isArray(files) || files.length === 0) return true;
   if (result.kind === DOCS) {
@@ -178,11 +189,15 @@ export function ciDbEvidenceRequired(files, result = classify(files)) {
       || /^\.sonarcloud\.properties$/.test(file),
     );
   }
-  return files.some((file) => CI_DB_REQUIRED.some((pattern) => pattern.test(file)));
+  return files.some(
+    (file) =>
+      !isRoadmapApiClaudePointer(file, fileContents) &&
+      CI_DB_REQUIRED.some((pattern) => pattern.test(file)),
+  );
 }
 
-function ciClassification(files, result) {
-  if (ciDbEvidenceRequired(files, result) && result.kind !== FULL) return FULL;
+function ciClassification(files, result, fileContents) {
+  if (ciDbEvidenceRequired(files, result, fileContents) && result.kind !== FULL) return FULL;
   return result.kind;
 }
 
@@ -203,8 +218,8 @@ export function buildCiPlan(filesOrOptions, exactSha) {
   const requestedSha = options.exactSha ?? options.headSha ?? options.head;
   const validSha = isValidSha(requestedSha);
   const result = classify(files);
-  const dbEvidenceRequired = !validSha || ciDbEvidenceRequired(files, result);
-  const classification = !validSha ? FULL : ciClassification(files, result);
+  const dbEvidenceRequired = !validSha || ciDbEvidenceRequired(files, result, options.fileContents);
+  const classification = !validSha ? FULL : ciClassification(files, result, options.fileContents);
   let reason = result.reason ?? "scoped changed workspace";
   if (!validSha) reason = "invalid exact head SHA";
   else if (classification === FULL && result.kind !== FULL) reason = "authority/security/migration/CI change";

@@ -5,7 +5,11 @@
 import { appendFileSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
-import { buildCiPlan, isValidSha } from "./prepush-classify.mjs";
+import {
+  buildCiPlan,
+  isValidSha,
+  ROADMAP_API_CLAUDE_PATTERN,
+} from "./prepush-classify.mjs";
 
 const GIT_EXECUTABLES = Object.freeze({
   win32: Object.freeze([
@@ -35,13 +39,31 @@ function changedFiles(baseSha, headSha) {
   }
 }
 
+function changedFileContents(headSha, files) {
+  const gitExecutable = resolveGitExecutable();
+  if (!gitExecutable) return undefined;
+  const contents = {};
+  for (const file of files.filter((candidate) => ROADMAP_API_CLAUDE_PATTERN.test(candidate))) {
+    try {
+      contents[file] = execFileSync(
+        gitExecutable,
+        ["show", `${headSha}:${file}`],
+        { encoding: "utf8" },
+      );
+    } catch {
+      // Missing/deleted blobs intentionally stay absent and fail closed.
+    }
+  }
+  return contents;
+}
+
 function normalizeFiles(files) {
   if (Array.isArray(files)) return files;
   if (typeof files !== "string") return null;
   return files.split(/[\r\n,]+/).map((file) => file.trim()).filter(Boolean);
 }
 
-export function planFromInputs({ baseSha, headSha, files } = {}) {
+export function planFromInputs({ baseSha, headSha, files, fileContents } = {}) {
   const validBase = isValidSha(baseSha) && !/^0{40}$/.test(baseSha);
   const validHead = isValidSha(headSha) && !/^0{40}$/.test(headSha);
   let suppliedFiles;
@@ -52,7 +74,16 @@ export function planFromInputs({ baseSha, headSha, files } = {}) {
   // A malformed base or unavailable diff still has a trustworthy head supplied
   // by GitHub. Preserve it so full cheap gates can run against that exact commit;
   // only a malformed head prevents checkout and remains a hard failure.
-  const plan = buildCiPlan(suppliedFiles, validHead ? headSha : null);
+  const resolvedFileContents = fileContents ?? (
+    validHead && Array.isArray(suppliedFiles)
+      ? changedFileContents(headSha, suppliedFiles)
+      : undefined
+  );
+  const plan = buildCiPlan({
+    files: suppliedFiles,
+    exactSha: validHead ? headSha : null,
+    fileContents: resolvedFileContents,
+  });
   if (!validRange) {
     plan.exactSha = validHead ? headSha.trim().toLowerCase() : null;
     plan.inputValid = false;

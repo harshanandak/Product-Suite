@@ -139,6 +139,57 @@ describe("change-aware CI plan", () => {
     expect(plan.dbEvidenceReason).toBe("non-authority change");
   });
 
+  test("Roadmap API CLAUDE pointer guidance stays off the DB Contract path", () => {
+    for (const file of [
+      "apps/roadmap-web/src/app/api/CLAUDE.md",
+      "apps/roadmap-web/src/app/api/dependencies/CLAUDE.md",
+    ]) {
+      const plan = buildCiPlan({
+        files: [file],
+        exactSha: SHA,
+        fileContents: { [file]: "@AGENTS.md\n" },
+      });
+      expect(plan.dbEvidenceRequired, file).toBe(false);
+      expect(plan.classification, file).toBe("scoped");
+      expect(plan.cheapScripts, file).toContain("test:roadmap-canvas-boundary");
+      expect(plan.cheapScripts, file).not.toContain("verify:roadmap-web");
+    }
+  });
+
+  test("Roadmap API CLAUDE changes without verified pointer content fail closed", () => {
+    const file = "apps/roadmap-web/src/app/api/CLAUDE.md";
+    for (const fileContents of [undefined, {}, { [file]: "# changed guidance\n" }]) {
+      const plan = buildCiPlan({ files: [file], exactSha: SHA, fileContents });
+      expect(plan.dbEvidenceRequired, JSON.stringify(fileContents)).toBe(true);
+      expect(plan.classification, JSON.stringify(fileContents)).toBe("full-suite");
+    }
+  });
+
+  test("Roadmap API AGENTS guidance and behavior remain fail-closed", () => {
+    for (const file of [
+      "apps/roadmap-web/src/app/api/AGENTS.md",
+      "apps/roadmap-web/src/app/api/dependencies/AGENTS.md",
+      "apps/roadmap-web/src/app/api/dependencies/route.ts",
+    ]) {
+      const plan = buildCiPlan([file], SHA);
+      expect(plan.dbEvidenceRequired, file).toBe(true);
+      expect(plan.classification, file).toBe("full-suite");
+      expect(plan.cheapScripts, file).toContain("verify:roadmap-web");
+      expect(plan.cheapScripts, file).not.toContain("test:roadmap-canvas-boundary");
+    }
+  });
+
+  test("Roadmap API pointer documentation cannot mask behavior changes", () => {
+    const plan = buildCiPlan([
+      "apps/roadmap-web/src/app/api/dependencies/CLAUDE.md",
+      "apps/roadmap-web/src/app/api/dependencies/route.ts",
+    ], SHA);
+    expect(plan.dbEvidenceRequired).toBe(true);
+    expect(plan.classification).toBe("full-suite");
+    expect(plan.cheapScripts).toContain("verify:roadmap-web");
+    expect(plan.cheapScripts).not.toContain("test:roadmap-canvas-boundary");
+  });
+
   test("authority, API, DB, migration, security, and workflow changes require DB proof", () => {
     for (const files of [
       ["apps/platform-api/src/agent/tools.ts"],

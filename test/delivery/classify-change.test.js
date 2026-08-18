@@ -150,6 +150,66 @@ describe("delivery change classifier", () => {
   });
 
   test.each([
+    "apps/roadmap-web/src/app/api/CLAUDE.md",
+    "apps/roadmap-web/src/app/api/dependencies/CLAUDE.md",
+  ])("classifies verified roadmap API guidance %s as documentation-only", (path) => {
+    const result = classifyChange(input([path], {
+      changedFileContents: { [path]: "@AGENTS.md\n" },
+    }));
+
+    expect(result.tier).toBe("T0");
+    expect(result.reasons).toContain("t0_allowlist");
+    expect(result.expectedChecks).not.toContain("db-contract");
+  });
+
+  test.each([
+    ["missing content", undefined],
+    ["deleted file", null],
+    ["rewritten content", "# API guidance\n"],
+  ])("fails closed for roadmap API CLAUDE %s", (_name, content) => {
+    const path = "apps/roadmap-web/src/app/api/CLAUDE.md";
+    const result = classifyChange(input([path], {
+      changedFileContents: content === undefined ? undefined : { [path]: content },
+    }));
+
+    expect(result.tier).toBe("T3");
+    expect(result.reasons).toContain("sensitive_or_authority_path");
+    expect(result.expectedChecks).toContain("db-contract");
+  });
+
+  test.each([
+    "apps/roadmap-web/src/app/api/AGENTS.md",
+    "apps/roadmap-web/src/app/api/dependencies/AGENTS.md",
+  ])("keeps roadmap API AGENTS guidance %s authority-sensitive", (path) => {
+    const result = classifyChange(input([path]));
+
+    expect(result.tier).toBe("T3");
+    expect(result.reasons).toContain("sensitive_or_authority_path");
+    expect(result.expectedChecks).toContain("db-contract");
+  });
+
+  test.each([
+    "apps/roadmap-web/src/app/api/dependencies/route.ts",
+    "apps/roadmap-web/src/app/api/schema.ts",
+  ])("keeps roadmap API behavior %s fail-closed", (path) => {
+    const result = classifyChange(input([path]));
+
+    expect(result.tier).toBe("T3");
+    expect(result.reasons).toContain("sensitive_or_authority_path");
+    expect(result.expectedChecks).toContain("db-contract");
+  });
+
+  test("does not let roadmap API guidance hide API behavior", () => {
+    const result = classifyChange(input([
+      "apps/roadmap-web/src/app/api/CLAUDE.md",
+      "apps/roadmap-web/src/app/api/dependencies/route.ts",
+    ]));
+
+    expect(result.tier).toBe("T3");
+    expect(result.expectedChecks).toContain("db-contract");
+  });
+
+  test.each([
     "apps/platform-web/vite.config.ts",
     "apps/platform-web/vitest.config.ts",
     "apps/platform-web/playwright.config.ts",

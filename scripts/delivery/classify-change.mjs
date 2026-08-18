@@ -5,10 +5,13 @@ const CLASSIFIER_VERSION = "1.0.0";
 const SHA_PATTERN = /^[a-f0-9]{40}$/i;
 const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/;
 const ROOT_DEPENDENCY_FILES = new Set(["package.json", "bun.lock"]);
+const ROADMAP_API_CLAUDE_PATTERN = /^apps\/roadmap-web\/src\/app\/api(?:\/[^/]+)*\/claude\.md$/i;
+const ROADMAP_API_CLAUDE_POINTER = "@AGENTS.md\n";
 
 const T0_ALLOWLIST = [
   /^README\.md$/,
   /^docs\/(?!deployment\/)[^/]+(?:\/[^/]+)*\.md$/,
+  ROADMAP_API_CLAUDE_PATTERN,
   /^\.editorconfig$/,
   /^\.markdownlint(?:-cli2)?(?:\.jsonc?|\.ya?ml)?$/,
   /^cspell\.json$/,
@@ -134,6 +137,7 @@ const isRootAuthorityPath = (lower) => [
   lower.startsWith(".github/workflows/"),
   lower.startsWith("scripts/delivery/"),
   lower.startsWith("apps/platform-api/"),
+  lower.startsWith("apps/roadmap-web/src/app/api/"),
   lower.startsWith("packages/db/"),
   lower === "docs/deployment.md",
   lower.startsWith("docs/deployment/"),
@@ -144,7 +148,16 @@ const isSensitiveNamePath = (lower) => [
   /(^|\/)(migrations?|schema|neon|postgres|release|deploy)([./_-]|\/|$)/,
 ].some((pattern) => pattern.test(lower));
 
-const isSensitiveOrAuthorityPath = (path) => {
+const exactFileContent = (fileContents, path) =>
+  fileContents && typeof fileContents === "object" && !Array.isArray(fileContents)
+    ? fileContents[path]
+    : undefined;
+
+const isRoadmapApiClaudePointer = (path, fileContents) =>
+  ROADMAP_API_CLAUDE_PATTERN.test(path) && exactFileContent(fileContents, path) === ROADMAP_API_CLAUDE_POINTER;
+
+const isSensitiveOrAuthorityPath = (path, fileContents) => {
+  if (isRoadmapApiClaudePointer(path, fileContents)) return false;
   const lower = path.toLowerCase();
   return isRootAuthorityPath(lower) || AUTHORITY_CONFIG_PATTERN.test(lower) || isSensitiveNamePath(lower);
 };
@@ -156,8 +169,8 @@ const workspaceForPath = (path) => {
     : null;
 };
 
-const classifyPath = (path) => {
-  if (isSensitiveOrAuthorityPath(path)) {
+const classifyPath = (path, fileContents) => {
+  if (isSensitiveOrAuthorityPath(path, fileContents)) {
     return { tier: "T3", reason: "sensitive_or_authority_path" };
   }
 
@@ -293,9 +306,9 @@ const dependencyDecision = (evidence, baseSha, headSha, dependencyWorkspaces) =>
   return { tier: highest.tier, reason: "dependency_closure_proven_safe" };
 };
 
-const classifyChangedFile = (path) => {
-  if (!isDependencyFile(path) || isSensitiveOrAuthorityPath(path)) {
-    return { decision: classifyPath(path) };
+const classifyChangedFile = (path, fileContents) => {
+  if (!isDependencyFile(path) || isSensitiveOrAuthorityPath(path, fileContents)) {
+    return { decision: classifyPath(path, fileContents) };
   }
 
   const dependencyWorkspace = dependencyWorkspaceForPath(path);
@@ -322,11 +335,12 @@ export const classifyChange = (input = {}) => {
   const reasons = [];
   const decisions = [];
   const dependencyWorkspaces = new Set();
+  const fileContents = changeInput.changedFileContents;
 
   reasons.push(...inputEvidenceReasons(changeInput, filesValid));
 
   for (const path of files) {
-    const classified = classifyChangedFile(path);
+    const classified = classifyChangedFile(path, fileContents);
     if (classified.decision) decisions.push(classified.decision);
     if (classified.dependencyWorkspace) dependencyWorkspaces.add(classified.dependencyWorkspace);
   }

@@ -33,4 +33,23 @@ describe("CI change-plan adapter", () => {
       expect(plan.dbEvidenceRequired).toBe(true);
     }
   });
+
+  test("requires verified pointer content for Roadmap API CLAUDE documentation", () => {
+    const file = "apps/roadmap-web/src/app/api/CLAUDE.md";
+    const baseSha = "a".repeat(40);
+    const headSha = "b".repeat(40);
+    const verified = planFromInputs({
+      baseSha,
+      headSha,
+      files: [file],
+      fileContents: { [file]: "@AGENTS.md\n" },
+    });
+    expect(verified.inputValid).toBe(true);
+    expect(verified.classification).toBe("scoped");
+    expect(verified.dbEvidenceRequired).toBe(false);
+
+    const unverified = planFromInputs({ baseSha, headSha, files: [file], fileContents: {} });
+    expect(unverified.classification).toBe("full-suite");
+    expect(unverified.dbEvidenceRequired).toBe(true);
+  });
 });
