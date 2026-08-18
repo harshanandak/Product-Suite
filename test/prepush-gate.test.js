@@ -144,11 +144,24 @@ describe("change-aware CI plan", () => {
       "apps/roadmap-web/src/app/api/CLAUDE.md",
       "apps/roadmap-web/src/app/api/dependencies/CLAUDE.md",
     ]) {
-      const plan = buildCiPlan([file], SHA);
+      const plan = buildCiPlan({
+        files: [file],
+        exactSha: SHA,
+        fileContents: { [file]: "@AGENTS.md\n" },
+      });
       expect(plan.dbEvidenceRequired, file).toBe(false);
       expect(plan.classification, file).toBe("scoped");
       expect(plan.cheapScripts, file).toContain("test:roadmap-canvas-boundary");
       expect(plan.cheapScripts, file).not.toContain("verify:roadmap-web");
+    }
+  });
+
+  test("Roadmap API CLAUDE changes without verified pointer content fail closed", () => {
+    const file = "apps/roadmap-web/src/app/api/CLAUDE.md";
+    for (const fileContents of [undefined, {}, { [file]: "# changed guidance\n" }]) {
+      const plan = buildCiPlan({ files: [file], exactSha: SHA, fileContents });
+      expect(plan.dbEvidenceRequired, JSON.stringify(fileContents)).toBe(true);
+      expect(plan.classification, JSON.stringify(fileContents)).toBe("full-suite");
     }
   });
 
