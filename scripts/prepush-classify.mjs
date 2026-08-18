@@ -107,6 +107,8 @@ export const FAST_NOTE = "mode: fast (lint+typecheck only, tests deferred to CI)
 export const CI_PLAN_SCHEMA_VERSION = "ci-change-plan.v1";
 
 const SHA_PATTERN = /^[0-9a-f]{40}$/i;
+const ROADMAP_API_CLAUDE_PATTERN =
+  /^apps\/roadmap-web\/src\/app\/api(?:\/[^/]+)*\/claude\.md$/i;
 
 // CI-impacting paths are intentionally owned by this module rather than by a
 // second set of workflow regexes.  The normal pre-push classifier remains
@@ -178,7 +180,11 @@ export function ciDbEvidenceRequired(files, result = classify(files)) {
       || /^\.sonarcloud\.properties$/.test(file),
     );
   }
-  return files.some((file) => CI_DB_REQUIRED.some((pattern) => pattern.test(file)));
+  return files.some(
+    (file) =>
+      !ROADMAP_API_CLAUDE_PATTERN.test(file) &&
+      CI_DB_REQUIRED.some((pattern) => pattern.test(file)),
+  );
 }
 
 function ciClassification(files, result) {
