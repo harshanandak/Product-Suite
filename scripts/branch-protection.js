@@ -19,11 +19,6 @@ const RED = '\x1b[31m';
 const YELLOW = '\x1b[33m';
 const RESET = '\x1b[0m';
 
-/** Test-only: run mock-git.js via `node` so Windows does not need shell:true or git.exe shims */
-const GIT_MOCK_JS = process.env.NODE_ENV === 'test'
-  ? process.env.FORGE_GIT_MOCK_JS
-  : undefined;
-
 const EXEC_OPTS = { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] };
 
 function fileExistsSync(p) {
@@ -63,9 +58,6 @@ function isSafeGitRefComponent(s) {
 }
 
 function execGit(args) {
-  if (GIT_MOCK_JS) {
-    return execFileSync(process.execPath, [GIT_MOCK_JS, ...args], EXEC_OPTS);
-  }
   return execFileSync(resolveGitBinary(), args, EXEC_OPTS);
 }
 
@@ -105,8 +97,8 @@ function getCurrentBranch() {
  * @param {string} branch - Branch name to check
  * @returns {boolean} True if branch is protected
  */
-function isProtectedBranch(branch) {
-  return PROTECTED_BRANCHES.has(branch);
+function isProtectedBranch(branch, protectedBranches = PROTECTED_BRANCHES) {
+  return protectedBranches.has(branch);
 }
 
 /**
@@ -178,5 +170,8 @@ function main() {
   process.exit(0);
 }
 
-// Run main function
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = { isProtectedBranch };
