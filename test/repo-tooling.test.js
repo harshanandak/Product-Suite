@@ -268,6 +268,10 @@ describe("repo tooling", () => {
     expect(packageJson.scripts["verify:db"]).toContain("--cwd packages/db lint");
   });
 
+  test("root aggregate lint forwards the zero-warning threshold", () => {
+    expect(packageJson.scripts.lint).toMatch(/lint -- --max-warnings 0/);
+  });
+
   test("meeting-api validation scripts point at the Python backend", () => {
     expect(packageJson.scripts["install:meeting-api"]).toContain(
       "apps/meeting-api/backend/requirements.txt",

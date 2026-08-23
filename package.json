@@ -21,7 +21,7 @@
   ],
   "scripts": {
     "prepare": "lefthook install",
-    "lint": "bun run --filter '*' lint",
+    "lint": "bun run --filter '*' lint -- --max-warnings 0",
     "worktree:create": "bun scripts/worktree-bootstrap.mjs create",
     "worktree:bootstrap": "bun scripts/worktree-bootstrap.mjs bootstrap",
     "check:source-test": "node scripts/check-source-test-coupling.mjs",
