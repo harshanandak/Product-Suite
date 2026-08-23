@@ -45,6 +45,9 @@ function runShim(mockPath) {
 			NODE_ENV: "test",
 			FORGE_GIT_MOCK_JS: mockPath,
 			GIT_MOCK_JS: mockPath,
+			// A Lefthook-owned value inherited from an outer push would override the
+			// mock branch before mock git is consulted; strip it for isolation.
+			LEFTHOOK_GIT_BRANCH: undefined,
 		},
 	});
 }

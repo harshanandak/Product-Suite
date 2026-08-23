@@ -42,3 +42,4 @@ parallel-research/
 
 # Windows shell redirection artifacts
 NUL
+.forge-push-token
