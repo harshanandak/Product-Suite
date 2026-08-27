@@ -633,6 +633,40 @@ describe("repo tooling", () => {
     expect(repoToolingWorkflow).toContain("bun run test:repo-tooling");
   });
 
+  test("Railway preview completes one event-aware job for every configured event", () => {
+    const workflow = Bun.YAML.parse(meetingApiRailwayPreviewWorkflow);
+    const pushDeploy = "${{ github.event_name == 'push' && env.HAS_RAILWAY_DEPLOY_SECRETS == 'true' }}";
+    const closedCleanup = "${{ github.event_name == 'pull_request' && env.HAS_RAILWAY_CLEANUP_SECRETS == 'true' }}";
+    const sharedSetup = "${{ (github.event_name == 'push' && env.HAS_RAILWAY_DEPLOY_SECRETS == 'true') || (github.event_name == 'pull_request' && env.HAS_RAILWAY_CLEANUP_SECRETS == 'true') }}";
+
+    expect(workflow.on.push).toBeDefined();
+    expect(workflow.on.pull_request.types).toEqual(["closed"]);
+    expect(Object.keys(workflow.jobs)).toEqual(["preview"]);
+    expect(workflow.jobs.preview.if).toBeUndefined();
+    expect(workflow.jobs.preview.env.HAS_RAILWAY_DEPLOY_SECRETS).toBe(
+      "${{ secrets.RAILWAY_API_TOKEN != '' && vars.RAILWAY_PROJECT_ID != '' && vars.RAILWAY_BASE_ENVIRONMENT != '' && vars.RAILWAY_BACKEND_SERVICE != '' }}",
+    );
+    expect(workflow.jobs.preview.env.HAS_RAILWAY_CLEANUP_SECRETS).toBe(
+      "${{ secrets.RAILWAY_API_TOKEN != '' && vars.RAILWAY_PROJECT_ID != '' }}",
+    );
+
+    const steps = Object.fromEntries(
+      workflow.jobs.preview.steps.map((step) => [step.name, step]),
+    );
+    expect(steps["Skip when Railway preview secrets are unavailable"].if).toBe(
+      "${{ github.event_name == 'push' && env.HAS_RAILWAY_DEPLOY_SECRETS != 'true' }}",
+    );
+    expect(steps["Skip when Railway cleanup secrets are unavailable"].if).toBe(
+      "${{ github.event_name == 'pull_request' && env.HAS_RAILWAY_CLEANUP_SECRETS != 'true' }}",
+    );
+    expect(steps.Checkout.if).toBe(pushDeploy);
+    expect(steps["Install Railway CLI"].if).toBe(sharedSetup);
+    expect(steps["Resolve preview environment name"].if).toBe(sharedSetup);
+    expect(steps["Create or sync PR environment"].if).toBe(pushDeploy);
+    expect(steps["Deploy backend preview"].if).toBe(pushDeploy);
+    expect(steps["Delete PR environment"].if).toBe(closedCleanup);
+  });
+
   test("repo-tooling CI fetches full Git history for immutable migration provenance", () => {
     const workflow = Bun.YAML.parse(repoToolingWorkflow);
     const checkout = workflow.jobs["repo-tooling"].steps.find((step) => step.name === "Checkout");

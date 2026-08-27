@@ -40,26 +40,30 @@ env:
   RAILWAY_PREVIEW_REF: ${{ github.head_ref || github.ref_name }}
 
 jobs:
-  deploy:
-    if: ${{ github.event_name == 'push' }}
+  preview:
     runs-on: ubuntu-latest
     env:
       HAS_RAILWAY_DEPLOY_SECRETS: ${{ secrets.RAILWAY_API_TOKEN != '' && vars.RAILWAY_PROJECT_ID != '' && vars.RAILWAY_BASE_ENVIRONMENT != '' && vars.RAILWAY_BACKEND_SERVICE != '' }}
+      HAS_RAILWAY_CLEANUP_SECRETS: ${{ secrets.RAILWAY_API_TOKEN != '' && vars.RAILWAY_PROJECT_ID != '' }}
     steps:
       - name: Skip when Railway preview secrets are unavailable
-        if: ${{ env.HAS_RAILWAY_DEPLOY_SECRETS != 'true' }}
+        if: ${{ github.event_name == 'push' && env.HAS_RAILWAY_DEPLOY_SECRETS != 'true' }}
         run: echo "Skipping Railway backend preview because required secrets are not configured."
 
+      - name: Skip when Railway cleanup secrets are unavailable
+        if: ${{ github.event_name == 'pull_request' && env.HAS_RAILWAY_CLEANUP_SECRETS != 'true' }}
+        run: echo "Skipping Railway preview cleanup because required secrets are not configured."
+
       - name: Checkout
-        if: ${{ env.HAS_RAILWAY_DEPLOY_SECRETS == 'true' }}
+        if: ${{ github.event_name == 'push' && env.HAS_RAILWAY_DEPLOY_SECRETS == 'true' }}
         uses: actions/checkout@v4
 
       - name: Install Railway CLI
-        if: ${{ env.HAS_RAILWAY_DEPLOY_SECRETS == 'true' }}
+        if: ${{ (github.event_name == 'push' && env.HAS_RAILWAY_DEPLOY_SECRETS == 'true') || (github.event_name == 'pull_request' && env.HAS_RAILWAY_CLEANUP_SECRETS == 'true') }}
         run: npm install -g @railway/cli@4
 
       - name: Resolve preview environment name
-        if: ${{ env.HAS_RAILWAY_DEPLOY_SECRETS == 'true' }}
+        if: ${{ (github.event_name == 'push' && env.HAS_RAILWAY_DEPLOY_SECRETS == 'true') || (github.event_name == 'pull_request' && env.HAS_RAILWAY_CLEANUP_SECRETS == 'true') }}
         id: preview-name
         shell: bash
         run: |
@@ -67,7 +71,7 @@ jobs:
           echo "name=preview-${safe_ref}" >> "$GITHUB_OUTPUT"
 
       - name: Create or sync PR environment
-        if: ${{ env.HAS_RAILWAY_DEPLOY_SECRETS == 'true' }}
+        if: ${{ github.event_name == 'push' && env.HAS_RAILWAY_DEPLOY_SECRETS == 'true' }}
         env:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
@@ -86,7 +90,7 @@ jobs:
           printf '%s\n' "$output"
 
       - name: Deploy backend preview
-        if: ${{ env.HAS_RAILWAY_DEPLOY_SECRETS == 'true' }}
+        if: ${{ github.event_name == 'push' && env.HAS_RAILWAY_DEPLOY_SECRETS == 'true' }}
         env:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
@@ -94,30 +98,8 @@ jobs:
         run: |
           railway up --path-as-root apps/meeting-api/backend --service "${RAILWAY_BACKEND_SERVICE}" --environment "${{ steps.preview-name.outputs.name }}" --project "${RAILWAY_PROJECT_ID}" --ci
 
-  cleanup:
-    if: ${{ github.event_name == 'pull_request' && github.event.action == 'closed' }}
-    runs-on: ubuntu-latest
-    env:
-      HAS_RAILWAY_CLEANUP_SECRETS: ${{ secrets.RAILWAY_API_TOKEN != '' && vars.RAILWAY_PROJECT_ID != '' }}
-    steps:
-      - name: Skip when Railway cleanup secrets are unavailable
-        if: ${{ env.HAS_RAILWAY_CLEANUP_SECRETS != 'true' }}
-        run: echo "Skipping Railway preview cleanup because required secrets are not configured."
-
-      - name: Install Railway CLI
-        if: ${{ env.HAS_RAILWAY_CLEANUP_SECRETS == 'true' }}
-        run: npm install -g @railway/cli@4
-
-      - name: Resolve preview environment name
-        if: ${{ env.HAS_RAILWAY_CLEANUP_SECRETS == 'true' }}
-        id: preview-name
-        shell: bash
-        run: |
-          safe_ref="$(printf '%s' "${RAILWAY_PREVIEW_REF}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g' | cut -c1-40)"
-          echo "name=preview-${safe_ref}" >> "$GITHUB_OUTPUT"
-
       - name: Delete PR environment
-        if: ${{ env.HAS_RAILWAY_CLEANUP_SECRETS == 'true' }}
+        if: ${{ github.event_name == 'pull_request' && env.HAS_RAILWAY_CLEANUP_SECRETS == 'true' }}
         env:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
