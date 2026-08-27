@@ -8,5 +8,7 @@ pre-push:
     - name: branch protection
       run: node scripts/branch-protection.js
       use_stdin: true
+    - name: aggregate lint
+      run: bun run lint
     - name: pre-push validation
       run: node scripts/prepush-gate.mjs

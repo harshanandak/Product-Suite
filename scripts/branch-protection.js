@@ -54,7 +54,11 @@ function resolveGitBinary() {
 /** Narrow ref shape for env-provided branch names (used in diff ref ranges). */
 function isSafeGitRefComponent(s) {
   if (!s || s.length > 256) return false;
-  return /^[a-zA-Z0-9/._-]+$/.test(s);
+  try {
+    return execGit(['check-ref-format', '--branch', s]).trim() === s;
+  } catch {
+    return false;
+  }
 }
 
 function execGit(args) {
@@ -158,7 +162,11 @@ function main({ argv = process.argv, currentBranch: branchOverride, prePushInput
     currentBranch = branchOverride || getCurrentBranch();
   }
 
-  if (isProtectedBranch(currentBranch)) {
+  if (!isProtectedBranch(currentBranch)) return 0;
+  return blockProtectedPush(currentBranch);
+}
+
+function blockProtectedPush(currentBranch) {
     // Beads runtime metadata is local state. Do not bypass protected branches for it.
     try {
       let upstream;
@@ -200,10 +208,6 @@ function main({ argv = process.argv, currentBranch: branchOverride, prePushInput
     console.error(`  See ${YELLOW}CLAUDE.md${RESET} (Git Workflow) — AI agents must fix failing hooks, not bypass them.`);
     console.error('');
     return 1;
-  }
-
-  // Push allowed
-  return 0;
 }
 
 if (require.main === module) {

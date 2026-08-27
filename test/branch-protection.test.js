@@ -39,11 +39,26 @@ describe("scripts/branch-protection.js shim", () => {
     })).not.toThrow();
   });
 
+  test("uses Git's branch-name rules in the forge push fallback", () => {
+    for (const branch of ["feat@api", "release+candidate"]) {
+      expect(() => execFileSync(process.execPath, [SCRIPT], {
+        env: { ...process.env, LEFTHOOK_GIT_BRANCH: branch },
+        stdio: "pipe",
+      })).not.toThrow();
+    }
+    expect(() => execFileSync(process.execPath, [SCRIPT], {
+      env: { ...process.env, LEFTHOOK_GIT_BRANCH: "feat..invalid" },
+      stdio: "pipe",
+    })).toThrow();
+  });
+
   test("runs before validation in the direct git pre-push hook", () => {
     const config = readFileSync(LEFTHOOK_CONFIG, "utf8");
     expect(config).toContain("run: node scripts/branch-protection.js");
     expect(config).toMatch(/run: node scripts\/branch-protection\.js\r?\n\s+use_stdin: true/);
+    expect(config).toContain("run: bun run lint");
     expect(config.indexOf("branch-protection.js")).toBeLessThan(config.indexOf("prepush-gate.mjs"));
+    expect(config.indexOf("bun run lint")).toBeLessThan(config.indexOf("prepush-gate.mjs"));
   });
 
   test("protects remote destinations instead of the checked-out branch", () => {
