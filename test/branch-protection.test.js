@@ -40,7 +40,8 @@ describe("scripts/branch-protection.js shim", () => {
   });
 
   test("uses Git's branch-name rules in the forge push fallback", () => {
-    for (const branch of ["feat@api", "release+candidate"]) {
+    const longBranch = `${"segment/".repeat(40)}tip`;
+    for (const branch of ["feat@api", "release+candidate", longBranch]) {
       expect(() => execFileSync(process.execPath, [SCRIPT], {
         env: { ...process.env, LEFTHOOK_GIT_BRANCH: branch },
         stdio: "pipe",

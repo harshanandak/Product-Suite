@@ -51,9 +51,9 @@ function resolveGitBinary() {
   return 'git';
 }
 
-/** Narrow ref shape for env-provided branch names (used in diff ref ranges). */
+/** Validate branch names with Git's own ref rules. */
 function isSafeGitRefComponent(s) {
-  if (!s || s.length > 256) return false;
+  if (!s) return false;
   try {
     return execGit(['check-ref-format', '--branch', s]).trim() === s;
   } catch {
