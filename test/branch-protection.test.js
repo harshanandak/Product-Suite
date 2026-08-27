@@ -1,5 +1,6 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 
@@ -7,10 +8,11 @@ import path from "node:path";
 // as its pre-push branch-protection pre-check. Product-Suite retired that legacy
 // script in favor of scripts/prepush-gate.mjs (wired via lefthook), which made
 // every `forge push` in this repo abort with MODULE_NOT_FOUND. This shim restores
-// the contract the CLI expects: block direct pushes to protected branches, allow
-// everything else.
+// the contract the CLI and direct git pre-push hook expect: block direct pushes
+// to protected branches, allow everything else.
 
 const SCRIPT = path.join(import.meta.dir, "..", "scripts", "branch-protection.js");
+const LEFTHOOK_CONFIG = path.join(import.meta.dir, "..", "lefthook.yml");
 const require = createRequire(import.meta.url);
 const { main } = require(SCRIPT);
 
@@ -35,5 +37,11 @@ describe("scripts/branch-protection.js shim", () => {
       env: { ...process.env, LEFTHOOK_GIT_BRANCH: "feat/some-feature" },
       stdio: "pipe",
     })).not.toThrow();
+  });
+
+  test("runs before validation in the direct git pre-push hook", () => {
+    const config = readFileSync(LEFTHOOK_CONFIG, "utf8");
+    expect(config).toContain("run: node scripts/branch-protection.js");
+    expect(config.indexOf("branch-protection.js")).toBeLessThan(config.indexOf("prepush-gate.mjs"));
   });
 });
