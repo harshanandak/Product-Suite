@@ -16,10 +16,10 @@ const LEFTHOOK_CONFIG = path.join(import.meta.dir, "..", "lefthook.yml");
 const require = createRequire(import.meta.url);
 const { main } = require(SCRIPT);
 
-function exitCodeFor(branch) {
+function exitCodeFor(branch, prePushInput) {
   const error = spyOn(console, "error").mockImplementation(() => {});
   try {
-    return main({ argv: [], currentBranch: branch });
+    return main({ argv: [], currentBranch: branch, prePushInput });
   } finally {
     error.mockRestore();
   }
@@ -42,6 +42,22 @@ describe("scripts/branch-protection.js shim", () => {
   test("runs before validation in the direct git pre-push hook", () => {
     const config = readFileSync(LEFTHOOK_CONFIG, "utf8");
     expect(config).toContain("run: node scripts/branch-protection.js");
+    expect(config).toMatch(/run: node scripts\/branch-protection\.js\r?\n\s+use_stdin: true/);
     expect(config.indexOf("branch-protection.js")).toBeLessThan(config.indexOf("prepush-gate.mjs"));
+  });
+
+  test("protects remote destinations instead of the checked-out branch", () => {
+    const oid = "1".repeat(40);
+    const oldOid = "0".repeat(40);
+    const protectedPush = `HEAD ${oid} refs/heads/main ${oldOid}\n`;
+    expect(exitCodeFor("feat/source", protectedPush)).toBe(1);
+    expect(exitCodeFor("feat/source", `HEAD ${oid} refs/heads/master ${oldOid}\n`)).toBe(1);
+    expect(exitCodeFor("main", `HEAD ${oid} refs/heads/feature ${oldOid}\n`)).toBe(0);
+    expect(exitCodeFor("feat/source", "HEAD not-an-oid refs/heads/feature also-not-an-oid\n")).toBe(1);
+    expect(() => execFileSync(process.execPath, [SCRIPT], {
+      env: { ...process.env, LEFTHOOK_GIT_BRANCH: "feat/source" },
+      input: protectedPush,
+      stdio: ["pipe", "pipe", "pipe"],
+    })).toThrow();
   });
 });

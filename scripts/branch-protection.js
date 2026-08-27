@@ -63,6 +63,28 @@ function execGit(args) {
 
 // Protected branches
 const PROTECTED_BRANCHES = new Set(['main', 'master']);
+const PROTECTED_REFS = new Set([...PROTECTED_BRANCHES].map(branch => `refs/heads/${branch}`));
+const OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
+
+function isValidGitRef(ref) {
+  try {
+    execGit(['check-ref-format', ref]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function prePushDestinations(input) {
+  return input.trim().split(/\r?\n/).map((line) => {
+    const fields = line.trim().split(/\s+/);
+    if (fields.length !== 4 || !OBJECT_ID.test(fields[1])
+      || !OBJECT_ID.test(fields[3]) || !isValidGitRef(fields[2])) {
+      throw new Error('malformed pre-push input');
+    }
+    return fields[2];
+  });
+}
 
 /**
  * Get the current branch name
@@ -104,7 +126,7 @@ function isProtectedBranch(branch) {
 /**
  * Main function
  */
-function main({ argv = process.argv, currentBranch: branchOverride } = {}) {
+function main({ argv = process.argv, currentBranch: branchOverride, prePushInput } = {}) {
   // Handle --help flag
   if (argv.includes('--help') || argv.includes('-h')) {
     console.log('Branch Protection Script');
@@ -120,7 +142,21 @@ function main({ argv = process.argv, currentBranch: branchOverride } = {}) {
     return 0;
   }
 
-  const currentBranch = branchOverride || getCurrentBranch();
+  let currentBranch;
+  if (typeof prePushInput === 'string' && prePushInput.trim()) {
+    let destinations;
+    try {
+      destinations = prePushDestinations(prePushInput);
+    } catch (error) {
+      console.error(`${RED}✗ Error: ${error.message}${RESET}`);
+      return 1;
+    }
+    const protectedRef = destinations.find(ref => PROTECTED_REFS.has(ref));
+    if (!protectedRef) return 0;
+    currentBranch = protectedRef.slice('refs/heads/'.length);
+  } else {
+    currentBranch = branchOverride || getCurrentBranch();
+  }
 
   if (isProtectedBranch(currentBranch)) {
     // Beads runtime metadata is local state. Do not bypass protected branches for it.
@@ -171,7 +207,15 @@ function main({ argv = process.argv, currentBranch: branchOverride } = {}) {
 }
 
 if (require.main === module) {
-  process.exitCode = main();
+  let prePushInput;
+  if (!process.stdin.isTTY) {
+    try {
+      prePushInput = fs.readFileSync(0, 'utf8');
+    } catch (_error) {
+      // Forge's direct subprocess check has no pre-push stream; use branch fallback.
+    }
+  }
+  process.exitCode = main({ prePushInput });
 }
 
 module.exports = { main };
