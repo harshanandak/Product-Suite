@@ -703,6 +703,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS "conversation_events_tenant_conversation_seque
 CREATE UNIQUE INDEX IF NOT EXISTS "conversation_events_tenant_conversation_idempotency_uniq" ON "conversation_events" USING btree ("tenant_id","conversation_id","idempotency_key");--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "conversation_memberships_tenant_conversation_actor_uniq" ON "conversation_memberships" USING btree ("tenant_id","conversation_id","actor_id");--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "conversations_tenant_legacy_uniq" ON "conversations" USING btree ("tenant_id","legacy_source","legacy_id");--> statement-breakpoint
+-- Repair: 0018 shipped this index as ("tenant_id", "updated_at" DESC) while the
+-- catalog contract below (and meta/0019_snapshot.json / schema.ts) pin keys
+-- ["tenant_id", "updated_at"] ascending. Authored migrations cannot DROP, so
+-- retire the legacy variant by rename and recreate the canonical index; the
+-- assertion then observes the contracted ascending definition.
+ALTER INDEX IF EXISTS "conversations_tenant_updated_idx" RENAME TO "conversations_tenant_updated_idx_desc_legacy";--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "conversations_tenant_updated_idx" ON "conversations" USING btree ("tenant_id","updated_at");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "knowledge_chunks_tenant_scope" ON "knowledge_chunks" USING btree ("tenant_id","status","scope_type","scope_id");--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "knowledge_chunks_dedup" ON "knowledge_chunks" USING btree ("tenant_id","source_type","source_ref","content_hash");--> statement-breakpoint
