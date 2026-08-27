@@ -1,4 +1,5 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import path from "node:path";
 
@@ -11,17 +12,28 @@ import path from "node:path";
 
 const SCRIPT = path.join(import.meta.dir, "..", "scripts", "branch-protection.js");
 const require = createRequire(import.meta.url);
-const { isProtectedBranch } = require(SCRIPT);
+const { main } = require(SCRIPT);
+
+function exitCodeFor(branch) {
+  const error = spyOn(console, "error").mockImplementation(() => {});
+  try {
+    return main({ argv: [], currentBranch: branch });
+  } finally {
+    error.mockRestore();
+  }
+}
 
 describe("scripts/branch-protection.js shim", () => {
-  test("branch decisions allow feature branches and block protected branches", () => {
-    expect(isProtectedBranch("feat/some-feature")).toBe(false);
-    expect(isProtectedBranch("main")).toBe(true);
-    expect(isProtectedBranch("master")).toBe(true);
+  test("allows feature branches and blocks protected branches", () => {
+    expect(exitCodeFor("feat/some-feature")).toBe(0);
+    expect(exitCodeFor("main")).toBe(1);
+    expect(exitCodeFor("master")).toBe(1);
   });
 
-  test("branch decisions accept an injected protected-branch set", () => {
-    expect(isProtectedBranch("release", new Set(["release"]))).toBe(true);
-    expect(isProtectedBranch("main", new Set(["release"]))).toBe(false);
+  test("runs as the executable contract used by forge push", () => {
+    expect(() => execFileSync(process.execPath, [SCRIPT], {
+      env: { ...process.env, LEFTHOOK_GIT_BRANCH: "feat/some-feature" },
+      stdio: "pipe",
+    })).not.toThrow();
   });
 });

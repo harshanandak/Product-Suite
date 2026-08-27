@@ -97,16 +97,16 @@ function getCurrentBranch() {
  * @param {string} branch - Branch name to check
  * @returns {boolean} True if branch is protected
  */
-function isProtectedBranch(branch, protectedBranches = PROTECTED_BRANCHES) {
-  return protectedBranches.has(branch);
+function isProtectedBranch(branch) {
+  return PROTECTED_BRANCHES.has(branch);
 }
 
 /**
  * Main function
  */
-function main() {
+function main({ argv = process.argv, currentBranch: branchOverride } = {}) {
   // Handle --help flag
-  if (process.argv.includes('--help') || process.argv.includes('-h')) {
+  if (argv.includes('--help') || argv.includes('-h')) {
     console.log('Branch Protection Script');
     console.log('');
     console.log('Prevents direct pushes to protected branches (main/master).');
@@ -117,10 +117,10 @@ function main() {
     console.log('Exit codes:');
     console.log('  0 - Push allowed');
     console.log('  1 - Push blocked (protected branch)');
-    process.exit(0);
+    return 0;
   }
 
-  const currentBranch = getCurrentBranch();
+  const currentBranch = branchOverride || getCurrentBranch();
 
   if (isProtectedBranch(currentBranch)) {
     // Beads runtime metadata is local state. Do not bypass protected branches for it.
@@ -163,15 +163,15 @@ function main() {
     console.error(`${YELLOW}Emergency hook bypass is human-only and must not appear in agent logs.${RESET}`);
     console.error(`  See ${YELLOW}CLAUDE.md${RESET} (Git Workflow) — AI agents must fix failing hooks, not bypass them.`);
     console.error('');
-    process.exit(1);
+    return 1;
   }
 
   // Push allowed
-  process.exit(0);
+  return 0;
 }
 
 if (require.main === module) {
-  main();
+  process.exitCode = main();
 }
 
-module.exports = { isProtectedBranch };
+module.exports = { main };
