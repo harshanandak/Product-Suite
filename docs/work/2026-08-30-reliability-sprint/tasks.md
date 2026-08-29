@@ -5,12 +5,15 @@ exact-current-`origin/main` ancestry check before every push.
 
 ## R1 — branch-lease matrix
 
-- Add deterministic coverage for valid, missing, expired, and foreign leases.
-- Cover branch, base, and head identity plus exact-main ancestry.
-- Enforce the single-open-PR constraint and fail closed on stale or ambiguous
-  lease evidence.
-- Acceptance: every matrix row has a passing test, and stale/foreign/missing
-  evidence cannot authorize delivery.
+- Rebase the runtime matrix onto current main and prove the branch-lease source
+  and tests are unchanged from the tested ref.
+- Preserve the Windows/Linux Bun 1.3.6 and 1.4.0 evidence, including the exact
+  timeout regression and supported broad-suite result.
+- Acceptance: the reported `LOCK_UNCERTAIN` signature remains unreproduced, the
+  PR #173 fix remains in main, and no source, test, workflow, or timeout edit is
+  made without an issue-specific RED.
+- Keep child issue `8bfadad5-29d5-442e-84cb-c58de094d7b6` open for the distinct
+  Windows observer timeout.
 
 ## R2 — seven HTTPS factories
 
