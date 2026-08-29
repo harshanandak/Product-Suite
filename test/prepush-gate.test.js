@@ -239,9 +239,9 @@ describe("change-aware CI plan", () => {
   test("meeting runtime config and platform shell layout require DB proof", () => {
     for (const file of [
       "apps/meeting-web/src/lib/runtimeConfig.js",
-      "APPS/MEETING-WEB/SRC/LIB/RUNTIMECONFIG.JS",
+      "apps/meeting-web/src/lib/runtimeCONFIG.js",
       "apps/platform-web/src/shell/ShellLayout.tsx",
-      "APPS/PLATFORM-WEB/SRC/SHELL/SHELLLAYOUT.TSX",
+      "apps/platform-web/src/shell/sHELLLayout.tsx",
     ]) {
       const plan = buildCiPlan([file], SHA);
       expect(plan.dbEvidenceRequired, file).toBe(true);
