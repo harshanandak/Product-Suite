@@ -150,9 +150,36 @@ afterEach(() => {
 });
 
 describe.each(factories)("$name API base security", (factory) => {
-  it.each(validHttpsBases)("accepts HTTPS base %s", (baseUrl) => {
-    expect(() => factory.create(baseUrl, async () => "token")).not.toThrow();
-  });
+  it.each(validHttpsBases)(
+    "preserves bearer token and request behavior for HTTPS base %s",
+    async (baseUrl) => {
+      const fetchSpy = stubSuccessfulFetch();
+      const getToken = vi.fn<() => Promise<string | null>>(
+        async () => "secure-token",
+      );
+
+      const result = await factory.request(baseUrl, getToken);
+
+      expect(getToken).toHaveBeenCalledOnce();
+      if (factory.usesFetch) {
+        expect(fetchSpy).toHaveBeenCalledOnce();
+        expect(String(fetchSpy.mock.calls[0]![0])).toBe(
+          `${baseUrl}${factory.relativeUrl}`,
+        );
+        const headers = fetchSpy.mock.calls[0]![1]?.headers as Record<
+          string,
+          string
+        >;
+        expect(headers.Authorization).toBe("Bearer secure-token");
+      } else {
+        expect(result.api).toBe(`${baseUrl}${factory.relativeUrl}`);
+        expect(result.headers).toEqual({
+          Authorization: "Bearer secure-token",
+        });
+        expect(fetchSpy).not.toHaveBeenCalled();
+      }
+    },
+  );
 
   it("accepts exact empty and preserves the relative same-origin URL", async () => {
     const fetchSpy = stubSuccessfulFetch();
