@@ -1,3 +1,5 @@
+import { assertSecureApiBaseUrl } from "../../env";
+
 import type { MeetingActionsRepository } from "./repository";
 import {
   normalizePromotionState,
@@ -89,6 +91,7 @@ export function createNetworkMeetingActionsRepository(
   options: NetworkMeetingActionsRepositoryOptions,
 ): MeetingActionsRepository {
   const { baseUrl, getToken } = options;
+  assertSecureApiBaseUrl(baseUrl);
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   /** Authorized fetch: resolves the token first, refusing to call while signed out. */
