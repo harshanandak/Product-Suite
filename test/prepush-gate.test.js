@@ -228,6 +228,10 @@ describe("change-aware CI plan", () => {
       "apps/platform-web/src/security/csp.ts",
       "apps/meeting-web/src/lib/authContracts.js",
       "apps/meeting-web/src/lib/hostedAuthFlow.js",
+      "apps/meeting-web/src/lib/runtimeConfig.js",
+      "apps/meeting-web/src/lib/runtimeCONFIG.js",
+      "apps/platform-web/src/shell/ShellLayout.tsx",
+      "apps/platform-web/src/shell/sHELLLayout.tsx",
     ];
     for (const file of authorityPaths) {
       const plan = buildCiPlan([file], SHA);
@@ -360,6 +364,12 @@ describe("change-aware CI plan", () => {
       "packages/ui/src/button.tsx",
       "packages/ui/src/styles/tokens.css",
       "apps/roadmap-web/src/components/roadmap-card.tsx",
+      "apps/meeting-web/src/lib/runtimeConfig.js.bak",
+      "apps/meeting-web/src/lib/runtimeConfig.jsx",
+      "apps/meeting-web/src/lib/runtimeConfig.js/extra",
+      "apps/platform-web/src/shell/ShellLayout.ts",
+      "apps/platform-web/src/shell/ShellLayout.tsx.bak",
+      "apps/platform-web/src/shell/ShellLayout.tsx/extra",
     ]) {
       const plan = buildCiPlan([file], SHA);
       expect(plan.dbEvidenceRequired, file).toBe(false);
