@@ -236,6 +236,32 @@ describe("change-aware CI plan", () => {
     }
   });
 
+  test("meeting runtime config and platform shell layout require DB proof", () => {
+    for (const file of [
+      "apps/meeting-web/src/lib/runtimeConfig.js",
+      "APPS/MEETING-WEB/SRC/LIB/RUNTIMECONFIG.JS",
+      "apps/platform-web/src/shell/ShellLayout.tsx",
+      "APPS/PLATFORM-WEB/SRC/SHELL/SHELLLAYOUT.TSX",
+    ]) {
+      const plan = buildCiPlan([file], SHA);
+      expect(plan.dbEvidenceRequired, file).toBe(true);
+      expect(plan.classification, file).toBe("full-suite");
+    }
+
+    for (const file of [
+      "apps/meeting-web/src/lib/runtimeConfig.js.bak",
+      "apps/meeting-web/src/lib/runtimeConfig.jsx",
+      "apps/meeting-web/src/lib/runtimeConfig.js/extra",
+      "apps/platform-web/src/shell/ShellLayout.ts",
+      "apps/platform-web/src/shell/ShellLayout.tsx.bak",
+      "apps/platform-web/src/shell/ShellLayout.tsx/extra",
+    ]) {
+      const plan = buildCiPlan([file], SHA);
+      expect(plan.dbEvidenceRequired, file).toBe(false);
+      expect(plan.classification, file).toBe("scoped");
+    }
+  });
+
   test("executable migration authority and existing OAuth, token, and session surfaces fail closed", () => {
     const authorityPaths = [
       "docs/history/database-migrations/manifest.json",
