@@ -19,6 +19,8 @@ The issue signature is `DB_CONTRACT_BRANCH_LEASE_LOCK_UNCERTAIN` where the timed
 
 After rebasing, the same two-file diff from tested ref `217ff5ce41656327d00f71fc4b866b0a347b599b` through current main `60c2c5882797240a5699200c0f016689d509ed00` also exits 0.
 
+Immediately before the final review push, `git fetch origin main`, `git rev-parse origin/main`, and `git merge-base --is-ancestor origin/main HEAD` resolved main to `60c2c5882797240a5699200c0f016689d509ed00` and exited 0.
+
 Bun 1.3.6 is supported: the root `packageManager` and the DB-contract workflow pin it. Bun 1.4.0 is compatibility evidence only.
 
 ## Matrix
