@@ -1,3 +1,5 @@
+import { assertSecureApiBaseUrl } from "../../env";
+
 import type {
   AddDependencyInput,
   CreateCheckInput,
@@ -103,6 +105,7 @@ export function createNetworkWorkItemRepository(
   options: NetworkRepositoryOptions,
 ): WorkItemRepository {
   const { baseUrl, getToken } = options;
+  assertSecureApiBaseUrl(baseUrl);
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   /**

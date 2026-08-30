@@ -1,7 +1,7 @@
 import { DefaultChatTransport } from "ai";
 import type { UIMessage } from "ai";
 
-import { API_BASE_URL } from "../../env";
+import { API_BASE_URL, assertSecureApiBaseUrl } from "../../env";
 
 /**
  * The object a chat thread is scoped to. Captured at panel-open time from the
@@ -110,6 +110,7 @@ export function agentChatTransportConfig(
   fetch?: typeof fetch;
 } {
   const apiBase = options.apiBase ?? API_BASE_URL;
+  assertSecureApiBaseUrl(apiBase);
   return {
     api: `${apiBase}/api/agent/chat`,
     headers: () => agentChatAuthHeaders(options.getToken),

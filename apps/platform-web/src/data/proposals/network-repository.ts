@@ -1,3 +1,5 @@
+import { assertSecureApiBaseUrl } from "../../env";
+
 import type { ProposalRepository } from "./repository";
 import type {
   AcceptResult,
@@ -79,9 +81,7 @@ export function createNetworkProposalRepository(
   options: NetworkProposalRepositoryOptions,
 ): ProposalRepository {
   const { baseUrl, getToken } = options;
-  if (baseUrl && new URL(baseUrl).protocol !== "https:") {
-    throw new Error("Proposal API baseUrl must use HTTPS");
-  }
+  assertSecureApiBaseUrl(baseUrl, "Proposal API baseUrl");
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   /** The raw fetch primitive — attaches headers + abort timeout, returns the Response. */

@@ -1,4 +1,4 @@
-import { API_BASE_URL } from "../../env";
+import { API_BASE_URL, assertSecureApiBaseUrl } from "../../env";
 
 import type { MemoryImpact } from "./types";
 
@@ -65,6 +65,7 @@ export function createMemoryImpactAdapter(
   options: CreateMemoryImpactAdapterOptions,
 ): MemoryImpactAdapter {
   const baseUrl = options.apiBase ?? API_BASE_URL;
+  assertSecureApiBaseUrl(baseUrl);
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   async function request<T>(

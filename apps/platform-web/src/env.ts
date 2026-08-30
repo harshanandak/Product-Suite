@@ -35,6 +35,25 @@ export const CLERK_PUBLISHABLE_KEY: string =
  */
 export const API_BASE_URL: string = import.meta.env.VITE_API_BASE_URL ?? "";
 
+/** Reject configured API origins that could expose bearer tokens in transport. */
+export function assertSecureApiBaseUrl(
+  baseUrl: string,
+  label = "API base URL",
+): void {
+  if (baseUrl === "") return;
+
+  const error = `${label} must use HTTPS, be absolute, and contain no URL credentials`;
+  let url: URL;
+  try {
+    url = new URL(baseUrl);
+  } catch {
+    throw new Error(error);
+  }
+  if (url.protocol !== "https:" || url.username || url.password) {
+    throw new Error(error);
+  }
+}
+
 const configuredWorkspace = import.meta.env.VITE_DEFAULT_WORKSPACE?.trim();
 export const DEFAULT_WORKSPACE: string =
   configuredWorkspace && configuredWorkspace.length > 0

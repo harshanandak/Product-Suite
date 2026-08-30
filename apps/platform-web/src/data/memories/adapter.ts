@@ -1,4 +1,4 @@
-import { API_BASE_URL } from "../../env";
+import { API_BASE_URL, assertSecureApiBaseUrl } from "../../env";
 
 import type {
   CreateMemoryInput,
@@ -90,6 +90,7 @@ export function createMemoriesAdapter(
   options: CreateMemoriesAdapterOptions,
 ): MemoriesAdapter {
   const baseUrl = options.apiBase ?? API_BASE_URL;
+  assertSecureApiBaseUrl(baseUrl);
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   async function request<T>(
