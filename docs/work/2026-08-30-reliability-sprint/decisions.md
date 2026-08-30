@@ -20,6 +20,13 @@ coverage remains separate.
 Muse 9.30 PASS; GLM 9.33 PASS; DeepSeek V4 Flash 9.48 PASS; DeepSeek V4 Pro
 9.50 PASS.
 
+## D5 — R1 scope correction
+
+The earlier R1 delivery-authority wording conflated the sprint-wide controls in
+D1 and D2 with the DB-contract runtime lease in issue
+`8ab811b2-8a86-4161-beb6-7b5b4d02cd08`. R1 records null-source closure evidence
+for the PR #173 lock-race fix; it does not add unrelated Forge authorization.
+
 ## Unresolved decisions
 
 None.

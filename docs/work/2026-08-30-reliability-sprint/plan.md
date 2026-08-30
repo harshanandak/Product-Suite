@@ -17,10 +17,12 @@ Status: locked for the 2026-08-30 reliability sprint.
 
 ### R1 — branch-lease matrix
 
-Cover the branch-lease matrix end to end: valid, missing, expired, and foreign
-leases; branch/base/head identity; exact-main ancestry; and the single-open-PR
-constraint. Acceptance requires deterministic tests for every matrix row and a
-fail-closed result for stale or ambiguous lease evidence.
+Close issue `8ab811b2-8a86-4161-beb6-7b5b4d02cd08` by preserving the branch-lease
+lock-race fix merged in PR #173 and recording its supported runtime matrix.
+Acceptance permits `NULL_SOURCE_ALREADY_FIXED` when the reported
+`LOCK_UNCERTAIN` signature does not reproduce, the relevant source and tests are
+unchanged through current main, and the supported regression plus broad suite
+remain green. A different observer timeout stays in its separate child issue.
 
 ### R2 — seven HTTPS factories
 
