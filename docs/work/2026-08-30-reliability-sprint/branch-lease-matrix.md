@@ -10,10 +10,12 @@ Tested ref: `217ff5ce41656327d00f71fc4b866b0a347b599b`
 result = NULL_SOURCE_ALREADY_FIXED
 supported_signature = NOT_REPRODUCED
 source_change = NONE
+test_change = NONE
 workflow_change = NONE
+timeout_change = NONE
 ```
 
-The issue signature is `DB_CONTRACT_BRANCH_LEASE_LOCK_UNCERTAIN` where the timed-out waiter test expects `DB_CONTRACT_BRANCH_LEASE_ACQUISITION_TIMEOUT`. Current tracked source already retries `EEXIST` everywhere and `EPERM` only on Windows, while unknown filesystem errors remain `LOCK_UNCERTAIN`. `git diff --exit-code origin/main -- apps/platform-api/test/db-contract/branch-lease.ts apps/platform-api/test/db-contract/branch-lease.test.ts` exited 0 before testing.
+The issue signature is `DB_CONTRACT_BRANCH_LEASE_LOCK_UNCERTAIN` where the timed-out waiter test expects `DB_CONTRACT_BRANCH_LEASE_ACQUISITION_TIMEOUT`. Current tracked source already retries `EEXIST` everywhere and `EPERM` only on Windows, while unknown filesystem errors remain `LOCK_UNCERTAIN`. `git diff --exit-code origin/main...HEAD -- apps/platform-api/test/db-contract/branch-lease.ts apps/platform-api/test/db-contract/branch-lease.test.ts .github/workflows/db-contract.yml` exited 0, proving this R1 branch changes no source, test, or workflow surface. Because the timeout values live in those unchanged source and test files, it also makes no timeout edit.
 
 After rebasing, the same two-file diff from tested ref `217ff5ce41656327d00f71fc4b866b0a347b599b` through current main `60c2c5882797240a5699200c0f016689d509ed00` also exits 0.
 
@@ -45,9 +47,10 @@ npm exec --prefix C:\tmp\product-suite-r1-runtime --yes --package=bun@1.3.6 -- b
 # exit 0; 80 files passed, 6 skipped; 965 tests passed, 29 skipped
 
 # Revalidated after rebase with this exact pinned Bun 1.3.6 wrapper:
-$bunDir = 'C:\Users\harsha_befach\.bun\bin'
-$bunExe = Join-Path $bunDir 'bun.exe'
-$platformApi = 'C:\Users\harsha_befach\Downloads\Product-Suite\.worktrees\branch-lease-flake\.worktrees\reliability-branch-lease-r1\apps\platform-api'
+$bunExe = (Get-Command bun.exe -ErrorAction Stop).Source
+$bunDir = Split-Path -Parent $bunExe
+$repoRoot = (& git rev-parse --show-toplevel).Trim()
+$platformApi = Join-Path $repoRoot 'apps/platform-api'
 $env:PATH = "$bunDir;$env:PATH"
 $version = (& $bunExe --version).Trim()
 if ($version -ne '1.3.6') { throw "Expected Bun 1.3.6, got $version" }
@@ -64,11 +67,17 @@ for ($iteration = 1; $iteration -le 50; $iteration++) {
 Linux cells used an isolated Git archive at `/tmp/product-suite-r1-linux-217ff5c`; PATH was pinned so the child-process test inherited the same native Bun binary as Vitest.
 
 ```sh
-env PATH=/tmp/product-suite-r1-bun/1.3.6/bun-linux-x64:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bun run --cwd /tmp/product-suite-r1-linux-217ff5c/apps/platform-api test -- test/db-contract/branch-lease.test.ts
-# exit 0; 1 file passed; 17 tests passed
+PATH=/tmp/product-suite-r1-bun/1.3.6/bun-linux-x64:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+test "$(bun --version)" = "1.3.6"
+bun run --cwd /tmp/product-suite-r1-linux-217ff5c/apps/platform-api test -- test/db-contract/branch-lease.test.ts
+# Bun 1.3.6 asserted; exit 0; 1 file passed; 17 tests passed
 
-env PATH=/tmp/product-suite-r1-bun/1.4.0/bun-linux-x64:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bun run --cwd /tmp/product-suite-r1-linux-217ff5c/apps/platform-api test -- test/db-contract/branch-lease.test.ts
-# exit 0; 1 file passed; 17 tests passed
+PATH=/tmp/product-suite-r1-bun/1.4.0/bun-linux-x64:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+test "$(bun --version)" = "1.4.0"
+bun run --cwd /tmp/product-suite-r1-linux-217ff5c/apps/platform-api test -- test/db-contract/branch-lease.test.ts
+# Bun 1.4.0 asserted; exit 0; 1 file passed; 17 tests passed
 ```
 
 ## RED/GREEN classification and remaining uncertainty
