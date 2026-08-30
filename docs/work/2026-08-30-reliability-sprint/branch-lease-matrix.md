@@ -69,13 +69,13 @@ Linux cells used an isolated Git archive at `/tmp/product-suite-r1-linux-217ff5c
 ```sh
 PATH=/tmp/product-suite-r1-bun/1.3.6/bun-linux-x64:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
-test "$(bun --version)" = "1.3.6"
+test "$(bun --version)" = "1.3.6" || exit 1
 bun run --cwd /tmp/product-suite-r1-linux-217ff5c/apps/platform-api test -- test/db-contract/branch-lease.test.ts
 # Bun 1.3.6 asserted; exit 0; 1 file passed; 17 tests passed
 
 PATH=/tmp/product-suite-r1-bun/1.4.0/bun-linux-x64:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
-test "$(bun --version)" = "1.4.0"
+test "$(bun --version)" = "1.4.0" || exit 1
 bun run --cwd /tmp/product-suite-r1-linux-217ff5c/apps/platform-api test -- test/db-contract/branch-lease.test.ts
 # Bun 1.4.0 asserted; exit 0; 1 file passed; 17 tests passed
 ```
