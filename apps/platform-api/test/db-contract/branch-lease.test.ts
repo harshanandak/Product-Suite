@@ -317,6 +317,7 @@ describe('run-wide branch lease coordinator', { timeout: DEFAULT_TEST_TIMEOUT_MS
       DEFAULT_ACQUISITION_TIMEOUT_MS,
       () => pendingObserver,
     ).acquire('dedicated'))
+    expect([syncLease.kind, asyncLease.kind]).toEqual(['dedicated', 'dedicated'])
     await asyncLease.release()
     rejectObserver(new Error('ASYNC_OBSERVER_FAILURE'))
     await new Promise<void>((resolveTurn) => setTimeout(resolveTurn, 0))
