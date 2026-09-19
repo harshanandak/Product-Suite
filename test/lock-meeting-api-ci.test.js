@@ -17,6 +17,10 @@ test("meeting-api CI installs a complete hash-locked wheel set", () => {
   );
 
   expect(install).toBeDefined();
+  const installCommand = install.run.replace(/\s+/g, " ").trim();
+  expect(installCommand).toBe(
+    `python -m pip install --only-binary=:all: --require-hashes -r ${lockPath}`,
+  );
   expect(install.run).toMatch(/^python -m pip install\b/);
   expect(install.run).toContain("--only-binary=:all:");
   expect(install.run).toContain("--require-hashes");
