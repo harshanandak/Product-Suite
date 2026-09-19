@@ -35,7 +35,7 @@ function coordinator(
   rootDir: string,
   runToken = 'run-a',
   timeout = DEFAULT_ACQUISITION_TIMEOUT_MS,
-  onWaiterRegisteredForTest?: () => void,
+  onWaiterRegisteredForTest?: () => void | Promise<void>,
 ) {
   return createBranchLeaseCoordinator({
     rootDir,
@@ -144,6 +144,28 @@ describe('run-wide branch lease coordinator', () => {
     expect(isRetryableLockContention({ code: 'EPERM' }, 'win32')).toBe(true)
     expect(isRetryableLockContention({ code: 'EPERM' }, 'linux')).toBe(false)
     expect(isRetryableLockContention({ code: 'EACCES' }, 'win32')).toBe(false)
+  })
+
+  it('contains test observer failures without awaiting asynchronous observers', async () => {
+    const root = await rootWithSpaces()
+    const syncLease = await coordinator(root, 'sync-observer', DEFAULT_ACQUISITION_TIMEOUT_MS, () => {
+      throw new Error('SYNC_OBSERVER_FAILURE')
+    }).acquire('dedicated')
+    await syncLease.release()
+
+    let rejectObserver: (reason: Error) => void = () => undefined
+    const pendingObserver = new Promise<void>((_resolve, reject) => {
+      rejectObserver = reject
+    })
+    const asyncLease = await settlesWithin(coordinator(
+      root,
+      'async-observer',
+      DEFAULT_ACQUISITION_TIMEOUT_MS,
+      () => pendingObserver,
+    ).acquire('dedicated'))
+    await asyncLease.release()
+    rejectObserver(new Error('ASYNC_OBSERVER_FAILURE'))
+    await new Promise<void>((resolveTurn) => setTimeout(resolveTurn, 0))
   })
 
   it('coordinates isolated worker processes under one run token', { timeout: 30_000 }, async () => {

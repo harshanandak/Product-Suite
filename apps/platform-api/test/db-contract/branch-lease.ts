@@ -49,7 +49,7 @@ export interface BranchLeaseCoordinatorOptions {
   pollIntervalMs?: number
   ownerId?: string
   /** Test-only signal after waiter persistence and lock release; observer failures cannot affect admission. */
-  onWaiterRegisteredForTest?: () => void
+  onWaiterRegisteredForTest?: () => void | Promise<void>
 }
 
 export interface BranchLeaseCoordinator {
@@ -216,10 +216,13 @@ export function createBranchLeaseCoordinator(options: BranchLeaseCoordinatorOpti
         state.nextSequence += 1
         queueFor(state, kind).push(waiter)
       })
-      try {
-        options.onWaiterRegisteredForTest?.()
-      } catch {
-        // A test observer cannot change lease admission or leave a persisted waiter abandoned.
+      const observer = options.onWaiterRegisteredForTest
+      if (observer) {
+        try {
+          void Promise.resolve(observer()).catch(() => undefined)
+        } catch {
+          // A test observer cannot change lease admission or leave a persisted waiter abandoned.
+        }
       }
 
       while (Date.now() < deadline) {
