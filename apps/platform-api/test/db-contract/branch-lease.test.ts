@@ -23,8 +23,19 @@ const OBSERVER_MARGIN_MS = 250
 const DEFAULT_SETTLE_TIMEOUT_MS = DEFAULT_ACQUISITION_TIMEOUT_MS
   + WAITER_CLEANUP_OPPORTUNITY_MS + OBSERVER_MARGIN_MS
 const DEFAULT_TEST_TIMEOUT_MS = DEFAULT_SETTLE_TIMEOUT_MS + OBSERVER_MARGIN_MS
+const DEFAULT_PENDING_OBSERVATION_MS = 50
 const CHILD_READY_TIMEOUT_MS = 10_000
+const CHILD_READY_CLEANUP_TIMEOUT_MS = 2_000
 const CHILD_EXIT_TIMEOUT_MS = 5_000
+const CHILD_SHUTDOWN_TIMEOUT_MS = CHILD_EXIT_TIMEOUT_MS * 2
+// Covers every bounded phase, including failed readiness cleanup and a retried child shutdown.
+const PROCESS_TEST_TIMEOUT_MS = (2 * CHILD_READY_TIMEOUT_MS)
+  + CHILD_READY_CLEANUP_TIMEOUT_MS
+  + (2 * DEFAULT_SETTLE_TIMEOUT_MS)
+  + DEFAULT_PENDING_OBSERVATION_MS
+  + (3 * CHILD_SHUTDOWN_TIMEOUT_MS)
+  + DEFAULT_ACQUISITION_TIMEOUT_MS
+  + OBSERVER_MARGIN_MS
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
@@ -65,7 +76,10 @@ async function settlesWithin<T>(promise: Promise<T>, timeoutMs = DEFAULT_SETTLE_
   }
 }
 
-async function remainsPending(promise: Promise<unknown>, durationMs = 50): Promise<void> {
+async function remainsPending(
+  promise: Promise<unknown>,
+  durationMs = DEFAULT_PENDING_OBSERVATION_MS,
+): Promise<void> {
   const marker = Symbol('pending')
   await expect(Promise.race([promise, new Promise((resolve) => setTimeout(() => resolve(marker), durationMs))]))
     .resolves.toBe(marker)
@@ -77,6 +91,30 @@ function waiterRegistration() {
     notify = resolveObserved
   })
   return { notify, observed }
+}
+
+type ChildTermination = {
+  code: number | null
+  signal: NodeJS.Signals | null
+}
+
+function childTermination(child: ChildProcessWithoutNullStreams): ChildTermination | undefined {
+  if (child.exitCode === null && child.signalCode === null) return undefined
+  return { code: child.exitCode, signal: child.signalCode }
+}
+
+function waitForChildTermination(child: ChildProcessWithoutNullStreams): Promise<ChildTermination> {
+  const termination = childTermination(child)
+  if (termination) return Promise.resolve(termination)
+  return new Promise((resolveExit) => {
+    child.once('exit', (code, signal) => resolveExit({ code, signal }))
+  })
+}
+
+function childTerminationError({ code, signal }: ChildTermination): Error {
+  return signal !== null
+    ? new Error(`CHILD_SIGNAL_${signal}`)
+    : new Error(`CHILD_EXIT_${String(code)}`)
 }
 
 async function childLease(rootDir: string, kind: BranchLeaseKind): Promise<ChildProcessWithoutNullStreams> {
@@ -106,15 +144,15 @@ async function childLease(rootDir: string, kind: BranchLeaseKind): Promise<Child
         if (output.includes('ACQUIRED')) resolveReady()
       })
       child.once('error', reject)
-      child.once('exit', (code) => {
-        if (!output.includes('ACQUIRED')) reject(new Error(`CHILD_EXIT_${String(code)}`))
+      child.once('exit', (code, signal) => {
+        if (!output.includes('ACQUIRED')) reject(childTerminationError({ code, signal }))
       })
     })
     return child
   } catch (error) {
-    if (child.exitCode === null) {
+    if (!childTermination(child)) {
       child.kill()
-      await settlesWithin(new Promise<void>((resolveExit) => child.once('exit', () => resolveExit())), 2_000)
+      await settlesWithin(waitForChildTermination(child), CHILD_READY_CLEANUP_TIMEOUT_MS)
     }
     throw error
   } finally {
@@ -123,24 +161,24 @@ async function childLease(rootDir: string, kind: BranchLeaseKind): Promise<Child
 }
 
 async function releaseChild(child: ChildProcessWithoutNullStreams): Promise<void> {
-  if (child.exitCode !== null) {
-    if (child.exitCode !== 0) throw new Error(`CHILD_EXIT_${String(child.exitCode)}`)
+  const existingTermination = childTermination(child)
+  if (existingTermination) {
+    if (existingTermination.signal !== null || existingTermination.code !== 0) {
+      throw childTerminationError(existingTermination)
+    }
     return
   }
-  const waitForExit = () => child.exitCode !== null
-    ? Promise.resolve(child.exitCode)
-    : new Promise<number | null>((resolveExit) => child.once('exit', resolveExit))
-  const gracefulExit = waitForExit()
+  const gracefulExit = waitForChildTermination(child)
   child.stdin.end('release\n')
-  let code: number | null
+  let termination: ChildTermination
   try {
-    code = await settlesWithin(gracefulExit, CHILD_EXIT_TIMEOUT_MS)
+    termination = await settlesWithin(gracefulExit, CHILD_EXIT_TIMEOUT_MS)
   } catch (error) {
-    if (child.exitCode === null) child.kill()
-    await settlesWithin(waitForExit(), CHILD_EXIT_TIMEOUT_MS)
+    if (!childTermination(child)) child.kill()
+    await settlesWithin(waitForChildTermination(child), CHILD_EXIT_TIMEOUT_MS)
     throw error
   }
-  if (code !== 0) throw new Error(`CHILD_EXIT_${String(code)}`)
+  if (termination.signal !== null || termination.code !== 0) throw childTerminationError(termination)
 }
 
 describe('run-wide branch lease coordinator', { timeout: DEFAULT_TEST_TIMEOUT_MS }, () => {
@@ -173,7 +211,27 @@ describe('run-wide branch lease coordinator', { timeout: DEFAULT_TEST_TIMEOUT_MS
     await new Promise<void>((resolveTurn) => setTimeout(resolveTurn, 0))
   })
 
-  it('coordinates isolated worker processes under one run token', { timeout: 30_000 }, async () => {
+  it('recognizes a child that already exited by signal without waiting for another exit', async () => {
+    const once = vi.fn(() => {
+      throw new Error('UNEXPECTED_CHILD_OPERATION')
+    })
+    const end = vi.fn()
+    const kill = vi.fn()
+    const child = {
+      exitCode: null,
+      signalCode: 'SIGTERM',
+      once,
+      kill,
+      stdin: { end },
+    } as unknown as ChildProcessWithoutNullStreams
+
+    await expect(releaseChild(child)).rejects.toThrow('CHILD_SIGNAL_SIGTERM')
+    expect(once).not.toHaveBeenCalled()
+    expect(end).not.toHaveBeenCalled()
+    expect(kill).not.toHaveBeenCalled()
+  })
+
+  it('coordinates isolated worker processes under one run token', { timeout: PROCESS_TEST_TIMEOUT_MS }, async () => {
     const root = await rootWithSpaces()
     let suiteWorker: ChildProcessWithoutNullStreams | undefined
     let dedicatedWorker: ChildProcessWithoutNullStreams | undefined
