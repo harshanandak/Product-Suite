@@ -17,7 +17,12 @@ import {
 
 const roots: string[] = []
 const DEFAULT_ACQUISITION_TIMEOUT_MS = 5_000
-const DEFAULT_SETTLE_TIMEOUT_MS = 4_000
+// Mirrors the coordinator's bounded opportunity to remove a timed-out waiter.
+const WAITER_CLEANUP_OPPORTUNITY_MS = 1_000
+const OBSERVER_MARGIN_MS = 250
+const DEFAULT_SETTLE_TIMEOUT_MS = DEFAULT_ACQUISITION_TIMEOUT_MS
+  + WAITER_CLEANUP_OPPORTUNITY_MS + OBSERVER_MARGIN_MS
+const DEFAULT_TEST_TIMEOUT_MS = DEFAULT_SETTLE_TIMEOUT_MS + OBSERVER_MARGIN_MS
 const CHILD_READY_TIMEOUT_MS = 10_000
 const CHILD_EXIT_TIMEOUT_MS = 5_000
 
@@ -138,7 +143,7 @@ async function releaseChild(child: ChildProcessWithoutNullStreams): Promise<void
   if (code !== 0) throw new Error(`CHILD_EXIT_${String(code)}`)
 }
 
-describe('run-wide branch lease coordinator', () => {
+describe('run-wide branch lease coordinator', { timeout: DEFAULT_TEST_TIMEOUT_MS }, () => {
   it('retries transient Windows lock contention without masking other filesystem failures', () => {
     expect(isRetryableLockContention({ code: 'EEXIST' }, 'linux')).toBe(true)
     expect(isRetryableLockContention({ code: 'EPERM' }, 'win32')).toBe(true)
@@ -211,7 +216,7 @@ describe('run-wide branch lease coordinator', () => {
       if (admitted) await attempt(() => admitted!.release())
       else if (third) {
         await attempt(async () => {
-          await (await settlesWithin(third!, DEFAULT_ACQUISITION_TIMEOUT_MS + 250)).release()
+          await (await settlesWithin(third!)).release()
         })
       }
       if (suiteWorker) await attempt(() => releaseChild(suiteWorker!))
@@ -256,17 +261,16 @@ describe('run-wide branch lease coordinator', () => {
     await Promise.all([first.release(), second.release()])
   })
 
-  it('observes the full configured acquisition budget before timing out the test observer', async () => {
-    const acquisitionTimeoutMs = DEFAULT_ACQUISITION_TIMEOUT_MS
-    const observerTimeoutMs = acquisitionTimeoutMs + 250
+  it('observes acquisition and cleanup budgets before the default test observer times out', async () => {
+    const runtimePhaseBudgetMs = DEFAULT_ACQUISITION_TIMEOUT_MS + WAITER_CLEANUP_OPPORTUNITY_MS
     vi.useFakeTimers()
     try {
-      const observed = settlesWithin(new Promise<never>(() => undefined), observerTimeoutMs)
+      const observed = settlesWithin(new Promise<never>(() => undefined))
         .then(() => 'SETTLED', (error: Error) => error.message)
-      await vi.advanceTimersByTimeAsync(acquisitionTimeoutMs)
+      await vi.advanceTimersByTimeAsync(runtimePhaseBudgetMs)
       const pending = Symbol('pending')
       await expect(Promise.race([observed, Promise.resolve(pending)])).resolves.toBe(pending)
-      await vi.advanceTimersByTimeAsync(observerTimeoutMs - acquisitionTimeoutMs)
+      await vi.advanceTimersByTimeAsync(DEFAULT_SETTLE_TIMEOUT_MS - runtimePhaseBudgetMs)
       await expect(observed).resolves.toBe('TEST_TIMEOUT')
       expect(vi.getTimerCount()).toBe(0)
     } finally {
@@ -367,7 +371,10 @@ describe('run-wide branch lease coordinator', () => {
     await settlesWithin(registration.observed)
     await remainsPending(queued, 40)
     await active.release()
-    const admitted = await settlesWithin(queued, acquisitionTimeoutMs + 250)
+    const admitted = await settlesWithin(
+      queued,
+      acquisitionTimeoutMs + WAITER_CLEANUP_OPPORTUNITY_MS + OBSERVER_MARGIN_MS,
+    )
     expect(admitted.kind).toBe('suite')
     await admitted.release()
   })
