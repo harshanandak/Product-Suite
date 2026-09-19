@@ -539,14 +539,24 @@ describe("repo tooling", () => {
     );
 
     expect(install).toBeDefined();
-    const pipInstalls = install.run.split("&&").map((command) => command.trim());
-    expect(pipInstalls).toHaveLength(2);
-    for (const command of pipInstalls) {
-      expect(command).toMatch(/^python -m pip install\b/);
-      expect(command).toMatch(/(?:^|\s)--only-binary(?:=|\s+):all:(?:\s|$)/);
+    expect(install.run).toMatch(/^python -m pip install\b/);
+    expect(install.run).toContain("--only-binary=:all:");
+    expect(install.run).toContain("-r apps/meeting-api/backend/requirements.txt");
+    expect(install.run).not.toContain("--upgrade pip");
+    expect(install.run).not.toContain("&&");
+
+    const requirements = readFileSync(
+      join(rootDir, "apps", "meeting-api", "backend", "requirements.txt"),
+      "utf8",
+    )
+      .split(/\r?\n/)
+      .filter((line) => line.trim() && !line.trim().startsWith("#"));
+    expect(requirements.length).toBeGreaterThan(0);
+    for (const requirement of requirements) {
+      expect(requirement).toMatch(
+        /^[A-Za-z0-9_.-]+(?:\[[A-Za-z0-9_.,-]+\])?==[^\s*]+$/,
+      );
     }
-    expect(pipInstalls[0]).toContain("--upgrade pip");
-    expect(pipInstalls[1]).toContain("-r apps/meeting-api/backend/requirements.txt");
   });
 
   test("roadmap CI reflects the local validation baseline", () => {
