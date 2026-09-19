@@ -532,6 +532,23 @@ describe("repo tooling", () => {
     expect(meetingApiWorkflow).toContain("python -m pytest apps/meeting-api/tests/backend -q");
   });
 
+  test("meeting-api CI installs Python packages from wheels only", () => {
+    const workflow = Bun.YAML.parse(meetingApiWorkflow);
+    const install = workflow.jobs.backend.steps.find(
+      (step) => step.name === "Install backend dependencies",
+    );
+
+    expect(install).toBeDefined();
+    const pipInstalls = install.run.split("&&").map((command) => command.trim());
+    expect(pipInstalls).toHaveLength(2);
+    for (const command of pipInstalls) {
+      expect(command).toMatch(/^python -m pip install\b/);
+      expect(command).toMatch(/(?:^|\s)--only-binary(?:=|\s+):all:(?:\s|$)/);
+    }
+    expect(pipInstalls[0]).toContain("--upgrade pip");
+    expect(pipInstalls[1]).toContain("-r apps/meeting-api/backend/requirements.txt");
+  });
+
   test("roadmap CI reflects the local validation baseline", () => {
     expect(roadmapWebWorkflow).toContain("Roadmap unit tests");
     expect(roadmapWebWorkflow).toContain("bun run test");
