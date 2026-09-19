@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { EventEmitter } from 'node:events'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -28,6 +29,10 @@ const CHILD_READY_TIMEOUT_MS = 10_000
 const CHILD_READY_CLEANUP_TIMEOUT_MS = 2_000
 const CHILD_EXIT_TIMEOUT_MS = 5_000
 const CHILD_SHUTDOWN_TIMEOUT_MS = CHILD_EXIT_TIMEOUT_MS * 2
+const MAX_OWNED_CHILDREN = 2
+const ROOT_CLEANUP_TIMEOUT_MS = 2_000
+const AFTER_EACH_TIMEOUT_MS = (MAX_OWNED_CHILDREN * (CHILD_SHUTDOWN_TIMEOUT_MS + CHILD_EXIT_TIMEOUT_MS))
+  + ROOT_CLEANUP_TIMEOUT_MS + OBSERVER_MARGIN_MS
 // Covers every bounded phase, including failed readiness cleanup and a retried child shutdown.
 const PROCESS_TEST_TIMEOUT_MS = (2 * CHILD_READY_TIMEOUT_MS)
   + CHILD_READY_CLEANUP_TIMEOUT_MS
@@ -36,10 +41,11 @@ const PROCESS_TEST_TIMEOUT_MS = (2 * CHILD_READY_TIMEOUT_MS)
   + (3 * CHILD_SHUTDOWN_TIMEOUT_MS)
   + DEFAULT_ACQUISITION_TIMEOUT_MS
   + OBSERVER_MARGIN_MS
+const ownedChildren = new Set<ChildProcessWithoutNullStreams>()
 
 afterEach(async () => {
-  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
-})
+  await cleanupTestResources()
+}, AFTER_EACH_TIMEOUT_MS)
 
 async function rootWithSpaces(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'db contract leases '))
@@ -100,6 +106,7 @@ type ChildTermination = {
 
 function childTermination(child: ChildProcessWithoutNullStreams): ChildTermination | undefined {
   if (child.exitCode === null && child.signalCode === null) return undefined
+  ownedChildren.delete(child)
   return { code: child.exitCode, signal: child.signalCode }
 }
 
@@ -107,7 +114,10 @@ function waitForChildTermination(child: ChildProcessWithoutNullStreams): Promise
   const termination = childTermination(child)
   if (termination) return Promise.resolve(termination)
   return new Promise((resolveExit) => {
-    child.once('exit', (code, signal) => resolveExit({ code, signal }))
+    child.once('exit', (code, signal) => {
+      ownedChildren.delete(child)
+      resolveExit({ code, signal })
+    })
   })
 }
 
@@ -115,6 +125,41 @@ function childTerminationError({ code, signal }: ChildTermination): Error {
   return signal !== null
     ? new Error(`CHILD_SIGNAL_${signal}`)
     : new Error(`CHILD_EXIT_${String(code)}`)
+}
+
+function ownChild(child: ChildProcessWithoutNullStreams): void {
+  ownedChildren.add(child)
+  child.once('exit', () => ownedChildren.delete(child))
+  child.once('error', () => {
+    if (child.pid === undefined) ownedChildren.delete(child)
+  })
+}
+
+async function forceChildTermination(
+  child: ChildProcessWithoutNullStreams,
+  timeoutMs: number,
+): Promise<ChildTermination> {
+  const existingTermination = childTermination(child)
+  if (existingTermination) return existingTermination
+  const killed = child.kill()
+  const synchronousTermination = childTermination(child)
+  if (synchronousTermination) return synchronousTermination
+  if (!killed) throw new Error('CHILD_KILL_FAILED')
+  return settlesWithin(waitForChildTermination(child), timeoutMs)
+}
+
+async function rethrowAfterForceCleanup(
+  primary: unknown,
+  child: ChildProcessWithoutNullStreams,
+  timeoutMs: number,
+  message: string,
+): Promise<never> {
+  try {
+    await forceChildTermination(child, timeoutMs)
+  } catch (cleanupError) {
+    throw new AggregateError([primary, cleanupError], message)
+  }
+  throw primary
 }
 
 async function childLease(rootDir: string, kind: BranchLeaseKind): Promise<ChildProcessWithoutNullStreams> {
@@ -134,6 +179,7 @@ async function childLease(rootDir: string, kind: BranchLeaseKind): Promise<Child
     env: { ...process.env, LEASE_ROOT: rootDir, LEASE_KIND: kind },
     stdio: ['pipe', 'pipe', 'pipe'],
   })
+  ownChild(child)
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     await new Promise<void>((resolveReady, reject) => {
@@ -150,11 +196,13 @@ async function childLease(rootDir: string, kind: BranchLeaseKind): Promise<Child
     })
     return child
   } catch (error) {
-    if (!childTermination(child)) {
-      child.kill()
-      await settlesWithin(waitForChildTermination(child), CHILD_READY_CLEANUP_TIMEOUT_MS)
-    }
-    throw error
+    if (!ownedChildren.has(child)) throw error
+    return rethrowAfterForceCleanup(
+      error,
+      child,
+      CHILD_READY_CLEANUP_TIMEOUT_MS,
+      'CHILD_READY_AND_CLEANUP_FAILED',
+    )
   } finally {
     if (timer) clearTimeout(timer)
   }
@@ -168,17 +216,80 @@ async function releaseChild(child: ChildProcessWithoutNullStreams): Promise<void
     }
     return
   }
-  const gracefulExit = waitForChildTermination(child)
-  child.stdin.end('release\n')
   let termination: ChildTermination
   try {
+    const gracefulExit = waitForChildTermination(child)
+    child.stdin.end('release\n')
     termination = await settlesWithin(gracefulExit, CHILD_EXIT_TIMEOUT_MS)
   } catch (error) {
-    if (!childTermination(child)) child.kill()
-    await settlesWithin(waitForChildTermination(child), CHILD_EXIT_TIMEOUT_MS)
-    throw error
+    return rethrowAfterForceCleanup(
+      error,
+      child,
+      CHILD_EXIT_TIMEOUT_MS,
+      'CHILD_RELEASE_AND_CLEANUP_FAILED',
+    )
   }
   if (termination.signal !== null || termination.code !== 0) throw childTerminationError(termination)
+}
+
+async function cleanupTestResources(): Promise<void> {
+  const failures: unknown[] = []
+  for (const child of [...ownedChildren]) {
+    try {
+      await releaseChild(child)
+    } catch (error) {
+      failures.push(error)
+    }
+    if (ownedChildren.has(child)) {
+      try {
+        await forceChildTermination(child, CHILD_EXIT_TIMEOUT_MS)
+      } catch (error) {
+        failures.push(error)
+      }
+    }
+  }
+
+  if (ownedChildren.size > 0) {
+    failures.push(new Error(`CHILD_CLEANUP_INCOMPLETE_${ownedChildren.size}`))
+  } else {
+    await Promise.all([...roots].map(async (root) => {
+      try {
+        await settlesWithin(rm(root, { recursive: true, force: true }), ROOT_CLEANUP_TIMEOUT_MS)
+        roots.splice(roots.indexOf(root), 1)
+      } catch (error) {
+        failures.push(error)
+      }
+    }))
+  }
+
+  if (failures.length === 1) throw failures[0]
+  if (failures.length > 1) throw new AggregateError(failures, 'TEST_RESOURCE_CLEANUP_FAILED')
+}
+
+function controlledChild(pid: number | undefined) {
+  const events = new EventEmitter()
+  const end = vi.fn()
+  const kill = vi.fn(() => true)
+  const child = Object.assign(events, {
+    pid,
+    exitCode: null as number | null,
+    signalCode: null as NodeJS.Signals | null,
+    stdin: { end },
+    stdout: new EventEmitter(),
+    stderr: new EventEmitter(),
+    kill,
+  }) as unknown as ChildProcessWithoutNullStreams
+  const terminate = (code: number | null, signal: NodeJS.Signals | null): void => {
+    Object.assign(child, { exitCode: code, signalCode: signal })
+    events.emit('exit', code, signal)
+  }
+  return {
+    child,
+    end,
+    fail: (error: Error): void => { events.emit('error', error) },
+    kill,
+    terminate,
+  }
 }
 
 describe('run-wide branch lease coordinator', { timeout: DEFAULT_TEST_TIMEOUT_MS }, () => {
@@ -211,6 +322,28 @@ describe('run-wide branch lease coordinator', { timeout: DEFAULT_TEST_TIMEOUT_MS
     await new Promise<void>((resolveTurn) => setTimeout(resolveTurn, 0))
   })
 
+  it('drops ownership only when an error proves no child process was spawned', async () => {
+    const unspawned = controlledChild(undefined)
+    const spawnError = new Error('CHILD_SPAWN_FAILED')
+    ownChild(unspawned.child)
+    const observed = new Promise<Error>((resolveError) => {
+      unspawned.child.once('error', resolveError)
+    })
+
+    unspawned.fail(spawnError)
+
+    await expect(observed).resolves.toBe(spawnError)
+    expect(ownedChildren.has(unspawned.child)).toBe(false)
+
+    const spawned = controlledChild(1)
+    ownChild(spawned.child)
+    spawned.fail(new Error('CHILD_STREAM_FAILED'))
+    const retainedSpawnedChild = ownedChildren.has(spawned.child)
+    spawned.terminate(0, null)
+    expect(retainedSpawnedChild).toBe(true)
+    expect(ownedChildren.has(spawned.child)).toBe(false)
+  })
+
   it('recognizes a child that already exited by signal without waiting for another exit', async () => {
     const once = vi.fn(() => {
       throw new Error('UNEXPECTED_CHILD_OPERATION')
@@ -229,6 +362,75 @@ describe('run-wide branch lease coordinator', { timeout: DEFAULT_TEST_TIMEOUT_MS
     expect(once).not.toHaveBeenCalled()
     expect(end).not.toHaveBeenCalled()
     expect(kill).not.toHaveBeenCalled()
+  })
+
+  it('retains ownership and roots until failed readiness cleanup is eventually reaped', async () => {
+    const root = await rootWithSpaces()
+    const marker = join(root, 'owned-child-marker')
+    await writeFile(marker, 'retained', 'utf8')
+    const controlled = controlledChild(1)
+    ownChild(controlled.child)
+    const readinessError = new Error('CHILD_READY_TIMEOUT')
+    let primary: unknown
+    let hasPrimary = false
+    try {
+      vi.useFakeTimers()
+      try {
+        const failedReadiness = rethrowAfterForceCleanup(
+          readinessError,
+          controlled.child,
+          CHILD_READY_CLEANUP_TIMEOUT_MS,
+          'CHILD_READY_AND_CLEANUP_FAILED',
+        ).then(() => undefined, (error: unknown) => error)
+        await vi.advanceTimersByTimeAsync(CHILD_READY_CLEANUP_TIMEOUT_MS)
+        const failure = await failedReadiness
+        expect(failure).toBeInstanceOf(AggregateError)
+        expect((failure as AggregateError).errors).toEqual([
+          readinessError,
+          expect.objectContaining({ message: 'TEST_TIMEOUT' }),
+        ])
+      } finally {
+        vi.useRealTimers()
+      }
+
+      expect(ownedChildren.has(controlled.child)).toBe(true)
+      await expect(readFile(marker, 'utf8')).resolves.toBe('retained')
+
+      controlled.end.mockImplementation(() => {
+        throw new Error('GRACEFUL_RELEASE_FAILED')
+      })
+      controlled.kill.mockReturnValue(false)
+      await expect(cleanupTestResources()).rejects.toThrow('TEST_RESOURCE_CLEANUP_FAILED')
+      expect(ownedChildren.has(controlled.child)).toBe(true)
+      await expect(readFile(marker, 'utf8')).resolves.toBe('retained')
+
+      controlled.kill.mockImplementation(() => {
+        controlled.terminate(null, 'SIGTERM')
+        return true
+      })
+      await expect(cleanupTestResources()).rejects.toThrow('GRACEFUL_RELEASE_FAILED')
+      expect(ownedChildren.has(controlled.child)).toBe(false)
+      await expect(readFile(marker, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    } catch (error) {
+      primary = error
+      hasPrimary = true
+    }
+
+    const cleanupFailures: unknown[] = []
+    if (ownedChildren.has(controlled.child)) controlled.terminate(null, 'SIGTERM')
+    if (roots.includes(root)) {
+      try {
+        await rm(root, { recursive: true, force: true })
+        roots.splice(roots.indexOf(root), 1)
+      } catch (error) {
+        cleanupFailures.push(error)
+      }
+    }
+    if (hasPrimary && cleanupFailures.length > 0) {
+      throw new AggregateError([primary, ...cleanupFailures], 'CONTROLLED_TEST_AND_CLEANUP_FAILED')
+    }
+    if (hasPrimary) throw primary
+    if (cleanupFailures.length > 0) throw cleanupFailures[0]
   })
 
   it('coordinates isolated worker processes under one run token', { timeout: PROCESS_TEST_TIMEOUT_MS }, async () => {
@@ -266,7 +468,7 @@ describe('run-wide branch lease coordinator', { timeout: DEFAULT_TEST_TIMEOUT_MS
           cleanupFailures.push(error)
         }
       }
-      if (dedicatedWorker) {
+      if (dedicatedWorker && ownedChildren.has(dedicatedWorker)) {
         const child = dedicatedWorker
         dedicatedWorker = undefined
         await attempt(() => releaseChild(child))
