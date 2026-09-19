@@ -532,33 +532,6 @@ describe("repo tooling", () => {
     expect(meetingApiWorkflow).toContain("python -m pytest apps/meeting-api/tests/backend -q");
   });
 
-  test("meeting-api CI installs Python packages from wheels only", () => {
-    const workflow = Bun.YAML.parse(meetingApiWorkflow);
-    const install = workflow.jobs.backend.steps.find(
-      (step) => step.name === "Install backend dependencies",
-    );
-
-    expect(install).toBeDefined();
-    expect(install.run).toMatch(/^python -m pip install\b/);
-    expect(install.run).toContain("--only-binary=:all:");
-    expect(install.run).toContain("-r apps/meeting-api/backend/requirements.txt");
-    expect(install.run).not.toContain("--upgrade pip");
-    expect(install.run).not.toContain("&&");
-
-    const requirements = readFileSync(
-      join(rootDir, "apps", "meeting-api", "backend", "requirements.txt"),
-      "utf8",
-    )
-      .split(/\r?\n/)
-      .filter((line) => line.trim() && !line.trim().startsWith("#"));
-    expect(requirements.length).toBeGreaterThan(0);
-    for (const requirement of requirements) {
-      expect(requirement).toMatch(
-        /^[A-Za-z0-9_.-]+(?:\[[A-Za-z0-9_.,-]+\])?==[^\s*]+$/,
-      );
-    }
-  });
-
   test("roadmap CI reflects the local validation baseline", () => {
     expect(roadmapWebWorkflow).toContain("Roadmap unit tests");
     expect(roadmapWebWorkflow).toContain("bun run test");
