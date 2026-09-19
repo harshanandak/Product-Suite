@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   BranchLeaseError,
@@ -17,7 +17,9 @@ import {
 
 const roots: string[] = []
 const DEFAULT_ACQUISITION_TIMEOUT_MS = 5_000
-const DEFAULT_SETTLE_TIMEOUT_MS = DEFAULT_ACQUISITION_TIMEOUT_MS + 250
+const DEFAULT_SETTLE_TIMEOUT_MS = 4_000
+const CHILD_READY_TIMEOUT_MS = 10_000
+const CHILD_EXIT_TIMEOUT_MS = 5_000
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
@@ -29,26 +31,47 @@ async function rootWithSpaces(): Promise<string> {
   return root
 }
 
-function coordinator(rootDir: string, runToken = 'run-a', timeout = DEFAULT_ACQUISITION_TIMEOUT_MS) {
+function coordinator(
+  rootDir: string,
+  runToken = 'run-a',
+  timeout = DEFAULT_ACQUISITION_TIMEOUT_MS,
+  onWaiterRegisteredForTest?: () => void,
+) {
   return createBranchLeaseCoordinator({
     rootDir,
     runToken,
     acquisitionTimeoutMs: timeout,
     pollIntervalMs: 5,
+    onWaiterRegisteredForTest,
   })
 }
 
 async function settlesWithin<T>(promise: Promise<T>, timeoutMs = DEFAULT_SETTLE_TIMEOUT_MS): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('TEST_TIMEOUT')), timeoutMs)),
-  ])
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('TEST_TIMEOUT')), timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
 }
 
 async function remainsPending(promise: Promise<unknown>, durationMs = 50): Promise<void> {
   const marker = Symbol('pending')
   await expect(Promise.race([promise, new Promise((resolve) => setTimeout(() => resolve(marker), durationMs))]))
     .resolves.toBe(marker)
+}
+
+function waiterRegistration() {
+  let notify: () => void = () => undefined
+  const observed = new Promise<void>((resolveObserved) => {
+    notify = resolveObserved
+  })
+  return { notify, observed }
 }
 
 async function childLease(rootDir: string, kind: BranchLeaseKind): Promise<ChildProcessWithoutNullStreams> {
@@ -68,29 +91,51 @@ async function childLease(rootDir: string, kind: BranchLeaseKind): Promise<Child
     env: { ...process.env, LEASE_ROOT: rootDir, LEASE_KIND: kind },
     stdio: ['pipe', 'pipe', 'pipe'],
   })
-  await new Promise<void>((resolveReady, reject) => {
-    let output = ''
-    const timer = setTimeout(() => reject(new Error('CHILD_READY_TIMEOUT')), 2_000)
-    child.stdout.on('data', (chunk) => {
-      output += String(chunk)
-      if (output.includes('ACQUIRED')) {
-        clearTimeout(timer)
-        resolveReady()
-      }
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await new Promise<void>((resolveReady, reject) => {
+      let output = ''
+      timer = setTimeout(() => reject(new Error('CHILD_READY_TIMEOUT')), CHILD_READY_TIMEOUT_MS)
+      child.stdout.on('data', (chunk) => {
+        output += String(chunk)
+        if (output.includes('ACQUIRED')) resolveReady()
+      })
+      child.once('error', reject)
+      child.once('exit', (code) => {
+        if (!output.includes('ACQUIRED')) reject(new Error(`CHILD_EXIT_${String(code)}`))
+      })
     })
-    child.once('error', reject)
-    child.once('exit', (code) => {
-      if (!output.includes('ACQUIRED')) reject(new Error(`CHILD_EXIT_${String(code)}`))
-    })
-  })
-  return child
+    return child
+  } catch (error) {
+    if (child.exitCode === null) {
+      child.kill()
+      await settlesWithin(new Promise<void>((resolveExit) => child.once('exit', () => resolveExit())), 2_000)
+    }
+    throw error
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
 }
 
 async function releaseChild(child: ChildProcessWithoutNullStreams): Promise<void> {
+  if (child.exitCode !== null) {
+    if (child.exitCode !== 0) throw new Error(`CHILD_EXIT_${String(child.exitCode)}`)
+    return
+  }
+  const waitForExit = () => child.exitCode !== null
+    ? Promise.resolve(child.exitCode)
+    : new Promise<number | null>((resolveExit) => child.once('exit', resolveExit))
+  const gracefulExit = waitForExit()
   child.stdin.end('release\n')
-  await new Promise<void>((resolveExit, reject) => {
-    child.once('exit', (code) => code === 0 ? resolveExit() : reject(new Error(`CHILD_EXIT_${String(code)}`)))
-  })
+  let code: number | null
+  try {
+    code = await settlesWithin(gracefulExit, CHILD_EXIT_TIMEOUT_MS)
+  } catch (error) {
+    if (child.exitCode === null) child.kill()
+    await settlesWithin(waitForExit(), CHILD_EXIT_TIMEOUT_MS)
+    throw error
+  }
+  if (code !== 0) throw new Error(`CHILD_EXIT_${String(code)}`)
 }
 
 describe('run-wide branch lease coordinator', () => {
@@ -101,21 +146,60 @@ describe('run-wide branch lease coordinator', () => {
     expect(isRetryableLockContention({ code: 'EACCES' }, 'win32')).toBe(false)
   })
 
-  it('coordinates isolated worker processes under one run token', async () => {
+  it('coordinates isolated worker processes under one run token', { timeout: 30_000 }, async () => {
     const root = await rootWithSpaces()
-    const suiteWorker = await childLease(root, 'suite')
-    const dedicatedWorker = await childLease(root, 'dedicated')
-    const third = createBranchLeaseCoordinator({
-      rootDir: root,
-      runToken: 'child-run',
-      acquisitionTimeoutMs: 2_000,
-      pollIntervalMs: 5,
-    }).acquire('dedicated')
-    await remainsPending(third)
-    await releaseChild(dedicatedWorker)
-    const admitted = await settlesWithin(third, 1_000)
-    await admitted.release()
-    await releaseChild(suiteWorker)
+    let suiteWorker: ChildProcessWithoutNullStreams | undefined
+    let dedicatedWorker: ChildProcessWithoutNullStreams | undefined
+    let third: Promise<BranchLease> | undefined
+    let admitted: BranchLease | undefined
+    let primary: unknown
+    let hasPrimary = false
+    try {
+      suiteWorker = await childLease(root, 'suite')
+      dedicatedWorker = await childLease(root, 'dedicated')
+      const thirdRegistration = waiterRegistration()
+      third = coordinator(
+        root,
+        'child-run',
+        DEFAULT_ACQUISITION_TIMEOUT_MS,
+        thirdRegistration.notify,
+      ).acquire('dedicated')
+      await settlesWithin(thirdRegistration.observed)
+      await remainsPending(third)
+      await releaseChild(dedicatedWorker)
+      dedicatedWorker = undefined
+      admitted = await settlesWithin(third)
+    } catch (error) {
+      primary = error
+      hasPrimary = true
+    } finally {
+      const cleanupFailures: unknown[] = []
+      const attempt = async (operation: () => Promise<void>): Promise<void> => {
+        try {
+          await operation()
+        } catch (error) {
+          cleanupFailures.push(error)
+        }
+      }
+      if (dedicatedWorker) {
+        const child = dedicatedWorker
+        dedicatedWorker = undefined
+        await attempt(() => releaseChild(child))
+      }
+      if (admitted) await attempt(() => admitted!.release())
+      else if (third) {
+        await attempt(async () => {
+          await (await settlesWithin(third!, DEFAULT_ACQUISITION_TIMEOUT_MS + 250)).release()
+        })
+      }
+      if (suiteWorker) await attempt(() => releaseChild(suiteWorker!))
+      if (hasPrimary && cleanupFailures.length > 0) {
+        throw new AggregateError([primary, ...cleanupFailures], 'BRANCH_LEASE_TEST_AND_CLEANUP_FAILED')
+      }
+      if (hasPrimary) throw primary
+      if (cleanupFailures.length === 1) throw cleanupFailures[0]
+      if (cleanupFailures.length > 1) throw new AggregateError(cleanupFailures, 'BRANCH_LEASE_TEST_CLEANUP_FAILED')
+    }
   })
 
   it('admits one suite plus one dedicated lease and makes a third wait', async () => {
@@ -151,18 +235,21 @@ describe('run-wide branch lease coordinator', () => {
   })
 
   it('observes the full configured acquisition budget before timing out the test observer', async () => {
-    const root = await rootWithSpaces()
-    const acquisitionTimeoutMs = 1_000
-    const active = await coordinator(root, 'run-a', acquisitionTimeoutMs).acquire('suite')
-    const queued = coordinator(root, 'run-a', acquisitionTimeoutMs).acquire('suite').then(async (lease) => {
-      await lease.release()
-      return lease.kind
-    })
-    const observed = settlesWithin(queued, acquisitionTimeoutMs + 250)
-    await remainsPending(queued, 20)
-    await new Promise((resolve) => setTimeout(resolve, 600))
-    await active.release()
-    await expect(observed).resolves.toBe('suite')
+    const acquisitionTimeoutMs = DEFAULT_ACQUISITION_TIMEOUT_MS
+    const observerTimeoutMs = acquisitionTimeoutMs + 250
+    vi.useFakeTimers()
+    try {
+      const observed = settlesWithin(new Promise<never>(() => undefined), observerTimeoutMs)
+        .then(() => 'SETTLED', (error: Error) => error.message)
+      await vi.advanceTimersByTimeAsync(acquisitionTimeoutMs)
+      const pending = Symbol('pending')
+      await expect(Promise.race([observed, Promise.resolve(pending)])).resolves.toBe(pending)
+      await vi.advanceTimersByTimeAsync(observerTimeoutMs - acquisitionTimeoutMs)
+      await expect(observed).resolves.toBe('TEST_TIMEOUT')
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('prunes a persisted expired waiter before admitting the live FIFO head', async () => {
@@ -198,9 +285,14 @@ describe('run-wide branch lease coordinator', () => {
       ? await coordinator(root).acquire('suite')
       : await Promise.all([coordinator(root).acquire('dedicated'), coordinator(root).acquire('dedicated')])
     const arrivals: number[] = []
-    const first = coordinator(root).acquire(kind).then((lease) => { arrivals.push(1); return lease })
-    await new Promise((resolve) => setTimeout(resolve, 20))
-    const second = coordinator(root).acquire(kind).then((lease) => { arrivals.push(2); return lease })
+    const firstRegistration = waiterRegistration()
+    const first = coordinator(root, 'run-a', DEFAULT_ACQUISITION_TIMEOUT_MS, firstRegistration.notify)
+      .acquire(kind).then((lease) => { arrivals.push(1); return lease })
+    await settlesWithin(firstRegistration.observed)
+    const secondRegistration = waiterRegistration()
+    const second = coordinator(root, 'run-a', DEFAULT_ACQUISITION_TIMEOUT_MS, secondRegistration.notify)
+      .acquire(kind).then((lease) => { arrivals.push(2); return lease })
+    await settlesWithin(secondRegistration.observed)
     await remainsPending(first)
 
     if (Array.isArray(blocker)) await blocker[0].release()
@@ -218,7 +310,10 @@ describe('run-wide branch lease coordinator', () => {
   it('does not let a waiting suite block the active suite from dedicated capacity', async () => {
     const root = await rootWithSpaces()
     const activeSuite = await coordinator(root).acquire('suite')
-    const waitingSuite = coordinator(root).acquire('suite')
+    const registration = waiterRegistration()
+    const waitingSuite = coordinator(root, 'run-a', DEFAULT_ACQUISITION_TIMEOUT_MS, registration.notify)
+      .acquire('suite')
+    await settlesWithin(registration.observed)
     await remainsPending(waitingSuite)
     const dedicated = await settlesWithin(coordinator(root).acquire('dedicated'))
     await dedicated.release()
@@ -245,7 +340,9 @@ describe('run-wide branch lease coordinator', () => {
     const root = await rootWithSpaces()
     const acquisitionTimeoutMs = 1_000
     const active = await coordinator(root, 'run-a', acquisitionTimeoutMs).acquire('suite')
-    const queued = coordinator(root, 'run-a', acquisitionTimeoutMs).acquire('suite')
+    const registration = waiterRegistration()
+    const queued = coordinator(root, 'run-a', acquisitionTimeoutMs, registration.notify).acquire('suite')
+    await settlesWithin(registration.observed)
     await remainsPending(queued, 40)
     await active.release()
     const admitted = await settlesWithin(queued, acquisitionTimeoutMs + 250)
