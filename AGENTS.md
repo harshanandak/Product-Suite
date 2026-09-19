@@ -176,7 +176,8 @@ services/     agent-core  hocuspocus
 scripts/      repo-level checks (migration parity, source/test coupling, DB authority…)
 ```
 
-Bun workspaces; `bun@1.3.6` is pinned in the root `package.json`.
+Bun workspaces; CI follows the latest stable Bun release. Locally, run
+`bun upgrade --stable` and verify `bun --version` before installing dependencies.
 
 **Taste.** Push complexity to the adapter boundary and keep orchestration pure. UI
 components stay dumb. Prefer inferred types over hand-written ones; `any` is the enemy.

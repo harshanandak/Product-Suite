@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 const rootDir = join(import.meta.dir, "..");
@@ -114,6 +114,9 @@ const dbContractWorkflowPath = join(
   "db-contract.yml",
 );
 const dbContractWorkflow = readFileSync(dbContractWorkflowPath, "utf8");
+const workflowPaths = readdirSync(join(rootDir, ".github", "workflows"))
+  .filter((name) => /\.ya?ml$/iu.test(name))
+  .map((name) => join(rootDir, ".github", "workflows", name));
 const lifecycleScriptHardenedWorkflowPaths = [
   dbContractWorkflowPath,
   join(rootDir, ".github", "workflows", "platform-web-ci.yml"),
@@ -126,6 +129,34 @@ const dbContractTelemetry = readFileSync(
 const lefthookConfig = readFileSync(join(rootDir, "lefthook.yml"), "utf8");
 
 describe("repo tooling", () => {
+  test("every GitHub Actions Bun runtime follows the latest stable release", () => {
+    expect(packageJson.packageManager).toBeUndefined();
+
+    const setupSteps = workflowPaths.flatMap((workflowPath) => {
+      const workflow = Bun.YAML.parse(readFileSync(workflowPath, "utf8"));
+      return Object.values(workflow.jobs ?? {})
+        .flatMap((job) => job.steps ?? [])
+        .filter((step) => step.uses?.startsWith("oven-sh/setup-bun@"));
+    });
+
+    expect(setupSteps.length).toBeGreaterThan(0);
+    for (const step of setupSteps) {
+      expect(step.with?.["bun-version"]).toBe("latest");
+    }
+  });
+
+  test("root installs own the BlockSuite icon compatibility patch", () => {
+    const dependency = "@blocksuite/icons@2.2.17";
+    const rootPatchPath = packageJson.patchedDependencies?.[dependency];
+    const roadmapPatchPath = roadmapWebPackageJson.patchedDependencies?.[dependency];
+
+    expect(rootPatchPath).toBe("patches/@blocksuite%2Ficons@2.2.17.patch");
+    expect(roadmapPatchPath).toBe(rootPatchPath);
+    expect(readFileSync(join(rootDir, rootPatchPath), "utf8")).toBe(
+      readFileSync(join(rootDir, "apps", "roadmap-web", roadmapPatchPath), "utf8"),
+    );
+  });
+
   test("root dependency bootstrap exposes ESLint's AJV 6 draft-04 reference", () => {
     expect(packageJson.devDependencies.ajv).toBe("6.14.0");
     expect(() =>

@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Security
+- Meeting API CI now installs a complete uv-generated, hash-verified CPython 3.13/Linux dependency lock from binary wheels without a mutable pip self-upgrade (PR #188, Forge issue `4ed8a31c-3f63-462d-84b2-9149090e69e0`)
 - Canonical tenant capability context now derives viewer/member/admin/owner authority from active database memberships and guards team, status, and project writes with fail-closed 404/403 behavior (PR #176, Forge issue `af872dc9-3c53-4f9d-9fc0-3e0bbdf6889f`)
 - GitHub Actions dependency installs for DB Contract and Platform Web now disable package lifecycle scripts while retaining frozen-lockfile enforcement (PR #171, Forge issue `808fbffa-8923-4083-9e5e-407b5b855454`)
 
@@ -22,6 +23,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Schema and domain ownership inventory for roadmap and meeting surfaces, including canonical ownership boundaries, overlap rules, and guarded discoverability links (PR #3, product-suite-waq)
 
 ### Changed
+- Bun CI runtimes now follow stable releases, local setup documents stable upgrades instead of an obsolete exact runtime pin, and root installs apply the BlockSuite icon compatibility patch (PR #188, Forge issue `b0803978-a71b-4946-a139-48e8901b9739`)
 - Real-Neon authority conformance now proves disposable-project and production-derived-branch cleanup, direct migration versus pooled runtime binding, least-privilege CRUD and denial behavior, and exact opaque PASS evidence (PR #173, Forge issue `25faf39b-3017-42fe-94c0-87acad7279a0`)
 - DB Contract now runs deterministic changed-surface cheap gates before protected exact-head Neon evidence; executable migration-manifest and OAuth/token/session authority paths fail closed to DB proof, while strict server-side branch protection remains the merge-time base-freshness authority (Forge issue `532329e0-7595-40c2-b939-a3a0735f8071`)
 - DB Contract real-Neon tests now reuse migrated suite branches with transaction rollback for safe cases, preserve dedicated isolation-sensitive proofs, and emit exact-head phase evidence to reduce runtime without weakening isolation (PR #168, Forge issue `9a808ed4-16c1-48c7-8ffb-2e8a2c8aaaaf`)

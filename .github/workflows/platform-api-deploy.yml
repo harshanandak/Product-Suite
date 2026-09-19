@@ -70,7 +70,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: 1.3.6
+          bun-version: latest
 
       - name: Verify production Worker runtime secrets
         # Deploy credentials only prove we CAN deploy; these are what the Worker reads at runtime (src/db.ts, middleware/clerk-auth.ts, agent/models.ts, agent/embeddings.ts).
@@ -149,7 +149,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: 1.3.6
+          bun-version: latest
 
       - name: Install dependencies
         # --ignore-scripts: this job has MIGRATION_DATABASE_URL in scope once the
@@ -253,7 +253,7 @@ jobs:
         if: steps.guard.outputs.ready == 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: 1.3.6
+          bun-version: latest
 
       - name: Install dependencies
         if: steps.guard.outputs.ready == 'true'
