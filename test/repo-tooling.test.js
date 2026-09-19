@@ -145,6 +145,18 @@ describe("repo tooling", () => {
     }
   });
 
+  test("root installs own the BlockSuite icon compatibility patch", () => {
+    const dependency = "@blocksuite/icons@2.2.17";
+    const rootPatchPath = packageJson.patchedDependencies?.[dependency];
+    const roadmapPatchPath = roadmapWebPackageJson.patchedDependencies?.[dependency];
+
+    expect(rootPatchPath).toBe("patches/@blocksuite%2Ficons@2.2.17.patch");
+    expect(roadmapPatchPath).toBe(rootPatchPath);
+    expect(readFileSync(join(rootDir, rootPatchPath), "utf8")).toBe(
+      readFileSync(join(rootDir, "apps", "roadmap-web", roadmapPatchPath), "utf8"),
+    );
+  });
+
   test("root dependency bootstrap exposes ESLint's AJV 6 draft-04 reference", () => {
     expect(packageJson.devDependencies.ajv).toBe("6.14.0");
     expect(() =>

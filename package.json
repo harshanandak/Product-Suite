@@ -18,6 +18,9 @@
     "services/agent-core",
     "services/hocuspocus"
   ],
+  "patchedDependencies": {
+    "@blocksuite/icons@2.2.17": "patches/@blocksuite%2Ficons@2.2.17.patch"
+  },
   "scripts": {
     "prepare": "lefthook install",
     "lint": "bun run --filter '*' lint -- --max-warnings 0",
