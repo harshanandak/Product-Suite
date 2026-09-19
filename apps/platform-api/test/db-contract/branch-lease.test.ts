@@ -23,7 +23,10 @@ const WAITER_CLEANUP_OPPORTUNITY_MS = 1_000
 const OBSERVER_MARGIN_MS = 250
 const DEFAULT_SETTLE_TIMEOUT_MS = DEFAULT_ACQUISITION_TIMEOUT_MS
   + WAITER_CLEANUP_OPPORTUNITY_MS + OBSERVER_MARGIN_MS
-const DEFAULT_TEST_TIMEOUT_MS = DEFAULT_SETTLE_TIMEOUT_MS + OBSERVER_MARGIN_MS
+const SHORT_ACQUISITION_TIMEOUT_MS = 40
+// Encloses timeout recovery: one parallel acquire, timed cleanup, four sequential lease operations, and margin.
+const DEFAULT_TEST_TIMEOUT_MS = (5 * DEFAULT_ACQUISITION_TIMEOUT_MS)
+  + SHORT_ACQUISITION_TIMEOUT_MS + WAITER_CLEANUP_OPPORTUNITY_MS + OBSERVER_MARGIN_MS
 const DEFAULT_PENDING_OBSERVATION_MS = 50
 const CHILD_READY_TIMEOUT_MS = 10_000
 const CHILD_READY_CLEANUP_TIMEOUT_MS = 2_000
@@ -614,7 +617,7 @@ describe('run-wide branch lease coordinator', { timeout: DEFAULT_TEST_TIMEOUT_MS
       coordinator(root).acquire('dedicated'),
       coordinator(root).acquire('dedicated'),
     ])
-    await expect(coordinator(root, 'run-a', 40).acquire('dedicated')).rejects.toEqual(
+    await expect(coordinator(root, 'run-a', SHORT_ACQUISITION_TIMEOUT_MS).acquire('dedicated')).rejects.toEqual(
       new BranchLeaseError('DB_CONTRACT_BRANCH_LEASE_ACQUISITION_TIMEOUT'),
     )
     await active[0].release()
@@ -643,7 +646,7 @@ describe('run-wide branch lease coordinator', { timeout: DEFAULT_TEST_TIMEOUT_MS
   it('retains capacity when deletion is uncertain because the lease is not released', async () => {
     const root = await rootWithSpaces()
     const retained = await coordinator(root).acquire('suite')
-    await expect(coordinator(root, 'run-a', 40).acquire('suite')).rejects.toMatchObject({
+    await expect(coordinator(root, 'run-a', SHORT_ACQUISITION_TIMEOUT_MS).acquire('suite')).rejects.toMatchObject({
       code: 'DB_CONTRACT_BRANCH_LEASE_ACQUISITION_TIMEOUT',
     })
     await retained.release()
@@ -699,7 +702,7 @@ describe('run-wide branch lease coordinator', { timeout: DEFAULT_TEST_TIMEOUT_MS
     await initialized.release()
     const runDir = join(root, createHash('sha256').update('run-a').digest('hex'))
     await mkdir(join(runDir, '.lock'))
-    await expect(coordinator(root, 'run-a', 40).acquire('dedicated')).rejects.toMatchObject({
+    await expect(coordinator(root, 'run-a', SHORT_ACQUISITION_TIMEOUT_MS).acquire('dedicated')).rejects.toMatchObject({
       code: 'DB_CONTRACT_BRANCH_LEASE_LOCK_UNCERTAIN',
     })
   })
