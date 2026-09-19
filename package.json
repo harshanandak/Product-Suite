@@ -1,7 +1,6 @@
 {
   "name": "product-suite",
   "private": true,
-  "packageManager": "bun@1.3.6",
   "workspaces": [
     "apps/meeting-web",
     "apps/roadmap-web",
