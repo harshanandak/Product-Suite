@@ -8,9 +8,9 @@
       "databaseAuthority": "none",
       "currentRepo": "Product-Suite",
       "targetRepo": "Product-Suite",
-      "targetRootDirectory": "apps/roadmap-web",
+      "targetRootDirectory": null,
       "currentBranch": "main",
-      "currentBuildCommand": "bun run build",
+      "currentBuildCommand": null,
       "currentProductionDomain": null,
       "previewBehavior": "No supported preview or production deployment; the former Vercel binding is archived.",
       "notes": "Legacy source is retained for historical/product recovery. Supabase workflows, cutover runners, and database authority are retired."

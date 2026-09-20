@@ -34,7 +34,7 @@ describe("CI change-plan adapter", () => {
     }
   });
 
-  test("requires verified pointer content for Roadmap API CLAUDE documentation", () => {
+  test("keeps archived Roadmap API guidance on the fail-closed plan", () => {
     const file = "apps/roadmap-web/src/app/api/CLAUDE.md";
     const baseSha = "a".repeat(40);
     const headSha = "b".repeat(40);
@@ -45,8 +45,8 @@ describe("CI change-plan adapter", () => {
       fileContents: { [file]: "@AGENTS.md\n" },
     });
     expect(verified.inputValid).toBe(true);
-    expect(verified.classification).toBe("scoped");
-    expect(verified.dbEvidenceRequired).toBe(false);
+    expect(verified.classification).toBe("full-suite");
+    expect(verified.dbEvidenceRequired).toBe(true);
 
     const unverified = planFromInputs({ baseSha, headSha, files: [file], fileContents: {} });
     expect(unverified.classification).toBe("full-suite");

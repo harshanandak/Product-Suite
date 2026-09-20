@@ -116,6 +116,14 @@ describe("change-aware CI plan", () => {
   const SHA = "a".repeat(40);
   const BASE = "b".repeat(40);
 
+  test("archived Roadmap changes keep DB authority fail-closed without runtime commands", () => {
+    const plan = buildCiPlan(["apps/roadmap-web/src/app/api/dependencies/route.ts"], SHA);
+    expect(plan.classification).toBe("full-suite");
+    expect(plan.dbEvidenceRequired).toBe(true);
+    expect(plan.cheapScripts).not.toContain("verify:roadmap-web");
+    expect(plan.cheapScripts).not.toContain("test:roadmap-canvas-boundary");
+  });
+
   test("scoped workspace changes include ordered cheap gates and no DB evidence", () => {
     const plan = buildCiPlan(["apps/platform-web/src/x.tsx"], SHA);
     expect(plan).toMatchObject({
@@ -139,7 +147,7 @@ describe("change-aware CI plan", () => {
     expect(plan.dbEvidenceReason).toBe("non-authority change");
   });
 
-  test("Roadmap API CLAUDE pointer guidance stays off the DB Contract path", () => {
+  test("archived Roadmap API pointer guidance has no runtime command", () => {
     for (const file of [
       "apps/roadmap-web/src/app/api/CLAUDE.md",
       "apps/roadmap-web/src/app/api/dependencies/CLAUDE.md",
@@ -149,9 +157,9 @@ describe("change-aware CI plan", () => {
         exactSha: SHA,
         fileContents: { [file]: "@AGENTS.md\n" },
       });
-      expect(plan.dbEvidenceRequired, file).toBe(false);
-      expect(plan.classification, file).toBe("scoped");
-      expect(plan.cheapScripts, file).toContain("test:roadmap-canvas-boundary");
+      expect(plan.dbEvidenceRequired, file).toBe(true);
+      expect(plan.classification, file).toBe("full-suite");
+      expect(plan.cheapScripts, file).not.toContain("test:roadmap-canvas-boundary");
       expect(plan.cheapScripts, file).not.toContain("verify:roadmap-web");
     }
   });
@@ -174,7 +182,7 @@ describe("change-aware CI plan", () => {
       const plan = buildCiPlan([file], SHA);
       expect(plan.dbEvidenceRequired, file).toBe(true);
       expect(plan.classification, file).toBe("full-suite");
-      expect(plan.cheapScripts, file).toContain("verify:roadmap-web");
+      expect(plan.cheapScripts, file).not.toContain("verify:roadmap-web");
       expect(plan.cheapScripts, file).not.toContain("test:roadmap-canvas-boundary");
     }
   });
@@ -186,7 +194,7 @@ describe("change-aware CI plan", () => {
     ], SHA);
     expect(plan.dbEvidenceRequired).toBe(true);
     expect(plan.classification).toBe("full-suite");
-    expect(plan.cheapScripts).toContain("verify:roadmap-web");
+    expect(plan.cheapScripts).not.toContain("verify:roadmap-web");
     expect(plan.cheapScripts).not.toContain("test:roadmap-canvas-boundary");
   });
 
@@ -306,25 +314,25 @@ describe("change-aware CI plan", () => {
     const roadmapAuthorityPlan = buildCiPlan([
       "apps/roadmap-web/src/app/api/integrations/oauth/callback/[provider]/route.ts",
     ], SHA);
-    expect(roadmapAuthorityPlan.cheapScripts).toContain("verify:roadmap-web");
+    expect(roadmapAuthorityPlan.cheapScripts).not.toContain("verify:roadmap-web");
     expect(roadmapAuthorityPlan.cheapScripts).not.toContain("test:roadmap-canvas-boundary");
 
     const roadmapMembershipPlan = buildCiPlan([
       "apps/roadmap-web/src/app/api/team/members/[id]/route.ts",
     ], SHA);
-    expect(roadmapMembershipPlan.cheapScripts).toContain("verify:roadmap-web");
+    expect(roadmapMembershipPlan.cheapScripts).not.toContain("verify:roadmap-web");
     expect(roadmapMembershipPlan.cheapScripts).not.toContain("test:roadmap-canvas-boundary");
 
     const roadmapIdentityPlan = buildCiPlan([
       "apps/roadmap-web/src/app/api/user/profile/route.ts",
     ], SHA);
-    expect(roadmapIdentityPlan.cheapScripts).toContain("verify:roadmap-web");
+    expect(roadmapIdentityPlan.cheapScripts).not.toContain("verify:roadmap-web");
     expect(roadmapIdentityPlan.cheapScripts).not.toContain("test:roadmap-canvas-boundary");
 
     const roadmapApiPlan = buildCiPlan([
       "apps/roadmap-web/src/app/api/dependencies/route.ts",
     ], SHA);
-    expect(roadmapApiPlan.cheapScripts).toContain("verify:roadmap-web");
+    expect(roadmapApiPlan.cheapScripts).not.toContain("verify:roadmap-web");
     expect(roadmapApiPlan.cheapScripts).not.toContain("test:roadmap-canvas-boundary");
   });
 
@@ -363,7 +371,6 @@ describe("change-aware CI plan", () => {
       "apps/meeting-api/backend/health.py",
       "packages/ui/src/button.tsx",
       "packages/ui/src/styles/tokens.css",
-      "apps/roadmap-web/src/components/roadmap-card.tsx",
       "apps/meeting-web/src/lib/runtimeConfig.js.bak",
       "apps/meeting-web/src/lib/runtimeConfig.jsx",
       "apps/meeting-web/src/lib/runtimeConfig.js/extra",
@@ -376,12 +383,6 @@ describe("change-aware CI plan", () => {
       expect(plan.classification, file).toBe("scoped");
     }
 
-    const roadmapComponentPlan = buildCiPlan(
-      ["apps/roadmap-web/src/components/roadmap-card.tsx"],
-      SHA,
-    );
-    expect(roadmapComponentPlan.cheapScripts).toContain("test:roadmap-canvas-boundary");
-    expect(roadmapComponentPlan.cheapScripts).not.toContain("verify:roadmap-web");
   });
 
   test("unrelated documentation remains docs-only even when it discusses design tokens", () => {

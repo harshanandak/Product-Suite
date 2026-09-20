@@ -6,7 +6,9 @@ on:
       - main
     paths:
       - "apps/platform-web/**"
+      - "packages/contracts/**"
       - "packages/ui/**"
+      - "packages/ui-chat/**"
       - "package.json"
       - "bun.lock"
       - ".github/workflows/platform-web-ci.yml"
@@ -50,7 +52,7 @@ jobs:
             exit 0
           fi
           changed_files="$(git -C "$GITHUB_WORKSPACE" diff --name-only "$base" "$head")"
-          if echo "$changed_files" | grep -Eq '^(apps/platform-web/|packages/ui/|package\.json$|bun\.lock$|\.github/workflows/platform-web-ci\.yml$)'; then
+          if echo "$changed_files" | grep -Eq '^(apps/platform-web/|packages/contracts/|packages/ui/|packages/ui-chat/|package\.json$|bun\.lock$|\.github/workflows/platform-web-ci\.yml$)'; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"

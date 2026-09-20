@@ -2,42 +2,48 @@
 
 This repository is the single Git source for:
 
-- `apps/roadmap-web`
+- retained unsupported Roadmap source under `apps/roadmap-web`
+- `apps/platform-web`
+- `apps/platform-api`
 - `apps/meeting-web`
 - `apps/meeting-api/backend`
 - historical database roots under `infra/supabase` and the legacy Meeting paths
-- future shared code in `packages/*`
-- future backend runtimes in `services/*`
+- shared code in `packages/*`
+- backend runtimes in `services/*`
 
 ## Purpose
 
-The existing Vercel and Railway service identities now point at this monorepo while preserving their production domains and project/service objects. Deployments flow from `harshanandak/Product-Suite`, and each platform object is scoped to its app-specific root directory.
+The supported Vercel and Railway service identities point at this monorepo while preserving their production domains and project/service objects. Deployments flow from `harshanandak/Product-Suite`, and each supported platform object is scoped to its app-specific root directory.
 
 ## Dependency Management
 
+- `apps/platform-web` and `apps/platform-api` use `bun`
 - `apps/meeting-web` uses `bun`
-- `apps/roadmap-web` uses `bun`
 - `apps/meeting-api/backend` uses `pip` with Python `3.13`
 
-This keeps the transition safe while the apps still carry different runtime stacks. Shared packages can be extracted later without forcing the Python service into the JavaScript workspace toolchain.
+`apps/roadmap-web` has no package manifest, install command, or supported runtime.
+
+This keeps the supported JavaScript workspace and Python service toolchains independent while allowing them to share repository contracts and validation.
 
 ## Repo Topology
 
-- `apps/*` are deployable product shells or deployable app roots.
+- Supported app directories contain deployable product shells or app roots; `apps/roadmap-web` is retained unsupported source.
 - `apps/meeting-api/backend` remains a Python service root even though its repo folder sits under `apps/meeting-api`.
-- `packages/*` is reserved for future shared building blocks.
-- `services/*` is reserved for future standalone backend runtimes.
+- `packages/*` contains shared contracts, SDK, database, and UI building blocks.
+- `services/*` contains standalone backend runtimes such as agent-core and Hocuspocus.
 
-The root Bun workspace intentionally includes only the JavaScript web apps. The Python backend is first-class in repo tooling and deployment docs, but it is not treated as a Bun workspace package.
+The root Bun workspace includes the supported JavaScript apps, shared packages, and JavaScript services. The Python backend is first-class in repo tooling and deployment docs, but it is not treated as a Bun workspace package.
 
 ## App Layout
 
-- `apps/roadmap-web` contains the Next.js Roadmap product.
+- `apps/roadmap-web` contains archived historical Roadmap source without a supported runtime or deployment target; see `apps/roadmap-web/ARCHIVED.md`.
+- `apps/platform-web` contains the supported Vite platform frontend.
+- `apps/platform-api` contains the supported Bun platform API.
 - `apps/meeting-web` contains the Vite Meeting-Agent frontend.
 - `apps/meeting-api/backend` contains the FastAPI Meeting-Agent backend.
 - `apps/meeting-api/tests/backend` contains the backend pytest suite.
-- `packages/` is reserved for shared monorepo building blocks that will be extracted later.
-- `services/` is reserved for future standalone backend runtimes.
+- `packages/` contains shared monorepo building blocks used by the supported Vite apps and services.
+- `services/` contains standalone agent-core and Hocuspocus runtimes.
 - `infra/supabase` and `apps/roadmap-web/supabase/migrations` are preserved
   historical roots for the unsupported legacy Roadmap application; they are not
   active database configuration.

@@ -101,7 +101,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$SELECTOR_OWNED_CHANGE" = "true" ]; then
-            expected_cheap_scripts='["check:source-test","test:repo-tooling","verify:platform-web","verify:platform-api","verify:meeting-web","verify:roadmap-web","ci:meeting-api","test:contracts","verify:db","test:sdk","test:ui","test:ui-chat","test:ui-canvas","test:ui-meeting","test:ui-planning","test:ui-charting","test:agent-core","test:hocuspocus"]'
+            expected_cheap_scripts='["check:source-test","test:repo-tooling","verify:platform-web","verify:platform-api","verify:meeting-web","ci:meeting-api","test:contracts","verify:db","test:sdk","test:ui","test:ui-chat","test:ui-canvas","test:ui-meeting","test:ui-planning","test:ui-charting","test:agent-core","test:hocuspocus"]'
             test "$PLANNED_SCHEMA_VERSION" = "ci-change-plan.v1"
             test "$PLANNED_EXACT_SHA" = "$CI_CHANGE_PLAN_HEAD_SHA"
             if [ "$SELECTOR_BASE_SHA_ZERO" = "true" ]; then
@@ -241,14 +241,6 @@ jobs:
             'verify:meeting-web': [
               command('apps/meeting-web', 'bun', ['x', '--no-install', 'eslint', 'src', '--ext', '.js,.jsx']),
               command('apps/meeting-web', 'bun', ['x', '--no-install', 'vitest', 'run']),
-            ],
-            'verify:roadmap-web': [
-              command('apps/roadmap-web', 'bun', ['x', '--no-install', 'eslint']),
-              command('apps/roadmap-web', 'bun', ['x', '--no-install', 'tsc', '--noEmit']),
-              command('apps/roadmap-web', 'bun', ['x', '--no-install', 'vitest', 'run']),
-            ],
-            'test:roadmap-canvas-boundary': [
-              command('apps/roadmap-web', 'bun', ['x', '--no-install', 'vitest', 'run', 'src/components/blocksuite/__tests__/canvas-boundary.test.ts']),
             ],
             'ci:meeting-api': [
               command('.', 'node', ['scripts/meeting-api-validation.mjs', 'lint', 'apps/meeting-api/backend', 'apps/meeting-api/tests/backend']),
