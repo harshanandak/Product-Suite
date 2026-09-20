@@ -1,6 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { fileURLToPath } from "node:url";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   buildCiPlan,
@@ -69,6 +78,46 @@ function classifyFast(files) {
   return classify(files, { PREPUSH_GATE_FAST: "1" });
 }
 
+// Execute the real gate against a fake bun binary. This proves ordering and
+// fail-fast behavior without recursively running the repository's full suites.
+function executeGate(files, { fast = false, dry = false, failOn } = {}) {
+  const sandbox = mkdtempSync(path.join(tmpdir(), "prepush-gate-"));
+  const log = path.join(sandbox, "calls.jsonl");
+  const posixShim = path.join(sandbox, "bun");
+  const windowsShim = path.join(sandbox, "bun.cmd");
+  writeFileSync(posixShim, [
+    "#!/usr/bin/env sh",
+    'printf "%s\\n" "$*" >> "$FAKE_BUN_LOG"',
+    '[ "$FAKE_BUN_FAIL" = "$*" ] && exit 23',
+    "exit 0",
+  ].join("\n"));
+  chmodSync(posixShim, 0o755);
+  writeFileSync(windowsShim, [
+    '@echo %*>>"%FAKE_BUN_LOG%"',
+    '@if "%FAKE_BUN_FAIL%"=="%*" exit /b 23',
+    "@exit /b 0",
+  ].join("\r\n"));
+
+  try {
+    const env = gateEnv({
+      PREPUSH_GATE_TEST_FILES: files.join(","),
+      PREPUSH_GATE_DRY: dry ? "1" : undefined,
+      PREPUSH_GATE_FAST: fast ? "1" : undefined,
+      FAKE_BUN_LOG: log,
+      FAKE_BUN_FAIL: failOn?.join(" "),
+    });
+    const pathKey = Object.keys(env).find((key) => key.toUpperCase() === "PATH") ?? "PATH";
+    env[pathKey] = `${sandbox}${path.delimiter}${env[pathKey] ?? ""}`;
+    const result = spawnSync(process.execPath, [scriptPath], { encoding: "utf8", env });
+    const calls = existsSync(log)
+      ? readFileSync(log, "utf8").trim().split(/\r?\n/).filter(Boolean).map((line) => line.split(/\s+/))
+      : [];
+    return { status: result.status, stdout: result.stdout, stderr: result.stderr, calls };
+  } finally {
+    rmSync(sandbox, { recursive: true, force: true });
+  }
+}
+
 // Run `fn` with `vars` temporarily present in this process's env, then restore
 // the previous values (including deleting keys that were previously unset).
 function withAmbientEnv(vars, fn) {
@@ -94,7 +143,10 @@ describe("prepush-gate CLI wiring", () => {
       // End-to-end proof that the shell wires env -> classifier -> printed report.
       const out = classify(["apps/platform-web/src/x.tsx"]);
       expect(out).toContain("classification: scoped");
-      expect(out).toContain("verify:platform-web");
+      expect(out).toContain("checks: lint, check:source-test, test:repo-tooling");
+      expect(out).toContain("apps/platform-web:typecheck");
+      expect(out).toContain("apps/platform-web:test");
+      expect(out).not.toContain("verify:platform-web");
       expect(out).not.toContain("mode: fast");
     },
     SPAWN_TIMEOUT_MS,
@@ -105,11 +157,105 @@ describe("prepush-gate CLI wiring", () => {
     () => {
       const out = classifyFast(["apps/platform-web/src/x.tsx"]);
       expect(out).toContain("mode: fast");
-      expect(out).toContain("apps/platform-web:lint");
+      expect(out).toContain("checks: lint, check:source-test, test:repo-tooling");
+      expect(out).not.toContain("apps/platform-web:lint");
+      expect(out).toContain("apps/platform-web:typecheck");
       expect(out).not.toContain("verify:platform-web");
     },
     SPAWN_TIMEOUT_MS,
   );
+
+  test(
+    "docs and full dry-runs report their complete local plans",
+    () => {
+      const docs = classify(["docs/work/example/plan.md"]);
+      expect(docs).toContain("classification: docs-only");
+      expect(docs).toContain("checks: lint, check:source-test");
+
+      const full = classify(["package.json"]);
+      expect(full).toContain("classification: full-suite");
+      expect(full).toContain("apps/platform-api:test");
+      expect(full).not.toContain("verify:platform-api");
+    },
+    SPAWN_TIMEOUT_MS,
+  );
+
+  test(
+    "local verify expansion matches canonical scripts minus aggregate lint",
+    () => {
+      const packageJson = readFileSync(path.join(import.meta.dir, "..", "package.json"), "utf8");
+      const scripts = JSON.parse(packageJson).scripts;
+      const labelsFor = (name) => scripts[name].split(" && ").map((command) => {
+        const match = command.match(/^bun run --cwd (\S+) (\S+)$/);
+        if (!match) throw new Error(`unsupported canonical verify step: ${command}`);
+        return `${match[1]}:${match[2]}`;
+      }).filter((label) => !label.endsWith(":lint"));
+      const dryLabels = (files) => classify(files)
+        .split("\n")
+        .find((line) => line.startsWith("checks: "))
+        .slice("checks: ".length)
+        .split(", ");
+      const always = ["lint", "check:source-test", "test:repo-tooling"];
+
+      expect(dryLabels(["apps/platform-web/src/x.tsx"])).toEqual([
+        ...always,
+        ...labelsFor("verify:platform-web"),
+      ]);
+      expect(dryLabels(["apps/platform-api/src/x.ts"])).toEqual([
+        ...always,
+        ...labelsFor("verify:platform-api"),
+      ]);
+      expect(dryLabels(["apps/meeting-web/src/x.ts"])).toEqual([
+        ...always,
+        ...labelsFor("verify:meeting-web"),
+      ]);
+      expect(dryLabels(["packages/db/src/x.ts"])).toEqual([
+        ...always,
+        ...labelsFor("verify:platform-api"),
+        ...labelsFor("verify:db"),
+      ]);
+    },
+    SPAWN_TIMEOUT_MS,
+  );
+});
+
+describe("prepush-gate command execution", () => {
+  test("direct docs invocation runs aggregate lint once before source-test", () => {
+    const result = executeGate(["docs/work/example/plan.md"]);
+    expect(result.status).toBe(0);
+    expect(result.calls).toEqual([
+      ["run", "lint"],
+      ["run", "check:source-test"],
+    ]);
+  }, SPAWN_TIMEOUT_MS);
+
+  test("aggregate lint failure prevents every later check", () => {
+    const result = executeGate(["apps/platform-web/src/x.tsx"], { failOn: ["run", "lint"] });
+    expect(result.status).toBe(23);
+    expect(result.calls).toEqual([["run", "lint"]]);
+  }, SPAWN_TIMEOUT_MS);
+
+  test("fast invocation executes a test-only suite after aggregate lint", () => {
+    const result = executeGate(["packages/ui-planning/src/example.ts"], { fast: true });
+    expect(result.status).toBe(0);
+    expect(result.calls).toEqual([
+      ["run", "lint"],
+      ["run", "check:source-test"],
+      ["run", "test:repo-tooling"],
+      ["run", "test:ui-planning"],
+    ]);
+  }, SPAWN_TIMEOUT_MS);
+
+  test("dry-run reports the real plan without executing it", () => {
+    const result = executeGate(["apps/platform-web/src/x.tsx"], { dry: true });
+    expect(result.status).toBe(0);
+    expect(result.calls).toEqual([]);
+    expect(result.stdout).toContain("checks: lint, check:source-test, test:repo-tooling");
+    expect(result.stdout).toContain("apps/platform-web:typecheck");
+    expect(result.stdout).toContain("apps/platform-web:test");
+    expect(result.stdout).not.toContain("verify:platform-web");
+  }, SPAWN_TIMEOUT_MS);
+
 });
 
 describe("change-aware CI plan", () => {
@@ -463,7 +609,8 @@ describe("prepush-gate harness env isolation (regression for #118)", () => {
       withAmbientEnv({ PREPUSH_GATE_FAST: "1" }, () => {
         const out = classify(["apps/platform-web/src/x.tsx"]);
         expect(out).not.toContain("mode: fast");
-        expect(out).toContain("verify:platform-web");
+        expect(out).toContain("apps/platform-web:typecheck");
+        expect(out).toContain("apps/platform-web:test");
       });
     },
     SPAWN_TIMEOUT_MS,
@@ -475,7 +622,8 @@ describe("prepush-gate harness env isolation (regression for #118)", () => {
       withAmbientEnv({ PREPUSH_GATE_FAST: "" }, () => {
         const out = classifyFast(["apps/platform-web/src/x.tsx"]);
         expect(out).toContain("mode: fast");
-        expect(out).toContain("apps/platform-web:lint");
+        expect(out).not.toContain("apps/platform-web:lint");
+        expect(out).toContain("apps/platform-web:typecheck");
       });
     },
     SPAWN_TIMEOUT_MS,
@@ -490,7 +638,8 @@ describe("prepush-gate harness env isolation (regression for #118)", () => {
       withAmbientEnv({ PREPUSH_GATE_DRY: "0", PREPUSH_GATE_TEST_FILES: "package.json" }, () => {
         const out = classify(["apps/platform-web/src/x.tsx"]);
         expect(out).toContain("scoped");
-        expect(out).toContain("verify:platform-web");
+        expect(out).toContain("apps/platform-web:typecheck");
+        expect(out).toContain("apps/platform-web:test");
         expect(out).not.toContain("full-suite");
       });
     },

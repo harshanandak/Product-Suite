@@ -101,7 +101,7 @@ export const DOCS = "docs-only";
 export const FULL = "full-suite";
 export const SCOPED = "scoped";
 
-export const FAST_NOTE = "mode: fast (lint+typecheck only, tests deferred to CI)";
+export const FAST_NOTE = "mode: fast (aggregate lint + affected typechecks; test-only suites retained)";
 export const CI_PLAN_SCHEMA_VERSION = "ci-change-plan.v1";
 
 const SHA_PATTERN = /^[0-9a-f]{40}$/i;
@@ -364,12 +364,10 @@ function suiteSteps(dir, rootScripts) {
   return { lint: runs("lint"), typecheck: runs("typecheck"), test: runs("test") };
 }
 
-// FAST mode (mirrors `forge push --quick`): lint + typecheck locally, with the
-// CI-covered test step deferred. Workspaces without lint keep their full suite
-// because tests are their only local safety net. Returns ordered { label, argv }
-// descriptors (argv passed after `bun`). Always-on cheap checks come first, exactly
-// as the full path prefixes them; branch protection (a separate push-hook step) is
-// untouched.
+// FAST mode (mirrors `forge push --quick`): aggregate lint runs in the gate, so
+// retain workspace typechecks and defer CI-covered tests. Workspaces without a
+// lint gate keep their full suite because tests are their only local safety net.
+// Returns ordered { label, argv } descriptors (argv passed after `bun`).
 export function fastChecksFor(affected) {
   const rootScripts = readJSON(path.join(REPO_ROOT, "package.json"))?.scripts ?? {};
   const checks = [];
@@ -384,8 +382,7 @@ export function fastChecksFor(affected) {
     if (!affected.has(dir)) continue;
     const steps = suiteSteps(dir, rootScripts);
     if (steps.lint) {
-      // lint-gated workspace: lint (+ typecheck if gated), defer test to CI.
-      add(`${dir}:lint`, ["run", "--cwd", dir, "lint"]);
+      // Aggregate lint already covered this workspace; retain only typecheck.
       if (steps.typecheck) add(`${dir}:typecheck`, ["run", "--cwd", dir, "typecheck"]);
     } else {
       // no lint step → tests are the primary local gate: keep the full suite.
@@ -401,9 +398,8 @@ export function affectedDirsFor(result) {
   return result.kind === SCOPED ? new Set(result.affected) : new Set(WORKSPACE_DIRS);
 }
 
-// The dry-run report for a classification: exactly what the gate prints under
-// PREPUSH_GATE_DRY=1. Kept here, next to the logic it describes, so the self-test
-// can assert the operator-visible report without executing the CLI.
+// Classification summary for in-process routing tests. The gate's dry-run adds
+// its expanded command descriptors so the operator sees the exact local plan.
 export function describeClassification(result, { fast = false } = {}) {
   // Docs-only stays on the fast path regardless of fast mode — nothing to narrow.
   if (result.kind === DOCS) return `classification: ${result.kind}`;
@@ -412,7 +408,7 @@ export function describeClassification(result, { fast = false } = {}) {
     return [
       `classification: ${result.kind}`,
       FAST_NOTE,
-      `fast checks: ${checks.map((c) => c.label).join(", ")}`,
+      `fast checks: lint, ${checks.map((c) => c.label).join(", ")}`,
     ].join("\n");
   }
   if (result.kind === SCOPED) {
