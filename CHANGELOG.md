@@ -24,6 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Schema and domain ownership inventory for roadmap and meeting surfaces, including canonical ownership boundaries, overlap rules, and guarded discoverability links (PR #3, product-suite-waq)
 
 ### Changed
+- Local pre-push validation runs aggregate workspace lint once before the selected checks, preserving full lint coverage, fast-mode test-only suites, and canonical CI commands (Forge issue `e54d032b-92f6-4500-adf8-5e59ffba57d2`)
 - Bun CI runtimes now follow stable releases, local setup documents stable upgrades instead of an obsolete exact runtime pin, and root installs apply the BlockSuite icon compatibility patch (PR #188, Forge issue `b0803978-a71b-4946-a139-48e8901b9739`)
 - Real-Neon authority conformance now proves disposable-project and production-derived-branch cleanup, direct migration versus pooled runtime binding, least-privilege CRUD and denial behavior, and exact opaque PASS evidence (PR #173, Forge issue `25faf39b-3017-42fe-94c0-87acad7279a0`)
 - DB Contract now runs deterministic changed-surface cheap gates before protected exact-head Neon evidence; executable migration-manifest and OAuth/token/session authority paths fail closed to DB proof, while strict server-side branch protection remains the merge-time base-freshness authority (Forge issue `532329e0-7595-40c2-b939-a3a0735f8071`)

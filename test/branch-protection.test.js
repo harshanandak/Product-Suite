@@ -57,9 +57,8 @@ describe("scripts/branch-protection.js shim", () => {
     const config = readFileSync(LEFTHOOK_CONFIG, "utf8");
     expect(config).toContain("run: node scripts/branch-protection.js");
     expect(config).toMatch(/run: node scripts\/branch-protection\.js\r?\n\s+use_stdin: true/);
-    expect(config).toContain("run: bun run lint");
+    expect(config).not.toContain("run: bun run lint");
     expect(config.indexOf("branch-protection.js")).toBeLessThan(config.indexOf("prepush-gate.mjs"));
-    expect(config.indexOf("bun run lint")).toBeLessThan(config.indexOf("prepush-gate.mjs"));
   });
 
   test("protects remote destinations instead of the checked-out branch", () => {

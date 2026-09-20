@@ -14,6 +14,7 @@ import {
 // test/prepush-gate.test.js.
 const classify = (files) => describeClassification(classifyFiles(files));
 const classifyFast = (files) => describeClassification(classifyFiles(files), { fast: true });
+const fastCheckLine = (out) => out.split("\n").find((line) => line.startsWith("fast checks: "));
 
 describe("prepush-gate classification", () => {
   test("archived Roadmap source fails closed without scheduling a retired runtime", () => {
@@ -101,6 +102,10 @@ describe("prepush-gate classification", () => {
     expect(classify(null)).toContain("full-suite");
   });
 
+  test("an unowned path forces the full suite", () => {
+    expect(classify(["unknown-root-file.txt"])).toContain("full-suite");
+  });
+
   test("a lockfile change forces the full suite (a re-resolve can touch any workspace)", () => {
     // bun.lock alone, and bun.lock riding along with an otherwise-scoped change,
     // both run full — a lock re-resolve can alter any workspace's resolved tree.
@@ -159,12 +164,13 @@ describe("prepush-gate classification", () => {
     expect(out).toContain("verify:platform-web");
   });
 });
-describe("prepush-gate PREPUSH_GATE_FAST (lint+typecheck-only) mode", () => {
-  test("fast mode runs a workspace's lint + typecheck but NOT its test/verify", () => {
+describe("prepush-gate PREPUSH_GATE_FAST mode", () => {
+  test("fast mode runs aggregate lint once plus the affected workspace typecheck", () => {
     const out = classifyFast(["apps/platform-web/src/x.tsx"]);
     expect(out).toContain("mode: fast");
-    // per-workspace lint + typecheck, resolved from the workspace package.json
-    expect(out).toContain("apps/platform-web:lint");
+    // Aggregate lint covers every workspace once; only the workspace typecheck remains.
+    expect(fastCheckLine(out).match(/\blint\b/g)).toHaveLength(1);
+    expect(out).not.toContain("apps/platform-web:lint");
     expect(out).toContain("apps/platform-web:typecheck");
     // the test step is deferred to CI — no test/verify invocation for the workspace
     expect(out).not.toContain("apps/platform-web:test");
@@ -186,28 +192,29 @@ describe("prepush-gate PREPUSH_GATE_FAST (lint+typecheck-only) mode", () => {
   test("fast mode skips a step the workspace's gate does not include (meeting-web has no typecheck)", () => {
     const out = classifyFast(["apps/meeting-web/src/x.ts"]);
     expect(out).toContain("mode: fast");
-    // meeting-web's verify is lint+test (lint-gated) → run lint, defer test
-    expect(out).toContain("apps/meeting-web:lint");
+    // Aggregate lint covers meeting-web; its test remains deferred to CI.
+    expect(fastCheckLine(out).match(/\blint\b/g)).toHaveLength(1);
+    expect(out).not.toContain("apps/meeting-web:lint");
     // verify:meeting-web includes no typecheck step → nothing to run
     expect(out).not.toContain("apps/meeting-web:typecheck");
     expect(out).not.toContain("verify:meeting-web");
   });
 
-  test("fast mode runs lint and typecheck for platform-api", () => {
+  test("fast mode retains platform-api typecheck after aggregate lint", () => {
     const out = classifyFast(["apps/platform-api/src/agent/tools.ts"]);
     expect(out).toContain("mode: fast");
-    expect(out).toContain("apps/platform-api:lint");
+    expect(out).not.toContain("apps/platform-api:lint");
     expect(out).toContain("apps/platform-api:typecheck");
     expect(out).not.toContain("verify:platform-api");
   });
 
-  test("fast mode runs lint and typecheck for packages/db and its dependent", () => {
+  test("fast mode retains typecheck for packages/db and its dependent", () => {
     const out = classifyFast(["packages/db/src/schema.ts"]);
     expect(out).toContain("mode: fast");
-    expect(out).toContain("packages/db:lint");
+    expect(out).not.toContain("packages/db:lint");
     expect(out).toContain("packages/db:typecheck");
-    // db fans out to platform-api, so both lint-gated workspaces run cheap checks
-    expect(out).toContain("apps/platform-api:lint");
+    // db fans out to platform-api, so both lint-gated workspaces retain typecheck.
+    expect(out).not.toContain("apps/platform-api:lint");
     expect(out).toContain("apps/platform-api:typecheck");
     expect(out).not.toContain("verify:db");
     expect(out).not.toContain("verify:platform-api");
@@ -222,21 +229,22 @@ describe("prepush-gate PREPUSH_GATE_FAST (lint+typecheck-only) mode", () => {
     expect(out).not.toContain("packages/ui:lint");
     // packages/ui fans out to platform-web (lint-gated) → that one defers test
     expect(out).not.toContain("verify:platform-web");
-    expect(out).toContain("apps/platform-web:lint");
+    expect(out).not.toContain("apps/platform-web:lint");
   });
 
   test("fast mode narrows lint-gated workspaces and keeps test-only suites", () => {
     const out = classifyFast(["package.json"]);
     expect(out).toContain("full-suite");
     expect(out).toContain("mode: fast");
-    // lint-gated platform-web: lint+typecheck, test deferred
-    expect(out).toContain("apps/platform-web:lint");
+    // Aggregate lint runs once; workspace typechecks and test-only suites remain.
+    expect(fastCheckLine(out).match(/\blint\b/g)).toHaveLength(1);
+    expect(out).not.toContain("apps/platform-web:lint");
     expect(out).toContain("apps/platform-web:typecheck");
     expect(out).not.toContain("verify:platform-web");
     // lint-gated server workspaces defer tests too
-    expect(out).toContain("apps/platform-api:lint");
+    expect(out).not.toContain("apps/platform-api:lint");
     expect(out).toContain("apps/platform-api:typecheck");
-    expect(out).toContain("packages/db:lint");
+    expect(out).not.toContain("packages/db:lint");
     expect(out).toContain("packages/db:typecheck");
     expect(out).not.toContain("verify:platform-api");
     expect(out).not.toContain("verify:db");

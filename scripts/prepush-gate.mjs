@@ -14,10 +14,11 @@
 //
 // Env toggles:
 //   PREPUSH_GATE_FAST=1  → fast mode (mirrors `forge push --quick`): for each
-//     AFFECTED workspace whose gate INCLUDES lint, run only lint (+ typecheck if
-//     gated) and DEFER the test step to CI. A workspace with NO lint step — its
-//     tests are the ONLY local safety net (platform-api, db, every test-only
-//     package/service) — STILL runs its full suite incl. test, so fast mode can
+//     AFFECTED workspace whose gate INCLUDES lint, retain typecheck if gated and
+//     DEFER that workspace's test step to CI. Aggregate lint still runs once
+//     first. A workspace with NO lint step — its tests are the ONLY local safety
+//     net (every test-only package/service) —
+//     STILL runs its full suite incl. test, so fast mode can
 //     never green-light a broken API/DB/logic change locally. The always-on cheap
 //     checks and the docs-only fast path are unchanged, and branch protection (a
 //     separate push-hook step) still applies. Unset (default) = full verify incl.
@@ -28,7 +29,6 @@ import { execFileSync, spawnSync } from "node:child_process";
 import {
   affectedDirsFor,
   classify,
-  describeClassification,
   DOCS,
   fastChecksFor,
   SCOPED,
@@ -65,27 +65,27 @@ function changedFiles() {
   }
 }
 
-// Run the selected suites SEQUENTIALLY, with live (inherited) output. Running
-// them concurrently was tried and reverted: each suite (vitest/tsc) already
-// spawns its own workers, so running several at once oversubscribes the machine
-// and surfaced a flaky test failure under load. A flaky gate that aborts a good
-// push is worse than one that is a bit slower, and parallelism only helped the
-// rare full/fan-out path (the common single-app push is one dominant suite
-// either way). `scripts` never contains an app build — those run in CI.
-function runScripts(scripts) {
-  for (const s of scripts) {
-    // Static argument arrays only; shell:true resolves bun's .cmd shim on Windows
-    // and nothing user-controlled is interpolated.
-    const r = spawnSync("bun", ["run", s], { stdio: "inherit", shell: true }); // NOSONAR(S4036)
-    const status = r.status ?? 1;
-    if (status !== 0) process.exit(status);
-  }
-  process.exit(0);
+const ROOT_LINT = { label: "lint", argv: ["run", "lint"] };
+const LOCAL_VERIFY_STEPS = {
+  "verify:platform-web": ["apps/platform-web", ["typecheck", "test"]],
+  "verify:platform-api": ["apps/platform-api", ["typecheck", "test"]],
+  "verify:meeting-web": ["apps/meeting-web", ["test"]],
+  "verify:db": ["packages/db", ["typecheck", "test"]],
+};
+
+function checksForScripts(scripts) {
+  return scripts.flatMap((script) => {
+    const local = LOCAL_VERIFY_STEPS[script];
+    if (!local) return [{ label: script, argv: ["run", script] }];
+    const [cwd, steps] = local;
+    return steps.map((step) => ({
+      label: `${cwd}:${step}`,
+      argv: ["run", "--cwd", cwd, step],
+    }));
+  });
 }
 
-// Run FAST-mode command descriptors ({ label, argv }) SEQUENTIALLY, live output.
-// Same fail-fast, same Windows .cmd-shim handling as runScripts; only the argv
-// shape differs (per-workspace `run --cwd <dir> <script>` vs a root script name).
+// Run command descriptors ({ label, argv }) sequentially with live output.
 function runChecks(checks) {
   for (const { argv } of checks) {
     // Static argument arrays only; shell:true resolves bun's .cmd shim on Windows
@@ -97,38 +97,50 @@ function runChecks(checks) {
   process.exit(0);
 }
 
-// Opt-in fast mode: lint + typecheck locally, tests deferred to CI (mirrors the
-// documented `forge push --quick` contract). Default (unset) = full verify.
+// Opt-in fast mode: aggregate lint + affected typechecks, while test-only suites
+// remain local. Default (unset) = full verify.
 const FAST = process.env.PREPUSH_GATE_FAST === "1";
 
 const result = classify(changedFiles());
 
+let checks;
+if (result.kind === DOCS) {
+  checks = checksForScripts(["check:source-test"]);
+} else if (FAST) {
+  checks = fastChecksFor(affectedDirsFor(result));
+} else if (result.kind === SCOPED) {
+  checks = checksForScripts(result.suites);
+} else {
+  checks = checksForScripts(suitesFor(new Set(WORKSPACE_DIRS)));
+}
+checks.unshift(ROOT_LINT);
+
 // Dry-run mode for tests: report the classification without running anything.
 if (process.env.PREPUSH_GATE_DRY === "1") {
-  console.log(describeClassification(result, { fast: FAST }));
+  const lines = [`classification: ${result.kind}`];
+  if (FAST && result.kind !== DOCS) {
+    lines.push("mode: fast (aggregate lint + affected typechecks; test-only suites retained)");
+  }
+  lines.push(`checks: ${checks.map(({ label }) => label).join(", ")}`);
+  console.log(lines.join("\n"));
   process.exit(0);
 }
 
 if (result.kind === DOCS) {
-  // Docs-only stays on the fast path regardless of FAST — nothing to narrow.
   console.log("prepush-gate: docs-only push — running fast checks only.");
-  runScripts(["check:source-test"]);
 } else if (FAST) {
-  const checks = fastChecksFor(affectedDirsFor(result));
   const scope = result.kind === SCOPED ? `scoped [${result.owners.join(", ")}]` : result.reason;
   console.log(
-    `prepush-gate: ${scope} — FAST mode: lint+typecheck only (${checks.length} checks); tests deferred to CI.`,
+    `prepush-gate: ${scope} — FAST mode: aggregate lint + affected typechecks (${checks.length} checks); test-only suites retained.`,
   );
-  runChecks(checks);
 } else if (result.kind === SCOPED) {
   console.log(
-    `prepush-gate: scoped push [${result.owners.join(", ")}] — running: ${result.suites.join(", ")}`,
+    `prepush-gate: scoped push [${result.owners.join(", ")}] — running: ${checks.map(({ label }) => label).join(", ")}`,
   );
-  runScripts(result.suites);
 } else {
-  const suites = suitesFor(new Set(WORKSPACE_DIRS));
   console.log(
-    `prepush-gate: ${result.reason} — running the full suite (${suites.length} suites, no app builds).`,
+    `prepush-gate: ${result.reason} — running the full suite (${checks.length} checks, no app builds).`,
   );
-  runScripts(suites);
 }
+
+runChecks(checks);
