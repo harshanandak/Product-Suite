@@ -8,19 +8,19 @@ claim.
 
 | Service | Platform | Current Repo | Current Branch | Current Build Command | Current Root Dir | Current Production Domain | Current Preview Behavior | Env / Secret Ownership |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `roadmap-web` (archived/unsupported) | `Vercel` (retired binding) | `Product-Suite` (historical source) | `main` | Not a supported deploy input | `apps/roadmap-web` (retained source) | None verified | No supported preview or production workflow | No supported database authority; historical provider env names remain only in the unsupported source boundary |
+| `roadmap-web` (archived/unsupported) | `Vercel` (retired binding) | `Product-Suite` (historical source) | `main` | None | None | None verified | No supported preview or production workflow | No supported database authority; historical provider env names remain only in the unsupported source boundary |
 | `meeting-web` | `Vercel` | `Product-Suite` | `main` | `bun run build` from [apps/meeting-web/package.json](../../apps/meeting-web/package.json) | `apps/meeting-web` on the live Vercel project | `https://meeting-agent-coral.vercel.app` from the live `meeting-agent` Vercel project | Git-based Vercel previews from `harshanandak/Product-Suite` | Not stored in repo; frontend env names are documented in [apps/meeting-web/README.md](../../apps/meeting-web/README.md) |
 | `meeting-api` | `Railway` | `Product-Suite` | `main` | `python -m uvicorn server:app --host 0.0.0.0 --port ${PORT}` from [apps/meeting-api/backend/railway.json](../../apps/meeting-api/backend/railway.json) | `/apps/meeting-api/backend` on the live Railway service | `https://backend-production-089a.up.railway.app` from the live `backend` Railway service | GitHub Actions preview workflow now targets the monorepo and the production service source repo is `harshanandak/Product-Suite` | Runtime env names are documented in [apps/meeting-api/backend/.env.example](../../apps/meeting-api/backend/.env.example) and deployment docs |
 
 ## Target Roots In This Monorepo
 
-- `roadmap-web` -> `apps/roadmap-web` (unsupported/archived source only)
+- `roadmap-web` has no deploy target; `apps/roadmap-web` is retained source only.
 - `meeting-web` -> `apps/meeting-web`
 - `meeting-api` -> `apps/meeting-api/backend`
 
 ## Repo Topology Notes
 
-- The root Bun workspace currently covers only the JavaScript web apps.
+- The root Bun workspace covers the supported JavaScript apps and shared packages.
 - `meeting-api` is a first-class deployable service in repo tooling and deployment docs, but it is not a Bun workspace package.
 - `packages/` and `services/` are reserved for future shared blocks and standalone runtimes; they do not change current deploy roots.
 - PR21 adds shell-native module entries in `roadmap-web`; the retained Roadmap source is not a supported production service. `meeting-web` remains an independently deployed Vite runtime with standalone routes while `/meetings` is the platform shell-owned user-facing entry path.

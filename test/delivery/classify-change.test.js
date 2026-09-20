@@ -35,6 +35,12 @@ const provenUiDependency = {
 };
 
 describe("delivery change classifier", () => {
+  test("archived Roadmap source is outside active delivery workspaces", () => {
+    const result = classifyChange(input(["apps/roadmap-web/src/components/roadmap-card.tsx"]));
+    expect(result.tier).toBe("T3");
+    expect(result.reasons).toContain("unknown_path");
+  });
+
   test.each([
     ["allowlisted docs", ["docs/guides/DELIVERY.md"], "T0", "t0_allowlist"],
     ["allowlisted inert config", [".editorconfig"], "T0", "t0_allowlist"],
@@ -53,7 +59,7 @@ describe("delivery change classifier", () => {
     ["shared UI package", ["packages/ui/src/Button.tsx"], "T2", "shared_or_api_behavior"],
     [
       "cross-application behavior",
-      ["apps/platform-web/src/shell/TopBar.tsx", "apps/roadmap-web/src/app/page.tsx"],
+      ["apps/platform-web/src/shell/TopBar.tsx", "apps/meeting-web/src/components/Agenda.tsx"],
       "T2",
       "cross_workspace_behavior",
     ],
@@ -406,10 +412,10 @@ describe("delivery change classifier", () => {
     const result = classifyChange(input(["bun.lock"], {
       dependencyEvidence: {
         ...provenUiDependency,
-        affectedWorkspaces: ["apps/platform-web", "apps/roadmap-web"],
+        affectedWorkspaces: ["apps/platform-web", "apps/meeting-web"],
         dependencyCatalog: {
           ...dependencyCatalog(),
-          workspaceRoots: ["apps/platform-web", "apps/roadmap-web"],
+          workspaceRoots: ["apps/platform-web", "apps/meeting-web"],
         },
       },
     }));
@@ -471,7 +477,7 @@ describe("delivery change classifier", () => {
     const result = classifyChange(input(["bun.lock"], {
       dependencyEvidence: {
         ...provenUiDependency,
-        affectedWorkspaces: ["apps/roadmap-web"],
+        affectedWorkspaces: ["packages/ui-chat"],
       },
     }));
 
@@ -553,7 +559,7 @@ describe("delivery change classifier", () => {
   });
 
   test("rejects a known manifest omitted from affected workspace evidence", () => {
-    const result = classifyChange(input(["apps/roadmap-web/package.json"], {
+    const result = classifyChange(input(["apps/meeting-web/package.json"], {
       dependencyEvidence: provenUiDependency,
     }));
 

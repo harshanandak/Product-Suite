@@ -52,7 +52,6 @@ const TIER_POLICY = {
 const TIER_RANK = { T0: 0, T1: 1, T2: 2, T3: 3 };
 const DEPENDENCY_WORKSPACES = new Set([
   "apps/meeting-web",
-  "apps/roadmap-web",
   "apps/platform-web",
   "apps/platform-api",
   "packages/db",
@@ -67,7 +66,7 @@ const DEPENDENCY_WORKSPACES = new Set([
   "services/agent-core",
   "services/hocuspocus",
 ]);
-const T1_WORKSPACES = new Set(["apps/meeting-web", "apps/roadmap-web", "apps/platform-web"]);
+const T1_WORKSPACES = new Set(["apps/meeting-web", "apps/platform-web"]);
 const T2_WORKSPACES = new Set([
   "apps/meeting-api",
   "packages/contracts",

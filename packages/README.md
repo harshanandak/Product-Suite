@@ -1,18 +1,19 @@
 # Packages
 
-This directory is reserved for shared building blocks that will be extracted in later PRs.
-
-Nothing in `packages/` is canonical yet. During `PR1 Repo Tooling Normalization`, this directory exists only to make the planned monorepo shape explicit.
-
-Future examples:
+This directory contains shared building blocks used by the supported Product
+Suite apps and services:
 
 - `contracts`
+- `db`
 - `sdk`
-- `adapters`
+- `ui`
 - `ui-chat`
 - `ui-meeting`
 - `ui-canvas`
 - `ui-planning`
 - `ui-charting`
 
-`ui-planning` and `ui-charting` are introduced in PR11 as shell-agnostic presentation packages. Roadmap remains responsible for data loading, routing, permissions, and workspace orchestration.
+The UI packages remain shell-agnostic. Supported Vite apps and backend services
+own their runtime data loading, routing, permissions, and orchestration.
+`apps/roadmap-web` is retained unsupported source and does not own current
+product behavior.

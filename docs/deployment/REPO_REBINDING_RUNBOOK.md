@@ -4,19 +4,16 @@ This runbook records the verified cutover state after moving the live Vercel and
 
 ## Target Mapping
 
-- `Vercel / Roadmap` -> repo `Product-Suite`, root `apps/roadmap-web`
 - `Vercel / Meeting frontend` -> repo `Product-Suite`, root `apps/meeting-web`
 - `Railway / Meeting API` -> repo `Product-Suite`, root `apps/meeting-api/backend`
 
 ## Install Commands
 
-- `roadmap-web`: `bun install --frozen-lockfile`
 - `meeting-web`: `bun install`
 - `meeting-api`: `py -3.13 -m pip install -r apps/meeting-api/backend/requirements.txt`
 
 ## Build Commands
 
-- `roadmap-web`: `bun run build` (`next build --webpack` in the monorepo copy)
 - `meeting-web`: `bun run build`
 - `meeting-api`: Railway start command remains defined in `apps/meeting-api/backend/railway.json`
 
@@ -26,13 +23,6 @@ This runbook records the verified cutover state after moving the live Vercel and
   - project: `meeting-agent`
   - git repo: `harshanandak/Product-Suite`
   - root directory: `apps/meeting-web`
-  - install command: `bun install --frozen-lockfile`
-  - build command: `bun run build`
-  - affected deployments: enabled
-- `Vercel / Roadmap`
-  - project: `roadmap`
-  - git repo: `harshanandak/Product-Suite`
-  - root directory: `apps/roadmap-web`
   - install command: `bun install --frozen-lockfile`
   - build command: `bun run build`
   - affected deployments: enabled
@@ -61,8 +51,12 @@ The non-secret values are now stored in `harshanandak/Product-Suite`. The only r
 
 ### 2. Confirm post-cutover app readiness
 
-- `meeting-web` and `roadmap-web` are Git-bound to the monorepo, but they have not yet produced a fresh Git-triggered Vercel deployment from a post-cutover app-path commit.
+- `meeting-web` is Git-bound to the monorepo, but it has not yet produced a fresh Git-triggered Vercel deployment from a post-cutover app-path commit.
 - `meeting-api` is deploying from the monorepo and the public health endpoint responds, but the current payload still reports `database: false`, so backend runtime readiness needs separate environment verification.
+
+Roadmap Web has no current deployment target, install command, or build command.
+Its retained source and migrations are documented in
+`apps/roadmap-web/ARCHIVED.md` and recoverable from Git history.
 
 ## Risk Checklist
 
@@ -75,7 +69,7 @@ The non-secret values are now stored in `harshanandak/Product-Suite`. The only r
 
 ## Success Criteria
 
-- Vercel projects resolve to `harshanandak/Product-Suite` with the expected root directory
+- The Meeting frontend Vercel project resolves to `harshanandak/Product-Suite` with the expected root directory
 - Railway production deploys resolve to `harshanandak/Product-Suite` with root `/apps/meeting-api/backend`
 - production domains remain attached to the same Vercel and Railway objects
 - old repositories no longer drive those preserved live platform objects

@@ -72,8 +72,6 @@ export const SUITES = {
   "apps/platform-web": ["verify:platform-web"],
   "apps/platform-api": ["verify:platform-api"],
   "apps/meeting-web": ["verify:meeting-web"],
-  // Matches CI, which has no roadmap-web lint/typecheck job. See #137.
-  "apps/roadmap-web": ["test:roadmap-canvas-boundary"],
   "apps/meeting-api": ["ci:meeting-api"],
   "packages/contracts": ["test:contracts"],
   "packages/db": ["verify:db"],
@@ -232,11 +230,6 @@ export function buildCiPlan(filesOrOptions, exactSha) {
   } else {
     const affectedWorkspaces = classification === FULL ? new Set(WORKSPACE_DIRS) : affectedDirsFor(result);
     cheapScripts = suitesFor(affectedWorkspaces);
-    if (dbEvidenceRequired) {
-      cheapScripts = cheapScripts.map((script) =>
-        script === "test:roadmap-canvas-boundary" ? "verify:roadmap-web" : script,
-      );
-    }
   }
 
   return {

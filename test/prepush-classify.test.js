@@ -16,6 +16,12 @@ const classify = (files) => describeClassification(classifyFiles(files));
 const classifyFast = (files) => describeClassification(classifyFiles(files), { fast: true });
 
 describe("prepush-gate classification", () => {
+  test("archived Roadmap source fails closed without scheduling a retired runtime", () => {
+    const out = classify(["apps/roadmap-web/src/components/roadmap-card.tsx"]);
+    expect(out).toContain("full-suite");
+    expect(out).not.toContain("verify:roadmap-web");
+  });
+
   test("docs-only pushes are classified docs-only", () => {
     expect(
       classify(["docs/work/example/plan.md", "DESIGN.md", ".sonarcloud.properties"])
@@ -80,12 +86,9 @@ describe("prepush-gate classification", () => {
     // present: the always-on tooling check + the platform-api owner
     expect(out).toContain("test:repo-tooling");
     expect(out).toContain("verify:platform-api");
-    // absent: every unrelated app/package suite. Each name below is a suite the
-    // classifier can actually emit (see SUITES) — naming roadmap-web's suite as
-    // `verify:roadmap-web` would assert the absence of a string nothing produces.
+    // absent: every unrelated app/package suite.
     expect(out).not.toContain("verify:platform-web");
     expect(out).not.toContain("verify:meeting-web");
-    expect(out).not.toContain("test:roadmap-canvas-boundary");
     expect(out).not.toContain("verify:db");
   });
 
@@ -109,16 +112,15 @@ describe("prepush-gate classification", () => {
     const out = classify(["apps/platform-web/src/x.tsx"]);
     expect(out).toContain("scoped");
     expect(out).toContain("verify:platform-web");
-    // a platform-web-only change must NOT drag in the other apps' suites, named as
-    // the classifier actually maps them (roadmap-web = test:roadmap-canvas-boundary)
+    // a platform-web-only change must NOT drag in the other supported app suites.
     expect(out).not.toContain("test:roadmap-canvas-boundary");
     expect(out).not.toContain("verify:meeting-web");
   });
 
   test("docs riding along with app code do not widen the scope", () => {
-    const out = classify(["docs/a.md", "apps/roadmap-web/src/x.ts"]);
+    const out = classify(["docs/a.md", "apps/meeting-web/src/x.ts"]);
     expect(out).toContain("scoped");
-    expect(out).toContain("test:roadmap-canvas-boundary");
+    expect(out).toContain("verify:meeting-web");
     expect(out).not.toContain("verify:platform-web");
   });
 
@@ -145,9 +147,9 @@ describe("prepush-gate classification", () => {
   });
 
   test("a per-app markdown change is scoped to that app, not full", () => {
-    const out = classify(["apps/roadmap-web/CLAUDE.md"]);
+    const out = classify(["apps/meeting-web/README.md"]);
     expect(out).toContain("scoped");
-    expect(out).toContain("test:roadmap-canvas-boundary");
+    expect(out).toContain("verify:meeting-web");
   });
 
   test("the gate never runs an app BUILD — those belong to CI", () => {
@@ -157,7 +159,6 @@ describe("prepush-gate classification", () => {
     expect(out).toContain("verify:platform-web");
   });
 });
-
 describe("prepush-gate PREPUSH_GATE_FAST (lint+typecheck-only) mode", () => {
   test("fast mode runs a workspace's lint + typecheck but NOT its test/verify", () => {
     const out = classifyFast(["apps/platform-web/src/x.tsx"]);
@@ -246,10 +247,4 @@ describe("prepush-gate PREPUSH_GATE_FAST (lint+typecheck-only) mode", () => {
     const out = classifyFast(["docs/work/example/plan.md", "README.md"]);
     expect(out).toContain("docs-only");
   });
-});
-
-test("roadmap-web runs what CI runs — no lint job exists for it (#137)", () => {
-  const out = classify(["apps/roadmap-web/src/components/work-items/tag-selector.tsx"]);
-  expect(out).toContain("test:roadmap-canvas-boundary");
-  expect(out).not.toContain("verify:roadmap-web");
 });

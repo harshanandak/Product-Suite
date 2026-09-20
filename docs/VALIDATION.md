@@ -1,14 +1,13 @@
 # Validation
 
-Run validation from the repo root so every deployable uses one documented entrypoint.
+Run validation from the repo root so every supported deployable uses one documented entrypoint.
 
 ## Root Commands
 
 - `bun run validate`
   - runs the full baseline in this order:
     1. `bun run validate:meeting-web`
-    2. `bun run validate:roadmap-web`
-    3. `bun run validate:meeting-api`
+    2. `bun run validate:meeting-api`
 - `bun run test:contracts`
   - runs the shared contracts package guard/unit tests in `packages/contracts`
 - `bun run test:ui-chat`
@@ -27,12 +26,8 @@ Run validation from the repo root so every deployable uses one documented entryp
   - runs the Hocuspocus realtime transport service tests in `services/hocuspocus`
 - `bun run start:hocuspocus`
   - starts the Hocuspocus runtime service from `services/hocuspocus`
-- `bun run test:roadmap-canvas-boundary`
-  - runs the focused Roadmap canvas boundary adapter tests for Supabase fallback, Hocuspocus selection, and provider-readiness wiring
 - `bun run validate:meeting-web`
   - runs Meeting Web lint, tests, and build
-- `bun run validate:roadmap-web`
-  - runs Roadmap Web lint, typecheck, unit tests, and build
 - `bun run install:meeting-api`
   - installs Python dependencies from `apps/meeting-api/backend/requirements.txt`
 - `bun run validate:meeting-api`
@@ -54,10 +49,13 @@ Run validation from the repo root so every deployable uses one documented entryp
 8. Run `bun run test:ui-charting` after changing `packages/ui-charting` so charting blocks stay shell-agnostic.
 9. Run `bun run test:agent-core` after changing `services/agent-core` so long-running agent orchestration stays service-owned.
 10. Run `bun run test:hocuspocus` after changing `services/hocuspocus` so canonical canvas collaboration transport stays service-owned.
-11. Run `bun run test:roadmap-canvas-boundary` after changing Roadmap canvas realtime selection, token handling, or Hocuspocus provider-readiness wiring.
-12. Ensure Python `3.13` is available for the Meeting API toolchain.
-13. Run `bun run install:meeting-api` for the Python backend dependencies.
-14. Run `bun run validate` from the repo root.
+11. Ensure Python `3.13` is available for the Meeting API toolchain.
+12. Run `bun run install:meeting-api` for the Python backend dependencies.
+13. Run `bun run validate` from the repo root.
+
+Roadmap Web is archived source without a package manifest, lockfile, runtime
+command, or CI workflow. See `apps/roadmap-web/ARCHIVED.md`; its retained
+migrations continue to be checked as immutable database-history evidence.
 
 If only Python `3.14+` is installed, `bun run install:meeting-api` fails intentionally. The backend pins dependency versions that are currently validated in CI on Python `3.13`.
 
@@ -74,9 +72,8 @@ Use the same `db_url` pattern as CI, adjusted for your local database.
 ## CI Mapping
 
 - `.github/workflows/meeting-web-ci.yml` validates the same Meeting Web lint, test, and build sequence.
-- `.github/workflows/roadmap-web-ci.yml` validates the same Roadmap Web lint, typecheck, unit-test, and build sequence.
 - `.github/workflows/meeting-api-ci.yml` installs backend dependencies, runs Meeting API lint, applies migrations, and runs pytest.
-- `.github/workflows/repo-tooling-ci.yml` watches shared package and service paths and runs the repo tooling guard plus shared package, agent-core, hocuspocus, and focused Roadmap canvas boundary tests.
+- `.github/workflows/repo-tooling-ci.yml` watches shared package and service paths and runs the repo tooling guard plus shared package, agent-core, and hocuspocus tests.
 - The Meeting API lint baseline is intentionally limited to fatal flake8 categories in PR2 so root validation is truthful without pulling existing style debt into this slice.
 
 If CI behavior changes, update this document and the root scripts together so local validation and CI keep telling the same story.

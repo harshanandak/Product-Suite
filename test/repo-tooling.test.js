@@ -7,22 +7,17 @@ const rootDir = join(import.meta.dir, "..");
 const packageJson = JSON.parse(
   readFileSync(join(rootDir, "package.json"), "utf8"),
 );
+const rootLock = readFileSync(join(rootDir, "bun.lock"), "utf8");
 const platformApiPackageJson = JSON.parse(
   readFileSync(join(rootDir, "apps", "platform-api", "package.json"), "utf8"),
 );
 const platformWebPackageJson = JSON.parse(
   readFileSync(join(rootDir, "apps", "platform-web", "package.json"), "utf8"),
 );
-const roadmapWebPackageJson = JSON.parse(
-  readFileSync(join(rootDir, "apps", "roadmap-web", "package.json"), "utf8"),
-);
 const dbPackageJson = JSON.parse(
   readFileSync(join(rootDir, "packages", "db", "package.json"), "utf8"),
 );
-const dependencyLockPaths = [
-  join(rootDir, "bun.lock"),
-  join(rootDir, "apps", "roadmap-web", "bun.lock"),
-];
+const dependencyLockPaths = [join(rootDir, "bun.lock")];
 const isPatchedSerovalVersion = (version) => {
   const minimumVersion = [1, 5, 3];
 
@@ -79,10 +74,6 @@ const roadmapWebEnvExample = readFileSync(
   join(rootDir, "apps", "roadmap-web", ".env.example"),
   "utf8",
 );
-const roadmapNextConfig = readFileSync(
-  join(rootDir, "apps", "roadmap-web", "next.config.ts"),
-  "utf8",
-);
 const meetingApiWorkflow = readFileSync(
   join(rootDir, ".github", "workflows", "meeting-api-ci.yml"),
   "utf8",
@@ -91,16 +82,16 @@ const meetingWebWorkflow = readFileSync(
   join(rootDir, ".github", "workflows", "meeting-web-ci.yml"),
   "utf8",
 );
-const roadmapWebWorkflow = readFileSync(
-  join(rootDir, ".github", "workflows", "roadmap-web-ci.yml"),
-  "utf8",
-);
 const meetingApiRailwayPreviewWorkflow = readFileSync(
   join(rootDir, ".github", "workflows", "meeting-api-railway-preview.yml"),
   "utf8",
 );
 const repoToolingWorkflow = readFileSync(
   join(rootDir, ".github", "workflows", "repo-tooling-ci.yml"),
+  "utf8",
+);
+const platformWebWorkflow = readFileSync(
+  join(rootDir, ".github", "workflows", "platform-web-ci.yml"),
   "utf8",
 );
 const platformApiDeployWorkflow = readFileSync(
@@ -129,6 +120,38 @@ const dbContractTelemetry = readFileSync(
 const lefthookConfig = readFileSync(join(rootDir, "lefthook.yml"), "utf8");
 
 describe("repo tooling", () => {
+  test("active package graph excludes archived Roadmap and Next runtime", () => {
+    expect(packageJson.workspaces).not.toContain("apps/roadmap-web");
+    expect(existsSync(join(rootDir, "apps", "roadmap-web", "package.json"))).toBe(false);
+    expect(existsSync(join(rootDir, "apps", "roadmap-web", "bun.lock"))).toBe(false);
+    expect(existsSync(join(rootDir, ".github", "workflows", "roadmap-web-ci.yml"))).toBe(false);
+    expect(packageJson.overrides?.next).toBeUndefined();
+    expect(packageJson.patchedDependencies?.["@blocksuite/icons@2.2.17"]).toBeUndefined();
+    expect(existsSync(join(rootDir, "patches", "@blocksuite%2Ficons@2.2.17.patch"))).toBe(false);
+    for (const workspace of packageJson.workspaces) {
+      const manifest = JSON.parse(readFileSync(join(rootDir, workspace, "package.json"), "utf8"));
+      const declared = {
+        ...manifest.dependencies,
+        ...manifest.devDependencies,
+        ...manifest.peerDependencies,
+      };
+      expect(declared.next, workspace).toBeUndefined();
+      expect(declared["eslint-config-next"], workspace).toBeUndefined();
+    }
+    expect(rootLock).not.toMatch(/:\s*\["next@[^"\n]*"/);
+    expect(rootLock).not.toMatch(/:\s*\["eslint-config-next@[^"\n]*"/);
+    expect(packageJson.workspaces).toContain("packages/ui-canvas");
+    expect(packageJson.workspaces).toContain("services/hocuspocus");
+  });
+
+  test("platform-web CI follows its supported workspace dependencies", () => {
+    const workflow = Bun.YAML.parse(platformWebWorkflow);
+    expect(workflow.on.push.paths).toContain("packages/contracts/**");
+    expect(workflow.on.push.paths).toContain("packages/ui-chat/**");
+    expect(platformWebWorkflow).toMatch(/packages\/contracts\/\|/);
+    expect(platformWebWorkflow).toMatch(/packages\/ui-chat\/\|/);
+  });
+
   test("every GitHub Actions Bun runtime follows the latest stable release", () => {
     expect(packageJson.packageManager).toBeUndefined();
 
@@ -143,18 +166,6 @@ describe("repo tooling", () => {
     for (const step of setupSteps) {
       expect(step.with?.["bun-version"]).toBe("latest");
     }
-  });
-
-  test("root installs own the BlockSuite icon compatibility patch", () => {
-    const dependency = "@blocksuite/icons@2.2.17";
-    const rootPatchPath = packageJson.patchedDependencies?.[dependency];
-    const roadmapPatchPath = roadmapWebPackageJson.patchedDependencies?.[dependency];
-
-    expect(rootPatchPath).toBe("patches/@blocksuite%2Ficons@2.2.17.patch");
-    expect(roadmapPatchPath).toBe(rootPatchPath);
-    expect(readFileSync(join(rootDir, rootPatchPath), "utf8")).toBe(
-      readFileSync(join(rootDir, "apps", "roadmap-web", roadmapPatchPath), "utf8"),
-    );
   });
 
   test("root dependency bootstrap exposes ESLint's AJV 6 draft-04 reference", () => {
@@ -238,10 +249,7 @@ describe("repo tooling", () => {
     expect(packageJson.scripts["test:hocuspocus"]).toContain("services/hocuspocus");
     expect(packageJson.scripts["start:hocuspocus"]).toBeDefined();
     expect(packageJson.scripts["start:hocuspocus"]).toContain("services/hocuspocus start");
-    expect(packageJson.scripts["test:roadmap-canvas-boundary"]).toBeDefined();
-    expect(packageJson.scripts["test:roadmap-canvas-boundary"]).toContain(
-      "src/components/blocksuite/__tests__/canvas-boundary.test.ts",
-    );
+    expect(packageJson.scripts["test:roadmap-canvas-boundary"]).toBeUndefined();
     expect(packageJson.scripts["check:source-test"]).toBeDefined();
     expect(packageJson.scripts["check:source-test"]).toContain("check-source-test-coupling");
     expect(packageJson.scripts["worktree:create"]).toContain("worktree-bootstrap.mjs create");
@@ -260,27 +268,26 @@ describe("repo tooling", () => {
     expect(packageJson.scripts["test:prepush"]).toContain("check:source-test");
     expect(packageJson.scripts["test:prepush"]).toContain("test:agent-core");
     expect(packageJson.scripts["test:prepush"]).toContain("test:hocuspocus");
-    expect(packageJson.scripts["test:prepush"]).toContain("test:roadmap-canvas-boundary");
+    expect(packageJson.scripts["test:prepush"]).not.toContain("roadmap");
     expect(lefthookConfig).toContain("pre-commit:");
     expect(lefthookConfig).toContain("bun run check:source-test");
   });
 
-  test("root CI scripts validate every deployable", () => {
+  test("root CI scripts validate every supported deployable", () => {
     expect(packageJson.scripts["ci:meeting-web"]).toContain("apps/meeting-web");
     expect(packageJson.scripts["ci:meeting-web"]).toContain("apps/meeting-web test");
-    expect(packageJson.scripts["ci:roadmap-web"]).toContain("apps/roadmap-web");
+    expect(packageJson.scripts["ci:roadmap-web"]).toBeUndefined();
     expect(packageJson.scripts["ci:meeting-api"]).toBeDefined();
     expect(packageJson.scripts["ci:meeting-api"]).toContain("validate:meeting-api");
   });
 
-  test("root validation scripts expose all three deployables", () => {
+  test("root validation scripts expose the supported deployables", () => {
     expect(packageJson.scripts.validate).toContain("validate:meeting-web");
-    expect(packageJson.scripts.validate).toContain("validate:roadmap-web");
+    expect(packageJson.scripts.validate).not.toContain("roadmap");
     expect(packageJson.scripts.validate).toContain("validate:meeting-api");
 
     expect(packageJson.scripts["validate:meeting-web"]).toContain("ci:meeting-web");
-    expect(packageJson.scripts["validate:roadmap-web"]).toContain("ci:roadmap-web");
-    expect(packageJson.scripts["ci:roadmap-web"]).toContain("apps/roadmap-web test");
+    expect(packageJson.scripts["validate:roadmap-web"]).toBeUndefined();
     expect(packageJson.scripts["validate:meeting-api"]).toContain(
       "validate:meeting-api:lint",
     );
@@ -329,12 +336,13 @@ describe("repo tooling", () => {
     expect(validationDoc).toContain("bun run test:agent-core");
     expect(validationDoc).toContain("bun run test:hocuspocus");
     expect(validationDoc).toContain("bun run start:hocuspocus");
-    expect(validationDoc).toContain("bun run test:roadmap-canvas-boundary");
+    expect(validationDoc).not.toContain("bun run test:roadmap-canvas-boundary");
     expect(validationDoc).toContain("packages/contracts");
     expect(validationDoc).toContain("services/agent-core");
     expect(validationDoc).toContain("services/hocuspocus");
     expect(validationDoc).toContain("bun run validate:meeting-web");
-    expect(validationDoc).toContain("bun run validate:roadmap-web");
+    expect(validationDoc).not.toContain("bun run validate:roadmap-web");
+    expect(validationDoc).toContain("apps/roadmap-web/ARCHIVED.md");
     expect(validationDoc).toContain("unit tests");
     expect(validationDoc).toContain("bun run install:meeting-api");
     expect(validationDoc).toContain("bun run validate:meeting-api");
@@ -563,51 +571,6 @@ describe("repo tooling", () => {
     expect(meetingApiWorkflow).toContain("python -m pytest apps/meeting-api/tests/backend -q");
   });
 
-  test("roadmap CI reflects the local validation baseline", () => {
-    expect(roadmapWebWorkflow).toContain("Roadmap unit tests");
-    expect(roadmapWebWorkflow).toContain("bun run test");
-  });
-
-  test("roadmap CI preserves the required test check on every pull request", () => {
-    const workflow = Bun.YAML.parse(roadmapWebWorkflow);
-    const testJob = workflow.jobs.test;
-
-    expect(workflow.on.pull_request.paths).toBeUndefined();
-    expect(testJob.name).toBe("test");
-    expect(testJob.if).toBeUndefined();
-    expect(testJob.steps).toContainEqual(
-      expect.objectContaining({
-        name: "Install dependencies",
-        run: "bun install --frozen-lockfile --ignore-scripts",
-      }),
-    );
-    expect(testJob.steps).toContainEqual(
-      expect.objectContaining({
-        name: "Install Playwright Browsers",
-        run: "bun run --no-install ci:prepare:browsers",
-      }),
-    );
-    expect(roadmapWebWorkflow).not.toContain("bun x playwright install");
-    expect(roadmapWebWorkflow).not.toContain("bun run playwright install");
-    expect(roadmapWebWorkflow).not.toContain("playwright install");
-    expect(roadmapWebPackageJson.scripts["ci:prepare:browsers"]).toBe(
-      "playwright install --with-deps chromium",
-    );
-    expect(testJob.steps).toContainEqual(
-      expect.objectContaining({
-        name: "Run Playwright tests",
-        if: "steps.changes.outputs.run == 'true'",
-        run: "bun run test:e2e",
-      }),
-    );
-    expect(testJob.steps).toContainEqual(
-      expect.objectContaining({
-        name: "Roadmap Playwright N/A",
-        if: "steps.changes.outputs.run != 'true'",
-      }),
-    );
-  });
-
   test("retired Roadmap Supabase authority surfaces stay absent", () => {
     for (const relativePath of [
       ".github/workflows/roadmap-supabase.yml",
@@ -658,13 +621,13 @@ describe("repo tooling", () => {
       '".github/workflows/meeting-api-railway-preview.yml"',
     );
     expect(repoToolingWorkflow).toContain('".github/workflows/meeting-web-ci.yml"');
-    expect(repoToolingWorkflow).toContain('".github/workflows/roadmap-web-ci.yml"');
+    expect(repoToolingWorkflow).not.toContain('".github/workflows/roadmap-web-ci.yml"');
     expect(repoToolingWorkflow).not.toContain(
       '".github/workflows/roadmap-web-playwright.yml"',
     );
     expect(repoToolingWorkflow).toContain("bun run test:agent-core");
     expect(repoToolingWorkflow).toContain("bun run test:hocuspocus");
-    expect(repoToolingWorkflow).toContain("bun run test:roadmap-canvas-boundary");
+    expect(repoToolingWorkflow).not.toContain("roadmap");
     expect(repoToolingWorkflow).toContain("bun run test:repo-tooling");
   });
 
@@ -904,7 +867,7 @@ describe("repo tooling", () => {
     expect(selectorGuard.run).toContain('test "$PLANNED_DB_EVIDENCE_REQUIRED" = "true"');
     expect(selectorGuard.run).toContain('test "$PLANNED_CLASSIFICATION" = "full-suite"');
     expect(selectorGuard.run).toContain(
-      '["check:source-test","test:repo-tooling","verify:platform-web","verify:platform-api","verify:meeting-web","verify:roadmap-web","ci:meeting-api","test:contracts","verify:db","test:sdk","test:ui","test:ui-chat","test:ui-canvas","test:ui-meeting","test:ui-planning","test:ui-charting","test:agent-core","test:hocuspocus"]',
+      '["check:source-test","test:repo-tooling","verify:platform-web","verify:platform-api","verify:meeting-web","ci:meeting-api","test:contracts","verify:db","test:sdk","test:ui","test:ui-chat","test:ui-canvas","test:ui-meeting","test:ui-planning","test:ui-charting","test:agent-core","test:hocuspocus"]',
     );
 
     const cheapInstall = jobs["cheap-gates"].steps.find((step) => step.name === "Install dependencies");
@@ -952,8 +915,6 @@ describe("repo tooling", () => {
       "verify:platform-web",
       "verify:platform-api",
       "verify:meeting-web",
-      "verify:roadmap-web",
-      "test:roadmap-canvas-boundary",
       "ci:meeting-api",
       "test:contracts",
       "verify:db",
@@ -970,9 +931,7 @@ describe("repo tooling", () => {
       expect(cheapRun.run).toContain(`'${script}': [`);
     }
     expect(cheapRun.run).toContain("const commands = canonicalCommands[script]");
-    expect(cheapRun.run).toContain(
-      "command('apps/roadmap-web', 'bun', ['x', '--no-install', 'vitest', 'run', 'src/components/blocksuite/__tests__/canvas-boundary.test.ts'])",
-    );
+    expect(cheapRun.run).not.toContain("apps/roadmap-web");
     expect(cheapRun.run).toContain("CI_CHANGE_PLAN_CANONICAL_COMMAND_MISSING");
     expect(cheapRun.run).toContain("spawnSync(command.executable, command.args");
     expect(cheapRun.run).not.toContain("spawnSync('bun', ['run', script]");
@@ -1028,27 +987,8 @@ describe("repo tooling", () => {
     expect(meetingWebWorkflow).toContain("persist-credentials: false");
     expect(meetingWebWorkflow).toContain('"package.json"');
     expect(meetingWebWorkflow).toContain('"bun.lock"');
-    expect(roadmapWebWorkflow).toContain('"packages/contracts/**"');
-    expect(roadmapWebWorkflow).toContain('"packages/sdk/**"');
-    expect(roadmapWebWorkflow).toContain('"packages/ui-meeting/**"');
-    expect(roadmapWebWorkflow).toContain('"packages/ui-chat/**"');
-    expect(roadmapWebWorkflow).toContain('"packages/ui-canvas/**"');
-    expect(roadmapWebWorkflow).toContain('"packages/ui-planning/**"');
-    expect(roadmapWebWorkflow).toContain('"packages/ui-charting/**"');
-    expect(roadmapWebWorkflow).toContain('"services/agent-core/**"');
-    expect(roadmapWebWorkflow).toContain('"services/hocuspocus/**"');
-    expect(roadmapWebWorkflow).not.toContain('"docs/**"');
-    expect(roadmapWebWorkflow).not.toContain('"test/**"');
-    expect(roadmapWebWorkflow).toContain("Detect app-impacting changes");
-    expect(roadmapWebWorkflow).toContain("steps.changes.outputs.run == 'true'");
-    expect(roadmapWebWorkflow).toContain(
-      "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
-    );
-    expect(roadmapWebWorkflow).toContain("persist-credentials: false");
-    expect(roadmapWebWorkflow).toContain('"package.json"');
-    expect(roadmapWebWorkflow).toContain('"bun.lock"');
-    expect(roadmapNextConfig).toContain('"@product-suite/ui-planning"');
-    expect(roadmapNextConfig).toContain('"@product-suite/ui-charting"');
+    expect(platformWebWorkflow).toContain('"packages/contracts/**"');
+    expect(platformWebWorkflow).toContain('"packages/ui-chat/**"');
     expect(meetingApiWorkflow).toContain('"packages/contracts/**"');
     expect(meetingApiWorkflow).toContain('"packages/sdk/**"');
     expect(meetingApiWorkflow).toContain('"test/**"');

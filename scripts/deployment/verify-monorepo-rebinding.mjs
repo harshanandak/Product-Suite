@@ -10,13 +10,11 @@ const repoRoot = path.resolve(__dirname, "..", "..");
 const registryPath = path.join(repoRoot, "docs", "deployment", "service-registry.json");
 
 const requiredPaths = [
-  "apps/roadmap-web/package.json",
   "apps/meeting-web/package.json",
   "apps/meeting-api/backend/railway.json",
   "apps/meeting-api/backend/requirements.txt",
   "apps/meeting-api/tests/backend",
   "infra/supabase/config.toml",
-  ".github/workflows/roadmap-web-ci.yml",
   ".github/workflows/meeting-web-ci.yml",
   ".github/workflows/meeting-api-ci.yml",
   ".github/workflows/meeting-api-railway-preview.yml"
@@ -40,7 +38,10 @@ function checkPaths() {
 function checkRegistry() {
   const registry = JSON.parse(fs.readFileSync(registryPath, "utf8"));
   const invalidEntries = registry.services.filter((service) => {
-    return !service.id || !service.platform || !service.targetRootDirectory;
+    return !service.id
+      || !service.platform
+      || (service.supported !== false
+        && (!service.targetRootDirectory || !service.currentBuildCommand));
   });
 
   if (invalidEntries.length > 0) {
@@ -50,7 +51,8 @@ function checkRegistry() {
 
   console.log("Verified service registry:");
   for (const service of registry.services) {
-    console.log(`- ${service.id}: ${service.platform} -> ${service.targetRootDirectory}`);
+    const target = service.supported === false ? "archived" : service.targetRootDirectory;
+    console.log(`- ${service.id}: ${service.platform} -> ${target}`);
   }
 }
 
