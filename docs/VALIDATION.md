@@ -1,6 +1,6 @@
 # Validation
 
-Run validation from the repo root so every supported deployable uses one documented entrypoint.
+Run the Meeting Web and Meeting API baseline from the repo root through the documented aggregate entrypoint.
 
 ## Root Commands
 
