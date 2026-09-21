@@ -43,6 +43,24 @@ const SPAWN_TIMEOUT_MS = 30_000;
 // leaked into the spawned child, the default-mode assertions below would read
 // fast-mode output and abort the push (issue #118).
 const GATE_ENV_KEYS = ["PREPUSH_GATE_FAST", "PREPUSH_GATE_DRY", "PREPUSH_GATE_TEST_FILES"];
+const GIT_LOCAL_ENV_KEYS = [
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_CONFIG",
+  "GIT_CONFIG_PARAMETERS",
+  "GIT_CONFIG_COUNT",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_IMPLICIT_WORK_TREE",
+  "GIT_GRAFT_FILE",
+  "GIT_INDEX_FILE",
+  "GIT_NO_REPLACE_OBJECTS",
+  "GIT_REPLACE_REF_BASE",
+  "GIT_PREFIX",
+  "GIT_SHALLOW_FILE",
+  "GIT_COMMON_DIR",
+];
+const CHILD_ENV_KEYS = new Set([...GATE_ENV_KEYS, ...GIT_LOCAL_ENV_KEYS]);
 
 // Build the child env explicitly: inherit everything EXCEPT the gate keys, then
 // apply only the overrides this call asks for. A key absent from `overrides` is
@@ -53,7 +71,7 @@ function gateEnv(overrides = {}) {
   const env = {};
   for (const [key, value] of Object.entries(process.env)) {
     if (value === undefined) continue;
-    if (GATE_ENV_KEYS.includes(key.toUpperCase())) continue;
+    if (CHILD_ENV_KEYS.has(key.toUpperCase())) continue;
     env[key] = value;
   }
   for (const [key, value] of Object.entries(overrides)) {
@@ -120,8 +138,14 @@ function executeGate(files, { fast = false, dry = false, failOn, cwd, input, arg
   }
 }
 
-function git(cwd, args) {
-  return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+function git(cwd, args, { trim = true } = {}) {
+  const output = execFileSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    env: gateEnv(),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  return trim ? output.trim() : output;
 }
 
 function writeRepoFile(repo, file, content) {
@@ -209,13 +233,26 @@ function executeLefthook(repo, input) {
   }
 }
 
+function installLefthook(repo) {
+  const command = `node ${JSON.stringify(scriptPath)} --pre-push`.replaceAll("\\\\", "/");
+  writeFileSync(path.join(repo, "lefthook.yml"), [
+    "pre-push:",
+    "  jobs:",
+    "    - name: pre-push gate",
+    `      run: ${command}`,
+    "      use_stdin: true",
+    "",
+  ].join("\n"));
+}
+
 // Run `fn` with `vars` temporarily present in this process's env, then restore
 // the previous values (including deleting keys that were previously unset).
 function withAmbientEnv(vars, fn) {
   const saved = new Map();
   for (const [key, value] of Object.entries(vars)) {
     saved.set(key, process.env[key]);
-    process.env[key] = value;
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
   }
   try {
     fn();
@@ -350,6 +387,43 @@ describe("prepush-gate command execution", () => {
 });
 
 describe("prepush-gate Git ranges", () => {
+  test("isolates fixtures from the invoking hook's Git repository", () => {
+    const hookRepo = mkdtempSync(path.join(tmpdir(), "prepush-hook-context-"));
+    let fixtureRepo;
+    try {
+      git(hookRepo, ["init", "-b", "hook-branch"]);
+      git(hookRepo, ["config", "user.name", "Outer Hook"]);
+      git(hookRepo, ["config", "user.email", "outer-hook@example.invalid"]);
+      commitFile(hookRepo, "README.md", "outer\n", "outer");
+      const hookGitDir = path.join(hookRepo, ".git");
+      const originalBare = git(hookRepo, ["config", "--get", "core.bare"]);
+      const originalConfig = git(hookRepo, ["config", "--local", "--list", "--null"]);
+      const originalHead = git(hookRepo, ["rev-parse", "HEAD"]);
+      const originalStatus = git(hookRepo, ["status", "--porcelain=v1", "-z"], { trim: false });
+      withAmbientEnv({ GIT_DIR: hookGitDir, GIT_WORK_TREE: undefined }, () => {
+        const fixture = createGitFixture();
+        fixtureRepo = fixture.repo;
+        checkoutTrackedBranch(fixture.repo, "feature", fixture.base);
+        commitFile(fixture.repo, "apps/platform-web/src/feature.tsx", "feature\n", "feature");
+        const result = executeGate(undefined, {
+          cwd: fixture.repo,
+          input: updateLine(fixture.repo, "refs/heads/feature", fixture.base),
+          args: ["--pre-push"],
+          dry: true,
+        });
+        expect(result.status).toBe(0);
+        expect(result.stdout).toContain("classification: scoped");
+      });
+      expect(git(hookRepo, ["config", "--get", "core.bare"])).toBe(originalBare);
+      expect(git(hookRepo, ["config", "--local", "--list", "--null"])).toBe(originalConfig);
+      expect(git(hookRepo, ["rev-parse", "HEAD"])).toBe(originalHead);
+      expect(git(hookRepo, ["status", "--porcelain=v1", "-z"], { trim: false })).toBe(originalStatus);
+    } finally {
+      if (fixtureRepo) rmSync(fixtureRepo, { recursive: true, force: true });
+      rmSync(hookRepo, { recursive: true, force: true });
+    }
+  }, SPAWN_TIMEOUT_MS);
+
   test("narrows an ordinary first push from its verified fork point", () => {
     const { repo, base } = createGitFixture();
     try {
@@ -576,10 +650,10 @@ describe("prepush-gate Git ranges", () => {
       checkoutTrackedBranch(repo, "feature", base);
       commitFile(repo, "packages/db/src/change.ts", "db\n", "db change");
       writeRepoFile(repo, "packages/db/package.json", "{\"dirty\":true}\n");
-      expect(execFileSync(
-        "git",
+      expect(git(
+        repo,
         ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
-        { cwd: repo, encoding: "utf8" },
+        { trim: false },
       )).toBe(" M packages/db/package.json\0");
       const result = executeGate(undefined, {
         cwd: repo,
@@ -671,25 +745,27 @@ describe("prepush-gate Git ranges", () => {
     }
   }, SPAWN_TIMEOUT_MS);
 
-  test("installed Lefthook forwards one stream without hanging and protection precedes Bun", () => {
+  test("installed Lefthook rejects protected destinations before Bun", () => {
     const { repo, base } = createGitFixture();
     try {
       checkoutTrackedBranch(repo, "feature", base);
       commitFile(repo, "apps/platform-web/src/feature.tsx", "feature\n", "feature");
-      const command = `node ${JSON.stringify(scriptPath)} --pre-push`.replaceAll("\\\\", "/");
-      writeFileSync(path.join(repo, "lefthook.yml"), [
-        "pre-push:",
-        "  jobs:",
-        "    - name: pre-push gate",
-        `      run: ${command}`,
-        "      use_stdin: true",
-        "",
-      ].join("\n"));
-
+      installLefthook(repo);
       const protectedResult = executeLefthook(repo, updateLine(repo, "refs/heads/main"));
+      expect(protectedResult.status).not.toBeNull();
       expect(protectedResult.status).not.toBe(0);
       expect(protectedResult.calls).toEqual([]);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }, SPAWN_TIMEOUT_MS);
 
+  test("installed Lefthook forwards one stream without hanging", () => {
+    const { repo, base } = createGitFixture();
+    try {
+      checkoutTrackedBranch(repo, "feature", base);
+      commitFile(repo, "apps/platform-web/src/feature.tsx", "feature\n", "feature");
+      installLefthook(repo);
       const featureResult = executeLefthook(repo, updateLine(repo, "refs/heads/feature"));
       expect(featureResult.status).toBe(0);
       expect(featureResult.calls.join(" ")).toContain("apps/platform-web test");
