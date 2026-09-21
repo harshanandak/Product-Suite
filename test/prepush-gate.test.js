@@ -207,6 +207,11 @@ function updateLine(repo, remoteRef, remoteOid, localRef) {
   return `${localRef ?? `refs/heads/${branch}`} ${oid} ${remoteRef} ${remoteOid ?? "0".repeat(oid.length)}\n`;
 }
 
+function lefthookExecutable(platform = process.platform) {
+  const executable = path.join(import.meta.dir, "..", "node_modules", ".bin", "lefthook");
+  return platform === "win32" ? `${executable}.exe` : executable;
+}
+
 function executeLefthook(repo, input) {
   const sandbox = mkdtempSync(path.join(tmpdir(), "prepush-lefthook-"));
   const log = path.join(sandbox, "calls.txt");
@@ -219,13 +224,18 @@ function executeLefthook(repo, input) {
     const env = gateEnv({ FAKE_BUN_LOG: log });
     const pathKey = Object.keys(env).find((key) => key.toUpperCase() === "PATH") ?? "PATH";
     env[pathKey] = `${sandbox}${path.delimiter}${env[pathKey] ?? ""}`;
-    const result = spawnSync("lefthook", ["run", "pre-push", "--force", "--no-tty"], {
+    const executable = lefthookExecutable();
+    const result = spawnSync(executable, ["run", "pre-push", "--force", "--no-tty"], {
       cwd: repo,
       input,
       encoding: "utf8",
       env,
       timeout: SPAWN_TIMEOUT_MS,
     });
+    if (result.error) throw new Error(`installed Lefthook could not start: ${result.error.message}`);
+    if (!Number.isInteger(result.status)) {
+      throw new Error(`installed Lefthook did not return an integer status${result.signal ? ` (${result.signal})` : ""}`);
+    }
     const calls = existsSync(log) ? readFileSync(log, "utf8").trim().split(/\r?\n/).filter(Boolean) : [];
     return { status: result.status, stdout: result.stdout, stderr: result.stderr, calls };
   } finally {
@@ -745,6 +755,14 @@ describe("prepush-gate Git ranges", () => {
     }
   }, SPAWN_TIMEOUT_MS);
 
+  test("resolves installed Lefthook without relying on shell PATH", () => {
+    const executable = path.join(import.meta.dir, "..", "node_modules", ".bin", "lefthook");
+    expect(lefthookExecutable("linux")).toBe(executable);
+    expect(lefthookExecutable("darwin")).toBe(executable);
+    expect(lefthookExecutable("win32")).toBe(`${executable}.exe`);
+    expect(existsSync(lefthookExecutable())).toBe(true);
+  });
+
   test("installed Lefthook rejects protected destinations before Bun", () => {
     const { repo, base } = createGitFixture();
     try {
@@ -752,7 +770,7 @@ describe("prepush-gate Git ranges", () => {
       commitFile(repo, "apps/platform-web/src/feature.tsx", "feature\n", "feature");
       installLefthook(repo);
       const protectedResult = executeLefthook(repo, updateLine(repo, "refs/heads/main"));
-      expect(protectedResult.status).not.toBeNull();
+      expect(Number.isInteger(protectedResult.status)).toBe(true);
       expect(protectedResult.status).not.toBe(0);
       expect(protectedResult.calls).toEqual([]);
     } finally {
