@@ -63,3 +63,13 @@ The test now resolves the already-installed repository binary explicitly: `node_
 Focused validation passed three tests and nine assertions with zero failures in 15.61 seconds on Bun 1.4.2: the cross-platform executable-path contract, protected-destination rejection and successful stdin forwarding (`C:/tmp/prepush-lefthook-resolution-626d3eb.log`). Real Linux CI remains the final platform execution proof.
 
 Independent narrow review approved the Linux repair at rung 3 with no blockers. It confirmed that executable resolution is repository-local and platform-specific, spawn errors and non-integer statuses fail explicitly, the existing environment/input/current-directory/30-second contracts are unchanged, protected rejection still proves no Bun call, and successful forwarding retains its original assertion.
+
+## Git-range fixture duplication repair
+
+SonarCloud's exact-head analysis of `626d3ebca32603d363c9f6a4fa83abd35af3805d` failed only the new-code duplication gate: 25.2351% against the 3% threshold, with 161 duplicated lines in `test/prepush-gate.test.js`. The duplication was the repeated temporary-repository creation, dry pre-push execution, assertion plumbing, timeout and cleanup around fourteen distinct Git-range scenarios.
+
+Those fourteen scenarios now use one local `rangeCases` table, following the file's existing `unsupportedInputs` pattern. Each entry retains its behavior-specific fixture options, branch/upstream/ref mutations, file contents, push input and exact status/include/exclude assertions; the four scenarios that previously omitted a status assertion still omit it. One loop owns the shared `createGitFixture`, `executeGate`, `SPAWN_TIMEOUT_MS` and `finally` cleanup. No production code, runtime, CI, dependency, exclusion, scenario or assertion changed.
+
+Focused validation passed all fourteen affected scenarios and 35 assertions with zero failures in 24.18 seconds on Bun 1.4.2 (`C:/tmp/prepush-range-table-27303f5.log`). Real SonarCloud analysis remains the authoritative duplication-gate proof.
+
+Independent narrow comparison approved the refactor at rung 3 with no blockers. It mapped all fourteen committed scenarios and all 35 assertions exactly, including the four absent-status cases, specialized setup and input distinctions, each 30-second budget and every `finally` cleanup; only duplicated fixture execution and assertion scaffolding moved into the shared loop.
