@@ -1,8 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
   chmodSync,
+  cpSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -80,7 +82,7 @@ function classifyFast(files) {
 
 // Execute the real gate against a fake bun binary. This proves ordering and
 // fail-fast behavior without recursively running the repository's full suites.
-function executeGate(files, { fast = false, dry = false, failOn } = {}) {
+function executeGate(files, { fast = false, dry = false, failOn, cwd, input, args = [] } = {}) {
   const sandbox = mkdtempSync(path.join(tmpdir(), "prepush-gate-"));
   const log = path.join(sandbox, "calls.jsonl");
   const posixShim = path.join(sandbox, "bun");
@@ -100,7 +102,7 @@ function executeGate(files, { fast = false, dry = false, failOn } = {}) {
 
   try {
     const env = gateEnv({
-      PREPUSH_GATE_TEST_FILES: files.join(","),
+      PREPUSH_GATE_TEST_FILES: files?.join(","),
       PREPUSH_GATE_DRY: dry ? "1" : undefined,
       PREPUSH_GATE_FAST: fast ? "1" : undefined,
       FAKE_BUN_LOG: log,
@@ -108,10 +110,99 @@ function executeGate(files, { fast = false, dry = false, failOn } = {}) {
     });
     const pathKey = Object.keys(env).find((key) => key.toUpperCase() === "PATH") ?? "PATH";
     env[pathKey] = `${sandbox}${path.delimiter}${env[pathKey] ?? ""}`;
-    const result = spawnSync(process.execPath, [scriptPath], { encoding: "utf8", env });
+    const result = spawnSync(process.execPath, [scriptPath, ...args], { cwd, input, encoding: "utf8", env });
     const calls = existsSync(log)
       ? readFileSync(log, "utf8").trim().split(/\r?\n/).filter(Boolean).map((line) => line.split(/\s+/))
       : [];
+    return { status: result.status, stdout: result.stdout, stderr: result.stderr, calls };
+  } finally {
+    rmSync(sandbox, { recursive: true, force: true });
+  }
+}
+
+function git(cwd, args) {
+  return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+}
+
+function writeRepoFile(repo, file, content) {
+  const target = path.join(repo, ...file.split("/"));
+  mkdirSync(path.dirname(target), { recursive: true });
+  writeFileSync(target, content);
+}
+
+function commitFile(repo, file, content, message) {
+  writeRepoFile(repo, file, content);
+  git(repo, ["add", "--", file]);
+  git(repo, ["commit", "-m", message]);
+  return git(repo, ["rev-parse", "HEAD"]);
+}
+
+const gitSeeds = new Map();
+
+function gitSeed(objectFormat) {
+  const key = objectFormat ?? "sha1";
+  if (gitSeeds.has(key)) return gitSeeds.get(key);
+  const repo = mkdtempSync(path.join(tmpdir(), `prepush-seed-${key}-`));
+  git(repo, ["init", "-b", "main", ...(objectFormat ? [`--object-format=${objectFormat}`] : [])]);
+  git(repo, ["config", "user.name", "Prepush Test"]);
+  git(repo, ["config", "user.email", "prepush@example.invalid"]);
+  git(repo, ["remote", "add", "origin", path.join(repo, "missing-origin.git")]);
+  writeRepoFile(repo, "README.md", "base\n");
+  writeRepoFile(repo, "packages/db/package.json", "{}\n");
+  writeRepoFile(repo, "packages/ui/src/old.ts", "old\n");
+  git(repo, ["add", "."]);
+  git(repo, ["commit", "-m", "base"]);
+  const base = git(repo, ["rev-parse", "HEAD"]);
+  git(repo, ["update-ref", "refs/remotes/origin/main", base]);
+  const seed = { repo, base };
+  gitSeeds.set(key, seed);
+  return seed;
+}
+
+function createGitFixture({ objectFormat } = {}) {
+  const seed = gitSeed(objectFormat);
+  const repo = mkdtempSync(path.join(tmpdir(), "prepush-git-"));
+  rmSync(repo, { recursive: true, force: true });
+  cpSync(seed.repo, repo, { recursive: true });
+  return { repo, base: seed.base };
+}
+
+afterAll(() => {
+  for (const { repo } of gitSeeds.values()) rmSync(repo, { recursive: true, force: true });
+});
+
+function checkoutTrackedBranch(repo, name, start, upstream = "main") {
+  git(repo, ["checkout", "-b", name, start]);
+  git(repo, ["config", `branch.${name}.remote`, "origin"]);
+  git(repo, ["config", `branch.${name}.merge`, `refs/heads/${upstream}`]);
+}
+
+function updateLine(repo, remoteRef, remoteOid, localRef) {
+  const oid = git(repo, ["rev-parse", "HEAD"]);
+  const branch = git(repo, ["branch", "--show-current"]);
+  return `${localRef ?? `refs/heads/${branch}`} ${oid} ${remoteRef} ${remoteOid ?? "0".repeat(oid.length)}\n`;
+}
+
+function executeLefthook(repo, input) {
+  const sandbox = mkdtempSync(path.join(tmpdir(), "prepush-lefthook-"));
+  const log = path.join(sandbox, "calls.txt");
+  const posixShim = path.join(sandbox, "bun");
+  const windowsShim = path.join(sandbox, "bun.cmd");
+  writeFileSync(posixShim, ["#!/usr/bin/env sh", 'printf "%s\\n" "$*" >> "$FAKE_BUN_LOG"', "exit 0"].join("\n"));
+  chmodSync(posixShim, 0o755);
+  writeFileSync(windowsShim, ['@echo %*>>"%FAKE_BUN_LOG%"', "@exit /b 0"].join("\r\n"));
+  try {
+    const env = gateEnv({ FAKE_BUN_LOG: log });
+    const pathKey = Object.keys(env).find((key) => key.toUpperCase() === "PATH") ?? "PATH";
+    env[pathKey] = `${sandbox}${path.delimiter}${env[pathKey] ?? ""}`;
+    const result = spawnSync("lefthook", ["run", "pre-push", "--force", "--no-tty"], {
+      cwd: repo,
+      input,
+      encoding: "utf8",
+      env,
+      timeout: SPAWN_TIMEOUT_MS,
+    });
+    const calls = existsSync(log) ? readFileSync(log, "utf8").trim().split(/\r?\n/).filter(Boolean) : [];
     return { status: result.status, stdout: result.stdout, stderr: result.stderr, calls };
   } finally {
     rmSync(sandbox, { recursive: true, force: true });
@@ -256,6 +347,356 @@ describe("prepush-gate command execution", () => {
     expect(result.stdout).not.toContain("verify:platform-web");
   }, SPAWN_TIMEOUT_MS);
 
+});
+
+describe("prepush-gate Git ranges", () => {
+  test("narrows an ordinary first push from its verified fork point", () => {
+    const { repo, base } = createGitFixture();
+    try {
+      checkoutTrackedBranch(repo, "feature", base);
+      commitFile(repo, "apps/platform-web/src/feature.tsx", "feature\n", "feature");
+      const result = executeGate(undefined, {
+        cwd: repo,
+        input: updateLine(repo, "refs/heads/feature"),
+        args: ["--pre-push"],
+        dry: true,
+      });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("apps/platform-web:test");
+      expect(result.stdout).not.toContain("verify:meeting-web");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }, SPAWN_TIMEOUT_MS);
+
+  test("narrows a first push after its upstream advances", () => {
+    const { repo, base } = createGitFixture();
+    try {
+      checkoutTrackedBranch(repo, "feature", base);
+      const featureOid = commitFile(repo, "apps/platform-web/src/feature.tsx", "feature\n", "feature");
+      git(repo, ["checkout", "main"]);
+      const advanced = commitFile(repo, "docs/upstream.md", "advanced\n", "advance upstream");
+      git(repo, ["update-ref", "refs/remotes/origin/main", advanced]);
+      git(repo, ["checkout", "feature"]);
+      expect(git(repo, ["rev-parse", "HEAD"])).toBe(featureOid);
+      const result = executeGate(undefined, {
+        cwd: repo,
+        input: updateLine(repo, "refs/heads/feature"),
+        args: ["--pre-push"],
+        dry: true,
+      });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("apps/platform-web:test");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }, SPAWN_TIMEOUT_MS);
+
+  test("narrows a stacked first push from its configured upstream", () => {
+    const { repo, base } = createGitFixture();
+    try {
+      git(repo, ["checkout", "-b", "stack", base]);
+      const stackOid = commitFile(repo, "packages/ui/src/stack.ts", "stack\n", "stack base");
+      git(repo, ["update-ref", "refs/remotes/origin/stack", stackOid]);
+      checkoutTrackedBranch(repo, "stacked-feature", stackOid, "stack");
+      commitFile(repo, "apps/platform-web/src/stacked.tsx", "stacked\n", "stacked feature");
+      const result = executeGate(undefined, {
+        cwd: repo,
+        input: updateLine(repo, "refs/heads/stacked-feature"),
+        args: ["--pre-push"],
+        dry: true,
+      });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("apps/platform-web:test");
+      expect(result.stdout).not.toContain("test:ui");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }, SPAWN_TIMEOUT_MS);
+
+  test("narrows a SHA-256 first push from its verified fork point", () => {
+    const { repo, base } = createGitFixture({ objectFormat: "sha256" });
+    try {
+      checkoutTrackedBranch(repo, "feature", base);
+      commitFile(repo, "apps/platform-web/src/feature.tsx", "feature\n", "feature");
+      const result = executeGate(undefined, {
+        cwd: repo,
+        input: updateLine(repo, "refs/heads/feature"),
+        args: ["--pre-push"],
+        dry: true,
+      });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("classification: scoped");
+      expect(result.stdout).toContain("apps/platform-web:test");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }, SPAWN_TIMEOUT_MS);
+
+  test("falls back to full when a first push has no upstream fork-point evidence", () => {
+    const { repo, base } = createGitFixture();
+    try {
+      git(repo, ["checkout", "-b", "no-upstream", base]);
+      commitFile(repo, "apps/platform-web/src/feature.tsx", "feature\n", "feature");
+      const result = executeGate(undefined, {
+        cwd: repo,
+        input: updateLine(repo, "refs/heads/no-upstream"),
+        args: ["--pre-push"],
+        dry: true,
+      });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("full-suite");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }, SPAWN_TIMEOUT_MS);
+
+  test("falls back to full when a first push targets its configured upstream", () => {
+    const { repo, base } = createGitFixture();
+    try {
+      checkoutTrackedBranch(repo, "same", base, "same");
+      commitFile(repo, "apps/platform-web/src/feature.tsx", "feature\n", "feature");
+      const result = executeGate(undefined, {
+        cwd: repo,
+        input: updateLine(repo, "refs/heads/same"),
+        args: ["--pre-push"],
+        dry: true,
+      });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("full-suite");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }, SPAWN_TIMEOUT_MS);
+
+  test("uses the actual remote OID instead of the configured upstream", () => {
+    const { repo, base } = createGitFixture();
+    try {
+      git(repo, ["checkout", "-b", "remote-destination", base]);
+      const remoteOid = commitFile(repo, "packages/db/src/remote.ts", "remote\n", "remote destination");
+      git(repo, ["checkout", "main"]);
+      checkoutTrackedBranch(repo, "alternate", base);
+      commitFile(repo, "apps/platform-web/src/only.tsx", "only\n", "alternate feature");
+      const result = executeGate(undefined, {
+        cwd: repo,
+        input: updateLine(repo, "refs/heads/alternate", remoteOid),
+        args: ["--pre-push"],
+        dry: true,
+      });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("apps/platform-web:test");
+      expect(result.stdout).toContain("packages/db:test");
+      expect(result.stdout).toContain("apps/platform-api:test");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }, SPAWN_TIMEOUT_MS);
+
+  test("keeps both owners for a cross-workspace move", () => {
+    const { repo, base } = createGitFixture();
+    try {
+      git(repo, ["checkout", "-b", "move", base]);
+      mkdirSync(path.join(repo, "packages", "db", "src"), { recursive: true });
+      git(repo, ["mv", "packages/ui/src/old.ts", "packages/db/src/moved.ts"]);
+      git(repo, ["commit", "-m", "move across owners"]);
+      const result = executeGate(undefined, {
+        cwd: repo,
+        input: updateLine(repo, "refs/heads/move", base),
+        args: ["--pre-push"],
+        dry: true,
+      });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("test:ui");
+      expect(result.stdout).toContain("packages/db:test");
+      expect(result.stdout).toContain("apps/platform-api:test");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }, SPAWN_TIMEOUT_MS);
+
+  test("keeps the former owner for a deletion", () => {
+    const { repo, base } = createGitFixture();
+    try {
+      git(repo, ["checkout", "-b", "delete", base]);
+      git(repo, ["rm", "packages/ui/src/old.ts"]);
+      git(repo, ["commit", "-m", "delete owned file"]);
+      const result = executeGate(undefined, {
+        cwd: repo,
+        input: updateLine(repo, "refs/heads/delete", base),
+        args: ["--pre-push"],
+        dry: true,
+      });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("test:ui");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }, SPAWN_TIMEOUT_MS);
+
+  test("keeps shared DB consumer coverage", () => {
+    const { repo, base } = createGitFixture();
+    try {
+      checkoutTrackedBranch(repo, "feature", base);
+      commitFile(repo, "packages/db/src/change.ts", "db\n", "db change");
+      const result = executeGate(undefined, {
+        cwd: repo,
+        input: updateLine(repo, "refs/heads/feature", base),
+        args: ["--pre-push"],
+        dry: true,
+      });
+      expect(result.stdout).toContain("packages/db:test");
+      expect(result.stdout).toContain("apps/platform-api:test");
+      expect(result.stdout).not.toContain("verify:meeting-web");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }, SPAWN_TIMEOUT_MS);
+
+  test("falls back to full for a missing remote object", () => {
+    const { repo, base } = createGitFixture();
+    try {
+      checkoutTrackedBranch(repo, "feature", base);
+      commitFile(repo, "packages/db/src/change.ts", "db\n", "db change");
+      const result = executeGate(undefined, {
+        cwd: repo,
+        input: updateLine(repo, "refs/heads/feature", "f".repeat(40)),
+        args: ["--pre-push"],
+        dry: true,
+      });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("full-suite");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }, SPAWN_TIMEOUT_MS);
+
+  test("falls back to full for a dirty workspace manifest", () => {
+    const { repo, base } = createGitFixture();
+    try {
+      checkoutTrackedBranch(repo, "feature", base);
+      commitFile(repo, "packages/db/src/change.ts", "db\n", "db change");
+      writeRepoFile(repo, "packages/db/package.json", "{\"dirty\":true}\n");
+      expect(execFileSync(
+        "git",
+        ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
+        { cwd: repo, encoding: "utf8" },
+      )).toBe(" M packages/db/package.json\0");
+      const result = executeGate(undefined, {
+        cwd: repo,
+        input: updateLine(repo, "refs/heads/feature", base),
+        args: ["--pre-push"],
+        dry: true,
+      });
+      expect(result.stdout).toContain("full-suite");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }, SPAWN_TIMEOUT_MS);
+
+  test("falls back to full for a committed workspace manifest", () => {
+    const committed = createGitFixture();
+    try {
+      checkoutTrackedBranch(committed.repo, "manifest", committed.base);
+      commitFile(committed.repo, "packages/db/package.json", "{\"name\":\"fixture\"}\n", "manifest");
+      const result = executeGate(undefined, {
+        cwd: committed.repo,
+        input: updateLine(committed.repo, "refs/heads/manifest", committed.base),
+        args: ["--pre-push"],
+        dry: true,
+      });
+      expect(result.stdout).toContain("full-suite");
+    } finally {
+      rmSync(committed.repo, { recursive: true, force: true });
+    }
+  }, SPAWN_TIMEOUT_MS);
+
+  test("falls back to full for an unknown path", () => {
+    const unknown = createGitFixture();
+    try {
+      checkoutTrackedBranch(unknown.repo, "unknown", unknown.base);
+      commitFile(unknown.repo, "unknown-root-file.txt", "unknown\n", "unknown");
+      const result = executeGate(undefined, {
+        cwd: unknown.repo,
+        input: updateLine(unknown.repo, "refs/heads/unknown", unknown.base),
+        args: ["--pre-push"],
+        dry: true,
+      });
+      expect(result.stdout).toContain("full-suite");
+    } finally {
+      rmSync(unknown.repo, { recursive: true, force: true });
+    }
+  }, SPAWN_TIMEOUT_MS);
+
+  const unsupportedInputs = [
+    ["protected destinations", (repo) => updateLine(repo, "refs/heads/main")],
+    ["multi-ref updates", (repo) => {
+      const feature = updateLine(repo, "refs/heads/feature");
+      return `${feature}${feature}`;
+    }],
+    ["tag updates", (repo) => updateLine(repo, "refs/tags/v1")],
+    ["deletions", (_repo, base) => `(delete) ${"0".repeat(base.length)} refs/heads/feature ${base}\n`],
+    ["non-HEAD updates", (_repo, base) => `refs/heads/feature ${base} refs/heads/feature ${base}\n`],
+    ["malformed records", () => "malformed\n"],
+    ["missing input", () => ""],
+  ];
+  for (const [name, inputFor] of unsupportedInputs) {
+    test(`rejects ${name} before validation`, () => {
+      const { repo, base } = createGitFixture();
+      try {
+        checkoutTrackedBranch(repo, "feature", base);
+        commitFile(repo, "apps/platform-web/src/feature.tsx", "feature\n", "feature");
+        const result = executeGate(undefined, {
+          cwd: repo,
+          input: inputFor(repo, base),
+          args: ["--pre-push"],
+        });
+        expect(result.status).not.toBe(0);
+        expect(result.calls).toEqual([]);
+      } finally {
+        rmSync(repo, { recursive: true, force: true });
+      }
+    }, SPAWN_TIMEOUT_MS);
+  }
+
+  test("standalone invocation without hook input stays full", () => {
+    const { repo, base } = createGitFixture();
+    try {
+      checkoutTrackedBranch(repo, "feature", base);
+      commitFile(repo, "apps/platform-web/src/feature.tsx", "feature\n", "feature");
+      const result = executeGate(undefined, { cwd: repo, dry: true });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("full-suite");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }, SPAWN_TIMEOUT_MS);
+
+  test("installed Lefthook forwards one stream without hanging and protection precedes Bun", () => {
+    const { repo, base } = createGitFixture();
+    try {
+      checkoutTrackedBranch(repo, "feature", base);
+      commitFile(repo, "apps/platform-web/src/feature.tsx", "feature\n", "feature");
+      const command = `node ${JSON.stringify(scriptPath)} --pre-push`.replaceAll("\\\\", "/");
+      writeFileSync(path.join(repo, "lefthook.yml"), [
+        "pre-push:",
+        "  jobs:",
+        "    - name: pre-push gate",
+        `      run: ${command}`,
+        "      use_stdin: true",
+        "",
+      ].join("\n"));
+
+      const protectedResult = executeLefthook(repo, updateLine(repo, "refs/heads/main"));
+      expect(protectedResult.status).not.toBe(0);
+      expect(protectedResult.calls).toEqual([]);
+
+      const featureResult = executeLefthook(repo, updateLine(repo, "refs/heads/feature"));
+      expect(featureResult.status).toBe(0);
+      expect(featureResult.calls.join(" ")).toContain("apps/platform-web test");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }, SPAWN_TIMEOUT_MS);
 });
 
 describe("change-aware CI plan", () => {

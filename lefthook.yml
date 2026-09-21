@@ -5,8 +5,6 @@ pre-commit:
 
 pre-push:
   jobs:
-    - name: branch protection
-      run: node scripts/branch-protection.js
+    - name: pre-push gate
+      run: node scripts/prepush-gate.mjs --pre-push
       use_stdin: true
-    - name: pre-push validation
-      run: node scripts/prepush-gate.mjs
