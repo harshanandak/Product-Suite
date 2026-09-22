@@ -126,6 +126,43 @@ describe.skipIf(!hasNeonCreds())(
       })
     })
 
+    it('9: a memory superseded out from under the proposal → stale, stays reviewable (no clobber)', async () => {
+      await runTransactionalDb(async ({ sql, seed }) => {
+        // A memory the proposal wants to supersede — but a human edits it first.
+        const mem = await createMemory(
+          sql,
+          { tenantId: seed.tenantId, actor: seed.runId },
+          { kind: 'fact', title: 'Original fact' },
+        )
+        // The human's supersede makes the original id no longer the active version.
+        await supersedeMemory(
+          sql,
+          { tenantIds: [seed.tenantId], actor: seed.runId },
+          mem.id,
+          { title: 'Human-edited fact', changeReason: 'human edited first' },
+        )
+
+        // The agent's proposal targets the now-STALE original id.
+        const proposal = await createProposal(sql, {
+          tenant_id: seed.tenantId,
+          run_id: seed.runId,
+          target_type: 'memory',
+          operation: 'supersede',
+          target_id: mem.id,
+          payload: { title: 'Agent edit', change_reason: 'from proposal' },
+        })
+
+        const result = await applyProposal(sql, acceptCtx(seed.tenantId, seed.userId), proposal.id)
+        expect(result.status).toBe('stale')
+        if (result.status !== 'stale') throw new Error('unreachable')
+        expect(result.item_id).toBe(mem.id)
+
+        // Never clobbered — the proposal stays pending for the human to reconcile.
+        const pending = await getProposalScoped(sql, proposal.id, [seed.tenantId])
+        expect(pending?.status).toBe('pending')
+      })
+    })
+
     })
 
     describe('dedicated assertions', () => {
@@ -286,47 +323,6 @@ describe.skipIf(!hasNeonCreds())(
 
         const decided = await getProposalScoped(sql, proposal.id, [seed.tenantId])
         expect(decided?.status).toBe('applied')
-      })
-    })
-
-    })
-
-    describe('transactional tail assertions', () => {
-    const runTransactionalTailDb = withTransactionalDb('accept-path-tail') as unknown as TransactionalRunner
-    it('9: a memory superseded out from under the proposal → stale, stays reviewable (no clobber)', async () => {
-      await runTransactionalTailDb(async ({ sql, seed }) => {
-        // A memory the proposal wants to supersede — but a human edits it first.
-        const mem = await createMemory(
-          sql,
-          { tenantId: seed.tenantId, actor: seed.runId },
-          { kind: 'fact', title: 'Original fact' },
-        )
-        // The human's supersede makes the original id no longer the active version.
-        await supersedeMemory(
-          sql,
-          { tenantIds: [seed.tenantId], actor: seed.runId },
-          mem.id,
-          { title: 'Human-edited fact', changeReason: 'human edited first' },
-        )
-
-        // The agent's proposal targets the now-STALE original id.
-        const proposal = await createProposal(sql, {
-          tenant_id: seed.tenantId,
-          run_id: seed.runId,
-          target_type: 'memory',
-          operation: 'supersede',
-          target_id: mem.id,
-          payload: { title: 'Agent edit', change_reason: 'from proposal' },
-        })
-
-        const result = await applyProposal(sql, acceptCtx(seed.tenantId, seed.userId), proposal.id)
-        expect(result.status).toBe('stale')
-        if (result.status !== 'stale') throw new Error('unreachable')
-        expect(result.item_id).toBe(mem.id)
-
-        // Never clobbered — the proposal stays pending for the human to reconcile.
-        const pending = await getProposalScoped(sql, proposal.id, [seed.tenantId])
-        expect(pending?.status).toBe('pending')
       })
     })
 
