@@ -1513,13 +1513,39 @@ export async function query<Row = Record<string, unknown>>(
   return exec(sql, text, params) as unknown as Promise<Row[]>
 }
 
+const isTransactionControl = (statement: string, control: 'BEGIN' | 'COMMIT'): boolean =>
+  new RegExp(`^${control}\\s*;?$`, 'i').test(statement.trim())
+
+/** Execute one migration while preserving its explicit transaction boundary, if present. */
+export async function applyHarnessMigrationFile(
+  sql: Sql,
+  file: string,
+  recordApplied: () => void | Promise<void> = () => undefined,
+): Promise<void> {
+  const statements = migrationStatements(file)
+  const explicitlyWrapped = statements.length > 2
+    && isTransactionControl(statements[0]!, 'BEGIN')
+    && isTransactionControl(statements.at(-1)!, 'COMMIT')
+
+  if (explicitlyWrapped) {
+    const inner = statements.slice(1, -1)
+    await sql.transaction((transaction) => inner.map((statement) => transaction.query(statement)))
+  } else {
+    for (const statement of statements) {
+      await exec(sql, statement)
+    }
+  }
+
+  await recordApplied()
+}
+
 /**
- * Apply the complete migration chain to a fresh branch, exactly as `drizzle-kit
- * migrate` would: walk `meta/_journal.json` in `idx` order and execute each
+ * Apply the complete migration chain to a fresh branch: walk `meta/_journal.json`
+ * in `idx` order and execute each
  * migration file's statements (split on drizzle's `--> statement-breakpoint`, the
- * separator it guarantees between top-level statements). The neon-http driver runs
- * one statement per round-trip and has no multi-statement transactions, so each
- * statement is executed individually — the same way the migrator does over HTTP.
+ * separator it guarantees between top-level statements). Ordinary migrations run
+ * one statement per round-trip. Files with an explicit outer transaction use the
+ * neon-http transaction API so the boundary survives its stateless requests.
  *
  * Bootstrap first: repaired historical migrations conditionally add FKs to
  * canonical identity tables. The harness creates canonical test-only identity
@@ -1575,14 +1601,12 @@ async function applyHarnessMigrations(sql: Sql, options: { recordJournal?: boole
 
   for (const entry of ordered) {
     const file = readFileSync(resolve(MIGRATIONS_DIR, `${entry.tag}.sql`), 'utf8')
-    const statements = migrationStatements(file)
-    for (const statement of statements) {
-      await exec(sql, statement)
-    }
-    if (options.recordJournal) {
-      const hash = createHash('sha256').update(file.replace(/\r\n?/g, '\n'), 'utf8').digest('hex')
-      await exec(sql, `insert into drizzle.__drizzle_migrations (hash, created_at) values ($1, $2)`, [hash, entry.idx])
-    }
+    await applyHarnessMigrationFile(sql, file, async () => {
+      if (options.recordJournal) {
+        const hash = createHash('sha256').update(file.replace(/\r\n?/g, '\n'), 'utf8').digest('hex')
+        await exec(sql, `insert into drizzle.__drizzle_migrations (hash, created_at) values ($1, $2)`, [hash, entry.idx])
+      }
+    })
   }
 }
 

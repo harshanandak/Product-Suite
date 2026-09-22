@@ -6,6 +6,8 @@ import { resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { neon, neonConfig } from '@neondatabase/serverless'
+import type { Sql } from '@product-suite/db'
 
 import {
   connectPinnedForTest,
@@ -14,6 +16,7 @@ import {
   type TransactionalDbDependencies,
 } from './suite-resource'
 import {
+  applyHarnessMigrationFile,
   dedicatedCleanupFailure,
   finishDedicatedBranchLifecycle,
   handleDedicatedCreateFailure,
@@ -163,6 +166,126 @@ async function webSocketFailure(port: number): Promise<void> {
     socket.addEventListener('open', () => reject(new Error('LOOPBACK_WEBSOCKET_UNEXPECTED_OPEN')), { once: true })
   })
 }
+
+describe('harness migration execution', () => {
+  it('batches every inner statement of an explicit transaction wrapper in order', async () => {
+    const inner = Array.from({ length: 143 }, (_, index) => (
+      index === 0 ? 'select role_preflight' : `select migration_step_${index}`
+    ))
+    const built: string[] = []
+    const query = vi.fn(async () => [])
+    const transaction = vi.fn(async (build: (tx: { query(text: string): unknown }) => unknown[]) => {
+      const descriptors = build({
+        query(text) {
+          built.push(text)
+          return { text }
+        },
+      })
+      expect(descriptors).toEqual(inner.map((text) => ({ text })))
+      return []
+    })
+
+    await applyHarnessMigrationFile(
+      { query, transaction } as unknown as Sql,
+      [' BEGIN; ', ...inner, ' COMMIT; '].join('--> statement-breakpoint'),
+    )
+
+    expect(transaction).toHaveBeenCalledOnce()
+    expect(built).toEqual(inner)
+    expect(query).not.toHaveBeenCalled()
+  })
+
+  it('sends lazy transaction descriptors through one installed Neon HTTP batch request', async () => {
+    const bodies: Array<{ queries?: Array<{ query?: string }> }> = []
+    const originalFetch = neonConfig.fetchFunction
+    const fakeFetch: typeof fetch = async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { queries?: Array<{ query?: string }> }
+      bodies.push(body)
+      return new Response(JSON.stringify({
+        results: (body.queries ?? []).map(() => ({ fields: [], rows: [], rowCount: 0, command: 'SELECT' })),
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    }
+    neonConfig.fetchFunction = fakeFetch
+    try {
+      const sql = neon('postgresql://fixture:opaque@fixture.invalid/neondb')
+      await applyHarnessMigrationFile(
+        sql as unknown as Sql,
+        'BEGIN;--> statement-breakpoint\nselect 1;--> statement-breakpoint\nselect 2;--> statement-breakpoint\nCOMMIT;',
+      )
+    } finally {
+      neonConfig.fetchFunction = originalFetch
+    }
+
+    expect(bodies).toHaveLength(1)
+    expect(bodies[0]?.queries?.map((query) => query.query)).toEqual(['select 1;', 'select 2;'])
+  })
+
+  it.each([
+    ['ordinary migration', ['select first', 'select second']],
+    ['missing commit', ['BEGIN;', 'select first']],
+    ['missing begin', ['select first', 'COMMIT;']],
+    ['empty wrapper', ['BEGIN;', 'COMMIT;']],
+  ])('keeps %s on sequential execution', async (_label, statements) => {
+    const calls: string[] = []
+    const query = vi.fn(async (text: string) => {
+      calls.push(text)
+      return []
+    })
+    const transaction = vi.fn()
+
+    await applyHarnessMigrationFile(
+      { query, transaction } as unknown as Sql,
+      statements.join('--> statement-breakpoint'),
+    )
+
+    expect(calls).toEqual(statements)
+    expect(transaction).not.toHaveBeenCalled()
+  })
+
+  it('records the journal only after the explicit transaction resolves', async () => {
+    const events: string[] = []
+    const transaction = vi.fn(async (build: (tx: { query(text: string): unknown }) => unknown[]) => {
+      const descriptors = build({ query: (text) => ({ text }) })
+      expect(descriptors).toEqual([{ text: 'select first;' }, { text: 'select second;' }])
+      events.push('transaction')
+      return []
+    })
+
+    await applyHarnessMigrationFile(
+      { query: vi.fn(), transaction } as unknown as Sql,
+      'BEGIN;--> statement-breakpoint\nselect first;--> statement-breakpoint\nselect second;--> statement-breakpoint\nCOMMIT;',
+      async () => { events.push('journal') },
+    )
+
+    expect(events).toEqual(['transaction', 'journal'])
+  })
+
+  it('preserves a transaction failure and does not record or start a later migration', async () => {
+    const primary = new Error('transaction failed')
+    const recordJournal = vi.fn(async () => undefined)
+    const later = vi.fn(async () => undefined)
+    const sql = {
+      query: vi.fn(),
+      transaction: vi.fn(async (build: (tx: { query(text: string): unknown }) => unknown[]) => {
+        build({ query: (text) => ({ text }) })
+        throw primary
+      }),
+    } as unknown as Sql
+
+    const run = async (): Promise<void> => {
+      await applyHarnessMigrationFile(
+        sql,
+        'BEGIN;--> statement-breakpoint\nselect first;--> statement-breakpoint\nselect second;--> statement-breakpoint\nCOMMIT;',
+        recordJournal,
+      )
+      await later()
+    }
+
+    await expect(run()).rejects.toBe(primary)
+    expect(recordJournal).not.toHaveBeenCalled()
+    expect(later).not.toHaveBeenCalled()
+  })
+})
 
 describe('transactional suite resource', () => {
   it('migrates once, seeds every test, rolls back, observes absence, and strictly deletes', async () => {
