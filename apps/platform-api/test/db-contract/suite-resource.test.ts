@@ -310,6 +310,20 @@ describe('transactional suite resource', () => {
     expect(JSON.stringify(diagnostic.mock.calls)).not.toMatch(/secret-host|postgres:/)
   })
 
+  it('closes the pool and returns the stable session error when diagnostic logging fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => { throw new Error('logger unavailable') })
+    const end = vi.fn(async () => undefined)
+    const pool = {
+      connect: vi.fn(async () => { throw new Error('postgres://connect-secret') }),
+      end,
+    }
+
+    const failure = await connectPinnedForTest('postgres://uri-secret', () => pool).catch((error: unknown) => error)
+
+    expect(failure).toEqual(expect.objectContaining({ code: 'DB_CONTRACT_SESSION_CONNECT_FAILED' }))
+    expect(end).toHaveBeenCalledOnce()
+  })
+
   it('aggregates a connection failure with an unproven pool close without leaking details', async () => {
     const pool = {
       connect: vi.fn(async () => { throw new Error('postgres://connect-secret') }),
@@ -340,6 +354,18 @@ describe('transactional suite resource', () => {
 })
 
 describe('secret-safe transport diagnostics', () => {
+  it('preserves the preparation error when diagnostic logging fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => { throw new Error('logger unavailable') })
+    const primary = new Error('postgres://preparation-secret')
+
+    const failure = await prepareHarnessDatabase('postgres://secret', {} as never, {
+      provisionRoles: async () => { throw primary },
+      applyMigrations: async () => undefined,
+    }).catch((error: unknown) => error)
+
+    expect(failure).toBe(primary)
+  })
+
   it('reports a dedicated WebSocket preparation failure and preserves its identity', async () => {
     const diagnostic = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     class TestErrorEvent extends Event {

@@ -41,35 +41,55 @@ const eventErrorValue = (value: object): unknown => {
   }
 }
 
-/** Emit only allowlisted transport evidence; never inspect or serialize messages. */
-export function reportTransportFailure(
-  phase: TransportDiagnosticPhase,
-  transport: TransportDiagnosticKind,
-  error: unknown,
-): void {
-  let code: string | 'unknown' = 'unknown'
+const isInspectable = (value: unknown): value is object => (
+  (typeof value === 'object' && value !== null) || typeof value === 'function'
+)
+
+const safeCodeFrom = (value: object): string | undefined => {
+  for (const key of ['code', 'errno']) {
+    const candidate = ownValue(value, key)
+    if (typeof candidate === 'string' && SAFE_CODES.has(candidate)) return candidate
+  }
+  return undefined
+}
+
+const safeStatusFrom = (value: object): number | undefined => {
+  for (const key of ['status', 'statusCode']) {
+    const candidate = ownValue(value, key)
+    if (Number.isInteger(candidate) && Number(candidate) >= 100 && Number(candidate) <= 599) return Number(candidate)
+  }
+  return undefined
+}
+
+const transportEvidence = (error: unknown): { code: string; status: number | 'unknown' } => {
+  let code = 'unknown'
   let status: number | 'unknown' = 'unknown'
   const pending: unknown[] = [error]
   const visited = new Set<object>()
 
   while (pending.length > 0 && visited.size < 8) {
     const current = pending.shift()
-    if ((typeof current !== 'object' && typeof current !== 'function') || current === null) continue
-    if (visited.has(current)) continue
+    if (!isInspectable(current) || visited.has(current)) continue
     visited.add(current)
 
-    for (const key of ['code', 'errno']) {
-      const candidate = ownValue(current, key)
-      if (code === 'unknown' && typeof candidate === 'string' && SAFE_CODES.has(candidate)) code = candidate
-    }
-    for (const key of ['status', 'statusCode']) {
-      const candidate = ownValue(current, key)
-      if (status === 'unknown' && Number.isInteger(candidate) && Number(candidate) >= 100 && Number(candidate) <= 599) {
-        status = Number(candidate)
-      }
-    }
+    code = code === 'unknown' ? (safeCodeFrom(current) ?? code) : code
+    status = status === 'unknown' ? (safeStatusFrom(current) ?? status) : status
     pending.push(ownValue(current, 'cause'), ownValue(current, 'sourceError'), eventErrorValue(current))
   }
 
-  console.error('DB_CONTRACT_TRANSPORT_DIAGNOSTIC', { phase, transport, code, status })
+  return { code, status }
+}
+
+/** Emit only allowlisted transport evidence; never inspect or serialize messages. */
+export function reportTransportFailure(
+  phase: TransportDiagnosticPhase,
+  transport: TransportDiagnosticKind,
+  error: unknown,
+): void {
+  const { code, status } = transportEvidence(error)
+  try {
+    console.error('DB_CONTRACT_TRANSPORT_DIAGNOSTIC', { phase, transport, code, status })
+  } catch {
+    return
+  }
 }
