@@ -44,6 +44,7 @@ import { createDb, createSql, migrationStatements, type Database, type Sql } fro
 import { createBranchLeaseCoordinator, type BranchLease } from './branch-lease'
 import { createEphemeralBranch, deleteEphemeralBranchStrict, NeonBranchError, type EphemeralBranch } from './neon-branch'
 import { workerRuntimeConfig } from './runtime-config'
+import { measurePhase, telemetryPathFromEnv, type TelemetryPhase } from './telemetry'
 export { assertConformanceMarker } from './conformance-marker'
 
 /** The only migration-history variants accepted by the authority contract. */
@@ -1659,20 +1660,48 @@ export async function seedBaseline(sql: Sql): Promise<Seed> {
   return { tenantId, teamId, userId, runId, statusIds, defaultStatusId: statusIds.Backlog }
 }
 
+export interface DedicatedDbDependencies {
+  acquireLease(): Promise<BranchLease>
+  createBranch(): Promise<EphemeralBranch>
+  createSql(connectionUri: string): Sql
+  createDb(connectionUri: string): Database
+  prepare(connectionUri: string, sql: Sql): Promise<void>
+  seed(sql: Sql): Promise<Seed>
+  deleteBranch(branchId: string): Promise<void>
+}
+
+const defaultDedicatedDbDependencies: DedicatedDbDependencies = {
+  acquireLease: async () => {
+    const runtime = workerRuntimeConfig()
+    return createBranchLeaseCoordinator({
+      runToken: runtime.runToken,
+      rootDir: runtime.leaseRoot,
+    }).acquire('dedicated')
+  },
+  createBranch: createEphemeralBranch,
+  createSql,
+  createDb,
+  prepare: prepareHarnessDatabase,
+  seed: seedBaseline,
+  deleteBranch: deleteEphemeralBranchStrict,
+}
+
 /**
  * Provision an ephemeral Neon branch, migrate + seed it, run `body`, and ALWAYS
  * delete the branch — even if the body throws. The branch is fully isolated, so
  * tests never contend for shared rows and teardown is a single API call.
  */
-export async function withDedicatedDbBranch<T>(body: (ctx: DbBranchContext) => Promise<T>): Promise<T> {
-  const runtime = workerRuntimeConfig()
-  const lease = await createBranchLeaseCoordinator({
-    runToken: runtime.runToken,
-    rootDir: runtime.leaseRoot,
-  }).acquire('dedicated')
+export async function withDedicatedDbBranch<T>(
+  body: (ctx: DbBranchContext) => Promise<T>,
+  dependencies: DedicatedDbDependencies = defaultDedicatedDbDependencies,
+): Promise<T> {
+  const telemetryPath = telemetryPathFromEnv()
+  const measured = <V>(phase: TelemetryPhase, operation: () => Promise<V>): Promise<V> =>
+    measurePhase(telemetryPath, phase, operation)
+  const lease = await dependencies.acquireLease()
   let created: EphemeralBranch
   try {
-    created = await createEphemeralBranch()
+    created = await measured('create', dependencies.createBranch)
   } catch (error) {
     await handleDedicatedCreateFailure(error, lease)
   }
@@ -1681,16 +1710,22 @@ export async function withDedicatedDbBranch<T>(body: (ctx: DbBranchContext) => P
   let primary: unknown
   let hasPrimary = false
   try {
-    const sql = createSql(connectionUri)
-    const db = createDb(connectionUri)
-    await prepareHarnessDatabase(connectionUri, sql)
-    const seed = await seedBaseline(sql)
+    const sql = dependencies.createSql(connectionUri)
+    const db = dependencies.createDb(connectionUri)
+    await measured('prepare', () => dependencies.prepare(connectionUri, sql))
+    const seed = await dependencies.seed(sql)
     value = await body({ db, sql, seed, branchId })
   } catch (error) {
     primary = error
     hasPrimary = true
   }
-  await finishDedicatedBranchLifecycle(branchId, lease, primary, hasPrimary)
+  await finishDedicatedBranchLifecycle(
+    branchId,
+    lease,
+    primary,
+    hasPrimary,
+    (id) => measured('delete', () => dependencies.deleteBranch(id)),
+  )
   return value as T
 }
 

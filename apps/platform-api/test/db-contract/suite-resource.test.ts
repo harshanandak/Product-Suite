@@ -1,3 +1,4 @@
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -9,7 +10,13 @@ import {
   SuiteResourceError,
   type TransactionalDbDependencies,
 } from './suite-resource'
-import { dedicatedCleanupFailure, finishDedicatedBranchLifecycle, handleDedicatedCreateFailure } from './harness'
+import {
+  dedicatedCleanupFailure,
+  finishDedicatedBranchLifecycle,
+  handleDedicatedCreateFailure,
+  withDedicatedDbBranch,
+  type DedicatedDbDependencies,
+} from './harness'
 import { NeonBranchError } from './neon-branch'
 import {
   assertCurrentRunBranchesAbsent,
@@ -20,15 +27,18 @@ import {
   suiteBranchPrefix,
 } from './neon-branch'
 import { runRequiredSetup } from './reap-setup'
+import { initializeTelemetry, readTelemetry } from './telemetry'
 
 type Hook = () => Promise<void>
 
 const originalEnv = { ...process.env }
+const temporaryRoots: string[] = []
 
 afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   process.env = { ...originalEnv }
+  for (const root of temporaryRoots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
 function fixture() {
@@ -60,6 +70,43 @@ function fixture() {
     })),
   }
   return { deps, events, client, releaseLease, get setup() { return setup }, get teardown() { return teardown } }
+}
+
+function dedicatedFixture() {
+  const root = mkdtempSync(resolve(tmpdir(), 'db-contract-dedicated-'))
+  temporaryRoots.push(root)
+  const telemetryPath = resolve(root, 'telemetry.json')
+  initializeTelemetry(telemetryPath, { exactHead: 'd'.repeat(40), concurrency: 2 })
+  process.env.DB_CONTRACT_TELEMETRY_PATH = telemetryPath
+  process.env.DB_CONTRACT_LEASE_ROOT = resolve(root, 'leases')
+  process.env.DB_CONTRACT_RUN_TOKEN = 'unit-dedicated-run'
+  vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('DB_CONTRACT_UNIT_LIVE_CALL_BLOCKED') }))
+
+  const events: string[] = []
+  const release = vi.fn(async () => { events.push('release') })
+  const branch = {
+    branchId: 'secret-branch-id',
+    connectionUri: 'postgres://unit:credential@secret.example/unit',
+  }
+  const seed = { tenantId: 'secret-tenant-id' } as never
+  const dependencies: DedicatedDbDependencies = {
+    acquireLease: vi.fn(async () => {
+      events.push('lease')
+      return {
+        id: 'secret-lease-id',
+        ownerId: 'secret-owner-id',
+        kind: 'dedicated' as const,
+        release,
+      }
+    }),
+    createBranch: vi.fn(async () => { events.push('create'); return branch }),
+    createSql: vi.fn(() => ({}) as never),
+    createDb: vi.fn(() => ({}) as never),
+    prepare: vi.fn(async () => { events.push('prepare') }),
+    seed: vi.fn(async () => { events.push('seed'); return seed }),
+    deleteBranch: vi.fn(async () => { events.push('delete') }),
+  }
+  return { branch, dependencies, events, release, telemetryPath }
 }
 
 describe('transactional suite resource', () => {
@@ -280,6 +327,63 @@ describe('transactional suite resource', () => {
       new SuiteResourceError('DB_CONTRACT_SUITE_NOT_READY'),
     )
   })
+})
+
+describe('dedicated branch lifecycle telemetry', () => {
+  it('records one create, prepare, and delete phase without serializing lifecycle secrets', async () => {
+    const f = dedicatedFixture()
+
+    const value = await withDedicatedDbBranch(async ({ branchId }) => {
+      f.events.push('body')
+      expect(branchId).toBe(f.branch.branchId)
+      return 'ok'
+    }, f.dependencies)
+
+    expect(value).toBe('ok')
+    expect(f.events).toEqual(['lease', 'create', 'prepare', 'seed', 'body', 'delete', 'release'])
+    expect(f.dependencies.createBranch).toHaveBeenCalledOnce()
+    expect(f.dependencies.prepare).toHaveBeenCalledOnce()
+    expect(f.dependencies.deleteBranch).toHaveBeenCalledOnce()
+    expect(f.release).toHaveBeenCalledOnce()
+    expect(readTelemetry(f.telemetryPath).phases).toMatchObject({
+      create: { count: 1, durationMs: expect.any(Number) },
+      prepare: { count: 1, durationMs: expect.any(Number) },
+      delete: { count: 1, durationMs: expect.any(Number) },
+    })
+    expect(Object.keys(readTelemetry(f.telemetryPath).phases).sort()).toEqual(['create', 'delete', 'prepare'])
+    expect(readFileSync(f.telemetryPath, 'utf8')).not.toMatch(
+      /secret-branch-id|secret-lease-id|secret-owner-id|secret-tenant-id|secret\.example|credential/,
+    )
+  })
+
+  it.each(['prepare', 'body'] as const)(
+    'preserves the %s failure while measuring strict deletion before lease release',
+    async (stage) => {
+      const f = dedicatedFixture()
+      const primary = new Error(`postgres://primary-${stage}-detail@secret.example`)
+      if (stage === 'prepare') {
+        f.dependencies.prepare = vi.fn(async () => { f.events.push('prepare'); throw primary })
+      }
+
+      const failure = await withDedicatedDbBranch(async () => {
+        f.events.push('body')
+        if (stage === 'body') throw primary
+      }, f.dependencies).catch((error: unknown) => error)
+
+      expect(failure).toBe(primary)
+      expect(f.dependencies.deleteBranch).toHaveBeenCalledWith(f.branch.branchId)
+      expect(f.release).toHaveBeenCalledOnce()
+      expect(f.events.indexOf('release')).toBeGreaterThan(f.events.indexOf('delete'))
+      expect(readTelemetry(f.telemetryPath).phases).toMatchObject({
+        create: { count: 1 },
+        prepare: { count: 1 },
+        delete: { count: 1 },
+      })
+      expect(readFileSync(f.telemetryPath, 'utf8')).not.toMatch(
+        /secret-branch-id|secret-lease-id|secret-owner-id|secret-tenant-id|secret\.example|primary-.*-detail|credential/,
+      )
+    },
+  )
 })
 
 describe('required branch ownership and cleanup', () => {
