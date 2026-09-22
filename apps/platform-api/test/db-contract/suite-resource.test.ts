@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -384,6 +384,119 @@ describe('dedicated branch lifecycle telemetry', () => {
       )
     },
   )
+
+  it('strictly deletes a created branch when recording its create timing fails', async () => {
+    const f = dedicatedFixture()
+    f.dependencies.createBranch = vi.fn(async () => {
+      f.events.push('create')
+      writeFileSync(f.telemetryPath, 'invalid telemetry')
+      return f.branch
+    })
+    f.dependencies.deleteBranch = vi.fn(async () => {
+      f.events.push('delete')
+      initializeTelemetry(f.telemetryPath, { exactHead: 'd'.repeat(40), concurrency: 2 })
+    })
+    const body = vi.fn(async () => undefined)
+
+    const failure = await withDedicatedDbBranch(body, f.dependencies).catch((error: unknown) => error)
+
+    expect(failure).toMatchObject({ name: 'TelemetryError', message: 'DB_CONTRACT_TELEMETRY_INVALID' })
+    expect(body).not.toHaveBeenCalled()
+    expect(f.dependencies.deleteBranch).toHaveBeenCalledWith(f.branch.branchId)
+    expect(f.events).toEqual(['lease', 'create', 'delete', 'release'])
+    expect(f.release).toHaveBeenCalledOnce()
+  })
+
+  it('aggregates a create-timing failure with strict deletion failure and retains the lease', async () => {
+    const f = dedicatedFixture()
+    const cleanup = new NeonBranchError('DB_CONTRACT_BRANCH_DELETION_UNPROVEN')
+    f.dependencies.createBranch = vi.fn(async () => {
+      f.events.push('create')
+      writeFileSync(f.telemetryPath, 'invalid telemetry')
+      return f.branch
+    })
+    f.dependencies.deleteBranch = vi.fn(async () => {
+      f.events.push('delete')
+      initializeTelemetry(f.telemetryPath, { exactHead: 'd'.repeat(40), concurrency: 2 })
+      throw cleanup
+    })
+
+    const failure = await withDedicatedDbBranch(async () => undefined, f.dependencies)
+      .catch((error: unknown) => error) as AggregateError
+
+    expect(failure).toBeInstanceOf(AggregateError)
+    expect(failure.errors).toEqual([
+      expect.objectContaining({ name: 'TelemetryError', message: 'DB_CONTRACT_TELEMETRY_INVALID' }),
+      cleanup,
+    ])
+    expect(f.dependencies.deleteBranch).toHaveBeenCalledWith(f.branch.branchId)
+    expect(f.release).not.toHaveBeenCalled()
+  })
+
+  it('preserves an absence-proven create error when recording its timing also fails', async () => {
+    const f = dedicatedFixture()
+    const createFailure = new NeonBranchError('DB_CONTRACT_BRANCH_CREATE_INCOMPLETE', { absenceProven: true })
+    f.dependencies.createBranch = vi.fn(async () => {
+      f.events.push('create')
+      writeFileSync(f.telemetryPath, 'invalid telemetry')
+      throw createFailure
+    })
+
+    const failure = await withDedicatedDbBranch(async () => undefined, f.dependencies)
+      .catch((error: unknown) => error)
+
+    expect(failure).toBe(createFailure)
+    expect(f.dependencies.deleteBranch).not.toHaveBeenCalled()
+    expect(f.release).toHaveBeenCalledOnce()
+    expect(f.events).toEqual(['lease', 'create', 'release'])
+  })
+
+  it.each([false, true])(
+    'releases after proven deletion when recording its timing fails (primary: %s)',
+    async (withPrimary) => {
+      const f = dedicatedFixture()
+      const primary = new Error('primary failure')
+      f.dependencies.deleteBranch = vi.fn(async () => {
+        f.events.push('delete')
+        writeFileSync(f.telemetryPath, 'invalid telemetry')
+      })
+
+      const failure = await withDedicatedDbBranch(async () => {
+        f.events.push('body')
+        if (withPrimary) throw primary
+      }, f.dependencies).catch((error: unknown) => error)
+
+      if (withPrimary) {
+        expect(failure).toBeInstanceOf(AggregateError)
+        expect((failure as AggregateError).errors).toEqual([
+          primary,
+          expect.objectContaining({ name: 'TelemetryError', message: 'DB_CONTRACT_TELEMETRY_INVALID' }),
+        ])
+      } else {
+        expect(failure).toMatchObject({ name: 'TelemetryError', message: 'DB_CONTRACT_TELEMETRY_INVALID' })
+      }
+      expect(f.dependencies.deleteBranch).toHaveBeenCalledWith(f.branch.branchId)
+      expect(f.release).toHaveBeenCalledOnce()
+      expect(f.events.at(-1)).toBe('release')
+    },
+  )
+
+  it('preserves a strict deletion error when recording its timing also fails', async () => {
+    const f = dedicatedFixture()
+    const cleanup = new NeonBranchError('DB_CONTRACT_BRANCH_DELETION_UNPROVEN')
+    f.dependencies.deleteBranch = vi.fn(async () => {
+      f.events.push('delete')
+      writeFileSync(f.telemetryPath, 'invalid telemetry')
+      throw cleanup
+    })
+
+    const failure = await withDedicatedDbBranch(async () => undefined, f.dependencies)
+      .catch((error: unknown) => error)
+
+    expect(failure).toBe(cleanup)
+    expect(f.dependencies.deleteBranch).toHaveBeenCalledWith(f.branch.branchId)
+    expect(f.release).not.toHaveBeenCalled()
+  })
 })
 
 describe('required branch ownership and cleanup', () => {

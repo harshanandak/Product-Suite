@@ -1670,6 +1670,10 @@ export interface DedicatedDbDependencies {
   deleteBranch(branchId: string): Promise<void>
 }
 
+class ProvenDedicatedDeletionTelemetryFailure {
+  constructor(readonly cause: unknown) {}
+}
+
 const defaultDedicatedDbDependencies: DedicatedDbDependencies = {
   acquireLease: async () => {
     const runtime = workerRuntimeConfig()
@@ -1696,16 +1700,50 @@ export async function withDedicatedDbBranch<T>(
   dependencies: DedicatedDbDependencies = defaultDedicatedDbDependencies,
 ): Promise<T> {
   const telemetryPath = telemetryPathFromEnv()
-  const measured = <V>(phase: TelemetryPhase, operation: () => Promise<V>): Promise<V> =>
-    measurePhase(telemetryPath, phase, operation)
-  const lease = await dependencies.acquireLease()
-  let created: EphemeralBranch
-  try {
-    created = await measured('create', dependencies.createBranch)
-  } catch (error) {
-    await handleDedicatedCreateFailure(error, lease)
+  const measured = async <V>(phase: TelemetryPhase, operation: () => Promise<V>): Promise<V> => {
+    let operationFailure: unknown
+    let hasOperationFailure = false
+    try {
+      return await measurePhase(telemetryPath, phase, async () => {
+        try {
+          return await operation()
+        } catch (error) {
+          operationFailure = error
+          hasOperationFailure = true
+          throw error
+        }
+      })
+    } catch (error) {
+      if (hasOperationFailure) throw operationFailure
+      throw error
+    }
   }
-  const { branchId, connectionUri } = created!
+  const deleteMeasured = async (branchId: string): Promise<void> => {
+    let deletionProven = false
+    try {
+      await measured('delete', async () => {
+        await dependencies.deleteBranch(branchId)
+        deletionProven = true
+      })
+    } catch (error) {
+      if (deletionProven) throw new ProvenDedicatedDeletionTelemetryFailure(error)
+      throw error
+    }
+  }
+  const lease = await dependencies.acquireLease()
+  let created: EphemeralBranch | undefined
+  try {
+    created = await measured('create', async () => {
+      const branch = await dependencies.createBranch()
+      created = branch
+      return branch
+    })
+  } catch (error) {
+    if (!created) return handleDedicatedCreateFailure(error, lease)
+    await finishDedicatedBranchLifecycle(created.branchId, lease, error, true, deleteMeasured)
+    throw error
+  }
+  const { branchId, connectionUri } = created
   let value: T | undefined
   let primary: unknown
   let hasPrimary = false
@@ -1724,7 +1762,7 @@ export async function withDedicatedDbBranch<T>(
     lease,
     primary,
     hasPrimary,
-    (id) => measured('delete', () => dependencies.deleteBranch(id)),
+    deleteMeasured,
   )
   return value as T
 }
@@ -1751,10 +1789,17 @@ export async function finishDedicatedBranchLifecycle(
   deleteBranch: (branchId: string) => Promise<void> = deleteEphemeralBranchStrict,
 ): Promise<void> {
   let cleanup: NeonBranchError | NeonConformanceError | undefined
+  let telemetry: unknown
+  let hasTelemetry = false
   try {
     await deleteBranch(branchId)
   } catch (error) {
-    cleanup = dedicatedCleanupFailure(error)
+    if (error instanceof ProvenDedicatedDeletionTelemetryFailure) {
+      telemetry = error.cause
+      hasTelemetry = true
+    } else {
+      cleanup = dedicatedCleanupFailure(error)
+    }
   }
   if (!cleanup) {
     try {
@@ -1763,11 +1808,12 @@ export async function finishDedicatedBranchLifecycle(
       cleanup = new NeonBranchError('DB_CONTRACT_BRANCH_LEASE_RELEASE_UNPROVEN')
     }
   }
-  if (hasPrimary && cleanup) {
-    throw new AggregateError([primary, cleanup], 'DB_CONTRACT_TEST_AND_CLEANUP_FAILED')
-  }
-  if (hasPrimary) throw primary
-  if (cleanup) throw cleanup
+  const failures: unknown[] = []
+  if (hasPrimary) failures.push(primary)
+  if (hasTelemetry) failures.push(telemetry)
+  if (cleanup) failures.push(cleanup)
+  if (failures.length === 1) throw failures[0]
+  if (failures.length > 1) throw new AggregateError(failures, 'DB_CONTRACT_TEST_AND_CLEANUP_FAILED')
 }
 
 /** Preserve the strict control-plane code while discarding unknown cleanup details. */
