@@ -1,4 +1,7 @@
+import diagnosticsChannel from 'node:diagnostics_channel'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer, type Server } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -34,6 +37,16 @@ type Hook = () => Promise<void>
 
 const originalEnv = { ...process.env }
 const temporaryRoots: string[] = []
+const transportChannelNames = [
+  'undici:request:create',
+  'undici:request:headers',
+  'undici:request:error',
+  'undici:client:connectError',
+] as const
+const diagnosticRuntime = {
+  node: process.version,
+  undici: process.versions.undici ?? 'unknown',
+}
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -108,6 +121,47 @@ function dedicatedFixture() {
     deleteBranch: vi.fn(async () => { events.push('delete') }),
   }
   return { branch, dependencies, events, release, telemetryPath }
+}
+
+function transportSubscriberState(): boolean[] {
+  return transportChannelNames.map((name) => diagnosticsChannel.channel(name).hasSubscribers)
+}
+
+async function listen(server: Server): Promise<number> {
+  await new Promise<void>((resolveListen, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', resolveListen)
+  })
+  return (server.address() as AddressInfo).port
+}
+
+async function closeServer(server: Server): Promise<void> {
+  await new Promise<void>((resolveClose, reject) => {
+    server.close((error) => error ? reject(error) : resolveClose())
+  })
+}
+
+async function rejectedHandshakeServer(status: 429 | 503): Promise<{ server: Server; port: number }> {
+  const server = createServer()
+  server.on('upgrade', (_request, socket) => {
+    socket.end(`HTTP/1.1 ${status} Rejected\r\nContent-Length: 0\r\nConnection: close\r\n\r\n`)
+  })
+  return { server, port: await listen(server) }
+}
+
+async function webSocketFailure(port: number): Promise<void> {
+  await new Promise<void>((resolveFailure, reject) => {
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/probe`)
+    const timer = setTimeout(() => reject(new Error('LOOPBACK_WEBSOCKET_TIMEOUT')), 2_000)
+    const finish = (): void => {
+      clearTimeout(timer)
+      try { socket.close() } catch {}
+      resolveFailure()
+    }
+    socket.addEventListener('error', finish, { once: true })
+    socket.addEventListener('close', finish, { once: true })
+    socket.addEventListener('open', () => reject(new Error('LOOPBACK_WEBSOCKET_UNEXPECTED_OPEN')), { once: true })
+  })
 }
 
 describe('transactional suite resource', () => {
@@ -306,11 +360,13 @@ describe('transactional suite resource', () => {
       transport: 'websocket',
       code: 'ECONNRESET',
       status: 'unknown',
+      runtime: diagnosticRuntime,
     })
     expect(JSON.stringify(diagnostic.mock.calls)).not.toMatch(/secret-host|postgres:/)
   })
 
   it('closes the pool and returns the stable session error when diagnostic logging fails', async () => {
+    const subscribers = transportSubscriberState()
     vi.spyOn(console, 'error').mockImplementation(() => { throw new Error('logger unavailable') })
     const end = vi.fn(async () => undefined)
     const pool = {
@@ -321,6 +377,164 @@ describe('transactional suite resource', () => {
     const failure = await connectPinnedForTest('postgres://uri-secret', () => pool).catch((error: unknown) => error)
 
     expect(failure).toEqual(expect.objectContaining({ code: 'DB_CONTRACT_SESSION_CONNECT_FAILED' }))
+    expect(end).toHaveBeenCalledOnce()
+    expect(transportSubscriberState()).toEqual(subscribers)
+  })
+
+  it.each([429, 503] as const)(
+    'uses passive Undici HTTP %s evidence when the surfaced session error has no status',
+    async (status) => {
+      const subscribers = transportSubscriberState()
+      const diagnostic = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      const { server, port } = await rejectedHandshakeServer(status)
+      const end = vi.fn(async () => undefined)
+      try {
+        const failure = await connectPinnedForTest('postgres://secret', () => ({
+          connect: async () => {
+            await webSocketFailure(port)
+            throw new Error('generic session failure')
+          },
+          end,
+        })).catch((error: unknown) => error)
+
+        expect(failure).toEqual(expect.objectContaining({ code: 'DB_CONTRACT_SESSION_CONNECT_FAILED' }))
+        expect(diagnostic).toHaveBeenCalledWith('DB_CONTRACT_TRANSPORT_DIAGNOSTIC', {
+          phase: 'session-connect',
+          transport: 'websocket',
+          code: 'unknown',
+          status,
+          runtime: diagnosticRuntime,
+        })
+        expect(end).toHaveBeenCalledOnce()
+      } finally {
+        await closeServer(server)
+      }
+      expect(transportSubscriberState()).toEqual(subscribers)
+    },
+  )
+
+  it('uses passive Undici connection evidence when the surfaced session error has no code', async () => {
+    const subscribers = transportSubscriberState()
+    const diagnostic = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const server = createServer()
+    const port = await listen(server)
+    await closeServer(server)
+    const end = vi.fn(async () => undefined)
+
+    const failure = await connectPinnedForTest('postgres://secret', () => ({
+      connect: async () => {
+        await webSocketFailure(port)
+        throw new Error('generic session failure')
+      },
+      end,
+    })).catch((error: unknown) => error)
+
+    expect(failure).toEqual(expect.objectContaining({ code: 'DB_CONTRACT_SESSION_CONNECT_FAILED' }))
+    expect(diagnostic).toHaveBeenCalledWith('DB_CONTRACT_TRANSPORT_DIAGNOSTIC', {
+      phase: 'session-connect',
+      transport: 'websocket',
+      code: 'ECONNREFUSED',
+      status: 'unknown',
+      runtime: diagnosticRuntime,
+    })
+    expect(end).toHaveBeenCalledOnce()
+    expect(transportSubscriberState()).toEqual(subscribers)
+  })
+
+  it('keeps surfaced evidence ahead of passive Undici evidence', async () => {
+    const diagnostic = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const { server, port } = await rejectedHandshakeServer(503)
+    try {
+      await connectPinnedForTest('postgres://secret', () => ({
+        connect: async () => {
+          await webSocketFailure(port)
+          throw Object.assign(new Error('primary session failure'), { code: 'ETIMEDOUT', status: 418 })
+        },
+        end: async () => undefined,
+      })).catch(() => undefined)
+    } finally {
+      await closeServer(server)
+    }
+
+    expect(diagnostic).toHaveBeenCalledWith('DB_CONTRACT_TRANSPORT_DIAGNOSTIC', {
+      phase: 'session-connect',
+      transport: 'websocket',
+      code: 'ETIMEDOUT',
+      status: 418,
+      runtime: diagnosticRuntime,
+    })
+  })
+
+  it('ignores an overlapping unrelated Undici request', async () => {
+    const diagnostic = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const unrelated = await rejectedHandshakeServer(503)
+    const scoped = await rejectedHandshakeServer(429)
+    let markStarted: () => void = () => undefined
+    let releaseScoped: () => void = () => undefined
+    const started = new Promise<void>((resolveStarted) => { markStarted = resolveStarted })
+    const gate = new Promise<void>((resolveGate) => { releaseScoped = resolveGate })
+    try {
+      const attempt = connectPinnedForTest('postgres://secret', () => ({
+        connect: async () => {
+          markStarted()
+          await gate
+          await webSocketFailure(scoped.port)
+          throw new Error('generic session failure')
+        },
+        end: async () => undefined,
+      })).catch((error: unknown) => error)
+
+      await started
+      await webSocketFailure(unrelated.port)
+      releaseScoped()
+      await expect(attempt).resolves.toEqual(expect.objectContaining({ code: 'DB_CONTRACT_SESSION_CONNECT_FAILED' }))
+    } finally {
+      releaseScoped()
+      await Promise.all([closeServer(unrelated.server), closeServer(scoped.server)])
+    }
+
+    expect(diagnostic).toHaveBeenCalledWith('DB_CONTRACT_TRANSPORT_DIAGNOSTIC', {
+      phase: 'session-connect',
+      transport: 'websocket',
+      code: 'unknown',
+      status: 429,
+      runtime: diagnosticRuntime,
+    })
+  })
+
+  it('reports unknown passive evidence and releases listeners when no channel fires', async () => {
+    const subscribers = transportSubscriberState()
+    const diagnostic = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const end = vi.fn(async () => undefined)
+
+    await connectPinnedForTest('postgres://secret', () => ({
+      connect: async () => { throw new Error('unsupported transport failure') },
+      end,
+    })).catch(() => undefined)
+
+    expect(diagnostic).toHaveBeenCalledWith('DB_CONTRACT_TRANSPORT_DIAGNOSTIC', {
+      phase: 'session-connect',
+      transport: 'websocket',
+      code: 'unknown',
+      status: 'unknown',
+      runtime: diagnosticRuntime,
+    })
+    expect(end).toHaveBeenCalledOnce()
+    expect(transportSubscriberState()).toEqual(subscribers)
+  })
+
+  it('releases passive listeners after a successful session connection', async () => {
+    const subscribers = transportSubscriberState()
+    const end = vi.fn(async () => undefined)
+    const release = vi.fn()
+    const client = await connectPinnedForTest('postgres://secret', () => ({
+      connect: async () => ({ query: vi.fn(), release }),
+      end,
+    }))
+
+    expect(transportSubscriberState()).toEqual(subscribers)
+    await client.release()
+    expect(release).toHaveBeenCalledOnce()
     expect(end).toHaveBeenCalledOnce()
   })
 
@@ -393,6 +607,7 @@ describe('secret-safe transport diagnostics', () => {
       transport: 'websocket',
       code: 'ETIMEDOUT',
       status: 'unknown',
+      runtime: diagnosticRuntime,
     })
     expect(JSON.stringify(diagnostic.mock.calls)).not.toMatch(/secret-host|private response|postgres:|wss:/)
   })
@@ -420,6 +635,7 @@ describe('secret-safe transport diagnostics', () => {
       transport: 'http',
       code: 'UND_ERR_CONNECT_TIMEOUT',
       status: 503,
+      runtime: diagnosticRuntime,
     })
     expect(JSON.stringify(diagnostic.mock.calls)).not.toMatch(/secret-host|credential|postgres:|https:/)
   })
@@ -448,6 +664,7 @@ describe('secret-safe transport diagnostics', () => {
       transport: 'websocket',
       code: 'unknown',
       status: 'unknown',
+      runtime: diagnosticRuntime,
     })
     expect(JSON.stringify(diagnostic.mock.calls)).not.toMatch(/credential|SECRET_TOKEN|postgres:/)
   })
