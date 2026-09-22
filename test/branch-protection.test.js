@@ -14,7 +14,7 @@ import path from "node:path";
 const SCRIPT = path.join(import.meta.dir, "..", "scripts", "branch-protection.js");
 const LEFTHOOK_CONFIG = path.join(import.meta.dir, "..", "lefthook.yml");
 const require = createRequire(import.meta.url);
-const { main } = require(SCRIPT);
+const { isSafeGitRefComponent, main, parsePrePushInput } = require(SCRIPT);
 
 function exitCodeFor(branch, prePushInput) {
   const error = spyOn(console, "error").mockImplementation(() => {});
@@ -42,23 +42,17 @@ describe("scripts/branch-protection.js shim", () => {
   test("uses Git's branch-name rules in the forge push fallback", () => {
     const longBranch = `${"segment/".repeat(40)}tip`;
     for (const branch of ["feat@api", "release+candidate", longBranch]) {
-      expect(() => execFileSync(process.execPath, [SCRIPT], {
-        env: { ...process.env, LEFTHOOK_GIT_BRANCH: branch },
-        stdio: "pipe",
-      })).not.toThrow();
+      expect(isSafeGitRefComponent(branch)).toBe(true);
     }
-    expect(() => execFileSync(process.execPath, [SCRIPT], {
-      env: { ...process.env, LEFTHOOK_GIT_BRANCH: "feat..invalid" },
-      stdio: "pipe",
-    })).toThrow();
+    expect(isSafeGitRefComponent("feat..invalid")).toBe(false);
   });
 
-  test("runs before validation in the direct git pre-push hook", () => {
+  test("is invoked by the gate as the hook's only stdin consumer", () => {
     const config = readFileSync(LEFTHOOK_CONFIG, "utf8");
-    expect(config).toContain("run: node scripts/branch-protection.js");
-    expect(config).toMatch(/run: node scripts\/branch-protection\.js\r?\n\s+use_stdin: true/);
+    expect(config).not.toContain("run: node scripts/branch-protection.js");
+    expect(config).toMatch(/run: node scripts\/prepush-gate\.mjs --pre-push\r?\n\s+use_stdin: true/);
     expect(config).not.toContain("run: bun run lint");
-    expect(config.indexOf("branch-protection.js")).toBeLessThan(config.indexOf("prepush-gate.mjs"));
+    expect(config.match(/use_stdin: true/g)).toHaveLength(1);
   });
 
   test("protects remote destinations instead of the checked-out branch", () => {
@@ -74,5 +68,23 @@ describe("scripts/branch-protection.js shim", () => {
       input: protectedPush,
       stdio: ["pipe", "pipe", "pipe"],
     })).toThrow();
+  });
+
+  test("exports the validated records reused by the pre-push gate", () => {
+    const localOid = "1".repeat(40);
+    const remoteOid = "2".repeat(40);
+    expect(parsePrePushInput(`refs/heads/feature ${localOid} refs/heads/feature ${remoteOid}\n`)).toEqual([{
+      localRef: "refs/heads/feature",
+      localOid,
+      remoteRef: "refs/heads/feature",
+      remoteOid,
+    }]);
+    expect(parsePrePushInput("")).toEqual([]);
+    expect(() => parsePrePushInput("malformed\n")).toThrow("malformed pre-push input");
+    expect(() => parsePrePushInput(`refs/heads/feature ${"1".repeat(64)} refs/heads/feature ${remoteOid}\n`))
+      .toThrow("malformed pre-push input");
+    expect(parsePrePushInput(
+      `refs/heads/feature ${"1".repeat(64)} refs/heads/feature ${"2".repeat(64)}\n`,
+    )).toHaveLength(1);
   });
 });

@@ -113,6 +113,12 @@ describe("prepush-gate classification", () => {
     expect(classify(["bun.lock", "apps/platform-web/package.json"])).toContain("full-suite");
   });
 
+  test("a committed workspace manifest forces the full suite", () => {
+    for (const file of ["apps/platform-web/package.json", "packages/db/package.json"]) {
+      expect(classify([file])).toContain("full-suite");
+    }
+  });
+
   test("a single-app change is scoped to that app's suite only", () => {
     const out = classify(["apps/platform-web/src/x.tsx"]);
     expect(out).toContain("scoped");

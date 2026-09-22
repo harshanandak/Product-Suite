@@ -69,24 +69,31 @@ function execGit(args) {
 const PROTECTED_BRANCHES = new Set(['main', 'master']);
 const PROTECTED_REFS = new Set([...PROTECTED_BRANCHES].map(branch => `refs/heads/${branch}`));
 const OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
+const VALID_REFS = new Map([...PROTECTED_REFS].map((ref) => [ref, true]));
 
 function isValidGitRef(ref) {
+  if (VALID_REFS.has(ref)) return VALID_REFS.get(ref);
   try {
     execGit(['check-ref-format', ref]);
+    VALID_REFS.set(ref, true);
     return true;
   } catch {
     return false;
   }
 }
 
-function prePushDestinations(input) {
+function parsePrePushInput(input) {
+  if (!input.trim()) return [];
   return input.trim().split(/\r?\n/).map((line) => {
     const fields = line.trim().split(/\s+/);
+    const localRefValid = fields[0] === 'HEAD' || fields[0] === '(delete)' || isValidGitRef(fields[0]);
     if (fields.length !== 4 || !OBJECT_ID.test(fields[1])
-      || !OBJECT_ID.test(fields[3]) || !isValidGitRef(fields[2])) {
+      || !OBJECT_ID.test(fields[3]) || fields[1].length !== fields[3].length
+      || !localRefValid || !isValidGitRef(fields[2])) {
       throw new Error('malformed pre-push input');
     }
-    return fields[2];
+    const [localRef, localOid, remoteRef, remoteOid] = fields;
+    return { localRef, localOid, remoteRef, remoteOid };
   });
 }
 
@@ -150,7 +157,7 @@ function main({ argv = process.argv, currentBranch: branchOverride, prePushInput
   if (typeof prePushInput === 'string' && prePushInput.trim()) {
     let destinations;
     try {
-      destinations = prePushDestinations(prePushInput);
+      destinations = parsePrePushInput(prePushInput).map(({ remoteRef }) => remoteRef);
     } catch (error) {
       console.error(`${RED}✗ Error: ${error.message}${RESET}`);
       return 1;
@@ -222,4 +229,4 @@ if (require.main === module) {
   process.exitCode = main({ prePushInput });
 }
 
-module.exports = { main };
+module.exports = { isSafeGitRefComponent, main, parsePrePushInput };

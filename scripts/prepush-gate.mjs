@@ -20,12 +20,14 @@
 //     net (every test-only package/service) —
 //     STILL runs its full suite incl. test, so fast mode can
 //     never green-light a broken API/DB/logic change locally. The always-on cheap
-//     checks and the docs-only fast path are unchanged, and branch protection (a
-//     separate push-hook step) still applies. Unset (default) = full verify incl.
+//     checks and the docs-only fast path are unchanged, and this gate runs branch
+//     protection first. Unset (default) = full verify incl.
 //     tests for every workspace, exactly as before.
 //   PREPUSH_GATE_DRY=1        → print the classification, run nothing (tests).
 //   PREPUSH_GATE_TEST_FILES   → comma-separated changed-file override (tests).
 import { execFileSync, spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import branchProtection from "./branch-protection.js";
 import {
   affectedDirsFor,
   classify,
@@ -36,25 +38,66 @@ import {
   WORKSPACE_DIRS,
 } from "./prepush-classify.mjs";
 
-function git(args) {
+function git(args, { trim = true } = {}) {
   // PATH lookup is intended: this is a local git hook running in a dev shell.
-  return execFileSync("git", args, { encoding: "utf8" }).trim(); // NOSONAR(S4036)
+  const output = execFileSync("git", args, { encoding: "utf8" }); // NOSONAR(S4036)
+  return trim ? output.trim() : output;
+}
+
+const isZeroOid = (oid) => /^0+$/.test(oid);
+
+function hasDirtyWorkspaceManifest() {
+  const manifests = new Set(WORKSPACE_DIRS.map((dir) => `${dir}/package.json`));
+  const entries = git(
+    ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
+    { trim: false },
+  ).split("\0");
+  return entries.some((entry) => {
+    const normalized = entry.replaceAll("\\", "/");
+    return manifests.has(normalized) || manifests.has(normalized.slice(3));
+  });
+}
+
+function prePushChangedFiles(records) {
+  if (records.length !== 1) throw new Error("push one checked-out branch at a time");
+  const [update] = records;
+  const branch = git(["symbolic-ref", "--quiet", "--short", "HEAD"]);
+  const head = git(["rev-parse", "HEAD"]);
+  if (update.localRef !== `refs/heads/${branch}` || update.localOid !== head
+    || !update.remoteRef.startsWith("refs/heads/") || isZeroOid(update.localOid)) {
+    throw new Error("pre-push validation only supports the checked-out branch at HEAD");
+  }
+
+  try {
+    if (hasDirtyWorkspaceManifest()) return null;
+    let base = update.remoteOid;
+    if (isZeroOid(base)) {
+      const mergeRef = git(["config", "--get", `branch.${branch}.merge`]);
+      if (!mergeRef.startsWith("refs/heads/") || mergeRef === update.remoteRef) return null;
+      const upstream = git(["rev-parse", "--symbolic-full-name", "@{u}"]);
+      base = git(["merge-base", "--fork-point", upstream, update.localOid]);
+      git(["merge-base", "--is-ancestor", base, update.localOid]);
+    }
+    git(["cat-file", "-e", `${base}^{commit}`]);
+    const out = git(["diff", "--no-renames", "--name-only", `${base}..${update.localOid}`]);
+    return out === "" ? [] : out.split("\n");
+  } catch {
+    return null;
+  }
 }
 
 function changedFiles() {
   if (process.env.PREPUSH_GATE_TEST_FILES !== undefined) {
     return process.env.PREPUSH_GATE_TEST_FILES.split(",").filter(Boolean);
   }
-  // Diff the current branch against its push target. Notes:
+  // Standalone invocation falls back to the current branch's push target. Hook
+  // mode instead classifies the validated update read from pre-push stdin.
+  // Notes:
   //  - Two-dot (`..`) gives the NET delta the push applies to the remote ref, so
   //    it surfaces paths reverted/dropped by a rebase or force-push; three-dot
   //    diffs from the merge-base and would silently hide them (under-scoping).
   //  - `--no-renames` reports a cross-workspace move as delete(src)+add(dst), so
   //    BOTH the losing and the gaining workspace get re-validated.
-  //  - This only observes the CURRENT branch's push target. An explicit multi-ref
-  //    push (`git push --all`, `git push a b`) is not classified per-extra-ref;
-  //    reading git's pre-push stdin to cover that is deliberately avoided, since a
-  //    blocking stdin read in a hook risks hanging every push.
   //  - No upstream yet (first push of a branch) → null → full suite.
   try {
     const upstream = git(["rev-parse", "--abbrev-ref", "@{push}"]);
@@ -101,7 +144,25 @@ function runChecks(checks) {
 // remain local. Default (unset) = full verify.
 const FAST = process.env.PREPUSH_GATE_FAST === "1";
 
-const result = classify(changedFiles());
+let files;
+if (process.argv.includes("--pre-push")) {
+  const input = readFileSync(0, "utf8");
+  if (!input.trim()) {
+    console.error("prepush-gate: missing pre-push input");
+    process.exit(1);
+  }
+  if (branchProtection.main({ argv: [], prePushInput: input }) !== 0) process.exit(1);
+  try {
+    files = prePushChangedFiles(branchProtection.parsePrePushInput(input));
+  } catch (error) {
+    console.error(`prepush-gate: ${error.message}`);
+    process.exit(1);
+  }
+} else {
+  files = changedFiles();
+}
+
+const result = classify(files);
 
 let checks;
 if (result.kind === DOCS) {

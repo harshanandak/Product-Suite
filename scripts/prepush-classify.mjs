@@ -46,6 +46,7 @@ const DOCS_ONLY = [
 // affect any workspace, so narrowing would be unsafe.
 const GLOBAL_FULL = [
   /^package\.json$/, // root manifest: scripts, shared deps, overrides
+  /^(?:apps|packages|services)\/[^/]+\/package\.json$/,
   /^bunfig\.toml$/,
   /^tsconfig[^/]*\.json$/, // root TS config
   /^lefthook\.ya?ml$/,

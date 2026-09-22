@@ -1,8 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
   chmodSync,
+  cpSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -41,6 +43,24 @@ const SPAWN_TIMEOUT_MS = 30_000;
 // leaked into the spawned child, the default-mode assertions below would read
 // fast-mode output and abort the push (issue #118).
 const GATE_ENV_KEYS = ["PREPUSH_GATE_FAST", "PREPUSH_GATE_DRY", "PREPUSH_GATE_TEST_FILES"];
+const GIT_LOCAL_ENV_KEYS = [
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_CONFIG",
+  "GIT_CONFIG_PARAMETERS",
+  "GIT_CONFIG_COUNT",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_IMPLICIT_WORK_TREE",
+  "GIT_GRAFT_FILE",
+  "GIT_INDEX_FILE",
+  "GIT_NO_REPLACE_OBJECTS",
+  "GIT_REPLACE_REF_BASE",
+  "GIT_PREFIX",
+  "GIT_SHALLOW_FILE",
+  "GIT_COMMON_DIR",
+];
+const CHILD_ENV_KEYS = new Set([...GATE_ENV_KEYS, ...GIT_LOCAL_ENV_KEYS]);
 
 // Build the child env explicitly: inherit everything EXCEPT the gate keys, then
 // apply only the overrides this call asks for. A key absent from `overrides` is
@@ -51,7 +71,7 @@ function gateEnv(overrides = {}) {
   const env = {};
   for (const [key, value] of Object.entries(process.env)) {
     if (value === undefined) continue;
-    if (GATE_ENV_KEYS.includes(key.toUpperCase())) continue;
+    if (CHILD_ENV_KEYS.has(key.toUpperCase())) continue;
     env[key] = value;
   }
   for (const [key, value] of Object.entries(overrides)) {
@@ -80,7 +100,7 @@ function classifyFast(files) {
 
 // Execute the real gate against a fake bun binary. This proves ordering and
 // fail-fast behavior without recursively running the repository's full suites.
-function executeGate(files, { fast = false, dry = false, failOn } = {}) {
+function executeGate(files, { fast = false, dry = false, failOn, cwd, input, args = [] } = {}) {
   const sandbox = mkdtempSync(path.join(tmpdir(), "prepush-gate-"));
   const log = path.join(sandbox, "calls.jsonl");
   const posixShim = path.join(sandbox, "bun");
@@ -100,7 +120,7 @@ function executeGate(files, { fast = false, dry = false, failOn } = {}) {
 
   try {
     const env = gateEnv({
-      PREPUSH_GATE_TEST_FILES: files.join(","),
+      PREPUSH_GATE_TEST_FILES: files?.join(","),
       PREPUSH_GATE_DRY: dry ? "1" : undefined,
       PREPUSH_GATE_FAST: fast ? "1" : undefined,
       FAKE_BUN_LOG: log,
@@ -108,7 +128,7 @@ function executeGate(files, { fast = false, dry = false, failOn } = {}) {
     });
     const pathKey = Object.keys(env).find((key) => key.toUpperCase() === "PATH") ?? "PATH";
     env[pathKey] = `${sandbox}${path.delimiter}${env[pathKey] ?? ""}`;
-    const result = spawnSync(process.execPath, [scriptPath], { encoding: "utf8", env });
+    const result = spawnSync(process.execPath, [scriptPath, ...args], { cwd, input, encoding: "utf8", env });
     const calls = existsSync(log)
       ? readFileSync(log, "utf8").trim().split(/\r?\n/).filter(Boolean).map((line) => line.split(/\s+/))
       : [];
@@ -118,13 +138,131 @@ function executeGate(files, { fast = false, dry = false, failOn } = {}) {
   }
 }
 
+function git(cwd, args, { trim = true } = {}) {
+  const output = execFileSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    env: gateEnv(),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  return trim ? output.trim() : output;
+}
+
+function writeRepoFile(repo, file, content) {
+  const target = path.join(repo, ...file.split("/"));
+  mkdirSync(path.dirname(target), { recursive: true });
+  writeFileSync(target, content);
+}
+
+function commitFile(repo, file, content, message) {
+  writeRepoFile(repo, file, content);
+  git(repo, ["add", "--", file]);
+  git(repo, ["commit", "-m", message]);
+  return git(repo, ["rev-parse", "HEAD"]);
+}
+
+const gitSeeds = new Map();
+
+function gitSeed(objectFormat) {
+  const key = objectFormat ?? "sha1";
+  if (gitSeeds.has(key)) return gitSeeds.get(key);
+  const repo = mkdtempSync(path.join(tmpdir(), `prepush-seed-${key}-`));
+  git(repo, ["init", "-b", "main", ...(objectFormat ? [`--object-format=${objectFormat}`] : [])]);
+  git(repo, ["config", "user.name", "Prepush Test"]);
+  git(repo, ["config", "user.email", "prepush@example.invalid"]);
+  git(repo, ["remote", "add", "origin", path.join(repo, "missing-origin.git")]);
+  writeRepoFile(repo, "README.md", "base\n");
+  writeRepoFile(repo, "packages/db/package.json", "{}\n");
+  writeRepoFile(repo, "packages/ui/src/old.ts", "old\n");
+  git(repo, ["add", "."]);
+  git(repo, ["commit", "-m", "base"]);
+  const base = git(repo, ["rev-parse", "HEAD"]);
+  git(repo, ["update-ref", "refs/remotes/origin/main", base]);
+  const seed = { repo, base };
+  gitSeeds.set(key, seed);
+  return seed;
+}
+
+function createGitFixture({ objectFormat } = {}) {
+  const seed = gitSeed(objectFormat);
+  const repo = mkdtempSync(path.join(tmpdir(), "prepush-git-"));
+  rmSync(repo, { recursive: true, force: true });
+  cpSync(seed.repo, repo, { recursive: true });
+  return { repo, base: seed.base };
+}
+
+afterAll(() => {
+  for (const { repo } of gitSeeds.values()) rmSync(repo, { recursive: true, force: true });
+});
+
+function checkoutTrackedBranch(repo, name, start, upstream = "main") {
+  git(repo, ["checkout", "-b", name, start]);
+  git(repo, ["config", `branch.${name}.remote`, "origin"]);
+  git(repo, ["config", `branch.${name}.merge`, `refs/heads/${upstream}`]);
+}
+
+function updateLine(repo, remoteRef, remoteOid, localRef) {
+  const oid = git(repo, ["rev-parse", "HEAD"]);
+  const branch = git(repo, ["branch", "--show-current"]);
+  return `${localRef ?? `refs/heads/${branch}`} ${oid} ${remoteRef} ${remoteOid ?? "0".repeat(oid.length)}\n`;
+}
+
+function lefthookExecutable(platform = process.platform) {
+  const executable = path.join(import.meta.dir, "..", "node_modules", ".bin", "lefthook");
+  return platform === "win32" ? `${executable}.exe` : executable;
+}
+
+function executeLefthook(repo, input) {
+  const sandbox = mkdtempSync(path.join(tmpdir(), "prepush-lefthook-"));
+  const log = path.join(sandbox, "calls.txt");
+  const posixShim = path.join(sandbox, "bun");
+  const windowsShim = path.join(sandbox, "bun.cmd");
+  writeFileSync(posixShim, ["#!/usr/bin/env sh", 'printf "%s\\n" "$*" >> "$FAKE_BUN_LOG"', "exit 0"].join("\n"));
+  chmodSync(posixShim, 0o755);
+  writeFileSync(windowsShim, ['@echo %*>>"%FAKE_BUN_LOG%"', "@exit /b 0"].join("\r\n"));
+  try {
+    const env = gateEnv({ FAKE_BUN_LOG: log });
+    const pathKey = Object.keys(env).find((key) => key.toUpperCase() === "PATH") ?? "PATH";
+    env[pathKey] = `${sandbox}${path.delimiter}${env[pathKey] ?? ""}`;
+    const executable = lefthookExecutable();
+    const result = spawnSync(executable, ["run", "pre-push", "--force", "--no-tty"], {
+      cwd: repo,
+      input,
+      encoding: "utf8",
+      env,
+      timeout: SPAWN_TIMEOUT_MS,
+    });
+    if (result.error) throw new Error(`installed Lefthook could not start: ${result.error.message}`);
+    if (!Number.isInteger(result.status)) {
+      throw new Error(`installed Lefthook did not return an integer status${result.signal ? ` (${result.signal})` : ""}`);
+    }
+    const calls = existsSync(log) ? readFileSync(log, "utf8").trim().split(/\r?\n/).filter(Boolean) : [];
+    return { status: result.status, stdout: result.stdout, stderr: result.stderr, calls };
+  } finally {
+    rmSync(sandbox, { recursive: true, force: true });
+  }
+}
+
+function installLefthook(repo) {
+  const command = `node ${JSON.stringify(scriptPath)} --pre-push`.replaceAll("\\\\", "/");
+  writeFileSync(path.join(repo, "lefthook.yml"), [
+    "pre-push:",
+    "  jobs:",
+    "    - name: pre-push gate",
+    `      run: ${command}`,
+    "      use_stdin: true",
+    "",
+  ].join("\n"));
+}
+
 // Run `fn` with `vars` temporarily present in this process's env, then restore
 // the previous values (including deleting keys that were previously unset).
 function withAmbientEnv(vars, fn) {
   const saved = new Map();
   for (const [key, value] of Object.entries(vars)) {
     saved.set(key, process.env[key]);
-    process.env[key] = value;
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
   }
   try {
     fn();
@@ -256,6 +394,307 @@ describe("prepush-gate command execution", () => {
     expect(result.stdout).not.toContain("verify:platform-web");
   }, SPAWN_TIMEOUT_MS);
 
+});
+
+describe("prepush-gate Git ranges", () => {
+  test("isolates fixtures from the invoking hook's Git repository", () => {
+    const hookRepo = mkdtempSync(path.join(tmpdir(), "prepush-hook-context-"));
+    let fixtureRepo;
+    try {
+      git(hookRepo, ["init", "-b", "hook-branch"]);
+      git(hookRepo, ["config", "user.name", "Outer Hook"]);
+      git(hookRepo, ["config", "user.email", "outer-hook@example.invalid"]);
+      commitFile(hookRepo, "README.md", "outer\n", "outer");
+      const hookGitDir = path.join(hookRepo, ".git");
+      const originalBare = git(hookRepo, ["config", "--get", "core.bare"]);
+      const originalConfig = git(hookRepo, ["config", "--local", "--list", "--null"]);
+      const originalHead = git(hookRepo, ["rev-parse", "HEAD"]);
+      const originalStatus = git(hookRepo, ["status", "--porcelain=v1", "-z"], { trim: false });
+      withAmbientEnv({ GIT_DIR: hookGitDir, GIT_WORK_TREE: undefined }, () => {
+        const fixture = createGitFixture();
+        fixtureRepo = fixture.repo;
+        checkoutTrackedBranch(fixture.repo, "feature", fixture.base);
+        commitFile(fixture.repo, "apps/platform-web/src/feature.tsx", "feature\n", "feature");
+        const result = executeGate(undefined, {
+          cwd: fixture.repo,
+          input: updateLine(fixture.repo, "refs/heads/feature", fixture.base),
+          args: ["--pre-push"],
+          dry: true,
+        });
+        expect(result.status).toBe(0);
+        expect(result.stdout).toContain("classification: scoped");
+      });
+      expect(git(hookRepo, ["config", "--get", "core.bare"])).toBe(originalBare);
+      expect(git(hookRepo, ["config", "--local", "--list", "--null"])).toBe(originalConfig);
+      expect(git(hookRepo, ["rev-parse", "HEAD"])).toBe(originalHead);
+      expect(git(hookRepo, ["status", "--porcelain=v1", "-z"], { trim: false })).toBe(originalStatus);
+    } finally {
+      if (fixtureRepo) rmSync(fixtureRepo, { recursive: true, force: true });
+      rmSync(hookRepo, { recursive: true, force: true });
+    }
+  }, SPAWN_TIMEOUT_MS);
+
+  const rangeCases = [
+    {
+      name: "narrows an ordinary first push from its verified fork point",
+      arrange(repo, base) {
+        checkoutTrackedBranch(repo, "feature", base);
+        commitFile(repo, "apps/platform-web/src/feature.tsx", "feature\n", "feature");
+        return updateLine(repo, "refs/heads/feature");
+      },
+      status: 0,
+      includes: ["apps/platform-web:test"],
+      excludes: ["verify:meeting-web"],
+    },
+    {
+      name: "narrows a first push after its upstream advances",
+      arrange(repo, base) {
+        checkoutTrackedBranch(repo, "feature", base);
+        const featureOid = commitFile(repo, "apps/platform-web/src/feature.tsx", "feature\n", "feature");
+        git(repo, ["checkout", "main"]);
+        const advanced = commitFile(repo, "docs/upstream.md", "advanced\n", "advance upstream");
+        git(repo, ["update-ref", "refs/remotes/origin/main", advanced]);
+        git(repo, ["checkout", "feature"]);
+        expect(git(repo, ["rev-parse", "HEAD"])).toBe(featureOid);
+        return updateLine(repo, "refs/heads/feature");
+      },
+      status: 0,
+      includes: ["apps/platform-web:test"],
+    },
+    {
+      name: "narrows a stacked first push from its configured upstream",
+      arrange(repo, base) {
+        git(repo, ["checkout", "-b", "stack", base]);
+        const stackOid = commitFile(repo, "packages/ui/src/stack.ts", "stack\n", "stack base");
+        git(repo, ["update-ref", "refs/remotes/origin/stack", stackOid]);
+        checkoutTrackedBranch(repo, "stacked-feature", stackOid, "stack");
+        commitFile(repo, "apps/platform-web/src/stacked.tsx", "stacked\n", "stacked feature");
+        return updateLine(repo, "refs/heads/stacked-feature");
+      },
+      status: 0,
+      includes: ["apps/platform-web:test"],
+      excludes: ["test:ui"],
+    },
+    {
+      name: "narrows a SHA-256 first push from its verified fork point",
+      fixtureOptions: { objectFormat: "sha256" },
+      arrange(repo, base) {
+        checkoutTrackedBranch(repo, "feature", base);
+        commitFile(repo, "apps/platform-web/src/feature.tsx", "feature\n", "feature");
+        return updateLine(repo, "refs/heads/feature");
+      },
+      status: 0,
+      includes: ["classification: scoped", "apps/platform-web:test"],
+    },
+    {
+      name: "falls back to full when a first push has no upstream fork-point evidence",
+      arrange(repo, base) {
+        git(repo, ["checkout", "-b", "no-upstream", base]);
+        commitFile(repo, "apps/platform-web/src/feature.tsx", "feature\n", "feature");
+        return updateLine(repo, "refs/heads/no-upstream");
+      },
+      status: 0,
+      includes: ["full-suite"],
+    },
+    {
+      name: "falls back to full when a first push targets its configured upstream",
+      arrange(repo, base) {
+        checkoutTrackedBranch(repo, "same", base, "same");
+        commitFile(repo, "apps/platform-web/src/feature.tsx", "feature\n", "feature");
+        return updateLine(repo, "refs/heads/same");
+      },
+      status: 0,
+      includes: ["full-suite"],
+    },
+    {
+      name: "uses the actual remote OID instead of the configured upstream",
+      arrange(repo, base) {
+        git(repo, ["checkout", "-b", "remote-destination", base]);
+        const remoteOid = commitFile(repo, "packages/db/src/remote.ts", "remote\n", "remote destination");
+        git(repo, ["checkout", "main"]);
+        checkoutTrackedBranch(repo, "alternate", base);
+        commitFile(repo, "apps/platform-web/src/only.tsx", "only\n", "alternate feature");
+        return updateLine(repo, "refs/heads/alternate", remoteOid);
+      },
+      status: 0,
+      includes: ["apps/platform-web:test", "packages/db:test", "apps/platform-api:test"],
+    },
+    {
+      name: "keeps both owners for a cross-workspace move",
+      arrange(repo, base) {
+        git(repo, ["checkout", "-b", "move", base]);
+        mkdirSync(path.join(repo, "packages", "db", "src"), { recursive: true });
+        git(repo, ["mv", "packages/ui/src/old.ts", "packages/db/src/moved.ts"]);
+        git(repo, ["commit", "-m", "move across owners"]);
+        return updateLine(repo, "refs/heads/move", base);
+      },
+      status: 0,
+      includes: ["test:ui", "packages/db:test", "apps/platform-api:test"],
+    },
+    {
+      name: "keeps the former owner for a deletion",
+      arrange(repo, base) {
+        git(repo, ["checkout", "-b", "delete", base]);
+        git(repo, ["rm", "packages/ui/src/old.ts"]);
+        git(repo, ["commit", "-m", "delete owned file"]);
+        return updateLine(repo, "refs/heads/delete", base);
+      },
+      status: 0,
+      includes: ["test:ui"],
+    },
+    {
+      name: "keeps shared DB consumer coverage",
+      arrange(repo, base) {
+        checkoutTrackedBranch(repo, "feature", base);
+        commitFile(repo, "packages/db/src/change.ts", "db\n", "db change");
+        return updateLine(repo, "refs/heads/feature", base);
+      },
+      includes: ["packages/db:test", "apps/platform-api:test"],
+      excludes: ["verify:meeting-web"],
+    },
+    {
+      name: "falls back to full for a missing remote object",
+      arrange(repo, base) {
+        checkoutTrackedBranch(repo, "feature", base);
+        commitFile(repo, "packages/db/src/change.ts", "db\n", "db change");
+        return updateLine(repo, "refs/heads/feature", "f".repeat(40));
+      },
+      status: 0,
+      includes: ["full-suite"],
+    },
+    {
+      name: "falls back to full for a dirty workspace manifest",
+      arrange(repo, base) {
+        checkoutTrackedBranch(repo, "feature", base);
+        commitFile(repo, "packages/db/src/change.ts", "db\n", "db change");
+        writeRepoFile(repo, "packages/db/package.json", "{\"dirty\":true}\n");
+        expect(git(
+          repo,
+          ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
+          { trim: false },
+        )).toBe(" M packages/db/package.json\0");
+        return updateLine(repo, "refs/heads/feature", base);
+      },
+      includes: ["full-suite"],
+    },
+    {
+      name: "falls back to full for a committed workspace manifest",
+      arrange(repo, base) {
+        checkoutTrackedBranch(repo, "manifest", base);
+        commitFile(repo, "packages/db/package.json", "{\"name\":\"fixture\"}\n", "manifest");
+        return updateLine(repo, "refs/heads/manifest", base);
+      },
+      includes: ["full-suite"],
+    },
+    {
+      name: "falls back to full for an unknown path",
+      arrange(repo, base) {
+        checkoutTrackedBranch(repo, "unknown", base);
+        commitFile(repo, "unknown-root-file.txt", "unknown\n", "unknown");
+        return updateLine(repo, "refs/heads/unknown", base);
+      },
+      includes: ["full-suite"],
+    },
+  ];
+  for (const { name, fixtureOptions, arrange, status, includes = [], excludes = [] } of rangeCases) {
+    test(name, () => {
+      const { repo, base } = createGitFixture(fixtureOptions);
+      try {
+        const result = executeGate(undefined, {
+          cwd: repo,
+          input: arrange(repo, base),
+          args: ["--pre-push"],
+          dry: true,
+        });
+        if (status !== undefined) expect(result.status).toBe(status);
+        for (const expected of includes) expect(result.stdout).toContain(expected);
+        for (const unexpected of excludes) expect(result.stdout).not.toContain(unexpected);
+      } finally {
+        rmSync(repo, { recursive: true, force: true });
+      }
+    }, SPAWN_TIMEOUT_MS);
+  }
+
+  const unsupportedInputs = [
+    ["protected destinations", (repo) => updateLine(repo, "refs/heads/main")],
+    ["multi-ref updates", (repo) => {
+      const feature = updateLine(repo, "refs/heads/feature");
+      return `${feature}${feature}`;
+    }],
+    ["tag updates", (repo) => updateLine(repo, "refs/tags/v1")],
+    ["deletions", (_repo, base) => `(delete) ${"0".repeat(base.length)} refs/heads/feature ${base}\n`],
+    ["non-HEAD updates", (_repo, base) => `refs/heads/feature ${base} refs/heads/feature ${base}\n`],
+    ["malformed records", () => "malformed\n"],
+    ["missing input", () => ""],
+  ];
+  for (const [name, inputFor] of unsupportedInputs) {
+    test(`rejects ${name} before validation`, () => {
+      const { repo, base } = createGitFixture();
+      try {
+        checkoutTrackedBranch(repo, "feature", base);
+        commitFile(repo, "apps/platform-web/src/feature.tsx", "feature\n", "feature");
+        const result = executeGate(undefined, {
+          cwd: repo,
+          input: inputFor(repo, base),
+          args: ["--pre-push"],
+        });
+        expect(result.status).not.toBe(0);
+        expect(result.calls).toEqual([]);
+      } finally {
+        rmSync(repo, { recursive: true, force: true });
+      }
+    }, SPAWN_TIMEOUT_MS);
+  }
+
+  test("standalone invocation without hook input stays full", () => {
+    const { repo, base } = createGitFixture();
+    try {
+      checkoutTrackedBranch(repo, "feature", base);
+      commitFile(repo, "apps/platform-web/src/feature.tsx", "feature\n", "feature");
+      const result = executeGate(undefined, { cwd: repo, dry: true });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("full-suite");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }, SPAWN_TIMEOUT_MS);
+
+  test("resolves installed Lefthook without relying on shell PATH", () => {
+    const executable = path.join(import.meta.dir, "..", "node_modules", ".bin", "lefthook");
+    expect(lefthookExecutable("linux")).toBe(executable);
+    expect(lefthookExecutable("darwin")).toBe(executable);
+    expect(lefthookExecutable("win32")).toBe(`${executable}.exe`);
+    expect(existsSync(lefthookExecutable())).toBe(true);
+  });
+
+  test("installed Lefthook rejects protected destinations before Bun", () => {
+    const { repo, base } = createGitFixture();
+    try {
+      checkoutTrackedBranch(repo, "feature", base);
+      commitFile(repo, "apps/platform-web/src/feature.tsx", "feature\n", "feature");
+      installLefthook(repo);
+      const protectedResult = executeLefthook(repo, updateLine(repo, "refs/heads/main"));
+      expect(Number.isInteger(protectedResult.status)).toBe(true);
+      expect(protectedResult.status).not.toBe(0);
+      expect(protectedResult.calls).toEqual([]);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }, SPAWN_TIMEOUT_MS);
+
+  test("installed Lefthook forwards one stream without hanging", () => {
+    const { repo, base } = createGitFixture();
+    try {
+      checkoutTrackedBranch(repo, "feature", base);
+      commitFile(repo, "apps/platform-web/src/feature.tsx", "feature\n", "feature");
+      installLefthook(repo);
+      const featureResult = executeLefthook(repo, updateLine(repo, "refs/heads/feature"));
+      expect(featureResult.status).toBe(0);
+      expect(featureResult.calls.join(" ")).toContain("apps/platform-web test");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }, SPAWN_TIMEOUT_MS);
 });
 
 describe("change-aware CI plan", () => {
