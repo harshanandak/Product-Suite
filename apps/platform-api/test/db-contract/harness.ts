@@ -45,6 +45,7 @@ import { createBranchLeaseCoordinator, type BranchLease } from './branch-lease'
 import { createEphemeralBranch, deleteEphemeralBranchStrict, NeonBranchError, type EphemeralBranch } from './neon-branch'
 import { workerRuntimeConfig } from './runtime-config'
 import { measurePhase, telemetryPathFromEnv, type TelemetryPhase } from './telemetry'
+import { reportTransportFailure } from './transport-diagnostic'
 export { assertConformanceMarker } from './conformance-marker'
 
 /** The only migration-history variants accepted by the authority contract. */
@@ -1615,8 +1616,18 @@ export async function prepareHarnessDatabase(
   sql: Sql,
   setup: HarnessDatabaseSetup = canonicalHarnessDatabaseSetup,
 ): Promise<void> {
-  await setup.provisionRoles(connectionUri)
-  await setup.applyMigrations(sql)
+  try {
+    await setup.provisionRoles(connectionUri)
+  } catch (error) {
+    reportTransportFailure('prepare', 'websocket', error)
+    throw error
+  }
+  try {
+    await setup.applyMigrations(sql)
+  } catch (error) {
+    reportTransportFailure('prepare', 'http', error)
+    throw error
+  }
 }
 
 /** Seed the baseline fixture and return its ids. */

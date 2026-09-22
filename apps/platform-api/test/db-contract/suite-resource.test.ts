@@ -14,6 +14,7 @@ import {
   dedicatedCleanupFailure,
   finishDedicatedBranchLifecycle,
   handleDedicatedCreateFailure,
+  prepareHarnessDatabase,
   withDedicatedDbBranch,
   type DedicatedDbDependencies,
 } from './harness'
@@ -288,9 +289,11 @@ describe('transactional suite resource', () => {
   })
 
   it('closes the pool and redacts a pinned connection failure', async () => {
+    const diagnostic = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const end = vi.fn(async () => undefined)
+    const transport = Object.assign(new Error('postgres://secret-host/unit'), { code: 'ECONNRESET' })
     const pool = {
-      connect: vi.fn(async () => { throw new Error('postgres://secret') }),
+      connect: vi.fn(async () => { throw transport }),
       end,
     }
 
@@ -298,6 +301,13 @@ describe('transactional suite resource', () => {
       code: 'DB_CONTRACT_SESSION_CONNECT_FAILED',
     })
     expect(end).toHaveBeenCalledOnce()
+    expect(diagnostic).toHaveBeenCalledWith('DB_CONTRACT_TRANSPORT_DIAGNOSTIC', {
+      phase: 'session-connect',
+      transport: 'websocket',
+      code: 'ECONNRESET',
+      status: 'unknown',
+    })
+    expect(JSON.stringify(diagnostic.mock.calls)).not.toMatch(/secret-host|postgres:/)
   })
 
   it('aggregates a connection failure with an unproven pool close without leaking details', async () => {
@@ -326,6 +336,94 @@ describe('transactional suite resource', () => {
     await expect(run(async () => undefined)).rejects.toEqual(
       new SuiteResourceError('DB_CONTRACT_SUITE_NOT_READY'),
     )
+  })
+})
+
+describe('secret-safe transport diagnostics', () => {
+  it('reports a dedicated WebSocket preparation failure and preserves its identity', async () => {
+    const diagnostic = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    class TestErrorEvent extends Event {
+      #nested: unknown
+
+      constructor(error: unknown) {
+        super('error')
+        this.#nested = error
+      }
+
+      get error(): unknown {
+        return this.#nested
+      }
+    }
+    const primary = new TestErrorEvent(Object.assign(new Error('private response'), { code: 'ETIMEDOUT' }))
+
+    const failure = await prepareHarnessDatabase('postgres://secret', {} as never, {
+      provisionRoles: async () => { throw primary },
+      applyMigrations: async () => undefined,
+    }).catch((error: unknown) => error)
+
+    expect(failure).toBe(primary)
+    expect(diagnostic).toHaveBeenCalledWith('DB_CONTRACT_TRANSPORT_DIAGNOSTIC', {
+      phase: 'prepare',
+      transport: 'websocket',
+      code: 'ETIMEDOUT',
+      status: 'unknown',
+    })
+    expect(JSON.stringify(diagnostic.mock.calls)).not.toMatch(/secret-host|private response|postgres:|wss:/)
+  })
+
+  it('reports an HTTP migration source failure without reading unsafe fields', async () => {
+    const diagnostic = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const sourceError = Object.assign(new Error('https://secret-host/sql'), {
+      code: 'UND_ERR_CONNECT_TIMEOUT',
+      status: 503,
+    })
+    Object.defineProperty(sourceError, 'url', {
+      get: () => { throw new Error('unsafe getter was read') },
+    })
+    sourceError.cause = sourceError
+    const primary = Object.assign(new Error('database credential detail'), { sourceError })
+
+    const failure = await prepareHarnessDatabase('postgres://secret', {} as never, {
+      provisionRoles: async () => undefined,
+      applyMigrations: async () => { throw primary },
+    }).catch((error: unknown) => error)
+
+    expect(failure).toBe(primary)
+    expect(diagnostic).toHaveBeenCalledWith('DB_CONTRACT_TRANSPORT_DIAGNOSTIC', {
+      phase: 'prepare',
+      transport: 'http',
+      code: 'UND_ERR_CONNECT_TIMEOUT',
+      status: 503,
+    })
+    expect(JSON.stringify(diagnostic.mock.calls)).not.toMatch(/secret-host|credential|postgres:|https:/)
+  })
+
+  it('rejects unsafe codes and statuses without invoking accessors', async () => {
+    const diagnostic = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const primary = Object.assign(Object.create(null) as Record<string, unknown>, {
+      code: 'postgres://credential-host/private',
+      errno: 'SECRET_TOKEN',
+      status: 600,
+      statusCode: '503',
+    })
+    primary.sourceError = primary
+    Object.defineProperty(primary, 'cause', {
+      get: () => { throw new Error('credential getter invoked') },
+    })
+
+    const failure = await prepareHarnessDatabase('postgres://secret', {} as never, {
+      provisionRoles: async () => { throw primary },
+      applyMigrations: async () => undefined,
+    }).catch((error: unknown) => error)
+
+    expect(failure).toBe(primary)
+    expect(diagnostic).toHaveBeenCalledWith('DB_CONTRACT_TRANSPORT_DIAGNOSTIC', {
+      phase: 'prepare',
+      transport: 'websocket',
+      code: 'unknown',
+      status: 'unknown',
+    })
+    expect(JSON.stringify(diagnostic.mock.calls)).not.toMatch(/credential|SECRET_TOKEN|postgres:/)
   })
 })
 

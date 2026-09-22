@@ -8,6 +8,7 @@ import { createEphemeralBranch, deleteEphemeralBranchStrict, NeonBranchError, su
 import { createTransactionSql, type PinnedPoolClient, type TransactionSql } from './transaction-sql'
 import { measurePhase, telemetryPathFromEnv, type TelemetryPhase } from './telemetry'
 import { workerRuntimeConfig } from './runtime-config'
+import { reportTransportFailure } from './transport-diagnostic'
 
 export { withDedicatedDbBranch } from './harness'
 
@@ -67,7 +68,8 @@ export async function connectPinnedForTest(
   let client: TransactionClient
   try {
     client = await pool.connect()
-  } catch {
+  } catch (error) {
+    reportTransportFailure('session-connect', 'websocket', error)
     const primary = stableCleanupError('DB_CONTRACT_SESSION_CONNECT_FAILED')
     try {
       await pool.end()
