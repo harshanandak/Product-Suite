@@ -1,0 +1,564 @@
+From a9ad75bbdefb23c08c96ba3c2dc0c20e3c2562e2 Mon Sep 17 00:00:00 2001
+From: Harsha Nanda <harshanandak@users.noreply.github.com>
+Date: Sun, 9 Aug 2026 06:39:09 +0530
+Subject: [PATCH] docs(plan): define meeting MVP execution roadmap
+
+---
+ .../plan.md                                   | 439 ++++++++++++++++++
+ .../tasks.md                                  |  98 ++++
+ 2 files changed, 537 insertions(+)
+ create mode 100644 docs/work/2026-08-09-meeting-mvp-execution-roadmap/plan.md
+ create mode 100644 docs/work/2026-08-09-meeting-mvp-execution-roadmap/tasks.md
+
+diff --git a/docs/work/2026-08-09-meeting-mvp-execution-roadmap/plan.md b/docs/work/2026-08-09-meeting-mvp-execution-roadmap/plan.md
+new file mode 100644
+index 0000000..bc0d915
+--- /dev/null
++++ b/docs/work/2026-08-09-meeting-mvp-execution-roadmap/plan.md
+@@ -0,0 +1,439 @@
++# Meeting MVP execution roadmap
++
++**Roadmap issue:** `5ffa9a58-8c81-45f3-8ca8-cbc861a0633a`
++**Date:** 2026-08-09
++**Base:** `origin/main@341caeb0072f6642ce9b2172c1d092f91bcd3265`
++**Classification:** Critical cross-lane execution plan; authorization, migrations, durable finalization, and explicit work creation
++**Status:** PLAN synthesis; no implementation, push, PR, database operation, issue closure, or stage advance authorized
++
++## Product outcome
++
++The MVP is one reliable local-meeting loop:
++
++```text
++local meeting completes
++  -> canonical final summary becomes visible and adjustable
++  -> compact action candidates appear
++  -> human chooses Add, Adjust, or Dismiss
++  -> only Add creates exactly one Product-Suite work item
++```
++
++Nothing else is required to call this MVP complete. Extraction, finalization,
++models, refresh, retries, agents, calendars, or providers never create a task or
++work item automatically. A summary has Adjust and Dismiss but no Add. An action
++candidate has Add, Adjust, and Dismiss. Missing owner, date, parent, dependency,
++team, or status evidence is omitted or blocks Add; it is never guessed.
++
++The MVP uses local capture only. Requested visual artifacts, Recall/Zoom/Meet/
++Teams adapters, omnipresent agent chat, and an agent-editable canvas are future
++lanes. They remain visible in the roadmap so they do not disappear, but they do
++not delay the local transcript-to-work-item outcome.
++
++## Authority baseline
++
++These are current facts to verify again at each lane entry, not permission to
++skip that lane's plan or validation gate:
++
++- `origin/main@341caeb` contains collaboration authority PR #163 at `ee84ca7`.
++  Product-Suite owns Actor, Conversation, Membership, and ConversationEvent;
++  meetings, runs, proposals, work items, and artifacts retain their own payload
++  and lifecycle authority.
++- `origin/main@341caeb` contains the authorization-scoped TanStack Query pilot
++  PR #164. It migrated only read-only `useMemoryImpact`; meeting review queries
++  and mutations remain explicitly out of that pilot.
++- `origin/main@341caeb` contains the BlockSuite 0.19.5 persistence NO-GO in PR
++  #161. No MVP work may depend on BlockSuite or a canvas engine.
++- Neon authority issue `59ef...` is the current implementation prerequisite.
++  Its approved contract makes Neon `neondb.public` and `packages/db` Drizzle the
++  only live schema/migration authority, with reconciliation `0019` and PR A's
++  candidate `0020` after a live order check.
++- Meeting authority PR A and PR B plans are detailed implementation authority.
++  This roadmap orders and gates them; it does not rewrite their contracts.
++- Terminal-finalization and external-connector plans remain planning authority
++  for their bounded lanes, except stale Alembic/Supabase migration ownership is
++  superseded by the Neon-only decision and must be reconciled before DEV.
++
++## MVP versus future
++
++| Capability | MVP | Future / defer trigger |
++| --- | --- | --- |
++| Local capture | Yes; explicit consent/indicator, crash/network-safe session, contiguous drain | Provider-hosted capture later |
++| Completion | Yes; `completed`, idempotent finalization ledger, canonical summary refresh before success | None |
++| Summary | Yes; current version, inline natural-language Adjust, Dismiss/Restore; never Add | Explicit Save-to-memory is P2 issue `6d4bae06...` |
++| Action candidates | Yes; compact cards with 0..3 verified chips/links | More fields only after measured demand and a new contract |
++| Work creation | Yes, only authenticated explicit Add; exactly one work item | Bulk/automatic Add remains prohibited |
++| Visual artifacts | No automatic generation; preserve issue and request seam | P2 `99e8a26e...`; Mermaid first after explicit request/cost display |
++| External meetings | No; local source only | `1ba32c21...`: source envelope, calendar recognition, then Recall fallback; native Zoom/Meet/Teams remain gated |
++| Omnipresent agent chat | No | `7de23759...` after collaboration and meeting authority are live-verified |
++| Canvas/workspace | No; PR #161 is a NO-GO for current BlockSuite persistence | Reopen only after a separately approved engine spike passes rejection gates |
++| TanStack Query expansion | No; consume the landed pilot as precedent only | Revisit after B8 metrics; never combine cache migration with authority cutover |
++| Meeting search/raw transcript retrieval | No | Separate PR C/search issue after MVP and privacy review |
++
++## Value and effort ranking
++
++| Rank | Outcome / lane | User value | Effort / risk | Why now |
++| --- | --- | --- | --- | --- |
++| 1 | Neon authority `59ef...` | Unlocks every safe meeting write | High / critical | One database and migration plane is prerequisite evidence, not plumbing to bypass |
++| 2 | PR A A1/A2 `2660...` | Prevents leakage and establishes current-member origin | Two medium PRs / critical | No review or work creation is safe without it |
++| 3 | PR B1 `eeb61...` | Stops automatic task/proposal writes | Medium / critical | Removes the behavior that directly violates the MVP promise |
++| 4 | PR B2-B5 | Secure contracts, reads, derivatives, and exactly-once Add seam | Four medium PRs / high | Builds the safe promotion boundary before UX |
++| 5 | Local durability `d88d...` | Prevents lost transcript on crash/network failure | Medium after its own plan / high | Can progress in parallel without touching authority migrations |
++| 6 | PR B6-B8 | Materialized summary/candidates, commands, compact cards, E2E | Three medium PRs / high | Delivers the visible review and explicit Add experience |
++| 7 | Terminal finalization `ce942...` | Makes Stop reliably produce the current review surface | Two medium PRs / high | Completes the end-user loop after authority/review seams exist |
++| 8 | Requested visual artifacts `99e8...` | Useful meeting outputs on demand | Medium+ / variable cost | Valuable, but independent of work promotion and explicitly post-MVP |
++| 9 | External connectors `1ba32...` | Covers hosted external meetings | Three medium PRs plus vendor risk | Local-first outcome must be proven before provider spend/consent complexity |
++| 10 | Agent chat and editable workspace | Cross-app leverage | High / broad | Not needed for the local meeting-to-work outcome; canvas engine is currently NO-GO |
++
++## Dependency graph and genuine parallelism
++
++```text
++Lane A — serialized authority and review stack
++Neon 0019 -> A1 -> A2/0020 -> B1 -> B2 -> B3 -> B4 -> B5 -> B6 -> B7 -> B8
++
++Lane B — local capture reliability
++durability plan/dev/validate -------------------------------+
++                                                            |
++Lane C — terminal completion                                v
++B8 + validated durability -> terminal PR 1 -> terminal PR 2/E2E -> MVP
++
++Post-MVP
++MVP -> visual request lane
++MVP -> external source contract -> calendar recognition -> Recall fallback
++MVP + live collaboration verification -> omnipresent agent chat
++new engine GO only -> agent-editable workspace/canvas
++```
++
++Lane A is intentionally serialized because each PR changes the security/data
++contract consumed by the next. Stacking branches for review does not permit
++out-of-order merges. Each child records its exact parent head, uses a squash-safe
++restack after the parent merges, and reruns exact-head gates.
++
++Lane B is genuinely parallel only while it owns capture-session durability,
++sequence acknowledgement, reload drain, and consent/indicator preservation. It
++must not edit PR A/B schemas, candidate behavior, finalization, or review UI.
++The issue currently lacks executable acceptance/task artifacts, so its first
++authorized action is `/plan`, not implementation.
++
++UX copy/design fixtures for B8 may be reviewed while B2-B7 run, but production
++UI implementation remains based on B7. External adapters, visual generation,
++agent chat, and canvas are not parallel MVP lanes; beginning them early would
++increase risk without shortening the critical path.
++
++## Medium PR train
++
++Existing issue plans remain the detailed TDD authority. The integration rule is
++one child issue/lease/worktree per PR, normally two bounded implementation tasks,
++with a target of 300-800 net LOC and no more than 18 production files. Generated
++migration snapshots and fixtures are counted separately but reviewed. Exceeding
++either bound triggers a split before implementation continues.
++
++### Foundation and authority
++
++1. **Neon authority (`59ef...`)** — land and deploy reconciliation `0019`, both
++   recognized history variants, guarded runner, least-privilege roles, and
++   fail-closed real-Neon evidence.
++2. **A1 (`2660...`, first child PR)** — exact SQL/response projections for
++   meeting, memory, proposal, work-item, knowledge, and promotion surfaces.
++3. **A2 (`2660...`, second child PR)** — candidate `0020`, verified source-to-
++   internal tenant/principal mapping, nullable origin quarantine, dormant
++   derivative checks, memory fail-closed barrier, current-member primitive, and
++   executable Neon matrix.
++
++### Review and explicit promotion
++
++4. **B1 `eeb61da8...`** — kill automatic ingest writer, preserve verified
++   provider/subject, keep old meeting screen compatible with `410 unavailable`.
++5. **B2 `7524bd07...`** — strict card/command codecs, additive Neon review schema,
++   provenance/evidence constraints, exact projections.
++6. **B3 `9b1d5141...`** — current-member authorization for Meeting Python and
++   TypeScript meeting/transcript/current search surfaces.
++7. **B4 `3bb91a9a...`** — fail-closed memory/knowledge/retrieval/ranking/curator
++   consumers before count, rank, or model input.
++8. **B5 `76c811df...`** — secure proposal/work-item/tool surfaces and build the
++   one atomic proposal/work-item convergence seam used only by Add.
++9. **B6 `2301b21c...`** — materialize immutable summary/action subjects and
++   migrate legacy state after B1 zero-writer proof; zero work writes.
++10. **B7 `cf72dae2...`** — crash-safe Add, tool-free Adjust, Dismiss/Restore,
++    expected-revision/transition identity, actor-bound leases, strict routes.
++11. **B8 `87acaae7...`** — accessible compact cards and mandatory Neon/API/web/
++    browser proof. This PR owns the action-card UI; no duplicate card issue is
++    needed.
++
++### Completion and local E2E
++
++12. **Local durability `d88d...`** — after a new approved plan, deliver capture
++    session identity, monotonic sequence, contiguous acknowledgement, reload
++    drain, and consent/indicator preservation without touching Lane A files.
++13. **Terminal PR 1 `ce942...`** — backend `completed` contract, idempotent
++    finalization ledger, transcript watermark, atomic final artifact. Before DEV,
++    replace the stale Alembic migration task with the next canonical
++    `packages/db` Drizzle migration after the landed Lane A/B order.
++14. **Terminal PR 2 `ce942...`** — browser drain/finalize/refresh bridge,
++    compatibility cleanup, and non-skipping transcript-start E2E. Success is not
++    shown until the canonical summary/review surface refresh completes.
++
++## Exact human flow
++
++1. The user starts local capture after the existing explicit consent/recording
++   indicator contract is satisfied. The client persists the capture-session ID
++   and monotonic transcript sequence.
++2. On Stop, the client drains through the last contiguous acknowledged segment
++   and submits one stable terminal event. Retry/reconnect reuses its identity.
++3. The server commits `completed`, final chapters, and the canonical summary
++   artifact/version once. Failure leaves the last complete artifact visible and
++   reports retryable finalization; the UI does not claim success.
++4. After refresh, the user sees a summary card and action-candidate cards. The
++   summary card exposes Adjust and Dismiss only. Pending action cards expose Add,
++   Adjust, and Dismiss. Each card has a visible type/icon, concise title, one
++   source line, and at most three verified owner/date/parent/dependency chips or
++   links; missing evidence is absent.
++5. Summary Adjust opens an inline labelled textarea. The returned structured
++   version becomes current only after the expected-version CAS wins. Dismiss
++   hides the summary from review without deleting meeting evidence; Restore is
++   explicit.
++6. Action Adjust uses free text or one of at most three natural-language choices.
++   It remains nonterminal unless the user separately confirms
++   `keep_as_follow_up`. Dismiss creates no proposal, memory, task, or work item.
++7. Add revalidates the current version, visible confirmed suggestions, current
++   writer membership, tenant, parent/dependency targets, and destination config.
++   One atomic command creates/reuses one proposal and exactly one work item.
++   Retry returns the same result; stale or ambiguous input leaves the card usable
++   and creates nothing.
++8. The added card becomes terminal and shows one accessible work-item link. It
++   cannot be restored. The user can audit safe provenance links without seeing
++   internal IDs, auth subjects, raw evidence, prompts, or denied counts.
++
++## Exact agent and service flow
++
++1. Capture/finalization services store transcript/final summary evidence under
++   the meeting origin. They never call proposal/work-item or memory writers.
++2. B6 materialization projects the latest final summary and extracted action
++   rows into immutable meeting-owned versions. Refresh is idempotent and never
++   reopens terminal review subjects.
++3. Adjust uses a dedicated tool-free agent run linked to the meeting
++   conversation. Input is limited to subject kind, displayed version, confirmed
++   evidence IDs, and delimited user text—never raw transcript, denied content,
++   retrieval/mutation tools, or a generic workboard prompt.
++4. Server-side strict decoding and evidence filtering occur before one CAS makes
++   a new version current. Model output cannot choose a terminal state or write a
++   work item.
++5. Add is a deterministic server command, not a model tool. The winning
++   transaction repeats current authorization and creates the exact persisted
++   proposal/work result.
++6. A future visual-artifact request starts only from an explicit user or
++   authorized-agent request against a specific meeting/version. It shows type/
++   cost capability, uses Mermaid first, and stores a versioned artifact with
++   evidence/origin; failure never changes candidates.
++7. A future external connector emits only a canonical evidence envelope with
++   source/capability/consent/gap/confidence provenance. Provider/calendar labels
++   never authorize, materialize candidates, or promote work.
++
++## UX acceptance
++
++- Completion is truthful: no success toast/state before durable drain,
++  finalization, and artifact refresh; retryable failures remain actionable.
++- Summary and action cards are distinct discriminated unions. Summary Add is
++  structurally impossible, not hidden by CSS.
++- All controls are native labelled buttons/links. Icons are decorative;
++  keyboard focus enters and leaves inline Adjust predictably; terminal cards
++  expose only valid actions.
++- Stale commands return the latest safe card and preserve the user's draft.
++  Duplicate commands return the persisted result with no duplicate work.
++- `Dismiss -> Restore -> Add` reuses the same pending legacy proposal only under
++  the audited policy; Added can never Restore.
++- No automatic task, proposal, work-item, parent, owner, date, dependency, or
++  memory write occurs from completion, extraction, refresh, Adjust, or visuals.
++- Exact browser proof begins with transcript/finalize, not a pre-seeded action
++  candidate, and ends at the created work-item link.
++
++## Security and data gates
++
++1. **Database:** one Neon project/database/schema, one `packages/db` Drizzle
++   journal/runner, exact contiguous migrations, both recognized histories,
++   least-privilege runtime roles, no Alembic/Supabase live path.
++2. **Identity:** provider subject maps to internal user; meeting source tenant/
++   owner maps durably to internal tenant/user; equality/email/labels/request body
++   never grant access.
++3. **Current authorization:** active org, human actor, active conversation,
++   active membership, same tenant, allowed role are checked on the winning read/
++   mutation; missing/revoked/DB failure denies.
++4. **Projection:** no wildcard/raw-row/whole-row JSON egress; denied resources
++   are removed before counts, ranks, retrieval, model input, logs, or errors.
++5. **Promotion:** Add is expected-version, suggestion-fenced, actor-bound,
++   idempotent, atomic, and produces zero memory delta. Adjust has no mutation
++   tools. Dismiss/Restore have exact terminal CAS rules.
++6. **Finalization:** stable terminal identity, contiguous transcript watermark,
++   one ledger result, no partial artifact publication, sanitized errors.
++7. **Client cache:** the landed TanStack boundary remains memory-only and keyed
++   by principal/org without credentials. This is defense in depth, never server
++   authorization, and is not expanded during B8.
++8. **Evidence:** missing credentials, skipped/zero tests, cleanup failure,
++   timeout, truncated/non-reconstructable output are INCOMPLETE/FAIL.
++
++## Current external capability evidence and boundary decision
++
++Verified capabilities retrieved from official documentation on 2026-08-09:
++
++- AI SDK documents durable/resumable `WorkflowAgent`, built-in approval flows,
++  custom chat transports, and workflow stream reconnection
++  ([WorkflowAgent](https://ai-sdk.dev/docs/agents/workflow-agent),
++  [Transport](https://ai-sdk.dev/docs/ai-sdk-ui/transport),
++  [Tool approvals](https://ai-sdk.dev/docs/agents/tool-approvals)).
++- Cloudflare Agents documents durable identity/local SQL, WebSockets, scheduled
++  work, recoverable execution, and MCP/tools; AgentWorkflow/Workflows distinguish
++  durable steps from non-durable broadcasts/RPC
++  ([Agents overview, updated 2026-06-24](https://developers.cloudflare.com/agents/),
++  [Workflows, updated 2026-02-05](https://developers.cloudflare.com/agents/concepts/workflows/)).
++- LiveKit Agents documents Python/Node programs joining rooms as realtime
++  participants and explicit dispatch for controlled agent joins
++  ([Agents introduction](https://docs.livekit.io/agents),
++  [Agent dispatch](https://docs.livekit.io/agents/build/dispatch)).
++
++Inference: these capabilities make AI SDK, Cloudflare Agents/Workflows, and
++LiveKit strong adapter candidates. They do not justify moving Product-Suite
++principal/membership authorization, conversation/event persistence, meeting
++evidence, approvals, schedules, agent-run lifecycle, or work-item authority into
++vendor state. Any adoption requires an adapter conformance PR and must preserve
++the Product-Suite authorities above.
++
++## Forge issue and epic map
++
++| Scope | Forge authority | Roadmap treatment |
++| --- | --- | --- |
++| This synthesis | `5ffa9a58...` | Docs-only plan and handoff; no child implementation issues created here |
++| Meeting access epic | `bdd55b7e...` | Canonical authority outcome; A then B; PR C/search deferred |
++| Neon authority | `59efc6dc...` | Critical prerequisite in DEV |
++| PR A | `2660c6a4...` | A1/A2 medium stack, blocked on Neon |
++| PR B | `9558cfaa...` | Parent of B1 `eeb61da8...` -> B8 `87acaae7...`; canonical compact-card/promotion lane |
++| Meeting experience epic | `c9348c5e...` | Parent for capture/finalization/connectors; stale collaboration blocker must be verified |
++| Local durability | `d88d461a...` | MVP parallel lane; must be planned before DEV |
++| Terminal finalization | `ce942338...` | MVP completion lane; depends on durability and exact A/B heads |
++| External connector | `1ba32c21...` | Post-MVP source adapters only |
++| Collaboration authority | `2086343b...` | Code landed in #163; live issue state requires reconciliation, not reimplementation |
++| Omnipresent agent chat | `7de23759...` | Post-MVP; depends on live collaboration and meeting authority |
++| Canvas foundation | `9a77ebc8...`, child `edb56268...` | Current BlockSuite seam NO-GO; do not schedule implementation |
++| TanStack Query pilot | `5a03773c...` | Landed in #164; no MVP expansion |
++| Requested visuals | `99e8a26e...` | Post-MVP explicit request lane |
++| Explicit Save-to-memory | `6d4bae06...` | Post-MVP and never automatic |
++
++## Duplicate and stale-plan register
++
++Do not close or mutate these issues from this roadmap; owners must reconcile
++them with live evidence:
++
++1. Collaboration issue `2086343b...` remains `in_progress/blocked`, but PR #163
++   is on `origin/main`. Dependency `8595d64d...` also remains open although lint
++   restoration PR #160 is on main. Verify gates/post-merge health, then update
++   those issue states separately; do not build a second collaboration fabric.
++2. TanStack issue `5a03773c...` remains `in_progress`, but PR #164 is on main.
++   Treat the pilot as landed and close only after its owner verifies required
++   review/post-merge evidence.
++3. Terminal plan still names an Alembic revision and an old migration owner.
++   Neon authority supersedes that implementation detail. Revise the terminal
++   task to the next canonical `packages/db` migration before DEV; do not create
++   Alembic/Supabase DDL.
++4. The older `docs/work/2026-07-24-meeting-e2e-loop` is historical context.
++   Terminal `ce942...` plus PR B8 own the current transcript-to-review/work E2E;
++   do not execute a third overlapping E2E plan.
++5. “Compact action cards” are already B8 (`87acaae7...`) under PR B. Do not file
++   or implement a separate card lane unless the strict B contract changes.
++6. Canvas PR #161 rejects the current BlockSuite persistence seam. The open
++   artifact-surface child is future work, not an approved workaround. Mermaid
++   visual artifacts remain a separate requested-output adapter.
++7. Visual `99e8...` and Save-to-memory `6d4...` are children of the PR B parent
++   for discoverability but are explicitly post-MVP; they are not B9/B10 and do
++   not extend the B1-B8 merge train.
++8. External connector and terminal plans both mention caller-authority handoffs;
++   they consume A/B and never duplicate candidate schema, review commands, card
++   UI, or Add semantics.
++
++## Single self-challenge and correction pass
++
++One challenge pass tested whether the roadmap could still produce a polished
++demo while violating the user's outcome or hiding a dependency:
++
++- **Could B8 be mislabeled as MVP complete?** Yes: B8 proves seeded/materialized
++  review and work promotion, but the terminal plan owns transcript-start
++  completion. Correction: B8 is a prerequisite; terminal PR 2 is the MVP exit.
++- **Could “parallel local durability” become unplanned implementation?** Yes:
++  `d88d...` has no live acceptance/task artifact. Correction: its first packet is
++  `/plan`; only its bounded, non-overlapping implementation may run in parallel.
++- **Could terminal finalization revive Alembic authority?** Yes: its older task
++  list still names an Alembic revision. Correction: DEV is blocked until that
++  task is reconciled to the next canonical `packages/db` migration.
++- **Could cards, visuals, chat, or canvas create duplicate lanes?** Yes.
++  Correction: B8 exclusively owns compact cards; visuals/chat/canvas remain the
++  named post-MVP issues and the current canvas seam stays NO-GO.
++- **Could AI SDK, Cloudflare, or LiveKit silently become domain authority?** Yes
++  if their durability/session features were treated as the system of record.
++  Correction: the adapter boundary and Product-Suite authority gates are
++  explicit and release-blocking.
++
++No second critic loop is planned; further material contradiction requires human
++plan review rather than iterative scope growth.
++
++## Stop and defer criteria
++
++Stop the active PR and return to plan review when:
++
++- a migration requires Alembic/Supabase, a second journal, an occupied revision,
++  mixed/unknown history, or destructive data repair;
++- a caller identity, tenant, actor, origin, membership, or evidence reference is
++  inferred from email, equality, labels, provider payload, model output, or
++  request body;
++- any completion/extraction/refresh/Adjust/provider/agent path can write work or
++  memory automatically;
++- a denied derivative can enter count, rank, retrieval, model input, response,
++  logs, or cache;
++- a PR exceeds the medium bound or owns files from another live lane;
++- required Neon/API/web/browser evidence is missing, skipped, zero-test,
++  uncleaned, timed out, or non-reconstructable;
++- terminal work starts before its migration ownership is reconciled to
++  `packages/db` and exact A/B heads are recorded;
++- provider work begins before local MVP, consent/capability/cost gates, and the
++  canonical evidence envelope pass;
++- a canvas implementation starts without a new approved engine GO;
++- TanStack Query expansion is mixed into a security/authority PR;
++- a vendor runtime is proposed as Product-Suite identity, membership, evidence,
++  approval, run, schedule, conversation, or work-item authority.
++
++## MVP release gate
++
++The MVP is complete only when one checked-in, non-skipping exact-head scenario:
++
++1. starts from a local captured transcript with durable contiguous drain;
++2. finalizes once to `completed` and refreshes a current summary;
++3. shows a summary that can be Adjusted but never Added;
++4. shows compact action candidates with verified omissions/chips;
++5. proves Adjust creates only a new meeting-owned version;
++6. proves Dismiss creates no work and Restore is explicit;
++7. proves Add creates exactly one linked work item under current membership;
++8. proves retry/reconnect/stale/revoked/cross-tenant/DB-failure paths create no
++   duplicate or unauthorized work;
++9. proves zero automatic proposal/work-item/memory delta before the human Add;
++10. leaves external connectors, visual generation, chat expansion, and canvas
++    absent from the critical path.
++
++## Sources
++
++Context7 evidence supplied by the orchestrator on 2026-08-09 was used to route
++current AI SDK 6, Cloudflare Agents, and LiveKit capabilities to adapter status;
++the official documentation below is the source cited for the resulting claims.
++
++Parallel deep-research run `trun_7e2acc90d798403ea6400ff07ea167f8`
++(`platform.parallel.ai/play/deep-research/...`) was queued by the orchestrator.
++Status at this quota checkpoint: **pending / not polled**. Per the stop-work
++instruction, this plan does not wait for it or treat its unavailable result as
++evidence. A later owner may attach the completed result to the roadmap issue and
++reopen plan review only if it materially contradicts a locked boundary.
++
++- [AI SDK WorkflowAgent](https://ai-sdk.dev/docs/agents/workflow-agent) (retrieved 2026-08-09)
++- [AI SDK UI transport](https://ai-sdk.dev/docs/ai-sdk-ui/transport) (retrieved 2026-08-09)
++- [AI SDK tool approvals](https://ai-sdk.dev/docs/agents/tool-approvals) (retrieved 2026-08-09)
++- [Cloudflare Agents overview](https://developers.cloudflare.com/agents/) (updated 2026-06-24)
++- [Cloudflare Agent Workflows](https://developers.cloudflare.com/agents/concepts/workflows/) (updated 2026-02-05)
++- [LiveKit Agents introduction](https://docs.livekit.io/agents) (retrieved 2026-08-09)
++- [LiveKit explicit agent dispatch](https://docs.livekit.io/agents/build/dispatch) (retrieved 2026-08-09)
++
++Research result file:
++`C:\Users\harsha_befach\AppData\Local\Temp\meeting-mvp-official-docs.json`.
+diff --git a/docs/work/2026-08-09-meeting-mvp-execution-roadmap/tasks.md b/docs/work/2026-08-09-meeting-mvp-execution-roadmap/tasks.md
+new file mode 100644
+index 0000000..867a4ab
+--- /dev/null
++++ b/docs/work/2026-08-09-meeting-mvp-execution-roadmap/tasks.md
+@@ -0,0 +1,98 @@
++# Meeting MVP execution checklist
++
++**Roadmap issue:** `5ffa9a58-8c81-45f3-8ca8-cbc861a0633a`
++**Plan:** `docs/work/2026-08-09-meeting-mvp-execution-roadmap/plan.md`
++**Stage:** PLAN synthesis only; these entries route existing issues and do not authorize DEV
++
++## Entry protocol for every implementation PR
++
++1. Read the owning issue/plan, claim with a distinct actor, and prove the live
++   lease with `forge issue owns`.
++2. Rebase/restack on the exact merged dependency SHA; confirm the GitHub base and
++   diff contain only this child.
++3. Record purpose, acceptance, constraints, edge cases, out-of-scope boundaries,
++   exact file ownership, migration order, and expected RED in the owning issue.
++4. Keep one medium PR: target 300-800 net LOC and at most 18 production files.
++   Stop/split before continuing if exceeded.
++5. Use the child plan's TDD commands and exact-head validation. Missing or
++   incomplete evidence is never PASS.
++6. Stop at the stage checkpoint. This roadmap never grants push, PR, merge, DB
++   apply, release, or post-merge authority.
++
++## Critical path packets
++
++| Order | Existing issue / packet | Exact dependency | Exit evidence | Parallel? |
++| --- | --- | --- | --- | --- |
++| 0 | `59efc6dc...` Neon authority | current `origin/main` | `0019` deployed/verified, both histories, least privilege, PR A handoff | No; root gate |
++| 1 | `2660c6a4...` A1 projections | Neon merged | exact response/SQL projection compatibility; no authority leakage | No |
++| 2 | `2660c6a4...` A2 foundation | A1 merged + free `0020` | mapping/quarantine/dormancy/current auth/real-Neon matrix | No |
++| 3 | `eeb61da8...` B1 cutover | A2 + Neon | automatic writer unreachable; verified hosted/OSS identity | No |
++| 4 | `7524bd07...` B2 contracts/schema | B1 exact head | strict codecs, Neon schema, provenance/evidence, projections | No |
++| 5 | `9b1d5141...` B3 meeting access | B2 | all current meeting/transcript paths fail closed | No |
++| 6 | `3bb91a9a...` B4 memory/knowledge | B3 | denied rows excluded before count/rank/model input | No |
++| 7 | `76c811df...` B5 Add seam | B4 | one authorized atomic work convergence, zero memory | No |
++| 8 | `2301b21c...` B6 materialization | B5 | summary/action versions converge; zero work writes | No |
++| 9 | `cf72dae2...` B7 commands | B6 | Add/Adjust/Dismiss/Restore CAS, leases, strict routes | No |
++| 10 | `87acaae7...` B8 web/E2E | B7 | accessible compact cards and non-skipping Neon/API/web/browser proof | No |
++| 11 | `ce942338...` terminal PR 1 | B8 + planned/validated `d88d...` | canonical Drizzle migration, idempotent backend finalization | No |
++| 12 | `ce942338...` terminal PR 2 | terminal PR 1 | browser drain/finalize/refresh and transcript-start E2E | No; MVP exit |
++
++## Genuine parallel packet
++
++### Local durability `d88d461a-c259-4dc6-a751-f2b3c6898b7a`
++
++First run `/plan` because the live issue has no acceptance criteria or task
++artifact. The bounded outcome is capture-session identity, monotonic transcript
++sequence, contiguous acknowledgement, reload drain, and consent/indicator
++preservation. It may proceed in parallel with Neon/A/B only if it owns no
++authority schema, review card, candidate, finalizer, or shared migration files.
++Its validated head becomes an input to terminal PR 1/2.
++
++## Human-flow acceptance scenario
++
++1. Start local capture under explicit consent/indicator.
++2. Stop after partial and final transcript segments; reconnect once; drain the
++   same monotonic session to one contiguous watermark.
++3. Finalize using one stable terminal event; retry and prove one canonical result.
++4. Refresh and show the current summary before announcing completion.
++5. Adjust the summary inline; verify a new meeting-owned version and no Add.
++6. Adjust one action candidate; verify no work/memory write.
++7. Dismiss another; verify no work and explicit Restore.
++8. Add one current candidate with only displayed confirmed suggestions; verify
++   one proposal/work item and one result link.
++9. Repeat Add, race stale Add/Dismiss, revoke membership, and attempt cross-
++   tenant access; verify the same result or safe denial with no duplicate.
++
++## Agent/service acceptance scenario
++
++1. Finalizer emits only meeting-owned summary/action evidence.
++2. Materializer creates/reuses immutable versions and never work/memory.
++3. Tool-free Adjust receives only displayed subject/evidence/user text and can
++   produce only a nonterminal structured version.
++4. Deterministic Add repeats current authorization in the winning atomic write.
++5. No provider, model, Cloudflare Agent, LiveKit participant, AI SDK workflow,
++   calendar event, or chat transport becomes Product-Suite authority.
++
++## Post-MVP queue — do not start from this plan
++
++| Order | Existing issue | Required new checkpoint |
++| --- | --- | --- |
++| F1 | `99e8a26e...` requested visual artifacts | `/plan`; specific meeting/version, capability/cost UI, Mermaid-first, idempotent artifact storage |
++| F2 | `1ba32c21...` external connectors | local MVP verified; source envelope/capability/consent contract first |
++| F3 | `7de23759...` omnipresent agent chat | collaboration issue reconciled and meeting authority live-verified |
++| F4 | `6d4bae06...` Save-to-memory | explicit action contract; never automatic |
++| F5 | `edb56268...` editable artifact surface | new engine GO; current BlockSuite seam remains rejected |
++| F6 | TanStack Query follow-up | measured B8 cache/loading need; separate plan/PR from authority changes |
++
++## Integration verification
++
++- Confirm every packet still maps to the listed Forge issue; do not create
++  duplicate card, E2E, collaboration, migration, or provider issues.
++- Check current `origin/main`, issue status, exact dependency SHA, worktree, and
++  lease before trusting this snapshot.
++- Reconcile stale issue states only in their owning task; this roadmap records
++  them but does not close or mutate them.
++- At the MVP gate, audit automatic writes globally and require zero meeting-
++  triggered proposal/work-item/memory writes before explicit Add.
++- Preserve the post-MVP queue even when deferred; defer means separate authority,
++  not silent deletion.
+-- 
+2.51.0.windows.1
+

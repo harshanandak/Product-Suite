@@ -1,0 +1,195 @@
+From c7e003471777b4d41f5a75cfb5379e75b629c280 Mon Sep 17 00:00:00 2001
+From: Harsha Nanda <harshanandak@users.noreply.github.com>
+Date: Fri, 24 Jul 2026 12:58:20 +0530
+Subject: [PATCH] docs(memory): shadow-first phasing + task list per kernel
+ guidance (a5ecc5aa)
+
+Fold the issue's Fable-pass mandate into the plan: relevance score floor
+(ts_rank magnitude, not just fts @@ membership), Phase 0 evidence (capture-
+side precondition + offline query-construction experiment), Phase 1 shadow
+implementation (compute+log, no fence), Phase 2 live flip as a gated
+follow-up. Adds tasks.md sequenced for /dev.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ .../plan.md                                   | 48 ++++++++++-
+ .../tasks.md                                  | 86 +++++++++++++++++++
+ 2 files changed, 131 insertions(+), 3 deletions(-)
+ create mode 100644 docs/work/2026-07-24-memory-injection-ranker/tasks.md
+
+diff --git a/docs/work/2026-07-24-memory-injection-ranker/plan.md b/docs/work/2026-07-24-memory-injection-ranker/plan.md
+index 60536fc..f4d1415 100644
+--- a/docs/work/2026-07-24-memory-injection-ranker/plan.md
++++ b/docs/work/2026-07-24-memory-injection-ranker/plan.md
+@@ -53,12 +53,20 @@ from "memories"
+ where tenant_id = $1 and status = 'active' and kind <> 'rule'
+   and (<scope-cascade clauses>)          -- identical builder to Tier 1 (hard scope filter)
+   and fts @@ websearch_to_tsquery('english', $q)   -- GIN-indexed membership → bounded scan
++  and ts_rank(fts, websearch_to_tsquery('english', $q), 1) >= $floor  -- RELEVANCE FLOOR
+   and id <> all($excludeIds)             -- dedup vs Tier 1
+ order by ts_rank(fts, websearch_to_tsquery('english', $q), 1) desc,  -- norm flag 1 = ÷(1+log len)
+          valid_from desc, id desc          -- deterministic total order
+ limit $k                                   -- small candidate cap (e.g. 20)
+ ```
+ 
++**Relevance floor (kernel mandate).** `$floor` is a `ts_rank` magnitude threshold: below it, a row is
++**not injected at all** — silence is safe, a weakly-matching memory injected in the system's authoritative
++voice every turn is a repeated steering error. `fts @@` is only a *membership* floor (one shared term);
++the `ts_rank >= $floor` is the *magnitude* floor the kernel requires. When nothing clears the floor,
++Tier 2 injects nothing (the default). The floor value is **calibrated by the Phase 0 experiment**
++(§1.5) — the ts_rank distribution of judged-relevant vs. irrelevant hits — not guessed.
++
+ Then greedily token-trim to a **separate, small** `DEFAULT_SUPPLEMENT_TOKEN_BUDGET` (~300), same
+ `sanitizeForFence` + `estimateTokens` discipline as Tier 1.
+ 
+@@ -106,8 +114,40 @@ One structured, greppable log line per run — emitted in `runtime.ts` because i
+ - Best-effort/swallowed; a logging failure never strands the run. `holdout`-tagged so holdout runs are
+   filterable out of any derived rate.
+ 
++## 1.5 Phasing — shadow-first (kernel mandate, issue a5ecc5aa comment)
++
++The kernel issue's Fable-pass guidance requires **evidence before steering**: shadow-log first, and settle
++**query construction** (first-order) before FTS-vs-HNSW (second-order), because the last user message is
++routinely anaphora ("continue", "fix it") on which every index ranks noise. This branch delivers Phase 0
+++ Phase 1; **going live is a separate follow-up** gated on the shadow data.
++
++**Phase 0 — evidence (offline, no production behavior change):**
++- **Capture-side precondition.** Measure the store first: active decisions/facts count + newest-entry age
++  per tenant. If the corpus is thin/stale (the reflection feeder is unscheduled — issue 3ecc1859), better
++  ranking only sorts a weak corpus → capture, not ranking, is the bottleneck. Report it; do not silently
++  proceed as if ranking is the win.
++- **Offline query-construction experiment.** Replay stored `agent_runs` transcripts; per turn compute
++  top-k under (a) current scope+recency, (b) FTS last-message, (c) FTS last-message + prior assistant
++  turn's first line, (d) FTS rolling keyword window. Compare recall@k; LLM-judge relevance on 30–50
++  sampled turns + human spot-check ~10. **Outputs:** the winning query construction, the `ts_rank` floor
++  calibration, and an FTS-vs-HNSW read (prior: take FTS unless HNSW beats it by a clear margin, since
++  HNSW puts an embedding call in the hot inject loop). A throwaway analysis script, not production code.
++
++**Phase 1 — shadow implementation (production code, still no live injection):**
++- Implement `retrieveRelevanceSupplement` (Tier 2, §1) with the floor and the winning query construction,
++  plus the `[memory-supplement]` instrumentation — but **compute-and-log only; do NOT append the fence.**
++  The model sees nothing; we record what Tier 2 *would* have injected next to what Tier 1 *did*. This is
++  the kernel's STEP 0, done with the real retrieval path so the shadow data is trustworthy.
++
++**Phase 2 — flip live (separate follow-up branch, gated):**
++- Append the Tier 2 fence (live injection) once the shadow data confirms the query construction, floor,
++  and a non-thin store. Because the change is purely additive and Tier 1 is untouched, flipping live is a
++  one-line, single-revert change — the risk the kernel flags (retrieval error → repeated steering error)
++  is bounded to the supplement and floored to silence. File Phase 2 as its own issue now.
++
+ ## 2. Non-goals (OUT — each its own filed issue; cite and move on)
+ 
++- **Live Tier 2 injection (Phase 2 flip)** — this branch is shadow-only; live is a separate gated follow-up.
+ - Embeddings / HNSW ranking or backfill — FTS first; the zero-hit metric is the trigger (§1).
+ - Any change to Tier 1 / `retrieveForContext`, the rules lane, or the attribution schema.
+ - `hard enforcement` wiring / `review_after` sweeper (17ecd92a — separate branch).
+@@ -142,9 +182,11 @@ One structured, greppable log line per run — emitted in `runtime.ts` because i
+ 
+ ## 5. Rollout / reversibility
+ 
+-Purely additive: a single new leg, single-diff revert, no migration. Disabling is trivial (the leg is
+-self-contained). Tier 1 is untouched, so the worst case of a Tier 2 bug is "no supplement," never a
+-baseline regression.
++**This branch ships shadow-only** (Phase 0 + Phase 1): Tier 2 is computed and logged but never fenced into
++the prompt, so there is **zero production behavior change** — the safest possible rollout. The live flip is
++Phase 2, a separate gated follow-up. Everything is additive: a single new leg, single-diff revert, no
++migration. Tier 1 is untouched, so even after the live flip the worst case of a Tier 2 bug is "no
++supplement" (floored to silence), never a baseline regression.
+ 
+ ## 6. Open question to verify during dev (do NOT fix here — file separately)
+ 
+diff --git a/docs/work/2026-07-24-memory-injection-ranker/tasks.md b/docs/work/2026-07-24-memory-injection-ranker/tasks.md
+new file mode 100644
+index 0000000..5a6b6b8
+--- /dev/null
++++ b/docs/work/2026-07-24-memory-injection-ranker/tasks.md
+@@ -0,0 +1,86 @@
++# Tasks — Memory Injection Additive Relevance Tier (shadow-first)
++
++Issue: a5ecc5aa · Branch: `feat/memory-injection-ranker` · Spec: `./plan.md`
++
++Scope of THIS branch = **Phase 0 (evidence) + Phase 1 (shadow code)**. Phase 2 (live flip) is a separate
++filed follow-up. No production behavior change ships here.
++
++Dependency: Task 1's experiment output (winning query construction + `ts_rank` floor) feeds Tasks 2–3.
++Build 2–3 with the construction/floor parameterized; lock the defaults to Task 1's result.
++
++---
++
++## Phase 0 — Evidence (analysis; no production code, no TDD gate)
++
++### Task 0 — Capture-side precondition check
++**Goal:** prove the corpus is worth ranking before polishing retrieval over it.
++- Query the `memories` table: per tenant, count `status='active'` rows with `kind <> 'rule'`, and the age
++  of the newest such row. (Script under `scripts/` or a `*.analysis.ts`, not shipped app code.)
++- **Deliverable:** a 3-line finding in `decisions.md` + a kernel comment on a5ecc5aa: store size, newest
++  age, and a verdict — "corpus adequate to rank" vs "thin/stale → capture (3ecc1859) is the bottleneck."
++- **Done when:** the finding is recorded. If thin/stale, flag loudly; do not pretend ranking is the win.
++
++### Task 1 — Offline query-construction experiment
++**Goal:** settle query construction (first-order) and calibrate the floor, from real data.
++- Replay stored `agent_runs` transcripts. Per turn, compute top-k memory candidates under:
++  (a) current scope+recency, (b) FTS last-user-message, (c) FTS last-message + prior assistant turn's
++  first line, (d) FTS rolling keyword window.
++- Compare recall@k; LLM-judge relevance on 30–50 sampled turns + human spot-check ~10.
++- **Deliverables:** an experiment script (throwaway, under `scripts/`), and `experiment-results.md` with:
++  the winning query construction, the `ts_rank` floor value (from the relevant-vs-irrelevant score
++  distribution), and an FTS-vs-HNSW read (default FTS unless HNSW wins by a clear margin).
++- **Note:** if too few real transcripts exist, say so, sample what exists, and mark the confidence low —
++  this ties back to Task 0 (thin corpus).
++- **Done when:** `experiment-results.md` names a query construction + floor with evidence.
++
++---
++
++## Phase 1 — Shadow implementation (production code; TDD per CLAUDE.md /dev)
++
++### Task 2 — `lastUserQueryText` + query-construction helper
++**File:** `apps/platform-api/src/agent/memory-retrieval.ts` (or a small sibling module).
++- **RED:** unit tests — extract last user message text (multi-part), anaphora/short turns, empty/tool-only
++  → `''`; the winning composite construction from Task 1 (e.g. + prior assistant first line) assembles the
++  expected query string. No DB.
++- **GREEN:** implement the pure helper(s).
++- **REFACTOR:** name the construction constant; one-line rationale.
++- **Done when:** tests pass; construction matches Task 1's choice.
++
++### Task 3 — `retrieveRelevanceSupplement` (Tier 2 retrieval)
++**File:** `apps/platform-api/src/agent/memory-retrieval.ts`. New function, signature per spec §1.
++- **RED (real-DB tier — no mock-green):** seed a tenant with mixed scope/recency/lexical-match; assert:
++  1. Core win: a relevant NON-scope-top memory (Tier 1 would trim) is returned.
++  2. Empty query → `{ fenced:'', injected:[] }`, no SQL.
++  3. Malicious query (`a & | ! :*`, quotes) → no throw.
++  4. Dedup: an id in `excludeIds` is never returned.
++  5. `kind='rule'` never returned.
++  6. **Floor:** a matching-but-below-floor row (single common term, low `ts_rank`) is NOT returned.
++  7. Budget: injected tokens ≤ `DEFAULT_SUPPLEMENT_TOKEN_BUDGET`.
++  8. Length-normalization: short on-topic memory outranks a verbose term-stuffed one.
++- **GREEN:** implement the SQL (spec §1: `fts @@` + `ts_rank(…,1) >= $floor` + dedup + `kind<>'rule'` +
++  ordered `ts_rank desc, valid_from desc, id desc` + `limit`), then greedy token-trim.
++- **REFACTOR:** named constants `DEFAULT_SUPPLEMENT_TOKEN_BUDGET (~300)`, `SUPPLEMENT_CANDIDATE_LIMIT (~20)`,
++  `SUPPLEMENT_RELEVANCE_FLOOR` (from Task 1) with rationale.
++- **Done when:** all real-DB tests green.
++
++### Task 4 — Shadow leg + instrumentation in `runtime.ts`
++**File:** `apps/platform-api/src/agent/runtime.ts` (new best-effort leg after the Tier-1 leg, ~line 306).
++- **RED (integration):** on a normal run, assert the Tier-2 fence is **NOT** appended to the prompt (shadow),
++  the `[memory-supplement]` line is emitted with `{ holdout, hasQuery, supplementCandidates,
++  supplementInjected, topIds, topRank, zeroHit }`, and it is `holdout`-tagged. On a holdout run, still no
++  fence and the line tagged `holdout:true`. A retrieval/log failure never strands the run (best-effort).
++- **GREEN:** call `retrieveRelevanceSupplement` with `excludeIds` = Tier-1 injected ids and the query from
++  Task 2; compute + log; **do not append the fence** (shadow). Own try/catch.
++- **REFACTOR:** keep the leg self-contained and clearly commented as SHADOW (points to Phase 2 for live).
++- **Done when:** integration tests green; grep confirms no fence append path for Tier 2.
++
++---
++
++## Phase 2 + cleanup — file, don't build
++
++### Task 5 — File follow-ups (kernel)
++- **Phase 2 (live flip):** new issue — append the Tier 2 fence once shadow data confirms construction,
++  floor, and non-thin store; link to a5ecc5aa.
++- **§8 double-inject:** during Task 3, verify whether Tier 1 (`retrieveForContext`, no `kind` filter)
++  double-injects `kind='rule'` rows. If real, file a separate issue (do NOT fix here).
++- **Done when:** issues exist and are referenced in `decisions.md`.
+-- 
+2.51.0.windows.1
+

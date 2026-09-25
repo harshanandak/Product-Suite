@@ -1,0 +1,343 @@
+From 447b43c9330e1671b620013c9c2d9d2fda35672f Mon Sep 17 00:00:00 2001
+From: Harsha Nanda <harshanandak@users.noreply.github.com>
+Date: Mon, 10 Aug 2026 12:04:40 +0530
+Subject: [PATCH] docs: plan TanStack Charts adapter migration
+
+---
+ .../decisions.md                              |  31 ++++
+ .../plan.md                                   | 138 +++++++++++++++++
+ .../tasks.md                                  | 139 ++++++++++++++++++
+ 3 files changed, 308 insertions(+)
+ create mode 100644 docs/work/2026-08-10-tanstack-charts-adapter/decisions.md
+ create mode 100644 docs/work/2026-08-10-tanstack-charts-adapter/plan.md
+ create mode 100644 docs/work/2026-08-10-tanstack-charts-adapter/tasks.md
+
+diff --git a/docs/work/2026-08-10-tanstack-charts-adapter/decisions.md b/docs/work/2026-08-10-tanstack-charts-adapter/decisions.md
+new file mode 100644
+index 0000000..963dfb3
+--- /dev/null
++++ b/docs/work/2026-08-10-tanstack-charts-adapter/decisions.md
+@@ -0,0 +1,31 @@
++# TanStack Charts adapter-first migration — decisions
++
++## Locked PLAN decisions
++
++1. `@product-suite/ui-charting` is the permanent product boundary; apps never import a chart engine or its types/selectors.
++2. The modern candidate is `@tanstack/charts`, not the stale `react-charts` beta package.
++3. As of 2026-08-10, registry latest is exactly `0.9.0` and TanStack labels it pre-alpha/not production-ready. DEV is blocked until a human chooses wait-for-beta or explicitly accepts a non-production pre-alpha pilot.
++4. Any approved version is exact-pinned. Version upgrades are reviewed adapter changes with the full contract suite.
++5. The adapter exposes finite product semantics (time series, categorical bars, donut, radial gauge, states and export), never TanStack grammar objects.
++6. SVG is the only initial renderer. Canvas and new chart families require separate measured evidence.
++7. Migration is eight sequential PRs: shared foundation -> Platform cleanup -> Meeting migration -> deletion-only Meeting wrapper retirement -> Roadmap analytics -> Roadmap strategy -> E2E/visual parity -> post-observation dependency/docs retirement.
++8. Every app migration PR is capped at 300 added/modified production lines and must rebase/test against the preceding merged PR. The 319-line dead Meeting wrapper has its own deletion-only PR with zero replacement production code.
++9. Recharts remains available until the last consumer and rollback window finish; final removal is a separate PR.
++10. Stable product selectors and semantic/accessibility assertions replace engine DOM selectors. Visual baselines supplement, not replace, semantic tests.
++11. Historical research/plans are preserved as history; current authority docs receive the superseding decision.
++12. This refactor remains behind the meeting-capture critical path.
++13. Every adapter chart requires product wording for an exact-value summary/caption; ui-charting derives and links the semantic table from the same normalized plotted data and keeps it available when the engine fails.
++14. Final dependency removal requires a human-reviewed 14-consecutive-day window with exact-SHA green CI, route traffic thresholds, zero attributable chart errors, <=0.1 percentage-point error-rate delta, stable deterministic visual baselines, and start/end keyboard plus screen-reader checks. Low traffic extends the window.
++
++## Human decision required before DEV
++
++**Question:** Accept `@tanstack/charts@0.9.0` despite TanStack's pre-alpha/not-production-ready warning, strictly as a non-production adapter pilot, or wait for an official beta? Approval also locks the eight-PR train and 14-day observation/rollback exit contract.
++
++**Recommended:** wait for official beta and refresh registry/API evidence. If speed of learning outweighs churn risk, approve only the isolated non-production pilot; app rollout remains blocked until parity, accessibility, export, visual and rollback evidence is green.
++
++## PLAN execution notes
++
++- Forge claim was proven with the live lease before issue mutation.
++- The exact requested base was used in an isolated worktree.
++- No package was installed and no product code was edited.
++- The Forge PLAN adapter remains blocked on its legacy standalone `docs/research/tanstack-charts-adapter.md` prerequisite. This plan embeds the verified official research instead; the blocker is recorded rather than bypassed or repeatedly bootstrapped.
+diff --git a/docs/work/2026-08-10-tanstack-charts-adapter/plan.md b/docs/work/2026-08-10-tanstack-charts-adapter/plan.md
+new file mode 100644
+index 0000000..225a098
+--- /dev/null
++++ b/docs/work/2026-08-10-tanstack-charts-adapter/plan.md
+@@ -0,0 +1,138 @@
++# TanStack Charts adapter-first migration
++
++- **Feature:** `tanstack-charts-adapter`
++- **Issue:** `b414a33f-aa82-4dfa-bf95-2cef1aca0e98`
++- **Date:** 2026-08-10
++- **Classification:** Refactor
++- **Status:** PLAN complete; DEV blocked on the pre-alpha human gate below
++- **Base:** `origin/main@5a4ed8d8f52b7fe78044fac000602b9cd6552ee0`
++- **Branch/worktree:** `codex/tanstack-charts-plan` / `.worktrees/tanstack-charts-plan`
++- **Priority:** lower than the active meeting-capture critical path
++
++## Purpose
++
++Replace Recharts incrementally without exposing an unstable chart engine to Roadmap, Meeting, or Platform. `@product-suite/ui-charting` becomes the only product-facing chart contract and the only package allowed to import an engine. App data ownership, analytics calculations, cards, labels, and API contracts stay unchanged.
++
++## Human gate: the requested beta does not exist
++
++The modern TanStack package is `@tanstack/charts`. The npm registry reported `latest=0.9.0`, no `beta` dist-tag, publication on 2026-08-09, and integrity `sha512-QnpBLXjSqZff/WOLTK1lbVnM8NnjmEOiIFQS/yeAiJ/L8ZMIfRio7CQCJZZOd/GEAnKKTEb09WqnE7iEnASzfQ==`. TanStack's own tagged README calls `0.9.0` **pre-alpha and not ready for production use**. The older `react-charts@3.0.0-beta.57` is a different, stale package last published in 2023 and is not the selected engine.
++
++DEV requires one explicit human choice:
++
++1. **Recommended:** wait for TanStack to publish and designate an actual beta, then refresh this plan's version/API evidence; or
++2. approve a non-production `@tanstack/charts@0.9.0` pre-alpha pilot, exact-pinned behind `@product-suite/ui-charting`, with every parity gate below required before any app rollout.
++
++Do not write `^0.9.0`, `latest`, or a floating prerelease tag. Any version change is a separately reviewed adapter PR with regenerated lock evidence and the full contract suite.
++
++Primary evidence: [TanStack Charts v0.9.0 README](https://github.com/TanStack/charts/tree/v0.9.0#readme), [release-source installation](https://github.com/TanStack/charts/blob/v0.9.0/docs/installation.md), [React chart API](https://github.com/TanStack/charts/blob/v0.9.0/docs/framework/react/reference/chart.md), [accessibility](https://github.com/TanStack/charts/blob/v0.9.0/docs/guides/accessibility.md), [testing](https://github.com/TanStack/charts/blob/v0.9.0/docs/guides/testing-and-debugging.md), [exporting](https://github.com/TanStack/charts/blob/v0.9.0/docs/guides/exporting.md), and the [npm registry record](https://registry.npmjs.org/@tanstack/charts/0.9.0).
++
++## Success criteria
++
++1. `packages/ui-charting/package.json` owns exact `@tanstack/charts: "0.9.0"`; apps own neither TanStack Charts nor engine types/imports.
++2. A repository boundary test enumerates the exact legacy Recharts debt, rejects any new occurrence, rejects `@tanstack/charts` outside `packages/ui-charting/src/engine/**`, and becomes a zero-Recharts assertion in the post-observation dependency-retirement PR.
++3. Product-owned props cover the current area/line, horizontal and vertical bar, pie/donut, and semicircle radial-gauge uses without exporting TanStack definitions, marks, points, or tooltip types.
++4. Every chart has an accessible name and optional description, keyboard-equivalent focus/tooltip behavior, visible focus, redundant labels, an exact-value summary and linked semantic table that survives engine failure, reduced-motion behavior, deterministic `initialWidth`, responsive width, and stable height/aspect policy.
++5. Shared ready/empty/loading/error states preserve current app copy and never mount an engine chart for a non-ready state.
++6. Stable selectors use `data-chart`, `data-chart-kind`, `data-chart-state`, `data-chart-series`, and `data-chart-tooltip`; tests never target `.recharts-*`, `.ts-chart`, or `data-ts-*`.
++7. Shared tests prove scene/SVG semantics, keyboard and pointer tooltip parity, resize, cleanup, SSR/hydration, empty/loading/error behavior, SVG serialization, and PNG failure/success behavior. Roadmap Playwright adds hard assertions and accepted desktop/mobile visual snapshots.
++8. Meeting, Roadmap, and Platform migrate in eight sequential PRs. Each app migration PR adds/modifies at most 300 production lines. The dead 319-line Meeting wrapper is retired in its own deletion-only PR with zero replacement production code.
++9. Recharts remains installed until the final consumer and rollback window are complete. The eighth, post-observation dependency-retirement PR proves zero production imports/declarations and removes root/app lock entries and engine-derived selectors.
++
++## Out of scope
++
++- Changing analytics queries, meeting bucketing, strategy statistics, card layout, product copy, routes, APIs, database state, or authorization.
++- Adding new chart families, dashboards, Canvas rendering, React Native, generalized grammar exposure, or an app-selectable engine flag.
++- Rewriting historical plans/research merely because they mention Recharts; current authority docs receive a supersession note.
++- Production rollout while TanStack calls the selected release pre-alpha.
++- Any work that delays or shares ownership with the meeting-capture critical path.
++
++## Verified API surface and constraints
++
++The `0.9.0` release exposes `defineChart`, Cartesian marks such as `lineY`, `areaY`, `barX`, and `barY`; compact `scales/linear`, `scales/band`, and `scales/point`; polar `pie`, `polar`, `radialArc`, and `radialBarAngle`; React `Chart` from `@tanstack/charts/react`; tooltip behavior from `/tooltip`; and browser SVG/raster helpers from `/export`. React and React DOM `^19` are supported, matching all three apps.
++
++The engine requires memoized definition identity. Responsive hosts use `ResizeObserver`; SSR/hidden containers require deterministic `initialWidth`. `ariaLabel` is required. Keyboard navigation, focus, selection, and tooltip behavior belong to the definition/host. SVG export is deterministic; mounted raster export is browser-only and can reject on missing browser capabilities. These facts shape the adapter and tests; apps must not reproduce them.
++
++## Current inventory at the exact base
++
++| Surface | Production consumers | Dependencies and tests |
++| --- | --- | --- |
++| Shared `ui-charting` | `MetricCard`, `formatTrendValue`, `normalizeChartData`, `sortChartDataByValue`; no chart engine | `src/index.jsx`, `index.d.ts`, `index.test.jsx`; React peers only |
++| Meeting | `chart-area-interactive.jsx` imports area primitives; `components/ui/chart.jsx` is a Recharts-specific shadcn wrapper used by that chart | `recharts:^3.6.0`; app lock resolves 3.8.1; only `buildSeries` unit coverage, no rendered chart/e2e parity |
++| Roadmap | analytics bar, line, pie/donut cards; strategy alignment pie, horizontal bar, and semicircle radial chart. `gauge-chart.tsx` is owned SVG and is not a Recharts consumer | `recharts:^3.6.0`; app lock 3.6.0; E2E `07-analytics-dashboard.spec.ts` targets `.recharts-*` and conditionally passes without asserting a chart/tooltip; shared-package tests cover only MetricCard/helpers |
++| Platform | no source consumer | stale `recharts:^2`; root lock resolves 2.15.4 |
++| Root lock | Meeting and Roadmap importers plus Platform importer | Recharts 2.15.4 and 3.8.1 variants plus `recharts-scale`/Victory/D3 transitive entries |
++
++Other current references requiring classification include Roadmap seed descriptions and analytics comments, `DESIGN.md`, `docs/design/component-source-strategy-2026-06-17.md`, `component-sourcing-matrix-2026-06-17.md`, `component-sourcing-addendum-2026-06-18.md`, and `architecture-reference.html`. Historical plans remain historical; authoritative docs must state the new adapter decision and pre-alpha gate.
++
++## Approach selected
++
++### Finite semantic adapter, not a generic grammar wrapper
++
++Add product-owned `TimeSeriesChart`, `CategoricalBarChart`, `DonutChart`, and `RadialGaugeChart` surfaces plus `ChartFrame` state handling and product-owned export helpers. Props use plain rows, accessors/keys, series metadata, token colors, labels, formatters, dimensions, and state. They never accept or return an engine definition, mark, point, scale, tooltip payload, or renderer.
++
++Every surface requires the finite product-owned accessibility contract `accessibility: { label, description?, summary, tableCaption }`. The adapter derives exact table rows/columns from the same normalized rows, x/category key, series labels, and formatters used for geometry; consumers cannot provide separate values that drift. `ChartFrame` renders `data-chart-summary` and a semantic `table[data-chart-table]`, assigns stable IDs, and links both to the chart with `aria-describedby`. The summary/table remain rendered when the engine is loading, unavailable, or throws; ready, empty, and error copy remains app-owned. Apps own domain wording (`summary`, caption, labels and formatters); `ui-charting` owns derivation, markup, IDs, linkage, focus behavior and fallback rendering.
++
++Only `packages/ui-charting/src/engine/tanstack-charts.*` imports `@tanstack/charts` subpaths. It memoizes the complete definition, uses SVG by default, maps product tokens to marks/guides, and decorates stable product selectors. `index.jsx`/`index.d.ts` export only product contracts. No app imports the engine or D3.
++
++The adapter preserves:
++
++- Meeting's 7/30/90-day area series, date/value formatting, mobile range behavior, two fills/strokes, and 280px responsive surface.
++- Roadmap's line dots/series, horizontal/vertical bars, value colors/opacities, pie/donut legend and percentages, radial coverage, exact empty/loading/error copy, and chart token palette.
++- SVG accessible name/description, keyboard traversal, pointer/keyboard tooltip content, light/dark/reduced-motion behavior, deterministic SSR width, and explicit export dimensions.
++
++### Sequential PR train
++
++1. **Shared adapter foundation:** exact pin, semantic contracts, engine module, stable selectors, state/export/a11y/responsive/tooltip tests, and import boundary guard. No app changes.
++2. **Platform cleanup:** remove its unused Recharts declaration and lock importer; no UI change.
++3. **Meeting migration:** declare `@product-suite/ui-charting`, replace the area consumer, preserve `buildSeries`, and add rendered interaction/state/exact-value tests. Leave the now-dead local wrapper untouched.
++4. **Meeting wrapper retirement:** after a zero-consumer scan, delete only the 319-line local Recharts wrapper. This deletion-only PR has zero replacement production code and does not consume the 300-line migration budget.
++5. **Roadmap analytics cards:** migrate bar/line/pie cards through the shared package; preserve their app Card shells and public props.
++6. **Roadmap strategy alignment:** migrate pie/bar/radial consumers and state copy; keep the owned SVG gauge unchanged.
++7. **E2E and visual parity:** migrate E2E selectors to hard assertions and approve deterministic desktop/mobile visual baselines. Keep Recharts dependencies and authority docs unchanged.
++8. **Post-observation dependency retirement:** only after the 14-day human gate, remove Meeting/Roadmap Recharts declarations and stale app locks, regenerate the root lock, update current authority docs, and prove the zero-reference boundary. Do not combine this PR with an app migration or visual-baseline change.
++
++After every PR: rebase on current main, run the affected shared/app gates, measure added/modified production lines, and stop if parity or the 300-line migration cap fails. The separately reviewed one-file wrapper deletion is the only stated exception. PRs merge strictly in order.
++
++## Testing and parity matrix
++
++| Contract | Required evidence |
++| --- | --- |
++| Data/geometry | scene/SVG tests for area, multi-line, both bar orientations, donut, radial gauge, zero/negative/non-finite values, stable keys and labels |
++| Accessibility | role/name/description; exact `summary` and derived semantic table linked by stable IDs; table remains on engine failure; keyboard traversal/selection, visible focus, pointer/keyboard tooltip equivalence, forced-colors and reduced-motion checks. Meeting and both Roadmap consumer suites assert their actual labels, summaries, captions, headers and values. |
++| Responsive/SSR | deterministic `initialWidth`, smallest supported width, ResizeObserver update, hidden/zero-width recovery, hydration without geometry mismatch, observer cleanup |
++| States | ready/empty/loading/error selectors and exact app copy; engine is absent in non-ready states |
++| Tooltip | formatter/locale/date/percentage parity, grouped series order, Escape dismissal, pinned focus restoration |
++| Export | deterministic SVG dimensions/name/description/theme; mounted SVG serialization; PNG success and browser-capability rejection; no external resource or unsanitized text leakage |
++| E2E/visual | Roadmap uses product selectors and unconditional assertions. A test-owned route mock/fixture helper freezes system time, IDs, locale/timezone, API rows, animation and viewport before desktop/mobile light/dark screenshots; no `Date.now()`, live API data, random ID, or engine DOM snapshot is part of the contract. |
++| Boundary/dependencies | static scan of all app/package source/manifests; root and app lock inspection; production bundle/build for each affected app |
++
++## Security and reliability
++
++- **OWASP A03/A10:** chart labels/tooltips are untrusted display data. Use React/TanStack escaping; no HTML formatter, remote image, URL, or external export resource from chart data.
++- **A04/A05:** pre-alpha churn and permissive selectors can silently regress behavior. Exact pin, adapter-only imports, fail-hard tests, deterministic dimensions, and version-review gates apply.
++- **A08:** commit the Bun lock integrity, inspect packed exports, and never float the version or import transitive D3 modules from apps.
++- **A09:** export failures surface as typed UI/test failures without logging chart payloads. No new analytics event is added.
++- Large/dense datasets remain bounded to current app inputs. Canvas is not enabled without separate performance evidence.
++
++## Rollback
++
++Before post-observation dependency retirement, revert only the failed app PR; its Recharts dependency remains available and earlier migrated apps stay on the product contract. If the shared engine regresses after app migration, restore the prior shared adapter implementation behind the same exported props; no app data/API change is needed. Never change analytics data or API payloads as rollback.
++
++The final Recharts-removal PR is blocked for **14 consecutive calendar days after the last chart consumer is deployed**. The window restarts after any chart fix or adapter version change and extends until all thresholds are met: exact deployed SHAs have green affected CI/build/E2E; existing production traffic evidence records every migrated Meeting/Roadmap chart route on at least 7 distinct days and at least 100 successful route loads per app; zero uncaught chart-engine, hydration, ResizeObserver-cleanup, tooltip, or export errors are attributable to the adapter; application error rate does not exceed the pre-migration 14-day baseline by more than 0.1 percentage point; approved desktop/mobile light/dark visual diffs are unchanged; and the keyboard plus screen-reader checklist passes at both window start and end. Low traffic extends the window; it does not waive evidence, and no new user-level chart analytics event is added. A P0/P1 accessibility/data/rendering regression, any attributable uncaught chart error, or the error-rate threshold triggers rollback to the prior app/shared-adapter commit and restarts the window after correction. The human approves this exact exit contract before DEV and explicitly approves final removal after reviewing its evidence bundle.
++
++## Baseline and Forge notes
++
++- Exact worktree base and clean branch were verified.
++- Full-repository Recharts/import/selector blast-radius searches were completed at the exact base.
++- Forge issue lease was claimed and proven under actor `codex-tanstack-charts-plan`; purpose, criteria, constraints, and out-of-scope were recorded before planning.
++- `forge plan tanstack-charts-adapter` first reported missing worktree Lefthook. Reusing the existing ignored root dependency tree (no install) advanced it to `Research document not found: docs/research/tanstack-charts-adapter.md`. This repository's current plan convention embeds research in `plan.md`; no extra ceremony or product change was added.
++- Team verification reported unrelated missing team-map identity and two orphan GitHub issues. They were not mutated.
++- Focused untouched-baseline tests were attempted without installing: `ui-charting` stopped because `react/jsx-dev-runtime` was unavailable from the reused dependency tree; Meeting stopped because its `vitest` executable was unavailable. Both are environment INCOMPLETE, not source failures. DEV must install the locked dependencies and establish green affected baselines before RED.
++
++## Ambiguity policy
++
++Use the `/dev` seven-dimension rubric. Below 80% confidence, stop. Any ambiguity about accepting pre-alpha risk, leaking engine types, accessibility equivalence, export safety, app parity, dependency removal, or exceeding 300 production lines is automatically a human/spec-review gate.
++
++## Approval
++
++PLAN does not authorize DEV. The human must select wait-for-beta or explicitly accept the `0.9.0` pre-alpha pilot, approve the eight-PR order and 14-day exit contract, and keep this work behind meeting capture. No install, implementation, push, PR, or product mutation was performed in PLAN.
+diff --git a/docs/work/2026-08-10-tanstack-charts-adapter/tasks.md b/docs/work/2026-08-10-tanstack-charts-adapter/tasks.md
+new file mode 100644
+index 0000000..ba24116
+--- /dev/null
++++ b/docs/work/2026-08-10-tanstack-charts-adapter/tasks.md
+@@ -0,0 +1,139 @@
++# TanStack Charts adapter-first migration — TDD tasks
++
++- Plan: [`plan.md`](./plan.md)
++- Issue: `b414a33f-aa82-4dfa-bf95-2cef1aca0e98`
++
++All tasks are sequential. DEV starts only after the pre-alpha human gate. Each app migration PR must stay at or below 300 added/modified production lines; tests, fixtures, and docs do not excuse an oversized migration diff. The verified-dead 319-line Meeting wrapper gets one separate deletion-only PR with zero replacement production code.
++
++## Task 1: Lock the shared product contract and import boundary
++
++**PR:** shared adapter foundation
++
++**OWNS:** `packages/ui-charting/package.json`, `packages/ui-charting/src/chart-contract.js`, `packages/ui-charting/src/chart-contract.test.js`, `packages/ui-charting/src/index.jsx`, `packages/ui-charting/src/index.d.ts`, `test/domain-inventory.test.js`, `bun.lock`
++
++**What to implement:** Exact-pin `@tanstack/charts` at the human-approved version (`0.9.0` only if pre-alpha is explicitly approved). Define plain product data/series/dimension/state/formatter contracts and engine-neutral selectors. Add a repository guard allowing TanStack imports only under `packages/ui-charting/src/engine/**`, rejecting floating chart versions and any new Recharts import/selector beyond an exact temporary debt allowlist for the inventoried consumers. Task 9 deletes the allowlist and turns the guard into zero tolerance.
++
++**TDD:** Write boundary and contract tests first; prove they fail on missing exports and on a synthetic unlisted engine occurrence; add the minimal contract/pin/guard plus exact debt allowlist; prove pass and inspect the root lock integrity.
++
++**Commit:** `test(charting): lock product chart boundary`
++
++**Expected:** engine types are unreachable from package declarations and the scan identifies every current app violation until later tasks remove it.
++
++## Task 2: Implement the shared TanStack engine and parity harness
++
++**PR:** shared adapter foundation
++
++**OWNS:** `packages/ui-charting/src/engine/tanstack-charts.jsx`, `packages/ui-charting/src/chart.jsx`, `packages/ui-charting/src/chart.test.jsx`, `packages/ui-charting/src/index.jsx`, `packages/ui-charting/src/index.d.ts`, `packages/ui-charting/package.json`
++
++**What to implement:** Map product contracts to memoized `0.9.0` definitions for time-series line/area, both bar orientations, donut, and radial gauge. Add `ChartFrame` ready/empty/loading/error behavior, required `accessibility: { label, description?, summary, tableCaption }`, adapter-derived exact-value table rows/columns from the plotted normalized data, stable summary/table IDs and `aria-describedby` linkage, engine-failure fallback, deterministic `initialWidth`, responsive height/aspect policy, stable product selectors, keyboard/pointer tooltip mapping, reduced motion, and product-owned SVG/raster export wrappers. Keep default SVG; no Canvas.
++
++**TDD:** First fail scene/SVG, SSR, DOM resize/cleanup, keyboard/tooltip, state, export, exact-value derivation/linkage, and engine-failure table tests from the plan matrix. Implement the smallest adapter, then refactor shared scale/tooltip/selector mapping while tests stay green.
++
++**Commit:** `feat(ui-charting): add isolated TanStack chart adapter`
++
++**Expected:** one package test command proves all supported families and cross-cutting contracts; authored production diff is reviewed and split if it becomes difficult to audit.
++
++## Task 3: Remove Platform's unused dependency
++
++**PR:** Platform cleanup (<=300 production lines)
++
++**OWNS:** `apps/platform-web/package.json`, `bun.lock`, `test/domain-inventory.test.js`
++
++**What to implement:** Remove the unused Recharts declaration/importer only. Do not add `ui-charting` until Platform has a real chart consumer.
++
++**TDD:** Add a failing manifest assertion, remove the declaration, regenerate the root lock, then run Platform lint/typecheck/tests/build plus the boundary test.
++
++**Commit:** `chore(platform-web): remove unused Recharts dependency`
++
++**Expected:** Platform has no chart engine dependency or behavior change.
++
++## Task 4: Migrate Meeting activity through ui-charting
++
++**PR:** Meeting migration (<=300 production lines)
++
++**OWNS:** `apps/meeting-web/package.json`, `apps/meeting-web/src/components/chart-area-interactive.jsx`, `apps/meeting-web/src/components/__tests__/chart-area-interactive.test.js`, `apps/meeting-web/vite.config.js`, `bun.lock`
++
++**What to implement:** Declare `@product-suite/ui-charting`, preserve `buildSeries` and the time-range controls, replace direct area/wrapper usage with `TimeSeriesChart`, preserve dates, two series, fills/strokes, 280px responsive behavior and accessible copy. Leave the now-unused local wrapper for Task 5.
++
++**TDD:** Extend the test from pure bucketing to rendered ready/empty states, stable selectors, accessible name, exact summary/caption/table headers and all 7/30/90-day values, table persistence on engine failure, responsive initial size, and pointer/keyboard tooltip values. Prove RED on current output, implement, then run Meeting lint/test/build and the boundary scan.
++
++**Commit:** `refactor(meeting-web): route activity chart through shared adapter`
++
++**Expected:** the active Meeting chart has no direct engine import or selector; the unused local wrapper remains the one explicitly tracked source debt for Task 5; chart behavior and range switching remain unchanged.
++
++## Task 5: Retire the dead Meeting Recharts wrapper
++
++**PR:** Meeting wrapper retirement (one deletion-only production file)
++
++**OWNS:** `apps/meeting-web/src/components/ui/chart.jsx`
++
++**What to implement:** Prove the 319-line wrapper has zero importers after Task 4, then delete exactly that file. Add no replacement production code and do not remove Recharts dependencies yet.
++
++**TDD:** Run the repository consumer scan and Meeting lint/test/build before deletion, delete the file, rerun the same commands and boundary debt inventory, and inspect the diff for one production-file deletion only.
++
++**Commit:** `chore(meeting-web): retire unused Recharts wrapper`
++
++**Expected:** Meeting has no Recharts source consumer; dependency retirement remains gated on the final all-app observation window.
++
++## Task 6: Migrate Roadmap analytics chart cards
++
++**PR:** Roadmap analytics migration (<=300 production lines)
++
++**OWNS:** `apps/roadmap-web/src/components/analytics/charts/bar-chart-card.tsx`, `line-chart-card.tsx`, `pie-chart-card.tsx`, `index.ts`, `apps/roadmap-web/src/components/analytics/charts/chart-cards.test.tsx`, `apps/roadmap-web/src/lib/types/analytics.ts`
++
++**What to implement:** Keep Card shells/public props and route bar, line, and pie/donut surfaces through shared components. Preserve orientation, dots, series colors, legends, percentages, date/value formatting, height, and exact empty copy. Remove Recharts-specific payload types/comments.
++
++**TDD:** Add failing component tests for each public prop combination, empty data, labels, product selectors, accessible names, exact summary/caption/table headers and plotted values, and table persistence on engine failure. Implement without changing dashboard data preparation; run focused tests, Roadmap lint/typecheck/tests/build and the boundary scan.
++
++**Commit:** `refactor(roadmap-web): migrate analytics charts to shared adapter`
++
++**Expected:** analytics cards expose the same product API with no engine import.
++
++## Task 7: Migrate Roadmap strategy alignment charts
++
++**PR:** Roadmap strategy migration (<=300 production lines)
++
++**OWNS:** `apps/roadmap-web/src/components/strategy/alignment-dashboard.tsx`, `apps/roadmap-web/src/components/strategy/alignment-dashboard.test.tsx`
++
++**What to implement:** Replace distribution donut, horizontal progress bars, and semicircle coverage radial chart with shared surfaces. Preserve strategy labels/colors, opacity thresholds, totals, loading skeletons, errors, empty copy, target text and table. Leave the separate owned-SVG `analytics/charts/gauge-chart.tsx` unchanged.
++
++**TDD:** First assert ready/loading/error/empty output, keyboard tooltip parity, 0/50/80/100 coverage geometry semantics, and the exact distribution/progress/coverage summary, caption, headers and table values including engine failure. Implement, then run focused and full Roadmap gates plus the boundary scan.
++
++**Commit:** `refactor(roadmap-web): migrate strategy charts to shared adapter`
++
++**Expected:** the final Roadmap production import is removed without changing statistics or data ownership.
++
++## Task 8: Replace brittle E2E selectors and approve deterministic visual parity
++
++**PR:** E2E and visual parity
++
++**OWNS:** `apps/roadmap-web/e2e/07-analytics-dashboard.spec.ts`, `apps/roadmap-web/e2e/helpers/chart-fixtures.ts`, `apps/roadmap-web/e2e/07-analytics-dashboard.spec.ts-snapshots/**`
++
++**What to implement:** Replace `.recharts-*` and conditional tautologies with stable product selectors and unconditional assertions for chart presence, accessible names, exact-value tables, mark focus/hover, tooltip content, empty/error states and export download where exposed by the harness. The owned fixture helper route-mocks every chart API response and freezes system time, timezone/locale, generated IDs, rows/order, viewport, theme and animation. Remove `Date.now()`/live `new Date()`/database-created snapshot inputs. Add reviewed Chromium desktop/mobile light/dark snapshots.
++
++**TDD:** Make selectors fail before the last adapter selector wiring, then prove hard assertions and snapshot review pass. Reject baseline updates that hide missing labels, clipped axes, tooltip drift or contrast/focus failures.
++
++**Commit:** `test(roadmap-web): lock chart interaction and visual parity`
++
++**Expected:** E2E fails when a chart/tooltip is absent; no engine DOM is part of the test contract.
++
++## Task 9: Remove Recharts after the observation window and update current authority
++
++**PR:** post-observation dependency retirement
++
++**OWNS:** `apps/meeting-web/package.json`, `apps/meeting-web/bun.lock`, `apps/roadmap-web/package.json`, `apps/roadmap-web/bun.lock`, `bun.lock`, `DESIGN.md`, `docs/design/component-source-strategy-2026-06-17.md`, `docs/design/component-sourcing-matrix-2026-06-17.md`, `docs/design/component-sourcing-addendum-2026-06-18.md`, `docs/design/architecture-reference.html`, `apps/roadmap-web/src/app/(dashboard)/workspaces/[id]/_components/work-items-view.tsx`, `test/domain-inventory.test.js`
++
++**What to implement:** After the human reviews the completed 14-consecutive-day evidence bundle and approves exit, remove Meeting/Roadmap Recharts declarations, regenerate authoritative locks, update current product authority/supersession notes and seed descriptions, and turn the boundary test into a zero-Recharts production/manifests/lock assertion. Preserve dated historical plan evidence.
++
++**TDD:** First prove the final zero-reference assertion fails; remove only classified current references/dependencies; run `rg` blast-radius review, all affected package/app gates, production builds, E2E/visual suite and `bun audit`.
++
++**Commit:** `chore(charting): retire Recharts after final consumer`
++
++**Expected:** no production source, current manifest, app lock, or root lock resolves Recharts; historical prose is explicitly non-authoritative.
++
++## YAGNI and stage gates
++
++- Every task maps directly to a success criterion or inventoried consumer.
++- No task adds Canvas, new dashboards, new data models, a generic grammar escape hatch, or app engine selection.
++- Each task gets RED-GREEN-REFACTOR, spec review, then quality review in DEV. Validation/ship/review are separately authorized stages.
++- Stop and return to PLAN if the exact package status/API changed, an app migration exceeds 300 added/modified production lines, the wrapper-retirement PR adds replacement production code or deletes anything else, a chart requires engine types in an app, or parity/observation evidence cannot be proven without changing product behavior.
+-- 
+2.51.0.windows.1
+

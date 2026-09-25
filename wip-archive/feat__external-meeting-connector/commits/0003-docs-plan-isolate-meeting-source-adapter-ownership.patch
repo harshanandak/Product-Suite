@@ -1,0 +1,299 @@
+From e9e9a337650b723ad9fb74784a9080bf721b69e6 Mon Sep 17 00:00:00 2001
+From: Harsha Nanda <harshanandak@users.noreply.github.com>
+Date: Sat, 8 Aug 2026 18:08:37 +0530
+Subject: [PATCH] docs(plan): isolate meeting source adapter ownership
+
+---
+ ...ternalmeetingconnector-interoperability.md | 33 +++----
+ .../plan.md                                   | 32 +++---
+ .../tasks.md                                  | 99 +++++++++----------
+ 3 files changed, 81 insertions(+), 83 deletions(-)
+
+diff --git a/docs/research/externalmeetingconnector-interoperability.md b/docs/research/externalmeetingconnector-interoperability.md
+index 5c263e4..6c60a11 100644
+--- a/docs/research/externalmeetingconnector-interoperability.md
++++ b/docs/research/externalmeetingconnector-interoperability.md
+@@ -17,7 +17,7 @@ Do not make one adapter pretend to solve every meeting. Product-Suite needs four
+ | Local/offline/in-room capture | Product-owned `LocalCaptureSource` | **Develop first.** Reuse the current browser capture, while exposing that shared/mixed audio has weaker speaker identity. Durable slice delivery remains owned by sibling issue `d88d461a-c259-4dc6-a751-f2b3c6898b7a`. |
+ | Calendar recognition/orchestration | `MeetingRecognition` / orchestration policy | Recognize likely provider, canonical meeting, time, and join metadata; offer an eligible capture path. Calendar data never implies recording consent and never starts capture silently. |
+ 
+-All four paths feed canonical `MeetingEvidenceEnvelope` records. Product-Suite then creates meeting-owned transcript segments, summary candidates, and action candidates. A human review explicitly promotes an action candidate into a task; no provider transcript, summary, bot, calendar event, or model run can directly create authoritative tasks.
++All four paths feed canonical `MeetingEvidenceEnvelope` records. The caller-authority lane then exclusively owns meeting-derived summaries/action candidates, review, and task promotion. No provider transcript, summary, bot, calendar event, connector, or model run can directly create authoritative tasks.
+ 
+ ## Boundaries and non-authority
+ 
+@@ -52,7 +52,7 @@ Associates calendar/provider metadata with a canonical Product-Suite meeting and
+ 
+ Every source emits a `MeetingEvidenceEnvelope` containing `event_id`, canonical `tenant_id` and `meeting_id`, source kind and version, source session/provider event IDs, occurred/received timestamps, semantic idempotency key, payload hash, artifact reference, media/channel shape, completeness/gaps, consent evidence, region/retention facts, and provenance.
+ 
+-Transcript segments add `speaker_label`, `speaker_identity_kind` (`participant`, `generic`, `unknown`), `speaker_confidence`, timing confidence, transcription confidence when supplied, and derivation references. Confidence is evidence, not authorization. Summary/action candidates cite supporting segment IDs and inherit the weakest material provenance/completeness flags.
++Transcript segments add `speaker_label`, `speaker_identity_kind` (`participant`, `generic`, `unknown`), `speaker_confidence`, timing confidence, transcription confidence when supplied, and derivation references. Confidence is evidence, not authorization. This lane stops at canonical evidence; candidate derivation and promotion consume it downstream under caller-authority PR B.
+ 
+ ## Speaker attribution and diarization limits
+ 
+@@ -90,34 +90,33 @@ Teams can expose post-meeting transcripts/recordings through Graph with organiza
+ - **Retries/idempotency/outages:** acknowledge verified webhooks quickly, process asynchronously, honor `Retry-After`, deduplicate provider events, and retain explicit `degraded`, `interrupted`, `incomplete`, and `deletion_pending` states. Recall documents 409 backoff, 429 retry instructions, and 507 bot-pool exhaustion. [Recall errors](https://docs.recall.ai/reference/errors)
+ - **Cost:** preflight and reserve per-meeting duration plus organization monthly capture, transcription, and storage budgets. Separate-stream or asynchronous diarization may change processing and cost. Prices are configurable, dated inputs—not contract constants. Hard caps deny or stop; the system never silently selects a more expensive path.
+ 
+-## Meeting-to-action outcome
++## Consumed meeting-to-action and card contract
+ 
+ ```text
+-source evidence
+-  -> canonical transcript segments with provenance/confidence/gaps
+-  -> meeting-owned summary candidate + action candidates
+-  -> participant/reviewer correction and approval
+-  -> explicit task promotion through Product-Suite task authority
++source/capability adapters (this lane)
++  -> canonical meeting evidence with provenance/confidence/gaps
++  -> caller-authority PR B: meeting-owned summary/action candidates
++  -> caller-authority PR B: review and explicit task promotion
+ ```
+ 
+-All capture paths render the same compact post-meeting review pack. Each action candidate card shows a plain title, one-line reason/source, recommended next step, and `Add`, `Adjust`, or `Dismiss`. `Adjust` opens an inline agent conversation with at most two or three natural-language planning choices; every revision creates a new candidate version linked to its predecessor and evidence. Structured fields, confidence details, and provenance stay hidden until relevant, but remain inspectable and auditable.
++This lane consumes, but does not implement, the caller-authority PR B mixed-content card contract. Every candidate card has an icon/type, plain title, one-line source, up to three high-confidence chips or links, and `Add`, `Adjust`, or `Dismiss`. Missing or uncertain values are omitted rather than defaulted. `Adjust` opens an inline agent conversation with at most two or three natural-language planning choices; PR B versions every revision and keeps structured fields/provenance hidden until relevant.
+ 
+-Action candidates contain proposed text, proposed owner, due date, evidence segment IDs, confidence, version lineage, and status (`draft`, `needs_review`, `adjusting`, `approved`, `dismissed`, `promoted`). `Add` is the explicit review approval that may invoke task promotion; it is never automatic. Promotion is idempotent and records reviewer, source candidate version, target task ID, and timestamp. Low speaker confidence, incomplete evidence, or ambiguous ownership forces `needs_review`; it never blocks preserving or adjusting the candidate.
++Only caller-authority PR B may define candidate versions, `Add`/`Adjust`/`Dismiss`, or promotion. `Add` is explicit review approval and is never automatic; `Adjust` and `Dismiss` create no task/work item. Connector evidence may supply optional source links/chip facts, but cannot choose their presentation or promote work.
+ 
+ ## Recommended MVP sequence
+ 
+-1. Lock the four boundaries and common evidence/output contracts.
+-2. Ship explicit local microphone/tab capture as the first source, consuming the sibling durability protocol and showing mixed-audio speaker limitations.
+-3. Produce the common compact review pack; require `Add`, versioned `Adjust`, or `Dismiss` before any task promotion.
++1. Land caller-authority PRs A/B, including canonical evidence authority and the mixed-content review contract.
++2. Land local durability issue `d88d461a-c259-4dc6-a751-f2b3c6898b7a` and terminal-finalization issue `ce942338-35af-4960-ae83-ebc55bdbbe2a`; prove a real transcript/finalize E2E.
++3. Add the source capability/evidence adapter seam and local source projection without candidate or review writes.
+ 4. Add calendar recognition for meeting association, reminders, and capability preflight—never automatic recording.
+-5. Integrate Recall as an explicit Zoom/Meet/Teams join fallback with conformance, consent, region, retention, availability, diarization, and budget checks.
+-6. Pilot platform-native paths separately: Zoom RTMS first when its gates pass; Google Meet Media only after production availability; Teams native/compliance paths only for justified tenant use cases.
++5. Integrate Recall as an explicit Zoom/Meet/Teams join fallback with consent, region, retention, availability, diarization, and budget checks.
++6. Pilot platform-native paths separately: Zoom RTMS only when its gates pass; Google Meet Media only after production availability; Teams native/compliance paths only for justified tenant use cases.
+ 
+ ## Threat model and TDD implications
+ 
+-OWASP implementation coverage: server-derived ACLs (A01); encrypted artifacts/secrets (A02); schema, size, URL, and webhook validation (A03/A04); deny-by-default consent/region/provider settings (A05); dependency scanning (A06); verified provider/OAuth identities (A07); hashed provenance and idempotent promotion (A08); audit events without raw transcript/media (A09); and bounded concurrency/timeouts/circuit breakers (A10).
++OWASP implementation coverage: server-derived ACL inputs (A01); encrypted artifacts/secrets (A02); schema, size, URL, and webhook validation (A03/A04); deny-by-default consent/region/provider settings (A05); dependency scanning (A06); verified provider/OAuth identities (A07); hashed provenance and idempotent evidence ingest (A08); audit events without raw transcript/media (A09); and bounded concurrency/timeouts/circuit breakers (A10).
+ 
+-Tests must cover cross-tenant metadata injection, missing/revoked consent, indicator loss, mixed-audio unknown speakers, low-confidence action ownership, duplicate/out-of-order evidence, incomplete transcripts, `Add`/`Adjust`/`Dismiss`, revision lineage, more than three adjustment choices, duplicate task promotion, calendar recognition without capture authority, provider capability drift, cost exhaustion, unsupported region, provider outage, and deletion pending/confirmed.
++This lane's tests cover cross-tenant metadata injection, missing/revoked consent, indicator loss, mixed-audio unknown speakers, duplicate/out-of-order evidence, incomplete transcripts, calendar recognition without capture authority, provider capability drift, cost exhaustion, unsupported region, provider outage, deletion pending/confirmed, and proof that no adapter writes candidates, proposals, tasks, or work items. Card actions, revision lineage, and promotion tests belong exclusively to caller-authority PR B.
+ 
+ ## Research limitations and evidence files
+ 
+diff --git a/docs/work/2026-08-08-external-meeting-connector/plan.md b/docs/work/2026-08-08-external-meeting-connector/plan.md
+index c8bdd7d..5670d4d 100644
+--- a/docs/work/2026-08-08-external-meeting-connector/plan.md
++++ b/docs/work/2026-08-08-external-meeting-connector/plan.md
+@@ -8,7 +8,7 @@
+ 
+ ## Purpose
+ 
+-Turn hosted, externally joined, locally captured, and calendar-recognized meetings into trustworthy Product-Suite meeting summaries and review-gated action candidates without collapsing four different product paths into one adapter or granting providers task/run authority.
++Supply trustworthy, capability-aware meeting evidence from hosted, externally joined, locally captured, and calendar-recognized sources to the caller-authority meeting-to-action flow without collapsing four different product paths into one adapter or granting providers task/run authority.
+ 
+ ## Success criteria
+ 
+@@ -16,18 +16,18 @@ Turn hosted, externally joined, locally captured, and calendar-recognized meetin
+ - All sources converge through canonical meeting evidence with provenance, completeness, media topology, and speaker confidence.
+ - Local capture is the bounded MVP; Recall is an explicit external-join fallback; Zoom RTMS is capability-gated and deferred.
+ - Google Meet and Teams platform constraints degrade capabilities explicitly rather than leaking provider assumptions into the contract.
+-- Meeting-owned summaries/action candidates converge on one compact review pack; task creation requires explicit `Add` and is never automatic.
++- Source evidence conforms to the caller-authority PR B input contract without owning candidate derivation, review, or promotion.
+ - Consent/indicator, ACL, retention/deletion/region, retry/idempotency/outage, and cost budgets fail closed.
+ 
+ ## Out of scope
+ 
+-The LiveKit-versus-Cloudflare-RealtimeKit `RoomProvider` choice; realtime agent turns/tools; automatic recording from a calendar event; guaranteed identity from mixed-audio diarization; provider-authored canonical summaries/tasks/runs; Google Meet Media production integration while in Developer Preview; Teams compliance-recording infrastructure; Zoom RTMS implementation; and local durability owned by sibling issue `d88d461a-c259-4dc6-a751-f2b3c6898b7a`.
++The LiveKit-versus-Cloudflare-RealtimeKit `RoomProvider` choice; realtime agent turns/tools; automatic recording from a calendar event; guaranteed identity from mixed-audio diarization; meeting action-candidate backend; `Add`/`Adjust`/`Dismiss` semantics; review-pack UI; task/work-item promotion; provider-authored canonical summaries/tasks/runs; Google Meet Media production integration while in Developer Preview; Teams compliance-recording infrastructure; Zoom RTMS implementation; local durability issue `d88d461a-c259-4dc6-a751-f2b3c6898b7a`; and terminal-finalization issue `ce942338-35af-4960-ae83-ebc55bdbbe2a`.
+ 
+ ## Approach selected
+ 
+-Keep four source-specific boundaries and add a small common `MeetingEvidenceEnvelope` at the Product-Suite meeting authority. Local capture produces the first MVP evidence. Recall participates in externally hosted Zoom/Meet/Teams calls only after explicit fallback selection. Calendar recognition associates and preflights meetings but never authorizes capture. RoomProvider continues to own hosted rooms separately.
++Keep four source-specific boundaries and add source/capability adapters into the Product-Suite-owned `MeetingEvidenceEnvelope`. Local capture produces the first MVP evidence after its durability and terminal-finalization prerequisites land. Recall participates in externally hosted Zoom/Meet/Teams calls only after explicit fallback selection. Calendar recognition associates and preflights meetings but never authorizes capture. RoomProvider continues to own hosted rooms separately.
+ 
+-Canonical transcript segments carry speaker label kind and confidence. Product-Suite derives meeting-owned summary and action candidates with evidence references and completeness flags. Every path renders the same compact review pack: each card shows a plain title, one-line reason/source, recommended next step, and `Add`, `Adjust`, or `Dismiss`. `Adjust` opens inline agent conversation with no more than two or three natural-language planning choices and stores the revision as a new candidate version. Structured fields/provenance remain hidden until relevant. Only authorized `Add` can idempotently promote that exact candidate version into the task system.
++Canonical evidence carries speaker label kind, confidence, gaps, consent, and source provenance. Caller-authority PR B exclusively consumes it to derive candidates and implement review/promotion. This lane consumes the approved mixed-content card contract only for conformance: icon/type, plain title, one-line source, up to three high-confidence chips or links, and `Add`, `Adjust`, or `Dismiss`; missing values are omitted. It does not implement the card, candidate versions, inline adjustment, or task promotion.
+ 
+ ## Constraints and invariants
+ 
+@@ -38,11 +38,11 @@ Canonical transcript segments carry speaker label kind and confidence. Product-S
+ - Same idempotency key plus different semantics is a conflict.
+ - Exact region, retention, availability, diarization mode/latency, and budget are negotiated facts.
+ - Fallback changes require renewed confirmation; incomplete evidence remains incomplete.
+-- Provider output cannot directly create meetings, transcripts, tasks, proposals, or runs; neither candidate generation nor adjustment creates a work item.
++- Source/provider adapters cannot create candidates, proposals, tasks, work items, or runs; those writes stay behind caller-authority PR B.
+ 
+ ## Edge cases
+ 
+-Shared conference-room microphone; overlapping/similar voices; Teams speaker attribution disabled; Google Meet Media preview/ineligible participant; Recall bot denied or pool exhausted; Zoom RTMS entitlement/concurrency unavailable; calendar event moved or duplicate join URLs; local capture source ends; transcript gaps; action owner mentioned by an uncertain speaker; repeated adjustment or stale candidate version; more than three agent choices; dismissal; duplicate promotion; deletion remains pending; budget consumed concurrently.
++Shared conference-room microphone; overlapping/similar voices; Teams speaker attribution disabled; Google Meet Media preview/ineligible participant; Recall bot denied or pool exhausted; Zoom RTMS entitlement/concurrency unavailable; calendar event moved or duplicate join URLs; local capture source ends; transcript gaps; duplicate/out-of-order provider events; deletion remains pending; and budget consumed concurrently. Candidate revision, dismissal, and promotion edge cases remain owned and tested by caller-authority PR B.
+ 
+ ## Ambiguity policy
+ 
+@@ -54,19 +54,19 @@ Current vendor evidence, contract details, diarization/confidence limits, platfo
+ 
+ ## Recommended MVP sequence
+ 
+-1. Lock the four boundaries and canonical evidence/output contracts.
+-2. Integrate explicit local microphone/tab capture, consuming the sibling durability protocol.
+-3. Add the common compact review pack with versioned `Add`/`Adjust`/`Dismiss` and review-gated task promotion.
+-4. Add calendar recognition/association and capability preflight without auto-recording.
+-5. Add Recall as an explicit Zoom/Google Meet/Teams fallback.
+-6. Evaluate Zoom RTMS, Google Meet Media, and Teams-native paths as separate gated follow-ups.
++1. Dependency: land caller-authority PRs A/B; PR B exclusively owns candidate/promotion backend and review-pack UI.
++2. Dependency: land local durability `d88d461a-c259-4dc6-a751-f2b3c6898b7a` and terminal-finalization `ce942338-35af-4960-ae83-ebc55bdbbe2a`, including real transcript/finalize E2E.
++3. External PR 1: source capability/evidence contract plus local source projection; no downstream writes.
++4. External PR 2: calendar recognition/association and capability preflight without auto-recording.
++5. External PR 3: Recall external-join fallback for Zoom/Google Meet/Teams.
++6. Separate deferred follow-ups: Zoom RTMS pilot, production Google Meet Media, and justified Teams-native/compliance paths.
+ 
+ ## Approval gates
+ 
+ 1. Approve the four-boundary taxonomy and confirm the hosted-room provider decision stays separate.
+ 2. Approve local-first MVP despite explicitly limited named-speaker confidence for mixed/in-room audio.
+-3. Approve the common evidence envelope and meeting-owned summary/action-candidate model.
+-4. Approve the compact review-pack UX and mandatory `Add` before idempotent task promotion; `Adjust` is versioned and offers at most two or three natural-language choices, while `Dismiss` creates no task.
++3. Approve the canonical evidence handoff and exclusive caller-authority PR B ownership of candidate derivation, versions, review, and promotion.
++4. Confirm the external lane only consumes the mixed-content card contract—icon/type, title, one-line source, up to three high-confidence chips/links, missing values omitted, and `Add`/`Adjust`/`Dismiss`—without implementing it.
+ 5. Approve Recall only as a disclosed, budgeted, region-compatible external-join fallback.
+ 6. Approve Zoom RTMS as deferred until price, entitlement/scopes, consent, region, concurrency/failover, and runtime pilot gates pass; keep Google Meet Media preview and specialized Teams native/compliance paths out of MVP.
+-7. Confirm sibling issue `d88d461a-c259-4dc6-a751-f2b3c6898b7a` exclusively owns local crash/network durability.
++7. Confirm sibling issue `d88d461a-c259-4dc6-a751-f2b3c6898b7a` owns local crash/network durability and P1 `ce942338-35af-4960-ae83-ebc55bdbbe2a` owns terminal status/final materialization and real transcript-to-review-boundary E2E.
+diff --git a/docs/work/2026-08-08-external-meeting-connector/tasks.md b/docs/work/2026-08-08-external-meeting-connector/tasks.md
+index 89382d5..497364e 100644
+--- a/docs/work/2026-08-08-external-meeting-connector/tasks.md
++++ b/docs/work/2026-08-08-external-meeting-connector/tasks.md
+@@ -1,81 +1,80 @@
+-# Meeting-to-action interoperability implementation tasks
++# External meeting source interoperability PR train
+ 
+-**Status:** Proposed only; execute under `/dev` after all plan approval gates pass.
++**Status:** Proposed only; execute sequentially under `/dev` after plan approval and prerequisites.
+ 
+-## Task 1 — Lock boundary and evidence contracts
++## Exclusive upstream/downstream ownership
+ 
+-**OWNS:** `packages/contracts/contracts/meeting-evidence.json`, `packages/contracts/contracts/external-meeting-connector.json`, `packages/contracts/src/meeting.js`, `packages/contracts/src/index.d.ts`, `packages/contracts/src/meeting.test.ts`.
++- Caller-authority PR A owns shared meeting authority/schema/contracts while it is active.
++- Caller-authority PR B exclusively owns meeting action candidates, versioning, `Add`/`Adjust`/`Dismiss`, proposal/task promotion, and the canonical review-pack UI.
++- Local durability issue `d88d461a-c259-4dc6-a751-f2b3c6898b7a` owns persisted slices, acknowledgement, retry/drain, and contiguous-sequence finalization safety.
++- P1 issue `ce942338-35af-4960-ae83-ebc55bdbbe2a` owns `completed`/`stopped` terminal-status alignment, final partial materialization, rendered refresh, and the real transcript/finalize E2E.
+ 
+-**What to implement:** Define separate `RoomProvider` reference, `ExternalMeetingConnector`, `LocalCaptureSource`, and `MeetingRecognition` capability kinds plus canonical evidence/transcript confidence fields. No provider-specific fields outside provenance/capability extensions.
++This lane consumes the PR B mixed-content card contract but never implements it: icon/type, plain title, one-line source, up to three high-confidence chips or links, and `Add`, `Adjust`, or `Dismiss`; missing values are omitted. No source adapter creates a candidate, proposal, task, or work item.
+ 
+-**TDD:** First reject a connector claiming hosted-room/local/calendar authority, missing consent/provenance, impossible stream topology, and same-key/different-payload evidence. Then implement the smallest schemas/types and make fixtures pass.
++Merge and verify each prerequisite and PR before branching the next from current `origin/main`.
+ 
+-**Expected output:** Valid local, Recall, artifact, hosted-room reference, calendar-recognition, and provider-native-deferred fixtures; invalid authority/confidence fixtures fail deterministically.
++## External PR 1 — Source capability and evidence adapters
+ 
+-## Task 2 — Product-owned evidence and policy core
++**Outcome:** Define a provider-neutral source/capability-to-evidence seam and project the landed local capture path through it without taking downstream authority.
+ 
+-**OWNS:** `apps/meeting-api/backend/meeting_evidence.py`, `apps/meeting-api/tests/backend/test_meeting_evidence.py`; no provider network code.
++**OWNS:**
+ 
+-**What to implement:** Server-derived ACLs, consent/region/retention/budget checks, evidence idempotency, completeness/gap states, and transcript speaker identity/confidence normalization.
++- `packages/contracts/contracts/external-meeting-connector.json`
++- `packages/contracts/contracts/meeting-source-evidence.json`
++- `packages/contracts/src/external-meeting-connector.ts`
++- `packages/contracts/src/external-meeting-connector.test.ts`
++- `apps/meeting-api/backend/meeting_sources.py`
++- `apps/meeting-api/tests/backend/test_meeting_sources.py`
+ 
+-**TDD:** First fail cross-tenant injection, expired consent, unsupported region, exhausted budget, duplicate conflict, mixed-audio named identity without evidence, and out-of-order gaps. Implement pure policy/state transitions before persistence wiring.
++**What to implement:** Capability negotiation and canonical evidence projection for `LocalCaptureSource` and unsupported/deferred external participation. Carry consent/indicator, media/channel topology, speaker identity kind/confidence, timestamps/gaps, provenance, region/retention, deletion, availability, and budget facts. Consume the caller-authority evidence origin; do not define ACL/candidate/task semantics.
+ 
+-**Expected output:** Deterministic canonical evidence or explicit denied/degraded/incomplete result.
++**TDD:** Reject tenant selection from source metadata, missing consent, invalid topology, duplicate-key/different-payload evidence, named speakers from unsupported mixed audio, and any adapter output containing candidate/proposal/task writes. Prove local evidence preserves gaps and uncertain speaker identity.
+ 
+-## Task 3 — Local capture MVP seam
++**Expected output:** Local source events become canonical meeting evidence that PR B can consume; no review or work-item side effect exists.
+ 
+-**OWNS:** `apps/meeting-web/src/hooks/useAudioRecorder.js`, `apps/meeting-web/src/hooks/useAudioRecorder.test.js`, `apps/meeting-web/src/App.jsx`, `apps/meeting-web/src/__tests__/App.test.js`.
++**Gate 1:** Caller PRs A/B, durability issue, and terminal-finalization P1 are landed; contract/security review confirms the adapter cannot widen authority.
+ 
+-**What to implement:** Explicit user-started microphone/tab capability, consent/indicator lifecycle, media topology and quality/gap reporting. Consume sibling durability APIs; do not recreate storage/retry/finalization.
++## External PR 2 — Calendar recognition and capture orchestration
+ 
+-**TDD:** First cover denied permission, source-ended, indicator loss, revocation, mixed stream, generic/unknown speaker labels, and sibling queue degraded state. Then translate existing capture events to canonical evidence.
++**Outcome:** Recognize meeting/provider metadata and preflight eligible source choices without granting calendar data recording or ACL authority.
+ 
+-**Expected output:** A local meeting produces provenance-rich evidence and visibly disclaims uncertain speaker identity.
++**OWNS:**
+ 
+-## Task 4 — Meeting-owned summaries and review-gated actions
++- `apps/meeting-api/backend/meeting_recognition.py`
++- `apps/meeting-api/tests/backend/test_meeting_recognition.py`
++- `apps/meeting-web/src/lib/meetingRecognition.js`
++- `apps/meeting-web/src/lib/__tests__/meetingRecognition.test.js`
+ 
+-**OWNS:** `packages/contracts/contracts/meeting-review-pack.json`, `packages/contracts/src/meeting-review-pack.test.ts`, `apps/meeting-api/backend/meeting_actions.py`, `apps/meeting-api/tests/backend/test_meeting_actions.py`; no provider adapters.
++**What to implement:** Normalize join/provider metadata, associate it with a canonical meeting or request confirmation, and return reminders/capability offers. Calendar organizer, attendee, URL, and labels remain provenance only. Never auto-start capture.
+ 
+-**What to implement:** Evidence-citing summary/action candidates, weakest-material completeness/confidence propagation, version lineage, and the compact review-pack behavior. Each card exposes a plain title, one-line reason/source, recommended next step, and `Add`/`Adjust`/`Dismiss`; `Adjust` returns at most two or three natural-language planning choices and versions the revision. Only `Add` invokes idempotent promotion through existing task authority. Structured fields/provenance are progressively disclosed.
++**TDD:** Cover duplicate/moved events, ambiguous association, spoofed provider URL, unsupported provider, missing user confirmation, changed capability facts, and attempted silent recording.
+ 
+-**TDD:** First prevent direct provider/model task creation, low-confidence owner auto-assignment, promotion without `Add`, stale-version/duplicate promotion, more than three adjustment choices, and work-item creation from `Adjust` or `Dismiss`. Then implement candidate versions, review actions, and auditable promotion.
++**Expected output:** A recognized calendar event can prepare a reviewed source offer but cannot record, grant access, or write downstream candidates.
+ 
+-**Expected output:** Meeting evidence yields a compact, common review pack; only authorized `Add` of the current version yields one canonical task with evidence and reviewer provenance.
++**Gate 2:** Product/privacy review confirms recognition is advisory and capture-time consent remains mandatory.
+ 
+-## Task 5 — Calendar recognition and orchestration
++## External PR 3 — Recall external-participation fallback
+ 
+-**OWNS:** `apps/meeting-api/backend/meeting_recognition.py`, `apps/meeting-api/tests/backend/test_meeting_recognition.py`; no calendar provider implementation beyond an approved existing boundary.
++**Outcome:** Add an explicitly selected Recall bot fallback for externally hosted Zoom, Google Meet, and Teams calls behind `ExternalMeetingConnector`.
+ 
+-**What to implement:** Normalize provider/join metadata, associate or request confirmation for a canonical meeting, and present eligible source choices/reminders without capture authority.
++**OWNS:**
+ 
+-**TDD:** First cover duplicate/moved events, ambiguous meeting association, untrusted organizer/provider URL, unsupported provider, and attempted silent start. Then implement recognition and preflight offers.
++- `apps/meeting-api/backend/connectors/recall.py`
++- `apps/meeting-api/tests/backend/test_recall_connector.py`
++- `apps/meeting-api/tests/backend/fixtures/recall/`
++- `docs/reference/EXTERNAL_MEETING_CONNECTORS.md`
+ 
+-**Expected output:** A calendar event can prepare a reviewed meeting/source offer but can never record by itself.
++**What to implement:** Negotiate and translate join/leave/status/deletion plus disclosure, platform support, region, retention, diarization topology/latency, availability, retry, and dated budget facts into canonical evidence. Recall payloads and webhooks remain inside the adapter.
+ 
+-## Task 6 — Recall external-join fallback
++**TDD:** Cover invalid signature, denied join, duplicate/out-of-order webhook, 409/429/507 handling, shared-device speaker uncertainty, unsupported region, provider retention mismatch, deletion pending, budget exhaustion, and fallback without renewed confirmation. Assert zero candidate/proposal/task writes.
+ 
+-**OWNS:** `apps/meeting-api/backend/connectors/recall.py`, `apps/meeting-api/tests/backend/test_recall_connector.py`, `apps/meeting-api/tests/backend/fixtures/recall/`.
++**Expected output:** Explicit Recall sessions emit canonical evidence with honest capabilities and failure states; PR B remains the only path from evidence to reviewed work.
+ 
+-**What to implement:** Zoom/Google Meet/Teams bot capability negotiation and join/leave/status/deletion behind `ExternalMeetingConnector`, including disclosure, region, retention, diarization topology/latency, availability, and budget facts.
++**Gate 3:** Security/privacy/cost review and a consented pilot confirm disclosure, region, retention/deletion, availability, and budget behavior.
+ 
+-**TDD:** First cover invalid signature, denied join, duplicate/out-of-order webhook, 409/429/507, shared-device speaker uncertainty, unsupported region, and fallback without renewed confirmation. Then implement the bounded adapter.
++## Deferred provider-native follow-ups
+ 
+-**Expected output:** Explicitly selected Recall sessions emit canonical evidence without owning meetings/transcripts/tasks/runs.
+-
+-## Task 7 — Conformance, UX, and operational evidence
+-
+-**OWNS:** `apps/meeting-web/src/components/meeting/MeetingReviewPack.jsx`, `apps/meeting-web/src/components/meeting/__tests__/MeetingReviewPack.test.jsx`, `apps/meeting-api/tests/backend/test_meeting_source_conformance.py`, `docs/reference/MEETING_INTEROPERABILITY.md`.
+-
+-**What to implement:** The shared compact review-pack presentation plus visible source/recording/degraded/confidence/cost states; progressive disclosure of structured provenance; deletion reconciliation; conformance for lifecycle, authority, consent, ACL, provenance, region, budget, diarization, and outages.
+-
+-**TDD:** First require accessible `Add`/`Adjust`/`Dismiss`, inline adjustment with two or three choices, version visibility, uncertain-speaker labeling, incomplete-evidence review gates, hard-budget denial, deletion pending/confirmed, and metrics without raw transcript/media. Then implement shared presentation and operational checks.
+-
+-**Expected output:** Local and Recall paths share evidence/output behavior while retaining distinct capabilities and failure semantics.
+-
+-## Explicit deferrals
+-
+-- Do not choose or implement LiveKit versus Cloudflare RealtimeKit here.
+-- Do not implement Zoom RTMS until every approval/exit gate passes; create a separate issue/pilot.
+-- Do not implement Google Meet Media while production eligibility is unmet.
+-- Do not treat Teams Graph artifact access or compliance recording as the generic external connector; scope tenant-specific follow-ups separately.
+-- Do not absorb sibling issue `d88d461a-c259-4dc6-a751-f2b3c6898b7a`.
++- Zoom RTMS gets a separate issue/pilot only after price, entitlement/scopes, consent, region, concurrency/failover, runtime, and volume gates pass.
++- Google Meet Media remains deferred while production eligibility is unmet.
++- Teams Graph artifacts and compliance recording remain distinct tenant-specific integrations, not generic connector behavior.
++- LiveKit versus Cloudflare RealtimeKit remains a separate `RoomProvider` decision.
+-- 
+2.51.0.windows.1
+

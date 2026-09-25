@@ -1,0 +1,92 @@
+From 27303f59b410ba1b4c6f09b22aee1cc45c1b9e32 Mon Sep 17 00:00:00 2001
+From: Harsha Nanda <212836255+harshanandak@users.noreply.github.com>
+Date: Tue, 22 Sep 2026 02:22:24 +0530
+Subject: [PATCH] test(tooling): resolve installed Lefthook directly in smoke
+ tests
+
+---
+ .../2026-09-21-prepush-affected/decisions.md  | 10 +++++++++
+ test/prepush-gate.test.js                     | 22 +++++++++++++++++--
+ 2 files changed, 30 insertions(+), 2 deletions(-)
+
+diff --git a/docs/work/2026-09-21-prepush-affected/decisions.md b/docs/work/2026-09-21-prepush-affected/decisions.md
+index 31b06e7..6141d6a 100644
+--- a/docs/work/2026-09-21-prepush-affected/decisions.md
++++ b/docs/work/2026-09-21-prepush-affected/decisions.md
+@@ -53,3 +53,13 @@ The installed-Lefthook failure was one test-budget defect: one 30-second Bun tes
+ The two split smoke contracts ran under the same poisoned external `GIT_DIR` and passed at rung 4: two tests, five assertions, zero failures in 26.34 seconds (`C:/tmp/prepush-hook-fixture-split-20260922-proof.log`). Protected rejection completed in 13.10 seconds and successful stdin forwarding in 12.86 seconds; launcher elapsed time was 26.59 seconds. The disposable outer repository again retained `core.bare=false`, identical config bytes, identical `HEAD` and identical status. No other test was rerun; the lead's normal push remains the final full `test:repo-tooling` proof.
+ 
+ Independent narrow review approved the split at rung 3 with no blockers: both contracts retain their 30-second limits and all prior assertions, and protected rejection now excludes a null timeout status. The repair is frozen for lead integration.
++
++## Linux CI installed-Lefthook resolution repair
++
++PR 192's DB workflow run 35652173583 failed its cheap `test:repo-tooling` gate at exact head `626d3ebca32603d363c9f6a4fa83abd35af3805d`. The installed-Lefthook tests invoked the repository dependency by the bare command `lefthook`, but this CI path launches `bun test` directly rather than through a package script that adds `node_modules/.bin` to `PATH`. Both smoke cases returned in about 26 milliseconds; the successful case received `status: undefined`, while the protected case falsely passed because `undefined` satisfied both `not.toBeNull()` and `not.toBe(0)`. A Bun probe of a deliberately missing executable returned `errorCode: ENOENT`, `signal: null` and an undefined status, reproducing the exact result shape (rung 4). The old helper discarded `result.error`, which is why the CI assertion exposed only the undefined status.
++
++The test now resolves the already-installed repository binary explicitly: `node_modules/.bin/lefthook.exe` on Windows and `node_modules/.bin/lefthook` elsewhere. The spawn helper throws the native error when the executable cannot start and rejects every non-integer exit status, including `undefined`, `null` and signalled termination. Protected rejection also asserts `Number.isInteger(status)` before requiring a nonzero status. No runtime, CI, dependency, timeout or hook behavior changed.
++
++Focused validation passed three tests and nine assertions with zero failures in 15.61 seconds on Bun 1.4.2: the cross-platform executable-path contract, protected-destination rejection and successful stdin forwarding (`C:/tmp/prepush-lefthook-resolution-626d3eb.log`). Real Linux CI remains the final platform execution proof.
++
++Independent narrow review approved the Linux repair at rung 3 with no blockers. It confirmed that executable resolution is repository-local and platform-specific, spawn errors and non-integer statuses fail explicitly, the existing environment/input/current-directory/30-second contracts are unchanged, protected rejection still proves no Bun call, and successful forwarding retains its original assertion.
+diff --git a/test/prepush-gate.test.js b/test/prepush-gate.test.js
+index df84247..0b7476b 100644
+--- a/test/prepush-gate.test.js
++++ b/test/prepush-gate.test.js
+@@ -207,6 +207,11 @@ function updateLine(repo, remoteRef, remoteOid, localRef) {
+   return `${localRef ?? `refs/heads/${branch}`} ${oid} ${remoteRef} ${remoteOid ?? "0".repeat(oid.length)}\n`;
+ }
+ 
++function lefthookExecutable(platform = process.platform) {
++  const executable = path.join(import.meta.dir, "..", "node_modules", ".bin", "lefthook");
++  return platform === "win32" ? `${executable}.exe` : executable;
++}
++
+ function executeLefthook(repo, input) {
+   const sandbox = mkdtempSync(path.join(tmpdir(), "prepush-lefthook-"));
+   const log = path.join(sandbox, "calls.txt");
+@@ -219,13 +224,18 @@ function executeLefthook(repo, input) {
+     const env = gateEnv({ FAKE_BUN_LOG: log });
+     const pathKey = Object.keys(env).find((key) => key.toUpperCase() === "PATH") ?? "PATH";
+     env[pathKey] = `${sandbox}${path.delimiter}${env[pathKey] ?? ""}`;
+-    const result = spawnSync("lefthook", ["run", "pre-push", "--force", "--no-tty"], {
++    const executable = lefthookExecutable();
++    const result = spawnSync(executable, ["run", "pre-push", "--force", "--no-tty"], {
+       cwd: repo,
+       input,
+       encoding: "utf8",
+       env,
+       timeout: SPAWN_TIMEOUT_MS,
+     });
++    if (result.error) throw new Error(`installed Lefthook could not start: ${result.error.message}`);
++    if (!Number.isInteger(result.status)) {
++      throw new Error(`installed Lefthook did not return an integer status${result.signal ? ` (${result.signal})` : ""}`);
++    }
+     const calls = existsSync(log) ? readFileSync(log, "utf8").trim().split(/\r?\n/).filter(Boolean) : [];
+     return { status: result.status, stdout: result.stdout, stderr: result.stderr, calls };
+   } finally {
+@@ -745,6 +755,14 @@ describe("prepush-gate Git ranges", () => {
+     }
+   }, SPAWN_TIMEOUT_MS);
+ 
++  test("resolves installed Lefthook without relying on shell PATH", () => {
++    const executable = path.join(import.meta.dir, "..", "node_modules", ".bin", "lefthook");
++    expect(lefthookExecutable("linux")).toBe(executable);
++    expect(lefthookExecutable("darwin")).toBe(executable);
++    expect(lefthookExecutable("win32")).toBe(`${executable}.exe`);
++    expect(existsSync(lefthookExecutable())).toBe(true);
++  });
++
+   test("installed Lefthook rejects protected destinations before Bun", () => {
+     const { repo, base } = createGitFixture();
+     try {
+@@ -752,7 +770,7 @@ describe("prepush-gate Git ranges", () => {
+       commitFile(repo, "apps/platform-web/src/feature.tsx", "feature\n", "feature");
+       installLefthook(repo);
+       const protectedResult = executeLefthook(repo, updateLine(repo, "refs/heads/main"));
+-      expect(protectedResult.status).not.toBeNull();
++      expect(Number.isInteger(protectedResult.status)).toBe(true);
+       expect(protectedResult.status).not.toBe(0);
+       expect(protectedResult.calls).toEqual([]);
+     } finally {
+-- 
+2.51.0.windows.1
+

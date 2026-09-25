@@ -1,0 +1,456 @@
+From d09a4553447e60d69fe85009e1e108ccc576bcd4 Mon Sep 17 00:00:00 2001
+From: Harsha Nanda <harshanandak@users.noreply.github.com>
+Date: Sun, 9 Aug 2026 17:21:06 +0530
+Subject: [PATCH] docs(plan): design desktop meeting capture collector
+
+---
+ docs/work/2026-08-09-desktop-capture/plan.md  | 178 +++++++++++++
+ docs/work/2026-08-09-desktop-capture/tasks.md | 251 ++++++++++++++++++
+ 2 files changed, 429 insertions(+)
+ create mode 100644 docs/work/2026-08-09-desktop-capture/plan.md
+ create mode 100644 docs/work/2026-08-09-desktop-capture/tasks.md
+
+diff --git a/docs/work/2026-08-09-desktop-capture/plan.md b/docs/work/2026-08-09-desktop-capture/plan.md
+new file mode 100644
+index 0000000..3404a8a
+--- /dev/null
++++ b/docs/work/2026-08-09-desktop-capture/plan.md
+@@ -0,0 +1,178 @@
++# Desktop meeting capture — implementation plan
++
++**Forge issue:** `1ff834c9-d40a-4ff2-9095-b3ef9d11ff59`
++
++**Plan owner:** `codex-desktop-capture-plan`
++
++**Plan base:** `origin/main@341caeb0072f6642ce9b2172c1d092f91bcd3265`
++
++**Classification:** Critical — native audio, credentials, local encrypted data, signed distribution
++
++**Stage:** PLAN only; implementation, push, PR creation, release, and issue release are not authorized
++
++## Outcome
++
++Ship a small, user-started Tauri 2 recorder for Windows and macOS that captures microphone and system audio, durably forwards short chunks to the existing Product-Suite meeting ingestion/evidence/finalization path, and survives network loss or process crashes without silently losing or duplicating audio.
++
++The collector is deliberately not a bot or a second Product-Suite application. It has no local AI, summary, candidate, task, run, tenant, or database authority. Calendar data may suggest an association, but only a visible user action starts recording.
++
++## Superseded direction and scope
++
++The older issue text requiring Electron is stale. The newer product roadmap and recorded issue decisions select a thin Tauri collector and reject Electron because its bundled Chromium process is inconsistent with the memory target. DEV must implement Tauri 2; changing back to Electron is a product decision that returns to PLAN.
++
++MVP supports:
++
++- Windows 10 1703+ and Windows 11 on x86_64, using native Rust WASAPI shared-mode loopback for system audio.
++- macOS 14.2+ on Apple Silicon and Intel, using Core Audio Process Tap for system audio, subject to the physical-device proof gate below.
++- Microphone capture on both platforms, with source meters and an explicit preflight.
++- Manual start, pause/resume, stop, discard, recovery, and optional user-confirmed calendar association.
++
++Linux is explicitly deferred. It returns only after a filed demand/evidence decision names supported distributions, proves PipeWire/PulseAudio capture and WebKitGTK packaging on physical systems, assigns signing/update ownership, and accepts a CI/release matrix. No Linux feature flags, placeholder backend, package target, or capability is part of these PRs.
++
++## Existing boundaries to reuse
++
++This plan does not replace or pre-empt the following lanes:
++
++- Local durability issue `d88d461a-c259-4dc6-a751-f2b3c6898b7a` owns the server contract for persist-before-send slices, idempotent `(capture_session_id, sequence)` acknowledgement, retry/drain, and contiguous-sequence finalization safety.
++- Terminal finalization issue `ce942338-35af-4960-ae83-ebc55bdbbe2a` owns canonical terminal states, final partial materialization, rendered-artifact refresh, and `POST /meetings/{id}/finalize`.
++- The external meeting connector plan owns the `LocalCaptureSource` capability/evidence adapter and `MeetingEvidenceEnvelope`, including gaps, media topology, consent, provenance, deletion, availability, and speaker uncertainty.
++- Caller-authority meeting work exclusively owns candidate derivation, versions, `Add`/`Adjust`/`Dismiss`, task promotion, and review UI.
++- Product-Suite auth and meeting APIs remain the only tenant/user and meeting-data authority. The desktop app may cache an opaque session credential in the OS credential store; it never derives tenant identity from local input.
++
++Before each dependent DEV PR begins, rebase on current `origin/main`, record its exact base SHA, and verify the prerequisite contract is landed. If it is not landed, stop that PR rather than inventing a parallel endpoint or compatibility shim.
++
++## Architecture
++
++```text
++user click + permission preflight
++             |
++   +---------+----------+
++   |                    |
++WASAPI loopback /   Core Audio Tap /       microphone
++Windows Rust        macOS Rust             platform input
++   |                    |                       |
++   +---------------- timestamped source frames-+
++                            |
++                 5–10 second chunk encoder
++                 (source topology preserved)
++                            |
++             encrypt -> fsync -> atomic rename
++                            |
++               application-private spool
++                            |
++             authenticated Product-Suite API
++          `(capture_session_id, sequence, digest)`
++                            |
++             durable server ack / idempotent replay
++                            |
++              delete local ciphertext after ack
++                            |
++     stop -> drain contiguous ack -> canonical finalize
++                            |
++              existing evidence/artifact pipeline
++```
++
++The Tauri webview renders a small control/status surface. All privileged work—audio, keys, spool, authentication token access, upload, updater invocation—stays in Rust commands with narrow typed inputs. The webview cannot choose filesystem paths, execute a shell, fetch arbitrary URLs, read secrets, or call unrestricted HTTP.
++
++### Native audio choice
++
++Windows system audio uses WASAPI loopback through the `windows` crate and COM, not a browser API or a generic abstraction that cannot prove loopback semantics. Capture the default render endpoint in shared mode; observe endpoint changes and recover without reusing stale handles. Microphone and system frames carry monotonic timestamps and distinct `source_kind` values. Do not claim speaker identity from mixed system audio.
++
++macOS system audio uses Core Audio Process Tap on macOS 14.2+. Apple documents audio taps as an audio-only way to capture outgoing audio from processes or process groups, with an OS permission prompt and `NSAudioCaptureUsageDescription`. It is a closer least-privilege match than ScreenCaptureKit, whose screen-capture permission and visual stream surface are unnecessary for this recorder. PR 1 has a blocking physical-device spike on Intel and Apple Silicon for permission first-run/denial/revocation, aggregate device creation, device changes, sleep/wake, silence, one-hour stability, and simultaneous mic capture. If that spike cannot meet the gate, stop and return to PLAN for a bounded ScreenCaptureKit alternative; do not silently add it as a fallback. Pre-14.2 macOS is outside MVP for the same reason.
++
++Capture keeps mic and system audio as separately identified tracks/channels through the upload contract when the landed durability API supports it. If the landed API only accepts one audio body, the upstream contract must first add an explicit topology-preserving representation. The desktop app must not locally collapse sources, infer speakers, or add an undocumented multiplexing format.
++
++### Collector state machine
++
++Allowed states are `signed_out`, `permission_required`, `ready`, `recording`, `paused`, `stopping`, `draining`, `complete`, `recoverable`, `discarding`, and `error`.
++
++- Only a foreground `Start` action may transition `ready -> recording`.
++- A calendar suggestion may populate a proposed association but cannot invoke capture or a privileged Tauri command.
++- Every chunk transitions `captured -> encrypted_and_fsynced -> upload_eligible -> in_flight -> acknowledged -> deleted`.
++- Failed, timed-out, 429, or 5xx uploads return to `upload_eligible` with bounded exponential backoff and full jitter; honor `Retry-After` and cap concurrency.
++- 401/403, tenant mismatch, invalid acknowledgement, sequence/digest conflict, invalid TLS, missing key, spool corruption, or updater-signature failure is fail-closed. Preserve recoverable ciphertext and show a blocking status; never mark acknowledged or finalize.
++- `Stop` closes capture, writes the final partial chunk, and enters `draining`. Completion occurs only after the server reports the expected contiguous sequence through the terminal-finalization contract.
++- Startup enumerates encrypted manifests. Valid sessions become `recoverable` and may resume upload after authentication; corrupt or keyless sessions are quarantined and require explicit discard. Recovery never resumes audio capture automatically.
++- `Discard` requires confirmation, sends the existing deletion/cancellation signal when online, removes the OS-stored session key, securely removes best-effort local ciphertext, and records only non-sensitive local diagnostics.
++
++### Encrypted spool and credential handling
++
++Use an application-private directory and an encrypted, versioned per-session manifest—not a second product database. Each session receives a random 256-bit content key stored only through macOS Keychain or Windows DPAPI/Credential Manager. Chunks use an audited AEAD implementation (AES-256-GCM or ChaCha20-Poly1305) with a unique random nonce and authenticated metadata containing schema version, session id, sequence, source kind, timing, codec, byte length, and plaintext digest. Never log plaintext, tokens, calendar content, audio bytes, keys, or signed update secrets.
++
++Write ciphertext and manifest updates to a same-directory temporary file, flush file contents, atomically rename, and flush the parent directory where supported before upload eligibility. Set owner-only permissions/ACLs. Enforce a configurable bounded quota (initial gate: 2 GiB or 8 hours, whichever comes first), surface low disk space before start, and pause capture before data becomes unspoolable. Delete only after validating the authenticated acknowledgement matches session, sequence, and digest.
++
++Desktop login uses the existing Product-Suite browser-based authentication flow and an app-owned deep link with PKCE/state/nonce. The Rust layer exchanges the one-time result and stores the opaque refresh/session credential in the OS credential store; the webview receives only authentication state. A callback mismatch, expired state, or missing secure store fails closed. Signing and updater private keys exist only in protected release CI, never in the repository or desktop runtime.
++
++### Consent, permissions, and association
++
++The first screen explains mic/system capture, Product-Suite upload, local encrypted recovery, retention/deletion, and the always-visible recording indicator. Preflight tests both sources and shows separate level meters. Start is disabled until the OS permissions are granted and the current Product-Suite actor/meeting authority is confirmed. During recording, both the compact window and tray/menu-bar item display a persistent red indicator, duration, pause, and stop; closing the window does not obscure the tray indicator or stop recording without confirmation.
++
++Calendar association is optional and read-only. The app requests backend-provided suggestions and displays title/time/organizer minimally. A user confirms one event or chooses no event. The collector submits only the selected opaque association identifier alongside the existing meeting/session request. It stores no calendar credential and never starts, schedules, or resumes a recording from an event.
++
++## Tauri security and release design
++
++- Define one capability for the main recorder window and only the commands it needs. Do not use wildcards, shell, filesystem, process, global HTTP, clipboard, or arbitrary URL permissions. Updater permission is isolated to an explicit user/mandatory-update flow.
++- Apply a strict CSP with packaged local assets only; no remote scripts, `eval`, or navigation. Allow only the Product-Suite API/update origins in Rust configuration, validated against immutable release configuration.
++- Pin exact Tauri/Rust/plugin and JavaScript dependency versions in `Cargo.lock` and `bun.lock`; run dependency license/advisory checks and inspect capability changes in review.
++- Windows CI builds on Windows with MSVC and produces one documented installer format (prefer signed NSIS for MVP). Sign the executable and installer with the approved organization certificate/provider, timestamp it, and verify signatures on a clean supported VM.
++- macOS CI builds/signs both Apple Silicon and Intel artifacts (or a verified universal artifact) with Developer ID Application, hardened runtime, required audio entitlements only, notarizes, staples, and validates Gatekeeper on clean hosts. Ad-hoc signing is not releasable.
++- Enable the Tauri updater only with HTTPS endpoints and its embedded public key. Tauri update signatures are mandatory and cannot be disabled. CI signs every update artifact with the protected private key; the client rejects missing, invalid, replayed/downgraded, wrong-platform, and wrong-channel metadata. Key backup and rotation/recovery are release prerequisites.
++- A critical mandatory update blocks starting a new recording but must still allow the user to drain/export diagnostics or explicitly discard an existing encrypted spool. An update never interrupts active capture or drain.
++
++## Performance and reliability budgets
++
++These are release gates, measured on a representative low-spec Windows 10/11 x86_64 machine and Intel/Apple Silicon macOS machines:
++
++| Gate | Budget |
++|---|---|
++| Idle private working set | p95 <= 80 MiB after 10 minutes |
++| Recording private working set | p95 <= 120 MiB over a 60-minute session, growth <= 10 MiB after warm-up |
++| Idle CPU | p95 <= 1% of one logical core |
++| Recording CPU | p95 <= 8% of one logical core; no sustained thermal warning |
++| Packaged app excluding system webview | <= 25 MiB compressed per architecture unless measured exception is approved |
++| Chunk duration | 5–10 seconds; upload concurrency <= 2 per session |
++| Audio continuity | no unexplained missing/overlapping monotonic interval; every known gap is explicit evidence |
++| Crash/network recovery | no acknowledged chunk re-transcribed; no unacknowledged durable chunk lost |
++| Stop-to-finalize | p95 <= 30 seconds on healthy broadband after final chunk, excluding transcription provider latency explicitly reported by server |
++| Spool confidentiality | zero plaintext audio/token/key files; logs pass secret/PII scan |
++
++## Observability and support
++
++Emit privacy-safe structured events for state transition, platform/source, permission outcome, chunk duration/size, spool depth/age, retry class, acknowledgement latency, recovery result, drain duration, updater result, and app/build version. Use randomly generated diagnostic session correlation, not audio/calendar text. Keep bounded rotating local logs, provide a user-reviewed diagnostics export, and route hosted telemetry through the existing Product-Suite observability contract only after consent. Metrics must distinguish capture, spool, upload, server acknowledgement, transcription, and finalization so failures are not mislabeled.
++
++## Three medium stacked PRs
++
++1. **PR 1 — Secure Tauri shell and proven native capture.** Owns the new desktop package, narrow Tauri capabilities/CSP, auth state surface, explicit consent/permission preflight, visible indicator, typed audio abstraction, Windows WASAPI loopback, macOS Core Audio Tap, mic input, and platform proof harnesses. It does not upload or persist recordings.
++2. **PR 2 — Encrypted durable delivery.** Stacks on PR 1 and on landed durability plus `LocalCaptureSource` contracts. Owns the encrypted spool state machine, OS key storage, Product-Suite authenticated client, idempotent upload/ack/resume, crash recovery, quota/backoff, and local evidence projection. It does not finalize, interpret evidence, or derive actions.
++3. **PR 3 — Finalization, optional association, and signed distribution.** Stacks on PR 2 and landed terminal-finalization/calendar-recognition contracts. Owns user-confirmed association, stop/drain/finalize UX, artifact handoff/deep link, signed installers, notarization, mandatory signed updater, release provenance/SBOM, and cross-platform E2E/performance gates.
++
++Each PR must be independently reviewable and keep all earlier tests green. No PR may widen another lane’s ownership merely to make its stack pass.
++
++## Rollout and rollback
++
++Start with signed internal builds against a non-production Product-Suite environment, then an allowlisted cohort, then a small percentage stable channel. Server feature flags may disable new session creation by minimum app version/platform while continuing to accept retries and finalize already-created sessions. Record crash-free session rate, permission success, gap rate, retry/spool age, finalization success, and memory/CPU budgets before each expansion.
++
++Rollback is a forward signed updater release plus server-side start kill switch; never distribute unsigned downgrades or delete a user’s recoverable spool. If a capture regression appears, block new starts, let active/recoverable sessions drain on their compatible API, and ship a higher-version signed rollback build. Server contracts remain backward compatible for at least the declared spool recovery window. Credential/signing compromise invokes the documented key rotation/revocation procedure and blocks releases until trust is restored.
++
++## Human prerequisites and stop conditions
++
++Before DEV PR 3, a human must provide/approve the Apple Developer team and Developer ID certificate, notarization credentials, Windows organization signing provider/certificate, protected updater signing key custody and backup, distribution domains, privacy copy, retention limits, and release-channel ownership. Do not substitute developer/ad-hoc certificates.
++
++Return to PLAN if the Core Audio Tap proof fails, an upstream API cannot preserve source topology or idempotent acknowledgements, the app requires pre-14.2 macOS/Linux, a new local database/service is proposed, or any requirement grants the collector candidate/task/tenant authority.
++
++## Source record
++
++Repository decisions and current-code anchors:
++
++- [`docs/design/2026-07-25-meeting-product-roadmap.md`](../../../design/2026-07-25-meeting-product-roadmap.md)
++- [`docs/research/2026-07-25-meeting-experience-and-livekit.md`](../../../research/2026-07-25-meeting-experience-and-livekit.md)
++- External connector plan at `C:/Users/harsha_befach/Downloads/Product-Suite/.worktrees/external-meeting-connector/docs/work/2026-08-08-external-meeting-connector/plan.md` (unmerged at plan time; re-verify exact head before DEV)
++- Terminal finalization plan at `C:/Users/harsha_befach/Downloads/Product-Suite/.worktrees/meeting-terminal-finalization/docs/work/2026-08-08-meeting-terminal-finalization/plan.md` (unmerged at plan time; re-verify exact head before DEV)
++- Current web recorder: `apps/meeting-web/src/hooks/useAudioRecorder.js` and `apps/meeting-web/src/App.jsx`
++
++Current primary documentation consulted on 2026-08-09:
++
++- [Tauri 2 permissions](https://v2.tauri.app/security/permissions/) and [capabilities](https://v2.tauri.app/security/capabilities/)
++- [Tauri 2 updater](https://v2.tauri.app/plugin/updater/), [distribution](https://v2.tauri.app/distribute/), [macOS signing/notarization](https://v2.tauri.app/distribute/sign/macos/), and [Windows signing](https://v2.tauri.app/distribute/sign/windows/)
++- [Microsoft WASAPI loopback recording](https://learn.microsoft.com/en-us/windows/win32/coreaudio/loopback-recording)
++- [Apple: Capturing system audio with Core Audio taps](https://developer.apple.com/documentation/coreaudio/capturing-system-audio-with-core-audio-taps)
+diff --git a/docs/work/2026-08-09-desktop-capture/tasks.md b/docs/work/2026-08-09-desktop-capture/tasks.md
+new file mode 100644
+index 0000000..1029cc5
+--- /dev/null
++++ b/docs/work/2026-08-09-desktop-capture/tasks.md
+@@ -0,0 +1,251 @@
++# Desktop meeting capture — TDD task list
++
++This is the DEV handoff for Forge issue `1ff834c9-d40a-4ff2-9095-b3ef9d11ff59`. Read [`plan.md`](./plan.md) first. Every task follows RED (new assertion demonstrably fails) -> GREEN (minimal passing implementation) -> REFACTOR (targeted suite remains green). Commit only after both Rust and web/package gates relevant to the task pass; never bypass Lefthook.
++
++## Stack and ownership rules
++
++- Rebase each PR on fresh `origin/main`, record the exact base SHA in the Forge issue, and re-prove the issue lease before edits.
++- Only this stack owns `apps/meeting-capture-desktop/**`, its root workspace/script entries, and its release workflow. Coordinate lockfile/root script edits; do not mix unrelated dependency upgrades.
++- The durability issue owns ingestion/ack/finalization prerequisites. The external connector owns `LocalCaptureSource`/evidence schemas. Terminal finalization owns the server finalizer. Caller-authority work owns candidates/tasks. If a missing prerequisite is found, stop and update Forge; do not duplicate it here.
++- Use physical Windows and macOS runners for native proofs. A mock-only result is incomplete.
++- Zero skipped/ignored/quarantined tests. A timeout, missing terminal summary, partial platform matrix, or unsigned artifact is not PASS.
++
++## PR 1 — Secure shell and native audio
++
++**Exact ownership**
++
++- New `apps/meeting-capture-desktop/package.json`, `src/**`, `tests/**`, `vite.config.*`, `vitest.config.*`
++- New `apps/meeting-capture-desktop/src-tauri/Cargo.toml`, `Cargo.lock`, `build.rs`, `tauri.conf.json`, `capabilities/**`, `entitlements.plist`, `src/**`, `tests/**`
++- Root `package.json` workspace/test scripts and `bun.lock` only for this new package
++- New native test fixtures under `apps/meeting-capture-desktop/src-tauri/tests/fixtures/**`; fixtures must be synthetic and redistributable
++
++### Task 1.1 — Scaffold the least-privilege collector shell
++
++RED: add tests that fail unless the capability manifest exposes only enumerated recorder/auth/update commands; CSP rejects remote scripts/navigation; frontend input cannot select a filesystem path, URL, shell command, or secret; calendar suggestions cannot invoke `start_capture`.
++
++GREEN: add the smallest Tauri 2 package and local UI with signed-out/permission/ready states, typed IPC wrappers, immutable Product-Suite origin configuration, no shell/filesystem/process/global-HTTP plugins, and exact locked dependencies.
++
++Commands:
++
++```powershell
++bun run --cwd apps/meeting-capture-desktop test -- --run tests/security-boundary.test.ts tests/start-authority.test.ts
++cargo test --manifest-path apps/meeting-capture-desktop/src-tauri/Cargo.toml security_boundary -- --exact
++bun run --cwd apps/meeting-capture-desktop lint
++bun run --cwd apps/meeting-capture-desktop typecheck
++```
++
++### Task 1.2 — Make consent and permission preflight executable
++
++RED: platform-adapter tests cover missing/denied/revoked mic or system permission, hidden-window start, permission changes after ready, device disappearance, no signal, and close-window during recording. UI tests require separate mic/system status and meters plus a persistent tray/window indicator.
++
++GREEN: implement explicit preflight and a Rust-owned capture state transition. Only a foreground click token may start; permission errors are actionable; closing requires stop confirmation; no auto-start entry point exists.
++
++Commands:
++
++```powershell
++bun run --cwd apps/meeting-capture-desktop test -- --run tests/permissions.test.ts tests/recording-indicator.test.ts
++cargo test --manifest-path apps/meeting-capture-desktop/src-tauri/Cargo.toml permissions
++```
++
++### Task 1.3 — Prove Windows native WASAPI plus mic capture
++
++RED: Rust contract tests fail for non-monotonic frames, missing `source_kind`, duplicate intervals, endpoint changes, device loss, silence, pause/resume overlap, and COM cleanup. The Windows physical harness first records failing evidence before an implementation is enabled.
++
++GREEN: implement a Windows-only `SystemAudioSource` with the `windows` crate using shared-mode WASAPI loopback, event-driven capture, monotonic timestamps, and clean endpoint reinitialization; implement mic input behind the same typed frame contract without mixing sources.
++
++Commands on supported Windows x86_64:
++
++```powershell
++cargo test --manifest-path apps/meeting-capture-desktop/src-tauri/Cargo.toml --target x86_64-pc-windows-msvc audio::contract
++cargo test --manifest-path apps/meeting-capture-desktop/src-tauri/Cargo.toml --target x86_64-pc-windows-msvc wasapi
++bun run --cwd apps/meeting-capture-desktop test:native:windows
++```
++
++Physical evidence: headphones and speakers, default endpoint switch, unplug/replug, mic denied/revoked, sleep/wake, silence, 60-minute capture, and resulting gap/timestamp report. Store only synthetic-source hashes and metrics, never captured speech.
++
++### Task 1.4 — Prove Core Audio Process Tap plus mic capture
++
++RED: macOS adapter/contract tests cover pre-14.2 rejection, missing usage description, first-run denial, revocation, aggregate-device failure, target/process exit, output-device change, sleep/wake, silence, and teardown. Start the physical spike with a failing proof record.
++
++GREEN: implement a macOS 14.2+ Core Audio Process Tap adapter with the minimum entitlement/usage description, monotonic frames, device recovery, and separate mic frames. No ScreenCaptureKit dependency or screen permission is allowed.
++
++Commands on macOS Intel and Apple Silicon:
++
++```bash
++cargo test --manifest-path apps/meeting-capture-desktop/src-tauri/Cargo.toml audio::contract
++cargo test --manifest-path apps/meeting-capture-desktop/src-tauri/Cargo.toml core_audio_tap
++bun run --cwd apps/meeting-capture-desktop test:native:macos
++```
++
++Blocking physical evidence: first-run/deny/grant/revoke, active process and whole-system target where supported, process exit, output switch, Bluetooth reconnect, sleep/wake, silence, mic simultaneous capture, and 60-minute Intel/Apple-Silicon runs. If either architecture fails the contract or performance gate, stop PR 1 and return to PLAN for ScreenCaptureKit evaluation.
++
++### PR 1 gate
++
++Run:
++
++```powershell
++bun run --cwd apps/meeting-capture-desktop lint
++bun run --cwd apps/meeting-capture-desktop typecheck
++bun run --cwd apps/meeting-capture-desktop test -- --run
++bun run --cwd apps/meeting-capture-desktop build
++cargo fmt --manifest-path apps/meeting-capture-desktop/src-tauri/Cargo.toml --check
++cargo clippy --manifest-path apps/meeting-capture-desktop/src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
++cargo test --manifest-path apps/meeting-capture-desktop/src-tauri/Cargo.toml --all-features
++cargo audit --file apps/meeting-capture-desktop/src-tauri/Cargo.lock
++```
++
++Require both physical platform reports, all security-boundary tests, and the idle/recording CPU-memory/bundle budgets. PR 1 may merge without backend upload but must not present itself as a usable production recorder.
++
++**PR 1 rollback:** revert the PR; it has no server or persisted-user-data dependency. Remove only test app credentials/capabilities created for the spike.
++
++## PR 2 — Encrypted spool, acknowledgements, and recovery
++
++**Entry gate:** PR 1 is landed. Local durability `d88d461a-c259-4dc6-a751-f2b3c6898b7a` and the external connector `LocalCaptureSource` contract are landed on `origin/main`; record exact SHAs and generated contract version in Forge.
++
++**Exact ownership**
++
++- `apps/meeting-capture-desktop/src-tauri/src/spool/**`, `crypto/**`, `credential_store/**`, `upload/**`, and their Rust tests
++- `apps/meeting-capture-desktop/src/api/**`, recovery/status UI, and package tests
++- `packages/sdk/src/**` plus matching tests only if the landed durable API lacks a generated/typed desktop client; do not change the server endpoint or contracts in this PR
++- Existing `LocalCaptureSource` adapter fixtures only to add the desktop source conformance case, with its owner’s review
++
++### Task 2.1 — Encode the contract and fail-closed authenticated client
++
++RED: contract tests reject wrong actor/tenant, missing/expired auth, arbitrary base URL, malformed session, missing consent, unsupported topology, same sequence/different digest, acknowledgement mismatch, unexpected redirect, and any response that tries to grant candidate/task authority.
++
++GREEN: use the landed Product-Suite create/upload/status/delete contracts through a typed client. Store opaque credentials only in Keychain/DPAPI, bind sessions to the server actor, and project the landed `LocalCaptureSource` evidence fields without local interpretation.
++
++Commands:
++
++```powershell
++cargo test --manifest-path apps/meeting-capture-desktop/src-tauri/Cargo.toml auth_client
++cargo test --manifest-path apps/meeting-capture-desktop/src-tauri/Cargo.toml upload_contract
++bun run test:contracts
++bun run test:sdk
++```
++
++### Task 2.2 — Persist ciphertext before upload
++
++RED: deterministic filesystem-fault tests fail for crash before/after flush/rename, reused nonce, plaintext discovery, manifest downgrade, path traversal/symlink, altered ciphertext/AAD, missing key, wrong ACL, full disk, quota edge, concurrent writers, and chunk marked eligible before durability.
++
++GREEN: implement per-session AEAD keys in OS secure storage, encrypted versioned manifests/chunks, unique nonces, owner-only ACLs, atomic same-directory writes, flush ordering, and the 2-GiB/eight-hour quota. Never use SQLite or another data service.
++
++Commands:
++
++```powershell
++cargo test --manifest-path apps/meeting-capture-desktop/src-tauri/Cargo.toml spool::faults
++cargo test --manifest-path apps/meeting-capture-desktop/src-tauri/Cargo.toml spool::confidentiality
++bun run --cwd apps/meeting-capture-desktop test -- --run tests/spool-status.test.ts
++```
++
++### Task 2.3 — Implement idempotent upload, acknowledgement, and backpressure
++
++RED: virtual-clock/fake-server tests cover offline start, disconnect during body/response, lost ack, duplicate replay, out-of-order ack, 401/403, 409 digest conflict, 413, 429 with `Retry-After`, 5xx, timeout, TLS/hostname failure, app restart, and queue saturation. Assert upload concurrency never exceeds two and no ciphertext is deleted without a matching durable ack.
++
++GREEN: upload only durable chunks, use bounded exponential backoff with full jitter, honor server rate limits, reconcile status after ambiguous responses, and delete after exact session/sequence/digest acknowledgement. Capture pauses visibly before quota/data loss.
++
++Commands:
++
++```powershell
++cargo test --manifest-path apps/meeting-capture-desktop/src-tauri/Cargo.toml upload::retry -- --nocapture
++cargo test --manifest-path apps/meeting-capture-desktop/src-tauri/Cargo.toml upload::acknowledgement
++cargo test --manifest-path apps/meeting-capture-desktop/src-tauri/Cargo.toml upload::rate_limit
++```
++
++### Task 2.4 — Recover and discard without hidden authority
++
++RED: restart/property tests generate interruption at every chunk-state boundary and require the recovered state to be a valid prefix; cover multiple users, sign-out/in, missing key, corrupt manifest, clock jump, app downgrade, and explicit discard while offline/online.
++
++GREEN: enumerate valid spools at startup, quarantine corrupt/keyless records, require re-authentication before resume, never auto-restart capture, and make discard confirmed/auditable without leaking metadata.
++
++Commands:
++
++```powershell
++cargo test --manifest-path apps/meeting-capture-desktop/src-tauri/Cargo.toml recovery -- --nocapture
++bun run --cwd apps/meeting-capture-desktop test -- --run tests/recovery.test.ts tests/discard.test.ts
++```
++
++### PR 2 gate
++
++Run PR 1 gates plus contract/SDK suites and a kill/network-chaos matrix on both platforms. Prove no plaintext via spool/log scan; acked replay causes zero duplicate transcription/evidence; every durable unacked chunk survives 100 injected crash points; 429 concurrency/rate limits are honored; 60-minute offline capture respects quota and memory budgets.
++
++**PR 2 rollback:** disable new desktop session creation server-side by app version, keep compatible ingest/status/delete endpoints live for the declared recovery window, and release/revert only after every recoverable spool can drain or the user explicitly discards it. Never remove a contract needed by installed clients.
++
++## PR 3 — Finalization, association, signed builds, and updater
++
++**Entry gate:** PR 2, terminal finalization `ce942338-35af-4960-ae83-ebc55bdbbe2a`, and optional meeting-recognition API are landed. Human signing/updater/privacy prerequisites in `plan.md` are approved and stored in protected CI.
++
++**Exact ownership**
++
++- Desktop `finalize/**`, association UI/client, deep links, update policy, release metadata, and tests
++- `apps/meeting-capture-desktop/src-tauri/tauri.conf.json`, capabilities, entitlements, icons, updater configuration
++- New `.github/workflows/meeting-capture-desktop-release.yml` and scoped release scripts/tests
++- Root SBOM/provenance scripts only where needed for this artifact; no unrelated release refactor
++
++### Task 3.1 — Drain then finalize exactly once
++
++RED: E2E tests cover stop with final partial chunk, missing middle sequence, lost final ack, repeated stop/finalize, pause then stop, crash while draining, server terminal conflict, deleted meeting, auth loss, transcription lag, and artifact refresh failure. Finalize must be impossible before the server reports the expected contiguous terminal sequence.
++
++GREEN: implement the stop/drain/finalize state path using the landed endpoint, resume drain after restart, and deep-link to existing Product-Suite artifacts. Do not produce summary/candidates/tasks locally.
++
++Commands:
++
++```powershell
++cargo test --manifest-path apps/meeting-capture-desktop/src-tauri/Cargo.toml finalize
++bun run --cwd apps/meeting-capture-desktop test -- --run tests/finalize.test.ts
++bun run validate:meeting-api:test
++bun run test:contracts
++```
++
++### Task 3.2 — Add user-confirmed calendar association
++
++RED: tests reject auto-start, background capture, calendar credentials in app storage, tenant/event metadata selecting authority, stale/deleted events, association changes during recording without confirmation, and event suggestion invoking a privileged command.
++
++GREEN: fetch minimal backend suggestions, let the user confirm one opaque association or none, and pass it only through the landed meeting/session contract. No polling that wakes capture and no automatic schedule.
++
++Commands:
++
++```powershell
++bun run --cwd apps/meeting-capture-desktop test -- --run tests/calendar-association.test.ts tests/start-authority.test.ts
++cargo test --manifest-path apps/meeting-capture-desktop/src-tauri/Cargo.toml association
++```
++
++### Task 3.3 — Make signed release and mandatory signed updater non-bypassable
++
++RED: workflow/config tests fail for unsigned executable/installer/update, missing notarization/staple, ad-hoc macOS identity, mutable/unpinned build action, exposed secret, non-HTTPS endpoint, wrong key/channel/platform, downgrade/replay, updater permission wildcard, or a critical-update bypass. Test active/recoverable sessions are not destroyed or interrupted by update policy.
++
++GREEN: build on native runners; sign/timestamp Windows executable and NSIS installer; sign with Developer ID, hardened runtime, notarize and staple macOS artifacts; generate SBOM/provenance; sign Tauri updater artifacts with the protected key; verify every artifact before publishing to the internal channel. A critical update blocks new starts but permits drain/diagnostics/discard.
++
++Commands (release CI; never print secrets):
++
++```powershell
++bun run --cwd apps/meeting-capture-desktop test:release-config
++bun run --cwd apps/meeting-capture-desktop tauri build
++cargo audit --file apps/meeting-capture-desktop/src-tauri/Cargo.lock
++```
++
++Then verify `Get-AuthenticodeSignature`/`signtool verify /pa` on Windows and `codesign --verify --deep --strict`, `spctl --assess --type execute`, `stapler validate` on macOS. Install on clean VMs/hosts, apply a valid higher-version update, and prove invalid/missing/wrong-key/downgrade artifacts fail closed.
++
++### Task 3.4 — Cross-platform release candidate and performance gate
++
++RED: the E2E harness must initially expose a failing case for each supported platform in permission, capture, one-hour stability, crash recovery, offline/reconnect, stop/finalize, delete, update, and clean reinstall.
++
++GREEN: resolve only product defects; preserve all gates and store privacy-safe machine/app/build metrics plus exact artifact hashes.
++
++Commands:
++
++```powershell
++bun run --cwd apps/meeting-capture-desktop verify
++bun run test:contracts
++bun run test:sdk
++bun run validate:meeting-api
++forge test
++```
++
++Require signed Windows x86_64, macOS arm64, and macOS x86_64 artifacts; exact-head CI; zero skipped tests; idle/recording CPU-memory/bundle budgets; clean-install permissions; 60-minute capture; injected crash/network recovery; contiguous finalize; invalid updater rejection; SBOM/provenance verification.
++
++**PR 3 rollback:** use the server start kill switch and a higher-version signed rollback build. Keep ingest/status/finalize compatible while spools remain. Never issue an unsigned updater, force a downgrade, interrupt active capture, or erase local recoverable audio.
++
++## DEV stage completion evidence
++
++For every PR, the Forge handoff must record: exact base/head SHAs; prerequisite issue/contract versions; RED and GREEN command/output summaries per task; changed files by owner; platform/architecture runner identities; synthetic fixture hashes; security and dependency results; CPU/memory/bundle/recovery metrics; signed artifact hashes and verification results where applicable; all remaining risks; and the next stage. Only complete, terminal results count.
+-- 
+2.51.0.windows.1
+

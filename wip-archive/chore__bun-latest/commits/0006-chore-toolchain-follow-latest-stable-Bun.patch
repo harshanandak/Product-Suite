@@ -1,0 +1,238 @@
+From 678717c898ebefea14cbc642ef0b00647e0ba1aa Mon Sep 17 00:00:00 2001
+From: Harsha Nanda <212836255+harshanandak@users.noreply.github.com>
+Date: Sat, 19 Sep 2026 16:31:14 +0530
+Subject: [PATCH] chore(toolchain): follow latest stable Bun
+
+Forge issue: b0803978-a71b-4946-a139-48e8901b9739
+---
+ .github/workflows/db-contract.yml             |  4 ++--
+ .github/workflows/meeting-api-ci.yml          |  2 +-
+ .github/workflows/meeting-web-ci.yml          |  2 +-
+ .../workflows/neon-production-preflight.yml   |  2 +-
+ .github/workflows/platform-api-deploy.yml     |  6 +++---
+ .github/workflows/platform-web-ci.yml         |  2 +-
+ .github/workflows/platform-web-deploy.yml     |  2 +-
+ .github/workflows/repo-tooling-ci.yml         |  2 +-
+ AGENTS.md                                     |  3 ++-
+ CHANGELOG.md                                  |  1 +
+ package.json                                  |  1 -
+ test/repo-tooling.test.js                     | 21 ++++++++++++++++++-
+ 12 files changed, 34 insertions(+), 14 deletions(-)
+
+diff --git a/.github/workflows/db-contract.yml b/.github/workflows/db-contract.yml
+index fac94e9..c6da5c8 100644
+--- a/.github/workflows/db-contract.yml
++++ b/.github/workflows/db-contract.yml
+@@ -165,7 +165,7 @@ jobs:
+       - name: Set up Bun
+         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+         with:
+-          bun-version: 1.3.6
++          bun-version: latest
+ 
+       - name: Set up Python
+         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+@@ -343,7 +343,7 @@ jobs:
+       - name: Set up Bun
+         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+         with:
+-          bun-version: 1.3.6
++          bun-version: latest
+ 
+       - name: Install dependencies
+         run: bun install --frozen-lockfile --ignore-scripts
+diff --git a/.github/workflows/meeting-api-ci.yml b/.github/workflows/meeting-api-ci.yml
+index 84ed5e2..ba0b6d1 100644
+--- a/.github/workflows/meeting-api-ci.yml
++++ b/.github/workflows/meeting-api-ci.yml
+@@ -61,7 +61,7 @@ jobs:
+       - name: Setup Bun
+         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+         with:
+-          bun-version: 1.3.6
++          bun-version: latest
+ 
+       - name: Install JavaScript dependencies
+         run: bun install --frozen-lockfile --ignore-scripts
+diff --git a/.github/workflows/meeting-web-ci.yml b/.github/workflows/meeting-web-ci.yml
+index 9652171..ffe6dc0 100644
+--- a/.github/workflows/meeting-web-ci.yml
++++ b/.github/workflows/meeting-web-ci.yml
+@@ -70,7 +70,7 @@ jobs:
+         if: steps.changes.outputs.run == 'true'
+         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+         with:
+-          bun-version: 1.3.6
++          bun-version: latest
+ 
+       - name: Install dependencies
+         if: steps.changes.outputs.run == 'true'
+diff --git a/.github/workflows/neon-production-preflight.yml b/.github/workflows/neon-production-preflight.yml
+index f0cd2d7..0c2a425 100644
+--- a/.github/workflows/neon-production-preflight.yml
++++ b/.github/workflows/neon-production-preflight.yml
+@@ -65,7 +65,7 @@ jobs:
+       - name: Set up Bun
+         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+         with:
+-          bun-version: 1.3.6
++          bun-version: latest
+ 
+       - name: Install frozen dependencies without lifecycle scripts
+         run: bun install --frozen-lockfile --ignore-scripts
+diff --git a/.github/workflows/platform-api-deploy.yml b/.github/workflows/platform-api-deploy.yml
+index ff51310..b17688d 100644
+--- a/.github/workflows/platform-api-deploy.yml
++++ b/.github/workflows/platform-api-deploy.yml
+@@ -70,7 +70,7 @@ jobs:
+       - name: Setup Bun
+         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+         with:
+-          bun-version: 1.3.6
++          bun-version: latest
+ 
+       - name: Verify production Worker runtime secrets
+         # Deploy credentials only prove we CAN deploy; these are what the Worker reads at runtime (src/db.ts, middleware/clerk-auth.ts, agent/models.ts, agent/embeddings.ts).
+@@ -149,7 +149,7 @@ jobs:
+       - name: Setup Bun
+         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+         with:
+-          bun-version: 1.3.6
++          bun-version: latest
+ 
+       - name: Install dependencies
+         # --ignore-scripts: this job has MIGRATION_DATABASE_URL in scope once the
+@@ -253,7 +253,7 @@ jobs:
+         if: steps.guard.outputs.ready == 'true'
+         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+         with:
+-          bun-version: 1.3.6
++          bun-version: latest
+ 
+       - name: Install dependencies
+         if: steps.guard.outputs.ready == 'true'
+diff --git a/.github/workflows/platform-web-ci.yml b/.github/workflows/platform-web-ci.yml
+index 4bebb07..536f5de 100644
+--- a/.github/workflows/platform-web-ci.yml
++++ b/.github/workflows/platform-web-ci.yml
+@@ -60,7 +60,7 @@ jobs:
+         if: steps.changes.outputs.run == 'true'
+         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+         with:
+-          bun-version: 1.3.6
++          bun-version: latest
+ 
+       - name: Install dependencies
+         if: steps.changes.outputs.run == 'true'
+diff --git a/.github/workflows/platform-web-deploy.yml b/.github/workflows/platform-web-deploy.yml
+index 8b1f612..759afae 100644
+--- a/.github/workflows/platform-web-deploy.yml
++++ b/.github/workflows/platform-web-deploy.yml
+@@ -60,7 +60,7 @@ jobs:
+         if: steps.guard.outputs.ready == 'true'
+         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+         with:
+-          bun-version: 1.3.6
++          bun-version: latest
+ 
+       - name: Install dependencies
+         if: steps.guard.outputs.ready == 'true'
+diff --git a/.github/workflows/repo-tooling-ci.yml b/.github/workflows/repo-tooling-ci.yml
+index 59d330c..f33b3d4 100644
+--- a/.github/workflows/repo-tooling-ci.yml
++++ b/.github/workflows/repo-tooling-ci.yml
+@@ -53,7 +53,7 @@ jobs:
+       - name: Setup Bun
+         uses: oven-sh/setup-bun@v2
+         with:
+-          bun-version: 1.3.6
++          bun-version: latest
+ 
+       - name: Install dependencies
+         run: bun install --frozen-lockfile
+diff --git a/AGENTS.md b/AGENTS.md
+index 6b16e3d..96e4a58 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -176,7 +176,8 @@ services/     agent-core  hocuspocus
+ scripts/      repo-level checks (migration parity, source/test coupling, DB authority…)
+ ```
+ 
+-Bun workspaces; `bun@1.3.6` is pinned in the root `package.json`.
++Bun workspaces; CI follows the latest stable Bun release. Locally, run
++`bun upgrade --stable` and verify `bun --version` before installing dependencies.
+ 
+ **Taste.** Push complexity to the adapter boundary and keep orchestration pure. UI
+ components stay dumb. Prefer inferred types over hand-written ones; `any` is the enemy.
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index f8443a5..2b9c2ee 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -23,6 +23,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+ - Schema and domain ownership inventory for roadmap and meeting surfaces, including canonical ownership boundaries, overlap rules, and guarded discoverability links (PR #3, product-suite-waq)
+ 
+ ### Changed
++- Bun CI runtimes now follow stable releases, and local setup documents stable upgrades instead of an obsolete exact runtime pin (Forge issue `b0803978-a71b-4946-a139-48e8901b9739`)
+ - Real-Neon authority conformance now proves disposable-project and production-derived-branch cleanup, direct migration versus pooled runtime binding, least-privilege CRUD and denial behavior, and exact opaque PASS evidence (PR #173, Forge issue `25faf39b-3017-42fe-94c0-87acad7279a0`)
+ - DB Contract now runs deterministic changed-surface cheap gates before protected exact-head Neon evidence; executable migration-manifest and OAuth/token/session authority paths fail closed to DB proof, while strict server-side branch protection remains the merge-time base-freshness authority (Forge issue `532329e0-7595-40c2-b939-a3a0735f8071`)
+ - DB Contract real-Neon tests now reuse migrated suite branches with transaction rollback for safe cases, preserve dedicated isolation-sensitive proofs, and emit exact-head phase evidence to reduce runtime without weakening isolation (PR #168, Forge issue `9a808ed4-16c1-48c7-8ffb-2e8a2c8aaaaf`)
+diff --git a/package.json b/package.json
+index 75f6120..2f95e84 100644
+--- a/package.json
++++ b/package.json
+@@ -1,7 +1,6 @@
+ {
+   "name": "product-suite",
+   "private": true,
+-  "packageManager": "bun@1.3.6",
+   "workspaces": [
+     "apps/meeting-web",
+     "apps/roadmap-web",
+diff --git a/test/repo-tooling.test.js b/test/repo-tooling.test.js
+index 57e186c..6fab0b1 100644
+--- a/test/repo-tooling.test.js
++++ b/test/repo-tooling.test.js
+@@ -1,6 +1,6 @@
+ import { describe, expect, test } from "bun:test";
+ import { execFileSync } from "node:child_process";
+-import { existsSync, readFileSync } from "node:fs";
++import { existsSync, readFileSync, readdirSync } from "node:fs";
+ import { join } from "node:path";
+ 
+ const rootDir = join(import.meta.dir, "..");
+@@ -114,6 +114,9 @@ const dbContractWorkflowPath = join(
+   "db-contract.yml",
+ );
+ const dbContractWorkflow = readFileSync(dbContractWorkflowPath, "utf8");
++const workflowPaths = readdirSync(join(rootDir, ".github", "workflows"))
++  .filter((name) => /\.ya?ml$/iu.test(name))
++  .map((name) => join(rootDir, ".github", "workflows", name));
+ const lifecycleScriptHardenedWorkflowPaths = [
+   dbContractWorkflowPath,
+   join(rootDir, ".github", "workflows", "platform-web-ci.yml"),
+@@ -126,6 +129,22 @@ const dbContractTelemetry = readFileSync(
+ const lefthookConfig = readFileSync(join(rootDir, "lefthook.yml"), "utf8");
+ 
+ describe("repo tooling", () => {
++  test("every GitHub Actions Bun runtime follows the latest stable release", () => {
++    expect(packageJson.packageManager).toBeUndefined();
++
++    const setupSteps = workflowPaths.flatMap((workflowPath) => {
++      const workflow = Bun.YAML.parse(readFileSync(workflowPath, "utf8"));
++      return Object.values(workflow.jobs ?? {})
++        .flatMap((job) => job.steps ?? [])
++        .filter((step) => step.uses?.startsWith("oven-sh/setup-bun@"));
++    });
++
++    expect(setupSteps.length).toBeGreaterThan(0);
++    for (const step of setupSteps) {
++      expect(step.with?.["bun-version"]).toBe("latest");
++    }
++  });
++
+   test("root dependency bootstrap exposes ESLint's AJV 6 draft-04 reference", () => {
+     expect(packageJson.devDependencies.ajv).toBe("6.14.0");
+     expect(() =>
+-- 
+2.51.0.windows.1
+

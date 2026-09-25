@@ -1,0 +1,70 @@
+From 1b0ee779e1b2056ba2773569db6ca14e5e4fb6a6 Mon Sep 17 00:00:00 2001
+From: Harsha Nanda <harshanandak@users.noreply.github.com>
+Date: Fri, 24 Jul 2026 15:21:54 +0530
+Subject: [PATCH] =?UTF-8?q?docs(memory):=20Task=200=20finding=20=E2=80=94?=
+ =?UTF-8?q?=20store=20EMPTY,=20ranker=20blocked=20on=20capture=20(a5ecc5aa?=
+ =?UTF-8?q?)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Read-only prod Neon check: memories table has 0 rows of any status, 0
+tenants, across 7 agent_runs. Not a Review-Inbox backlog (no proposals).
+Nothing is being captured — ranking is premature over an empty corpus per
+the issue's own precondition mandate. Real bottleneck is CAPTURE (reflection
+has no trigger 3ecc1859; #132 capture-on-accept unverified). Decisions log
+records the STOP; not proceeding to shadow code. (capture-check.mjs left
+uncommitted local helper — re-run to confirm non-empty store before resuming.)
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ .../decisions.md                              | 37 +++++++++++++++++++
+ 1 file changed, 37 insertions(+)
+ create mode 100644 docs/work/2026-07-24-memory-injection-ranker/decisions.md
+
+diff --git a/docs/work/2026-07-24-memory-injection-ranker/decisions.md b/docs/work/2026-07-24-memory-injection-ranker/decisions.md
+new file mode 100644
+index 0000000..2518094
+--- /dev/null
++++ b/docs/work/2026-07-24-memory-injection-ranker/decisions.md
+@@ -0,0 +1,37 @@
++# Decisions Log — Memory Injection Ranker (a5ecc5aa)
++
++## 2026-07-24 · Task 0 (capture-side precondition) — BLOCKING FINDING
++
++**Verdict: STOP the ranker build. The precondition failed — the memory corpus is empty.**
++
++Query (read-only, prod Neon) via `apps/platform-api/scripts/capture-check.mjs`:
++
++| Metric | Value |
++|---|---|
++| `memories` total (any status) | **0** |
++| `memories` by status | **[]** (no rows at all) |
++| active decisions/facts | 0 |
++| active rules | 0 |
++| tenants with memories | 0 |
++| `agent_runs` total | 7 (newest 4.6 days old) |
++
++**Interpretation.** The store is not thin — it is empty. This is not a Review-Inbox/approval
++bottleneck (there are zero *proposed* memories either). Nothing is being captured. Per the issue's own
++Fable-pass mandate ("a small store means capture, not ranking, is the real bottleneck"), the ranking work
++(a5ecc5aa) is **premature**: a relevance ranker over an empty corpus has zero observable effect, and the
++Task 1 offline query-construction experiment is infeasible (7 runs, 0 captured memories to replay).
++
++**The real bottleneck is CAPTURE.** No memories exist despite 7 agent runs. Candidates for *why*:
++- Reflection engine has no autonomous trigger (issue **3ecc1859**) — nothing runs it.
++- Memory-capture-on-accept (#132) may not have fired (no work-item accepts) or may not be wired to these
++  runs — **to be verified**.
++
++**Decision:** do not proceed to Phase 1 shadow code or Task 1. Resequence: land capture first (make
++memories actually get created), re-run this exact capture check, and only then resume the ranker — its
++shadow-first design is still correct, just blocked on a non-empty store.
++
++**a5ecc5aa status:** blocked on capture. Kept open with this finding recorded; not closed (the ranker is
++still the right eventual fix, just not now).
++
++**Artifacts:** `apps/platform-api/scripts/capture-check.mjs` (reusable precondition check — re-run after
++capture lands to confirm the store is non-empty before resuming).
+-- 
+2.51.0.windows.1
+

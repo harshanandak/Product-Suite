@@ -1,0 +1,671 @@
+From 858c4d80398bdbb489c3ad2e255058f56aef5f7d Mon Sep 17 00:00:00 2001
+From: Harsha Nanda <harshanandak@users.noreply.github.com>
+Date: Sun, 9 Aug 2026 02:06:14 +0530
+Subject: [PATCH] docs(plan): close meeting authority review blockers
+
+---
+ .../2026-08-09-meeting-authority-pr-b/plan.md | 191 +++++++++++++-----
+ .../tasks.md                                  |  91 ++++++---
+ 2 files changed, 209 insertions(+), 73 deletions(-)
+
+diff --git a/docs/work/2026-08-09-meeting-authority-pr-b/plan.md b/docs/work/2026-08-09-meeting-authority-pr-b/plan.md
+index 763fb45..6c3d4a4 100644
+--- a/docs/work/2026-08-09-meeting-authority-pr-b/plan.md
++++ b/docs/work/2026-08-09-meeting-authority-pr-b/plan.md
+@@ -49,18 +49,21 @@ declared parent branch:
+ 3. The PR A handoff names the exact contract version, `authorizeCurrentMeetingCaller`
+    signature, canonical schema model, next migration revision, migration command,
+    and non-skipping ephemeral-Neon command.
+-4. The PR B Forge dependency on PR A is explicitly approved and recorded. This
+-   PLAN does not mutate the dependency graph on its own.
+-
+-Until that handoff lands, every task uses the blocking placeholder
+-`{{PR_A_EPHEMERAL_NEON_API_WEB_BROWSER_COMMAND}}`. PR A owns replacing it with one
+-checked-in command and file path that creates an isolated Neon branch/database,
+-runs canonical migrations, seeds identity/conversation/meeting data, starts
+-meeting-api + platform-api + platform-web against that database, runs API probes
+-and Playwright, reports nonzero test counts, and cleans up in `finally`. Missing
+-credentials, missing service, skip, zero tests, timeout, or cleanup failure must
+-exit nonzero. PR B cannot substitute an ad hoc local script or call this PASS while
+-the placeholder remains unresolved.
++4. Forge child B1 `eeb61da8-c8c3-41e1-b218-bf930fceb8eb` is recorded as depending
++   on both prerequisites; B2..B8 each depend on the previous child. Each PR worker
++   claims/proves only its child lease in its own worktree.
++
++B8 owns the concrete checked-in orchestrator
++`scripts/meeting-authority/run-neon-e2e.mjs`, package command
++`test:meeting-authority:neon-e2e`, and `.github/workflows/db-contract.yml` job
++`meeting-authority-neon-e2e`. The script imports/reuses PR A's canonical
++`apps/platform-api/test/db-contract/harness.ts` branch/migration/cleanup primitives,
++seeds identity/conversation/meeting data, boots meeting-api + platform-api +
++platform-web on reserved ephemeral ports against that Neon branch, health-checks
++all three, runs API probes and `apps/platform-web/e2e/meeting-loop.spec.ts`, parses
++nonzero test counts, terminates processes, and deletes the branch in `finally`.
++Missing Neon credentials, missing harness/service, skip, zero tests, timeout,
++process leak, or cleanup failure exits nonzero; there is no unresolved handoff token.
+ 
+ Every stack branch re-proves its own Forge lease and re-runs conflict/migration-
+ order checks. No implementation branch descends from this PLAN worktree.
+@@ -235,16 +238,23 @@ PR A. Names below are final; only the numeric revision placeholder changes.
+ 
+ `meeting_summary_artifacts` is the meeting-owned review pointer: `id UUID PK`,
+ `tenant_id TEXT`, `access_conversation_id UUID`, `source_meeting_id TEXT`,
+-`source_summary_id TEXT`, `current_version_id UUID`, `review_state
++`source_summary_id TEXT`, nullable `current_version_id UUID`, `review_state
+ meeting_summary_review_state DEFAULT 'current'`, optional same-tenant
+-`dismissed_by_actor_id`, `dismissed_at`, and timestamps. It is unique on
++`dismissed_by_actor_id`, `dismissed_at`, `state_revision BIGINT NOT NULL DEFAULT 0`,
++nullable `last_transition_command_id UUID`, and timestamps. It is unique on
+ `(tenant_id,source_meeting_id)`. `dismissed` requires both dismissal fields;
+-`current` forbids them. Source refresh never reopens a dismissed artifact.
++`current` forbids them. Initial insert has NULL current version, revision 0, and
++NULL transition only inside the same transaction that inserts v1 then sets the
++pointer; a deferred constraint rejects commit with NULL. Source refresh never
++changes state revision or reopens a dismissed artifact. Every human state change
++CASes expected revision/transition, increments revision exactly once, and points
++to the immutable succeeded command that caused it.
+ 
+ `meeting_summary_versions` contains `id UUID PK`, `tenant_id TEXT`,
+ `summary_artifact_id UUID`, `version_number INTEGER >=1`, optional
+ `previous_version_id UUID`, `title TEXT` (1..160 code points), `body TEXT`
+ (1..8000), `source_line TEXT` (one line, <=240), `source_summary_id TEXT`,
++`source_revision BIGINT`,
+ `derivation_kind meeting_version_derivation_kind`, `source_projection_hash TEXT`
+ (SHA-256 of the canonical source row projection), `version_content_hash TEXT`
+ (SHA-256 of canonical displayed title/body/source line), `created_by_actor_id UUID`,
+@@ -252,8 +262,8 @@ meeting_summary_review_state DEFAULT 'current'`, optional same-tenant
+ `source_agent_event_id UUID`, and `created_at`.
+ 
+ Constraints are exact: unique `(tenant_id,summary_artifact_id,version_number)`;
+-partial unique `(tenant_id,summary_artifact_id,source_projection_hash) WHERE
+-derivation_kind='source'`; same-tenant composite FKs establish every chain edge.
++partial unique `(tenant_id,summary_artifact_id,source_summary_id,source_revision)
++WHERE derivation_kind='source'`; same-tenant composite FKs establish every chain edge.
+ For `source`, source summary/hash/run/actor are required and both collaboration
+ events are NULL; `previous_version_id` is NULL only for v1 and otherwise points to
+ the immediately previous version. For `adjustment`, previous version, source run,
+@@ -262,6 +272,9 @@ source projection hash but may repeat it because only source rows are partially
+ unique. Every row has a non-null content hash. UPDATE/DELETE triggers make versions
+ immutable. Decisions/follow-ups remain tenant-bound owning-domain evidence links;
+ they are not copied into this row or memory.
++The same actor-kind trigger applies: source requires a service actor; adjustment
++requires agent actor/run plus linked human user event and same-agent assistant
++event in the owning conversation. App assertions duplicate, never replace, it.
+ 
+ #### `meeting_action_candidates`
+ 
+@@ -272,8 +285,10 @@ they are not copied into this row or memory.
+ | `access_conversation_id` | UUID NOT NULL |
+ | `source_meeting_id` | TEXT NOT NULL |
+ | `source_action_item_id` | TEXT NOT NULL |
+-| `current_version_id` | UUID NOT NULL after initial insert |
++| `current_version_id` | UUID NULL only inside initial subject+v1 transaction; deferred NOT NULL at commit |
+ | `state` | `meeting_action_candidate_state` NOT NULL DEFAULT `pending` |
++| `state_revision` | BIGINT NOT NULL DEFAULT 0; monotonic human state changes only |
++| `last_transition_command_id` | UUID NULL only at initial revision 0 |
+ | `resolved_version_id` | UUID NULL |
+ | `resolved_by_actor_id` | UUID NULL |
+ | `resolved_at` | TIMESTAMPTZ NULL |
+@@ -289,7 +304,9 @@ Constraints/indexes:
+ - `pending` has no resolution fields; `added` has exactly one work-item result;
+   `dismissed` and `kept_as_follow_up` have no proposal/result;
+ - terminal rows cannot return to `pending`; rematerialization updates neither
+-  terminal state nor current version.
++  terminal state nor state revision/current version. Explicit Restore is the sole
++  exception for dismissed/kept states and must CAS the exact terminal revision and
++  transition command; `added -> pending` is rejected by trigger and application.
+ 
+ #### `meeting_action_candidate_versions`
+ 
+@@ -305,6 +322,7 @@ Constraints/indexes:
+ | `body` | TEXT NOT NULL, at most 8,000 code points |
+ | `source_line` | TEXT NOT NULL, one line, at most 240 code points |
+ | `source_record_id` | TEXT NOT NULL; exact action-item row used for this version |
++| `source_revision` | BIGINT NOT NULL; owning source revision/event identity |
+ | `derivation_kind` | `meeting_version_derivation_kind` NOT NULL |
+ | `source_projection_hash` | TEXT NOT NULL; SHA-256 of canonical source projection |
+ | `version_content_hash` | TEXT NOT NULL; SHA-256 of canonical displayed version |
+@@ -317,7 +335,7 @@ Constraints/indexes:
+ Constraints/indexes:
+ 
+ - unique `(tenant_id,candidate_id,version_number)` and partial unique
+-  `(tenant_id,candidate_id,source_projection_hash) WHERE derivation_kind='source'`;
++  `(tenant_id,candidate_id,source_record_id,source_revision) WHERE derivation_kind='source'`;
+ - same-tenant composite FKs for candidate, prior version, actor, run, and events;
+ - `source` requires source record/hash/run/service actor and NULL user/agent events;
+   v1 alone has no prior, later source refresh points to `N-1`;
+@@ -325,9 +343,22 @@ Constraints/indexes:
+   user/agent events; it may reuse a source projection hash but must have its own
+   content hash. These conditional checks prevent source refresh from masquerading
+   as a human/agent revision or vice versa;
++- a deferrable constraint trigger joins `collaboration_actors`: source rows require
++  `created_by_actor.kind='service'`; adjustment rows require
++  `created_by_actor.kind='agent'`, a human user event, an agent event by that same
++  agent actor, and `agent_runs.id=source_run_id` for the same conversation. The
++  application asserts the same shape before SQL; trigger evidence is authoritative;
+ - database triggers reject `UPDATE` and `DELETE` on versions and suggestions;
+   corrections append a new version.
+ 
++B2 adds additive `revision BIGINT NOT NULL DEFAULT 1` plus
++`UNIQUE(tenant_id,id,revision)` to `summaries` and `action_items` if PR A lacks an
++immutable source-event identity; every owning source update atomically increments
++revision. Refresh idempotency keys source versions by source row+revision, never by
++content hash. Content sequence A -> B -> A produces three source versions with
++revisions R, R+1, R+2 even though the first/third projection hashes match; retry of
++the same source revision produces none.
++
+ #### `meeting_action_candidate_suggestions`
+ 
+ Only verified, high-confidence, same-tenant suggestions are persisted. Absence is
+@@ -366,13 +397,22 @@ table; version/suggestion ownership uses a same-tenant FK. Unique owner+position
+ orders evidence deterministically. Missing canonical tenant-bound target means
+ the evidence is omitted; no text quote, window JSON, or unverified opaque ID is
+ persisted. UPDATE/DELETE triggers match the owning immutable version/suggestion.
++B2 owns adding additive `UNIQUE(tenant_id,id)` constraints to `decisions`,
++`action_items`, `open_questions`, `chapter_summaries`, and `transcript_segments`
++when PR A does not already provide them; migration tests prove every evidence FK
++is enforceable on a fresh clone. Card mapping is closed: summary `decision` rows
++project as `evidence_links.kind='decision'`; summary `action_item|open_question`
++project as `kind='follow_up'`; chapter-summary/transcript evidence and all action-
++suggestion evidence remain internal provenance and never become public links.
++Unknown evidence kinds fail decoding/migration rather than map to a generic link.
+ 
+ #### Separate command ledgers
+ 
+ `meeting_summary_commands` uses `(tenant_id,summary_artifact_id,expected_version_id,
+ kind,idempotency_key,request_hash,status,actor_id,run_id,user_event_id,
+ agent_event_id,result_version_id,claim_token,lease_expires_at,attempt_count,
+-error_code,timestamps)`. Its kind enum contains only `adjust|dismiss|restore`,
++result_state,result_state_revision,result_transition_id,error_code,timestamps)`.
++Its kind enum contains only `adjust|dismiss|restore`,
+ making summary Add structurally impossible.
+ 
+ `meeting_action_candidate_commands` uses:
+@@ -396,6 +436,9 @@ making summary Add structurally impossible.
+ | `result_version_id` | UUID NULL; Adjust only |
+ | `proposal_id` | UUID NULL; Add only |
+ | `result_work_item_id` | UUID NULL; successful Add only, exactly one |
++| `result_state` | subject state NULL until success, then immutable |
++| `result_state_revision` | BIGINT NULL until success, then immutable |
++| `result_transition_id` | UUID NULL until state-changing success; equals command ID |
+ | `error_code` | TEXT NULL; closed private codes only |
+ | timestamps | started/completed timestamps |
+ 
+@@ -415,6 +458,9 @@ result; `failed_retryable|failed_terminal` to clear token/lease, carry completed
+ time/error, and have no proposal/work/version result. Add success requires both
+ proposal and work item; Adjust success requires run/events/version; Dismiss,
+ keep, and Restore success forbid all domain-result columns.
++Succeeded state-changing commands are immutable transition records: a trigger
++rejects UPDATE/DELETE and requires `result_transition_id=id`, result state equal
++the subject row, and result revision equal the subject's post-CAS revision.
+ 
+ #### Derivative additions after PR A
+ 
+@@ -451,6 +497,12 @@ type MeetingActionDestination = 'simple_task' | 'planned_work_item'
+ type MeetingActionPlanningChoice = MeetingActionDestination | 'keep_as_follow_up'
+ type MeetingSummaryState = 'current' | 'dismissed'
+ type MeetingActionState = 'pending' | 'added' | 'dismissed' | 'kept_as_follow_up'
++type MeetingSummaryStateProjection =
++  | { value: 'current'; revision: number }
++  | { value: 'dismissed'; revision: number; terminal_transition_id: string }
++type MeetingActionStateProjection =
++  | { value: 'pending'; revision: number }
++  | { value: 'added' | 'dismissed' | 'kept_as_follow_up'; revision: number; terminal_transition_id: string }
+ 
+ type MeetingCandidateSuggestion =
+   | { id: string; kind: 'owner'; position: 0 | 1 | 2; actor_id: string; label: string; href?: string }
+@@ -464,7 +516,7 @@ interface MeetingSummaryArtifactCardV1 {
+   type: 'summary_artifact'
+   title: string
+   source_line: string
+-  state: MeetingSummaryState
++  state: MeetingSummaryStateProjection
+   evidence_links: readonly { kind: 'decision' | 'follow_up'; id: string; label: string; href: string }[] // 0..3
+   links: {
+     meeting: { id: string; href: string }
+@@ -480,7 +532,7 @@ interface MeetingActionCandidateCardV1 {
+   destination: MeetingActionDestination
+   title: string
+   source_line: string
+-  state: MeetingActionState
++  state: MeetingActionStateProjection
+   suggestions: readonly MeetingCandidateSuggestion[] // length 0..3
+   choices: readonly [
+     { value: 'simple_task'; label: 'Make this a simple task' },
+@@ -519,6 +571,7 @@ interface MeetingReviewProvenanceV1 {
+ 
+ interface AddMeetingActionCandidateV1 {
+   version_id: string
++  expected_state_revision: number
+   idempotency_key: string
+   confirmed_suggestion_ids: readonly string[] // subset of displayed IDs, max 3
+ }
+@@ -526,12 +579,14 @@ interface AddMeetingActionCandidateV1 {
+ type AdjustMeetingReviewSubjectV1 =
+   | {
+       version_id: string
++      expected_state_revision: number
+       idempotency_key: string
+       message: string // 1..2,000 code points
+       choice?: 'simple_task' | 'planned_work_item'
+     }
+   | {
+       version_id: string
++      expected_state_revision: number
+       idempotency_key: string
+       choice: 'keep_as_follow_up'
+       confirm_terminal: true
+@@ -539,11 +594,14 @@ type AdjustMeetingReviewSubjectV1 =
+ 
+ interface DismissMeetingReviewSubjectV1 {
+   version_id: string
++  expected_state_revision: number
+   idempotency_key: string
+ }
+ 
+ interface RestoreMeetingReviewSubjectV1 {
+   version_id: string
++  expected_state_revision: number
++  expected_terminal_transition_id: string
+   idempotency_key: string
+   confirm_restore: true
+ }
+@@ -572,7 +630,7 @@ It runs only after the caller is authorized for each meeting and:
+ 1. mints one attributable service run per meeting conversation;
+ 2. projects the latest final `summaries` row to the meeting's summary artifact
+    and each generated/promoted `action_items` row to an action candidate;
+-3. creates one subject plus v1 only when the source key/hash is new;
++3. creates one subject plus v1 only when the source row/revision identity is new;
+ 4. appends a source version only while the summary is current or action candidate
+    is pending and source content changed; dismissed/terminal subjects remain so;
+ 5. resolves at most three action suggestions and summary evidence links through
+@@ -594,12 +652,24 @@ model:
+ - map existing `meeting_promotions` and linked proposals/work items to action candidate
+   provenance;
+ - `applied` legacy proposal -> `added` with the existing work item;
+-- rejected/superseded/expired legacy proposal -> `dismissed` with no new work;
+-- pending legacy proposal -> pending action candidate; Add reuses it and supplies the
+-  displayed version as `edited_payload`; Dismiss rejects it explicitly;
++- rejected/superseded/expired legacy proposal -> non-restorable `dismissed` with
++  its existing terminal proposal untouched and no new work;
++- pending legacy proposal -> pending action candidate linked to that same still-
++  pending proposal. Candidate Dismiss/keep changes only candidate review state and
++  visibility; it never rejects/terminalizes the legacy proposal. The old Inbox
++  projection must exclude linked proposals unless candidate state is `pending`, so
++  dismissed/kept proposals cannot leak as a second review path. Restore makes the
++  same proposal visible again. Explicit Add reuses/applies it with current candidate
++  version as `edited_payload`; no permanent-dismiss expiry policy ships in PR B;
+ - source/mapping/origin/status ambiguity -> quarantine, no review projection;
+ - unresolved suggestions are omitted, never inferred from text.
+ 
++Real-Neon migration coverage must execute pending legacy
++`Dismiss -> Restore -> Add`: proposal remains pending while hidden, Restore returns
++the same proposal ID, Add atomically marks it applied and creates one work item,
++and replay creates neither a second proposal nor a second work item. Audit commands
++retain all three candidate transition identities/revisions.
++
+ The operator report contains schema/migration versions, mode, timestamps, sorted
+ counts, and `{tenantId,meetingId,sourceKind,sourceKey,reasonCode}` only. It excludes
+ titles, summaries, action text, rationale, labels, emails, participants, prompts,
+@@ -623,6 +693,16 @@ request body can never reconstruct the carrier. A provider-subject remap,
+ identity disable/delete, token exchange replay after revocation, or mapping change
+ between read and write denies and requires a fresh exchange.
+ 
++OSS uses the same contract, not an owner bypass. On first local setup,
++`ensure_oss_identity` atomically creates/reuses one local user plus durable
++`user_auth_identities(provider='local',provider_user_id=<random UUID>)` and matching
++human collaboration actor. `POST /auth/local/session` is loopback/OSS-only and
++returns a local-server-signed app token carrying `auth_provider='local'` and that
++subject; `get_request_actor` validates signature and current mapping exactly like
++hosted mode. Meeting creation atomically inserts explicit conversation membership
++for that local human actor. `owner_user_id`, disabled auth mode, email, or a fixed
++well-known subject never grants access; missing local identity/membership denies.
++
+ - List/search/injection: one bounded SQL authorization join filters before count,
+   sort, rank, embedding, projection, or model input; denied rows yield an empty
+   lane.
+@@ -658,7 +738,8 @@ between read and write denies and requires a fresh exchange.
+ Add exists only for action candidates and operates on the current version only:
+ 
+ 1. Strictly decode body; load minimal candidate origin; derive caller actor; require
+-   current writer/admin membership.
++   current writer/admin membership. Request supplies displayed version and
++   `expected_state_revision`; no client supplies resulting state/revision.
+ 2. `claimMeetingActionCommand` inserts `running` with a random `claim_token` and
+    short lease. On conflict it locks/reads the command: same actor+hash succeeded
+    replays; another actor/hash conflicts; unexpired running returns in-progress;
+@@ -673,10 +754,13 @@ Add exists only for action candidates and operates on the current version only:
+    `apps/platform-api/src/meeting/action-apply-transaction.ts::applyMeetingActionCandidateTx`
+    executes one parameterized Neon writable CTE (one `sql.query`, one database
+    transaction). The CTE locks candidate+command, matches `claim_token`, repeats
+-   PR A provider/subject current-writer authorization, fences current version and
++   PR A provider/subject current-writer authorization, fences current version plus
++   expected `state_revision`/prior transition and
+    confirmed suggestions, inserts/reuses the candidate-unique proposal, inserts
+    the work item and created activity plus confirmed dependency children, marks
+    proposal applied, marks candidate added, and closes the command succeeded.
++   Candidate state revision increments once; command persists immutable
++   `result_state='added'`, post-write revision, and transition ID equal command ID.
+    Every downstream CTE depends on the authorized winning row; zero winners means
+    zero writes. IDs are generated before the statement so the stable result is
+    returned without a second transaction.
+@@ -775,6 +859,12 @@ one compare-and-set; the loser sees the winner's terminal state. A late Adjust
+ cannot update a terminal subject. Refresh/backfill never reopen terminal rows.
+ Only a separately confirmed, current-member `restore` command can undo a no-work
+ terminal decision; it never restores `added`, rewrites a version, or deletes work.
++Dismiss/keep CAS `(state='pending|current', state_revision=expected)`; Restore CAS
++the exact terminal state, `state_revision=expected`, and
++`last_transition_command_id=expected_terminal_transition_id`. Each winner inserts
++one immutable succeeded command/transition, increments revision, and returns the
++persisted result state/revision/transition. Mismatch is `409 stale_state` with the
++latest safe card; request retries replay only their stored immutable result.
+ 
+ ### API routes and response projections
+ 
+@@ -800,7 +890,7 @@ the strict discriminated union. Summary command success is exactly
+ success is exactly
+ `{schema_version:1,status,action_candidate,duplicate,proposal_id?,work_item?,run_id?}`.
+ Public errors are closed: `invalid_request` 400, `not_found` 404,
+-`stale_version|stale_suggestion|terminal|idempotency_conflict` 409, bounded
++`stale_version|stale_state|stale_suggestion|terminal|idempotency_conflict` 409, bounded
+ `adjustment_failed` 422/502 by retryability, and generic 500. Private denial and
+ database codes never serialize.
+ 
+@@ -949,8 +1039,8 @@ Compatibility rules:
+ - JS/JSON/TypeScript contract drift; strict decoder rejection; exact public keys;
+   max-three suggestions/choices; optional uncertainty omitted, not null.
+ - State transitions, canonical request hashing, replay/conflict, version chain,
+-  immutable update/delete rejection, source-only projection-hash dedupe, repeated
+-  adjustment source hashes, distinct version-content hashes, conditional
++  immutable update/delete rejection, source row+revision dedupe with A->B->A,
++  repeated adjustment/source hashes, distinct hash meanings, conditional
+   provenance, terminal refresh, and explicit restore.
+ - Suggestion resolution: exact active actor/date/item passes; ambiguous/inactive/
+   cross-tenant/unauthorized/stale/missing fails or is omitted before version write.
+@@ -1012,9 +1102,9 @@ Dave (removed member), and Eve (provider/label spoof):
+   keyboard/screen-reader tested and create no work;
+ - keyboard-only, axe, NVDA announcement script, 320px, 400% zoom, reduced motion,
+   slow request, offline/error, and per-card/global loading behavior.
+-- `{{PR_A_EPHEMERAL_NEON_API_WEB_BROWSER_COMMAND}}` is replaced with the landed
+-  non-skipping command and passes API+web+browser with nonzero counts; unresolved,
+-  skip, timeout, missing credential/service, or cleanup failure is INCOMPLETE.
++- `bun run test:meeting-authority:neon-e2e` passes API+web+browser with nonzero
++  counts; missing script/harness/credential/service, skip, timeout, process leak,
++  or cleanup failure is INCOMPLETE.
+ 
+ ## Native GitHub stack: eight medium PRs
+ 
+@@ -1022,22 +1112,24 @@ All eight branches may be developed/reviewed as a native dependent stack after B
+ exists; no layer waits for its parent to merge before work begins. Each PR base is
+ the previous branch, so GitHub shows only that layer's diff:
+ 
+-| PR | Branch | GitHub base | Scope | Estimate |
+-|---|---|---|---|---:|
+-| B1 | `codex/meeting-authority-b1-cutover-identity` | `main` | legacy ingest 410/writer kill; provider-subject carrier | 10-14 files; 300-500 LOC |
+-| B2 | `codex/meeting-authority-b2-contract-schema` | B1 branch | codecs, exact schema, evidence FKs, projections | 14-20 files; 500-750 LOC |
+-| B3 | `codex/meeting-authority-b3-meeting-access` | B2 branch | Python/TS meeting and existing transcript/search authority | 14-20 files; 500-750 LOC |
+-| B4 | `codex/meeting-authority-b4-memory-access` | B3 branch | existing memory/knowledge/retrieval caller enforcement only | 12-18 files; 400-650 LOC |
+-| B5 | `codex/meeting-authority-b5-work-authority` | B4 branch | proposal/work-item/child/tool authority; atomic transaction seam | 14-20 files; 500-800 LOC |
+-| B6 | `codex/meeting-authority-b6-materialize-backfill` | B5 branch | review materialization and post-cutover backfill | 10-16 files; 400-650 LOC |
+-| B7 | `codex/meeting-authority-b7-review-commands` | B6 branch | Add/Adjust/Dismiss/Restore services and routes | 14-20 files; 550-850 LOC |
+-| B8 | `codex/meeting-authority-b8-web-e2e` | B7 branch | strict web data/card UX and mandatory orchestration | 16-22 files; 550-850 LOC |
++| PR | Forge child | Branch | GitHub base | Scope | Estimate |
++|---|---|---|---|---|---:|
++| B1 | `eeb61da8-c8c3-41e1-b218-bf930fceb8eb` | `codex/meeting-authority-b1-cutover-identity` | `main` | legacy ingest 410/writer kill; hosted/local carrier; compatible unavailable UI | 14-19 files; 450-700 LOC |
++| B2 | `7524bd07-11d8-4108-939b-809c1bfacd25` | `codex/meeting-authority-b2-contract-schema` | B1 branch | codecs, exact schema, evidence FKs, projections | 14-20 files; 500-750 LOC |
++| B3 | `9b1d5141-b91e-4f63-933a-d14737d00b01` | `codex/meeting-authority-b3-meeting-access` | B2 branch | Python/TS meeting and existing transcript/search authority | 14-20 files; 500-750 LOC |
++| B4 | `3bb91a9a-4a9d-4bd2-a59e-1d696262e1bf` | `codex/meeting-authority-b4-memory-access` | B3 branch | existing memory/knowledge/retrieval caller enforcement only | 12-18 files; 400-650 LOC |
++| B5 | `76c811df-3384-4a02-9d56-438bd057cf9e` | `codex/meeting-authority-b5-work-authority` | B4 branch | proposal/work-item/child/tool authority; atomic transaction seam | 14-20 files; 500-800 LOC |
++| B6 | `2301b21c-1a42-412a-92d8-a750faa3371e` | `codex/meeting-authority-b6-materialize-backfill` | B5 branch | review materialization and post-cutover backfill | 10-16 files; 400-650 LOC |
++| B7 | `cf72dae2-c865-4a59-8494-5dc0407ebab9` | `codex/meeting-authority-b7-review-commands` | B6 branch | Add/Adjust/Dismiss/Restore services and routes | 14-20 files; 550-850 LOC |
++| B8 | `87acaae7-1ffd-4920-b8f5-d5767e772b01` | `codex/meeting-authority-b8-web-e2e` | B7 branch | strict web data/card UX and mandatory orchestration | 16-22 files; 550-850 LOC |
+ 
+ Stack protocol is mandatory:
+ 
+ 1. Create each branch from its declared parent head and open a draft PR with
+    `Stack position`, parent PR/branch, child PR/branch, parent head SHA, and exact
+    focused validation in the body. GitHub base refs must match the table.
++   Claim and prove only that row's Forge child under a distinct PR actor; no actor
++   may hold/develop two stack children concurrently.
+ 2. When a lower PR head changes, update descendants bottom-up with
+    `git rebase --onto <new-parent-sha> <old-parent-sha> <child>`; rerun that layer's
+    focused gates, then update its remote ref only with exact old-SHA
+@@ -1059,7 +1151,10 @@ Stack protocol is mandatory:
+ - `apps/platform-api/src/meeting/ingest.ts`, route, app registration, and tests:
+   production writer removed, route fixed at 410, zero-writer inventory
+ - `apps/meeting-api/backend/server.py`, `backend/security.py`, hosted auth service/
+-  exchange tests: signed verified provider+subject carrier and current remap check
++  exchange tests: signed hosted/local provider+subject carrier, explicit local
++  membership, and current remap check
++- current web meeting-actions network/hook and MeetingTriageScreen focused files:
++  stable 410 unavailable state and stopped Sync timer
+ - no schema/backfill/materialization writer
+ 
+ ### B2
+@@ -1114,8 +1209,8 @@ Stack protocol is mandatory:
+   repositories/hooks/provider/fixtures/tests; `AppRoot.tsx` provider wiring
+ - `MeetingTriageScreen.tsx` and tests for typed choices, terminal confirmation,
+   Restore/Undo, loading/error/a11y/responsive behavior
+-- `e2e/meeting-loop.spec.ts` and checked-in orchestration registration owned by the
+-  resolved `{{PR_A_EPHEMERAL_NEON_API_WEB_BROWSER_COMMAND}}`
++- `e2e/meeting-loop.spec.ts`, `scripts/meeting-authority/run-neon-e2e.mjs`, root
++  package command, and `db-contract.yml` job `meeting-authority-neon-e2e`
+ 
+ No two tasks in the same PR own the same file. Cross-PR revisits occur only through
+ the declared dependent base, never by editing another worktree.
+diff --git a/docs/work/2026-08-09-meeting-authority-pr-b/tasks.md b/docs/work/2026-08-09-meeting-authority-pr-b/tasks.md
+index e0ff5ef..a1e0434 100644
+--- a/docs/work/2026-08-09-meeting-authority-pr-b/tasks.md
++++ b/docs/work/2026-08-09-meeting-authority-pr-b/tasks.md
+@@ -14,12 +14,13 @@ identity, then propagate new parent heads. No task edits another worktree.
+ 
+ Every task records a real RED before production edits. Missing credentials,
+ skips, zero tests, timeouts, truncated output, or cleanup failure are INCOMPLETE.
+-`{{PR_A_EPHEMERAL_NEON_API_WEB_BROWSER_COMMAND}}` is a blocking placeholder that
+-PR A must replace with one checked-in, non-skipping orchestration command.
++The mandatory command is `bun run test:meeting-authority:neon-e2e`, implemented by
++`scripts/meeting-authority/run-neon-e2e.mjs` and CI job
++`meeting-authority-neon-e2e`; it composes PR A's canonical DB harness.
+ 
+ ## B1 - cut over legacy ingest and freeze hosted identity
+ 
+-**Branch:** `codex/meeting-authority-b1-cutover-identity`; **base:** `main`
++**Issue:** `eeb61da8-c8c3-41e1-b218-bf930fceb8eb`; **branch:** `codex/meeting-authority-b1-cutover-identity`; **base:** `main`
+ **PR estimate:** 10-14 files, 300-500 net LOC
+ 
+ ### Task B1.1 - Kill the automatic meeting-ingest writer first
+@@ -57,18 +58,45 @@ identity or forged carrier is accepted. **GREEN:** exact carrier survives exchan
+ revocation, remap, cross-user `sub`, provider override, and replay after mapping
+ change all return uniform unauthorized before a meeting query.
+ 
++Also add durable OSS `provider='local'` identity with random subject, local-server-
++signed `/auth/local/session`, matching human actor, and explicit conversation
++membership on meeting create. Remove implicit owner/no-auth grants.
++
++**RED (OSS):** owner metadata or no-auth mode reads a meeting without membership;
++fixed/forged local subject works. **GREEN (OSS):** durable signed local carrier and
++explicit membership authorize; deletion/remap/missing membership denies.
++
+ **Commit:** `fix(meeting-auth): preserve verified hosted identity`
+-**Expected:** stable current provider+subject carrier. **Estimate:** 5-7 files,
+-160-260 LOC.
++**Expected:** stable hosted/local current provider+subject carrier. **Estimate:**
++6-9 files, 220-340 LOC.
++
++### Task B1.3 - Keep the existing meeting screen compatible with the 410 cutover
++
++**OWNS:** current `apps/platform-web/src/data/meeting-actions/` network/hook files
++and tests; `boards/meetings/MeetingTriageScreen.tsx` and focused test.
++
++**Implement:** Decode `explicit_review_required` as a stable unavailable state,
++cancel the old Sync interval/retry loop, retain already loaded meeting content,
++and render a non-error “Review upgrade unavailable” status with no action that can
++invoke legacy promotion. B8 later replaces this compatibility state via its stack base.
++
++**RED:** 410 loops Sync/retries, clears content, or renders a broken generic error.
++**GREEN:** one request transitions to stable unavailable, no timer/network repeats,
++content and keyboard focus remain usable, and no promotion call occurs.
++
++**Commit:** `fix(web): handle explicit meeting review cutover`
++**Expected:** B1 can deploy without breaking the current screen. **Estimate:**
++4-6 files, 120-200 LOC.
+ 
+ ### B1 gate
+ 
+-Security approves zero-writer and carrier evidence. Merge is not required before
++Security/product approve zero-writer, hosted/local carrier, and compatible 410 UI
++evidence. Merge is not required before
+ B2 development, but B2's GitHub base must be the exact B1 head.
+ 
+ ## B2 - exact contracts, additive schema, and projections
+ 
+-**Branch:** `codex/meeting-authority-b2-contract-schema`; **base:** B1 branch
++**Issue:** `7524bd07-11d8-4108-939b-809c1bfacd25`; **branch:** `codex/meeting-authority-b2-contract-schema`; **base:** B1 branch
+ **PR estimate:** 14-20 files, 500-750 net LOC
+ 
+ ### Task B2.1 - Freeze strict discriminated codecs and golden response fixtures
+@@ -99,16 +127,21 @@ shape fails closed.
+ **Implement:** Add eight enums and nine tables: summary/action subject/version
+ tables, separate command ledgers, suggestion table, and two relational evidence
+ tables. Add `derivation_kind`, source-projection and version-content hashes, source-only partial
+-uniques, conditional source-vs-adjustment checks, command token/lease/attempt
+-fields, candidate-unique proposal index, all-or-none proposal/work provenance, and
+-typed composite FKs binding all provenance/evidence. Add immutable triggers and
++uniques keyed by source row+revision (allow A->B->A hashes), conditional source-vs-
++adjustment and actor-kind checks, nullable-only-inside-initial-transaction current
++version pointers, monotonic state revisions/last transition IDs, immutable command
++results, command token/lease/attempt fields, candidate-unique proposal index,
++all-or-none proposal/work provenance, and typed composite FKs binding all
++provenance/evidence. Add/verify composite `(tenant_id,id)` uniques on every
++evidence target and exact evidence-kind/card mapping. Add immutable triggers and
+ exact named internal/public projections. No destructive
+ migration or active writer.
+ 
+ **RED:** schema tests show missing checks/indexes/FKs and accept cross-tenant,
+ partial provenance, adjustment-event omission, opaque evidence, and duplicate
+ source versions. **GREEN:** canonical migration parity/fresh clone and real-Neon
+-constraint tests pass; adjusted versions may share source hash but not content hash;
++constraint tests pass; same source revision dedupes while source A->B->A produces
++three versions; wrong actor kinds/events fail; initial pointer cannot commit NULL;
+ public response snapshots are unchanged.
+ 
+ **Commit:** `feat(db): add meeting review authority schema`
+@@ -122,7 +155,7 @@ relational evidence, and golden projections.
+ 
+ ## B3 - secure meeting, transcript, and existing search surfaces
+ 
+-**Branch:** `codex/meeting-authority-b3-meeting-access`; **base:** B2 branch
++**Issue:** `9b1d5141-b91e-4f63-933a-d14737d00b01`; **branch:** `codex/meeting-authority-b3-meeting-access`; **base:** B2 branch
+ **PR estimate:** 14-20 files, 500-750 net LOC
+ 
+ ### Task B3.1 - Add the Python current-caller adapter and secure all existing paths
+@@ -171,7 +204,7 @@ cross-language carrier/current-membership matrix.
+ 
+ ## B4 - secure existing memory and knowledge consumers
+ 
+-**Branch:** `codex/meeting-authority-b4-memory-access`; **base:** B3 branch
++**Issue:** `3bb91a9a-4a9d-4bd2-a59e-1d696262e1bf`; **branch:** `codex/meeting-authority-b4-memory-access`; **base:** B3 branch
+ **PR estimate:** 12-18 files, 400-650 net LOC
+ 
+ ### Task B4.1 - Guard existing meeting-derived memory reads/actions
+@@ -215,7 +248,7 @@ Security/privacy approve no memory creation and pre-rank/current-write enforceme
+ 
+ ## B5 - secure work surfaces and build atomic Add seam
+ 
+-**Branch:** `codex/meeting-authority-b5-work-authority`; **base:** B4 branch
++**Issue:** `76c811df-3384-4a02-9d56-438bd057cf9e`; **branch:** `codex/meeting-authority-b5-work-authority`; **base:** B4 branch
+ **PR estimate:** 14-20 files, 500-800 net LOC
+ 
+ ### Task B5.1 - Guard proposal/work-item/child/tool surfaces and suppress capture
+@@ -265,7 +298,7 @@ authorization-in-winner, and real-Neon atomicity.
+ 
+ ## B6 - materialize review subjects and backfill after cutover
+ 
+-**Branch:** `codex/meeting-authority-b6-materialize-backfill`; **base:** B5 branch
++**Issue:** `2301b21c-1a42-412a-92d8-a750faa3371e`; **branch:** `codex/meeting-authority-b6-materialize-backfill`; **base:** B5 branch
+ **PR estimate:** 10-16 files, 400-650 net LOC
+ 
+ ### Task B6.1 - Materialize immutable summary artifacts and action candidates
+@@ -274,10 +307,10 @@ authorization-in-winner, and real-Neon atomicity.
+ and tests; mixed review list/refresh read service tests.
+ 
+ **Implement:** Authorized source projection with `derivation_kind='source'`, both
+-hashes, source-only dedupe, <=3 tenant-bound evidence links/suggestions, current
++hashes, source row+revision idempotency (including A->B->A), <=3 tenant-bound evidence links/suggestions, current
+ membership before projection, and terminal stability. Write review tables only.
+ 
+-**RED:** source refresh duplicates, evidence accepts opaque/cross-tenant IDs, or
++**RED:** same revision duplicates, A->B->A is collapsed, evidence accepts opaque/cross-tenant IDs, or
+ forbidden Product-Suite tables change. **GREEN:** concurrent refresh converges,
+ changed pending source appends one source version, terminal rows stay terminal,
+ and proposal/memory/work/child/ledger deltas are zero.
+@@ -293,11 +326,15 @@ test, real-Neon backfill test, and command registration selected by PR A.
+ 
+ **Implement:** Dry-run default, redacted required report, deterministic IDs/order,
+ source derivation/hash fields, applied/rejected/pending legacy mappings, quarantine
+-ambiguity, and no model/domain writer. Assert B1 410/writer sentinel before apply.
++ambiguity, and no model/domain writer. Pending legacy proposal remains pending and
++linked; candidate Dismiss/keep only hides it from old Inbox, Restore re-shows it,
++and Add reuses/applies it. No permanent expiry policy. Assert B1 sentinel before apply.
+ 
+-**RED:** apply proceeds while legacy writer sentinel is active, leaks content, or
+-creates work. **GREEN:** dry/apply/reapply converges; quarantine is content-free;
+-zero Product-Suite record delta; missing cutover aborts.
++**RED:** apply proceeds while legacy writer sentinel is active, leaks content,
++terminalizes a pending proposal on Dismiss, or duplicates on Dismiss->Restore->Add.
++**GREEN:** dry/apply/reapply converges; quarantine is content-free; hidden pending
++proposal keeps its ID/status, Restore re-shows it, Add applies it once; missing
++cutover aborts.
+ 
+ **Commit:** `feat(meeting): backfill review after cutover`
+ **Expected:** reconciled review state without writer race. **Estimate:** 4-7 files,
+@@ -309,7 +346,7 @@ Data/security approve cutover sentinel, redacted report, and apply/reapply evide
+ 
+ ## B7 - implement review commands and strict routes
+ 
+-**Branch:** `codex/meeting-authority-b7-review-commands`; **base:** B6 branch
++**Issue:** `cf72dae2-c865-4a59-8494-5dc0407ebab9`; **branch:** `codex/meeting-authority-b7-review-commands`; **base:** B6 branch
+ **PR estimate:** 14-20 files, 550-850 net LOC
+ 
+ ### Task B7.1 - Implement actor-bound claim/lease Add and crash convergence
+@@ -320,7 +357,8 @@ B5 transaction seam integration test; action command route service test.
+ **Implement:** Same actor+hash replay, other actor/hash conflict, running lease,
+ same-actor CAS reclaim, attempt token, retryable/terminal closure, stale-token
+ fence, suggestion revalidation, and B5 atomic Add. Encode every plan crash-table
+-point. Summary Add remains unrepresentable.
++point. CAS displayed version plus expected state revision; persist immutable
++result state/revision/transition. Summary Add remains unrepresentable.
+ 
+ **RED:** concurrent actors/keys, expiry, stale token, revocation immediately before
+ CTE, and every crash point double-writes or strands partial state. **GREEN:** exact
+@@ -347,6 +385,8 @@ authorized CAS; Restore cannot undo Added. Expose exact strict projections/error
+ run beats revoke/Add/Dismiss; Restore reopens Added; response fixtures drift.
+ **GREEN:** event/run/version ordering, no partial versions, exact routes/statuses,
+ terminal/restore races, denial matrix, and golden decoders pass in real Neon.
++Dismiss/keep requests fence expected revision; Restore additionally fences the
++exact terminal transition ID; Added can never restore.
+ 
+ **Commit:** `feat(api): expose meeting review commands`
+ **Expected:** complete authorized backend protocol. **Estimate:** 8-11 files,
+@@ -359,7 +399,7 @@ convergence, winning-write authorization, strict projections, and Restore rules.
+ 
+ ## B8 - strict web experience and mandatory end-to-end proof
+ 
+-**Branch:** `codex/meeting-authority-b8-web-e2e`; **base:** B7 branch
++**Issue:** `87acaae7-1ffd-4920-b8f5-d5767e772b01`; **branch:** `codex/meeting-authority-b8-web-e2e`; **base:** B7 branch
+ **PR estimate:** 16-22 files, 550-850 net LOC
+ 
+ ### Task B8.1 - Replace action-only client data with strict meeting-review state
+@@ -384,7 +424,8 @@ tests pass with one call per activation and retained drafts.
+ 
+ **OWNS:** `MeetingTriageScreen.tsx` and test; optional colocated card component/test
+ only if size limit requires it; `e2e/meeting-loop.spec.ts`; focused fixture helpers;
+-the checked-in registration for the resolved PR-A orchestration command.
++new `scripts/meeting-authority/run-neon-e2e.mjs` and test; root `package.json` command;
++`.github/workflows/db-contract.yml` job `meeting-authority-neon-e2e`.
+ 
+ **Implement:** Compact mixed cards, 0..3 chips/links, summary Adjust/Dismiss only,
+ action Add/Adjust/Dismiss, typed choices, inline terminal confirmation, Restore/
+-- 
+2.51.0.windows.1
+

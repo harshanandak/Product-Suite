@@ -1,0 +1,518 @@
+From 31018e727c567fb15039ab2997c8018021870aac Mon Sep 17 00:00:00 2001
+From: Harsha Nanda <harshanandak@users.noreply.github.com>
+Date: Fri, 11 Sep 2026 02:36:45 +0530
+Subject: [PATCH] feat(contracts): item visibility, playbook, project-team,
+ connection, check parent
+
+---
+ packages/contracts/contracts/enums.json       |  6 ++
+ .../contracts/contracts/work-items-core.json  | 38 +++++++-
+ packages/contracts/src/enums.js               | 17 ++++
+ packages/contracts/src/enums.test.ts          | 34 +++++++
+ packages/contracts/src/index.d.ts             | 94 ++++++++++++++++++-
+ packages/contracts/src/work-items.js          | 40 +++++++-
+ packages/contracts/src/work-items.test.ts     | 38 ++++++++
+ 7 files changed, 258 insertions(+), 9 deletions(-)
+
+diff --git a/packages/contracts/contracts/enums.json b/packages/contracts/contracts/enums.json
+index a8f972a..44fe85b 100644
+--- a/packages/contracts/contracts/enums.json
++++ b/packages/contracts/contracts/enums.json
+@@ -57,6 +57,12 @@
+     },
+     "order": ["manual", "meeting", "agent", "feedback"]
+   },
++  "itemVisibility": {
++    "values": ["org", "restricted"]
++  },
++  "connectionScope": {
++    "values": ["user", "workspace"]
++  },
+   "assignee": {
+     "unassignedValue": "__unassigned__"
+   }
+diff --git a/packages/contracts/contracts/work-items-core.json b/packages/contracts/contracts/work-items-core.json
+index f5e7c04..cc8a19d 100644
+--- a/packages/contracts/contracts/work-items-core.json
++++ b/packages/contracts/contracts/work-items-core.json
+@@ -26,7 +26,8 @@
+     "department",
+     "assignee_id",
+     "due_date",
+-    "archived"
++    "archived",
++    "visibility"
+   ],
+   "checkPatchFields": ["title", "status", "due_date"],
+   "objects": {
+@@ -38,6 +39,7 @@
+         "status": { "type": { "kind": "enum", "enum": "projectStatus" } },
+         "lead_id": { "type": "string", "nullable": true },
+         "target_date": { "type": "string", "nullable": true },
++        "playbook_ref": { "type": "string", "nullable": true },
+         "created_at": { "type": "string", "readonly": true },
+         "updated_at": { "type": "string", "readonly": true }
+       }
+@@ -89,6 +91,7 @@
+         "assignee_id": { "type": "string", "nullable": true },
+         "due_date": { "type": "string", "nullable": true },
+         "archived": { "type": "boolean", "optional": true },
++        "visibility": { "type": { "kind": "enum", "enum": "itemVisibility" } },
+         "created_at": { "type": "string", "readonly": true },
+         "updated_at": { "type": "string", "readonly": true }
+       }
+@@ -96,7 +99,8 @@
+     "Check": {
+       "fields": {
+         "id": { "type": "string", "readonly": true },
+-        "work_item_id": { "type": "string" },
++        "work_item_id": { "type": "string", "nullable": true },
++        "project_id": { "type": "string", "nullable": true },
+         "title": { "type": "string" },
+         "status": { "type": { "kind": "enum", "enum": "checkStatus" } },
+         "due_date": { "type": "string", "nullable": true },
+@@ -123,6 +127,36 @@
+         },
+         "created_at": { "type": "string", "readonly": true }
+       }
++    },
++    "Playbook": {
++      "fields": {
++        "id": { "type": "string", "readonly": true },
++        "kind": { "type": "string" },
++        "name": { "type": "string" },
++        "phases": { "type": "object" },
++        "created_at": { "type": "string", "readonly": true },
++        "updated_at": { "type": "string", "readonly": true }
++      }
++    },
++    "ProjectTeam": {
++      "fields": {
++        "id": { "type": "string", "readonly": true },
++        "project_id": { "type": "string" },
++        "team_id": { "type": "string" },
++        "created_at": { "type": "string", "readonly": true },
++        "updated_at": { "type": "string", "readonly": true }
++      }
++    },
++    "Connection": {
++      "fields": {
++        "id": { "type": "string", "readonly": true },
++        "owner_user_id": { "type": "string" },
++        "scope": { "type": { "kind": "enum", "enum": "connectionScope" } },
++        "server_ref": { "type": "string" },
++        "label": { "type": "string" },
++        "created_at": { "type": "string", "readonly": true },
++        "updated_at": { "type": "string", "readonly": true }
++      }
+     }
+   }
+ }
+diff --git a/packages/contracts/src/enums.js b/packages/contracts/src/enums.js
+index d909e37..89da75a 100644
+--- a/packages/contracts/src/enums.js
++++ b/packages/contracts/src/enums.js
+@@ -83,6 +83,21 @@ export const WORK_ITEM_SOURCE_LABELS = {
+ 
+ export const WORK_ITEM_SOURCE_ORDER = ["manual", "meeting", "agent", "feedback"];
+ 
++/**
++ * Work-item / check visibility — who may read the object. `org` is the server
++ * default (every member of the tenant); `restricted` narrows reads to explicit
++ * `visibility_grants` rows plus the assignee. Values-only: no picker consumes
++ * labels/order yet.
++ */
++export const ITEM_VISIBILITY_VALUES = ["org", "restricted"];
++
++/**
++ * Connection credential scope — one user (`user`, the default) or the whole
++ * workspace. The credential VALUE itself is never part of this vocabulary or
++ * the `work-items.js` Connection contract.
++ */
++export const CONNECTION_SCOPE_VALUES = ["user", "workspace"];
++
+ /**
+  * Sentinel for the "Unassigned" owner option. Radix `Select` forbids
+  * empty-string item values, so the picker carries this value and maps it
+@@ -119,5 +134,7 @@ export const enums = {
+     labels: WORK_ITEM_SOURCE_LABELS,
+     order: WORK_ITEM_SOURCE_ORDER,
+   },
++  itemVisibility: { values: ITEM_VISIBILITY_VALUES },
++  connectionScope: { values: CONNECTION_SCOPE_VALUES },
+   assignee: { unassignedValue: ASSIGNEE_UNASSIGNED_VALUE },
+ };
+diff --git a/packages/contracts/src/enums.test.ts b/packages/contracts/src/enums.test.ts
+index 3b38407..eceddec 100644
+--- a/packages/contracts/src/enums.test.ts
++++ b/packages/contracts/src/enums.test.ts
+@@ -52,6 +52,16 @@ const CASES: ReadonlyArray<{ key: string; unionType: string }> = [
+   { key: "workItemSource", unionType: "WorkItemSource" },
+ ];
+ 
++/**
++ * Values-only vocabularies — the same tri-directional check, minus the
++ * label/order invariant these deliberately do not carry yet (no picker
++ * consumes them).
++ */
++const VALUE_ONLY_CASES: ReadonlyArray<{ key: string; unionType: string }> = [
++  { key: "itemVisibility", unionType: "ItemVisibility" },
++  { key: "connectionScope", unionType: "ConnectionScope" },
++];
++
+ describe("@product-suite/contracts enums — tri-directional sync", () => {
+   test("the JS `enums` object deep-equals contracts/enums.json", () => {
+     expect(enums).toEqual(enumsJson);
+@@ -70,6 +80,28 @@ describe("@product-suite/contracts enums — tri-directional sync", () => {
+     expect(sorted(tsMembers)).toEqual(sorted(jsonValues));
+   });
+ 
++  test.each(VALUE_ONLY_CASES)(
++    "$key: JS values, .d.ts union, and JSON agree",
++    ({ key, unionType }) => {
++      const jsValues = enums[key as keyof typeof enums] as unknown as {
++        values: string[];
++      };
++      const jsonValues = enumsJson[key].values;
++      const tsMembers = unionMembers(unionType);
++
++      expect(sorted(jsValues.values)).toEqual(sorted(jsonValues));
++      expect(sorted(tsMembers)).toEqual(sorted(jsValues.values));
++      expect(sorted(tsMembers)).toEqual(sorted(jsonValues));
++    },
++  );
++
++  test("itemVisibility and connectionScope are exactly the F2 closed sets", () => {
++    expect(enumsModule.ITEM_VISIBILITY_VALUES).toEqual(["org", "restricted"]);
++    expect(unionMembers("ItemVisibility")).toEqual(["org", "restricted"]);
++    expect(enumsModule.CONNECTION_SCOPE_VALUES).toEqual(["user", "workspace"]);
++    expect(unionMembers("ConnectionScope")).toEqual(["user", "workspace"]);
++  });
++
+   test.each(CASES)("$key: label keys and order cover exactly the value set", ({ key }) => {
+     const descriptor = enumsJson[key];
+     expect(sorted(Object.keys(descriptor.labels))).toEqual(sorted(descriptor.values));
+@@ -91,6 +123,8 @@ describe("@product-suite/contracts enums — tri-directional sync", () => {
+     expect(enumsModule.PRIORITY_ORDER).toEqual(enums.priority.order);
+     expect(enumsModule.WORK_ITEM_TYPE_ORDER).toEqual(enums.workItemType.order);
+     expect(enumsModule.WORK_ITEM_SOURCE_LABELS).toEqual(enums.workItemSource.labels);
++    expect(enumsModule.ITEM_VISIBILITY_VALUES).toEqual(enums.itemVisibility.values);
++    expect(enumsModule.CONNECTION_SCOPE_VALUES).toEqual(enums.connectionScope.values);
+     expect(enumsModule.ASSIGNEE_UNASSIGNED_VALUE).toBe(enums.assignee.unassignedValue);
+   });
+ 
+diff --git a/packages/contracts/src/index.d.ts b/packages/contracts/src/index.d.ts
+index 8a8be8b..31695b5 100644
+--- a/packages/contracts/src/index.d.ts
++++ b/packages/contracts/src/index.d.ts
+@@ -647,6 +647,14 @@ export type Priority = "critical" | "high" | "medium" | "low";
+ export type WorkItemType = "feature" | "bug" | "chore" | "research";
+ /** Work-item provenance — where an object came from (§5 / §11). */
+ export type WorkItemSource = "manual" | "meeting" | "agent" | "feedback";
++/**
++ * Work-item / check visibility — `org` (every member of the tenant, the
++ * default) or `restricted` (explicit `visibility_grants` rows + the assignee
++ * only). Values-only until a picker needs labels/order.
++ */
++export type ItemVisibility = "org" | "restricted";
++/** Connection credential scope — one user (`user`) or the whole workspace. */
++export type ConnectionScope = "user" | "workspace";
+ 
+ export const PHASE_VALUES: readonly Phase[];
+ export const PHASE_LABELS: Record<Phase, string>;
+@@ -666,6 +674,8 @@ export const WORK_ITEM_TYPE_ORDER: readonly WorkItemType[];
+ export const WORK_ITEM_SOURCE_VALUES: readonly WorkItemSource[];
+ export const WORK_ITEM_SOURCE_LABELS: Record<WorkItemSource, string>;
+ export const WORK_ITEM_SOURCE_ORDER: readonly WorkItemSource[];
++export const ITEM_VISIBILITY_VALUES: readonly ItemVisibility[];
++export const CONNECTION_SCOPE_VALUES: readonly ConnectionScope[];
+ export const ASSIGNEE_UNASSIGNED_VALUE: "__unassigned__";
+ 
+ export interface EnumDescriptor<T extends string> {
+@@ -681,6 +691,8 @@ export const enums: {
+   priority: EnumDescriptor<Priority>;
+   workItemType: EnumDescriptor<WorkItemType>;
+   workItemSource: EnumDescriptor<WorkItemSource>;
++  itemVisibility: { values: readonly ItemVisibility[] };
++  connectionScope: { values: readonly ConnectionScope[] };
+   assignee: { unassignedValue: typeof ASSIGNEE_UNASSIGNED_VALUE };
+ };
+ 
+@@ -754,6 +766,11 @@ export interface Project {
+   lead_id: string | null;
+   /** Optional target/ship date (ISO-8601); `null` when none is set. */
+   target_date: string | null;
++  /**
++   * Optional {@link Playbook} this project runs; `null` when none is bound.
++   * The FK is ON DELETE SET NULL — deleting a playbook unbinds it.
++   */
++  playbook_ref: string | null;
+   readonly created_at: string;
+   readonly updated_at: string;
+ }
+@@ -886,18 +903,27 @@ export interface WorkItem {
+   due_date: string | null;
+   /** Soft-archived (deactivated) flag. NOT a lifecycle status. Absent ⇒ active. */
+   archived?: boolean;
++  /**
++   * Visibility scope — `org` (default; every member of the tenant) or
++   * `restricted` (explicit grants + the assignee only). Enforced server-side
++   * on reads; editable through the patch surface.
++   */
++  visibility: ItemVisibility;
+   readonly created_at: string;
+   readonly updated_at: string;
+ }
+ 
+ /**
+  * A check — the atom (§1, bottom of the object ladder). One action one person
+- * takes, with the fixed three-state {@link CheckStatus} lifecycle. Lives under a
+- * work item (its `work_item_id`).
++ * takes, with the fixed three-state {@link CheckStatus} lifecycle. Parents to a
++ * work item OR a project — at most one of the two; both `null` = unattached.
+  */
+ export interface Check {
+   readonly id: string;
+-  work_item_id: string;
++  /** The owning work item, or `null` when the check is not item-parented. */
++  work_item_id: string | null;
++  /** The owning project, or `null` when the check is not project-parented. */
++  project_id: string | null;
+   title: string;
+   /** Check status triad (§1 / §11) — never appears on work items. */
+   status: CheckStatus;
+@@ -939,6 +965,54 @@ export interface WorkItemDependency {
+   readonly created_at: string;
+ }
+ 
++/**
++ * A playbook — a reusable phase template for a project kind, optionally bound
++ * by {@link Project.playbook_ref}. `phases` is a free-form jsonb-style body;
++ * its concrete shape is enforced above this contract, never here.
++ */
++export interface Playbook {
++  readonly id: string;
++  /** The project kind this playbook applies to. */
++  kind: string;
++  name: string;
++  /** Free-form phase definition (jsonb); `{}` when none is authored yet. */
++  phases: Record<string, unknown>;
++  readonly created_at: string;
++  readonly updated_at: string;
++}
++
++/**
++ * The many-to-many link between a project and the teams contributing to it
++ * (the DESIGN `project_departments` junction, named `project_teams` after
++ * departments were promoted to teams). The `(project_id, team_id)` pair is
++ * unique; both FKs cascade on delete.
++ */
++export interface ProjectTeam {
++  readonly id: string;
++  project_id: string;
++  team_id: string;
++  readonly created_at: string;
++  readonly updated_at: string;
++}
++
++/**
++ * A stored server connection. Carries ONLY the reference to where the
++ * credential lives and who owns its scope — the credential VALUE (and any
++ * encrypted form of it) is deliberately never part of this contract.
++ */
++export interface Connection {
++  readonly id: string;
++  /** The user the connection belongs to (the creator for `user` scope). */
++  owner_user_id: string;
++  /** Whether the connection is personal (`user`) or shared (`workspace`). */
++  scope: ConnectionScope;
++  /** Opaque reference to the server/credential record — never a secret value. */
++  server_ref: string;
++  label: string;
++  readonly created_at: string;
++  readonly updated_at: string;
++}
++
+ /**
+  * The editable surface of a work item, shared VERBATIM by the repository
+  * `update`, the hook, and the Editor. Excludes managed fields (`id`, timestamps)
+@@ -962,6 +1036,7 @@ export type WorkItemPatch = Partial<
+     | "assignee_id"
+     | "due_date"
+     | "archived"
++    | "visibility"
+   >
+ >;
+ 
+@@ -980,7 +1055,13 @@ export interface WorkItemRow extends WorkItem {
+ 
+ /** A field descriptor in {@link workItemsCore} — a language-neutral shape spec. */
+ export interface WorkItemsCoreFieldDescriptor {
+-  type: "string" | "boolean" | "number" | "string[]" | { kind: "enum"; enum: string };
++  type:
++    | "string"
++    | "boolean"
++    | "number"
++    | "string[]"
++    | "object"
++    | { kind: "enum"; enum: string };
+   nullable?: boolean;
+   optional?: boolean;
+   readonly?: boolean;
+@@ -1010,7 +1091,10 @@ export interface WorkItemsCore {
+     | "WorkItem"
+     | "Check"
+     | "ActivityEvent"
+-    | "WorkItemDependency",
++    | "WorkItemDependency"
++    | "Playbook"
++    | "ProjectTeam"
++    | "Connection",
+     WorkItemsCoreObject
+   >;
+ }
+diff --git a/packages/contracts/src/work-items.js b/packages/contracts/src/work-items.js
+index d31fa03..b1df538 100644
+--- a/packages/contracts/src/work-items.js
++++ b/packages/contracts/src/work-items.js
+@@ -99,6 +99,7 @@ export const WORK_ITEM_PATCH_FIELDS = [
+   "assignee_id",
+   "due_date",
+   "archived",
++  "visibility",
+ ];
+ 
+ /**
+@@ -115,7 +116,8 @@ export const CHECK_PATCH_FIELDS = ["title", "status", "due_date"];
+  * backend validates payloads against THIS artifact.
+  *
+  * Field `type` vocabulary:
+- *  - `"string" | "boolean" | "string[]"` — primitive JSON shapes,
++ *  - `"string" | "boolean" | "number" | "string[]"` — primitive JSON shapes,
++ *  - `"object"` — a free-form JSON object (jsonb-style; `Playbook.phases`),
+  *  - `{ kind: "enum", enum: "<name>" }` — one of `enums.json`'s closed sets.
+  * `nullable: true` ⇒ the field may be `null`. `readonly: true` ⇒ managed by the
+  * store (id / timestamps), never part of a client patch. `optional: true` ⇒ the
+@@ -146,6 +148,7 @@ export const workItemsCore = {
+         status: { type: { kind: "enum", enum: "projectStatus" } },
+         lead_id: { type: "string", nullable: true },
+         target_date: { type: "string", nullable: true },
++        playbook_ref: { type: "string", nullable: true },
+         created_at: { type: "string", readonly: true },
+         updated_at: { type: "string", readonly: true },
+       },
+@@ -197,6 +200,7 @@ export const workItemsCore = {
+         assignee_id: { type: "string", nullable: true },
+         due_date: { type: "string", nullable: true },
+         archived: { type: "boolean", optional: true },
++        visibility: { type: { kind: "enum", enum: "itemVisibility" } },
+         created_at: { type: "string", readonly: true },
+         updated_at: { type: "string", readonly: true },
+       },
+@@ -204,7 +208,8 @@ export const workItemsCore = {
+     Check: {
+       fields: {
+         id: { type: "string", readonly: true },
+-        work_item_id: { type: "string" },
++        work_item_id: { type: "string", nullable: true },
++        project_id: { type: "string", nullable: true },
+         title: { type: "string" },
+         status: { type: { kind: "enum", enum: "checkStatus" } },
+         due_date: { type: "string", nullable: true },
+@@ -232,6 +237,37 @@ export const workItemsCore = {
+         created_at: { type: "string", readonly: true },
+       },
+     },
++    Playbook: {
++      fields: {
++        id: { type: "string", readonly: true },
++        kind: { type: "string" },
++        name: { type: "string" },
++        phases: { type: "object" },
++        created_at: { type: "string", readonly: true },
++        updated_at: { type: "string", readonly: true },
++      },
++    },
++    ProjectTeam: {
++      fields: {
++        id: { type: "string", readonly: true },
++        project_id: { type: "string" },
++        team_id: { type: "string" },
++        created_at: { type: "string", readonly: true },
++        updated_at: { type: "string", readonly: true },
++      },
++    },
++    /** Never carries the credential value — only the opaque server reference. */
++    Connection: {
++      fields: {
++        id: { type: "string", readonly: true },
++        owner_user_id: { type: "string" },
++        scope: { type: { kind: "enum", enum: "connectionScope" } },
++        server_ref: { type: "string" },
++        label: { type: "string" },
++        created_at: { type: "string", readonly: true },
++        updated_at: { type: "string", readonly: true },
++      },
++    },
+   },
+ };
+ 
+diff --git a/packages/contracts/src/work-items.test.ts b/packages/contracts/src/work-items.test.ts
+index c7efabd..f9c4c72 100644
+--- a/packages/contracts/src/work-items.test.ts
++++ b/packages/contracts/src/work-items.test.ts
+@@ -149,6 +149,12 @@ describe("@product-suite/contracts work-items core — drift guard", () => {
+     expect(workItemsCore.workItemPatchFields as string[]).not.toContain("provenance");
+   });
+ 
++  test("visibility joins the editable work-item patch surface", () => {
++    expect(workItemsCore.workItemPatchFields as string[]).toContain("visibility");
++    expect(workItemPatchKeys()).toContain("visibility");
++    expect(dtsText).toMatch(/^\s*visibility: ItemVisibility;$/m);
++  });
++
+   test("WorkItem exposes an optional read-only provenance projection", () => {
+     expect(dtsText).toMatch(/^\s*readonly provenance\?: WorkItemProvenance;$/m);
+ 
+@@ -190,6 +196,38 @@ describe("@product-suite/contracts work-items core — drift guard", () => {
+     });
+   });
+ 
++  test("Check parents: work_item_id is nullable and project_id is present", () => {
++    expect(workItemsCore.objects.Check.fields.work_item_id).toEqual({
++      type: "string",
++      nullable: true,
++    });
++    expect(workItemsCore.objects.Check.fields.project_id).toEqual({
++      type: "string",
++      nullable: true,
++    });
++    expect(dtsText).toMatch(/^\s*work_item_id: string \| null;$/m);
++    expect(dtsText).toMatch(/^\s*project_id: string \| null;$/m);
++  });
++
++  test("Project carries the optional playbook reference", () => {
++    expect(workItemsCore.objects.Project.fields.playbook_ref).toEqual({
++      type: "string",
++      nullable: true,
++    });
++    expect(dtsText).toMatch(/^\s*playbook_ref: string \| null;$/m);
++  });
++
++  // New in the F2 data-plane pack — named explicitly in the field-set equality
++  // table so a missing JS/JSON/interface entry fails under the object's own name.
++  test.each(["Playbook", "ProjectTeam", "Connection"] as const)(
++    "%s: JSON field set equals the .d.ts interface field set",
++    (name) => {
++      const jsonFields = Object.keys(workItemsCore.objects[name].fields);
++      const tsFields = interfaceFields(name);
++      expect(sorted(jsonFields)).toEqual(sorted(tsFields));
++    },
++  );
++
+   test.each(
+     Object.keys(workItemsCore.objects) as Array<keyof typeof workItemsCore.objects>,
+   )("%s: JSON field set equals the .d.ts interface field set", (name) => {
+-- 
+2.51.0.windows.1
+

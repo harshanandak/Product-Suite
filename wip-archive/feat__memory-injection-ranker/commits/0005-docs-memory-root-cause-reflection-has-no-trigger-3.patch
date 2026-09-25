@@ -1,0 +1,53 @@
+From e269f74d74b0dc2febf617ba6fd2958e5e2aa066 Mon Sep 17 00:00:00 2001
+From: Harsha Nanda <harshanandak@users.noreply.github.com>
+Date: Fri, 24 Jul 2026 15:42:25 +0530
+Subject: [PATCH] =?UTF-8?q?docs(memory):=20root=20cause=20=E2=80=94=20refl?=
+ =?UTF-8?q?ection=20has=20no=20trigger=20(3ecc1859),=20not=20capture?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Diagnosis: proposals table has 4 rows, ALL status=applied with reflected_at
+null. Propose->apply works (accept path + Review Inbox fine); the reflect
+step that distills applied proposals into memories never runs (runReflection
+only reachable via POST /api/agent/reflection, no autonomous trigger). That
+is why memories=0 and a5ecc5aa is moot. Root unblock = 3ecc1859.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ .../decisions.md                              | 22 +++++++++++++++++++
+ 1 file changed, 22 insertions(+)
+
+diff --git a/docs/work/2026-07-24-memory-injection-ranker/decisions.md b/docs/work/2026-07-24-memory-injection-ranker/decisions.md
+index 2518094..7e5f878 100644
+--- a/docs/work/2026-07-24-memory-injection-ranker/decisions.md
++++ b/docs/work/2026-07-24-memory-injection-ranker/decisions.md
+@@ -35,3 +35,25 @@ still the right eventual fix, just not now).
+ 
+ **Artifacts:** `apps/platform-api/scripts/capture-check.mjs` (reusable precondition check — re-run after
+ capture lands to confirm the store is non-empty before resuming).
++
++## 2026-07-24 · Diagnosis (why the store is empty) — ROOT CAUSE = reflection has no trigger (3ecc1859)
++
++Extended the capture check to the related tables. The store isn't empty because nothing is captured —
++it's empty because the **reflection step never runs**:
++
++| Table | Rows | Meaning |
++|---|---|---|
++| `proposals` | 4, **all `status='applied'`** | Agent proposals were created AND accepted (`decided_at` set) |
++| `proposals.reflected_at` | **null on all 4** | Reflection never distilled the applied proposals into memories |
++| `memories` | 0 | (consequence) |
++| `run_memory_attributions` | 0 | (consequence — nothing ever injected) |
++
++**Chain:** propose → apply (WORKS) → **reflect applied proposals → memories (NEVER RUNS)** → 0 memories →
++ranker moot. `runReflection` is reachable only via `POST /api/agent/reflection`; no cron/scheduler/event
++invokes it (issue **3ecc1859**). The #132 accept path and the Review Inbox are NOT the problem — proposals
++are decided within ~2s.
++
++**Root cause = 3ecc1859 (reflection autonomous trigger).** That is the true unblock for both capture AND
++(downstream) this ranking issue. A cheap validation exists: manually invoking reflection on the 4 applied
++proposals should produce memories (confirms the engine works and the ONLY gap is the trigger) — but that
++WRITES to prod `memories`, so it needs explicit go-ahead.
+-- 
+2.51.0.windows.1
+

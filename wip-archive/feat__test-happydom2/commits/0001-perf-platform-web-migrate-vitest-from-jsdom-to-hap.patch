@@ -1,0 +1,152 @@
+From 65b614e7c405b77252936c4e43853f440dceffd9 Mon Sep 17 00:00:00 2001
+From: Harsha Nanda <harshanandak@users.noreply.github.com>
+Date: Sat, 18 Jul 2026 16:57:22 +0530
+Subject: [PATCH] perf(platform-web): migrate vitest from jsdom to happy-dom
+
+Switch the platform-web vitest environment to happy-dom to cut per-file
+DOM-environment init cost, keeping isolate:true so per-file vi.mock stays
+reliable.
+
+One behavioural gap surfaced: happy-dom's Storage is not restorable by
+vi.restoreAllMocks() (a vi.spyOn(localStorage,"getItem") mock leaks into
+later tests in the same file; jsdom restores it fine). This broke 5
+ShellLayout tests that spy getItem to simulate blocked storage and then
+rely on real reads afterward. Fixed globally in setup.ts by installing a
+standard in-memory Storage (Map-backed, honest get/set/remove/clear/key/
+length semantics) whose own configurable methods spy cleanly and restore.
+No test assertions were weakened.
+
+All 80 files / 735 tests pass under happy-dom.
+
+Refs kernel issue 09c716d6.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ apps/platform-web/package.json      |  1 +
+ apps/platform-web/src/test/setup.ts | 35 +++++++++++++++++++++++++++++
+ apps/platform-web/vitest.config.ts  |  2 +-
+ bun.lock                            |  9 +++++---
+ 4 files changed, 43 insertions(+), 4 deletions(-)
+
+diff --git a/apps/platform-web/package.json b/apps/platform-web/package.json
+index 4607c43..b0b9842 100644
+--- a/apps/platform-web/package.json
++++ b/apps/platform-web/package.json
+@@ -56,6 +56,7 @@
+     "eslint-plugin-react-hooks": "^5.2.0",
+     "eslint-plugin-react-refresh": "^0.4.20",
+     "globals": "15.15.0",
++    "happy-dom": "^20.10.6",
+     "jsdom": "^25.0.1",
+     "react-doctor": "^0.5.8",
+     "react-grab": "^0.1.47",
+diff --git a/apps/platform-web/src/test/setup.ts b/apps/platform-web/src/test/setup.ts
+index 6d8c14d..0f46ca1 100644
+--- a/apps/platform-web/src/test/setup.ts
++++ b/apps/platform-web/src/test/setup.ts
+@@ -22,6 +22,41 @@ if (typeof globalThis.window !== "undefined") {
+         dispatchEvent: () => false,
+       });
+   }
++
++  // happy-dom's Storage implementation is not reliably restorable by
++  // `vi.restoreAllMocks()`: a `vi.spyOn(localStorage, "getItem")` installed in
++  // one test leaks its mock implementation into later tests in the same file
++  // (jsdom restores it fine). That silently broke tests that spy on getItem to
++  // simulate blocked storage and then rely on real reads afterwards. Replace
++  // localStorage with a standard in-memory Storage backed by a Map: it has
++  // honest get/set/remove/clear/key/length semantics AND, being a plain object
++  // with own configurable methods, spies on it are cleanly restored.
++  class MemoryStorage implements Storage {
++    #store = new Map<string, string>();
++    get length(): number {
++      return this.#store.size;
++    }
++    key(index: number): string | null {
++      return Array.from(this.#store.keys())[index] ?? null;
++    }
++    getItem(key: string): string | null {
++      return this.#store.has(key) ? this.#store.get(key)! : null;
++    }
++    setItem(key: string, value: string): void {
++      this.#store.set(key, String(value));
++    }
++    removeItem(key: string): void {
++      this.#store.delete(key);
++    }
++    clear(): void {
++      this.#store.clear();
++    }
++  }
++  Object.defineProperty(globalThis, "localStorage", {
++    value: new MemoryStorage(),
++    configurable: true,
++    writable: true,
++  });
+ }
+ 
+ afterEach(() => {
+diff --git a/apps/platform-web/vitest.config.ts b/apps/platform-web/vitest.config.ts
+index dc8e1f6..9bca294 100644
+--- a/apps/platform-web/vitest.config.ts
++++ b/apps/platform-web/vitest.config.ts
+@@ -15,7 +15,7 @@ export default defineConfig({
+     },
+   },
+   test: {
+-    environment: "jsdom",
++    environment: "happy-dom",
+     globals: true,
+     css: false,
+     // The 5s default is too tight for this suite's heaviest component tests
+diff --git a/bun.lock b/bun.lock
+index ad110ea..9fa6118 100644
+--- a/bun.lock
++++ b/bun.lock
+@@ -159,6 +159,7 @@
+         "eslint-plugin-react-hooks": "^5.2.0",
+         "eslint-plugin-react-refresh": "^0.4.20",
+         "globals": "15.15.0",
++        "happy-dom": "^20.10.6",
+         "jsdom": "^25.0.1",
+         "react-doctor": "^0.5.8",
+         "react-grab": "^0.1.47",
+@@ -3704,7 +3705,7 @@
+ 
+     "whatwg-encoding": ["whatwg-encoding@3.1.1", "", { "dependencies": { "iconv-lite": "0.6.3" } }, "sha512-6qN4hJdMwfYBtE3YBTTHhoeuUrDBPZmbQaxWAqSALV/MeEnR5z1xd8UKud2RAkFoPkmB+hli1TZSnyi84xz1vQ=="],
+ 
+-    "whatwg-mimetype": ["whatwg-mimetype@4.0.0", "", {}, "sha512-QaKxh0eNIi2mE9p2vEdzfagOKHCcj1pJ56EEHGQOVxp8r9/iszLUUV7v89x9O1p/T+NlTM5W7jW6+cz4Fq1YVg=="],
++    "whatwg-mimetype": ["whatwg-mimetype@3.0.0", "", {}, "sha512-nt+N2dzIutVRxARx1nghPKGv1xHikU7HKdfafKkLNLindmPU/ch3U31NOCGGA/dmPcmb1VlofO0vnKAcsm0o/Q=="],
+ 
+     "whatwg-url": ["whatwg-url@14.2.0", "", { "dependencies": { "tr46": "^5.1.0", "webidl-conversions": "^7.0.0" } }, "sha512-De72GdQZzNTUBBChsXueQUnPKDkg/5A5zp7pFDuQAj5UFoENpiACU0wlCvzpAGnTkj++ihpKwKyYewn/XNUbKw=="],
+ 
+@@ -4234,6 +4235,8 @@
+ 
+     "d3-sankey/d3-shape": ["d3-shape@1.3.7", "", { "dependencies": { "d3-path": "1" } }, "sha512-EUkvKjqPFUAZyOlhY5gzCxCeI0Aep04LwIRpsZ/mLFelJiUfnK56jo5JMDSE7yyP2kLSb6LtF+S5chMk7uqPqw=="],
+ 
++    "data-urls/whatwg-mimetype": ["whatwg-mimetype@4.0.0", "", {}, "sha512-QaKxh0eNIi2mE9p2vEdzfagOKHCcj1pJ56EEHGQOVxp8r9/iszLUUV7v89x9O1p/T+NlTM5W7jW6+cz4Fq1YVg=="],
++
+     "deslop-js/minimatch": ["minimatch@10.2.5", "", { "dependencies": { "brace-expansion": "^5.0.5" } }, "sha512-MULkVLfKGYDFYejP07QOurDLLQpcjk7Fw+7jXS2R2czRQzR56yHRveU5NDJEOviH+hETZKSkIk5c+T23GjFUMg=="],
+ 
+     "deslop-js/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
+@@ -4276,8 +4279,6 @@
+ 
+     "happy-dom/@types/node": ["@types/node@25.6.0", "", { "dependencies": { "undici-types": "~7.19.0" } }, "sha512-+qIYRKdNYJwY3vRCZMdJbPLJAtGjQBudzZzdzwQYkEPQd+PJGixUL5QfvCLDaULoLv+RhT3LDkwEfKaAkgSmNQ=="],
+ 
+-    "happy-dom/whatwg-mimetype": ["whatwg-mimetype@3.0.0", "", {}, "sha512-nt+N2dzIutVRxARx1nghPKGv1xHikU7HKdfafKkLNLindmPU/ch3U31NOCGGA/dmPcmb1VlofO0vnKAcsm0o/Q=="],
+-
+     "headers-polyfill/set-cookie-parser": ["set-cookie-parser@3.1.0", "", {}, "sha512-kjnC1DXBHcxaOaOXBHBeRtltsDG2nUiUni+jP92M9gYdW12rsmx92UsfpH7o5tDRs7I1ZZPSQJQGv3UaRfCiuw=="],
+ 
+     "hoist-non-react-statics/react-is": ["react-is@16.13.1", "", {}, "sha512-24e6ynE2H+OKt4kqsOvNd8kBpV65zoxbA4BVsEOB3ARVWQki/DHzaUoC5KuON/BiccDaCCTZBuOcfZs70kR8bQ=="],
+@@ -4290,6 +4291,8 @@
+ 
+     "isomorphic-dompurify/jsdom": ["jsdom@28.1.0", "", { "dependencies": { "@acemir/cssom": "^0.9.31", "@asamuzakjp/dom-selector": "^6.8.1", "@bramus/specificity": "^2.4.2", "@exodus/bytes": "^1.11.0", "cssstyle": "^6.0.1", "data-urls": "^7.0.0", "decimal.js": "^10.6.0", "html-encoding-sniffer": "^6.0.0", "http-proxy-agent": "^7.0.2", "https-proxy-agent": "^7.0.6", "is-potential-custom-element-name": "^1.0.1", "parse5": "^8.0.0", "saxes": "^6.0.0", "symbol-tree": "^3.2.4", "tough-cookie": "^6.0.0", "undici": "^7.21.0", "w3c-xmlserializer": "^5.0.0", "webidl-conversions": "^8.0.1", "whatwg-mimetype": "^5.0.0", "whatwg-url": "^16.0.0", "xml-name-validator": "^5.0.0" }, "peerDependencies": { "canvas": "^3.0.0" }, "optionalPeers": ["canvas"] }, "sha512-0+MoQNYyr2rBHqO1xilltfDjV9G7ymYGlAUazgcDLQaUf8JDHbuGwsxN6U9qWaElZ4w1B2r7yEGIL3GdeW3Rug=="],
+ 
++    "jsdom/whatwg-mimetype": ["whatwg-mimetype@4.0.0", "", {}, "sha512-QaKxh0eNIi2mE9p2vEdzfagOKHCcj1pJ56EEHGQOVxp8r9/iszLUUV7v89x9O1p/T+NlTM5W7jW6+cz4Fq1YVg=="],
++
+     "katex/commander": ["commander@8.3.0", "", {}, "sha512-OkTL9umf+He2DZkUq8f8J9of7yL6RJKI24dVITBmNfZBmri9zYZQrKkuXiKhyfPSu8tUhnVBB1iKXevvnlR4Ww=="],
+ 
+     "log-symbols/chalk": ["chalk@5.6.2", "", {}, "sha512-7NzBL0rN6fMUW+f7A6Io4h40qQlG+xGmtMxfbnH/K7TAtt8JQWVQK+6g0UXKMeVJoyV5EkkNsErQ8pVD3bLHbA=="],
+-- 
+2.51.0.windows.1
+

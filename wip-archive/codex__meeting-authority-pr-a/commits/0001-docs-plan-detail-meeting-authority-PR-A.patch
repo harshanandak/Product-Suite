@@ -1,0 +1,538 @@
+From c26ddfeaf6ccfa6c105ab62003ed2908f1951fdf Mon Sep 17 00:00:00 2001
+From: Harsha Nanda <harshanandak@users.noreply.github.com>
+Date: Sat, 8 Aug 2026 18:32:42 +0530
+Subject: [PATCH] docs(plan): detail meeting authority PR A
+
+---
+ .../2026-08-08-meeting-authority-pr-a/plan.md | 364 ++++++++++++++++++
+ .../tasks.md                                  | 147 +++++++
+ 2 files changed, 511 insertions(+)
+ create mode 100644 docs/work/2026-08-08-meeting-authority-pr-a/plan.md
+ create mode 100644 docs/work/2026-08-08-meeting-authority-pr-a/tasks.md
+
+diff --git a/docs/work/2026-08-08-meeting-authority-pr-a/plan.md b/docs/work/2026-08-08-meeting-authority-pr-a/plan.md
+new file mode 100644
+index 0000000..072bb98
+--- /dev/null
++++ b/docs/work/2026-08-08-meeting-authority-pr-a/plan.md
+@@ -0,0 +1,364 @@
++# Meeting authority PR A: Neon access-origin foundation
++
++**Issue:** `2660c6a4-3e8d-4f4e-b3bb-eb61446c3c98`
++**Blocking prerequisite:** `59efc6dc-07a1-4b31-9942-ba2f1fcac8e1`
++**Canonical database decision:** Forge memory `9a05c237-f135-4c09-86e8-887d4fcef617`
++**Classification:** Critical - authorization and data migration
++**Stage:** PLAN revision; not approved, blocked on prerequisite
++**Base:** `origin/main@42e30d88bc516dc6472c9f1bb837bd694844aa47`
++
++## Outcome
++
++On one proven Neon physical database, establish a dormant meeting access-origin
++foundation without widening any read. Every meeting may link to one Product-
++Suite conversation, every escaping derivative has a nullable place to retain
++that origin later, and one server-side SQL statement resolves the authenticated
++caller through internal identity, active organization membership, active actor,
++and current conversation membership.
++
++Neon is the sole live database authority. Historical Supabase names, files,
++configuration, and comments are migration residue, not a supported topology.
++This plan creates no Supabase path and assigns no new hosted migration to
++Alembic. Issue `59ef...` must first prove the Neon topology and land the single
++canonical migration owner/order. PR A then consumes that landed result without
++adding a second journal or runner.
++
++## Prerequisite contract from `59ef...`
++
++PR A remains Forge-blocked until the prerequisite handoff provides and live
++verification confirms all of:
++
++1. one Neon project/database/schema topology for meeting, identity,
++   collaboration, memory, proposal, and work-item tables;
++2. the one supported migration root, runner, journal/revision rule, next
++   available migration identifier, deployment command, and fresh-clone path;
++3. `DATABASE_URL` provenance for both meeting and platform runtimes, with stale
++   Supabase defaults/adapters rejected in supported production configuration;
++4. the canonical identity/tenant tables and their key/constraint shapes;
++5. historical Alembic/Supabase files classified as immutable history or removed
++   adapters, never a second live migration authority.
++
++Before DEV, amend the placeholders below mechanically with the landed
++`canonical_migration_root`, `canonical_next_revision`, and exact deployment
++command from `59ef...`; re-run conflict and migration-order checks. If the
++prerequisite does not establish all five facts, PR A stays blocked rather than
++guessing.
++
++## Locked security contract
++
++- Active `conversation_memberships` is the sole MVP group grant. Existing
++  `reader|writer|admin`, `active|removed`, and conversation lifecycle values do
++  not change.
++- Authentication provider identity may map a verified subject to an internal
++  user; it is never a meeting grant. Request bodies, models, tools, connectors,
++  labels, emails, and legacy visibility cannot select caller, actor, tenant,
++  origin, or membership.
++- Durable, verified tenant and principal mappings resolve
++  `meeting_tenant_id -> platform_tenant_id` and then the complete
++  `(meeting_tenant_id, meeting_user_id) ->
++  (platform_tenant_id, platform_user_id)` pair. Equality, email matching, and
++  provider claims are forbidden shortcuts.
++- Same-tenant composite FKs protect every conversation origin. Positive
++  authorization is request-local and never an offline or cross-request cache.
++- Direct denials have one public `not_found` response. Search-style callers
++  receive an empty lane. Deterministic private reason codes are operator-only.
++- Database/migration mismatch, missing mapping/origin, inactive/revoked state,
++  ambiguous identity, and query failure deny.
++
++## Delivery split
++
++The earlier single-PR estimate was too broad. Deliver two sequential medium PRs
++under this child, both after `59ef...` merges:
++
++### PR A1 - Contract and response-shape freeze
++
++Freeze API/domain projections before adding columns, then lock the access-origin
++contract. No schema or authorization behavior changes.
++
++### PR A2 - Neon schema, backfill, authorization, and conformance
++
++Use only the prerequisite's canonical Neon migration plane. Add mapping/origin
++schema, perform owner-only meeting backfill, add the one-statement authorization
++primitive, and prove it on ephemeral Neon. No existing content call site uses
++the new primitive until PR B.
++
++A1 must merge before A2 branches. PR B still owns derivative propagation,
++memory visibility/enforcement, candidate UX/promotion, and existing read/action
++enforcement.
++
++## PR A1: contract and explicit response projections
++
++Extend `meetingCoreContract` in place with `accessAuthorityVersion: 1` and keys
++for the meeting origin, derivative origin, durable principal mapping, internal
++human actor ownership `identity.user`, current active membership, opaque denial,
++request-local evaluation, and explicit false grants for provider identity,
++participant labels, email matching, identifier equality, and legacy visibility.
++Do not duplicate roles or bump `conversationContract.authorityVersion`.
++
++Before any new DB column exists, replace wildcard output for the affected
++content models with named, versioned projection constants:
++
++| Projection | Current wildcard surfaces to replace | Public compatibility rule |
++| --- | --- | --- |
++| `MEETING_API_COLUMNS` | meeting `SELECT *`, update `RETURNING *`, search meeting-map selection, generic record serialization in `apps/meeting-api/backend/server.py` | exactly the current `Meeting` response fields; never `conversation_id` or mapping/audit fields |
++| `MEMORY_ROW_COLUMNS` | `RETURNING='*'`, memory detail/source/chain/list/update returns | exactly current `MemoryRow`; no `access_conversation_id` |
++| `PROPOSAL_ROW_COLUMNS` | create/list/get and route decision returns; proposal serializers | exactly current `ProposalRow`; no origin/source linkage columns |
++| `WORK_ITEM_ROW_COLUMNS` | work-item fetch/create/update returns | exactly current domain/API `WorkItem`; no origin/source linkage columns |
++| `WORK_ITEM_SNAPSHOT_FIELDS` | `to_jsonb(work_items)` in proposal create/apply/undo | only currently approved target fields; never new authority/provenance columns |
++
++Internal SQL may read authority columns only in A2's private repository/backfill;
++it cannot pass raw rows to a route or generic serializer. Projection tests
++assert exact keys on list/detail/create/update and proposal snapshot responses.
++This is API compatibility, not a new API version.
++
++## PR A2: exact Neon schema contract
++
++All DDL is one migration at:
++`<canonical_migration_root>/<canonical_next_revision>_meeting_authority_foundation.sql`.
++The root/revision are outputs of `59ef...`, not choices made by this blocked
++plan. There is no Alembic revision, second journal entry, search-path branch, or
++Supabase migration. The canonical schema model/type file established by
++`59ef...` is updated in the same PR.
++
++### Durable principal mapping
++
++Add `meeting_tenant_mappings`:
++
++| Column | Definition |
++| --- | --- |
++| `id` | UUID primary key, generated |
++| `meeting_tenant_id` | TEXT NOT NULL, unique source tenant |
++| `platform_tenant_id` | TEXT NOT NULL, FK to canonical tenant table |
++| `status` | `active|revoked`, NOT NULL |
++| `verification_method` | `admin_verified|migration_verified|product_sync`, NOT NULL |
++| `evidence_ref` | TEXT NOT NULL; opaque Product-Suite evidence ID |
++| `verified_by_actor_id` | UUID NOT NULL |
++| `verified_at` | TIMESTAMPTZ NOT NULL |
++| `revoked_at` | TIMESTAMPTZ NULL |
++| `created_at`,`updated_at` | TIMESTAMPTZ NOT NULL |
++
++It has a unique key `(meeting_tenant_id,platform_tenant_id)`, composite FK
++`(platform_tenant_id,verified_by_actor_id)` to collaboration actors, the active/
++revoked timestamp check, and an index `(platform_tenant_id,status)`.
++
++Add `meeting_principal_mappings`:
++
++| Column | Definition |
++| --- | --- |
++| `id` | UUID primary key, generated |
++| `meeting_tenant_id` | TEXT NOT NULL |
++| `meeting_user_id` | TEXT NOT NULL |
++| `platform_tenant_id` | TEXT NOT NULL, FK to canonical tenant table |
++| `platform_user_id` | TEXT NOT NULL, FK to canonical user table |
++| `status` | `active|revoked`, NOT NULL |
++| `verification_method` | `admin_verified|migration_verified|product_sync`, NOT NULL |
++| `evidence_ref` | TEXT NOT NULL; opaque Product-Suite evidence ID, not email/provider data |
++| `verified_by_actor_id` | UUID NOT NULL |
++| `verified_at` | TIMESTAMPTZ NOT NULL |
++| `revoked_at` | TIMESTAMPTZ NULL |
++| `created_at`,`updated_at` | TIMESTAMPTZ NOT NULL |
++
++Constraints/indexes:
++
++- unique source pair `(meeting_tenant_id, meeting_user_id)`;
++- composite FK `(meeting_tenant_id,platform_tenant_id)` to the exact tenant
++  mapping above, preventing users within one meeting tenant from mapping to
++  different platform tenants;
++- composite FK `(platform_tenant_id, verified_by_actor_id)` to
++  `collaboration_actors(tenant_id,id)` with `ON DELETE RESTRICT`;
++- check active implies `revoked_at IS NULL`, revoked implies non-null;
++- index `(platform_tenant_id, platform_user_id, status)`;
++- application/backfill additionally requires a current active organization
++  membership for the target pair. No environment JSON map is authoritative.
++
++Existing `MEETING_TENANT_MAP` remains untouched in A2 only for API compatibility,
++but neither the new primitive nor backfill reads it. Its retirement/replacement
++belongs to the `59ef...` reconciliation and PR B call-site cutover.
++
++### Origins
++
++| Table | Additive columns | Integrity |
++| --- | --- | --- |
++| `meetings` | `access_tenant_id TEXT NULL`, `conversation_id UUID NULL` | pair-nullability check; composite FK `(access_tenant_id, conversation_id)` to conversations; partial unique `(access_tenant_id,conversation_id)` |
++| `memories` | `access_conversation_id UUID NULL` | composite same-tenant FK; partial lookup index |
++| `knowledge_chunks` | same | composite same-tenant FK; partial lookup index |
++| `proposals` | `access_conversation_id UUID NULL`, `source_meeting_id TEXT NULL`, `source_action_item_id TEXT NULL` | composite same-tenant FK; partial lookup index |
++| `work_items` | same three columns | composite same-tenant FK; partial lookup index |
++| `meeting_promotions` | `meeting_id TEXT NULL`, `access_conversation_id UUID NULL` | composite same-tenant FK; partial lookup index |
++
++`meetings.access_tenant_id` and `meetings.conversation_id` are the only origin
++fields A2 backfills. They are both null or both non-null. Every derivative
++origin and source column remains NULL in A2. Do not add `conversation` to
++`memory_visibility`, alter its private/org check, classify legacy derivatives,
++or change reads. PR B owns atomic derivative propagation, quarantine enforcement,
++dedupe changes, and the memory conversation lane after all content call sites
++are caller-aware.
++
++## Verified owner-only meeting backfill
++
++The operator command lives in the canonical Neon-owned package selected by
++`59ef...` at `scripts/meeting-authority/backfill-meeting-origins.ts`, with tests
++beside the Neon DB contract tier. It accepts exactly `--database-url-env
++DATABASE_URL`, `--dry-run` (default) or `--apply`, and required
++`--report <absolute-path>`. It rejects non-Neon supported-production URLs using
++the topology validator landed by `59ef...`.
++
++For each meeting ordered by `(tenant_id,id)`:
++
++1. Require one active `meeting_tenant_mappings` row for the meeting tenant, one
++   active `meeting_principal_mappings` row for its exact tenant/user pair whose
++   platform tenant matches that tenant mapping, and one
++   current active organization membership for mapped platform user/tenant.
++2. Reuse one active human actor for the mapped internal user. Missing actor is
++   reported; read-side/backfill never provisions or guesses it.
++3. Reuse an exact active conversation with `legacy_source='meeting'`, matching
++   legacy ID/tenant and typed meeting subject, or insert using a fixed contract
++   UUIDv5 namespace over canonical platform tenant + meeting ID.
++4. Create an owner `admin` membership only when no membership exists. An existing
++   removed membership, lower/different role, disabled actor, archived
++   conversation, conflicting meeting link, legacy-reference conflict, or UUID
++   collision is quarantined. Never reactivate, unarchive, escalate, overwrite,
++   or delete.
++5. Set `meetings.access_tenant_id` and `meetings.conversation_id` together only
++   after all invariants succeed in one transaction. Unique constraints plus
++   compare-and-set make repeated and concurrent runs converge.
++
++The JSON report schema is fixed:
++`schemaVersion`, migration revision, run mode, started/completed timestamps,
++sorted counts, and sorted `{meetingId, tenantId, reasonCode}` entries. Allowed
++reason codes are `mapping_missing|mapping_revoked|mapping_ambiguous|
++organization_inactive|actor_missing|actor_disabled|conversation_archived|
++membership_removed|membership_role_conflict|origin_conflict|uuid_collision|
++database_error`. Never include content, title, labels, email, provider subject,
++transcript, summary, action text, proposal rationale, prompt, or credentials.
++Reports are operator artifacts outside the repository and are never committed.
++
++## One-statement caller authorization
++
++Add `authorizeCurrentMeetingCaller` in the collaboration repository. Input is a
++server-created verified caller identity `(authProvider, subject)`, requested
++tenant, conversation origin, and allowed roles. There is no `userId` or
++`actorId` input.
++
++One parameterized SQL statement uses CTEs/left joins over canonical
++`user_auth_identities -> organization_memberships -> collaboration_actors ->
++conversation_memberships -> conversations`. It requires exact provider/subject
++mapping, active organization membership, actor
++`human/identity.user/<internal user id>` not disabled, active conversation,
++active membership, same tenant throughout, and allowed role.
++
++The result is either allowed identifiers/role or public `{ok:false,
++reason:'not_found'}` plus one deterministic private code selected in this fixed
++precedence: `identity_unmapped`, `organization_inactive`, `actor_unavailable`,
++`origin_unavailable`, `membership_inactive`, `role_insufficient`,
++`database_unavailable`. No content/resource metadata is returned on denial.
++The primitive performs no provisioning, retry, cache, or logging. Routes may log
++only the private code plus policy version and opaque internal IDs; they never
++serialize it.
++
++## Executable ephemeral-Neon conformance
++
++Extend the existing `apps/platform-api/test/db-contract` harness only after
++`59ef...` makes its fresh-branch bootstrap use the canonical full Neon migration
++chain rather than identity stand-ins. Add a non-skipping command
++`bun run test:db-contract:meeting-authority` that exits nonzero unless
++`NEON_API_KEY` and `NEON_PROJECT_ID` are present. `NEON_PARENT_BRANCH_ID` may
++select the canonical parent; the harness creates and deletes an isolated branch
++and obtains its database URL itself.
++
++CI `.github/workflows/db-contract.yml` invokes this command for PR A2 with
++credentials scoped only to that step. Missing credentials, a skipped suite,
++zero executed tests, cleanup failure, timeout, or truncated evidence is
++INCOMPLETE/FAIL, never green.
++
++The real-DB fixture seeds distinct meeting and platform IDs for Alice
++(owner/admin), Bob (same platform tenant/no meeting membership), Carol (other
++tenant), and Dave (removed membership). It proves:
++
++- equality/email/provider spoofing never maps a principal;
++- cross-tenant FK rejection and identical public denial;
++- current allow, then committed membership removal, then deny on the next call;
++- two simultaneous backfills create one origin/membership and identical report
++  outcomes;
++- removed membership is not reactivated; archived conversation not unarchived;
++- UUID/legacy-reference collision quarantines with no partial mutation;
++- derivative columns and memory visibility remain unchanged/null;
++- response key snapshots are identical before/after migration;
++- branch teardown runs in `finally` and reports deletion evidence.
++
++## Deployment, rollback, and observability
++
++Order: merge/verify `59ef...`; merge A1; create a fresh A2 branch; apply its one
++canonical Neon migration; deploy dormant repository/backfill; dry-run/report;
++approve; apply; rerun dry-run for zero mutations; run required Neon conformance.
++There is no production feature flag in A because no read/write call site is
++activated.
++
++Rollback reverts application code and leaves additive Neon columns/mapping/
++authority rows intact. Never drop mappings/origins, restore a Supabase path,
++reactivate membership, unarchive conversations, or reinterpret legacy
++visibility. A later forward migration may repair data after review.
++
++Allowed telemetry: policy version, operation, allowed/denied, private reason,
++opaque tenant/actor/origin IDs, migration revision, report counts. Redact all
++auth claims, provider subjects, email, labels, meeting/derivative content,
++embeddings, prompts, tokens, and result counts visible to models/users.
++
++## Exact ownership and size
++
++PR A1 owns contract files plus the affected response-projection source/tests:
++`packages/contracts/src/meeting.js`, `contracts/meeting-runtime-config.json`,
++`src/index.d.ts`, `src/index.test.ts`; meeting `backend/server.py` and response
++tests; platform `domain/memories.ts`, `proposals/{repository,apply,undo}.ts`,
++`domain/work-items.ts` and their tests. Estimate: 12-16 files, 350-550 net LOC.
++
++PR A2 owns the single migration/schema-model files named by `59ef...`,
++`scripts/meeting-authority/backfill-meeting-origins.ts`, its tests,
++`apps/platform-api/src/collaboration/repository.ts` and test,
++`apps/platform-api/test/db-contract/{harness,meeting-authority-foundation.test}.ts`,
++`apps/platform-api/vitest.db-contract.config.ts`, `apps/platform-api/package.json`,
++and `.github/workflows/db-contract.yml`. Estimate: 13-17 files, 550-800 net LOC.
++
++## Baseline, dependency, and conflict evidence
++
++- Worktree `meeting-authority-pr-a`, branch
++  `codex/meeting-authority-pr-a`, began at exact
++  `origin/main@42e30d88bc516dc6472c9f1bb837bd694844aa47`.
++- Live Forge state proves PR A is blocked by prerequisite `59ef...`; the
++  prerequisite is not blocked by PR A. Forge memory `9a05c237...` records Neon
++  as sole live database authority.
++- Baseline contract test: 2 passed, 0 failed. Migration parity passed. Meeting
++  Python baseline is INCOMPLETE because the available interpreter lacks pytest;
++  DEV must install locked requirements before RED.
++- Merge simulation reported the plan branch current with its original base and
++  conflict-free. The legacy conflict/index helpers cannot resolve this Kernel-
++  only child, so those results are not sufficient proof; repeat after `59ef...`
++  lands and before each A1/A2 branch.
++- No production implementation, push, PR, or database operation is authorized
++  by this revision.
++
++Out of scope: any Supabase DB path, Alembic hosted authority, derivative
++backfill, memory visibility change, production enforcement call sites,
++participant/provider grants, `MEETING_TENANT_MAP` as authority, explicit-share
++UX, candidate revisions/cards, `Add`/`Adjust`/`Dismiss`, proposal/task promotion,
++declassification, search, raw transcripts, offline ACL, positive auth caching,
++RLS, public links, external guests, federation, and destructive cleanup.
++
++## Revised approval gates
++
++1. **Prerequisite gate:** `59ef...` is merged and proves one Neon topology,
++   migration root/order/runner, config, identity tables, and fresh-clone path.
++2. **A1 API gate:** exact response-key snapshots prove new DB columns cannot
++   leak through wildcard selection, returning, JSON snapshots, or serializers.
++3. **A2 identity gate:** security/data approve the durable verified pair mapping
++   and rejection of equality/email/provider inference.
++4. **A2 migration gate:** one canonical Neon migration only; nullable derivative
++   origins, unchanged memory visibility, same-tenant FKs, non-permissive rollback.
++5. **A2 backfill gate:** concurrent/repeated runs converge and never reactivate,
++   unarchive, escalate, overwrite, or collide; redacted report reviewed.
++6. **A2 authorization gate:** one-statement current-state query, deterministic
++   private reasons, uniform public denial, no cache/provisioning.
++7. **Evidence gate:** credentialed ephemeral-Neon suite executes nonzero tests,
++   including concurrency/revocation/response compatibility, on exact head.
++
++Approval of this revision authorizes neither A1 nor A2 until Gate 1 is met.
+diff --git a/docs/work/2026-08-08-meeting-authority-pr-a/tasks.md b/docs/work/2026-08-08-meeting-authority-pr-a/tasks.md
+new file mode 100644
+index 0000000..498b4bf
+--- /dev/null
++++ b/docs/work/2026-08-08-meeting-authority-pr-a/tasks.md
+@@ -0,0 +1,147 @@
++# Meeting authority PR A - revised TDD tasks
++
++**Issue:** `2660c6a4-3e8d-4f4e-b3bb-eb61446c3c98`
++**Blocking prerequisite:** `59efc6dc-07a1-4b31-9942-ba2f1fcac8e1`
++**Plan:** `plan.md`
++**Stage:** blocked PLAN review; no DEV authority
++
++Missing credentials/dependencies, skips, zero tests, timeouts, and truncated
++output are INCOMPLETE, never PASS. After `59ef...` merges, re-prove Forge
++ownership, create each PR from the newly landed exact `origin/main`, replace the
++canonical migration placeholders, and record strict RED before production edits.
++
++## PR A1 - contract and response-shape freeze
++
++### Task A1.1 - Lock the provider-neutral contract
++
++**OWNS:** `packages/contracts/src/meeting.js`,
++`packages/contracts/contracts/meeting-runtime-config.json`,
++`packages/contracts/src/index.d.ts`, `packages/contracts/src/index.test.ts`
++
++Write drift/non-authority tests first. RED:
++`bun test packages/contracts/src/index.test.ts` fails on absent access authority.
++Add mapping/origin/current-membership keys and false grant flags without changing
++roles. GREEN: focused test plus contracts typecheck.
++
++### Task A1.2 - Freeze meeting API projections
++
++**OWNS:** `apps/meeting-api/backend/server.py`, new
++`apps/meeting-api/tests/backend/test_meeting_response_projection.py`
++
++Replace meeting-table wildcard selection/returning and generic meeting response
++serialization with `MEETING_API_COLUMNS`. Test exact keys for list/detail/update/
++search/export fixtures and reject internal origin/mapping keys. RED:
++`python -m pytest apps/meeting-api/tests/backend/test_meeting_response_projection.py`.
++GREEN: same command using locked Python requirements, plus affected meeting route
++tests. No schema change.
++
++### Task A1.3 - Freeze platform content projections
++
++**OWNS:**
++
++- `apps/platform-api/src/domain/memories.ts` and test
++- `apps/platform-api/src/proposals/repository.ts` and test
++- `apps/platform-api/src/proposals/apply.ts` and test
++- `apps/platform-api/src/proposals/undo.ts` and test
++- `apps/platform-api/src/domain/work-items.ts` and test
++
++Introduce exact `MEMORY_ROW_COLUMNS`, `PROPOSAL_ROW_COLUMNS`,
++`WORK_ITEM_ROW_COLUMNS`, and `WORK_ITEM_SNAPSHOT_FIELDS`; replace affected
++`SELECT *`, `RETURNING *`, and unrestricted `to_jsonb(work_items)`. RED tests add
++sentinel authority columns and prove they currently escape. GREEN tests prove
++exact current row/API/snapshot keys and unchanged values. Run focused suites,
++platform typecheck/lint, and compatibility snapshots.
++
++### A1 validation/approval
++
++Run contract, meeting response, memory/proposal/work-item suites and static
++checks. Spec review confirms no wildcard output remains for affected models;
++API review confirms byte-equivalent JSON keys. Commit/push/PR only in later
++authorized stages. Merge/verify A1 before creating A2.
++
++## PR A2 - canonical Neon foundation
++
++### Task A2.1 - Consume the prerequisite migration authority
++
++**OWNS:** the exact canonical schema model, migration root, journal, runner tests,
++and deployment files named by the merged `59ef...` handoff; no other migration
++directory.
++
++Before RED, record its topology SHA, migration root/runner/next revision and
++replace placeholders in `plan.md`. Add one migration for
++`meeting_tenant_mappings`, `meeting_principal_mappings`, the paired meeting
++access tenant/origin, and nullable derivative origin/
++source columns. Do not change memory visibility or fill derivative origins.
++
++RED schema tests cover exact columns, mapping status/checks/indexes, source-
++tenant consistency, pair-nullability, composite tenant FKs, cross-tenant
++rejection, nullable derivatives, unchanged memory enum, and fresh-clone order.
++GREEN runs the canonical migration command, migration parity, and fresh
++ephemeral-Neon branch migration.
++
++### Task A2.2 - Add rerun-safe owner-only meeting backfill
++
++**OWNS:** `scripts/meeting-authority/backfill-meeting-origins.ts`, new focused
++unit test in the canonical script test location established by `59ef...`
++
++Implement only the exact mapping-backed meeting algorithm and fixed redacted
++report schema. Unit RED/GREEN covers missing/revoked/ambiguous mapping, inactive
++org, missing/disabled actor, removed/role-conflicting membership, archived/
++conflicting conversation, UUID collision, label/provider/equality spoof,
++transaction rollback, dry-run, repeated apply, and deterministic ordering. No
++derivative update statement is permitted.
++
++### Task A2.3 - Add one-statement current authorization
++
++**OWNS:** `apps/platform-api/src/collaboration/repository.ts`,
++`apps/platform-api/src/collaboration/repository.test.ts`
++
++Test first for the exact provider-subject -> internal user -> active org ->
++active actor -> active current membership -> active conversation statement.
++Assert one SQL call, tenant predicates at every join, fixed private-reason
++precedence, identical public denial, no client user/actor input, no provisioning,
++no cache, and database-failure denial. GREEN runs focused test/typecheck/lint.
++
++### Task A2.4 - Make Neon conformance mandatory and executable
++
++**OWNS:**
++
++- `apps/platform-api/test/db-contract/harness.ts`
++- new `apps/platform-api/test/db-contract/meeting-authority-foundation.test.ts`
++- `apps/platform-api/vitest.db-contract.config.ts`
++- `apps/platform-api/package.json`
++- `.github/workflows/db-contract.yml`
++
++First replace identity stand-ins with the canonical full Neon migration/bootstrap
++from `59ef...`. Add `test:db-contract:meeting-authority`; under CI it must fail on
++missing credentials, skip, or zero tests. RED before production implementation
++must show missing schema/primitive.
++
++GREEN uses an ephemeral Neon branch and distinct Alice/Bob/Carol/Dave IDs to
++prove mapping non-inference, composite FKs, exact public denial, committed
++revocation, two concurrent backfills, removed/archived/collision preservation,
++null derivative origins, unchanged memory visibility, exact response keys, and
++branch deletion in `finally`. Execute:
++
++```text
++bun run --cwd apps/platform-api test:db-contract:meeting-authority
++```
++
++with `NEON_API_KEY`, `NEON_PROJECT_ID`, and optional canonical
++`NEON_PARENT_BRANCH_ID`. Capture test count and branch-create/delete evidence.
++
++### A2 validation/approval
++
++Run canonical migration/fresh-clone/parity, focused contracts, backfill,
++repository, type/lint, and mandatory Neon DB contract. Security/data/API review
++the seven gates in `plan.md`; exact-head CI must be green. Only merge/verified A2
++may unlock a separately approved PR B.
++
++## Stop conditions
++
++Stop for plan review if work requires a Supabase path, Alembic hosted authority,
++an unverified/equal/email/provider identity mapping, wildcard response output,
++derivative backfill, memory visibility change, automatic reactivation/unarchive/
++role escalation, permissive fallback, skipped Neon evidence, production content
++enforcement, candidate/promotion UX, search, raw transcripts, or a PR larger than
++the A1/A2 bounds in `plan.md`.
+-- 
+2.51.0.windows.1
+

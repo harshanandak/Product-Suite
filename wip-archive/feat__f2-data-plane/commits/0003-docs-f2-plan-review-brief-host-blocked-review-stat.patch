@@ -1,0 +1,58 @@
+From 49be81a1e54c477c33cad9a39568296fba436e09 Mon Sep 17 00:00:00 2001
+From: Harsha Nanda <harshanandak@users.noreply.github.com>
+Date: Fri, 11 Sep 2026 12:04:22 +0530
+Subject: [PATCH] docs(f2): plan review brief + host-blocked review state
+
+---
+ .../2026-09-11-f2-data-plane/review-brief.md  | 39 +++++++++++++++++++
+ 1 file changed, 39 insertions(+)
+ create mode 100644 docs/work/2026-09-11-f2-data-plane/review-brief.md
+
+diff --git a/docs/work/2026-09-11-f2-data-plane/review-brief.md b/docs/work/2026-09-11-f2-data-plane/review-brief.md
+new file mode 100644
+index 0000000..a81b220
+--- /dev/null
++++ b/docs/work/2026-09-11-f2-data-plane/review-brief.md
+@@ -0,0 +1,39 @@
++# F2 plan review — brief and state (2026-09-11)
++
++Purpose: rerun the plan review on `gpt-5.6-sol` (OpenAI/Codex via Pi) and `muse-spark-1.3-contributor` (OpenCode Go) after host auth is restored, then revise plan.md/tasks.md from the findings.
++
++## Current state (2026-09-11 21:30 UTC)
++
++- Review round 1: **blocked, no verdicts.**
++  - sol lane: `f2-plan-review-20260911:sol`, job `d1467ee4-f9b6-461c-a3e8-231de0bd7c53` — died mid-run on expired Codex OAuth (`refresh_token_invalidated`). No review produced.
++  - muse lane: jobs `1eebd0c6`, `355eb180`, plus bridge retries `2d73bb54`, `d148b420` — all failed pre-model: adapter could not boot `opencode2 serve` because the host sets `OPENCODE_SERVER_PASSWORD` and the adapter only learned the password from stdout. Root cause proven by the bridge subagent.
++- Adapter fixed in `C:\Users\harsha_befach\Downloads\agent-companion` (uncommitted): `src/adapters/opencode-control.mjs` now resolves `OPENCODE_SERVER_PASSWORD` / `OPENCODE_PASSWORD` from the spawn environment before readiness probes; test added in `test/opencode-adapter.test.mjs`. Suites green (adapter 15/15; full suite 124 pass, 1 skipped).
++- Restart required for the running MCP server to load the fix.
++- Human steps pending: restart OpenCode (or the agent-companion MCP server); re-auth Pi's openai-codex (`pi auth check --provider openai-codex` reports `invalid`); optionally `codex login`.
++
++## Review brief (paste to both lanes; new requestId suffix per rerun, e.g. `f2-plan-review-20260911b:sol`)
++
++READ-ONLY. Working directory: `C:\Users\harsha_befach\Downloads\Product-Suite\.worktrees\f2-data-plane` (branch `feat/f2-data-plane`, based on origin/main 044fcc4). Do NOT modify any file.
++
++Read fully:
++- `docs/work/2026-09-11-f2-data-plane/plan.md`
++- `docs/work/2026-09-11-f2-data-plane/tasks.md`
++
++Context: Forge issue `product-suite-5q8`, "F2 data plane — migration pack #1". Re-scoped with the operator: add the genuinely missing ladder pieces (project_teams junction, checks.project_id + at-most-one-parent rule, proposals candidate idempotency, connections + encryption, item visibility, playbooks + projects.playbook_ref), skip legacy-only value migrations, fix two infra drifts. Task 1 (contracts) is implemented and committed (`31018e7`). Its implementer reported three gaps the plan does not cover:
++
++1. `apps/platform-web` typecheck breaks (17 tsc errors) because contracts changed (required `visibility`, `Check.project_id`, `Project.playbook_ref`, nullable `Check.work_item_id`). Affected: `fixtures.ts`, `repository.ts`, `network-repository.ts`, `use-item-checks.ts`, `use-work-items.ts`, `types.test.ts`, `WorkboardScreen.test.tsx`, `WorkItemNode.test.tsx`. The pre-push classifier marks platform-web affected by any `packages/contracts/src` change. No task owns this fix.
++2. `packages/contracts/src/index.js` is not in Task 1's OWNS list, so the new constants are not re-exported from the package entry.
++3. `Check.visibility`: Task 2 adds `checks.visibility`, Task 8 filters check reads, but Task 1 did not add visibility to the `Check` contract.
++
++Answer with evidence (file:line where possible):
++A. Correctness: is the re-scoped pack content right and complete for F2 given the repo state? Anything missing or mis-scoped?
++B. Ordering/dependencies: are the 5 waves and OWNS lists dependency-correct? Any file conflicts within a wave?
++C. Snapshot strategy (plan.md "Snapshot strategy"): one-time `drizzle-kit generate` to emit `meta/0022_snapshot.json`, discard the generated SQL, hand-author SQL + journal entry. Sound? Verify against `scripts/check-migration-parity.mjs` and `test/check-migration-parity.test.js`. Any alternative that does not weaken the ratchet?
++D. The three reported gaps: minimal correct resolution for each (which task owns it, what changes). Should platform-web fixes be a new task in this pack, or is a red typecheck acceptable? Note CI/pre-push implications.
++E. Testing: are the per-task TDD steps and acceptance provable? What test fails today and passes after the pack? Any missing test (visibility predicate, XOR constraint, crypto envelope, snapshot parity)?
++F. Risks/OWASP: any material risk the plan understates.
++
++Output format:
++VERDICT: APPROVE or REVISE
++FINDINGS: numbered; each with severity (blocker/major/minor), evidence, concrete recommended change.
++If REVISE, put the single most important change first.
+-- 
+2.51.0.windows.1
+

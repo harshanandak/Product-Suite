@@ -1,0 +1,608 @@
+From 7a46d7e36e177920d6f285ac319ba408e791e535 Mon Sep 17 00:00:00 2001
+From: Harsha Nanda <harshanandak@users.noreply.github.com>
+Date: Mon, 10 Aug 2026 11:59:55 +0530
+Subject: [PATCH] docs(plan): design capture session ACK ledger
+
+---
+ .../plan.md                                   | 381 ++++++++++++++++++
+ .../tasks.md                                  | 200 +++++++++
+ 2 files changed, 581 insertions(+)
+ create mode 100644 docs/work/2026-08-10-capture-session-ack-ledger/plan.md
+ create mode 100644 docs/work/2026-08-10-capture-session-ack-ledger/tasks.md
+
+diff --git a/docs/work/2026-08-10-capture-session-ack-ledger/plan.md b/docs/work/2026-08-10-capture-session-ack-ledger/plan.md
+new file mode 100644
+index 0000000..a7be5f7
+--- /dev/null
++++ b/docs/work/2026-08-10-capture-session-ack-ledger/plan.md
+@@ -0,0 +1,381 @@
++# Canonical capture-session and slice ACK ledger
++
++**Feature:** `capture-session-ack-ledger`
++**Issue:** `ce3127d7-2ae0-4eff-aa37-1101762d0d0b`
++**Date:** 2026-08-10
++**Classification:** Critical / T3 — database schema, tenant authority, raw-audio durability, retention, and deletion
++**Status:** PLAN draft — H1-H5 are open; not DEV-ready
++**Human approval state:** No H1-H4 decision is recorded and H5 DEV approval is absent. This document is design evidence only.
++**Base:** `origin/main@5a4ed8d8f52b7fe78044fac000602b9cd6552ee0`
++**Branch/worktree:** `codex/capture-session-ack-ledger-plan` / `.worktrees/capture-session-ack-ledger-plan`
++
++## Purpose
++
++Create the one canonical Neon authority that makes meeting capture retryable without lying to clients. A server ACK must mean that the exact raw slice is durably readable and the tenant-bound slice ledger transaction has committed. Speech-to-text (STT) runs later from durable work and is safe to reclaim after crashes. No capture authority may live in `jobs.payload`, process memory, a browser-only counter, or another database.
++
++This issue is the mandatory server/database prerequisite for `d88d461a-c259-4dc6-a751-f2b3c6898b7a` (local meeting-capture durability). The live Forge dependency is corrected: `d88` is blocked by `ce3127`; `ce3127` has `d88` as a dependent.
++
++## Verified baseline
++
++At the exact base SHA:
++
++- Neon `neondb.public` is the sole supported database. `packages/db/src/schema.ts` plus `packages/db/src/meeting-schema.ts` are one Drizzle model, and `packages/db/migrations` is the only live migration root (`docs/architecture/schema-domain-ownership.md`).
++- The Drizzle journal ends at `0019_neon_authority_reconciliation`; migration parity passes. Meeting Authority PR A is Forge issue `2660c6a4-3e8d-4f4e-b3bb-eb61446c3c98`, currently blocked and not landed. Its latest plan evidence is docs-only; the exact landed authority SHA is **UNSET / must be verified from live `origin/main` at H1**. This plan therefore does **not** reserve a migration number.
++- `meetings` and `transcript_segments` still have nullable tenant/owner columns at this base (`packages/db/src/meeting-schema.ts:61-100`). Capture cannot invent a replacement identity mapping.
++- `audio_assets` stores a random object path and retention timestamp but has no capture session, sequence, digest, or ACK (`packages/db/src/meeting-schema.ts:262-272`).
++- `/meetings/{meeting_id}/transcribe` archives an optional raw chunk, synchronously calls STT, inserts transcript segments, then returns the client-supplied chunk index (`apps/meeting-api/backend/server.py:2886-3001`). It is not an ACK protocol.
++- Current R2 object keys contain a random UUID (`apps/meeting-api/backend/services/storage.py:42-45`), so a retry creates another object. Current job writes are completion records, not claimable work (`apps/meeting-api/backend/server.py:1686-1732`).
++- Existing tests are healthy after the declared Bun dependencies are installed: contracts 62 passed; SDK 8 passed; Meeting API 236 passed/1 skipped; DB lint, typecheck, and 34 tests passed; migration parity passed.
++
++## Success criteria
++
++1. One versioned contract defines capture-session identity, slice sequence/digest, raw acceptance states, STT work states, ACK/status/finalize behavior, retention/deletion behavior, and redacted error codes.
++2. Neon/Drizzle owns three normalized relations: capture sessions, capture slices, and durable slice-transcription work. `jobs.payload` is never authoritative and no second journal/database is introduced.
++3. Every session and child row is tenant-bound. The authenticated server derives tenant and actor; request bodies cannot choose either. Current meeting membership/access is rechecked through the exact landed authority primitive selected at Human Gate H1.
++4. `(tenant_id, capture_session_id, sequence)` is unique; sequence is non-negative and starts at zero. A retry with the same SHA-256 digest is idempotent. A retry at the same identity with a different digest fails closed without changing the accepted row or raw object.
++5. Raw storage uses a deterministic content-addressed key and conditional create. The persisted read handle contains provider/bucket/key/ETag (and checksum metadata), never a presigned URL. An ACK is returned only after the conditional raw write is durably readable and the final Neon transaction commits the accepted slice plus pending STT work.
++6. Slice acceptance has explicit `reserved`, `processing`, `acknowledged`, and `failed` recovery states. These states describe raw acceptance only; STT state is separate and cannot manufacture or revoke an ACK.
++7. The final ACK transaction row-locks the session, validates identity/digest/raw handle, acknowledges the slice, inserts the unique pending STT work row, advances the contiguous ACK watermark, and returns the committed digest/watermark. A process crash after commit but before response is recoverable by exact replay.
++8. Status returns the committed contiguous watermark and compact missing/non-acknowledged ranges. Gaps are derived from rows and the latched terminal sequence, not stored as a mutable JSON list.
++9. The first valid finalize request immutably latches `terminal_sequence` and intent. A different terminal sequence is always rejected. Finalization becomes terminal only when every sequence `0..terminal_sequence` is acknowledged; no later slice can be reserved above the latch.
++10. Every acknowledged slice has one durable STT work row. Workers claim bounded batches with leases; pending and expired-processing rows are reclaimable at startup. Duplicate delivery cannot duplicate transcript segments or completion.
++11. Consent, capture provenance, retention, and deletion data are immutable or monotonic. A retention/deletion worker cannot delete an object while STT holds a live lease. The unresolved product/legal policies at H2-H4 stop DEV rather than being guessed.
++12. Unit, catalog, concurrency, crash-point, security, and real-Neon tests prove the schema and transactions. Required real-Neon validation fails closed when credentials, nonzero execution, exact-head evidence, or cleanup is missing.
++13. After landing and verification on current `origin/main`, the issue publishes the exact landed SHA, migration tag/floor, contract version, and canonical adapter paths. `d88` may enter DEV only from that handoff.
++
++## Out of scope
++
++- Browser IndexedDB/outbox, recorder sequencing, retry UI, and local Blob deletion. Those remain in `d88`.
++- Synchronous STT in the ingest request, summarization, candidates, work items, meeting-memory materialization, or `meeting.capture.completed/v1` consumers.
++- Provider SDKs, RealtimeKit/Recall/LiveKit, diarization, audio enhancement, or desktop capture.
++- Production Neon access, migration application, credential/role rotation, deployment, push, PR, or merge during this PLAN.
++- Supabase/Alembic/raw Meeting migrations, another schema/journal, or a `jobs.payload` fallback.
++- Inventing consent wording, source-kind vocabulary, retention duration, deletion-on-terminal-STT-failure policy, or identity mappings.
++
++## Selected approach
++
++### Same-Neon transactional ledger plus content-addressed raw storage
++
++Use Neon as the transaction authority and R2/local storage only as the raw byte store behind a narrow immutable-handle adapter:
++
++```text
++authenticated request
++  -> authorize meeting and derive tenant/actor
++  -> reserve/claim the sequence row in Neon (not ACK), under session-row lock then slice-row lock
++  -> stream bytes through a bounded replayable spool while the server computes SHA-256 + byte length
++  -> compare (but never trust) the client digest
++  -> winning reservation_fence CAS latches server digest + length once, changing state out of reserved
++  -> derive tenant/session/sequence/digest storage key
++  -> conditional PUT deterministic object key; verify provider checksum/size/ETag
++  -> BEGIN Neon transaction
++       lock capture_session
++       lock slice after the session; recheck terminal/status and all reservation fences
++       mark slice acknowledged
++       insert unique pending STT work row
++       advance contiguous ACK watermark
++       call the same locked maybe_finalize invariant used by finalize
++     COMMIT
++  -> return ACK(session, sequence, digest, watermark)
++
++independent worker
++  -> claim pending/expired work with lease
++  -> open immutable raw stream from stored handle
++  -> transcribe
++  -> one transaction locks session -> slice -> work, checks the STT fence,
++     inserts idempotent slice-derived segments, and completes work
++```
++
++The raw write and Neon commit cannot be one distributed transaction. The design closes that gap with deterministic identity, conditional write, durable intermediate states, and replay:
++
++- stream failure before the latch releases the reservation back to `reserved`; raw write failure after the latch leaves a retryable `processing|failed` row with immutable digest/length and no ACK;
++- crash after raw write before Neon ACK transaction: retry HEADs the same key, validates digest/size, and completes the transaction;
++- crash after Neon commit before HTTP response: same-digest retry reads the committed ACK;
++- crash after ACK before any in-memory scheduling: pending work already exists in the ACK transaction and a startup sweep claims it.
++
++The selected database access model is DB-enforced: the Meeting runtime role has **no direct `INSERT`/`UPDATE`/`DELETE` grant on the capture ledger**. Narrow, `SECURITY DEFINER` transaction functions with a fixed `search_path` are the only runtime write boundary. The functions re-check the H1 meeting authority and tenant/actor context, and PostgreSQL triggers/checks enforce immutable fields, monotonic state/timestamps/watermarks, non-negative bounds, and fence advancement even when a caller bypasses repository code. Migration/admin roles own the functions and constraints; runtime roles cannot create functions, change ownership, `SET ROLE`, or grant themselves ledger access. Real-Neon probes must attempt direct table DML and forged function context as the runtime role and prove denial.
++
++All session operations use one lock order: `capture_sessions FOR UPDATE` first, then the matching `capture_slices FOR UPDATE`; reserve, ACK, and finalize re-check session status and a latched `terminal_sequence` after taking the session lock. The shared locked `maybe_finalize` invariant is called by both the ACK transaction and finalize, so no caller can finalize against a stale watermark or terminal decision.
++
++Every reclaimable side effect carries a monotonic fence: `reservation_fence` on a slice, `work_fence` on STT work, and `deletion_fence` on deletion claims. A claim increments its fence; raw acceptance, STT completion, and deletion/tombstone updates are compare-and-set operations that include the winning fence. A stale owner may report a retryable loss but cannot mutate bytes, ACK state, transcript segments, or tombstones.
++
++Cloudflare documents that successful R2 writes are synchronously durable and strongly read-after-write consistent. R2 is last-writer-wins for an ordinary repeated key, so the adapter must use `If-None-Match: *` conditional create and validate an existing object's stored checksum/size on replay. R2 bucket versioning/object lock is not assumed.
++
++The server, not the browser, is authoritative for bytes: it streams the request through a bounded replayable spool, computes SHA-256 and byte length, compares an optional client digest for mismatch detection, and latches those values with the winning reservation fence exactly once before deriving `capture/{tenant_id}/{capture_session_id}/{sequence}/{server_digest}`. The provider checksum and HEAD size must match the latched values before the handle is persisted. Retries stream/recompute first and compare to the latched digest/length; they never replace them. The adapter rejects handles whose provider/bucket/key scope does not match the tenant/session/sequence/digest, so no object can be shared across tenants.
++
++### Why not the alternatives
++
++1. **`jobs.payload` as the ledger:** rejected. It mixes unrelated job lifecycle with raw acceptance, has no session/sequence/digest constraints, and violates the issue boundary.
++2. **Synchronous transcribe-before-ACK:** rejected. Provider latency/failure controls durability, a post-storage crash loses scheduling intent, and duplicate delivery can duplicate transcript rows.
++3. **Object-store event as authority:** rejected. It creates a second control plane and cannot enforce tenant/session/finalize invariants transactionally with Neon.
++
++## Canonical data contract
++
++Names below are locked logical names. The migration tag is resolved only after rebasing at DEV.
++
++### `capture_sessions`
++
++| Field | Contract |
++| --- | --- |
++| `id uuid` | Opaque server-generated `capture_session_id`; primary key. |
++| `tenant_id text` | Required, server-derived tenant. Part of a unique `(tenant_id,id)` key for child FKs. |
++| `meeting_id text` | Required for the browser-capture lane. Same-tenant relationship must use the H1 authority primitive; no unverified cross-tenant FK or ID equality. |
++| `created_by_actor_id text` | Required server-derived internal actor/principal selected by H1. Never accepted from payload. |
++| `status` | `open`, `finalize_requested`, `finalized`, `deletion_requested`, `deleted`, `failed`; monotonic transitions only. |
++| `next_contiguous_ack_sequence bigint` | Nullable watermark (`NULL` means no sequence acknowledged; otherwise highest contiguous sequence from zero). Updated only while the session row is locked. |
++| `max_observed_sequence bigint` | Nullable high-water observation; monotonic, not proof of ACK. |
++| `finalize_mode` | `non_empty` or approved H4 `empty`; immutable once finalize intent is latched. |
++| `terminal_sequence bigint` | Nullable until first valid finalize; non-negative and immutable for `non_empty`; remains `NULL` for the explicit `empty` mode. |
++| `finalize_requested_at`, `finalized_at` | Server timestamps. `finalized_at` requires watermark = terminal sequence. |
++| `consent_actor_id`, `consent_recorded_at`, `consent_policy_version`, `consent_locale`, `consent_source_kinds` | Required immutable evidence. Exact source vocabulary and policy freshness come from H2. |
++| `source_kind`, `source_topology` | Immutable provenance validated by the shared contract; exact vocabulary comes from H2. |
++| `raw_retention_expires_at` | Immutable policy result for this session; nullable only if H3 explicitly approves indefinite retention. |
++| `deletion_requested_at`, `deleted_at` | Monotonic lifecycle evidence. No hard-delete of the ledger during the recovery/audit window. |
++| `created_at`, `updated_at` | Server timestamps; updates are limited to documented monotonic fields. |
++
++Constraints/indexes:
++
++- primary key `(id)` and unique `(tenant_id,id)`;
++- same-tenant meeting/actor relationships selected by H1;
++- checks for non-negative watermarks/terminal/max sequence, `finalize_mode`/terminal coherence, watermark not above terminal when latched, timestamp/state coherence, non-empty consent sources, and immutable-field triggers or repository guards backed by negative tests;
++- indexes for `(tenant_id,meeting_id,created_at)` and finalize/deletion sweep predicates.
++
++### `capture_slices`
++
++| Field | Contract |
++| --- | --- |
++| `id uuid` | Server-generated internal row identity. |
++| `tenant_id`, `capture_session_id` | Required composite FK to `capture_sessions(tenant_id,id)`. |
++| `sequence bigint` | Required, non-negative, zero-based monotonic client sequence. |
++| `digest_algorithm`, `content_digest` | Nullable only while `acceptance_state=reserved`; v1 is server-computed SHA-256 in canonical binary/hex form. The winning `reservation_fence` CAS latches it once before conditional PUT and it is immutable thereafter; a client digest is comparison metadata only. |
++| `byte_length bigint`, `mime_type`, `duration_ms bigint` | `byte_length` is nullable only while `acceptance_state=reserved`; the winning fence latches the server-computed non-negative length once and it is immutable thereafter. MIME/duration are validated metadata. |
++| `acceptance_state` | `reserved`, `processing`, `acknowledged`, `failed`. Only `acknowledged` is ACK-eligible. |
++| `reservation_owner`, `reservation_expires_at`, `reservation_fence`, `attempt_count` | Bounded recovery claim; each reclaim increments a unique monotonic fence and expired non-ACK work can be reclaimed. |
++| `storage_provider`, `storage_bucket`, `storage_key`, `storage_etag`, `storage_checksum` | Immutable raw read handle. No presigned/download URL is stored or returned as authority. |
++| `failure_code`, `retry_after` | Redacted machine code and retry schedule; never provider exception text or credentials. |
++| `acknowledged_at`, `created_at`, `updated_at` | Server timestamps. `acknowledged_at` is set only by the final ACK transaction. |
++| `deletion_state`, `deletion_claim_expires_at`, `deletion_fence`, `deleted_at` | Monotonic raw deletion lifecycle; each deletion claim increments a unique fence and exact terminal-failure eligibility comes from H3. |
++
++Constraints/indexes:
++
++- unique `(tenant_id,capture_session_id,sequence)`;
++- unique deterministic `storage_key` for non-null handles; the key is scoped as `tenant/session/sequence/server_digest`, so no cross-tenant object can be replayed;
++- same identity + same digest is replay; same identity + different digest is `CAPTURE_DIGEST_MISMATCH` and changes nothing;
++- `digest_algorithm`, `content_digest`, and `byte_length` may be NULL only in `reserved`; `processing`, `acknowledged`, and `failed` rows require all three latched values. A stream failure before latching returns to `reserved` rather than creating a digest-less `failed` row;
++- the winning `reservation_fence` CAS is the only transition that fills digest/length; retries compute bytes first and compare to the latched values, never replace them;
++- acknowledged rows require both latched digest/length plus a complete raw handle, provider checksum, and `acknowledged_at`; non-acknowledged rows cannot populate `acknowledged_at`;
++- no sequence above the session's latched terminal is accepted (transactional repository invariant);
++- claim indexes cover acceptance recovery and deletion sweeps; deletion claims exclude `deletion_requested|deletion_claimed` rows and are fenced by compare-and-set;
++- PostgreSQL triggers reject immutable-field changes, status regressions, timestamp/watermark decreases, fence reuse/decrease, and any direct ledger mutation not performed by the approved transaction function.
++
++### `capture_slice_transcription_work`
++
++| Field | Contract |
++| --- | --- |
++| `id uuid` | Work-row identity. |
++| `tenant_id`, `capture_slice_id` | Composite tenant-safe FK; unique per slice. |
++| `status` | `pending`, `processing`, `completed`, `retryable_failed`, `terminal_failed`. Independent of ACK. |
++| `available_at`, `lease_owner`, `lease_expires_at`, `claimed_at`, `work_fence` | Durable bounded claim fields; each STT reclaim increments a unique monotonic work fence. |
++| `attempt_count`, `last_error_code` | Monotonic attempt count and redacted code. |
++| `provider`, `model` | STT provenance selected server-side at processing time; not authority for ACK. |
++| `completed_at`, `created_at`, `updated_at` | Lifecycle timestamps with state-coherence checks. |
++
++Workers select only eligible `pending`/`retryable_failed` or expired `processing` rows in deterministic order with `FOR UPDATE SKIP LOCKED`, then set a lease and increment `work_fence` in the same transaction. PostgreSQL documents `SKIP LOCKED` as suitable for queue-like consumers, not general reads; all status/finalize reads use consistent ordinary queries and explicit session row locks.
++
++Transcript idempotency is relational, not an in-memory promise: `transcript_segments` receives `capture_slice_id` plus a stable provider/source segment ordinal or key, with a tenant-safe uniqueness constraint. Segment insertion and work completion commit together. Duplicate worker delivery returns the existing completed result.
++
++## State semantics
++
++### Slice ingest and replay
++
++1. Authorize the current actor/tenant/meeting and load the session by `(tenant_id,id)`.
++2. In one transaction, lock the session first, recheck status/terminal/consent and all server bounds, then lock or insert `(tenant,session,sequence)`; no path takes the slice lock first.
++3. For an existing acknowledged or latched row, stream/recompute the request bytes first; compare the server digest and length to the immutable latched values. A match returns the committed ACK without touching R2/STT; a mismatch is zero-mutation `CAPTURE_DIGEST_MISMATCH`.
++4. A concurrent first delivery that holds the same identity returns `CAPTURE_SLICE_IN_PROGRESS` with a bounded `Retry-After` (not a second raw write). A new/expired reservation increments `reservation_fence`; bytes are streamed before any digest/length is accepted.
++5. The winning reservation-fence CAS latches server-computed digest/length exactly once and transitions out of `reserved`. A client mismatch releases the reservation to `reserved`; it cannot populate or replace authoritative values.
++6. The route conditionally writes/read-verifies the key derived from the latched digest. A write failure leaves immutable digest/length in `processing|failed`; every retry streams bytes first and compares to those values before retrying the same key.
++7. The final transaction locks session then slice, revalidates latched digest/length, complete raw handle, reservation fence, and terminal latch, sets `acknowledged`, inserts the unique pending STT row, advances the watermark, calls locked `maybe_finalize`, and commits.
++8. Build the ACK only from committed values after commit. A DB exception, unknown commit outcome, or response serialization failure never manufactures a new ACK.
++
++### Watermark and gaps
++
++- Sequence zero is the first valid slice.
++- The watermark is `NULL` before sequence zero is acknowledged.
++- Each ACK transaction locks the session first, then slices in sequence order, and advances through consecutive acknowledged rows beginning at `watermark + 1`; concurrent out-of-order ACKs serialize on the session row.
++- Before finalize, status may report known non-acknowledged ranges through `max_observed_sequence`, clearly labeled as observed rather than terminal gaps.
++- After terminal latch, gaps are the compact ranges in `0..terminal_sequence` whose rows are missing or not acknowledged.
++- Gaps are computed under a consistent transaction and capped/paginated to prevent an attacker-supplied huge terminal sequence from causing unbounded work.
++
++### Finalize
++
++- Finalize requires an authenticated same-tenant session, a non-negative terminal sequence, and no known slice above that terminal. It locks the session first, then relevant slices, and rechecks the latch and status under that lock.
++- The first valid request atomically sets `terminal_sequence`, `finalize_requested_at`, and `status=finalize_requested`. It calls the same locked `maybe_finalize` invariant used by ACK; it may return `awaiting_gaps` with ranges.
++- Exact replay is idempotent. Any different terminal is `CAPTURE_TERMINAL_SEQUENCE_IMMUTABLE`.
++- New reservations above the latch fail. Existing reservations above the proposed latch make the first finalize request fail without latching.
++- When watermark equals terminal and every row is acknowledged, the shared locked `maybe_finalize` sets `finalized_at/status=finalized`. Empty-session finalization remains a human H4 choice and has an explicit encoding only after approval.
++- STT completion is not required for capture ACK finalization; it is required only for downstream transcript-complete semantics owned outside this issue.
++
++### Durable STT and startup recovery
++
++- The ACK transaction creates the pending work row; it never publishes only to an in-memory queue.
++- Startup and periodic sweeps claim pending, retryable-failed, and expired-processing rows in bounded batches, incrementing `work_fence` for each lease.
++- The worker obtains bytes only through `open_slice_stream(handle, expected_digest, expected_length)`. Missing, expired, checksum-mismatched, or unreadable objects move work to retryable/terminal failure according to the approved retry policy and never revoke ACK.
++- A duplicate worker or expired lease cannot commit a second transcript result. Completion CAS locks session -> slice -> work and checks the winning `work_fence` plus unique slice-segment keys.
++- RED crash cases include: after ACK before scheduling, process restart sweep, missing/expired object, duplicate worker delivery, and retention racing a live processing lease.
++
++## Consent, provenance, retention, and deletion
++
++- Consent is created with the session and immutable afterward. Ingest compares the session's approved policy/source topology; it does not trust repeated client claims.
++- Tenant, actor, meeting, and source provenance are server-derived or validated against the versioned contract. Logs contain opaque session/slice IDs, sequence, state, attempt count, and redacted codes only—never raw audio, transcript text, object URL, bucket credentials, token, email, or full provider exception.
++- Retention is computed once from the approved server policy and stored as an absolute timestamp. A later config change does not silently rewrite old evidence.
++- Deletion is an atomic fenced workflow. It locks the session (when session state is involved), then the slice, then the matching work row; claims increment `deletion_fence` and exclude `deletion_requested|deletion_claimed` rows. Raw deletion is allowed only when STT is `completed`, or `terminal_failed` under the explicit H3 approval; it is never allowed for `pending`, `retryable_failed`, or `processing`. The worker deletes the exact handle first, then performs a fence-matched tombstone CAS (`deleted_at`/`deletion_state`); a stale owner cannot mark deletion complete. A crash after object delete before ledger update is recovered by idempotent HEAD/not-found handling followed by the same fence-matched CAS.
++- The ledger/tombstone remains for the approved audit/recovery window after raw deletion. Whether terminal STT failure permits raw deletion and whether user deletion overrides retention are Human Gate H3 decisions.
++
++## Tenant and authorization boundary
++
++- Public request payloads never carry authoritative `tenant_id`, actor IDs, storage handles, ACK state, retention timestamps, leases, or worker status.
++- Session creation resolves authenticated provider subject to an internal user/actor and active tenant membership, then authorizes the meeting through the exact landed Meeting Authority primitive chosen at H1.
++- Every repository operation includes `(tenant_id,session_id)`; child FKs include tenant. Unknown, cross-tenant, stale membership, deleted meeting, and mismatched owner cases return one uniform denial/not-found envelope without revealing existence.
++- The Meeting runtime role receives no direct ledger DML; it can call only the narrow approved transaction functions and read the redacted status projection. Migration/admin roles remain separate, function `search_path` is fixed, and function ownership cannot be reassigned by runtime. PostgreSQL checks/triggers enforce immutable/monotonic transitions and fence CAS independently of Python. Negative real-Neon probes cover cross-tenant reads/writes, direct table DML, forged function context, DDL, role escalation, direct ACK forgery, reservation/work/deletion fence forgery, and lease forgery.
++
++## Idempotency matrix
++
++| Situation | Required result |
++| --- | --- |
++| Same session/sequence/digest after committed ACK | Return identical committed ACK and watermark; no new object/work. |
++| Same session/sequence, different digest | `CAPTURE_DIGEST_MISMATCH`; zero mutation. |
++| Concurrent identical first deliveries | One caller owns the reservation fence; a competing caller receives stable retryable `CAPTURE_SLICE_IN_PROGRESS` plus bounded `Retry-After`, then exact retry converges on one conditional object, one slice row, one work row, and one ACK. |
++| Raw object committed, DB transaction absent | Retry validates object and completes ACK transaction. |
++| DB commit outcome unknown | Re-read exact identity; return ACK only if committed row matches digest/handle. |
++| ACK committed, process crashes before scheduling | Startup sweep claims pre-existing pending work. |
++| Two STT workers claim/deliver | One winning `work_fence`/lease result; stale completion is a no-op and unique segment keys prevent duplicates. |
++| Finalize exact replay | Same terminal/status/gaps. |
++| Finalize with different terminal | Immutable-terminal error; no mutation. |
++| Delete races active STT lease | Fenced deletion claim locks slice/work and fails/defers for `pending`, `retryable_failed`, or `processing`; the object remains readable. |
++
++## Technical and security research
++
++- Neon supports real Postgres transactions; its serverless HTTP driver supports non-interactive multi-query transactions, while WebSocket/`pg` compatibility supports interactive transactions. Existing Meeting API uses a pooled PostgreSQL connection, so the repository should use one explicit connection/transaction for row locks and ACK commit. [Neon serverless driver](https://neon.com/docs/serverless/serverless-driver)
++- Neon pooling uses PgBouncer transaction mode. The design uses transaction-scoped row locks, not session-level advisory locks or session state. [Neon connection pooling](https://neon.com/docs/connect/connection-pooling)
++- Neon branches are appropriate for isolated migration and concurrency tests; the repository already has a required exact-head disposable-project/production-derived-branch DB contract lane. [Neon branching](https://neon.com/docs/guides/branching-intro)
++- PostgreSQL row locks last through transaction end and serialize competing updates to the session/slice rows. Serializable transactions require retry; the implementation may use explicit row locks under Read Committed for the narrow invariants, with deterministic retry for deadlock/serialization errors. [PostgreSQL transaction isolation](https://www.postgresql.org/docs/current/transaction-iso.html), [explicit locking](https://www.postgresql.org/docs/current/explicit-locking.html)
++- `FOR UPDATE SKIP LOCKED` is reserved for the work/deletion queues. It is intentionally not used for status or authorization reads because it returns an inconsistent view. [PostgreSQL SELECT](https://www.postgresql.org/docs/18/sql-select.html)
++- R2 successful writes are synchronously durable and strongly consistent, but ordinary same-key concurrent writes are last-writer-wins. R2 supports `If-None-Match` conditional `PutObject`; the adapter uses it with content-addressed keys. [R2 durability](https://developers.cloudflare.com/r2/reference/durability/), [R2 consistency](https://developers.cloudflare.com/r2/reference/consistency/), [R2 S3 compatibility](https://developers.cloudflare.com/r2/api/s3/api/)
++
++### OWASP review
++
++| Category | Risk | Required mitigation/test |
++| --- | --- | --- |
++| A01 Broken access control | Cross-tenant session/slice discovery or worker forgery. | Server-derived scope; tenant-composite keys/FKs; current-membership check; uniform denial; least-privilege role negatives. |
++| A02 Cryptographic failures | Digest treated as authenticity or secrets/raw URLs logged. | SHA-256 is content identity only; TLS/provider encryption remain required; no presigned URLs/secrets/content in DB logs or errors. |
++| A03 Injection | Dynamic status/range/worker SQL. | Parameterized SQL, fixed enum/state vocabulary, bounded numeric validation, no identifier interpolation. |
++| A04 Insecure design | ACK before durable object/transaction; deletion races processing. | Explicit transaction/state machines, leases, crash tests, fail-closed unknown outcome. |
++| A05 Misconfiguration | Owner role or production project used in tests. | Existing authority validator; disposable test project/root; runtime privilege negatives; required cleanup. |
++| A07 Auth failures | Stale/replayed actor or consent. | Revalidate current membership/meeting access; immutable policy-bound consent; no client scope fields. |
++| A08 Integrity failures | Same sequence overwritten with different bytes; duplicate transcript. | Conditional content-addressed write, digest mismatch rejection, unique relational output keys. |
++| A09 Logging failures | Missing recovery evidence or sensitive observability. | Structured opaque IDs/state/codes/attempts; no audio/transcript/URL/token; exact-head artifacts. |
++| A10 SSRF | Persisted arbitrary object URL opened by worker. | Store provider/bucket/key only; adapter builds endpoint from trusted config; reject URLs from payload/DB. |
++
++## Validation strategy
++
++### Static and local
++
++- contract tri-directional drift tests (JSON/JS/types) and invalid-state codecs;
++- Drizzle shape, enum, check, composite FK, index, journal/snapshot, catalog rollback, SQL firewall, trigger/function privilege, and migration parity tests;
++- Python repository transaction fakes plus PostgreSQL integration tests for identical/different server-digest races, watermark serialization, shared `maybe_finalize` CAS, lock-order deadlock prevention, reservation/work/deletion fence reclaim, output dedup, and deletion races;
++- storage adapter tests for bounded server streaming, authoritative SHA-256/length, client-digest comparison, tenant/session/sequence/digest keys, conditional create, HEAD replay, provider checksum/size mismatch, missing object, stream close, cross-tenant rejection, and redaction;
++- `bun run verify:db`, `bun run test:contracts`, focused Meeting API lint/tests, and source-test coupling.
++
++### Required real Neon
++
++Extend the existing exact-head DB Contract lane, not a new database authority:
++
++1. Rebase on current `origin/main`; resolve the next free migration after all prerequisites. Abort on collision.
++2. Create a distinct disposable test-only Neon project/root for repaired-bootstrap and a production-derived isolated branch for original-production; never touch the production root.
++3. Provision the existing required NOLOGIN roles, apply the exact declared suffix through the guarded migration runner, and verify zero-pending/no-op at the new floor. The Meeting runtime role must have no direct ledger DML and may call only the narrow approved transaction functions.
++4. Execute nonzero Meeting API integration tests from `apps/meeting-api/tests/backend` (including `routes/capture.py`, `repositories/capture_ledger.py`, `services/capture_storage.py`, and both capture workflows) for concurrent identical ingest, digest mismatch, out-of-order ACK/watermark, immutable finalize, expired work reclaim, duplicate STT completion, missing object, and retention-vs-processing. Run them under the exact checked-out SHA; unit-only substitutes do not satisfy this lane.
++5. Run positive runtime access and negative cross-tenant/DDL/role/direct-DML/forged-function-context/ACK-forgery/fence-forgery probes. Verify PostgreSQL immutable/monotonic trigger/function enforcement, not only Python behavior.
++6. Delete test resources in `finally` and verify deletion. Missing credentials, wrong project, zero/nonzero-missing Python integration assertions, skipped suite, cleanup failure, truncated evidence, or non-exact head is failure/incomplete, never PASS.
++
++## Rollout and rollback
++
++- Each PR is sequential, independently reversible, and capped at 300 hand-authored production lines. If a slice exceeds the cap, split before review; do not hide behavior in generated files.
++- Schema is additive. Application rollback leaves unused capture tables/columns in place; it never runs a down migration, edits Drizzle history, or deletes acknowledged raw objects.
++- Before any production migration, a human-approved release records exact main SHA, migration tag/hash/floor, project/branch/database, restore point/branch, row counts, role grants, and pending exact suffix. This PLAN does not perform it.
++- A pre-traffic failure permits an application-only revert. Once any capture session exists, rollback must remain ledger-compatible: never run a down migration, rewrite history, delete acknowledged objects, or restore over rows automatically. A Neon restore is a separate human data-loss decision from a verified restore point/branch.
++- After any session exists, the capability gate disables only **new session creation** until recovery closes; existing sessions, slice retries, status, finalize, STT recovery, and deletion continue through the approved recovery window. No rollback may strand a pending ACK/work row.
++
++## Mandatory human gates
++
++### H1 — identity/ordering prerequisite (human selection required)
++
++Current base has nullable meeting tenant/owner fields and no landed current-membership primitive. The exact prerequisite is Forge issue `2660c6a4-3e8d-4f4e-b3bb-eb61446c3c98` (Meeting Authority PR A). Its exact landed main SHA is **UNSET** in this draft and must be re-fetched from live `origin/main` before approval; the latest docs-only plan evidence (`a40d0853f81aa5df1235a790c4aad496bd96d96e`) is not an authority SHA.
++
++| Decision | Recommended exact choice (pending H1 approval) | Alternative and consequence | Status |
++| --- | --- | --- | --- |
++| Tenant/actor/meeting authority | Require issue `2660c6a4-3e8d-4f4e-b3bb-eb61446c3c98` to land and use its one SQL current-membership primitive with uniform denial; record the full landed SHA before rebase. | An approved internal primitive with the same durable tenant/principal mapping and negative conformance; any weaker/equality/provider fallback stops the feature. | **OPEN** |
++| Migration ordering | After that exact SHA is on `origin/main`, rebase and derive the next free suffix; `0020` is a live collision gate, never a reservation. | If the dependency chooses another suffix, amend this plan/task list and re-run parity before DEV. | **OPEN** |
++
++Do not implement implicit ID equality, fallback tenant, cross-database FK, or a duplicate membership resolver. Any new dependency or alternative must be live-graph verified and explicitly approved.
++
++### H2 — consent and source contract (human selection required)
++
++The following is a reviewable proposal, not a silently selected product/legal policy:
++
++| Decision | Recommended exact choice (pending H2 approval) | Alternative and consequence | Status |
++| --- | --- | --- | --- |
++| Consent policy/freshness | `consent_policy_version` is required and immutable; consent must be recorded in the same session-creation transaction and match the currently approved version (no carry-over consent). | Permit a bounded freshness window (for example, 24 hours) only with a named policy/version and replay test; stale or unknown versions fail closed. | **OPEN** |
++| Consent locale | Required BCP-47 `consent_locale` captured server-side. | Nullable locale requires legal/security approval and weakens audit/replay evidence. | **OPEN** |
++| Source-kind enum | Exactly `microphone`, `system_audio`, `remote_track`; unknown values reject. | Add a new value only in a versioned contract/migration; accepting free text defeats policy checks. | **OPEN** |
++| Source topology | Exactly `single_source` or `mixed_sources`; immutable for a session. | A richer topology requires a contract revision and migration; inferring it from bytes is not allowed. | **OPEN** |
++
++### H3 — retention and deletion policy (human selection required)
++
++| Decision | Recommended exact choice (pending H3 approval) | Alternative and consequence | Status |
++| --- | --- | --- | --- |
++| Retention `0` | Reject new durable capture before reservation/ACK; never interpret it as ACK-then-immediate-delete. | Allow immediate deletion only with a separately approved legal/audit contract, which would make ACK recovery/STT impossible and requires a different design. | **OPEN** |
++| Retention `-1` | Indefinite retention only when an explicit policy version/legal hold approves it; absent approval, reject new capture. | Treat `-1` as a bounded default; this risks deleting evidence earlier than promised and must be versioned. | **OPEN** |
++| Deletion precedence | Regulatory/legal hold > approved retention window > user deletion request; user deletion queues a fenced claim and cannot bypass a hold. | Let user deletion override retention only with a documented compliance decision and new negative tests. | **OPEN** |
++| Ledger tombstone | Retain ledger/tombstone for **30 days after raw deletion** (proposal) to cover recovery/audit; no hard-delete in that window. | A shorter/longer period changes audit and storage cost and must be encoded in the policy version. | **OPEN** |
++| Terminal STT failure | Raw deletion is **not eligible by default**; permit it only for `terminal_failed` after all retry budget is exhausted, no live lease exists, and an explicit H3 policy flag approves it. Never delete `pending`, `retryable_failed`, or `processing`. | Always retain terminal failures; safer recovery but higher storage/legal cost. | **OPEN** |
++
++### H4 — terminal edge cases and retry budgets (human selection required)
++
++| Decision | Recommended exact choice (pending H4 approval) | Alternative and consequence | Status |
++| --- | --- | --- | --- |
++| Sequence/slice/session bounds | Max terminal sequence `1,000,000`; max slice bytes `64 MiB`; max session bytes `4 GiB`; all server-enforced before storage. | Lower/higher limits change recorder compatibility/cost; any higher limit requires new load/concurrency evidence. | **OPEN** |
++| JSON integer encoding | Encode `bigint` sequence, watermark, bounds, and fences as decimal JSON strings; contract codecs reject unsafe JS numbers. | JSON numbers are simpler but lose precision above 2^53 and are rejected. | **OPEN** |
++| Lease durations | Reservation `2 minutes`; STT `5 minutes`; deletion `5 minutes`; all claims use monotonic fences. | Other durations require crash/reclaim timing evidence; zero/unbounded leases are invalid. | **OPEN** |
++| Retry budget | Five attempts per STT work row with bounded exponential backoff (1 second to 5 minutes); then `terminal_failed`. | More attempts delay terminal state; fewer attempts increase false terminal failures. | **OPEN** |
++| Gap response cap | At most `256` compact ranges per status/finalize response with a continuation cursor; terminal sequence remains bounded. | Larger/unbounded responses permit memory/DoS pressure; smaller caps increase round trips. | **OPEN** |
++| Empty-session finalization | Add immutable `finalize_mode=empty` with `terminal_sequence=NULL`, finalized by the shared `maybe_finalize`; do not invent a `-1` sentinel or fake zero-byte slice. | Use an explicit `-1` sentinel only if the contract relaxes the non-negative terminal invariant and all consumers are updated. | **OPEN** |
++
++### H5 — DEV and production gates
++
++After H1-H4 are recorded, a human must approve this T3 plan before DEV. A later separate production approval is required for migration/role/config changes. This PLAN grants neither.
++
++## Exact dependency handoff to `d88`
++
++After `ce3127` is merged and verified, its Forge exit comment must publish:
++
++- exact landed `origin/main` SHA and required green check names;
++- actual migration tag/hash and verified Drizzle floor on both recognized history variants;
++- contract version and exports from `packages/contracts/contracts/meeting-capture-ledger.json`, `packages/contracts/src/meeting-capture-ledger.js`, and `packages/contracts/src/index.d.ts`;
++- Drizzle exports `captureSessions`, `captureSlices`, and `captureSliceTranscriptionWork` from `packages/db/src/meeting-schema.ts`;
++- canonical Python adapters:
++  - `apps/meeting-api/backend/repositories/capture_ledger.py` for session/slice/status/finalize/work/deletion transactions;
++  - `apps/meeting-api/backend/services/capture_storage.py` for conditional put/head/open/delete by immutable handle;
++  - `apps/meeting-api/backend/workflows/capture_transcription.py` for durable claim/recovery/completion;
++  - `apps/meeting-api/backend/workflows/capture_retention.py` for deletion claims/recovery;
++  - `apps/meeting-api/backend/routes/capture.py` for the versioned authenticated create/ingest/status/finalize/delete HTTP adapter.
++- exact ACK response fields and error-code set proven by contract tests;
++- recovery-window/capability behavior: disabling new capture never disables ingest replay, status, finalize, STT recovery, or delete for existing sessions.
++
++The companion `handoff.md` manifest contains contract/migration/path data only and never stores its own future or current landed SHA. The Forge exit comment is the sole final-SHA authority; `d88` must re-read that exact SHA and import these paths. It owns SDK/browser IndexedDB/outbox/serialized flush/local Blob deletion and capture-completed projection; it must not duplicate or reinterpret the ledger, storage handle, ACK, worker, or retention state.
++
++## Ambiguity policy
++
++Use the `/dev` seven-dimension decision rubric. Proceed only at at least 80% confidence when the choice is conservative, reversible, covered by this plan, and does not change a human gate. Any identity, consent, retention, deletion, terminal, schema-order, or external-storage contract ambiguity stops and returns to the plan approver.
++
++## YAGNI audit
++
++Every planned task maps to a success criterion or named crash/security case. No task adds a generic queue framework, event bus, provider abstraction beyond the existing storage boundary, object-store authority, realtime STT, second migration root, or browser work. The STT claim/recovery slice is required because ACK commits before asynchronous processing; it is not optional scope expansion.
+diff --git a/docs/work/2026-08-10-capture-session-ack-ledger/tasks.md b/docs/work/2026-08-10-capture-session-ack-ledger/tasks.md
+new file mode 100644
+index 0000000..c570ca1
+--- /dev/null
++++ b/docs/work/2026-08-10-capture-session-ack-ledger/tasks.md
+@@ -0,0 +1,200 @@
++# Tasks: canonical capture-session and slice ACK ledger
++
++**Issue:** `ce3127d7-2ae0-4eff-aa37-1101762d0d0b`
++**Plan:** [`plan.md`](./plan.md)
++**Status:** PLAN draft; H1-H5 are open and DEV is not authorized.
++**Base at PLAN:** `origin/main@5a4ed8d8f52b7fe78044fac000602b9cd6552ee0`
++**Execution:** six sequential PRs; one implementer per task; RED-GREEN-REFACTOR plus spec and quality review per `/dev`.
++
++## Entry gate and hard execution rules
++
++- This recovered artifact authorizes no implementation, migration application, production Neon access, credential/role/config change, push, PR, merge, deployment, or Forge mutation during PLAN.
++- Each task is one sequential PR with **at most 300 changed production lines**, including authored Python/TypeScript/JavaScript/SQL and migration SQL. Generated output cannot hide the cap. Stop and split before implementation when the projected production diff reaches 300 lines; do not weaken tests or gates. Tests/docs are required but do not excuse production-line growth.
++- Before PR 1, re-fetch `origin/main`, rebase, prove the exact base/head, and establish a green untouched baseline. Re-run the migration-order gate after every rebase. No concurrent tasks share a file. `apps/meeting-api/backend/server.py` is an explicit sequential integration seam: Task 3 owns router registration first, then Task 4 owns startup/shutdown lifecycle edits; they never run concurrently.
++- H1-H4 must be explicitly selected and recorded from the decision-ready tables in `plan.md`; H5 is human DEV approval. An unresolved identity, consent, retention, deletion, terminal, bound, or migration-order choice stops DEV instead of receiving an invented default.
++- `0020` is a live collision gate, never a reserved number. After H1's exact prerequisite is landed and this worktree is rebased, derive the next free journal suffix. If `0020` is occupied, claimed by an unlanded prerequisite, or differs between journal and filesystem, stop and amend this list before authoring SQL.
++
++## Task 1 / PR 1 — Contract, schema, DB enforcement, and migration authority
++
++**Requirement anchors:** success criteria 1-3, 5-6, 8-11; H1-H4; OWASP A01, A03, A04, A05, A08, A10.
++**PR size budget:** at most 300 changed production lines; split before implementation if contract/schema/functions/migration cannot fit.
++**OWNS:**
++
++- `packages/contracts/contracts/meeting-capture-ledger.json`
++- `packages/contracts/src/meeting-capture-ledger.js`
++- `packages/contracts/src/index.js`
++- `packages/contracts/src/index.d.ts`
++- `packages/contracts/src/meeting-capture-ledger.test.ts`
++- `packages/db/src/meeting-schema.ts`
++- `packages/db/src/meeting-schema.test.ts`
++- `packages/db/migrations/<resolved-next-free>_capture_session_ack_ledger.sql` (resolved only after H1; never pre-create `0020`)
++- `packages/db/migrations/meta/<resolved-next-free>_snapshot.json`
++- `packages/db/migrations/meta/_journal.json`
++- `packages/db/test/capture-ledger-access.test.ts`
++- `scripts/check-capture-ledger-migration-order.mjs`
++- `test/check-capture-ledger-migration-order.test.js`
++
++**What to implement:** Freeze the JSON/JS/type contract for session identity, server digest/length, sequence, raw acceptance, STT work, ACK/status/finalize/delete, `CAPTURE_SLICE_IN_PROGRESS` + `Retry-After`, bounded ranges, bigint-as-decimal JSON, and redacted errors. Add `captureSessions`, `captureSlices`, and `captureSliceTranscriptionWork` with tenant-composite keys, `finalize_mode`, `reservation_fence`, `work_fence`, `deletion_fence`, state checks, and transcript-segment source uniqueness. `digest_algorithm`, `content_digest`, and authoritative `byte_length` are nullable only in `reserved`; a winning `reservation_fence` CAS latches server-computed values once before PUT, and `processing|failed|acknowledged` require them.
++
++Select the DB-enforced write boundary: revoke direct ledger `INSERT`/`UPDATE`/`DELETE` from the Meeting runtime role; expose only narrow `SECURITY DEFINER` transaction functions with fixed `search_path`; keep migration/admin ownership separate. PostgreSQL checks/triggers, not only Python, enforce immutable/monotonic fields, timestamps/watermarks, state transitions, fence increase, tenant scope, and `maybe_finalize` coherence. Runtime cannot create functions, change owner, `SET ROLE`, grant itself DML, forge actor/tenant context, or bypass a fence.
++
++The migration-order checker must verify H1 issue `2660c6a4-3e8d-4f4e-b3bb-eb61446c3c98`'s exact landed SHA from live main, derive the next suffix, and fail closed on a `0020` collision/mixed history. Only then may the additive migration/snapshot be generated. Never edit prior migrations/journal manually, add a second root, or emit DML/down/data-copy SQL.
++
++**TDD steps:**
++
++1. **RED:** Add contract parity/codec tests for server-authoritative digest, nullable-only-in-`reserved` fields, one-time reservation-fence latch, immutable values after latching, fences, state/ACK/finalize shapes, JSON bigint, and redacted errors. Add Drizzle/catalog tests for composite tenant FKs, uniqueness, `finalize_mode`, immutable/monotonic triggers, function grants, and runtime direct-DML/forged-context denial. Add free-next/occupied-`0020`/journal-drift fixtures. Run `bun test packages/contracts/src/meeting-capture-ledger.test.ts packages/db/src/meeting-schema.test.ts packages/db/test/capture-ledger-access.test.ts test/check-capture-ledger-migration-order.test.js`; confirm expected missing-export/collision failures.
++2. **GREEN:** Implement the contract, schema, narrow functions/triggers, checker, and only the suffix selected after H1/rebase. Do not grant the application role table DML.
++3. **REFACTOR:** Run contract tests, `bun run --cwd packages/db lint`, `bun run --cwd packages/db typecheck`, migration parity, catalog rollback, SQL firewall, and no-change generation. Prove runtime-role direct DML and forged function context fail in a disposable fixture and that an occupied `0020` fails before SQL is authored.
++4. **Commit:** `feat(db): add capture ledger contract and enforced schema`.
++
++**Expected output:** One versioned contract and three DB relations exist at the actual next free suffix; PostgreSQL itself rejects immutable/monotonic/fence violations; runtime direct ledger DML and `0020` collision are fail-closed.
++
++## Task 2 / PR 2 — Canonical repositories and locked ACK/finalize transactions
++
++**Requirement anchors:** success criteria 2-4, 6-9, 11; H1-H4; crash/idempotency matrix; OWASP A01, A04, A07, A08.
++**PR size budget:** at most 300 changed production lines.
++**OWNS:**
++
++- `apps/meeting-api/backend/repositories/capture_ledger.py`
++- `apps/meeting-api/backend/repositories/__init__.py`
++- `apps/meeting-api/tests/backend/repositories/test_capture_ledger.py`
++
++**What to implement:** Make this the only Python repository boundary for session creation, reserve/reclaim, server-digest/length latch, status/gaps, ACK, finalize, and deletion claim requests. The repository calls the narrow DB transaction functions; it must not issue direct ledger DML. It derives tenant/actor from authenticated context, rechecks the exact H1 meeting-access primitive, and returns one uniform denial/not-found envelope for foreign/stale/deleted scope.
++
++All reserve, latch, ACK, and finalize paths lock `capture_sessions` first and the matching `capture_slices` second, never in reverse; each rechecks status, consent, bounds, and latched terminal under the session lock. ACK and finalize call the same locked `maybe_finalize` invariant. A reservation starts with nullable digest/length, and only the winning `reservation_fence` CAS may fill them; once latched they are immutable. Retries stream/recompute first and compare to those values. Same server identity/digest replays the committed ACK; a different digest/length is zero-mutation `CAPTURE_DIGEST_MISMATCH`. A concurrent first delivery returns stable retryable `CAPTURE_SLICE_IN_PROGRESS` plus bounded `Retry-After`, not a second object. Reservation claims increment and CAS `reservation_fence`; ACK inserts one pending work row, advances the contiguous watermark, and returns only post-COMMIT values. Gaps are derived/capped, not mutable JSON.
++
++**TDD steps:**
++
++1. **RED:** Add tests for tenant/actor derivation and denial, lock-order traces, nullable-only-in-`reserved` state checks, one-time digest/length latch CAS, retries comparing (never replacing) latched values, server digest mismatch, identical/different replay, concurrent first delivery and `Retry-After`, out-of-order watermark, terminal latch/replay/mismatch, reservations above latch, shared `maybe_finalize`, ACK rollback, unknown-commit exact re-read, and reservation-fence stale-owner no-op. Run `pytest -q apps/meeting-api/tests/backend/repositories/test_capture_ledger.py`; confirm missing repository/functions and expected stable-code failures.
++2. **GREEN:** Implement the repository against PR 1 functions using one explicit pooled transaction and no `jobs.payload` authority.
++3. **REFACTOR:** Run focused Python tests, Meeting API lint/type checks, source-test coupling, and deadlock/serialization retry fixtures. Prove no ACK is constructed before COMMIT and no stale fence can mutate a row.
++4. **Commit:** `feat(meeting): add canonical capture ledger transactions`.
++
++**Expected output:** Tenant-safe repositories prove one lock order, one shared finalize invariant, idempotent ACK/replay, bounded in-progress retry, and fenced rollback-safe transactions.
++
++## Task 3 / PR 3 — Server-authoritative raw storage and authenticated capture routes
++
++**Requirement anchors:** success criteria 1, 4-8; OWASP A02, A04, A08, A09, A10.
++**PR size budget:** at most 300 changed production lines.
++**OWNS:**
++
++- `apps/meeting-api/backend/services/capture_storage.py`
++- `apps/meeting-api/backend/routes/capture.py`
++- `apps/meeting-api/backend/server.py` (sequential router registration only; Task 4 owns later lifecycle edits)
++- `apps/meeting-api/tests/backend/services/test_capture_storage.py`
++- `apps/meeting-api/tests/backend/routes/test_capture.py`
++- `apps/meeting-api/tests/backend/test_capture_router_registration.py`
++
++**What to implement:** Stream request bytes through a bounded replayable spool while the server computes authoritative SHA-256 and byte length. Treat a client digest as comparison metadata only; mismatch fails without mutation. Derive a deterministic key scoped to `tenant/session/sequence/server_digest`, use conditional create, and verify provider checksum, ETag, and size on PUT/HEAD/replay. Persist only provider/bucket/key/ETag/checksum; reject arbitrary URLs, foreign tenant/session scope, and presigned URLs.
++
++Wire versioned authenticated create/ingest/status/finalize/delete routes and register the router sequentially in `server.py` (no startup/shutdown changes in this PR). Reserve through PR 2, stream/recompute bytes, latch server digest/length with the winning fence, write/read-verify the immutable object, then invoke the final ACK transaction. ACK means durable-read verification plus Neon COMMIT. Unknown commit/response outcomes re-read exact server identity and converge; no second object/work row and no client-supplied sequence/digest/tenant/actor becomes authority. Existing generic storage and object events remain out of scope.
++
++**TDD steps:**
++
++1. **RED:** Add tests for bounded streaming, authoritative digest/length, nullable-only-in-`reserved` latch, client mismatch, tenant/session/sequence/digest key scope, conditional-create races, HEAD replay, provider checksum/size/ETag mismatch, missing object, stream close, SSRF/URL rejection, no ACK before COMMIT, unknown-commit re-read, cross-tenant denial, and sequential router registration. Run `pytest -q apps/meeting-api/tests/backend/services/test_capture_storage.py apps/meeting-api/tests/backend/routes/test_capture.py apps/meeting-api/tests/backend/test_capture_router_registration.py`; confirm missing adapter/routes and stable-code failures.
++2. **GREEN:** Implement `capture_storage.py` and `routes/capture.py` against the repository/function contracts; never log bytes, URLs, credentials, or provider exception text.
++3. **REFACTOR:** Run focused tests, Meeting API lint/type checks, redaction/source scans, and crash-point fakes for raw-write-before-ACK and commit-before-response.
++4. **Commit:** `feat(meeting): add server-authoritative capture storage and routes`.
++
++**Expected output:** The server owns digest/length and a tenant-scoped immutable handle; retries converge on one raw object and ACK; raw URLs and client scope claims never become authority.
++
++## Task 4 / PR 4 — Durable STT claims, fencing, startup recovery, and deletion
++
++**Requirement anchors:** success criteria 7, 10-11; H3-H4; crash cases; OWASP A04, A08, A09.
++**PR size budget:** at most 300 changed production lines.
++**OWNS:**
++
++- `apps/meeting-api/backend/workflows/capture_transcription.py`
++- `apps/meeting-api/backend/workflows/capture_retention.py`
++- `apps/meeting-api/backend/server.py` (sequential startup/shutdown/recovery lifecycle edit after Task 3)
++- `apps/meeting-api/backend/config.py` or the verified settings seam (only if startup/recovery configuration is proven necessary; no speculative config edit)
++- `apps/meeting-api/tests/backend/workflows/test_capture_transcription.py`
++- `apps/meeting-api/tests/backend/workflows/test_capture_retention.py`
++- `apps/meeting-api/tests/backend/test_capture_runtime_lifecycle.py`
++
++**What to implement:** Treat the ACK-created work row as the only scheduling authority. Add the verified startup/shutdown lifecycle seam in `server.py` (and only the settings/config path proven necessary) after Task 3's router registration: startup performs a bounded recovery sweep before accepting work, shutdown stops new claims and lets current fenced work finish or expire, and restart reclaims pending/expired rows. Startup/shutdown must be idempotent and must not change route registration. Sweeps claim bounded `pending`, `retryable_failed`, or expired `processing` rows with `FOR UPDATE SKIP LOCKED`, increment `work_fence`, and lease deterministically. Completion locks session -> slice -> work, checks the winning fence, opens bytes only through the immutable handle, inserts unique slice/ordinal transcript segments, and CAS-completes work. Duplicate/expired workers cannot duplicate output or revoke ACK.
++
++Deletion is atomic and fenced: lock session (when session state is involved), then slice, then work; claims increment `deletion_fence` and exclude deletion-requested/claimed rows. Raw deletion is eligible only for STT `completed`, or `terminal_failed` after exhausted retries and an explicit H3 policy flag; it is never allowed for `pending`, `retryable_failed`, or `processing`. Delete the exact object first, then fence-matched tombstone CAS; stale owners and delete crashes cannot mark a false tombstone. H3/H4 values are inputs, not guessed defaults.
++
++**TDD steps:**
++
++1. **RED:** Add tests for ACK-before-scheduling restart, idempotent startup sweep, shutdown claim fencing, pending/expired claims, work-fence reclaim, duplicate delivery, provider failure/backoff/terminal, missing/checksum-bad object, unique segment completion, deletion claim exclusion, live-lease deferral, forbidden pending/retryable/processing deletion, delete-then-CAS crash recovery, stale deletion-fence no-op, and runtime lifecycle/config behavior. Run `pytest -q apps/meeting-api/tests/backend/workflows/test_capture_transcription.py apps/meeting-api/tests/backend/workflows/test_capture_retention.py apps/meeting-api/tests/backend/test_capture_runtime_lifecycle.py`; confirm missing workflows/lifecycle and expected failures.
++2. **GREEN:** Implement durable claim/recovery/completion and retention workflows using only PR 2/3 contracts; no in-memory-only scheduling.
++3. **REFACTOR:** Run focused tests, Meeting API lint/type checks, and process-restart/duplicate/lease-race injections. Prove logs contain only opaque IDs, states, attempts, fences, and redacted codes.
++4. **Commit:** `feat(meeting): add fenced transcription recovery and retention`.
++
++**Expected output:** Every ACK has recoverable durable work; STT and deletion claims are fenced, lock-ordered, and idempotent; raw bytes cannot be deleted while forbidden work is pending or active.
++
++## Task 5 / PR 5 — Exact-head real-Neon Meeting API concurrency, rollback, and security
++
++**Requirement anchors:** success criteria 3, 4, 7, 10-12; required real-Neon strategy; OWASP A01-A10 as applicable.
++**PR size budget:** at most 300 changed production-executed lines; test/harness changes count when they execute in CI.
++**OWNS:**
++
++- `apps/meeting-api/tests/backend/test_capture_ledger_neon.py`
++- `apps/meeting-api/tests/backend/test_capture_ledger_security.py`
++- `apps/platform-api/test/db-contract/capture-ledger.test.ts`
++- `apps/platform-api/test/db-contract/capture-ledger-harness.ts`
++- `apps/platform-api/test/db-contract/capture-ledger-security.test.ts`
++- `apps/platform-api/vitest.db-contract.config.ts`
++- `.github/workflows/db-contract.yml`
++- `test/capture-ledger-db-contract-tooling.test.js`
++
++**What to implement:** Extend the existing exact-head DB Contract lane; do not introduce a second authority. The required lane must run the relevant Meeting API Python integration tests (`apps/meeting-api/tests/backend/test_capture_ledger_neon.py` and `test_capture_ledger_security.py`, plus the route/repository/storage/workflow tests where selected) with nonzero collected/executed assertions under the exact checked-out SHA. Cover concurrent identical ingest/in-progress retry, server digest mismatch, out-of-order ACK/watermark, immutable finalize/shared `maybe_finalize`, expired work reclaim, duplicate STT completion, missing object, retention-vs-processing, deletion fences, and pre/post-commit crash points.
++
++Create a distinct disposable test-only Neon project/root for repaired-bootstrap and a production-derived isolated branch for original-production; prove project/root/branch identity, provision NOLOGIN roles first, apply the exact suffix, and clean every resource in `finally` with deletion/404 proof. Runtime-role probes must prove no direct ledger DML, no forged transaction-function context, no DDL/role escalation, no cross-tenant reads/writes, no ACK/lease/fence forgery, and PostgreSQL trigger/function enforcement. Missing credentials, wrong target, zero/filtered/skipped/nonzero-missing Python assertions, incomplete rollback, non-exact head, leaked secrets, truncated evidence, or failed cleanup is failure/`INCOMPLETE`, never PASS. Production root/migration/role changes remain a later human gate.
++
++**TDD steps:**
++
++1. **RED:** Add fixtures for wrong project/root, nonempty disposable root, missing NOLOGIN authority, missing/zero/skipped/nonzero-missing Python assertions, wrong SHA, rollback leakage, direct DML/function forgery, privilege escalation, and cleanup failure. Run `bun run --cwd apps/platform-api test test/db-contract/capture-ledger.test.ts test/db-contract/capture-ledger-security.test.ts test/capture-ledger-db-contract-tooling.test.js`; confirm fail-closed evidence errors.
++2. **GREEN:** Implement the test-only harness/workflow wiring and Meeting API real-Neon integration lane with exact-head metadata and zero-skip reporting.
++3. **REFACTOR:** Run platform lint/type/unit tests and the approved required real-Neon command. Verify both history variants, transaction rollback with an observer, lock/fence races, runtime privilege negatives, Python nonzero integration counts, and resource deletion/404 proof without secret-bearing output.
++4. **Commit:** `test(db-contract): prove capture ledger on isolated Neon`.
++
++**Expected output:** A reconstructable exact-head artifact proves real Postgres concurrency/rollback/security and Meeting API behavior; incomplete or zero evidence cannot pass.
++
++## Task 6 / PR 6 — Publish the exact landed-SHA handoff to `d88`
++
++**Requirement anchors:** success criterion 13; exact dependency handoff; H5 and post-merge verification.
++**PR size budget:** at most 300 changed production lines; this PR contains no production implementation.
++**OWNS:**
++
++- `scripts/check-capture-ledger-handoff.mjs`
++- `test/capture-ledger-handoff.test.js`
++- `docs/work/2026-08-10-capture-session-ack-ledger/handoff.md`
++- Post-merge Forge exit evidence for issue `ce3127d7-2ae0-4eff-aa37-1101762d0d0b` (evidence only; no mutation during PLAN)
++
++**What to implement:** Keep `handoff.md` as a SHA-free contract/migration/path manifest; it must never contain a placeholder or future self-referential landed SHA. The checker/template accepts the exact full SHA as external post-merge evidence. After PRs 1-5 land and verify on current `origin/main`, the post-merge Forge exit comment (not `handoff.md`) publishes the final full landed SHA, green check names, actual migration tag/hash/floor for both recognized histories, contract version/exports, exact ACK/error codes including `CAPTURE_SLICE_IN_PROGRESS`, server-digest/length and JSON-bigint rules, lock/fence/deletion invariants, and these canonical adapters:
++
++- `apps/meeting-api/backend/repositories/capture_ledger.py`
++- `apps/meeting-api/backend/services/capture_storage.py`
++- `apps/meeting-api/backend/workflows/capture_transcription.py`
++- `apps/meeting-api/backend/workflows/capture_retention.py`
++- `apps/meeting-api/backend/routes/capture.py`
++
++Record recovery-window/capability rollback: pre-traffic app-only revert is allowed; after any session exists, disable only new creation while replay/status/finalize/STT recovery/deletion remain ledger-compatible. The checker rejects a branch/stale/inferred SHA supplied as external evidence, a SHA written into `handoff.md`, missing migration floor, missing exports/error codes, or missing exact-head/cleanup evidence. The Forge exit comment is the sole final-SHA authority; `d88` must re-read it before DEV and owns browser/SDK IndexedDB/outbox/local Blob behavior only. It must not duplicate ledger/storage/ACK/work/retention authority.
++
++**TDD steps:**
++
++1. **RED:** Add fixtures with stale/short/inferred external SHAs, any SHA embedded in `handoff.md`, missing migration floor/contract exports/adapter paths/error codes, absent cleanup evidence, and rollback-capability violations. Run `bun test test/capture-ledger-handoff.test.js`; confirm fail-closed because no landed evidence exists during PLAN.
++2. **GREEN:** Generate the SHA-free manifest from verified contract/migration/path evidence. At post-merge, pass the exact full SHA separately to the checker and publish it only in the Forge exit comment; never infer values from this draft or a local branch.
++3. **REFACTOR:** Re-read `origin/main` at the external full SHA, rerun handoff/export/contract checks, and prove `d88` points to the Forge-comment SHA rather than a branch or manifest field. Stop at the next human checkpoint; do not push, merge, deploy, or enter `d88` DEV from this task alone.
++4. **Commit:** `docs(capture): publish landed ACK ledger handoff`.
++
++**Expected output:** `d88` receives a SHA-free immutable contract/migration/path manifest plus one exact full SHA in the post-merge Forge exit comment, with canonical paths, contract/ACK semantics, migration floor, and recovery-compatible rollback; stale or guessed evidence fails.
++
++## Mandatory human gates (must remain open in this recovered PLAN)
++
++- **H1 identity/order:** Require Meeting Authority issue `2660c6a4-3e8d-4f4e-b3bb-eb61446c3c98` and record its exact landed SHA from live main before deriving the next free suffix. No ID equality/fallback tenant/duplicate resolver.
++- **H2 consent/source:** Human selects policy version/freshness, required BCP-47 locale, exact source-kind enum, and source-topology enum from the decision table in `plan.md`; unknown/stale values fail closed.
++- **H3 retention/deletion:** Human selects retention `0`/`-1`, legal-hold/user-deletion precedence, tombstone duration, and terminal-failure raw-delete eligibility. Raw deletion remains forbidden for pending/retryable/processing regardless of implementation convenience.
++- **H4 terminal/bounds:** Human selects sequence/byte/session limits, JSON bigint encoding, reservation/STT/deletion leases, retry/terminal budgets, gap cap, and explicit empty-session encoding. The recommended values in `plan.md` are proposals, not approvals.
++- **H5 DEV/production:** Human approves this T3 plan after H1-H4. A separate later human gate is required for any production migration, role, credential, config, deployment, restore, push, PR, or merge.
++
++## Final validation and stage exit
++
++For every PR, re-prove the Forge lease, exact base/head, production-line cap, focused RED-GREEN-REFACTOR/spec/quality evidence, and repository validation. Treat timeout, skipped/zero tests, missing live credentials, nonzero-missing Meeting API integration assertions, incomplete rollback, non-exact SHA, or cleanup failure as `INCOMPLETE`. Record `summary`, `decisions`, `artifacts`, and `next` only at the authorized stage transition. Do not begin `d88` DEV until Task 6 is verified from the exact landed SHA.
++
++## YAGNI audit
++
++Every task maps to a success criterion, named crash/security case, human gate, migration collision, or exact dependency handoff in `plan.md`. No task adds a generic queue/event bus, second migration journal/database, object-store authority, provider abstraction beyond the narrow storage boundary, synchronous STT, browser outbox, raw audio/transcript logging, automatic production migration, or unapproved consent/retention/identity policy.
+-- 
+2.51.0.windows.1
+

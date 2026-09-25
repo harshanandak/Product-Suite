@@ -1,0 +1,838 @@
+From 711897a01db68e858b88fb86de90f30b46ba806e Mon Sep 17 00:00:00 2001
+From: Harsha Nanda <harshanandak@users.noreply.github.com>
+Date: Sat, 8 Aug 2026 17:55:14 +0530
+Subject: [PATCH] docs: reshape meeting authority delivery train
+
+---
+ .../plan.md                                   | 159 ++++-
+ .../tasks.md                                  | 556 +++++++++---------
+ 2 files changed, 423 insertions(+), 292 deletions(-)
+
+diff --git a/docs/work/2026-08-08-caller-scoped-memory-authority/plan.md b/docs/work/2026-08-08-caller-scoped-memory-authority/plan.md
+index 5e4e75a..d5fd03f 100644
+--- a/docs/work/2026-08-08-caller-scoped-memory-authority/plan.md
++++ b/docs/work/2026-08-08-caller-scoped-memory-authority/plan.md
+@@ -48,6 +48,20 @@ conversation, membership, event, run, and attribution contracts already on
+    action requiring conversation-admin authority and an audit event.
+ 9. Tests prove positive, negative, cross-tenant, revocation, missing-origin,
+    indirect-laundering, and provider-spoofing cases against real query paths.
++10. Automatic extraction creates meeting-owned action-item records only. A
++    Product-Suite task/work item is created only after an authorized user
++    explicitly approves that action item's promotion.
++11. An approved task retains source meeting/action-item/conversation provenance
++    and any supported suggested owner, date, parent, and dependency values.
++    Unknown, ambiguous, or unresolved suggestions remain unset rather than
++    being fabricated or silently defaulted.
++12. Post-meeting candidates use compact progressive-disclosure cards: plain
++    title, one-line reason/source, recommended next step, and `Add`, `Adjust`,
++    `Dismiss`. No task/work item exists until the user selects `Add`.
++13. `Adjust` is an inline conversation with the agent, offers at most three
++    natural-language choices, and returns a versioned revised candidate for
++    approval. Structured fields stay underneath and appear only when relevant
++    or requested.
+ 
+ ## Non-goals
+ 
+@@ -64,6 +78,13 @@ conversation, membership, event, run, and attribution contracts already on
+   generic policy language.
+ - UI redesign, notification workflows, retention/redaction policy, or a
+   provider connector.
++- Automatic creation of Product-Suite tasks/work items from a transcript,
++  extractor, model, background job, meeting finalizer, or provider event.
++- Inferring an assignee, due date, parent, or dependency when the extracted
++  suggestion is absent, ambiguous, stale, cross-tenant, or cannot be resolved
++  to an authorized Product-Suite entity.
++- Turning candidate review into an up-front structured field form or exposing
++  internal provenance/assignment fields by default.
+ - Making `team` or `public` meeting visibility a tenant-wide grant. Those legacy
+   values are compatibility metadata until an explicit migration decision is
+   made.
+@@ -89,8 +110,11 @@ conversation, membership, event, run, and attribution contracts already on
+   chain, and list functions are tenant-scoped and do not receive the caller.
+ - Knowledge retrieval is tenant/scope-scoped and hard-pins memory results to
+   `org`; `search_knowledge` does not receive the asking user.
+-- Meeting ingest creates tenant-wide proposals and copies meeting action text
+-  into proposal rationale without carrying the source ACL.
++- Meeting ingest currently turns promoted action items into tenant-wide
++  proposals and copies meeting action text into proposal rationale without
++  carrying the source ACL. The product boundary between an automatically
++  extracted meeting action item and a user-approved Product-Suite task is not
++  explicit enough.
+ - Memories and knowledge chunks record source references but not a mandatory
+   authorization origin. Proposal rows also lack an access origin.
+ - Revocation cannot consistently remove already-derived content because the
+@@ -131,6 +155,8 @@ meeting derivative that can escape the meeting aggregate:
+ | Memory | `visibility = 'conversation'` plus `access_conversation_id` |
+ | Knowledge chunk | nullable `access_conversation_id`; mandatory for meeting sources |
+ | Proposal | nullable `access_conversation_id`; mandatory for meeting ingest |
++| Candidate revision | source action item, prior version, access conversation, suggestions |
++| Promoted task/work item | source meeting/action item/proposal plus `access_conversation_id` |
+ | Run/tool evidence | source IDs and decision outcome only; no denied content |
+ 
+ Database checks enforce compatible combinations. New meeting-derived writes
+@@ -178,11 +204,64 @@ returned by default. Every returned source is attributed to the run with its
+ meeting/conversation origin and an allowed decision. A denied candidate is not
+ made visible to the model, including through counts or error wording.
+ 
+-### 5. Derivative propagation and declassification
++### 5. Meeting action items and explicit task promotion
++
++An automatically extracted action item is a meeting-owned record. Extraction,
++meeting finalization, agent runs, providers, and background jobs may create or
++update that meeting record, but must never directly create a Product-Suite task
++or work item.
++
++An authorized meeting member may explicitly promote an action item. Promotion
++uses the existing proposal/apply boundary as a user-visible approval step:
++
++1. The proposal remains conversation-scoped and references the source meeting,
++   source action item, and access conversation.
++2. The approval command is initiated by the authenticated user; the proposal,
++   model, provider, or extractor cannot set `approvedBy` or bypass confirmation.
++3. The created task/work item records immutable links to the source meeting,
++   action item, proposal, and access conversation.
++4. Supported suggested owner, due/start date, parent, and dependencies are
++   carried forward with their source evidence. A suggestion becomes a canonical
++   assignment/reference only when it resolves to an existing same-tenant entity
++   and the approving user confirms it.
++5. Missing or uncertain values remain `null`/unassigned. Do not substitute the
++   approver, current date, root project, or an empty dependency set as if those
++   were extracted facts. Unresolved suggestions may remain visible as scoped
++   proposal metadata for user correction, but are not written into canonical
++   task fields.
++
++The post-meeting surface is a compact candidate card, not a field form. Its
++default state shows only a plain-language title, one-line reason/source, and the
++recommended next step. The actions are:
++
++- **Add:** explicit approval of the currently displayed candidate version. It
++  creates exactly one task/work item using only confirmed, resolvable values.
++- **Adjust:** opens an inline comment/conversation with the agent. The agent may
++  offer at most two or three natural-language choices: `simple task`, `planned
++  work item`, or `keep as meeting follow-up`. It returns a new immutable/versioned
++  candidate for approval; it does not mutate prior versions or create work.
++- **Dismiss:** records the user's decision and creates no task/work item.
++
++Owner/date/parent/dependencies and provenance remain available underneath the
++card through progressive disclosure, and appear by default only when a value is
++material to the recommendation, unresolved, or explicitly requested. Adjust
++cannot fabricate a structured value; uncertainty remains visible and unset.
++The adjustment comment and agent response use the existing product-owned
++collaboration/run protocol, reference the candidate version, and execute inside
++the meeting access conversation. They do not create a new identity or chat
++authority.
++
++Normal task creation preserves the meeting conversation scope and remains
++available only to authorized members unless the user takes the separate
++declassification action below.
++
++### 6. Derivative propagation and declassification
+ 
+ Meeting proposal ingest reads only meetings visible to the initiating caller
+-and stamps the source access conversation on the proposal. Proposal list,
+-detail, accept, reject, and audit paths repeat the current-membership check.
++and stamps the source action item and access conversation on the proposal.
++Proposal list, detail, approve, reject, and audit paths repeat the
++current-membership check. Merely extracting or promoting a meeting action item
++to a proposal is not approval to create a Product-Suite task.
+ 
+ Accepting a conversation-scoped proposal must preserve the source scope on the
+ created work item or remain unavailable outside the source conversation. A
+@@ -196,10 +275,42 @@ tenant-wide destination is a distinct `publish_to_org` operation that requires:
+ No background job, model, provider, or proposal payload may infer or request
+ declassification.
+ 
++## Delivery as a medium-PR train
++
++The security boundary is one design, delivered as three independently
++reviewable medium PRs. Each PR must merge before the next begins so no parallel
++branch independently edits the shared schema, authorization, or tool files.
++
++### PR A - Authority foundation
++
++Lock the cross-domain contract, add the additive schema/backfill, and implement
++the server-derived current-membership primitive. This PR must not enable a new
++content read or meeting-search surface. Existing missing origins deny.
++
++### PR B - Provenance and enforcement
++
++Propagate the access origin through meetings, derivatives, proposals, and
++explicit task promotion; then enforce caller scope on every existing direct and
++indirect read/action path. This is the activation PR for the authority boundary,
++including the rule that automatic action items remain meeting-owned.
++The same PR owns the compact `Add`/`Adjust`/`Dismiss` candidate-review flow so
++the UI cannot race ahead of the authority and promotion semantics.
++
++### PR C - Bounded meeting search and conformance
++
++Add summary/action-item-only `search_meetings` to the product-owned run protocol
++and prove the full matrix against a real database. Raw transcript retrieval
++remains deferred and is not a hidden fallback.
++
++Each PR has its own RED/GREEN evidence, migration/rebase check, security review,
++and exact-head CI gate. Do not combine the train into one oversized PR.
++
+ ## Migration and legacy data
+ 
+ 1. Add nullable columns and same-tenant indexes/references without changing
+    read behavior.
++   This includes work-item access/source columns and the minimum immutable
++   candidate-revision representation required by `Adjust`.
+ 2. Create one conversation for each existing meeting and grant only its
+    verified owner an admin membership. Do not translate legacy `team` or
+    `public` values into tenant-wide grants.
+@@ -234,6 +345,16 @@ rows tenant-visible.
+ - **Duplicate derivative:** keep the original access conversation; dedupe keys
+   include tenant and access origin so a restricted artifact cannot collide with
+   and inherit an org artifact.
++- **Action-item promotion:** extraction alone never writes a Product-Suite task.
++  Approval is explicit, authenticated, idempotent, and preserves source IDs.
++- **Adjusted candidate:** each revision retains source action item, prior version,
++  access origin, author/run evidence, and structured suggestions. Only `Add` on
++  the currently displayed version may create a task.
++- **Dismissed candidate:** creates no task and cannot reappear as unreviewed due
++  to a background sync or model retry.
++- **Uncertain task suggestions:** unresolved owner/date/parent/dependency values
++  remain unset; retain scoped source text/evidence for correction without
++  inventing canonical IDs or dates.
+ - **Provider spoofed participant/share/actor:** ignore for authorization.
+ - **Legacy public meeting:** owner-only after migration until explicitly shared.
+ - **Search timing/count side channels:** cap/batch queries and return uniform
+@@ -343,6 +464,16 @@ At minimum, development must first add tests for these scenarios:
+    both application validation and database constraints.
+ 10. A denied search emits privacy-safe telemetry and no model-visible count,
+     title, summary, embedding text, participant, action item, or rationale.
++11. Automatic extraction creates a meeting action item and zero Product-Suite
++    tasks. An explicit authorized approval creates exactly one task with source
++    provenance; replay is idempotent.
++12. Suggested owner/date/parent/dependencies survive through the scoped
++    proposal. Confirmed same-tenant values populate canonical fields; absent,
++    ambiguous, unresolved, or unauthorized values remain unset.
++13. Candidate cards show title, one-line reason/source, recommended next step,
++    and `Add`/`Adjust`/`Dismiss` without a default field form. `Adjust` exposes at
++    most three natural-language choices and returns a new version; no work item
++    exists until `Add` approves the displayed version.
+ 
+ ## Baseline and conflict evidence
+ 
+@@ -387,8 +518,16 @@ Before `/dev`, security/product review must confirm:
+    admin declassification.
+ 5. Raw transcript search remains out of the first omnipresent-chat slice.
+ 6. Unresolved legacy derivatives are quarantined rather than defaulted to org.
+-7. The task order in `tasks.md` is accepted, including real-database negative
+-   tests before rollout.
+-
+-Approval authorizes `/dev` only. It does not authorize shipping, provider work,
+-or a pull request.
++7. Automatic action-item extraction creates meeting-owned records only;
++   Product-Suite task creation requires explicit authenticated approval.
++8. Approved tasks preserve provenance and confirmed suggestions without
++   fabricating uncertain owner/date/parent/dependency values.
++9. Candidate review uses compact progressive disclosure and the approved
++   `Add`/`Adjust`/`Dismiss` semantics; Adjust is versioned conversation, not a
++   hidden write or structured form.
++10. The three-PR train and its inter-PR gates in `tasks.md` are accepted,
++   including real-database negative tests before enabling meeting search.
++
++Initial approval authorizes PR A development only. Gates A and B authorize the
++next PRs in sequence. No plan approval authorizes provider work, raw transcript
++retrieval, automatic task creation, or skipping the normal ship/review gates.
+diff --git a/docs/work/2026-08-08-caller-scoped-memory-authority/tasks.md b/docs/work/2026-08-08-caller-scoped-memory-authority/tasks.md
+index b3d4e33..e7b4bed 100644
+--- a/docs/work/2026-08-08-caller-scoped-memory-authority/tasks.md
++++ b/docs/work/2026-08-08-caller-scoped-memory-authority/tasks.md
+@@ -1,317 +1,309 @@
+-# TDD task list: caller-scoped memory and meeting authority
++# TDD PR train: caller-scoped memory and meeting authority
+ 
+ **Issue:** `bdd55b7e-2acb-43a4-847d-55a2acb11571`
+ **Consumes:** `plan.md`
+ **Stage:** Awaiting plan review
+-**Rule:** Each task is RED -> GREEN -> REFACTOR, then spec review and quality
+-review. Stop if a decision would widen authority or alter an approved boundary.
+ 
+-## Task 1 - Lock the cross-domain access-origin contract
++This is one security design delivered as three sequential medium PRs. Merge and
++verify A before branching B from current `origin/main`; merge and verify B before
++branching C. Do not implement the train as one oversized PR or develop the
++shared authority/schema files in parallel.
+ 
+-**Goal:** Define the product-owned identifiers and denial invariants before any
+-schema or repository change.
++Every PR uses RED -> GREEN -> REFACTOR, spec review, security review, validation,
++and exact-head CI. A missing, truncated, or unsupported test run is INCOMPLETE,
++not PASS.
+ 
+-**Likely files:**
++## PR A - Authority contract, schema, and current-membership primitive
++
++**Outcome:** Establish the fail-closed authority foundation without exposing a
++new content surface or changing a denied result to allowed.
++
++**OWNS:**
+ 
+ - `packages/contracts/src/conversation.js`
+ - `packages/contracts/src/meeting.js`
+ - `packages/contracts/contracts/conversation.json`
+-- `packages/contracts/contracts/meeting.json`
++- `packages/contracts/contracts/meeting-runtime-config.json`
+ - `packages/contracts/src/conversation.test.ts`
+-- new/focused meeting contract tests
+-
+-**OWNS:** `packages/contracts/src/conversation.js`,
+-`packages/contracts/src/meeting.js`,
+-`packages/contracts/contracts/conversation.json`,
+-`packages/contracts/contracts/meeting-runtime-config.json`,
+-`packages/contracts/src/conversation.test.ts`,
+-`packages/contracts/src/index.test.ts`, `packages/contracts/src/index.d.ts`
+-
+-**RED:** Add contract tests proving that a meeting access origin is a canonical
+-conversation; caller actor identity is server-derived; participant labels and
+-providers are non-authoritative; derivatives must preserve tenant plus access
+-origin; and a run is evidence, never an actor.
+-
+-**GREEN:** Extend the existing contracts with the minimum access-origin and
+-declassification vocabulary. Reuse actor/membership roles and existing owning
+-domain references; do not add a second ACL matrix.
+-
+-**REFACTOR/verify:** Regenerate/check contract projections through the existing
+-contract tooling and run focused contract tests plus lint/type checks.
+-
+-**Exit evidence:** Exact contract invariants, failing and passing test output,
+-generated-drift result, and explicit confirmation that no provider field grants
+-access.
+-
+-**Task commit:** `contracts: define meeting access origins`
+-
+-## Task 2 - Add fail-closed schema and legacy backfill
+-
+-**Goal:** Persist one same-tenant meeting conversation and mandatory access
+-origins for meeting-derived data without widening existing visibility.
+-
+-**Likely files:**
+-
++- `packages/contracts/src/index.test.ts`
++- `packages/contracts/src/index.d.ts`
+ - `apps/meeting-api/backend/alembic/versions/0006_caller_scoped_meetings.py`
+ - `apps/meeting-api/backend/db.py`
++- `apps/meeting-api/backend/alembic/__tests__/env.test.py`
+ - `packages/db/src/schema.ts`
+-- `packages/db/migrations/0019_caller_access_origins.sql`
+ - `packages/db/src/schema.test.ts`
+-- `apps/meeting-api/backend/alembic/__tests__/env.test.py`
+-
+-**OWNS:** all files listed above.
+-
+-**RED:** Add migration/schema tests for same-tenant composite references,
+-incompatible memory visibility/origin combinations, mandatory origins for
+-meeting-sourced memories/chunks/proposals, and rejection of cross-tenant links.
+-Add a fixture with unresolved legacy derivatives and assert it is quarantined,
+-not made org-visible.
+-
+-**GREEN:** Add `meetings.conversation_id`; a conversation memory visibility
+-lane plus `access_conversation_id`; access-origin columns on knowledge chunks
+-and proposals; indexes/checks/foreign keys; and a staged owner-only backfill.
+-Create a conversation plus owner-admin membership for existing meetings. Link
+-only deterministically recoverable derivatives. Record unresolved identifiers
+-and counts without content and make all read paths deny them.
+-
+-**REFACTOR/verify:** Run migration parity, upgrade/downgrade tests, DB contract
+-tests, schema tests, and a dry-run inventory on fixtures. Confirm rollback never
+-restores permissive legacy grants.
+-
+-**Exit evidence:** Migration IDs/checksums, row counts by linked/quarantined
+-state, RED/GREEN output, and no orphan/cross-tenant access origins.
+-
+-**Task commit:** `db: add caller-scoped meeting access origins`
+-
+-## Task 3 - Centralize caller resolution and authorization
+-
+-**Goal:** Give every domain one server-derived, current-membership authorization
+-primitive with uniform denial behavior.
+-
+-**Likely files:**
+-
++- `packages/db/migrations/0019_caller_access_origins.sql`
+ - `apps/platform-api/src/collaboration/repository.ts`
++- `apps/platform-api/src/collaboration/repository.test.ts`
+ - new `apps/platform-api/src/meeting/access.ts`
++- new `apps/platform-api/src/meeting/access.test.ts`
++
++**What to implement:**
++
++1. Extend the product-owned contracts so a meeting and each escaping derivative
++   reference one same-tenant collaboration conversation. Preserve existing
++   reader/writer/admin roles; do not add a provider or run actor.
++2. Add `meetings.conversation_id`, a conversation-scoped memory lane, and
++   access-origin columns/checks/indexes for meeting-derived memories, knowledge
++   chunks, proposals, and promoted work items. Add the minimum immutable
++   candidate-revision representation for source/prior-version/access-origin/
++   structured-suggestion provenance.
++3. Backfill one conversation and owner-admin membership per existing meeting.
++   Legacy `team`/`public` values grant nothing. Deterministically link existing
++   derivatives; quarantine unresolved origins.
++4. Add one server-side primitive that resolves authenticated internal user ->
++   active same-tenant collaboration actor -> current active membership. Missing
++   actor/origin/membership and tenant mismatch deny. Positive decisions are
++   request-local and are not cache authority.
++
++**TDD steps:**
++
++1. Write failing contract/schema tests for server-derived identity, same-tenant
++   origins, compatible visibility/origin combinations, cross-tenant rejection,
++   owner-only backfill, unresolved-row quarantine, and label/provider
++   non-authority. Cover promoted-work provenance and immutable candidate version
++   links without enabling their write paths.
++2. Write failing repository tests for active reader/admin success and missing,
++   inactive, revoked, wrong-tenant, spoofed-actor, and missing-origin denial.
++3. Run the focused suites and capture the expected missing-contract/column/
++   primitive failures.
++4. Implement the minimum contract, additive migrations/backfill, and shared
++   current-membership primitive.
++5. Run contract generation/drift, migration parity, upgrade/downgrade, schema,
++   repository, lint, and type tests; refactor duplicate role/tenant logic.
++6. Commit intentionally; suggested commits:
++   `contracts: define meeting access origins`,
++   `db: add caller-scoped access origins`, and
++   `security: add current meeting membership authorization`.
++
++**Expected output:** New data can carry a valid access origin and callers can be
++authorized through one fail-closed primitive, but no new search/read feature is
++enabled. Existing unresolved content remains unavailable.
++
++**Approval gate A:**
++
++- Security confirms collaboration membership is the sole group authority and
++  provider/participant labels never grant access.
++- Data review confirms composite tenant constraints, owner-only legacy
++  backfill, quarantine counts, and non-permissive rollback.
++- API review confirms actor/tenant are derived from authenticated server
++  context and no positive permission is cached across requests.
++- Exact-head CI is green. Only then merge A; B must branch from the landed A.
++
++## PR B - Meeting provenance, explicit task promotion, and all existing enforcement
++
++**Outcome:** Activate the authority boundary across existing reads and actions,
++propagate provenance atomically, and make task creation explicitly user-owned.
++
++**OWNS:**
++
+ - `apps/meeting-api/backend/repositories/meetings.py`
+ - `apps/meeting-api/backend/repositories/history.py`
+-- focused collaboration/meeting repository tests
+-
+-**OWNS:** `apps/platform-api/src/collaboration/repository.ts`,
+-`apps/platform-api/src/collaboration/repository.test.ts`,
+-`apps/platform-api/src/meeting/access.ts`,
+-`apps/platform-api/src/meeting/access.test.ts`,
+-`apps/meeting-api/backend/repositories/meetings.py`,
+-`apps/meeting-api/backend/repositories/history.py`,
+-`apps/meeting-api/backend/routes/meetings.py`,
+-`apps/meeting-api/backend/routes/history.py`,
+-`apps/meeting-api/backend/__tests__/security.test.py`
+-
+-**RED:** Tests for missing/inactive actor, inactive membership, wrong role,
+-known ID denial, tenant mismatch, owner-with-missing-membership, unknown
+-participant label, legacy `team`/`public`, and provider/client actor spoofing.
+-Positive tests cover an active reader and admin in the correct tenant.
+-
+-**GREEN:** Resolve the authenticated internal user to an active collaboration
+-actor on the server; authorize current conversation membership; expose one
+-predicate/helper to repository callers; make Python meeting queries join the
+-same collaboration authority rather than interpret legacy visibility as a
+-grant. Direct denials are uniform not-found.
+-
+-**REFACTOR/verify:** Remove duplicated visibility/role logic, parameterize all
+-queries, and run focused API/repository suites. Confirm positive permission
+-results are request-local and never cached as authority.
+-
+-**Exit evidence:** Denial matrix results, SQL/query evidence that authorization
+-precedes projection, and no caller-selected actor/tenant input.
+-
+-**Task commit:** `security: centralize meeting caller authorization`
+-
+-## Task 4 - Project memberships and propagate provenance on writes
+-
+-**Goal:** Ensure new meetings and every escaping derivative have an access
+-origin from their first committed state.
+-
+-**Likely files:**
+-
+ - `apps/meeting-api/backend/routes/meetings.py`
+-- `apps/meeting-api/backend/repositories/meetings.py`
++- `apps/meeting-api/backend/routes/history.py`
++- `apps/meeting-api/backend/routes/chapters.py`
++- `apps/meeting-api/backend/__tests__/security.test.py`
+ - `apps/platform-api/src/meeting/ingest.ts`
+ - `apps/platform-api/src/meeting/ingest.test.ts`
++- `apps/platform-api/src/meeting/candidates.ts`
++- `apps/platform-api/src/meeting/candidates.test.ts`
++- `apps/platform-api/src/routes/meeting-candidates.ts`
++- `apps/platform-api/src/routes/meeting-candidates.test.ts`
+ - `apps/platform-api/src/agent/kb-ingest.ts`
+ - `apps/platform-api/src/agent/kb-ingest.test.ts`
+ - `apps/platform-api/src/domain/memories.ts`
+ - `apps/platform-api/src/domain/memories.test.ts`
+-- `apps/platform-api/src/proposals/repository.ts`
+-- `apps/platform-api/src/proposals/repository.test.ts`
+-
+-**OWNS:** all files listed above.
+-
+-**RED:** Tests prove owner-admin projection, explicit-share membership,
+-verified-internal-participant reader membership, no grant from labels/provider
+-IDs, atomic failure on missing/mismatched origin, and provenance retention on
+-memory/chunk/proposal writes and dedupe.
+-
+-**GREEN:** Create/link the conversation and owner membership transactionally;
+-project only verified internal identities or explicit shares; stamp the source
+-conversation and tenant on all meeting derivatives; reject partial writes and
+-scope-changing dedupe collisions.
+-
+-**REFACTOR/verify:** Share origin-copy validation across derivative writers,
+-keep events content-free, and run failure-injection tests around transactions.
+-
+-**Exit evidence:** RED/GREEN transaction tests, rollback/no-partial-row proof,
+-and examples of stored origin identifiers without sensitive payload logs.
+-
+-**Task commit:** `security: propagate meeting access provenance`
+-
+-## Task 5 - Make all existing reads and actions caller-scoped
+-
+-**Goal:** Close direct and indirect access paths before exposing meeting search.
+-
+-**Likely files:**
+-
+-- `apps/platform-api/src/domain/memories.ts`
+ - `apps/platform-api/src/routes/memories.ts`
++- `apps/platform-api/src/routes/memories.test.ts`
+ - `apps/platform-api/src/agent/memory-retrieval.ts`
++- `apps/platform-api/src/agent/memory-retrieval.test.ts`
+ - `apps/platform-api/src/agent/knowledge-retrieval.ts`
++- `apps/platform-api/src/agent/knowledge-retrieval.test.ts`
+ - `apps/platform-api/src/agent/tools.ts`
+-- proposal list/detail/accept/reject routes and repositories
+-- meeting detail/history/artifact routes and repositories
+-
+-**OWNS:** `apps/platform-api/src/domain/memories.ts`,
+-`apps/platform-api/src/domain/memories.test.ts`,
+-`apps/platform-api/src/routes/memories.ts`,
+-`apps/platform-api/src/routes/memories.test.ts`,
+-`apps/platform-api/src/agent/memory-retrieval.ts`,
+-`apps/platform-api/src/agent/memory-retrieval.test.ts`,
+-`apps/platform-api/src/agent/knowledge-retrieval.ts`,
+-`apps/platform-api/src/agent/knowledge-retrieval.test.ts`,
+-`apps/platform-api/src/agent/tools.ts`,
+-`apps/platform-api/src/agent/tools.test.ts`,
+-`apps/platform-api/src/proposals/repository.ts`,
+-`apps/platform-api/src/proposals/repository.test.ts`,
+-`apps/platform-api/src/routes/proposals.ts`,
+-`apps/platform-api/src/routes/proposals.test.ts`,
+-`apps/meeting-api/backend/routes/meetings.py`,
+-`apps/meeting-api/backend/routes/history.py`,
+-`apps/meeting-api/backend/routes/chapters.py`
+-
+-**RED:** Alice/Bob same-tenant tests cover memory list/detail/chain, memory and
+-knowledge injection, exact chunk/proposal/meeting IDs, proposal actions,
+-meeting history, and membership revocation. Assert Bob learns neither content
+-nor existence and no denied text reaches a model/tool payload.
+-
+-**GREEN:** Pass authenticated caller context to every repository, use the
+-central predicate for private/org/conversation lanes, filter before ranking or
+-projection, and enforce current membership on proposal actions. Preserve source
+-scope on normal proposal acceptance. Add explicit conversation-admin
+-`publish_to_org` declassification with acknowledgement and audit event.
+-
+-**REFACTOR/verify:** Remove tenant-only content lookups, share query fragments,
+-and run focused route, memory, knowledge, proposal, and meeting suites. Audit
+-all callers of changed repository functions with `rg`.
+-
+-**Exit evidence:** Complete call-site inventory, denial/positive tests, no
+-tenant-only bypass, and declassification audit/authorization proof.
+-
+-**Task commit:** `security: enforce caller scope on meeting-derived reads`
+-
+-## Task 6 - Add bounded `search_meetings` to the product run protocol
+-
+-**Goal:** Unlock omnipresent meeting-aware chat only after the underlying reads
+-are caller-safe.
+-
+-**Likely files:**
++- `apps/platform-api/src/agent/tools.test.ts`
++- `apps/platform-api/src/proposals/repository.ts`
++- `apps/platform-api/src/proposals/repository.test.ts`
++- `apps/platform-api/src/proposals/apply.ts`
++- `apps/platform-api/src/proposals/apply.test.ts`
++- `apps/platform-api/src/routes/proposals.ts`
++- `apps/platform-api/src/routes/proposals.test.ts`
++- `apps/platform-api/src/domain/work-items.ts`
++- `apps/platform-api/src/domain/work-items.test.ts`
++- `apps/platform-api/src/routes/work-items.ts`
++- `apps/platform-api/src/routes/work-items.test.ts`
++- `apps/platform-web/src/boards/meetings/MeetingTriageScreen.tsx`
++- `apps/platform-web/src/boards/meetings/MeetingTriageScreen.test.tsx`
++- `apps/platform-web/src/data/meeting-actions/types.ts`
++- `apps/platform-web/src/data/meeting-actions/types.test.ts`
++- `apps/platform-web/src/data/meeting-actions/repository.ts`
++- `apps/platform-web/src/data/meeting-actions/repository.test.ts`
++- `apps/platform-web/src/data/meeting-actions/network-repository.ts`
++- `apps/platform-web/src/data/meeting-actions/network-repository.test.ts`
++- `apps/platform-web/src/data/meeting-actions/use-meeting-actions.ts`
++- `apps/platform-web/src/data/meeting-actions/use-meeting-actions.test.ts`
++
++**What to implement:**
++
++1. Create/project meeting conversations and memberships transactionally. Owner
++   becomes admin; explicit shares and already-verified internal participants may
++   become members. Free-form labels/provider identities remain display-only.
++2. Stamp the source conversation and tenant on every meeting-derived memory,
++   chunk, proposal, and other escaping derivative in the same transaction.
++   Origin-less/mismatched writes fail with no partial row.
++3. Pass authenticated caller context through meeting detail/history/artifact,
++   memory list/detail/chain/injection/rules, knowledge retrieval, proposal
++   list/detail/approve/reject, and related tool paths. Filter before ranking,
++   projection, model input, or logging. Known-ID denials are uniform not-found;
++   search/injection denials are empty and content-free.
++4. Keep automatically extracted action items as meeting-owned records. No
++   extractor, meeting finalizer, provider, model, or background job creates a
++   Product-Suite task/work item.
++5. Require an explicit authenticated user approval to promote one scoped action
++   item. The created task is idempotent and records source meeting, action item,
++   proposal, and conversation provenance.
++6. Preserve supported suggested owner/date/parent/dependencies and their source
++   evidence through the proposal. Populate canonical task fields only for
++   confirmed, resolvable same-tenant values. Leave absent/ambiguous/unresolved/
++   unauthorized values unset; never substitute approver, today, root, or
++   fabricated dependency values.
++7. Normal approval preserves conversation scope. Organization publication is a
++   separate explicit action requiring current conversation admin, destination
++   acknowledgement, and a content-free audit event.
++8. Replace the current status-centric triage row with a compact progressive-
++   disclosure candidate card. Default content is title, one-line reason/source,
++   recommended next step, and `Add`, `Adjust`, `Dismiss`; structured suggestion
++   and provenance fields stay underneath until relevant/requested.
++9. Make `Adjust` an inline agent conversation with at most three natural-language
++   choices (`simple task`, `planned work item`, `keep as meeting follow-up`).
++   Persist a new version linked to the source and prior candidate, then return it
++   for approval. Adjust never creates a task. Add applies only the displayed
++   version; Dismiss creates no task and is stable across sync/retry.
++
++**TDD steps:**
++
++1. Write the Alice/Bob/Carol failing matrix across every existing direct and
++   indirect path: same-tenant non-member, exact-ID, cross-tenant, revoked,
++   inactive, missing-origin, legacy flag, and provider spoof denial.
++2. Write failing transaction tests for provenance copying, mismatched origins,
++   partial-write rollback, access-origin-aware dedupe, and revocation after a
++   derivative exists.
++3. Write failing promotion tests proving extraction creates one meeting action
++   item and zero Product-Suite tasks; explicit authorized approval creates one
++   task; replay creates no duplicate; unauthorized approval creates nothing.
++4. Add fixtures with suggested owner/date/parent/dependencies. Confirm valid
++   approved values and source evidence survive; unknown/ambiguous/cross-tenant
++   values leave canonical fields unset.
++5. Write failing UI/API tests for compact card content, keyboard-accessible
++   `Add`/`Adjust`/`Dismiss`, progressive details, no default field form, at most
++   three Adjust choices, immutable revision links, Add-only creation, stale-
++   version rejection, and stable dismissal.
++6. Implement the minimum projections, writer propagation, shared read predicate,
++   route/action enforcement, explicit promotion, and declassification gate.
++7. Implement the candidate card/repository flow using existing design-system and
++   proposal seams. Do not add a second chat, write, or authority protocol.
++8. Audit every changed repository caller with `rg`; remove tenant-only content
++   lookups and duplicated ACL branches.
++9. Run focused meeting, memory, knowledge, proposal, route, UI accessibility,
++   transaction, lint, type, and migration suites; commit in reviewable slices.
++
++**Expected output:** All existing meeting and meeting-derived paths enforce the
++asking user's current membership before content escapes. Automatic extraction
++never creates Product-Suite work; explicit promotion preserves provenance and
++confirmed suggestions without fabricating missing values. Candidate review is
++compact and conversational; only Add creates work.
++
++**Approval gate B:**
++
++- Security reviews a complete read/action call-site inventory and the denial
++  matrix, including revoked membership and known IDs.
++- Product reviews the demonstrated boundary: meeting action item -> scoped
++  proposal -> explicit user approval -> one Product-Suite task.
++- Product/data review fixtures prove suggestion preservation and null behavior
++  for uncertain owner/date/parent/dependencies.
++- UX/accessibility review confirms compact progressive disclosure,
++  `Add`/`Adjust`/`Dismiss`, versioned Adjust conversation, no default field form,
++  and no Product-Suite task before Add.
++- Audit inspection confirms denied content never reaches model/tool/log payloads
++  and normal promotion cannot declassify.
++- Exact-head CI is green. Only then merge B; C must branch from the landed B.
++
++## PR C - Bounded `search_meetings` and real-database conformance
++
++**Outcome:** Unlock meeting-aware chat on top of the landed authority boundary
++and prove it through the real database. Raw transcript retrieval stays deferred.
++
++**OWNS:**
+ 
+ - new `apps/platform-api/src/meeting/search.ts`
++- new `apps/platform-api/src/meeting/search.test.ts`
+ - `apps/platform-api/src/agent/tools.ts`
++- `apps/platform-api/src/agent/tools.test.ts`
+ - `apps/platform-api/src/agent/runtime.ts`
+-- run attribution schema/repository if the existing attribution shape cannot
+-  represent meeting sources
+-- focused tool/runtime tests
+-
+-**OWNS:** `apps/platform-api/src/meeting/search.ts`,
+-`apps/platform-api/src/meeting/search.test.ts`,
+-`apps/platform-api/src/agent/tools.ts`,
+-`apps/platform-api/src/agent/tools.test.ts`,
+-`apps/platform-api/src/agent/runtime.ts`,
+-`apps/platform-api/src/agent/runtime.test.ts`
+-
+-**RED:** Tool tests prove server-derived caller/tenant/run context, member-only
+-results, uniform empty denial, no result/count side channel, bounded metadata +
+-summary/action-item output, raw transcript exclusion, revocation between calls,
+-and run attribution for allowed sources only.
+-
+-**GREEN:** Add a query/filter/limit-only tool contract; authorize before search
+-ranking/projection; return bounded safe artifacts; attach privacy-safe source
+-attribution to the existing product-owned run. Reject/ignore any attempted
+-actor, tenant, membership, visibility, or conversation override.
+-
+-**REFACTOR/verify:** Reuse existing tool result framing and attribution code.
+-Do not introduce provider SDK authority, a second run protocol, or a new cache.
+-
+-**Exit evidence:** Tool schema, RED/GREEN runtime tests, model-bound payload
+-snapshot, attribution rows, and denial telemetry containing identifiers/reasons
+-but no source content.
+-
+-**Task commit:** `feat: add caller-scoped meeting search tool`
+-
+-## Task 7 - Real-database security conformance and rollout gate
+-
+-**Goal:** Prove the full caller-to-source-to-derivative boundary under the
+-actual database semantics before `/validate`.
+-
+-**Likely files:**
+-
+-- platform API DB contract/E2E tests
+-- meeting API integration tests
+-- shared security fixtures
+-- runbook/release notes only where required by project documentation policy
+-
+-**OWNS:** new caller-authority DB contract fixtures/tests under
+-`apps/platform-api/src`, new meeting authority integration tests under
+-`apps/meeting-api/backend`, and only documentation required by the pre-merge
+-policy. Exact new filenames must be chosen before RED and recorded in
+-`decisions.md`; no production file is owned by this task.
+-
+-**RED:** Build one real-DB fixture: Alice and Bob share tenant; Alice alone is a
+-senior-meeting member; derivatives exist in every relevant table; Carol is in a
+-different tenant. First demonstrate at least one pre-fix forbidden path if not
+-already captured by Task 5 RED evidence.
+-
+-**GREEN:** Run the matrix from `plan.md`: authorized read, same-tenant denial,
+-exact-ID denial, cross-tenant denial, missing-origin denial, revocation,
+-provider spoof, legacy flags, derivative laundering, and explicit admin
+-declassification.
+-
+-**REFACTOR/verify:** Run schema/migration parity, contract tests, platform API
+-tests, meeting API tests, lint, types, and security-specific integration tests
+-through project commands. Inspect logs/snapshots for denied content leakage.
+-
+-**Exit evidence:** Exact commands, installed dependency lock identity, test
+-counts, migration state, sanitized denial logs, and a result for every
+-acceptance-matrix row. Any missing/truncated/unsupported run is INCOMPLETE, not
+-PASS.
+-
+-**Task commit:** `test: prove caller-scoped meeting authority`
+-
+-## `/dev` stop conditions
+-
+-Stop and return to plan review if implementation would require any of the
+-following:
+-
+-- trusting provider identities or participant labels for membership;
+-- making legacy `team`/`public` tenant-visible;
+-- allowing missing provenance to fall back to org or owner guessing;
+-- adding raw transcript search to the first chat slice;
+-- changing collaboration roles/semantics beyond reader/writer/admin;
+-- introducing a policy engine, new identity provider, or cross-tenant sharing;
+-- publishing a restricted derivative without explicit admin declassification;
+-- weakening tests, migrations, tenant constraints, denial uniformity, or audit
+-  redaction.
+-
+-## Handoff to `/dev`
+-
+-Start only after the seven plan-review decisions in `plan.md` are approved.
+-Install locked dependencies in this isolated worktree, reproduce the recorded
+-baseline, then begin Task 1. Do not open a PR from PLAN stage.
++- `apps/platform-api/src/agent/runtime.test.ts`
++- new caller-authority DB contract fixtures/tests under `apps/platform-api/src`
++- new meeting authority integration tests under `apps/meeting-api/backend`
++
++**What to implement:**
++
++1. Add a query/filter/limit-only `search_meetings` tool. User, tenant, run, and
++   collaboration actor come only from product-owned `AgentRunContext` and the
++   shared current-membership primitive.
++2. Return bounded authorized meeting metadata, summaries, and action items.
++   Do not return raw transcript text/passages or provide a transcript fallback.
++3. Attribute allowed sources to the product-owned run. Denied candidates expose
++   no content, count, title, participant, timing distinction, or model-visible
++   error; telemetry contains identifiers/reason codes only.
++4. Run the entire source-to-derivative-to-promotion boundary against a real
++   database with same-tenant non-member, cross-tenant, revocation, missing
++   provenance, spoofing, legacy flags, declassification, and idempotency cases.
++
++**TDD steps:**
++
++1. Write failing tool/runtime tests for server-derived caller context,
++   member-only results, empty uniform denial, bounded output, raw transcript
++   exclusion, revocation between calls, and allowed-source attribution.
++2. Build the real-DB Alice/Bob/Carol fixture containing a restricted meeting,
++   summaries/action items, every derivative type, suggestions, and an explicitly
++   promoted task. Demonstrate the forbidden pre-fix path where feasible.
++3. Implement the bounded authorized search and attribution wiring without a new
++   identity, cache authority, provider policy, or run protocol.
++4. Run the plan acceptance matrix, schema/migration parity, contract, platform
++   API, meeting API, lint, type, and security integration suites. Inspect
++   sanitized payload/log snapshots for leakage.
++5. Commit the tool and conformance evidence in reviewable logical commits.
++
++**Expected output:** An authorized run can search meeting summaries/action items
++and cite their sources; a non-member learns nothing. Real-DB evidence proves the
++same current-membership and provenance rules across source, derivatives, and
++explicit task promotion. No raw transcript is retrievable.
++
++**Approval gate C:**
++
++- Security reviews the real-DB matrix and model-bound payload snapshots.
++- Product confirms the bounded result shape is sufficient for the first
++  meeting-aware chat slice and that raw transcripts remain deferred.
++- Observability review confirms attribution/denial telemetry is content-free and
++  cannot reveal result counts.
++- Full required CI is green on the exact head before ship/review handoff.
++
++## Train-wide stop conditions
++
++Stop and return to plan review if any PR would require:
++
++- provider/participant-label authority or client-selected actor/tenant IDs;
++- tenant-wide interpretation of legacy `team`/`public` meetings;
++- org/owner fallback for missing provenance;
++- automatic Product-Suite task/work-item creation from extraction;
++- fabricated owner/date/parent/dependency values;
++- structured field-form triage, more than three Adjust choices, unversioned
++  candidate mutation, or any write before Add;
++- raw transcript retrieval in `search_meetings`;
++- a generic policy engine, new identity provider, or cross-tenant sharing;
++- scope widening without explicit current-admin declassification;
++- weakened tests, migrations, constraints, denial uniformity, or log redaction.
++
++## Handoff
++
++Plan approval authorizes PR A development only. Approval gate A authorizes PR B
++development, and gate B authorizes PR C development. Each next branch starts
++from the previously merged exact `origin/main`; no PR is opened from PLAN stage.
+-- 
+2.51.0.windows.1
+

@@ -1,0 +1,595 @@
+From a40d0853f81aa5df1235a790c4aad496bd96d96e Mon Sep 17 00:00:00 2001
+From: Harsha Nanda <harshanandak@users.noreply.github.com>
+Date: Sun, 9 Aug 2026 14:04:02 +0530
+Subject: [PATCH] docs(plan): finalize meeting authority delivery split
+
+---
+ .../2026-08-08-meeting-authority-pr-a/plan.md | 184 ++++++++++------
+ .../tasks.md                                  | 196 +++++++++++++-----
+ 2 files changed, 263 insertions(+), 117 deletions(-)
+
+diff --git a/docs/work/2026-08-08-meeting-authority-pr-a/plan.md b/docs/work/2026-08-08-meeting-authority-pr-a/plan.md
+index 7b9fd8b..d543862 100644
+--- a/docs/work/2026-08-08-meeting-authority-pr-a/plan.md
++++ b/docs/work/2026-08-08-meeting-authority-pr-a/plan.md
+@@ -78,41 +78,65 @@ with the prerequisite handoff rather than guessing or creating another runner.
+ 
+ ## Delivery split and concrete GitHub stack
+ 
+-The earlier single-PR estimate was too broad. Deliver two sequential medium PRs
+-under this child, both after `59ef...` merges:
++The earlier two-PR estimate was still too broad after enumerating every owned
++surface. Deliver four sequential medium PRs under two phases, all after
++`59ef...` merges. The hard cap is 22 unique touched files per PR; generated
++migration snapshot size is reported separately from human-authored scope.
+ 
+-### PR A1 - Contract and response-shape freeze
++### PR A1a - Contract, Meeting, and promotion freeze
+ 
+-Freeze API/domain projections before adding columns, then lock the access-origin
+-contract. No schema or authorization behavior changes.
++Lock the access-origin contract plus Meeting API and meeting-promotion
++projections, including the credentialed Meeting ingest DB-contract query. No
++schema or authorization behavior changes.
+ 
+-### PR A2 - Neon schema, backfill, authorization, and conformance
++### PR A1b - Core and knowledge projection freeze
++
++Freeze core memory/proposal/work-item and knowledge-chunk result projections.
++No schema or authorization behavior changes. A1a and A1b both merge before any
++authority column exists.
++
++### PR A2a - Neon schema, approved mapping import, and backfill
+ 
+ Use only the prerequisite's canonical Neon migration plane. Add mapping/origin
+-schema, perform owner-only meeting backfill, add the one-statement authorization
+-primitive, and prove it on ephemeral Neon. No existing content call site uses
+-the new primitive until PR B.
++schema, import only operator-approved durable mappings, and perform the
++owner-only meeting backfill. Ephemeral targets may apply candidate `0020` for
++tests; no shared target may apply it yet.
++
++### PR A2b - Authorization, memory quarantine, and conformance
++
++Add the one-statement authorization primitive, close every active memory leak/
++mutation surface, and prove the complete stack on ephemeral Neon. No existing
++content call site uses the new authorization primitive until PR B.
+ 
+-The split is valuable because A1 removes accidental serialization paths before
+-A2 adds dormant columns. Use this exact GitHub structure:
++Use at most one stacked child at a time so every squash merge has one exact,
++bounded restack:
+ 
+ 1. Neon authority PR (`59ef...`) targets `main` and lands first.
+-2. Branch `codex/meeting-authority-a1` from the exact updated `origin/main`; PR
+-   A1 targets `main` and contains contracts/projections only.
+-3. Record the reviewed A1 head SHA. Branch `codex/meeting-authority-a2` from
+-   that exact head; while A1 is open, PR A2 is a draft whose GitHub base is
+-   `codex/meeting-authority-a1`, so its Files view contains only A2 changes.
+-4. After GitHub squash-merges A1, record the A1 merge SHA and restack only A2
+-   with `git rebase --onto <A1-merge-SHA> <old-A1-head-SHA>
+-   codex/meeting-authority-a2`; if patch identity is not exact, recreate A2 from
+-   the merge SHA and cherry-pick only reviewed A2 commits. Retarget A2 to
+-   `main`, re-prove `0020` is free, and rerun every exact-head gate. Never merge
+-   A2 while its base is the feature branch or while its diff contains A1.
+-5. PR B branches only from `main` after A2 is merged and verified.
++2. Branch `codex/meeting-authority-a1-contracts` from exact updated `main`; A1a
++   targets `main`.
++3. Branch `codex/meeting-authority-a1-projections` from the reviewed A1a head;
++   A1b is a draft based on A1a. After A1a squash-merges, run `git rebase --onto
++   <A1a-merge-SHA> <old-A1a-head-SHA>
++   codex/meeting-authority-a1-projections`, retarget A1b to `main`, prove its
++   diff contains no A1a patch, and rerun exact-head gates. Recreate from the
++   merge SHA and cherry-pick only reviewed A1b commits if patch identity differs.
++4. Only after A1b merges, branch `codex/meeting-authority-a2-schema` from exact
++   updated `main`; re-prove candidate `0020` is free, then A2a targets `main`.
++5. Branch `codex/meeting-authority-a2-enforcement` from the reviewed A2a head;
++   A2b is a draft based on A2a. After A2a squash-merges, run `git rebase --onto
++   <A2a-merge-SHA> <old-A2a-head-SHA>
++   codex/meeting-authority-a2-enforcement`, retarget A2b to `main`, prove its
++   diff contains no A2a patch, and rerun exact-head gates. Use the same recreate/
++   cherry-pick fallback on any patch-identity mismatch; verify the landed A2a
++   `0020` SQL/snapshot/journal hashes are unchanged.
++6. Never merge a child while its base is a feature branch. Candidate `0020` may
++   run only on isolated ephemeral targets until A2b is merged and verified;
++   only then may the exact suffix apply to shared/staging/production.
++7. PR B branches only from `main` after A2b is merged and verified.
+ 
+ PR B still owns derivative propagation, conversation-aware memory visibility,
+-candidate UX/promotion, and existing read/action enforcement. A2 owns only the
+-dormant fail-closed barrier described below; it does not make conversation
++candidate UX/promotion, and existing read/action enforcement. A2a/A2b own only
++the dormant fail-closed barrier described below; they do not make conversation
+ memory readable.
+ 
+ ## PR A1: contract and explicit response projections
+@@ -156,7 +180,9 @@ leak: a static/captured-SQL test fails until the required named constants
+ one of them. GREEN freezes their exact caller-consumed keys and rejects inline,
+ wildcard, whole-row JSON, raw-row spread, log, or error egress. This makes later
+ nullable columns non-observable even if a caller bypasses the normal route
+-serializer.
++serializer. `apps/platform-api/test/db-contract/meeting-ingest.test.ts` imports
++the meeting-promotion constant and uses it for its ledger read so the live
++fixture cannot drift from production projection policy.
+ 
+ ## PR A2: exact Neon schema contract
+ 
+@@ -221,6 +247,40 @@ Constraints/indexes:
+ - application/backfill additionally requires a current active organization
+   membership for the target pair. No environment JSON map is authoritative.
+ 
++### Operator-approved mapping import
++
++A2a owns `scripts/meeting-authority/import-authority-mappings.ts` and its
++adjacent test. The importer is the only A2 path that creates mapping rows. It
++accepts an out-of-repository JSON manifest with exact source tenant/user IDs,
++exact internal tenant/user IDs, `verificationMethod`, opaque `evidenceRef`,
++`verifiedByActorId`, and `verifiedAt`, plus an operator-reviewed SHA-256 supplied
++separately on the command line. It never accepts email, provider subject,
++display labels, or an equality shortcut.
++
++Before writing, one transaction verifies every manifest source tenant/user pair
++exists in `meetings`, every target tenant/user pair exists internally, the
++verifying actor is an active human admin in that exact internal tenant, the
++target user has current active organization membership, and tenant/principal
++rows agree. Duplicate identical active rows are `alreadyPresent`; a missing
++source/target, duplicate conflicting manifest row, existing conflicting row,
++ambiguous pair, revoked mapping, hash mismatch, or inactive approver aborts the
++whole import with no writes. Source pairs omitted from the approved manifest
++remain unmapped and the later backfill quarantines them as `mapping_missing`.
++
++The exact dry-run and apply commands are:
++
++```text
++bun run scripts/meeting-authority/import-authority-mappings.ts -- --database-url-env MIGRATION_DATABASE_URL --manifest <absolute-approved-json> --expected-sha256 <reviewed-sha256> --dry-run --report <absolute-report-json>
++bun run scripts/meeting-authority/import-authority-mappings.ts -- --database-url-env MIGRATION_DATABASE_URL --manifest <absolute-approved-json> --expected-sha256 <reviewed-sha256> --apply --report <absolute-report-json>
++```
++
++The redacted report records manifest hash, approver actor, evidence refs, and
++sorted `inserted|alreadyPresent|rejected` counts plus opaque source/internal IDs;
++it contains no email, provider identity, labels, meeting content, or credentials.
++Apply must match the reviewed dry-run hash and is idempotent only for the exact
++same verified mapping rows. Backfill cannot start until apply completes with
++zero rejected rows and a second dry-run reports zero inserts.
++
+ `meetings.tenant_id` and `meetings.owner_user_id` are explicitly source-system
+ identifiers. They are never assumed equal to `tenants.id` or `users.id`.
+ Backfill must first resolve the active tenant mapping, then the exact active
+@@ -280,22 +340,26 @@ route detail/source/chain/list/search/update/retract/defer/reactivate; agent
+ `agent/memory-retrieval.ts`; every memory lane in
+ `agent/knowledge-retrieval.ts`; the memory export and guarded embedding update
+ in `agent/kb-ingest.ts`; and the post-flip compensation deletion in
+-`proposals/apply.ts`. A direct lookup of a non-NULL conversation-origin row
++`proposals/apply.ts`; plus `GET /:id/active-rules` in
++`routes/proposals.ts`, whose attribution join must not return a quarantined
++memory's ID or title. A direct lookup of a non-NULL conversation-origin row
+ returns the same public `not_found`/empty-lane response as an absent row; agent
+ lanes neither return nor inject it; embedding ingest neither exports nor updates
+-it; compensation does not delete it. Thus an inconsistent row introduced
+-outside the supported runner is quarantined from every active memory surface.
++it; compensation does not delete it; active-rules omits it. Thus an inconsistent
++row introduced outside the supported runner is quarantined from every active
++memory surface.
+ PR B may remove this barrier only when caller-aware conversation membership
+ enforcement lands atomically.
+ 
+ ## Verified owner-only meeting backfill
+ 
+ The operator command lives in the canonical Neon-owned package selected by
+-`59ef...` at `scripts/meeting-authority/backfill-meeting-origins.ts`, with tests
+-beside the Neon DB contract tier. It accepts exactly `--database-url-env
+-DATABASE_URL`, `--dry-run` (default) or `--apply`, and required
+-`--report <absolute-path>`. It rejects non-Neon supported-production URLs using
+-the topology validator landed by `59ef...`.
++`59ef...` at `scripts/meeting-authority/backfill-meeting-origins.ts`, with its
++exact unit/transaction suite at
++`scripts/meeting-authority/backfill-meeting-origins.test.ts`. It accepts exactly
++`--database-url-env DATABASE_URL`, `--dry-run` (default) or `--apply`, and
++required `--report <absolute-path>`. It rejects non-Neon supported-production
++URLs using the topology validator landed by `59ef...`.
+ 
+ For each meeting ordered by `(tenant_id,id)`:
+ 
+@@ -371,7 +435,7 @@ chain rather than identity stand-ins. Add a non-skipping command
+ select the canonical parent; the harness creates and deletes an isolated branch
+ and obtains its database URL itself.
+ 
+-CI `.github/workflows/db-contract.yml` invokes this command for PR A2 with
++CI `.github/workflows/db-contract.yml` invokes this command for PR A2b with
+ credentials scoped only to that step. Missing credentials, a skipped suite,
+ zero executed tests, cleanup failure, timeout, or truncated evidence is
+ INCOMPLETE/FAIL, never green.
+@@ -405,7 +469,7 @@ The fixture also proves:
+ - removed membership is not reactivated; archived conversation not unarchived;
+ - UUID/legacy-reference collision quarantines with no partial mutation;
+ - derivative columns reject non-NULL writes, supported backfill leaves them
+-  NULL, and `memory_visibility` enum is unchanged; A2.4 focused tests across
++  NULL, and `memory_visibility` enum is unchanged; A2.5 focused tests across
+   domain, routes, agent retrieval/injection, embedding ingest, and proposal
+   compensation separately inject a synthetic inconsistent row and prove every
+   current memory surface hides or refuses to mutate it;
+@@ -414,11 +478,13 @@ The fixture also proves:
+ 
+ ## Deployment, rollback, and observability
+ 
+-Order: merge/verify `59ef...` through floor `0019`; merge A1; squash-safe
+-restack/retarget A2 and assert candidate `0020`; run isolated ephemeral-Neon
+-conformance; merge A2 only after its exact-head gates pass; then apply `0020` to
++Order: merge/verify `59ef...` through floor `0019`; merge A1a then A1b with the
++bounded restack above; merge A2a after isolated candidate-`0020` conformance;
++restack/retarget A2b and rerun isolated conformance; merge A2b only after its
++exact-head gates pass; then apply `0020` to
+ any shared/staging/production target with the canonical suffix runner on the
+-environment-pinned history variant; deploy dormant repository/backfill; dry-run/report;
++environment-pinned history variant; run the approved mapping import dry-run/
++apply/zero-insert rerun; deploy dormant repository/backfill; dry-run/report;
+ approve; apply; rerun dry-run for zero mutations; run required Neon conformance.
+ There is no production feature flag in A because no read/write call site is
+ activated.
+@@ -435,24 +501,19 @@ embeddings, prompts, tokens, and result counts visible to models/users.
+ 
+ ## Exact ownership and size
+ 
+-PR A1 owns contract files plus the affected response-projection source/tests:
+-`packages/contracts/src/meeting.js`, `contracts/meeting-runtime-config.json`,
+-`src/index.d.ts`, `src/index.test.ts`; meeting `backend/server.py` and response
+-tests; platform `domain/memories.ts`, `proposals/{repository,apply,undo}.ts`,
+-`domain/work-items.ts`, knowledge/chunk and meeting-promotion egress surfaces,
+-and their tests. Estimate: 24-28 files, 450-700 net LOC.
+-
+-PR A2 owns `packages/db/migrations/0020_meeting_authority_foundation.sql`, the
+-real `0020` snapshot/journal entry and `packages/db/src/{schema,meeting-schema}.ts`,
+-the landed canonical runner fixture `test/migrate-database.test.js`,
+-`scripts/meeting-authority/backfill-meeting-origins.ts`, its tests,
+-`apps/platform-api/src/collaboration/repository.ts` and test,
+-`apps/platform-api/src/domain/memories.ts`, routes, agent memory/knowledge
+-retrieval and ingest, proposal compensation, and all corresponding fail-closed
+-tests,
+-`apps/platform-api/test/db-contract/{harness,meeting-authority-foundation.test}.ts`,
+-`apps/platform-api/vitest.db-contract.config.ts`, `apps/platform-api/package.json`,
+-and `.github/workflows/db-contract.yml`. Estimate: 22-26 files, 750-1,100 net LOC.
++The exact unique-file counts below are derived from task `OWNS` lists; a file
++touched again in a later PR counts again there. No PR exceeds the 22-file cap:
++
++| PR | Exact unique files | Scope |
++| --- | ---: | --- |
++| A1a | 17 | contract (4), Meeting API (4), meeting-promotion projections and DB contract (9) |
++| A1b | 16 | core memory/proposal/work-item projections (12), knowledge-chunk projections (4) |
++| A2a | 12 | schema/migration/runner (8), approved mapping importer (2), backfill (2) |
++| A2b | 20 | authorization (2), all memory fail-closed surfaces (13), Neon conformance/workflow (5) |
++
++Generated `0020` SQL/snapshot line counts are reported separately in review
++evidence and do not justify adding hand-authored scope. Any new owned file forces
++a recount; a count above 22 requires another split, not a higher bound.
+ 
+ ## Baseline, dependency, and conflict evidence
+ 
+@@ -468,7 +529,7 @@ and `.github/workflows/db-contract.yml`. Estimate: 22-26 files, 750-1,100 net LO
+ - Merge simulation reported the plan branch current with its original base and
+   conflict-free. The legacy conflict/index helpers cannot resolve this Kernel-
+   only child, so those results are not sufficient proof; repeat after `59ef...`
+-  lands and before each A1/A2 branch.
++  lands and before each A1a/A1b/A2a/A2b branch.
+ - No production implementation, push, PR, or database operation is authorized
+   by this revision.
+ 
+@@ -486,8 +547,9 @@ RLS, public links, external guests, federation, and destructive cleanup.
+    runner/config/identity tables, and candidate `0020` on exact rebased main.
+ 2. **A1 API gate:** exact response-key snapshots prove new DB columns cannot
+    leak through wildcard selection, returning, JSON snapshots, or serializers.
+-3. **A2 identity gate:** security/data approve the durable verified pair mapping
+-   and rejection of equality/email/provider inference.
++3. **A2 identity gate:** security/data approve the durable verified pair mapping,
++   operator manifest/hash/import audit, zero-rejection apply plus zero-insert
++   rerun, and rejection of equality/email/provider inference.
+ 4. **A2 migration gate:** one canonical Neon `0020` only; nullable derivative
+    origins are DB-enforced dormant, memory enum unchanged and conversation rows
+    fail closed, same-tenant FKs hold, rollback remains non-permissive.
+diff --git a/docs/work/2026-08-08-meeting-authority-pr-a/tasks.md b/docs/work/2026-08-08-meeting-authority-pr-a/tasks.md
+index c55f442..6cb7d9f 100644
+--- a/docs/work/2026-08-08-meeting-authority-pr-a/tasks.md
++++ b/docs/work/2026-08-08-meeting-authority-pr-a/tasks.md
+@@ -12,7 +12,7 @@ assert candidate `0020` is the next contiguous tag, and record strict RED before
+ production edits. All DB work uses `packages/db` Drizzle on Neon
+ `neondb.public`; no Alembic or Supabase database runner is permitted.
+ 
+-## PR A1 - contract and response-shape freeze
++## PR A1a - contract, Meeting, and promotion freeze
+ 
+ ### Task A1.1 - Lock the provider-neutral contract
+ 
+@@ -44,7 +44,57 @@ requirements. Expected evidence is byte-identical current public keys and no
+ sentinel origin/mapping key at repository or response boundaries. No schema
+ change.
+ 
+-### Task A1.3 - Freeze platform content projections
++### Task A1.3 - Freeze meeting-promotion projections and DB-contract ledger reads
++
++**OWNS:**
++
++- `apps/platform-api/src/meeting/ingest.ts`,
++  `apps/platform-api/src/meeting/ingest.test.ts`
++- `apps/platform-api/src/meeting/candidates.ts`,
++  `apps/platform-api/src/meeting/candidates.test.ts`
++- `apps/platform-api/src/proposals/apply.ts`,
++  `apps/platform-api/src/proposals/apply.test.ts`
++- new `apps/platform-api/src/meeting/authority-projections.ts`,
++  new `apps/platform-api/src/meeting/authority-projections.test.ts`
++- `apps/platform-api/test/db-contract/meeting-ingest.test.ts`
++
++Add required named/static `MEETING_PROMOTION_INTERNAL_COLUMNS`. Existing
++meeting-promotion queries already select explicit fields, so RED fails on the
++absent constant and any captured/static result SQL that retains an inline list,
++not on a fabricated sentinel leak. Every affected production caller uses the
++constant. The credentialed DB-contract ledger read imports it from the owned
++authority-projections module and replaces its inline `select meeting_record_id,
++proposal_id` list, proving the integration fixture cannot drift from production
++projection policy.
++
++RED/GREEN command:
++`bun test apps/platform-api/src/meeting/ingest.test.ts
++apps/platform-api/src/meeting/candidates.test.ts
++apps/platform-api/src/proposals/apply.test.ts
++apps/platform-api/src/meeting/authority-projections.test.ts`. Expected RED names
++the absent constant or inline projection; GREEN freezes exact consumed keys with
++no wildcard, whole-row JSON, origin column, raw-row log, or error egress. With
++Neon credentials, run exactly:
++
++```text
++bun run --cwd apps/platform-api test -- --config vitest.db-contract.config.ts test/db-contract/meeting-ingest.test.ts
++```
++
++The credentialed command must execute nonzero tests and prove the ledger query
++uses the named constant while returning only `meeting_record_id` and
++`proposal_id`; missing credentials, skip, or zero tests is INCOMPLETE.
++
++### A1a validation/approval
++
++Run contract, Meeting response, meeting-promotion unit/static suites, and the
++credentialed Meeting ingest DB contract. Spec review confirms no Meeting or
++promotion result can widen; API review confirms byte-equivalent JSON keys.
++A1b may exist only as a draft stacked on the reviewed A1a head and must follow
++the plan's squash-safe restack before leaving draft.
++
++## PR A1b - core and knowledge projection freeze
++
++### Task A1.4 - Freeze core platform and knowledge-chunk projections
+ 
+ **OWNS:**
+ 
+@@ -61,31 +111,21 @@ change.
+   `apps/platform-api/src/domain/work-items.test.ts`,
+   `apps/platform-api/src/routes/work-items.test.ts`
+ - `apps/platform-api/src/agent/knowledge-retrieval.ts`,
+-  `apps/platform-api/src/agent/knowledge-retrieval.test.ts`,
+-  `apps/platform-api/src/agent/kb-ingest.ts`,
++  `apps/platform-api/src/agent/knowledge-retrieval.test.ts`
++- `apps/platform-api/src/agent/kb-ingest.ts`,
+   `apps/platform-api/src/agent/kb-ingest.test.ts`
+-- `apps/platform-api/src/meeting/ingest.ts`,
+-  `apps/platform-api/src/meeting/ingest.test.ts`,
+-  `apps/platform-api/src/meeting/candidates.ts`,
+-  `apps/platform-api/src/meeting/candidates.test.ts`
+-- new `apps/platform-api/src/meeting/authority-projections.test.ts`
+ 
+ Introduce exact `MEMORY_ROW_COLUMNS`, `PROPOSAL_ROW_COLUMNS`,
+-`WORK_ITEM_ROW_COLUMNS`, `WORK_ITEM_SNAPSHOT_FIELDS`,
+-`KNOWLEDGE_CHUNK_INTERNAL_COLUMNS`, and
+-`MEETING_PROMOTION_INTERNAL_COLUMNS`; replace affected `SELECT *`, `RETURNING
+-*`, and unrestricted `to_jsonb(work_items)`. Wildcard-backed RED tests add
+-sentinel authority columns and prove they currently escape through repository
+-rows, route JSON, before-images, undo envelopes, logs, or errors. Because
+-knowledge-chunk and meeting-promotion callers already select explicit fields,
+-their RED must instead fail on the missing required named/static constants and
+-on any captured result SQL that keeps an inline list. GREEN tests prove exact
+-current row/API/snapshot/internal keys and unchanged values. Raw-row object
+-spread or generic serialization is forbidden even behind an explicit route
+-serializer. Run focused suites, platform typecheck/lint, and compatibility
+-snapshots.
++`WORK_ITEM_ROW_COLUMNS`, `WORK_ITEM_SNAPSHOT_FIELDS`, and
++`KNOWLEDGE_CHUNK_INTERNAL_COLUMNS`. Wildcard-backed RED tests add sentinel
++authority columns and prove current repository/route/snapshot/log/error egress.
++Knowledge-chunk RED instead fails on the missing named/static constant or an
++inline result projection because its current selects are already explicit.
++GREEN freezes exact current row/API/snapshot/internal keys and values; raw-row
++spread or generic serialization remains forbidden.
+ 
+-RED/GREEN command: `bun test apps/platform-api/src/domain/memories.test.ts
++RED/GREEN command:
++`bun test apps/platform-api/src/domain/memories.test.ts
+ apps/platform-api/src/routes/memories.test.ts
+ apps/platform-api/src/proposals/repository.test.ts
+ apps/platform-api/src/proposals/apply.test.ts
+@@ -93,27 +133,18 @@ apps/platform-api/src/proposals/undo.test.ts
+ apps/platform-api/src/domain/work-items.test.ts
+ apps/platform-api/src/routes/work-items.test.ts
+ apps/platform-api/src/agent/knowledge-retrieval.test.ts
+-apps/platform-api/src/agent/kb-ingest.test.ts
+-apps/platform-api/src/meeting/ingest.test.ts
+-apps/platform-api/src/meeting/candidates.test.ts
+-apps/platform-api/src/meeting/authority-projections.test.ts`. Expected RED names
+-the sentinel/wildcard egress for wildcard-backed surfaces and names the absent
+-`KNOWLEDGE_CHUNK_INTERNAL_COLUMNS` / `MEETING_PROMOTION_INTERNAL_COLUMNS`
+-structural contract for the already-explicit surfaces. GREEN passes every named
+-suite; captured/static SQL uses the required constants and has no affected
+-wildcard, inline result projection, whole-row JSON, or authority column in
+-returned/logged/error shapes.
++apps/platform-api/src/agent/kb-ingest.test.ts`. Expected RED names core
++sentinel/wildcard egress and the absent knowledge
++constant/inline list. GREEN passes every named suite with no affected wildcard,
++inline chunk projection, whole-row JSON, or authority column in returned/logged/
++error shapes.
+ 
+-### A1 validation/approval
++### A1b validation/approval
+ 
+-Run contract, meeting response, memory/proposal/work-item suites and static
+-checks. Spec review confirms no wildcard output remains for affected models;
+-API review confirms byte-equivalent JSON keys. Commit/push/PR only in later
+-authorized stages. A2 may exist only as a draft stacked on the reviewed A1 head;
+-after A1 merges, rebase/retarget A2 to `main` and verify its diff contains no A1
+-changes before A2 can leave draft.
++Run the focused core/knowledge command, compatibility snapshots, platform lint/
++typecheck, and exact-diff review. A1b must merge before A2a branches.
+ 
+-## PR A2 - canonical Neon foundation
++## PR A2a - canonical Neon schema, mapping import, and backfill
+ 
+ ### Task A2.1 - Generate canonical Neon migration `0020`
+ 
+@@ -162,7 +193,44 @@ floor `0020`. Expected evidence
+ records both case names, migration/snapshot/journal hashes, applied/verified
+ status, and zero schema diff without a second journal.
+ 
+-### Task A2.2 - Add rerun-safe owner-only meeting backfill
++### Task A2.2 - Import operator-approved durable mappings
++
++**OWNS:** new
++`scripts/meeting-authority/import-authority-mappings.ts`, new
++`scripts/meeting-authority/import-authority-mappings.test.ts`
++
++Test first for a two-phase, out-of-repository manifest import. Each row carries
++exact source meeting tenant/user IDs, exact internal tenant/user IDs,
++`verificationMethod`, opaque `evidenceRef`, `verifiedByActorId`, and
++`verifiedAt`. The command independently receives the operator-reviewed SHA-256.
++Before one atomic write it proves the source pair exists in meetings; the target
++pair exists internally; the verifying actor is an active human admin for that
++tenant; the target user has active organization membership; tenant/principal
++mappings agree; and no conflicting/revoked/ambiguous row exists. It must never
++accept email, provider identity, display labels, or equal-ID inference.
++
++RED/GREEN command:
++`bun test scripts/meeting-authority/import-authority-mappings.test.ts`. RED fails
++because the importer/manifest contract is absent. GREEN proves exact verified
++insert, identical rerun=`alreadyPresent`, mixed/new apply, dry-run zero writes,
++sorted redacted audit, and whole-transaction rollback for missing source/target,
++ambiguous/conflicting/revoked mapping, inactive approver/member, manifest hash
++mismatch, or duplicate conflicting manifest rows. A source pair omitted from
++the approved manifest remains unmapped for backfill quarantine.
++
++Run the reviewed artifact exactly as follows; apply must use the same manifest
++hash as the accepted dry-run, then a second dry-run must report zero inserts:
++
++```text
++bun run scripts/meeting-authority/import-authority-mappings.ts -- --database-url-env MIGRATION_DATABASE_URL --manifest <absolute-approved-json> --expected-sha256 <reviewed-sha256> --dry-run --report <absolute-report-json>
++bun run scripts/meeting-authority/import-authority-mappings.ts -- --database-url-env MIGRATION_DATABASE_URL --manifest <absolute-approved-json> --expected-sha256 <reviewed-sha256> --apply --report <absolute-report-json>
++```
++
++Expected evidence is manifest hash, operator actor, opaque evidence references,
++sorted `inserted|alreadyPresent|rejected` counts, zero rejected rows, and the
++zero-insert rerun. No manifest/report is committed.
++
++### Task A2.3 - Add rerun-safe owner-only meeting backfill
+ 
+ **OWNS:** `scripts/meeting-authority/backfill-meeting-origins.ts`,
+ `scripts/meeting-authority/backfill-meeting-origins.test.ts`
+@@ -191,7 +259,17 @@ Two concurrent applies must report one `linked` and one `alreadyLinked` while
+ converging on the identical final stored origin pair; the reports are not
+ expected to be identical. GREEN also captures no derivative UPDATE.
+ 
+-### Task A2.3 - Add one-statement current authorization
++### A2a validation/approval
++
++Run canonical `0019 -> 0020` generation/parity/dual-history runner tests,
++mapping-import unit tests and reviewed dry-run/apply/zero-insert evidence,
++backfill tests, typecheck, lint, and isolated Neon migration/backfill evidence.
++A2a may merge, but `0020` remains forbidden on shared targets until A2b merges
++and verifies.
++
++## PR A2b - authorization, memory quarantine, and conformance
++
++### Task A2.4 - Add one-statement current authorization
+ 
+ **OWNS:** `apps/platform-api/src/collaboration/repository.ts`,
+ `apps/platform-api/src/collaboration/repository.test.ts`
+@@ -207,7 +285,7 @@ RED/GREEN command:
+ shows the primitive/matrix is absent; GREEN proves one SQL call, tenant joins,
+ fixed private precedence, and byte-identical public denial for every denied row.
+ 
+-### Task A2.4 - Quarantine conversation-origin memories until PR B
++### Task A2.5 - Quarantine conversation-origin memories until PR B
+ 
+ **OWNS:**
+ 
+@@ -222,6 +300,8 @@ fixed private precedence, and byte-identical public denial for every denied row.
+   `apps/platform-api/src/agent/kb-ingest.test.ts`
+ - `apps/platform-api/src/proposals/apply.ts`,
+   `apps/platform-api/src/proposals/apply.test.ts`
++- `apps/platform-api/src/routes/proposals.ts`,
++  `apps/platform-api/src/routes/proposals.test.ts`
+ 
+ Keep `memory_visibility` exactly `private|org`. Write RED tests showing a forced
+ row with non-NULL `access_conversation_id` can currently escape or mutate through
+@@ -229,26 +309,30 @@ domain/route direct, source, chain, list/search, update, retract, defer, and
+ reactivate; agent recall/injection/search/chain in `memory-retrieval.ts`; every
+ memory lane in `knowledge-retrieval.ts`; memory export and embedding update in
+ `kb-ingest.ts`; and the post-flip compensation deletion in `proposals/apply.ts`.
++The `GET /:id/active-rules` attribution join in `routes/proposals.ts` is also an
++active memory read and must not return a quarantined memory's ID or title.
+ Add `access_conversation_id IS NULL` to every one of those SQL boundaries so
+ direct access returns public `not_found`, collections/agent lanes omit and never
+ inject the row, embedding ingest neither exports nor updates it, and
+-compensation does not delete it. This is a temporary fail-closed barrier, not
+-conversation authorization; PR B may remove it only with atomic caller-aware
+-membership enforcement. GREEN also proves ordinary NULL-origin memories remain
+-byte-compatible.
++compensation does not delete it; active-rules omits it. This is a temporary
++fail-closed barrier, not conversation authorization; PR B may remove it only
++with atomic caller-aware membership enforcement. GREEN also proves ordinary
++NULL-origin memories remain byte-compatible.
+ 
+ RED/GREEN command: `bun test apps/platform-api/src/domain/memories.test.ts
+ apps/platform-api/src/routes/memories.test.ts
+ apps/platform-api/src/agent/memory-retrieval.test.ts
+ apps/platform-api/src/agent/knowledge-retrieval.test.ts
+ apps/platform-api/src/agent/kb-ingest.test.ts
+-apps/platform-api/src/proposals/apply.test.ts`. Expected RED identifies each
++apps/platform-api/src/proposals/apply.test.ts
++apps/platform-api/src/routes/proposals.test.ts`. Expected RED identifies each
+ read/injection/export/update/compensation boundary that lacks the null-origin
+-predicate; GREEN hides the forced row from every named surface, performs no
++predicate, including an active-rules response that leaks the forced row's ID and
++title; GREEN hides the forced row from every named surface, performs no
+ embedding update or compensation delete against it, and leaves NULL-origin
+ fixtures unchanged.
+ 
+-### Task A2.5 - Make Neon conformance mandatory and executable
++### Task A2.6 - Make Neon conformance mandatory and executable
+ 
+ **OWNS:**
+ 
+@@ -273,7 +357,7 @@ Prove one SQL call and identical public denial for every denial, mapping
+ non-inference, composite FKs, committed revocation on the next call, two
+ concurrent backfills, removed/archived/collision preservation, rejected
+ non-NULL derivative writes, unchanged memory enum, exact response keys, and
+-branch deletion in `finally`. A2.4 focused tests—not privileged real-DB
++branch deletion in `finally`. A2.5 focused tests—not privileged real-DB
+ constraint bypass—prove an inconsistent conversation memory is invisible and
+ immutable across domain, route, agent retrieval/injection, embedding ingest,
+ and proposal compensation. Execute:
+@@ -285,13 +369,13 @@ bun run --cwd apps/platform-api test:db-contract:meeting-authority
+ with `NEON_API_KEY`, `NEON_PROJECT_ID`, and optional canonical
+ `NEON_PARENT_BRANCH_ID`. Capture test count and branch-create/delete evidence.
+ 
+-### A2 validation/approval
++### A2b validation/approval
+ 
+ Run canonical `0019 -> 0020` migration on both history variants, fresh-clone/
+ parity/no-change generation, focused contracts, backfill, repository, memory
+ barrier, type/lint, and mandatory Neon DB contract. Security/data/API review
+-the seven gates in `plan.md`; exact-head CI must be green. Only merge/verified A2
+-may unlock a separately approved PR B.
++the seven gates in `plan.md`; exact-head CI must be green. Only merge/verified
++A2b may unlock shared-target `0020` apply and a separately approved PR B.
+ 
+ ## Stop conditions
+ 
+@@ -300,4 +384,4 @@ an unverified/equal/email/provider identity mapping, wildcard response output,
+ derivative backfill, a new/widened memory visibility mode, automatic reactivation/unarchive/
+ role escalation, permissive fallback, skipped Neon evidence, production content
+ enforcement, candidate/promotion UX, search, raw transcripts, or a PR larger than
+-the A1/A2 bounds in `plan.md`.
++the A1a/A1b/A2a/A2b 22-file cap in `plan.md`.
+-- 
+2.51.0.windows.1
+

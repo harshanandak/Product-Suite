@@ -1,0 +1,218 @@
+From 626d3ebca32603d363c9f6a4fa83abd35af3805d Mon Sep 17 00:00:00 2001
+From: Harsha Nanda <212836255+harshanandak@users.noreply.github.com>
+Date: Tue, 22 Sep 2026 01:51:16 +0530
+Subject: [PATCH] test(tooling): isolate Git fixtures from push-hook
+ environment
+
+---
+ .../2026-09-21-prepush-affected/decisions.md  |  16 +++
+ test/prepush-gate.test.js                     | 112 +++++++++++++++---
+ 2 files changed, 110 insertions(+), 18 deletions(-)
+
+diff --git a/docs/work/2026-09-21-prepush-affected/decisions.md b/docs/work/2026-09-21-prepush-affected/decisions.md
+index 4321e02..31b06e7 100644
+--- a/docs/work/2026-09-21-prepush-affected/decisions.md
++++ b/docs/work/2026-09-21-prepush-affected/decisions.md
+@@ -37,3 +37,19 @@ The lead ran `bun run test:repo-tooling`: 246 tests, 5,268 assertions, zero fail
+ Validation uses the repository's targeted tooling commands under the approved local-checks/CI-integration boundary. No generic Forge validation receipt is claimed or reused. Push and PR checks remain required; this local evidence is not a merge-readiness claim.
+ 
+ Final quality correction: the shared Git command helper now optionally returns raw output, so NUL-delimited porcelain status preserves its leading index/worktree columns without a second command boundary or suppression. The tracked dirty-manifest regression proves the exact ` M packages/db/package.json\0` record. The three workspace-manifest matches passed with 11 assertions in 29.28 seconds, and `node --check scripts/prepush-gate.mjs` passed.
++
++## Hook-environment fixture repair
++
++The failed normal push exposed a test-fixture boundary, not a production gate change: Git subprocesses in `test/prepush-gate.test.js` inherited hook-local environment such as `GIT_DIR`, so 23 temporary-repository commands could target the invoking repository. The captured RED proof is `C:/tmp/prepush-hook-fixture-failure-c396d53.log`: the ordinary first-push case failed during fixture setup (zero passes, one failure, 2.45 seconds). The invoking worktree's `core.bare` and local author identity were restored by the lead before this repair.
++
++The minimum shared correction removes all 15 names reported by the installed `git rev-parse --local-env-vars` from every test child environment. The existing `gateEnv` boundary is reused by the fixture Git helper, gate CLI spawns and installed-Lefthook smoke; the last raw porcelain-status Git call now uses the same helper with trimming disabled. The regression models a `GIT_DIR`-only hook context and proves a committed disposable outer repository retains its explicit `core.bare`, complete local config, `HEAD` and status. Static comparison reported 15 built-in names, 15 declared names and zero differences. Independent final-delta review approved this coverage with no blockers (evidence ladder rung 3).
++
++The focused poisoned-hook execution at `C:/tmp/prepush-hook-fixture-focused-20260922-proof-b.log` passed hook isolation (12.73 seconds), ordinary first-push selection (7.84 seconds) and raw dirty-manifest handling (7.97 seconds). The installed-Lefthook smoke then hit its unchanged 30-second test limit at 31.08 seconds after its two child invocations shared one enclosing test budget (`status: null`), so the command ended with three passes, one failure, 14 assertions and 59.89 seconds of Bun-reported time (63.66 seconds launcher elapsed). No timeout, assertion, gate or dependency changed, and no rerun was attempted. The disposable outer repository's config bytes, `core.bare=false`, `HEAD` and clean status were unchanged; the actual worktree remained `core.bare=false`, inside a worktree, with local-config SHA-256 `5C73ED9EC635CE641FDA25DF63C687CD33B080DE6FB28F0940EBAF103961401C`, matching the lead's restored baseline. This is partial rung-4 execution evidence, not a green validation claim.
++
++The first combined launcher was rejected by command policy before starting because it included computed recursive cleanup. A second launcher preserved at `C:/tmp/prepush-hook-fixture-focused-20260922-proof-a.log` stopped after 4.49 seconds because Windows PowerShell treated Bun's stderr banner as a terminating `NativeCommandError`; it produced no test result. The completed launcher left native stderr non-terminating only so Bun could run and saved Bun's real exit code. It did not bypass a repository hook, validation gate or failing exit. Two verified disposable directories remain at `C:/tmp/prepush-hook-outer-20260922-proof-a` and `C:/tmp/prepush-hook-outer-20260922-proof-b` because automatic cleanup was rejected even after their resolved paths were confirmed under `C:/tmp`.
++
++The installed-Lefthook failure was one test-budget defect: one 30-second Bun test included repository setup plus two independent Lefthook child invocations, each also allowed 30 seconds. The protected-rejection assertions completed before the successful-forwarding child returned `status: null`; therefore the grouped result could not prove that either individual hook invocation hung. The smoke was split into two independent tests with the same 30-second limit and all existing assertions. Protected rejection now also requires a concrete non-null status before checking that it is nonzero, so a killed child cannot satisfy the rejection contract.
++
++The two split smoke contracts ran under the same poisoned external `GIT_DIR` and passed at rung 4: two tests, five assertions, zero failures in 26.34 seconds (`C:/tmp/prepush-hook-fixture-split-20260922-proof.log`). Protected rejection completed in 13.10 seconds and successful stdin forwarding in 12.86 seconds; launcher elapsed time was 26.59 seconds. The disposable outer repository again retained `core.bare=false`, identical config bytes, identical `HEAD` and identical status. No other test was rerun; the lead's normal push remains the final full `test:repo-tooling` proof.
++
++Independent narrow review approved the split at rung 3 with no blockers: both contracts retain their 30-second limits and all prior assertions, and protected rejection now excludes a null timeout status. The repair is frozen for lead integration.
+diff --git a/test/prepush-gate.test.js b/test/prepush-gate.test.js
+index 7988e79..df84247 100644
+--- a/test/prepush-gate.test.js
++++ b/test/prepush-gate.test.js
+@@ -43,6 +43,24 @@ const SPAWN_TIMEOUT_MS = 30_000;
+ // leaked into the spawned child, the default-mode assertions below would read
+ // fast-mode output and abort the push (issue #118).
+ const GATE_ENV_KEYS = ["PREPUSH_GATE_FAST", "PREPUSH_GATE_DRY", "PREPUSH_GATE_TEST_FILES"];
++const GIT_LOCAL_ENV_KEYS = [
++  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
++  "GIT_CONFIG",
++  "GIT_CONFIG_PARAMETERS",
++  "GIT_CONFIG_COUNT",
++  "GIT_OBJECT_DIRECTORY",
++  "GIT_DIR",
++  "GIT_WORK_TREE",
++  "GIT_IMPLICIT_WORK_TREE",
++  "GIT_GRAFT_FILE",
++  "GIT_INDEX_FILE",
++  "GIT_NO_REPLACE_OBJECTS",
++  "GIT_REPLACE_REF_BASE",
++  "GIT_PREFIX",
++  "GIT_SHALLOW_FILE",
++  "GIT_COMMON_DIR",
++];
++const CHILD_ENV_KEYS = new Set([...GATE_ENV_KEYS, ...GIT_LOCAL_ENV_KEYS]);
+ 
+ // Build the child env explicitly: inherit everything EXCEPT the gate keys, then
+ // apply only the overrides this call asks for. A key absent from `overrides` is
+@@ -53,7 +71,7 @@ function gateEnv(overrides = {}) {
+   const env = {};
+   for (const [key, value] of Object.entries(process.env)) {
+     if (value === undefined) continue;
+-    if (GATE_ENV_KEYS.includes(key.toUpperCase())) continue;
++    if (CHILD_ENV_KEYS.has(key.toUpperCase())) continue;
+     env[key] = value;
+   }
+   for (const [key, value] of Object.entries(overrides)) {
+@@ -120,8 +138,14 @@ function executeGate(files, { fast = false, dry = false, failOn, cwd, input, arg
+   }
+ }
+ 
+-function git(cwd, args) {
+-  return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
++function git(cwd, args, { trim = true } = {}) {
++  const output = execFileSync("git", args, {
++    cwd,
++    encoding: "utf8",
++    env: gateEnv(),
++    stdio: ["ignore", "pipe", "pipe"],
++  });
++  return trim ? output.trim() : output;
+ }
+ 
+ function writeRepoFile(repo, file, content) {
+@@ -209,13 +233,26 @@ function executeLefthook(repo, input) {
+   }
+ }
+ 
++function installLefthook(repo) {
++  const command = `node ${JSON.stringify(scriptPath)} --pre-push`.replaceAll("\\\\", "/");
++  writeFileSync(path.join(repo, "lefthook.yml"), [
++    "pre-push:",
++    "  jobs:",
++    "    - name: pre-push gate",
++    `      run: ${command}`,
++    "      use_stdin: true",
++    "",
++  ].join("\n"));
++}
++
+ // Run `fn` with `vars` temporarily present in this process's env, then restore
+ // the previous values (including deleting keys that were previously unset).
+ function withAmbientEnv(vars, fn) {
+   const saved = new Map();
+   for (const [key, value] of Object.entries(vars)) {
+     saved.set(key, process.env[key]);
+-    process.env[key] = value;
++    if (value === undefined) delete process.env[key];
++    else process.env[key] = value;
+   }
+   try {
+     fn();
+@@ -350,6 +387,43 @@ describe("prepush-gate command execution", () => {
+ });
+ 
+ describe("prepush-gate Git ranges", () => {
++  test("isolates fixtures from the invoking hook's Git repository", () => {
++    const hookRepo = mkdtempSync(path.join(tmpdir(), "prepush-hook-context-"));
++    let fixtureRepo;
++    try {
++      git(hookRepo, ["init", "-b", "hook-branch"]);
++      git(hookRepo, ["config", "user.name", "Outer Hook"]);
++      git(hookRepo, ["config", "user.email", "outer-hook@example.invalid"]);
++      commitFile(hookRepo, "README.md", "outer\n", "outer");
++      const hookGitDir = path.join(hookRepo, ".git");
++      const originalBare = git(hookRepo, ["config", "--get", "core.bare"]);
++      const originalConfig = git(hookRepo, ["config", "--local", "--list", "--null"]);
++      const originalHead = git(hookRepo, ["rev-parse", "HEAD"]);
++      const originalStatus = git(hookRepo, ["status", "--porcelain=v1", "-z"], { trim: false });
++      withAmbientEnv({ GIT_DIR: hookGitDir, GIT_WORK_TREE: undefined }, () => {
++        const fixture = createGitFixture();
++        fixtureRepo = fixture.repo;
++        checkoutTrackedBranch(fixture.repo, "feature", fixture.base);
++        commitFile(fixture.repo, "apps/platform-web/src/feature.tsx", "feature\n", "feature");
++        const result = executeGate(undefined, {
++          cwd: fixture.repo,
++          input: updateLine(fixture.repo, "refs/heads/feature", fixture.base),
++          args: ["--pre-push"],
++          dry: true,
++        });
++        expect(result.status).toBe(0);
++        expect(result.stdout).toContain("classification: scoped");
++      });
++      expect(git(hookRepo, ["config", "--get", "core.bare"])).toBe(originalBare);
++      expect(git(hookRepo, ["config", "--local", "--list", "--null"])).toBe(originalConfig);
++      expect(git(hookRepo, ["rev-parse", "HEAD"])).toBe(originalHead);
++      expect(git(hookRepo, ["status", "--porcelain=v1", "-z"], { trim: false })).toBe(originalStatus);
++    } finally {
++      if (fixtureRepo) rmSync(fixtureRepo, { recursive: true, force: true });
++      rmSync(hookRepo, { recursive: true, force: true });
++    }
++  }, SPAWN_TIMEOUT_MS);
++
+   test("narrows an ordinary first push from its verified fork point", () => {
+     const { repo, base } = createGitFixture();
+     try {
+@@ -576,10 +650,10 @@ describe("prepush-gate Git ranges", () => {
+       checkoutTrackedBranch(repo, "feature", base);
+       commitFile(repo, "packages/db/src/change.ts", "db\n", "db change");
+       writeRepoFile(repo, "packages/db/package.json", "{\"dirty\":true}\n");
+-      expect(execFileSync(
+-        "git",
++      expect(git(
++        repo,
+         ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
+-        { cwd: repo, encoding: "utf8" },
++        { trim: false },
+       )).toBe(" M packages/db/package.json\0");
+       const result = executeGate(undefined, {
+         cwd: repo,
+@@ -671,25 +745,27 @@ describe("prepush-gate Git ranges", () => {
+     }
+   }, SPAWN_TIMEOUT_MS);
+ 
+-  test("installed Lefthook forwards one stream without hanging and protection precedes Bun", () => {
++  test("installed Lefthook rejects protected destinations before Bun", () => {
+     const { repo, base } = createGitFixture();
+     try {
+       checkoutTrackedBranch(repo, "feature", base);
+       commitFile(repo, "apps/platform-web/src/feature.tsx", "feature\n", "feature");
+-      const command = `node ${JSON.stringify(scriptPath)} --pre-push`.replaceAll("\\\\", "/");
+-      writeFileSync(path.join(repo, "lefthook.yml"), [
+-        "pre-push:",
+-        "  jobs:",
+-        "    - name: pre-push gate",
+-        `      run: ${command}`,
+-        "      use_stdin: true",
+-        "",
+-      ].join("\n"));
+-
++      installLefthook(repo);
+       const protectedResult = executeLefthook(repo, updateLine(repo, "refs/heads/main"));
++      expect(protectedResult.status).not.toBeNull();
+       expect(protectedResult.status).not.toBe(0);
+       expect(protectedResult.calls).toEqual([]);
++    } finally {
++      rmSync(repo, { recursive: true, force: true });
++    }
++  }, SPAWN_TIMEOUT_MS);
+ 
++  test("installed Lefthook forwards one stream without hanging", () => {
++    const { repo, base } = createGitFixture();
++    try {
++      checkoutTrackedBranch(repo, "feature", base);
++      commitFile(repo, "apps/platform-web/src/feature.tsx", "feature\n", "feature");
++      installLefthook(repo);
+       const featureResult = executeLefthook(repo, updateLine(repo, "refs/heads/feature"));
+       expect(featureResult.status).toBe(0);
+       expect(featureResult.calls.join(" ")).toContain("apps/platform-web test");
+-- 
+2.51.0.windows.1
+

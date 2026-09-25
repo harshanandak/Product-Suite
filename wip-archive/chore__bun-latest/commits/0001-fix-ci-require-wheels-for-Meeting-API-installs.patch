@@ -1,0 +1,69 @@
+From b51418e8223d0da5604c58cda59efc8f8fb0f1c5 Mon Sep 17 00:00:00 2001
+From: Harsha Nanda <212836255+harshanandak@users.noreply.github.com>
+Date: Sat, 19 Sep 2026 23:12:44 +0530
+Subject: [PATCH] fix(ci): require wheels for Meeting API installs
+
+---
+ .github/workflows/meeting-api-ci.yml |  4 +++-
+ CHANGELOG.md                         |  1 +
+ test/repo-tooling.test.js            | 17 +++++++++++++++++
+ 3 files changed, 21 insertions(+), 1 deletion(-)
+
+diff --git a/.github/workflows/meeting-api-ci.yml b/.github/workflows/meeting-api-ci.yml
+index 60ae6b5..cc91af5 100644
+--- a/.github/workflows/meeting-api-ci.yml
++++ b/.github/workflows/meeting-api-ci.yml
+@@ -67,7 +67,9 @@ jobs:
+         run: bun install --frozen-lockfile --ignore-scripts
+ 
+       - name: Install backend dependencies
+-        run: python -m pip install --upgrade pip && python -m pip install -r apps/meeting-api/backend/requirements.txt
++        run: >-
++          python -m pip install --only-binary :all: --upgrade pip &&
++          python -m pip install --only-binary :all: -r apps/meeting-api/backend/requirements.txt
+ 
+       - name: Run backend lint
+         run: python -m flake8 --select=E9,F63,F7,F82 apps/meeting-api/backend apps/meeting-api/tests/backend
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index a125dbf..fa43543 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+ ## [Unreleased]
+ 
+ ### Security
++- Meeting API CI now requires binary wheels for both the pip upgrade and backend dependency installation (Forge issue `4ed8a31c-3f63-462d-84b2-9149090e69e0`)
+ - Canonical tenant capability context now derives viewer/member/admin/owner authority from active database memberships and guards team, status, and project writes with fail-closed 404/403 behavior (PR #176, Forge issue `af872dc9-3c53-4f9d-9fc0-3e0bbdf6889f`)
+ - GitHub Actions dependency installs for DB Contract and Platform Web now disable package lifecycle scripts while retaining frozen-lockfile enforcement (PR #171, Forge issue `808fbffa-8923-4083-9e5e-407b5b855454`)
+ 
+diff --git a/test/repo-tooling.test.js b/test/repo-tooling.test.js
+index 57e186c..cbc75a8 100644
+--- a/test/repo-tooling.test.js
++++ b/test/repo-tooling.test.js
+@@ -532,6 +532,23 @@ describe("repo tooling", () => {
+     expect(meetingApiWorkflow).toContain("python -m pytest apps/meeting-api/tests/backend -q");
+   });
+ 
++  test("meeting-api CI installs Python packages from wheels only", () => {
++    const workflow = Bun.YAML.parse(meetingApiWorkflow);
++    const install = workflow.jobs.backend.steps.find(
++      (step) => step.name === "Install backend dependencies",
++    );
++
++    expect(install).toBeDefined();
++    const pipInstalls = install.run.split("&&").map((command) => command.trim());
++    expect(pipInstalls).toHaveLength(2);
++    for (const command of pipInstalls) {
++      expect(command).toMatch(/^python -m pip install\b/);
++      expect(command).toMatch(/(?:^|\s)--only-binary(?:=|\s+):all:(?:\s|$)/);
++    }
++    expect(pipInstalls[0]).toContain("--upgrade pip");
++    expect(pipInstalls[1]).toContain("-r apps/meeting-api/backend/requirements.txt");
++  });
++
+   test("roadmap CI reflects the local validation baseline", () => {
+     expect(roadmapWebWorkflow).toContain("Roadmap unit tests");
+     expect(roadmapWebWorkflow).toContain("bun run test");
+-- 
+2.51.0.windows.1
+

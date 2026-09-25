@@ -1,0 +1,30 @@
+diff --git a/apps/platform-api/package.json b/apps/platform-api/package.json
+index ecec55c..64b2497 100644
+--- a/apps/platform-api/package.json
++++ b/apps/platform-api/package.json
+@@ -8,6 +8,9 @@
+   },
+   "scripts": {
+     "dev": "wrangler dev",
++    "build": "tsc",
++    "deploy": "wrangler deploy",
++    "deploy:prod": "wrangler deploy --env production",
+     "test": "vitest run",
+     "typecheck": "tsc --noEmit",
+     "lint": "eslint"
+diff --git a/apps/platform-web/vite.config.ts b/apps/platform-web/vite.config.ts
+index 52742dc..2db8e24 100644
+--- a/apps/platform-web/vite.config.ts
++++ b/apps/platform-web/vite.config.ts
+@@ -24,8 +24,10 @@ export default defineConfig({
+     // the worker is started on a different one.
+     proxy: {
+       "/api": {
+-        target: "http://127.0.0.1:8787",
++        // LOCAL TEST: proxy to the deployed Worker (revert to :8787 for `wrangler dev`).
++        target: "https://platform-api-production.harshananda57.workers.dev",
+         changeOrigin: true,
++        secure: true,
+       },
+     },
+   },

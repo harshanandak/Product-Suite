@@ -1,0 +1,670 @@
+From 6394ccc88e81fd0c46641a54d3c1416a41ba8d9e Mon Sep 17 00:00:00 2001
+From: Harsha Nanda <harshanandak@users.noreply.github.com>
+Date: Sat, 8 Aug 2026 18:34:55 +0530
+Subject: [PATCH] docs(plan): define meeting terminal finalization bridge
+
+---
+ .../ce942338-35af-4960-ae83-ebc55bdbbe2a.md   | 132 +++++++++
+ .../plan.md                                   | 258 ++++++++++++++++++
+ .../tasks.md                                  | 245 +++++++++++++++++
+ 3 files changed, 635 insertions(+)
+ create mode 100644 docs/research/ce942338-35af-4960-ae83-ebc55bdbbe2a.md
+ create mode 100644 docs/work/2026-08-08-meeting-terminal-finalization/plan.md
+ create mode 100644 docs/work/2026-08-08-meeting-terminal-finalization/tasks.md
+
+diff --git a/docs/research/ce942338-35af-4960-ae83-ebc55bdbbe2a.md b/docs/research/ce942338-35af-4960-ae83-ebc55bdbbe2a.md
+new file mode 100644
+index 0000000..d0d2e89
+--- /dev/null
++++ b/docs/research/ce942338-35af-4960-ae83-ebc55bdbbe2a.md
+@@ -0,0 +1,132 @@
++# Research — real meeting terminal finalization bridge
++
++Issue: `ce942338-35af-4960-ae83-ebc55bdbbe2a`  
++Baseline: `origin/main` at `42e30d88bc516dc6472c9f1bb837bd694844aa47`  
++Date: 2026-08-08
++
++## Finding
++
++The defect is confirmed. The local browser stop path waits for `MediaRecorder.stop()` and then
++writes `status: "completed"` (`apps/meeting-web/src/App.jsx:671-680`). The meeting API triggers an
++explicit final materialization only for `status == "stopped"`
++(`apps/meeting-api/backend/server.py:2838-2871`), and the shared terminal predicate also recognizes
++only `stopped` (`apps/meeting-api/backend/workflows/meeting_state_update.py:18-19`). A completed
++meeting therefore does not finalize its last partial chapter at stop time.
++
++The visible artifact surface and the legacy summary API are also split:
++
++- `useMeetingState` loads state, chapters, decisions, action items, questions, and recent lines
++  (`apps/meeting-web/src/hooks/useMeetingState.js:128-205`); `MeetingSummaryBlock` renders those
++  artifacts (`packages/ui-meeting/src/meeting-summary-block.jsx:154-182,298-308`).
++- `App` separately fetches `GET /summary` but stores it in a state setter whose value is never read
++  (`apps/meeting-web/src/App.jsx:149,287-315`).
++- `GET /summary` reads the separate `summaries` table
++  (`apps/meeting-api/backend/server.py:3130-3141`), while transcript chunk and terminal
++  materialization write `meeting_state`, `chapter_summaries`, and generated records
++  (`apps/meeting-api/backend/server.py:2064-2230`).
++
++The existing platform E2E explicitly starts downstream of the broken bridge by directly seeding a
++generated `action_items` row (`apps/platform-web/e2e/meeting-loop.spec.ts:13-25` and
++`apps/platform-web/e2e/db-provenance.e2e.ts:50-115`). It proves proposal acceptance, not transcript
++finalization.
++
++## Current data and event flow
++
++1. `useAudioRecorder` emits a browser chunk; `App.handleChunkReady` sends it through
++   `POST /meetings/{meeting_id}/transcribe` (`apps/meeting-web/src/App.jsx:356-385`).
++2. The API stores transcript segments and updates meeting duration/count
++   (`apps/meeting-api/backend/server.py:2886-2994`). Boundary crossings may invoke non-final
++   materialization.
++3. The UI refreshes the summary-first surface after a chunk through
++   `syncSummaryStateAfterTranscriptionChunk` (`apps/meeting-web/src/App.jsx:367-377`).
++4. User Stop awaits the recorder, then writes `completed` (`apps/meeting-web/src/App.jsx:671-682`).
++5. The API persists that status but does not call final materialization because it checks only
++   `stopped` (`apps/meeting-api/backend/server.py:2867-2871`).
++6. Read-time repair checks the same `stopped` predicate. `completed` returns false, so state and
++   chapter reads do not repair the missing final window
++   (`apps/meeting-api/backend/server.py:1992-2023,3144-3161,3181-3198`).
++
++## Existing behavior worth preserving
++
++- Materialization reads all ordered transcript segments, replaces tenant-scoped derived state and
++  chapters, and commits them together (`apps/meeting-api/backend/server.py:2071-2224`).
++- Chapter and generated-record IDs are content/window-derived, so replacement can be deterministic
++  (`apps/meeting-api/backend/server.py:1931-1949`; `apps/meeting-api/backend/services/chapter_summary.py:207-250`).
++- Exact-boundary and cross-chapter dedup behavior already has focused tests
++  (`apps/meeting-api/tests/backend/test_summary_routes.py:472-616`).
++- Existing fixtures cover several stopped meetings, but none uses `completed`
++  (`apps/meeting-api/tests/backend/fixtures/*.json`).
++- The current explicit-stop test proves only `stopped -> one materialize call`
++  (`apps/meeting-api/tests/backend/test_summary_routes.py:789-836`).
++
++## Edge-case gaps
++
++- Empty transcript: final chapter builder returns no chapters
++  (`apps/meeting-api/backend/server.py:1881-1888`). This should be a successful empty finalization,
++  not an exception or a fabricated summary.
++- Short meeting: the final partial window can be dropped by the sparse-window threshold
++  (`apps/meeting-api/backend/server.py:1923-1927`). Finalization must not lose the only meaningful
++  transcript in a short meeting.
++- Duplicate/reconnect: `record_completed_job` always inserts a new random job row
++  (`apps/meeting-api/backend/server.py:1686-1728`); its current use is observability, not an
++  exactly-once claim.
++- Failure after status persistence: the route writes the terminal status before materialization.
++  It has no durable finalization state, transcript watermark, or retry contract.
++- Inactivity: read-time logic treats stale `recording` as finalizable based only on `updated_at`
++  (`apps/meeting-api/backend/server.py:1992-2004`). Silence alone cannot prove the local recorder or
++  durable upload drain has ended.
++- Consent: the shipped local path checks microphone permission and exposes Recording/Paused/Stop
++  controls (`apps/meeting-web/src/App.jsx:618-633`;
++  `packages/ui-meeting/src/meeting-summary-block.jsx:249-295`), but no persisted consent artifact is
++  present in the inspected code. This plan preserves the indicator and consumes the local-capture
++  consent/durability contract; it does not invent legal consent semantics.
++
++## Recommended pattern
++
++Use a dedicated finalization command and durable ledger keyed by the acknowledged transcript
++watermark. Canonical stored terminal status is `completed`; incoming legacy `stopped` is accepted,
++normalized to `completed`, and reported through compatibility telemetry. The command performs one
++transactional artifact replacement/upsert and records success against the watermark. Duplicate
++terminal events return the stored result. Failed attempts can retry the same key; a later transcript
++watermark creates a new repair attempt only when the capture durability contract proves those
++segments were acknowledged.
++
++The finalizer must depend on:
++
++1. caller-authority PR A for meeting/derivative visibility and provenance contracts;
++2. caller-authority PR B for the meeting-owned action-candidate write seam and review boundary;
++3. local durability issue `d88d461a-c259-4dc6-a751-f2b3c6898b7a` for capture-session sequence and
++   contiguous-ack evidence.
++
++It must not own PR B's candidate schema, Add/Adjust/Dismiss behavior, promotion, or review UI.
++
++## Security and reliability pass
++
++| Area | Applies | Plan response |
++|---|---|---|
++| A01 broken access control | Yes | Reuse caller PR A visibility/provenance check before transcript read or artifact write; missing authority denies. |
++| A02 crypto | No new primitive | Never copy raw audio/transcript into logs or ledger metadata. |
++| A03 injection | Yes | Parameterized SQL only; status and terminal reason are closed enums; transcript remains data. |
++| A04 insecure design | Yes | Durable idempotency key, transactional writes, explicit incomplete-capture conflict, fail-closed authority. |
++| A05 misconfiguration | Yes | Feature flag the new endpoint/legacy alias; reject unknown terminal states. |
++| A06 vulnerable components | No | No dependency is required. |
++| A07 authentication | Yes | Existing authenticated actor plus caller PR A authorization. |
++| A08 integrity | Yes | Watermark binds capture session, last contiguous sequence, segment count, and final timestamp. |
++| A09 logging | Yes | Structured IDs/counts/timing only; no transcript text, participant names, or audio. |
++| A10 SSRF | No | No provider or URL fetch is added. |
++
++## Baseline and coordination evidence
++
++- Worktree is a clean exact fork of `origin/main` at `42e30d88bc516dc6472c9f1bb837bd694844aa47`.
++- Conflict detection reports the issue is not yet in the file index; merge simulation reports no
++  conflict with main.
++- The merge-order helper reports a pre-existing dependency cycle, and stale-worktree output names
++  unrelated old worktrees. No override or mutation was made.
++- `forge team verify` reports a pre-existing missing team-map identity and GitHub issues #145/#141
++  not imported. The distinct Kernel actor lease is independently proven.
++- `forge research` is unavailable in this installed CLI; this file supplies the required research
++  artifact using the repository's live code as primary evidence.
++- Untouched baseline validation passed: meeting API `226 passed, 1 skipped` and meeting-web
++  `27 files / 132 tests passed`. The first web run could not find Vitest because the isolated
++  worktree had no dependencies; `bun install --frozen-lockfile` made no lockfile changes, after which
++  the suite passed.
+diff --git a/docs/work/2026-08-08-meeting-terminal-finalization/plan.md b/docs/work/2026-08-08-meeting-terminal-finalization/plan.md
+new file mode 100644
+index 0000000..c6639f5
+--- /dev/null
++++ b/docs/work/2026-08-08-meeting-terminal-finalization/plan.md
+@@ -0,0 +1,258 @@
++# Meeting terminal finalization bridge
++
++**Feature:** `meeting-terminal-finalization`  
++**Issue:** `ce942338-35af-4960-ae83-ebc55bdbbe2a`  
++**Date:** 2026-08-08  
++**Status:** PLAN — awaiting human review; no implementation authorized
++
++## Purpose
++
++Make the user-visible local Stop action a reliable bridge from acknowledged transcript evidence to
++final meeting artifacts. Today the browser stores `completed`, while the API finalizes only
++`stopped`. The change must make terminal delivery idempotent, keep the final partial chapter, expose
++one stored/live summary truth, refresh the existing meeting artifact surface, and hand meeting-owned
++action candidates to caller-authority PR B without creating work automatically.
++
++## Success criteria
++
++1. `completed` is the only canonical persisted terminal status. Legacy `stopped` requests and rows
++   remain readable and trigger the same finalizer, but are normalized to `completed` on write/repair.
++2. A user Stop sends one authenticated finalize command only after the local durability layer proves
++   every emitted slice through `expected_last_sequence` is contiguously acknowledged.
++3. Finalization is keyed by a deterministic transcript watermark. Concurrent, retried, reconnected,
++   or duplicate terminal events produce one successful artifact version and return its stored result.
++4. A meaningful short transcript produces a final chapter. A sparse trailing partial is merged into
++   the preceding chapter or retained; no nonblank acknowledged segment disappears. An empty transcript
++   completes successfully with zero chapters/candidates and an explicit empty artifact result.
++5. Final meeting state, chapters, summary snapshot, and the PR-B candidate handoff commit atomically.
++   Failure leaves the previous complete artifact version visible and a retryable failed ledger entry.
++6. `GET /summary`, history `final_summary`, and the visible summary-first surface project the same
++   finalized snapshot. The browser no longer fetches a discarded second summary value.
++7. On successful Stop, the existing meeting surface refreshes state/chapters/artifacts before showing
++   completion. A failed or incomplete finalization is visible and retryable; it is never reported as
++   completed success.
++8. A real-source integration/E2E fixture starts with a meeting plus transcript segments, invokes the
++   production finalize API, observes final chapter/summary/candidate evidence, and reaches PR B's
++   review boundary without seeding `action_items` and without creating a task/work item.
++
++## Exact terminal-state contract
++
++### States
++
++| Input/state | Stored status | Finalize behavior |
++|---|---|---|
++| `idle`, `recording`, `paused` | unchanged | Not terminal. |
++| `completed` command | `completed` | Canonical explicit terminal command. |
++| legacy `stopped` command/row | `completed` | Accepted alias; emit compatibility counter. |
++| duplicate `completed` | `completed` | Return the successful result for the same watermark; no rewrite/job duplication. |
++| unknown terminal string | unchanged | `422 invalid_meeting_status`. |
++| incomplete capture drain | active prior state | `409 capture_not_drained`; do not finalize or claim success. |
++| finalization failure | `completed` + ledger `failed` | Return retryable failure; artifact readers retain last complete version. UI says finalization failed/pending, not success. |
++
++`completed` means capture has ended. Artifact readiness is separately represented by finalization
++state (`pending | running | succeeded | failed`) so status does not lie about artifact completion.
++
++### Command
++
++`POST /meetings/{meeting_id}/finalize`
++
++```json
++{
++  "terminal_event_id": "client-generated-id",
++  "reason": "user_stop",
++  "capture_session_id": "session-id",
++  "expected_last_sequence": 17
++}
++```
++
++Success and duplicate response:
++
++```json
++{
++  "meeting_id": "meeting-id",
++  "status": "completed",
++  "finalization": {
++    "state": "succeeded",
++    "key": "meeting-id:session-id:17:<segment-watermark>",
++    "artifact_version": 1,
++    "empty": false,
++    "counts": { "chapters": 1, "action_candidates": 2 }
++  }
++}
++```
++
++Caller PR A supplies authorization/provenance. The durability issue supplies the capture-session
++acknowledgement query. For a legacy meeting without capture-session metadata, authenticated
++`PUT /meetings/{id}` with `completed` or `stopped` invokes compatibility finalization against an
++ordered-segment watermark; this path is telemetry-visible and removable only after legacy usage is
++zero for one release window.
++
++### Idempotency and transaction
++
++Add `meeting_finalizations` with a unique `(meeting_id, finalization_key)`, status, attempt count,
++artifact version/count metadata, timestamps, terminal reason, and sanitized error code. The key is
++derived from meeting id + capture session + last contiguous sequence + ordered transcript watermark;
++never from transcript text. The service:
++
++1. authorizes the meeting and verifies capture drain;
++2. computes the key from acknowledged transcript rows;
++3. inserts/locks the ledger row;
++4. returns immediately if it already succeeded;
++5. materializes state, lossless final chapters, and one final summary snapshot;
++6. calls PR B's meeting-owned candidate materialization seam;
++7. replaces/upserts the artifact version and marks the ledger succeeded in one transaction;
++8. records structured counts/timing after commit.
++
++A failed transaction rolls back artifacts and records a sanitized failure in a new short transaction.
++Retries reuse the key. A later acknowledged transcript watermark is a new repair version, not a
++duplicate.
++
++## Short, empty, and partial meetings
++
++- **Empty/whitespace:** succeed with `empty=true`, zero chapters and candidates, and an empty stored
++  summary snapshot. Do not call the candidate extractor.
++- **Only meaningful partial window:** retain it as chapter 0 even when it is below the normal chapter
++  window or the current sparse threshold.
++- **Sparse trailing content after full chapters:** merge it into the preceding final chapter so every
++  acknowledged nonblank segment is referenced exactly once.
++- **Incomplete/unacknowledged slices:** return `409`; retain active status and recording/finalizing UI.
++- **Duplicate/out-of-order transcript rows:** consume the durability layer's contiguous sequence and
++  stable segment IDs; duplicate terminal events cannot expand the watermark.
++- **Reconnect:** the client reloads the capture session, drains, then reuses the same terminal event or
++  issues a new event that resolves to the same finalization key.
++
++## Stored/live summary unification
++
++During capture, `meeting_state` remains the live projection. On finalization, the service derives a
++single `FinalMeetingSummary` from the ordered final chapters and upserts the existing `summaries` row
++inside the artifact transaction. `GET /summary` and history continue to use that row for backwards
++compatibility. `useMeetingState` remains the visible source and refreshes chapters/state/candidates;
++`App` removes its unused `getSummary` state/fetch. The manual `POST /summary` route becomes a
++compatibility alias for canonical rematerialization and must not create a competing LLM summary.
++
++No raw transcript is copied into the summary ledger or client response.
++
++## Consent and recording state
++
++This lane preserves, but does not redefine, consent:
++
++- microphone permission remains a prerequisite to local capture;
++- the existing Recording/Paused/Stop indicator stays visible while capture is active;
++- Stop cannot report success before durable drain and final artifact refresh;
++- reconnect/failure shows a pending or failed finalization state and a retry action;
++- persisted consent evidence and legal policy remain owned by the local capture/durability contract.
++
++The repository currently has no persisted consent artifact. Approval of this plan must not be read as
++a claim that legal consent requirements are already implemented.
++
++## Artifact surface handoff
++
++After a successful finalize response, `App` applies the returned canonical meeting status, calls
++`summaryState.refresh()`, and only then announces completion. `MeetingSummaryBlock` may change the
++label from “Live Summary” to “Meeting Summary” when `meeting.status === "completed"`; it does not add
++PR B's mixed-content cards or Add/Adjust/Dismiss controls. PR B owns the candidate/review contract.
++
++## Dependencies and sequencing
++
++1. **Caller authority PR A lands first:** meeting/derivative visibility, membership and provenance
++   contracts exist and are fail-closed.
++2. **Caller authority PR B lands second:** meeting-owned candidate write/read seam and review boundary
++   exist. PR B exclusively owns candidate versions, Add/Adjust/Dismiss, promotion, task/work-item
++   creation, and compact mixed-content review UI.
++3. **Local durability issue `d88d…` supplies its contract:** capture-session id, monotonic sequence,
++   contiguous acknowledgement, reload drain, and consent/indicator preservation.
++4. **This lane PR 1:** backend terminal contract and durable artifact finalizer.
++5. **This lane PR 2:** local client completion bridge, artifact refresh, compatibility cleanup and
++   transcript-start E2E.
++6. External vendor connectors follow this bridge; they are not prerequisites or part of this lane.
++
++Because PR A/B are sub-PR gates inside issue `bdd55…`, do not add a broad issue dependency that would
++unnecessarily wait for its PR C search work. Record the exact PR heads in the implementation issue
++comment before `/dev` begins.
++
++## File ownership
++
++### This lane
++
++- `apps/meeting-api/backend/workflows/post_meeting_finalize.py`
++- `apps/meeting-api/backend/services/meeting_finalization.py` (new)
++- `apps/meeting-api/backend/alembic/versions/0005_meeting_finalizations.py` (number revalidated at dev)
++- terminal/finalization portions only of `apps/meeting-api/backend/server.py`
++- `apps/meeting-api/tests/backend/test_meeting_finalization.py` (new)
++- `apps/meeting-api/tests/backend/fixtures/completed_short_meeting.json` (new)
++- `packages/sdk/src/meeting.js`, `packages/sdk/src/index.d.ts`, `packages/sdk/src/meeting.test.ts`
++- `apps/meeting-web/src/App.jsx`, `apps/meeting-web/src/__tests__/App.test.js`
++- `apps/meeting-web/src/lib/api.js`, `apps/meeting-web/src/lib/__tests__/api.test.js`
++- artifact-label-only changes in `packages/ui-meeting/src/meeting-summary-block.jsx` and its test
++- transcript/finalize fixture and spec changes under `apps/platform-web/e2e/`
++
++### Explicitly not owned
++
++- PR A authority schema, visibility evaluator, membership model, or provenance schema
++- PR B action-candidate backend/schema/extraction, candidate versioning, Add/Adjust/Dismiss,
++  proposal/task promotion, or review-pack UI
++- `ExternalMeetingConnector`, Recall, Zoom RTMS, Google Meet, Teams, RoomProvider
++- diarization, speaker naming/confidence, speech-provider selection, recorder durability internals
++
++If caller PR B also edits `server.py` or E2E helpers, this lane rebases after B and confines its diff to
++the finalizer call/handoff; it never duplicates B logic.
++
++## Delivery size
++
++- **PR 1 — backend finalization:** medium, approximately 450–700 changed LOC plus one migration and
++  focused tests.
++- **PR 2 — client bridge and E2E:** medium, approximately 300–500 changed LOC, mostly tests/fixtures.
++
++Do not combine them: the migration/idempotency contract needs independent review before the browser
++and live E2E depend on it.
++
++## Backward compatibility
++
++- Accept `stopped` at the API and in existing rows; normalize to `completed` when touched.
++- Keep `PUT /meetings/{id}` and `GET/POST /summary` shapes during the compatibility window.
++- New clients use `POST /finalize`; old completed clients are repaired by the compatibility hook.
++- Readers understand both legacy statuses until telemetry shows zero `stopped` rows/events.
++- Migration is additive; no destructive column or table removal in this lane.
++
++## Rollout, rollback, and observability
++
++Roll out behind `MEETING_TERMINAL_FINALIZER_V2`:
++
++1. migrate ledger with writes disabled;
++2. shadow-compute keys/artifact counts without replacing artifacts;
++3. enable canonical finalization for internal tenants;
++4. enable browser endpoint after failure/latency/duplicate metrics are healthy;
++5. enable legacy status normalization last.
++
++Metrics/log fields: finalization state/reason, compatibility status, hashed meeting id, capture session
++id hash, expected/acknowledged sequence, transcript segment count/max timestamp, artifact version and
++counts, attempts, duration, sanitized error code. Never log transcript/audio/participant content.
++
++Rollback disables V2 and returns old routes to legacy behavior; the additive table remains. Do not
++roll back after new clients require `/finalize` without first restoring the compatibility PUT path.
++Successful artifact versions remain readable.
++
++## Non-goals
++
++- Provider connectors or calendar orchestration
++- Diarization or speaker-confidence changes
++- Capture slice persistence/retry implementation owned by `d88…`
++- Candidate/review-card backend or UI owned by caller PR B
++- Automatic proposal, task, or work-item creation
++- Raw transcript search/retrieval or provider-owned authority
++
++## Ambiguity policy
++
++Use the `/dev` seven-dimension decision rubric. Proceed and document only at at least 80% confidence.
++Stop for review below 80%, for any authority/provenance relaxation, or if caller PR A/B or `d88…`
++lands a conflicting contract.
++
++## Technical research
++
++The primary-evidence trace and OWASP/reliability pass are in
++`docs/research/ce942338-35af-4960-ae83-ebc55bdbbe2a.md`. The selected approach extends the existing
++summary-first materializer and read surfaces; it adds no external dependency. Required TDD scenarios
++include canonical completed, legacy stopped, duplicate/concurrent events, failed retry, empty/short/
++partial transcripts, incomplete drain, reconnect, stored/live summary equality, artifact refresh, and
++the transcript-start E2E.
++
+diff --git a/docs/work/2026-08-08-meeting-terminal-finalization/tasks.md b/docs/work/2026-08-08-meeting-terminal-finalization/tasks.md
+new file mode 100644
+index 0000000..fc01ae7
+--- /dev/null
++++ b/docs/work/2026-08-08-meeting-terminal-finalization/tasks.md
+@@ -0,0 +1,245 @@
++# Tasks — meeting terminal finalization bridge
++
++All work is TDD-first and sequential. Initial approval authorizes only PR 1. PR 2 requires PR 1 to
++land and its rollout evidence to pass. Rebase after caller-authority PR A and PR B; confirm the local
++durability contract before implementation.
++
++## Ownership guard
++
++Caller PR B exclusively owns action-candidate schema/backend behavior, versions, Add/Adjust/Dismiss,
++promotion, and review-pack UI. These tasks may invoke and assert PR B's meeting-owned candidate seam,
++but must not implement or reshape it. The durability issue owns IndexedDB, slice retries, sequence
++acknowledgement, and recorder recovery. This lane owns only terminal orchestration and artifact handoff.
++
++## PR 1 — canonical terminal contract and durable finalizer
++
++### Task 1: Lock canonical/legacy terminal semantics
++
++**OWNS:**
++`apps/meeting-api/backend/workflows/post_meeting_finalize.py`,
++`apps/meeting-api/tests/backend/test_worker_jobs.py`
++
++**What to implement:** Define closed status/reason values; canonicalize `stopped` to `completed`;
++separate capture-ended from artifact-finalization state; build a deterministic finalization key from
++meeting/capture/watermark metadata. Remove the stopped-only predicate without broadening arbitrary
++states.
++
++**TDD steps:**
++
++1. RED: add table-driven tests for completed, legacy stopped, active/unknown states, stable equivalent
++   watermarks, and different sequence/watermark keys.
++2. Run `pytest apps/meeting-api/tests/backend/test_worker_jobs.py`; observe completed is not terminal.
++3. GREEN: implement the smallest pure helpers and closed enums.
++4. Re-run the focused test and full meeting-api unit suite.
++5. Commit: `fix(meeting): canonicalize terminal finalization status`.
++
++**Expected output:** `completed` is canonical; `stopped` is an observable alias; keys contain no text.
++
++### Task 2: Add the additive finalization ledger
++
++**OWNS:**
++`apps/meeting-api/backend/alembic/versions/0005_meeting_finalizations.py`,
++`apps/meeting-api/tests/backend/test_schema_revision.py`,
++`apps/meeting-api/tests/backend/test_storage_contract.py`
++
++**What to implement:** Revalidate the next Alembic revision at `/dev` start. Add
++`meeting_finalizations` with unique meeting/key, state, attempt count, version/count metadata,
++terminal reason, timestamps, and sanitized error code. Add no transcript/audio/content column.
++
++**TDD steps:**
++
++1. RED: assert forward migration, uniqueness/idempotency constraint, tenant/meeting indexes, additive
++   downgrade, and absence of content-bearing fields.
++2. Run schema/storage tests and capture the missing-revision failure.
++3. GREEN: add the migration and minimal repository SQL contract.
++4. Re-run migration parity/schema/storage tests.
++5. Commit: `feat(meeting): add terminal finalization ledger`.
++
++**Expected output:** the database can atomically claim/retry one transcript watermark.
++
++### Task 3: Make final chapter coverage lossless
++
++**OWNS:**
++`apps/meeting-api/backend/server.py` (materialization helpers only),
++`apps/meeting-api/tests/backend/test_summary_routes.py`,
++`apps/meeting-api/tests/backend/fixtures/completed_short_meeting.json`
++
++**What to implement:** Preserve existing exact-boundary/dedup behavior while ensuring every
++acknowledged nonblank segment appears in one final chapter. Keep the only meaningful partial window;
++merge sparse trailing content into the preceding chapter; return explicit empty artifacts for empty
++transcripts. Do not change diarization or candidate extraction.
++
++**TDD steps:**
++
++1. RED: completed short one-segment fixture, empty fixture, sparse trailing segment, exact boundary,
++   multilingual text, and no duplicate segment references.
++2. Run the focused summary tests; observe short/partial loss under the current sparse rule.
++3. GREEN: adjust final chapter construction only.
++4. Re-run all existing summary-first fixture/acceptance tests.
++5. Commit: `fix(meeting): retain final partial transcript chapter`.
++
++**Expected output:** final chapter coverage is lossless; empty meetings fabricate nothing.
++
++### Task 4: Implement transactional, idempotent finalization
++
++**OWNS:**
++`apps/meeting-api/backend/services/meeting_finalization.py`,
++`apps/meeting-api/tests/backend/test_meeting_finalization.py`
++
++**What to implement:** Add the orchestrator that authorizes through PR A, verifies the `d88…`
++contiguous-ack contract, claims/locks the ledger, loads ordered transcript rows, materializes artifacts,
++upserts the canonical summary snapshot, calls PR B's candidate seam, and commits ledger success with
++artifacts. Retry failed keys; return stored results for succeeded duplicates. Structured telemetry only.
++
++**TDD steps:**
++
++1. RED: first success, concurrent/duplicate terminal events, failure rollback, retry-after-failure,
++   later watermark repair, unauthorized/missing provenance, incomplete drain, empty transcript, and
++   PR-B seam invoked once/no automatic work write.
++2. Run the new test; observe missing service/ledger arbitration.
++3. GREEN: implement one transaction plus sanitized failure recording.
++4. Re-run finalization, authority-contract, summary, and storage tests.
++5. Commit: `feat(meeting): finalize acknowledged transcript exactly once`.
++
++**Expected output:** one succeeded artifact version per watermark; failed attempts are retryable.
++
++### Task 5: Wire the production API and compatibility routes
++
++**OWNS:**
++`apps/meeting-api/backend/server.py` (meeting update/finalize/summary routes only),
++`apps/meeting-api/tests/backend/test_summary_routes.py`,
++`apps/meeting-api/tests/backend/test_security_contract.py`
++
++**What to implement:** Add authenticated `POST /meetings/{id}/finalize`; normalize legacy stopped;
++route legacy completed/stopped PUTs and POST summary through the canonical service; make GET summary
++read the stored canonical snapshot. Return 409 for incomplete drain, 422 for invalid status, and a
++stable duplicate response. Do not accept provider callbacks or anonymous finalization.
++
++**TDD steps:**
++
++1. RED: request/response contract, auth/visibility denial, legacy alias, duplicate, 409, retryable
++   failure, summary equality, and unknown status.
++2. Run focused route/security tests; observe completed does not call finalization.
++3. GREEN: thin route wiring only; business logic remains in the service.
++4. Re-run meeting-api tests and OpenAPI/contract checks.
++5. Commit: `fix(meeting): bridge completed status to final artifacts`.
++
++**Expected output:** API callers have one canonical terminal command and compatible legacy routes.
++
++### PR 1 gate
++
++- Caller PR A/B exact heads recorded and contracts conformed.
++- Durability acknowledgement contract available or PR 1 remains draft-blocked.
++- Migration, security, summary, finalization and meeting-api suites pass.
++- Shadow-mode metrics contain no transcript/audio/participant content.
++- Estimated size: 450–700 changed LOC plus tests/migration.
++
++## PR 2 — local completion bridge and transcript-start proof
++
++### Task 6: Add the typed SDK finalize command
++
++**OWNS:**
++`packages/sdk/src/meeting.js`,
++`packages/sdk/src/index.d.ts`,
++`packages/sdk/src/meeting.test.ts`,
++`apps/meeting-web/src/lib/api.js`,
++`apps/meeting-web/src/lib/__tests__/api.test.js`
++
++**What to implement:** Add typed `finalizeMeeting(id, command)` delegation. Preserve generic
++`updateMeeting` for compatibility. No provider or review-card method enters the SDK.
++
++**TDD steps:**
++
++1. RED: exact escaped URL, POST body, auth/error propagation, and facade delegation.
++2. Run SDK and meeting-web API tests; observe the method is absent.
++3. GREEN: implement the typed method and facade.
++4. Re-run SDK/API tests and type checks.
++5. Commit: `feat(meeting-sdk): add terminal finalize command`.
++
++**Expected output:** clients can send the production finalization contract without raw fetch logic.
++
++### Task 7: Bridge Stop to drain, finalize, and artifact refresh
++
++**OWNS:**
++`apps/meeting-web/src/App.jsx`,
++`apps/meeting-web/src/__tests__/App.test.js`,
++`apps/meeting-web/src/lib/meetingCompletion.js`,
++`apps/meeting-web/src/lib/meetingCompletion.test.js`
++
++**What to implement:** After recorder stop, consume `d88…`'s drain result, call finalize with stable
++event/session/sequence metadata, apply canonical completed state, refresh `useMeetingState`, then show
++success. On 409/retryable failure/reconnect, preserve a finalizing/failed UI state and retry the same
++command. Remove the unused legacy summary state/fetch. Do not add candidate cards.
++
++**TDD steps:**
++
++1. RED: successful order (`stop -> drain -> finalize -> refresh -> success`), no finalize before
++   drain, duplicate click, reconnect retry, 409, server failure, and no false completion toast.
++2. Run focused App/completion tests; observe current direct completed PUT and no artifact refresh.
++3. GREEN: implement a small orchestration helper and thin App wiring.
++4. Re-run meeting-web test/lint/build.
++5. Commit: `fix(meeting-web): refresh artifacts after durable stop`.
++
++**Expected output:** user-visible completion means acknowledged transcript and refreshed artifacts.
++
++### Task 8: Preserve honest recording/final summary presentation
++
++**OWNS:**
++`packages/ui-meeting/src/meeting-summary-block.jsx`,
++`packages/ui-meeting/src/meeting-summary-block.test.jsx`
++
++**What to implement:** Keep Recording/Paused/Stop indication during capture; show finalizing/failure
++status supplied by the caller; label finalized content “Meeting Summary.” Do not add consent claims,
++mixed-content cards, or Add/Adjust/Dismiss.
++
++**TDD steps:**
++
++1. RED: recording, paused, finalizing, failed/retry, and completed label cases.
++2. Run ui-meeting tests; observe no finalization state distinction.
++3. GREEN: render only the passed state and label.
++4. Re-run UI tests/build and accessibility assertions.
++5. Commit: `fix(ui-meeting): show honest finalization state`.
++
++**Expected output:** the indicator never implies capture/artifact success prematurely.
++
++### Task 9: Replace the seeded-action proof with transcript/finalize evidence
++
++**OWNS:**
++`apps/meeting-api/tests/backend/test_meeting_finalization.py`,
++`apps/platform-web/e2e/db-provenance.e2e.ts`,
++`apps/platform-web/e2e/meeting-loop.spec.ts`,
++`apps/platform-web/e2e/README.md`
++
++**What to implement:** Add a real-DB helper that creates a meeting and transcript segments (not an
++action row), invokes the production finalize command as an authorized actor, then reads the persisted
++chapter/summary/meeting-owned candidate at PR B's boundary. Adapt the downstream spec only after PR B
++so it consumes that candidate through its real review path. Cleanup remains tenant/id scoped. No test
++endpoint or production-only write path may be invented.
++
++**TDD steps:**
++
++1. RED: the fixture inserts meeting/transcript evidence and asserts no action row exists before
++   finalize; current flow cannot reach review without seeding the action row.
++2. Run the integration test with missing live env and confirm an explicit INCOMPLETE/skip, never pass.
++3. GREEN: call the production finalize API/service harness, assert final chapter + canonical summary +
++   one candidate, then drive to PR B review boundary with zero work items.
++4. Re-run finalize to prove artifact/candidate counts remain one; run cleanup and prove no debris.
++5. Run focused unit/integration suites and the live Playwright spec when secrets are present.
++6. Commit: `test(e2e): prove transcript to meeting action review boundary`.
++
++**Expected output:** the proof begins at transcript/finalize, not `action_items`; no automatic task.
++
++### PR 2 gate
++
++- PR 1 is landed and enabled in the target environment.
++- Caller PR B review-boundary contract is live; no duplicate backend/UI ownership appears in diff.
++- Meeting-web, SDK, ui-meeting, meeting-api focused suites pass.
++- Live-secret E2E is PASS or explicitly INCOMPLETE; missing environment is never reported as PASS.
++- Estimated size: 300–500 changed LOC, primarily orchestration tests and fixtures.
++
++## Rollback verification
++
++Before either rollout, prove `MEETING_TERMINAL_FINALIZER_V2=off` preserves the legacy PUT/GET shapes.
++After rollback, verify succeeded artifact versions remain readable and new clients receive a supported
++compatibility response rather than a missing endpoint. The additive ledger is not dropped.
++
+-- 
+2.51.0.windows.1
+

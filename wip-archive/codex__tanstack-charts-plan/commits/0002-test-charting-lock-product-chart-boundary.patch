@@ -1,0 +1,647 @@
+From 9ffed48017aa066ff4f040d08a4679165f22539c Mon Sep 17 00:00:00 2001
+From: Harsha Nanda <harshanandak@users.noreply.github.com>
+Date: Mon, 10 Aug 2026 13:00:17 +0530
+Subject: [PATCH] test(charting): lock product chart boundary
+
+---
+ bun.lock                                      |  13 +
+ packages/ui-charting/package.json             |   3 +
+ packages/ui-charting/src/chart-contract.js    |  78 ++++++
+ .../ui-charting/src/chart-contract.test.js    | 121 +++++++++
+ packages/ui-charting/src/index.d.ts           |  62 +++++
+ packages/ui-charting/src/index.jsx            |   9 +
+ test/domain-inventory.test.js                 | 232 +++++++++++++++++-
+ 7 files changed, 516 insertions(+), 2 deletions(-)
+ create mode 100644 packages/ui-charting/src/chart-contract.js
+ create mode 100644 packages/ui-charting/src/chart-contract.test.js
+
+diff --git a/bun.lock b/bun.lock
+index df6b250..7c9f68a 100644
+--- a/bun.lock
++++ b/bun.lock
+@@ -353,6 +353,9 @@
+     "packages/ui-charting": {
+       "name": "@product-suite/ui-charting",
+       "version": "0.0.0",
++      "dependencies": {
++        "@tanstack/charts": "0.9.0",
++      },
+       "peerDependencies": {
+         "react": ">=19",
+         "react-dom": ">=19",
+@@ -1482,6 +1485,8 @@
+ 
+     "@tailwindcss/vite": ["@tailwindcss/vite@4.3.1", "", { "dependencies": { "@tailwindcss/node": "4.3.1", "@tailwindcss/oxide": "4.3.1", "tailwindcss": "4.3.1" }, "peerDependencies": { "vite": "^5.2.0 || ^6 || ^7 || ^8" } }, "sha512-hItDHuIIlEV61R+faXu66s1K36aTurO/Qw0e45Vskz57gXl9pWOT6eg3zmcEui6CZXddbN7zd41bwmvag4JGwQ=="],
+ 
++    "@tanstack/charts": ["@tanstack/charts@0.9.0", "", { "dependencies": { "@types/d3-force": "^3.0.10", "@types/d3-geo": "^3.1.0", "@types/d3-hierarchy": "^3.1.7", "@types/d3-sankey": "^0.12.5", "@types/d3-shape": "^3.1.8", "d3-array": "3.2.4", "d3-brush": "3.0.0", "d3-contour": "4.0.2", "d3-delaunay": "6.0.4", "d3-force": "3.0.0", "d3-geo": "3.1.1", "d3-hexbin": "0.2.2", "d3-hierarchy": "3.1.2", "d3-sankey": "0.12.3", "d3-scale": "4.0.2", "d3-selection": "3.0.0", "d3-shape": "3.2.0", "d3-zoom": "3.0.0", "tslib": "^2.8.1" }, "peerDependencies": { "@angular/core": ">=19", "@angular/platform-browser": ">=19", "alpinejs": ">=3.15", "lit": ">=3.1.3", "octane": "^0.1.13", "preact": ">=10", "react": "^19.0.0", "react-dom": "^19.0.0", "react-native": "^0.86.0", "react-native-svg": ">=15.15.4 <16", "solid-js": ">=1.8", "svelte": "^5.20.0", "vue": ">=3.5" }, "optionalPeers": ["@angular/core", "@angular/platform-browser", "alpinejs", "lit", "octane", "preact", "react", "react-dom", "react-native", "react-native-svg", "solid-js", "svelte", "vue"] }, "sha512-QnpBLXjSqZff/WOLTK1lbVnM8NnjmEOiIFQS/yeAiJ/L8ZMIfRio7CQCJZZOd/GEAnKKTEb09WqnE7iEnASzfQ=="],
++
+     "@tanstack/history": ["@tanstack/history@1.162.0", "", {}, "sha512-79pf/RkhteYZTRgcR4F9kbk84P2N8rugQJswxfIqovlbRiT3yI7eBE+5QorIrZaOKktsgzRlXh1l/du/xpl4iA=="],
+ 
+     "@tanstack/hotkeys": ["@tanstack/hotkeys@0.7.1", "", { "dependencies": { "@tanstack/store": "^0.9.3" } }, "sha512-YHVO1z6wnvUCu7bg870Kv5k2D+FIuIOSIcbN0dAmTTsJ3mLMDLwcTVx0qVaq+SZp1B514JJTqGVstvUp85yIpQ=="],
+@@ -1588,6 +1593,8 @@
+ 
+     "@types/d3-random": ["@types/d3-random@3.0.3", "", {}, "sha512-Imagg1vJ3y76Y2ea0871wpabqp613+8/r0mCLEBfdtqC7xMSfj9idOnmBYyMoULfHePJyxMAw3nWhJxzc+LFwQ=="],
+ 
++    "@types/d3-sankey": ["@types/d3-sankey@0.12.5", "", { "dependencies": { "@types/d3-shape": "^1" } }, "sha512-/3RZSew0cLAtzGQ+C89hq/Rp3H20QJuVRSqFy6RKLe7E0B8kd2iOS1oBsodrgds4PcNVpqWhdUEng/SHvBcJ6Q=="],
++
+     "@types/d3-scale": ["@types/d3-scale@4.0.9", "", { "dependencies": { "@types/d3-time": "*" } }, "sha512-dLmtwB8zkAeO/juAMfnV+sItKjlsw2lKdZVVy6LRr0cBmegxSABiLEpGVmSJJ8O08i4+sGR6qQtb6WtuwJdvVw=="],
+ 
+     "@types/d3-scale-chromatic": ["@types/d3-scale-chromatic@3.1.0", "", {}, "sha512-iWMJgwkK7yTRmWqRB5plb1kadXyQ5Sj8V/zYlFGMUBbIPKQScw+Dku9cAAMgJG+z5GYDoMjWGLVOvjghDEFnKQ=="],
+@@ -2040,6 +2047,8 @@
+ 
+     "d3-geo": ["d3-geo@3.1.1", "", { "dependencies": { "d3-array": "2.5.0 - 3" } }, "sha512-637ln3gXKXOwhalDzinUgY83KzNWZRKbYubaG+fGVuc/dxO64RRljtCTnf5ecMyE1RIdtqpkVcq0IbtU2S8j2Q=="],
+ 
++    "d3-hexbin": ["d3-hexbin@0.2.2", "", {}, "sha512-KS3fUT2ReD4RlGCjvCEm1RgMtp2NFZumdMu4DBzQK8AZv3fXRM6Xm8I4fSU07UXvH4xxg03NwWKWdvxfS/yc4w=="],
++
+     "d3-hierarchy": ["d3-hierarchy@3.1.2", "", {}, "sha512-FX/9frcub54beBdugHjDCdikxThEqjnR93Qt7PvQTOHxyiNCAlvMrHhclk3cD5VeAaq9fxmfRp+CnWw9rEMBuA=="],
+ 
+     "d3-interpolate": ["d3-interpolate@3.0.1", "", { "dependencies": { "d3-color": "1 - 3" } }, "sha512-3bYs1rOD33uo8aqJfKP3JWPAibgw8Zm2+L9vBKEHJ2Rg+viTR7o5Mmv5mZcieN+FRYaAOWX5SJATX6k1PWz72g=="],
+@@ -4186,6 +4195,8 @@
+ 
+     "@ts-morph/common/minimatch": ["minimatch@10.2.5", "", { "dependencies": { "brace-expansion": "^5.0.5" } }, "sha512-MULkVLfKGYDFYejP07QOurDLLQpcjk7Fw+7jXS2R2czRQzR56yHRveU5NDJEOviH+hETZKSkIk5c+T23GjFUMg=="],
+ 
++    "@types/d3-sankey/@types/d3-shape": ["@types/d3-shape@1.3.12", "", { "dependencies": { "@types/d3-path": "^1" } }, "sha512-8oMzcd4+poSLGgV0R1Q1rOlx/xdmozS4Xab7np0eamFFUYq71AU9pOCJEFnkXW2aI/oXdVYJzw6pssbSut7Z9Q=="],
++
+     "@types/nodemailer/@types/node": ["@types/node@25.6.0", "", { "dependencies": { "undici-types": "~7.19.0" } }, "sha512-+qIYRKdNYJwY3vRCZMdJbPLJAtGjQBudzZzdzwQYkEPQd+PJGixUL5QfvCLDaULoLv+RhT3LDkwEfKaAkgSmNQ=="],
+ 
+     "@types/pg/@types/node": ["@types/node@25.6.0", "", { "dependencies": { "undici-types": "~7.19.0" } }, "sha512-+qIYRKdNYJwY3vRCZMdJbPLJAtGjQBudzZzdzwQYkEPQd+PJGixUL5QfvCLDaULoLv+RhT3LDkwEfKaAkgSmNQ=="],
+@@ -4726,6 +4737,8 @@
+ 
+     "@tailwindcss/postcss/@tailwindcss/oxide/@tailwindcss/oxide-win32-x64-msvc": ["@tailwindcss/oxide-win32-x64-msvc@4.2.2", "", { "os": "win32", "cpu": "x64" }, "sha512-1T/37VvI7WyH66b+vqHj/cLwnCxt7Qt3WFu5Q8hk65aOvlwAhs7rAp1VkulBJw/N4tMirXjVnylTR72uI0HGcA=="],
+ 
++    "@types/d3-sankey/@types/d3-shape/@types/d3-path": ["@types/d3-path@1.0.11", "", {}, "sha512-4pQMp8ldf7UaB/gR8Fvvy69psNHkTpD/pVw3vmEi8iZAB9EPMBruB1JvHO4BIq9QkUUd2lV1F5YXpMNj7JPBpw=="],
++
+     "@types/nodemailer/@types/node/undici-types": ["undici-types@7.19.2", "", {}, "sha512-qYVnV5OEm2AW8cJMCpdV20CDyaN3g0AjDlOGf1OW4iaDEx8MwdtChUp4zu4H0VP3nDRF/8RKWH+IPp9uW0YGZg=="],
+ 
+     "@types/pg/@types/node/undici-types": ["undici-types@7.19.2", "", {}, "sha512-qYVnV5OEm2AW8cJMCpdV20CDyaN3g0AjDlOGf1OW4iaDEx8MwdtChUp4zu4H0VP3nDRF/8RKWH+IPp9uW0YGZg=="],
+diff --git a/packages/ui-charting/package.json b/packages/ui-charting/package.json
+index a358b8c..f1fc49d 100644
+--- a/packages/ui-charting/package.json
++++ b/packages/ui-charting/package.json
+@@ -13,6 +13,9 @@
+   "scripts": {
+     "test": "bun test"
+   },
++  "dependencies": {
++    "@tanstack/charts": "0.9.0"
++  },
+   "peerDependencies": {
+     "react": ">=19",
+     "react-dom": ">=19"
+diff --git a/packages/ui-charting/src/chart-contract.js b/packages/ui-charting/src/chart-contract.js
+new file mode 100644
+index 0000000..09294c0
+--- /dev/null
++++ b/packages/ui-charting/src/chart-contract.js
+@@ -0,0 +1,78 @@
++export const CHART_KINDS = Object.freeze([
++  "time-series",
++  "categorical-bar",
++  "donut",
++  "radial-gauge",
++]);
++
++export const CHART_STATES = Object.freeze(["ready", "empty", "loading", "error"]);
++
++export const CHART_DATA_ATTRIBUTES = Object.freeze({
++  chart: "data-chart",
++  kind: "data-chart-kind",
++  state: "data-chart-state",
++  series: "data-chart-series",
++  tooltip: "data-chart-tooltip",
++});
++
++const DEFAULT_INITIAL_WIDTH = 320;
++
++function asFinitePositiveNumber(value) {
++  if (typeof value === "symbol") return undefined;
++  const number = Number(value);
++  return Number.isFinite(number) && number > 0 ? number : undefined;
++}
++
++function asNonEmptyString(value) {
++  return typeof value === "string" && value.trim() ? value.trim() : undefined;
++}
++
++function asFormatter(value) {
++  return typeof value === "function" ? value : undefined;
++}
++
++export function normalizeChartSeries(series = []) {
++  if (!Array.isArray(series)) return [];
++
++  return series
++    .map((entry) => {
++      const source = typeof entry === "string" ? { key: entry, label: entry } : entry;
++      const key = asNonEmptyString(source?.key);
++      if (!key) return null;
++
++      const normalized = {
++        key,
++        label: asNonEmptyString(source.label) ?? key,
++      };
++      const color = asNonEmptyString(source.color);
++      if (color) normalized.color = color;
++      const valueFormatter = asFormatter(source.valueFormatter);
++      if (valueFormatter) normalized.valueFormatter = valueFormatter;
++      return normalized;
++    })
++    .filter(Boolean);
++}
++
++export function normalizeChartDimensions(dimensions = {}) {
++  const source = dimensions && typeof dimensions === "object" ? dimensions : {};
++  return {
++    width: asFinitePositiveNumber(source.width),
++    height: asFinitePositiveNumber(source.height),
++    initialWidth: asFinitePositiveNumber(source.initialWidth) ?? DEFAULT_INITIAL_WIDTH,
++    aspectRatio: asFinitePositiveNumber(source.aspectRatio),
++    responsive: source.responsive !== false,
++  };
++}
++
++export function normalizeChartContract(contract = {}) {
++  const source = contract && typeof contract === "object" ? contract : {};
++  const kind = CHART_KINDS.includes(source.kind) ? source.kind : "time-series";
++  const normalized = {
++    kind,
++    rows: Array.isArray(source.rows) ? source.rows : [],
++    series: normalizeChartSeries(source.series),
++  };
++  const formatter = asFormatter(source.formatter);
++  if (formatter) normalized.formatter = formatter;
++  return normalized;
++}
+diff --git a/packages/ui-charting/src/chart-contract.test.js b/packages/ui-charting/src/chart-contract.test.js
+new file mode 100644
+index 0000000..d8907bb
+--- /dev/null
++++ b/packages/ui-charting/src/chart-contract.test.js
+@@ -0,0 +1,121 @@
++import { describe, expect, test } from "bun:test";
++
++import {
++  CHART_DATA_ATTRIBUTES,
++  CHART_KINDS,
++  CHART_STATES,
++  normalizeChartContract,
++  normalizeChartDimensions,
++  normalizeChartSeries,
++} from "./chart-contract.js";
++import * as publicCharting from "./index.jsx";
++
++describe("ui-charting product contract", () => {
++  test("defines the finite chart families, states, and engine-neutral selectors", () => {
++    expect(CHART_KINDS).toEqual([
++      "time-series",
++      "categorical-bar",
++      "donut",
++      "radial-gauge",
++    ]);
++    expect(CHART_STATES).toEqual(["ready", "empty", "loading", "error"]);
++    expect(CHART_DATA_ATTRIBUTES).toEqual({
++      chart: "data-chart",
++      kind: "data-chart-kind",
++      state: "data-chart-state",
++      series: "data-chart-series",
++      tooltip: "data-chart-tooltip",
++    });
++  });
++
++  test("normalizes plain product rows and series metadata without engine fields", () => {
++    const rows = [{ date: "2026-08-10", completed: "4", leakedMark: { x: 1 } }];
++    const formatter = (value, context) => `${context.label}: ${value}`;
++    const series = [
++      {
++        key: "completed",
++        label: "Completed",
++        color: "var(--chart-1)",
++        valueFormatter: formatter,
++        mark: "lineY",
++      },
++    ];
++
++    expect(normalizeChartSeries(series)).toEqual([
++      { key: "completed", label: "Completed", color: "var(--chart-1)", valueFormatter: formatter },
++    ]);
++    expect(normalizeChartContract({ kind: "time-series", rows, series, formatter })).toEqual({
++      kind: "time-series",
++      rows,
++      series: [{ key: "completed", label: "Completed", color: "var(--chart-1)", valueFormatter: formatter }],
++      formatter,
++    });
++    expect(normalizeChartContract({ kind: "time-series", rows, series, formatter }).rows).toBe(rows);
++  });
++
++  test("normalizes responsive dimensions with a deterministic initial width", () => {
++    expect(
++      normalizeChartDimensions({ width: "480", height: 280, initialWidth: 360, aspectRatio: 1.5 }),
++    ).toEqual({
++      width: 480,
++      height: 280,
++      initialWidth: 360,
++      aspectRatio: 1.5,
++      responsive: true,
++    });
++    expect(normalizeChartDimensions()).toEqual({
++      width: undefined,
++      height: undefined,
++      initialWidth: 320,
++      aspectRatio: undefined,
++      responsive: true,
++    });
++  });
++
++  test("fails closed for malformed contracts and dimensions", () => {
++    const formatter = (value) => String(value);
++    const malformedContracts = [
++      [{ kind: "unsupported" }, { kind: "time-series", rows: [], series: [] }],
++      [{ rows: { name: "not-a-row" }, series: { key: "not-a-series" } }, { kind: "time-series", rows: [], series: [] }],
++      [{ formatter: "not-a-function", series: [{ key: "count", valueFormatter: "not-a-function" }] }, { kind: "time-series", rows: [], series: [{ key: "count", label: "count" }] }],
++    ];
++    for (const [input, expected] of malformedContracts) {
++      expect(normalizeChartContract(input)).toEqual(expected);
++    }
++
++    expect(normalizeChartDimensions({ width: 0, height: -1, initialWidth: Number.NaN, aspectRatio: Infinity })).toEqual({
++      width: undefined,
++      height: undefined,
++      initialWidth: 320,
++      aspectRatio: undefined,
++      responsive: true,
++    });
++    expect(normalizeChartSeries(null)).toEqual([]);
++    expect(normalizeChartSeries([null, {}, { key: "" }, { key: "valid", label: "Valid" }])).toEqual([
++      { key: "valid", label: "Valid" },
++    ]);
++    expect(formatter(4)).toBe("4");
++  });
++
++  test("rejects a top-level valueFormatter alias and preserves caller-owned input", () => {
++    const formatter = (value) => String(value);
++    const rows = [{ name: "Done", value: 4 }];
++    const series = [{ key: "value", label: "Value", valueFormatter: formatter }];
++    const input = { kind: "donut", rows, series, valueFormatter: formatter };
++    const snapshot = { ...input, rows: [...rows], series: series.map((item) => ({ ...item })) };
++
++    expect(normalizeChartContract(input)).toEqual({
++      kind: "donut",
++      rows,
++      series,
++    });
++    expect(input).toEqual(snapshot);
++  });
++
++  test("re-exports the product contract from the public package entrypoint", () => {
++    expect(publicCharting.normalizeChartContract).toBe(normalizeChartContract);
++    expect(publicCharting.normalizeChartDimensions).toBe(normalizeChartDimensions);
++    expect(publicCharting.normalizeChartSeries).toBe(normalizeChartSeries);
++    expect(publicCharting.CHART_DATA_ATTRIBUTES).toBe(CHART_DATA_ATTRIBUTES);
++  });
++});
+diff --git a/packages/ui-charting/src/index.d.ts b/packages/ui-charting/src/index.d.ts
+index f46ccb9..c646d85 100644
+--- a/packages/ui-charting/src/index.d.ts
++++ b/packages/ui-charting/src/index.d.ts
+@@ -1,5 +1,67 @@
+ import type { ReactNode } from "react";
+ 
++export type ChartKind = "time-series" | "categorical-bar" | "donut" | "radial-gauge";
++export type ChartState = "ready" | "empty" | "loading" | "error";
++
++export interface ChartFormatterContext<Row = unknown> {
++  row: Row;
++  key?: string;
++  label?: string;
++}
++
++export type ChartValueFormatter<Row = unknown> = (
++  value: number,
++  context: ChartFormatterContext<Row>,
++) => string;
++
++export interface ChartSeries<Row = unknown> {
++  key: string;
++  label: string;
++  color?: string;
++  valueFormatter?: ChartValueFormatter<Row>;
++}
++
++export interface ChartDimensions {
++  width?: number | string;
++  height?: number | string;
++  initialWidth?: number | string;
++  aspectRatio?: number | string;
++  responsive?: boolean;
++}
++
++export interface NormalizedChartDimensions {
++  width?: number;
++  height?: number;
++  initialWidth: number;
++  aspectRatio?: number;
++  responsive: boolean;
++}
++
++export interface ChartContract<Row = unknown> {
++  kind: ChartKind;
++  rows: Row[];
++  series: ChartSeries<Row>[];
++  formatter?: ChartValueFormatter<Row>;
++}
++
++export const CHART_KINDS: readonly ChartKind[];
++export const CHART_STATES: readonly ChartState[];
++export const CHART_DATA_ATTRIBUTES: Readonly<{
++  chart: "data-chart";
++  kind: "data-chart-kind";
++  state: "data-chart-state";
++  series: "data-chart-series";
++  tooltip: "data-chart-tooltip";
++}>;
++
++export function normalizeChartSeries<Row = unknown>(
++  series?: readonly (ChartSeries<Row> | string)[],
++): ChartSeries<Row>[];
++export function normalizeChartDimensions(dimensions?: ChartDimensions): NormalizedChartDimensions;
++export function normalizeChartContract<Row = unknown>(
++  contract?: Partial<ChartContract<Row>>,
++): ChartContract<Row>;
++
+ export type TrendDirection = "up" | "down" | "neutral";
+ 
+ export interface TrendRecord {
+diff --git a/packages/ui-charting/src/index.jsx b/packages/ui-charting/src/index.jsx
+index 53afc56..0bf1a74 100644
+--- a/packages/ui-charting/src/index.jsx
++++ b/packages/ui-charting/src/index.jsx
+@@ -1,5 +1,14 @@
+ import React from "react";
+ 
++export {
++  CHART_DATA_ATTRIBUTES,
++  CHART_KINDS,
++  CHART_STATES,
++  normalizeChartContract,
++  normalizeChartDimensions,
++  normalizeChartSeries,
++} from "./chart-contract.js";
++
+ function toFiniteNumber(value) {
+   const number = Number(value);
+   return Number.isFinite(number) ? number : 0;
+diff --git a/test/domain-inventory.test.js b/test/domain-inventory.test.js
+index 39f78da..f014c08 100644
+--- a/test/domain-inventory.test.js
++++ b/test/domain-inventory.test.js
+@@ -1,6 +1,8 @@
+ import { describe, expect, test } from "bun:test";
+-import { existsSync, readFileSync } from "node:fs";
+-import { join } from "node:path";
++import { createHash } from "node:crypto";
++import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join, relative } from "node:path";
+ 
+ const rootDir = join(import.meta.dir, "..");
+ const inventoryDocPath = join(
+@@ -17,6 +19,149 @@ const serviceInventoryPath = join(
+   "SERVICE_INVENTORY.md",
+ );
+ 
++export const CHART_LEGACY_DEBT_ALLOWLIST = [
++  "apps/meeting-web/bun.lock",
++  "apps/meeting-web/package.json",
++  "apps/meeting-web/src/components/chart-area-interactive.jsx",
++  "apps/meeting-web/src/components/ui/chart.jsx",
++  "apps/platform-web/package.json",
++  "apps/roadmap-web/bun.lock",
++  "apps/roadmap-web/e2e/07-analytics-dashboard.spec.ts",
++  "apps/roadmap-web/package.json",
++  "apps/roadmap-web/src/app/(dashboard)/workspaces/[id]/_components/work-items-view.tsx",
++  "apps/roadmap-web/src/components/analytics/charts/bar-chart-card.tsx",
++  "apps/roadmap-web/src/components/analytics/charts/index.ts",
++  "apps/roadmap-web/src/components/analytics/charts/line-chart-card.tsx",
++  "apps/roadmap-web/src/components/analytics/charts/pie-chart-card.tsx",
++  "apps/roadmap-web/src/components/strategy/alignment-dashboard.tsx",
++  "apps/roadmap-web/src/lib/types/analytics.ts",
++  "bun.lock",
++];
++
++export const CHART_LEGACY_DEBT_FINGERPRINTS = Object.freeze({
++  "apps/meeting-web/bun.lock": "a54de356cb3c5f83fdaa0fe441a9daa28d005fd7db4070ddd85a79596e06997e",
++  "apps/meeting-web/package.json": "f125cb2b4b129c87a68e923415f1cc9d9687dda0e5d82f5a9f744dc7102a6527",
++  "apps/meeting-web/src/components/chart-area-interactive.jsx": "15a7bec8104d5e46cb04ddb4d5e1425f35297903a50196368c42e43aa6b110f5",
++  "apps/meeting-web/src/components/ui/chart.jsx": "d4316cd23a58b63749ef4f696f32464ed4ec01a39bdec6fff2d0039a6bf2deb0",
++  "apps/platform-web/package.json": "e257f07b78558640c8f9b01e7f93198e2a49d09b36fad2f97b4af5a7aed92bad",
++  "apps/roadmap-web/bun.lock": "215546bab1bd8f2393acf887ecc7120663a3a8a520a5bf1a5364ea32a5272702",
++  "apps/roadmap-web/e2e/07-analytics-dashboard.spec.ts": "4c84899d605270d29a2d9350e5c74f3e5d3987d486e9ae7a369437b7ee30318e",
++  "apps/roadmap-web/package.json": "84d38232c6ec493c039599c7e54bd9a0023f01b1e177592efa8c89c697094790",
++  "apps/roadmap-web/src/app/(dashboard)/workspaces/[id]/_components/work-items-view.tsx": "e0ab59f43daaef5c765b89c64f3b30dfabfbfdd9be9a29191aff019516c01faa",
++  "apps/roadmap-web/src/components/analytics/charts/bar-chart-card.tsx": "4d0de4e3ae653532a5325298fcd46705aa2124508fc093df995f1f1f34962365",
++  "apps/roadmap-web/src/components/analytics/charts/index.ts": "37ec2271dd3741552d1c59348bb0068c21006e46322657080a828f4fee6d7f07",
++  "apps/roadmap-web/src/components/analytics/charts/line-chart-card.tsx": "df6701b2e47e0bf208a7043905140d94176c7fd27788f4e2eab0231bf72250a4",
++  "apps/roadmap-web/src/components/analytics/charts/pie-chart-card.tsx": "f453adef1f64770469a90b45c6544374c0d0abf9008c2678b0edb023967b5a99",
++  "apps/roadmap-web/src/components/strategy/alignment-dashboard.tsx": "775d4d96d36af5df630429ef4bff28acbc432116812929deec2ecf5e14b237f6",
++  "apps/roadmap-web/src/lib/types/analytics.ts": "65fe98b774d9629d653f180cf2a3faeff4b1f00e93f951bce4859378ee960ab4",
++  "bun.lock": "ffd6f2f59ac1a56af714dc840d0b2de67fe32ee192ae15c112a226f69c3f78a5",
++});
++
++const CHART_BOUNDARY_EXTENSIONS = new Set([".js", ".jsx", ".mjs", ".ts", ".tsx", ".json", ".lock"]);
++const CHART_LEGACY_PATTERN = /recharts|\.recharts-|data-recharts|\.ts-chart|data-ts-/i;
++const TANSTACK_IMPORT_PATTERN = /(?:from\s*["']|import\s*["']|(?:import|require)\(\s*["'])@tanstack\/charts(?:["'/])/;
++const CHART_DEPENDENCY_SECTIONS = [
++  "dependencies",
++  "devDependencies",
++  "peerDependencies",
++  "optionalDependencies",
++];
++
++function chartLegacyFingerprint(source) {
++  const normalizedSource = source.replace(/\r\n?/g, "\n");
++  const matches = [...normalizedSource.matchAll(new RegExp(CHART_LEGACY_PATTERN.source, "gi"))];
++  const contexts = matches.map(({ 0: token, index }) => {
++    const start = Math.max(0, index - 80);
++    const end = Math.min(normalizedSource.length, index + token.length + 80);
++    return `${index}:${normalizedSource.slice(start, end)}`;
++  });
++  return createHash("sha256").update(contexts.join("\n")).digest("hex");
++}
++
++function listBoundaryFiles(directory, files = []) {
++  for (const entry of readdirSync(directory, { withFileTypes: true })) {
++    if ([".git", "node_modules", "dist", "coverage", "tmp"].includes(entry.name)) continue;
++    const entryPath = join(directory, entry.name);
++    if (entry.isDirectory()) {
++      listBoundaryFiles(entryPath, files);
++      continue;
++    }
++    const extension = entry.name.includes(".") ? `.${entry.name.split(".").pop()}` : "";
++    if (CHART_BOUNDARY_EXTENSIONS.has(extension) || entry.name === "bun.lock") files.push(entryPath);
++  }
++  return files;
++}
++
++function relativeBoundaryPath(root, filePath) {
++  return relative(root, filePath).replaceAll("\\", "/");
++}
++
++export function scanChartBoundary(root = rootDir) {
++  const legacyDebt = [];
++  const unlisted = [];
++  const tanstackOutsideEngine = [];
++  const floatingTanstackVersions = [];
++  let tanstackPackageVersion;
++  let tanstackLockVersion;
++
++  const files = root === rootDir
++    ? [join(root, "package.json"), join(root, "bun.lock")]
++        .concat(listBoundaryFiles(join(root, "apps")))
++        .concat(listBoundaryFiles(join(root, "packages")))
++    : listBoundaryFiles(root);
++
++  for (const filePath of files) {
++    const relativePath = relativeBoundaryPath(root, filePath);
++    const source = readFileSync(filePath, "utf8");
++
++    if (relativePath === "bun.lock") {
++      tanstackLockVersion = source.match(/"@tanstack\/charts@([^"\]]+)/)?.[1];
++    }
++
++    if (CHART_LEGACY_PATTERN.test(source)) {
++      if (
++        CHART_LEGACY_DEBT_ALLOWLIST.includes(relativePath) &&
++        CHART_LEGACY_DEBT_FINGERPRINTS[relativePath] === chartLegacyFingerprint(source)
++      ) {
++        legacyDebt.push(relativePath);
++      } else {
++        unlisted.push(relativePath);
++      }
++    }
++
++    if (TANSTACK_IMPORT_PATTERN.test(source) && !relativePath.startsWith("packages/ui-charting/src/engine/")) {
++      tanstackOutsideEngine.push(relativePath);
++    }
++
++    if (relativePath.endsWith("package.json")) {
++      try {
++        const manifest = JSON.parse(source);
++        for (const section of CHART_DEPENDENCY_SECTIONS) {
++          const version = manifest[section]?.["@tanstack/charts"];
++          if (version === undefined) continue;
++          if (relativePath === "packages/ui-charting/package.json" && section === "dependencies") {
++            tanstackPackageVersion = version;
++          }
++          if (relativePath !== "packages/ui-charting/package.json" || section !== "dependencies" || version !== "0.9.0") {
++            floatingTanstackVersions.push(`${relativePath}:${section}:${version}`);
++          }
++        }
++      } catch {
++        // Non-manifest JSON files are outside this dependency guard.
++      }
++    }
++  }
++
++  return {
++    legacyDebt: legacyDebt.sort(),
++    unlisted: unlisted.sort(),
++    tanstackOutsideEngine: tanstackOutsideEngine.sort(),
++    floatingTanstackVersions: floatingTanstackVersions.sort(),
++    tanstackPackageVersion,
++    tanstackLockVersion,
++  };
++}
++
+ describe("schema domain inventory", () => {
+   test("durable ownership inventory doc records the current authority contract", () => {
+     expect(existsSync(inventoryDocPath)).toBe(true);
+@@ -105,3 +250,86 @@ describe("schema domain inventory", () => {
+     );
+   });
+ });
++
++describe("charting package boundary", () => {
++  test("allows the exact pre-migration Recharts inventory and no new engine usage", () => {
++    const report = scanChartBoundary();
++    expect(report.unlisted).toEqual([]);
++    expect(report.tanstackOutsideEngine).toEqual([]);
++    expect(report.floatingTanstackVersions).toEqual([]);
++    expect(report.tanstackPackageVersion).toBe("0.9.0");
++    expect(report.tanstackLockVersion).toBe("0.9.0");
++    expect(report.legacyDebt).toEqual(CHART_LEGACY_DEBT_ALLOWLIST);
++  });
++
++  test("fails when a synthetic app imports an engine outside the adapter", () => {
++    const fixtureRoot = mkdtempSync(join(tmpdir(), "product-suite-chart-boundary-"));
++    const sourcePath = join(fixtureRoot, "apps", "example", "chart.jsx");
++    mkdirSync(join(fixtureRoot, "apps", "example"), { recursive: true });
++    writeFileSync(sourcePath, 'import { Chart } from "@tanstack/charts/react";\n');
++
++    const report = scanChartBoundary(fixtureRoot);
++
++    expect(report.tanstackOutsideEngine).toEqual(["apps/example/chart.jsx"]);
++  });
++
++  test("fails when a synthetic app dynamically imports an engine outside the adapter", () => {
++    const fixtureRoot = mkdtempSync(join(tmpdir(), "product-suite-chart-boundary-"));
++    const sourcePath = join(fixtureRoot, "apps", "example", "chart.jsx");
++    mkdirSync(join(fixtureRoot, "apps", "example"), { recursive: true });
++    writeFileSync(sourcePath, 'const loadChart = () => import("@tanstack/charts/react");\n');
++
++    const report = scanChartBoundary(fixtureRoot);
++
++    expect(report.tanstackOutsideEngine).toEqual(["apps/example/chart.jsx"]);
++  });
++
++  test("scans every manifest dependency section for exact engine versions", () => {
++    const fixtureRoot = mkdtempSync(join(tmpdir(), "product-suite-chart-boundary-"));
++    const manifestPath = join(fixtureRoot, "apps", "example", "package.json");
++    mkdirSync(join(fixtureRoot, "apps", "example"), { recursive: true });
++    writeFileSync(
++      manifestPath,
++      JSON.stringify({
++        dependencies: { "@tanstack/charts": "0.9.0" },
++        devDependencies: { "@tanstack/charts": "^0.9.0" },
++        peerDependencies: { "@tanstack/charts": "latest" },
++        optionalDependencies: { "@tanstack/charts": "~0.9.0" },
++      }),
++    );
++
++    const report = scanChartBoundary(fixtureRoot);
++
++    expect(report.floatingTanstackVersions).toEqual([
++      "apps/example/package.json:dependencies:0.9.0",
++      "apps/example/package.json:devDependencies:^0.9.0",
++      "apps/example/package.json:optionalDependencies:~0.9.0",
++      "apps/example/package.json:peerDependencies:latest",
++    ]);
++  });
++
++  test("fails when a synthetic source adds an unlisted Recharts occurrence", () => {
++    const fixtureRoot = mkdtempSync(join(tmpdir(), "product-suite-chart-boundary-"));
++    const sourcePath = join(fixtureRoot, "packages", "ui-charting", "src", "new.jsx");
++    mkdirSync(join(fixtureRoot, "packages", "ui-charting", "src"), { recursive: true });
++    writeFileSync(sourcePath, "export const selector = '.recharts-cartesian-axis';\n");
++
++    const report = scanChartBoundary(fixtureRoot);
++
++    expect(report.unlisted).toEqual(["packages/ui-charting/src/new.jsx"]);
++  });
++
++  test("fails when an inventoried occurrence is swapped without changing its count", () => {
++    const relativePath = "apps/roadmap-web/src/components/analytics/charts/index.ts";
++    const fixtureRoot = mkdtempSync(join(tmpdir(), "product-suite-chart-boundary-"));
++    const sourcePath = join(fixtureRoot, relativePath);
++    mkdirSync(join(fixtureRoot, "apps/roadmap-web/src/components/analytics/charts"), { recursive: true });
++    const baseline = readFileSync(join(rootDir, relativePath), "utf8");
++    writeFileSync(sourcePath, baseline);
++
++    expect(scanChartBoundary(fixtureRoot).legacyDebt).toEqual([relativePath]);
++
++    writeFileSync(sourcePath, baseline.replace("Recharts", "Recharts-compatible"));
++    expect(scanChartBoundary(fixtureRoot).unlisted).toEqual([relativePath]);
++  });
++});
+-- 
+2.51.0.windows.1
+

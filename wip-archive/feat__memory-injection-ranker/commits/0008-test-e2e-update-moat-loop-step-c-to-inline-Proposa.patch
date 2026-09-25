@@ -1,0 +1,62 @@
+From 451cdfa001c8d5a6c9507c202f42d16a969780cb Mon Sep 17 00:00:00 2001
+From: Harsha Nanda <harshanandak@users.noreply.github.com>
+Date: Fri, 24 Jul 2026 20:18:23 +0530
+Subject: [PATCH] test(e2e): update moat-loop step c to inline ProposalCard
+ selector
+
+The 'Review in Inbox' link was removed in the inline-proposal-ux redesign
+(ProposalCard is now actionable in place). Wait for the inline card via its
+id=proposal-card-<id> container and derive the proposal id from that id
+instead of the deleted deep-link href. Steps d-g (inbox list, Accept, View
+item, board, DB provenance) are unchanged and pass against the live backend.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+---
+ apps/platform-web/e2e/moat-loop.spec.ts | 31 ++++++++++++++-----------
+ 1 file changed, 17 insertions(+), 14 deletions(-)
+
+diff --git a/apps/platform-web/e2e/moat-loop.spec.ts b/apps/platform-web/e2e/moat-loop.spec.ts
+index 0e38e8f..93f3c4e 100644
+--- a/apps/platform-web/e2e/moat-loop.spec.ts
++++ b/apps/platform-web/e2e/moat-loop.spec.ts
+@@ -68,20 +68,23 @@ test("agent proposes a create → accept in inbox → item appears on the workbo
+   await composer.press("Enter");
+ 
+   // ── c. Wait for the agent to PROPOSE ──────────────────────────────────────
+-  // On success the panel renders a ProposalCard with a "Review in Inbox" link.
+-  // VERIFY against live app: exact wording + how long the agent takes to emit
+-  // a proposal tool-call.
+-  const reviewLink = agentPanel.getByRole("link", { name: /Review in Inbox/i });
+-  await expect(reviewLink).toBeVisible({ timeout: AGENT_TIMEOUT });
+-
+-  // Capture the proposal id from the deep-link (ProposalCard links to the inbox
+-  // with `?proposal=<id>`) so step f can assert the PERSISTED provenance pointer
+-  // (work_items.applied_from_proposal_id) equals THIS accepted proposal's id.
+-  const reviewHref = await reviewLink.getAttribute("href");
+-  const proposalId = reviewHref
+-    ? new URL(reviewHref, page.url()).searchParams.get("proposal")
+-    : null;
+-  expect(proposalId, "ProposalCard link must carry ?proposal=<id>").toBeTruthy();
++  // On success the panel renders an inline ProposalCard (inline-proposal-ux
++  // redesign — the old "Review in Inbox" link was removed; the card is now
++  // actionable in place). Its container carries id="proposal-card-<proposalId>"
++  // (src/agent-chat/ProposalCard.tsx). VERIFY against live app: how long the
++  // agent takes to emit a proposal tool-call.
++  const proposalCard = agentPanel.locator('[id^="proposal-card-"]').first();
++  await expect(proposalCard).toBeVisible({ timeout: AGENT_TIMEOUT });
++  // The card renders the proposed title (data.title) — the load-bearing check
++  // that the agent proposed OUR create.
++  await expect(proposalCard.getByText(ITEM_TITLE, { exact: false })).toBeVisible();
++
++  // Capture the proposal id from the card's DOM id so step g can assert the
++  // PERSISTED provenance pointer (work_items.applied_from_proposal_id) equals
++  // THIS accepted proposal's id.
++  const cardId = await proposalCard.getAttribute("id");
++  const proposalId = cardId ? cardId.replace(/^proposal-card-/, "") : null;
++  expect(proposalId, "ProposalCard must carry id=proposal-card-<id>").toBeTruthy();
+ 
+   // ── d. Review Inbox shows the proposed create ─────────────────────────────
+   await page.goto(`/w/${WORKSPACE}/inbox`);
+-- 
+2.51.0.windows.1
+

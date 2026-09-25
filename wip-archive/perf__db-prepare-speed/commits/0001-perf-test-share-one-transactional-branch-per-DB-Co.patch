@@ -1,0 +1,352 @@
+From 15278568cf873234b3bf7a78fe66154a51d32b1b Mon Sep 17 00:00:00 2001
+From: Harsha Nanda <212836255+harshanandak@users.noreply.github.com>
+Date: Sat, 19 Sep 2026 16:09:12 +0530
+Subject: [PATCH] perf(test): share one transactional branch per DB Contract
+ mixed suite
+
+The DB Contract lane paid seven transactional branch prepare lifecycles
+because accept-path and meeting-ingest each split their transactional
+assertions around a dedicated-branch group, creating a second suite
+resource that repeated branch creation, migration replay and cleanup.
+
+Move each isolated transactional tail assertion into the file's existing
+transactional group, ahead of the dedicated assertions, and drop the extra
+withTransactionalDb factory. Seven prepare lifecycles become five. Every
+dedicated assertion keeps its own branch, so concurrency, committed
+retry/redrive, migration-history and least-privilege proofs stay isolated,
+and per-test rollback plus the sentinel observer keep the shared branch
+clean between tests.
+
+Lock the shape with an AST-backed topology regression: a routed file with
+transactional assertions instantiates exactly one transactional factory,
+and all its transactional assertions precede its dedicated ones, so the
+suite lease is released before any dedicated branch runs.
+
+Inventory is unchanged: 57 assertions across 9 files, no skips, no timeout
+changes.
+
+Forge issue: 5210cc14-ad2c-444a-9ea1-a28a1a68cb64
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+---
+ CHANGELOG.md                                  |  1 +
+ .../test/db-contract/accept-path.test.ts      | 78 +++++++++----------
+ .../test/db-contract/meeting-ingest.test.ts   | 54 +++++++------
+ .../test/db-contract/topology.test.ts         | 23 ++++++
+ .../2026-09-19-db-prepare-speed/decisions.md  |  3 +
+ docs/work/2026-09-19-db-prepare-speed/plan.md | 32 ++++++++
+ .../work/2026-09-19-db-prepare-speed/tasks.md | 19 +++++
+ 7 files changed, 141 insertions(+), 69 deletions(-)
+ create mode 100644 docs/work/2026-09-19-db-prepare-speed/decisions.md
+ create mode 100644 docs/work/2026-09-19-db-prepare-speed/plan.md
+ create mode 100644 docs/work/2026-09-19-db-prepare-speed/tasks.md
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index a7ed52d..a330d50 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -24,6 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+ - Schema and domain ownership inventory for roadmap and meeting surfaces, including canonical ownership boundaries, overlap rules, and guarded discoverability links (PR #3, product-suite-waq)
+ 
+ ### Changed
++- DB Contract mixed suites now share one transactional branch lifecycle before their dedicated assertions, removing two redundant database preparation phases while preserving rollback and dedicated-branch isolation (Forge issue `5210cc14-ad2c-444a-9ea1-a28a1a68cb64`)
+ - Local pre-push validation runs aggregate workspace lint once before the selected checks, preserving full lint coverage, fast-mode test-only suites, and canonical CI commands (Forge issue `e54d032b-92f6-4500-adf8-5e59ffba57d2`)
+ - Bun CI runtimes now follow stable releases, local setup documents stable upgrades instead of an obsolete exact runtime pin, and root installs apply the BlockSuite icon compatibility patch (PR #188, Forge issue `b0803978-a71b-4946-a139-48e8901b9739`)
+ - Real-Neon authority conformance now proves disposable-project and production-derived-branch cleanup, direct migration versus pooled runtime binding, least-privilege CRUD and denial behavior, and exact opaque PASS evidence (PR #173, Forge issue `25faf39b-3017-42fe-94c0-87acad7279a0`)
+diff --git a/apps/platform-api/test/db-contract/accept-path.test.ts b/apps/platform-api/test/db-contract/accept-path.test.ts
+index c8bef92..d0dbbbe 100644
+--- a/apps/platform-api/test/db-contract/accept-path.test.ts
++++ b/apps/platform-api/test/db-contract/accept-path.test.ts
+@@ -126,6 +126,43 @@ describe.skipIf(!hasNeonCreds())(
+       })
+     })
+ 
++    it('9: a memory superseded out from under the proposal → stale, stays reviewable (no clobber)', async () => {
++      await runTransactionalDb(async ({ sql, seed }) => {
++        // A memory the proposal wants to supersede — but a human edits it first.
++        const mem = await createMemory(
++          sql,
++          { tenantId: seed.tenantId, actor: seed.runId },
++          { kind: 'fact', title: 'Original fact' },
++        )
++        // The human's supersede makes the original id no longer the active version.
++        await supersedeMemory(
++          sql,
++          { tenantIds: [seed.tenantId], actor: seed.runId },
++          mem.id,
++          { title: 'Human-edited fact', changeReason: 'human edited first' },
++        )
++
++        // The agent's proposal targets the now-STALE original id.
++        const proposal = await createProposal(sql, {
++          tenant_id: seed.tenantId,
++          run_id: seed.runId,
++          target_type: 'memory',
++          operation: 'supersede',
++          target_id: mem.id,
++          payload: { title: 'Agent edit', change_reason: 'from proposal' },
++        })
++
++        const result = await applyProposal(sql, acceptCtx(seed.tenantId, seed.userId), proposal.id)
++        expect(result.status).toBe('stale')
++        if (result.status !== 'stale') throw new Error('unreachable')
++        expect(result.item_id).toBe(mem.id)
++
++        // Never clobbered — the proposal stays pending for the human to reconcile.
++        const pending = await getProposalScoped(sql, proposal.id, [seed.tenantId])
++        expect(pending?.status).toBe('pending')
++      })
++    })
++
+     })
+ 
+     describe('dedicated assertions', () => {
+@@ -291,47 +328,6 @@ describe.skipIf(!hasNeonCreds())(
+ 
+     })
+ 
+-    describe('transactional tail assertions', () => {
+-    const runTransactionalTailDb = withTransactionalDb('accept-path-tail') as unknown as TransactionalRunner
+-    it('9: a memory superseded out from under the proposal → stale, stays reviewable (no clobber)', async () => {
+-      await runTransactionalTailDb(async ({ sql, seed }) => {
+-        // A memory the proposal wants to supersede — but a human edits it first.
+-        const mem = await createMemory(
+-          sql,
+-          { tenantId: seed.tenantId, actor: seed.runId },
+-          { kind: 'fact', title: 'Original fact' },
+-        )
+-        // The human's supersede makes the original id no longer the active version.
+-        await supersedeMemory(
+-          sql,
+-          { tenantIds: [seed.tenantId], actor: seed.runId },
+-          mem.id,
+-          { title: 'Human-edited fact', changeReason: 'human edited first' },
+-        )
+-
+-        // The agent's proposal targets the now-STALE original id.
+-        const proposal = await createProposal(sql, {
+-          tenant_id: seed.tenantId,
+-          run_id: seed.runId,
+-          target_type: 'memory',
+-          operation: 'supersede',
+-          target_id: mem.id,
+-          payload: { title: 'Agent edit', change_reason: 'from proposal' },
+-        })
+-
+-        const result = await applyProposal(sql, acceptCtx(seed.tenantId, seed.userId), proposal.id)
+-        expect(result.status).toBe('stale')
+-        if (result.status !== 'stale') throw new Error('unreachable')
+-        expect(result.item_id).toBe(mem.id)
+-
+-        // Never clobbered — the proposal stays pending for the human to reconcile.
+-        const pending = await getProposalScoped(sql, proposal.id, [seed.tenantId])
+-        expect(pending?.status).toBe('pending')
+-      })
+-    })
+-
+-    })
+-
+     describe('dedicated tail assertions', () => {
+     it('flip-loser (create): a reject that wins the race COMPENSATES the orphaned row (996b674c)', async () => {
+       await withDedicatedDbBranch(async ({ sql, seed }) => {
+diff --git a/apps/platform-api/test/db-contract/meeting-ingest.test.ts b/apps/platform-api/test/db-contract/meeting-ingest.test.ts
+index 4163bfb..7603b83 100644
+--- a/apps/platform-api/test/db-contract/meeting-ingest.test.ts
++++ b/apps/platform-api/test/db-contract/meeting-ingest.test.ts
+@@ -315,6 +315,32 @@ describe.skipIf(!hasNeonCreds())(
+       })
+     })
+ 
++    it('a run with no candidates still mints the run and proposes nothing', async () => {
++      await runTransactionalDb(async ({ sql, seed }) => {
++        await createAlembicOwnedTables(sql)
++        const tenantMap = identityMap(seed.tenantId)
++        await seedMeeting(sql, seed.tenantId)
++
++        const result = await runMeetingIngest(sql, { tenantId: seed.tenantId, tenantMap })
++
++        expect(result.proposalsCreated).toBe(0)
++        expect(result.skippedDuplicate).toBe(0)
++        expect(result.skippedUnmappedTenant).toBe(0)
++        expect(result.proposalIds).toEqual([])
++
++        const runs = await query(
++          sql,
++          `select id from agent_runs where tenant_id = $1 and triggered_by = 'meeting-ingest'`,
++          [seed.tenantId],
++        )
++        expect(runs).toHaveLength(1)
++        const proposals = await query(sql, `select id from proposals where tenant_id = $1`, [
++          seed.tenantId,
++        ])
++        expect(proposals).toHaveLength(0)
++      })
++    })
++
+     })
+ 
+     describe('dedicated assertions', () => {
+@@ -361,33 +387,5 @@ describe.skipIf(!hasNeonCreds())(
+ 
+     })
+ 
+-    describe('transactional tail assertions', () => {
+-    const runTransactionalTailDb = withTransactionalDb('meeting-ingest-tail') as unknown as TransactionalRunner
+-    it('a run with no candidates still mints the run and proposes nothing', async () => {
+-      await runTransactionalTailDb(async ({ sql, seed }) => {
+-        await createAlembicOwnedTables(sql)
+-        const tenantMap = identityMap(seed.tenantId)
+-        await seedMeeting(sql, seed.tenantId)
+-
+-        const result = await runMeetingIngest(sql, { tenantId: seed.tenantId, tenantMap })
+-
+-        expect(result.proposalsCreated).toBe(0)
+-        expect(result.skippedDuplicate).toBe(0)
+-        expect(result.skippedUnmappedTenant).toBe(0)
+-        expect(result.proposalIds).toEqual([])
+-
+-        const runs = await query(
+-          sql,
+-          `select id from agent_runs where tenant_id = $1 and triggered_by = 'meeting-ingest'`,
+-          [seed.tenantId],
+-        )
+-        expect(runs).toHaveLength(1)
+-        const proposals = await query(sql, `select id from proposals where tenant_id = $1`, [
+-          seed.tenantId,
+-        ])
+-        expect(proposals).toHaveLength(0)
+-      })
+-    })
+-    })
+   },
+ )
+diff --git a/apps/platform-api/test/db-contract/topology.test.ts b/apps/platform-api/test/db-contract/topology.test.ts
+index fc8a577..0df216f 100644
+--- a/apps/platform-api/test/db-contract/topology.test.ts
++++ b/apps/platform-api/test/db-contract/topology.test.ts
+@@ -33,6 +33,7 @@ type RoutedHelper = 'transactional' | 'dedicated'
+ interface CallSite {
+   readonly title: string
+   readonly helpers: readonly string[]
++  readonly position: number
+   readonly suiteScope?: string
+ }
+ 
+@@ -127,6 +128,7 @@ function readCallSites(suiteId: string): {
+         callSites.push({
+           title: titleArgument.text,
+           helpers: callback ? collectHelpers(callback) : [],
++          position: node.getStart(source),
+           suiteScope: nearestSuiteScope(node),
+         })
+       }
+@@ -254,6 +256,18 @@ describe('db-contract topology lock', () => {
+     }
+   })
+ 
++  it('uses one transactional suite resource per routed file', () => {
++    for (const suiteId of ROUTED_SUITES) {
++      const { transactionalAliases } = readCallSites(suiteId)
++      const hasTransactionalAssertions = SUITE_MANIFEST.some(
++        (entry) => entry.suiteId === suiteId && entry.executionClass === 'transactional-suite',
++      )
++
++      expect(transactionalAliases.size, `${suiteId} transactional resource count`)
++        .toBe(hasTransactionalAssertions ? 1 : 0)
++    }
++  })
++
+   it('keeps mixed files from holding a suite lease while dedicated tests run', () => {
+     for (const suiteId of ['accept-path', 'baseline', 'meeting-ingest']) {
+       const { callSites } = readCallSites(suiteId)
+@@ -268,6 +282,15 @@ describe('db-contract topology lock', () => {
+       expect(dedicatedScopes.size, `${suiteId} dedicated lifecycle scope`).toBeGreaterThan(0)
+       expect([...transactionalScopes].some((scope) => dedicatedScopes.has(scope)), `${suiteId} lifecycle overlap`)
+         .toBe(false)
++
++      const transactionalPositions = callSites
++        .filter(({ helpers }) => helpers.some((helper) => helper !== 'withDedicatedDbBranch'))
++        .map(({ position }) => position)
++      const dedicatedPositions = callSites
++        .filter(({ helpers }) => helpers.includes('withDedicatedDbBranch'))
++        .map(({ position }) => position)
++      expect(Math.max(...transactionalPositions), `${suiteId} transactional assertions run before dedicated assertions`)
++        .toBeLessThan(Math.min(...dedicatedPositions))
+     }
+   })
+ })
+diff --git a/docs/work/2026-09-19-db-prepare-speed/decisions.md b/docs/work/2026-09-19-db-prepare-speed/decisions.md
+new file mode 100644
+index 0000000..4f3edab
+--- /dev/null
++++ b/docs/work/2026-09-19-db-prepare-speed/decisions.md
+@@ -0,0 +1,3 @@
++# DB Contract redundant prepare reduction - decisions
++
++No implementation-time specification gaps recorded.
+diff --git a/docs/work/2026-09-19-db-prepare-speed/plan.md b/docs/work/2026-09-19-db-prepare-speed/plan.md
+new file mode 100644
+index 0000000..6b1971f
+--- /dev/null
++++ b/docs/work/2026-09-19-db-prepare-speed/plan.md
+@@ -0,0 +1,32 @@
++# DB Contract redundant prepare reduction
++
++## Outcome
++
++Reduce the required DB Contract lane from seven transactional branch prepare lifecycles to five while preserving its 9-file, 57-test, zero-skip evidence contract.
++
++## Design
++
++`accept-path.test.ts` and `meeting-ingest.test.ts` each split transactional assertions around a dedicated-branch assertion. That creates a second transactional suite resource and repeats branch creation, role provisioning, migration replay, and cleanup.
++
++Move each isolated transactional tail assertion into the file's existing transactional `describe`, before the dedicated assertions. Keep every dedicated assertion on `withDedicatedDbBranch`. The existing suite-scoped transaction, rollback, observer, branch lease, and deletion proof remain unchanged.
++
++Add one AST-backed topology regression that requires every routed file with transactional assertions to instantiate exactly one transactional suite factory. The existing topology test continues to prove transactional and dedicated lifecycle scopes do not overlap.
++
++## Constraints
++
++- Keep all 57 assertions and their titles unchanged; no skips or timeout increases.
++- Preserve dedicated branches for concurrency, committed retry/redrive, migration history, and least-privilege behavior.
++- Keep independent sessions, rollback sentinels, branch cap, cleanup/deletion proof, rate-limit behavior, workflow gating, schema, auth, and product behavior unchanged.
++- Add no dependency or framework and do not share a mutable test database across files.
++- Limit the change to the two mixed DB Contract suites, the structural topology regression, and these work documents.
++
++## Verification
++
++1. RED: run the focused topology test and observe the new single-factory invariant fail for `accept-path` and `meeting-ingest`.
++2. GREEN: reorder the two transactional tails, remove their extra factories, and rerun the focused topology and suite-resource unit tests locally.
++3. Self-review against `CODING_STANDARDS.md`; inspect the final diff and count-lock evidence.
++4. Real Neon acceptance is deferred to the lead: three consecutive runs on one final SHA, each 8-15 minutes, 9 files / 57 tests / 0 skips, no current-run branches remaining, and at most two active branches.
++
++## Reverse path
++
++Revert the focused commit to restore the prior test ordering and seven transactional prepare lifecycles. Real runs use only test-owned ephemeral Neon branches, whose existing teardown and final reap must prove deletion.
+diff --git a/docs/work/2026-09-19-db-prepare-speed/tasks.md b/docs/work/2026-09-19-db-prepare-speed/tasks.md
+new file mode 100644
+index 0000000..9d02819
+--- /dev/null
++++ b/docs/work/2026-09-19-db-prepare-speed/tasks.md
+@@ -0,0 +1,19 @@
++# DB Contract redundant prepare reduction - tasks
++
++## Task 1 - lock one transactional resource per routed suite
++
++1. Add an AST-backed assertion to `topology.test.ts` that each routed suite with transactional assertions has exactly one `withTransactionalDb` factory.
++2. Run the focused topology test and capture the expected failure for `accept-path` and `meeting-ingest`.
++
++## Task 2 - consolidate the two transactional tails
++
++1. Move `accept-path:9` into the existing `accept-path` transactional scope and remove `accept-path-tail`.
++2. Move `meeting-ingest:5` into the existing `meeting-ingest` transactional scope and remove `meeting-ingest-tail`.
++3. Leave all dedicated assertions and helpers unchanged.
++4. Run the focused topology and suite-resource tests and capture passing output.
++
++## Task 3 - self-review and handoff
++
++1. Read `CODING_STANDARDS.md`, inspect the final diff, and verify all 57 manifest entries remain unchanged.
++2. Commit the focused change without pushing.
++3. Return RED/GREEN evidence and the exact commit to the lead for independent spec and quality review.
+-- 
+2.51.0.windows.1
+

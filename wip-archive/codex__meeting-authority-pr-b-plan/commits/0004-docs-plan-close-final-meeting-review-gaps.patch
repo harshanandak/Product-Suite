@@ -1,0 +1,368 @@
+From c3e3dd1181c899572ab818b1f6d42a304706c955 Mon Sep 17 00:00:00 2001
+From: Harsha Nanda <harshanandak@users.noreply.github.com>
+Date: Sun, 9 Aug 2026 02:19:40 +0530
+Subject: [PATCH] docs(plan): close final meeting review gaps
+
+---
+ .../2026-08-09-meeting-authority-pr-b/plan.md | 121 +++++++++++++-----
+ .../tasks.md                                  |  51 +++++---
+ 2 files changed, 122 insertions(+), 50 deletions(-)
+
+diff --git a/docs/work/2026-08-09-meeting-authority-pr-b/plan.md b/docs/work/2026-08-09-meeting-authority-pr-b/plan.md
+index 6c3d4a4..39e2218 100644
+--- a/docs/work/2026-08-09-meeting-authority-pr-b/plan.md
++++ b/docs/work/2026-08-09-meeting-authority-pr-b/plan.md
+@@ -232,6 +232,7 @@ PR A. Names below are final; only the numeric revision placeholder changes.
+ | `meeting_summary_command_kind` | `adjust`, `dismiss`, `restore` |
+ | `meeting_action_command_kind` | `add`, `adjust`, `dismiss`, `keep_as_follow_up`, `restore` |
+ | `meeting_version_derivation_kind` | `source`, `adjustment` |
++| `meeting_terminal_origin` | `review_command`, `legacy_terminal_migration` |
+ | `meeting_review_command_status` | `running`, `succeeded`, `failed_retryable`, `failed_terminal` |
+ 
+ #### `meeting_summary_artifacts` and `meeting_summary_versions`
+@@ -289,6 +290,8 @@ event in the owning conversation. App assertions duplicate, never replace, it.
+ | `state` | `meeting_action_candidate_state` NOT NULL DEFAULT `pending` |
+ | `state_revision` | BIGINT NOT NULL DEFAULT 0; monotonic human state changes only |
+ | `last_transition_command_id` | UUID NULL only at initial revision 0 |
++| `terminal_origin` | `meeting_terminal_origin` NULL while pending; required when terminal |
++| `restore_eligible` | BOOLEAN NOT NULL DEFAULT false; true only for a reversible human no-work decision |
+ | `resolved_version_id` | UUID NULL |
+ | `resolved_by_actor_id` | UUID NULL |
+ | `resolved_at` | TIMESTAMPTZ NULL |
+@@ -301,8 +304,15 @@ Constraints/indexes:
+ - unique `(tenant_id, access_conversation_id, source_action_item_id)`;
+ - composite same-tenant FKs to meeting/conversation, candidate current/resolved
+   version, resolving actor, proposal, and work item;
+-- `pending` has no resolution fields; `added` has exactly one work-item result;
+-  `dismissed` and `kept_as_follow_up` have no proposal/result;
++- `pending` has no resolution fields, NULL terminal origin, and
++  `restore_eligible=false`; `added` has exactly one work-item result, a terminal
++  origin, and `restore_eligible=false`; `dismissed` and `kept_as_follow_up` have no
++  work result;
++- a human Dismiss/keep records `terminal_origin='review_command'` and
++  `restore_eligible=true`; an already terminal rejected/superseded/expired legacy
++  proposal records `terminal_origin='legacy_terminal_migration'` and
++  `restore_eligible=false`; checks reject every other state/origin/eligibility
++  combination;
+ - terminal rows cannot return to `pending`; rematerialization updates neither
+   terminal state nor state revision/current version. Explicit Restore is the sole
+   exception for dismissed/kept states and must CAS the exact terminal revision and
+@@ -502,29 +512,34 @@ type MeetingSummaryStateProjection =
+   | { value: 'dismissed'; revision: number; terminal_transition_id: string }
+ type MeetingActionStateProjection =
+   | { value: 'pending'; revision: number }
+-  | { value: 'added' | 'dismissed' | 'kept_as_follow_up'; revision: number; terminal_transition_id: string }
++  | { value: 'added'; revision: number; terminal_transition_id: string; terminal_origin: 'review_command' | 'legacy_terminal_migration'; restore_eligible: false }
++  | { value: 'dismissed'; revision: number; terminal_transition_id: string; terminal_origin: 'review_command'; restore_eligible: true }
++  | { value: 'dismissed'; revision: number; terminal_transition_id: string; terminal_origin: 'legacy_terminal_migration'; restore_eligible: false }
++  | { value: 'kept_as_follow_up'; revision: number; terminal_transition_id: string; terminal_origin: 'review_command'; restore_eligible: true }
+ 
+ type MeetingCandidateSuggestion =
+   | { id: string; kind: 'owner'; position: 0 | 1 | 2; actor_id: string; label: string; href?: string }
+   | { id: string; kind: 'due_date'; position: 0 | 1 | 2; date: string; label: string }
+   | { id: string; kind: 'parent' | 'dependency'; position: 0 | 1 | 2; work_item_id: string; label: string; href: string }
+ 
+-interface MeetingSummaryArtifactCardV1 {
++interface MeetingSummaryArtifactCardBaseV1 {
+   schema_version: 1
+   id: string
+   version: { id: string; number: number }
+   type: 'summary_artifact'
+   title: string
+   source_line: string
+-  state: MeetingSummaryStateProjection
+   evidence_links: readonly { kind: 'decision' | 'follow_up'; id: string; label: string; href: string }[] // 0..3
+   links: {
+     meeting: { id: string; href: string }
+   }
+-  actions: { adjust: boolean; dismiss: boolean; restore: boolean } // no add key
++  result?: never
+ }
++type MeetingSummaryArtifactCardV1 =
++  | (MeetingSummaryArtifactCardBaseV1 & { state: { value: 'current'; revision: number }; allowed_actions: readonly ['adjust', 'dismiss'] })
++  | (MeetingSummaryArtifactCardBaseV1 & { state: { value: 'dismissed'; revision: number; terminal_transition_id: string }; allowed_actions: readonly ['restore'] })
+ 
+-interface MeetingActionCandidateCardV1 {
++interface MeetingActionCandidateCardBaseV1 {
+   schema_version: 1
+   id: string
+   version: { id: string; number: number }
+@@ -532,22 +547,31 @@ interface MeetingActionCandidateCardV1 {
+   destination: MeetingActionDestination
+   title: string
+   source_line: string
+-  state: MeetingActionStateProjection
+-  suggestions: readonly MeetingCandidateSuggestion[] // length 0..3
+-  choices: readonly [
+-    { value: 'simple_task'; label: 'Make this a simple task' },
+-    { value: 'planned_work_item'; label: 'Turn this into a planned work item' },
+-    { value: 'keep_as_follow_up'; label: 'Keep this as a meeting follow-up' },
+-  ]
+   links: {
+     meeting: { id: string; href: string }
+-    result?: { kind: 'work_item'; id: string; href: string }
+   }
+-  actions: { add: boolean; adjust: boolean; dismiss: boolean; restore: boolean }
+ }
++type MeetingActionCandidateCardV1 =
++  | (MeetingActionCandidateCardBaseV1 & { state: { value: 'pending'; revision: number }; suggestions: readonly MeetingCandidateSuggestion[]; choices: readonly [{ value: 'simple_task'; label: 'Make this a simple task' }, { value: 'planned_work_item'; label: 'Turn this into a planned work item' }, { value: 'keep_as_follow_up'; label: 'Keep this as a meeting follow-up' }]; allowed_actions: readonly ['add', 'adjust', 'dismiss']; result?: never })
++  | (MeetingActionCandidateCardBaseV1 & { state: Extract<MeetingActionStateProjection,{value:'added'}>; suggestions?: never; choices?: never; allowed_actions: readonly []; result: { kind: 'work_item'; id: string; href: string } })
++  | (MeetingActionCandidateCardBaseV1 & { state: Extract<MeetingActionStateProjection,{value:'dismissed';terminal_origin:'review_command'}>; suggestions?: never; choices?: never; allowed_actions: readonly ['restore']; result?: never })
++  | (MeetingActionCandidateCardBaseV1 & { state: Extract<MeetingActionStateProjection,{value:'dismissed';terminal_origin:'legacy_terminal_migration'}>; suggestions?: never; choices?: never; allowed_actions: readonly []; result?: never })
++  | (MeetingActionCandidateCardBaseV1 & { state: Extract<MeetingActionStateProjection,{value:'kept_as_follow_up'}>; suggestions?: never; choices?: never; allowed_actions: readonly ['restore']; result?: never })
+ 
+ type MeetingReviewCardV1 = MeetingSummaryArtifactCardV1 | MeetingActionCandidateCardV1
+ 
++type MeetingSummaryCommandResultV1 =
++  | { schema_version: 1; status: 'succeeded'; command: 'adjust'; summary_artifact: Extract<MeetingSummaryArtifactCardV1,{state:{value:'current'}}>; duplicate: boolean; run_id: string }
++  | { schema_version: 1; status: 'succeeded'; command: 'dismiss'; summary_artifact: Extract<MeetingSummaryArtifactCardV1,{state:{value:'dismissed'}}>; duplicate: boolean; run_id?: never }
++  | { schema_version: 1; status: 'succeeded'; command: 'restore'; summary_artifact: Extract<MeetingSummaryArtifactCardV1,{state:{value:'current'}}>; duplicate: boolean; run_id?: never }
++
++type MeetingActionCommandResultV1 =
++  | { schema_version: 1; status: 'succeeded'; command: 'adjust'; action_candidate: Extract<MeetingActionCandidateCardV1,{state:{value:'pending'}}>; duplicate: boolean; proposal_id?: never; work_item?: never; run_id: string }
++  | { schema_version: 1; status: 'succeeded'; command: 'add'; action_candidate: Extract<MeetingActionCandidateCardV1,{state:{value:'added'}}>; duplicate: boolean; proposal_id: string; work_item: { id: string; href: string }; run_id?: never }
++  | { schema_version: 1; status: 'succeeded'; command: 'dismiss'; action_candidate: Extract<MeetingActionCandidateCardV1,{state:{value:'dismissed';terminal_origin:'review_command'}}>; duplicate: boolean; proposal_id?: never; work_item?: never; run_id?: never }
++  | { schema_version: 1; status: 'succeeded'; command: 'keep_as_follow_up'; action_candidate: Extract<MeetingActionCandidateCardV1,{state:{value:'kept_as_follow_up'}}>; duplicate: boolean; proposal_id?: never; work_item?: never; run_id?: never }
++  | { schema_version: 1; status: 'succeeded'; command: 'restore'; action_candidate: Extract<MeetingActionCandidateCardV1,{state:{value:'pending'}}>; duplicate: boolean; proposal_id?: never; work_item?: never; run_id?: never }
++
+ interface MeetingReviewProvenanceV1 {
+   schema_version: 1
+   tenant_id: string
+@@ -611,9 +635,11 @@ Public decoders: `decodeMeetingReviewCardV1`, `decodeMeetingReviewListV1`,
+ `decodeAddMeetingActionCandidateV1`, `decodeAdjustMeetingReviewSubjectV1`,
+ `decodeDismissMeetingReviewSubjectV1`, `decodeRestoreMeetingReviewSubjectV1`,
+ `decodeMeetingSummaryCommandResultV1`, and
+-`decodeMeetingActionCommandResultV1`. The discriminated union rejects an `add`
+-action/result/destination on summary artifacts. Internal platform API Zod schemas mirror
+-and drift-test those contracts; the web decodes before state mutation.
++`decodeMeetingActionCommandResultV1`. The state-discriminated union rejects an
++`add` action/result/destination on summary artifacts and rejects any action
++candidate whose literal `allowed_actions`, result presence, terminal origin, or
++restore eligibility disagrees with its state. Internal platform API Zod schemas
++mirror and drift-test those contracts; the web decodes before state mutation.
+ 
+ ### Materialization and legacy compatibility
+ 
+@@ -653,7 +679,21 @@ model:
+   provenance;
+ - `applied` legacy proposal -> `added` with the existing work item;
+ - rejected/superseded/expired legacy proposal -> non-restorable `dismissed` with
+-  its existing terminal proposal untouched and no new work;
++  `terminal_origin='legacy_terminal_migration'`, `restore_eligible=false`, its
++  existing terminal proposal untouched, and no new work. Migration inserts one
++  deterministic synthetic succeeded Dismiss command: UUIDv5 from fixed namespace
++  `MEETING_LEGACY_TRANSITION_NS` and canonical
++  `(tenant_id,proposal_id,terminal_status)`, idempotency key
++  `legacy-migration:<proposal_id>:<terminal_status>`, request hash of that tuple,
++  `candidate_id` set to the deterministically migrated candidate,
++  `expected_version_id` set to its v1, `kind='dismiss'`, `status='succeeded'`, the
++  dedicated migration service actor, attempt 1, completed time copied from the
++  legacy terminal transition, no claim/lease/domain result,
++  `result_state='dismissed'`, `result_state_revision=1`, and
++  `result_transition_id=command.id`. The candidate is revision 1 and points to that
++  command, with the same service actor/time in its resolution fields. Reapply
++  derives the same IDs and performs no write; command checks admit
++  this service actor only for this migration representation;
+ - pending legacy proposal -> pending action candidate linked to that same still-
+   pending proposal. Candidate Dismiss/keep changes only candidate review state and
+   visibility; it never rejects/terminalizes the legacy proposal. The old Inbox
+@@ -664,7 +704,9 @@ model:
+ - source/mapping/origin/status ambiguity -> quarantine, no review projection;
+ - unresolved suggestions are omitted, never inferred from text.
+ 
+-Real-Neon migration coverage must execute pending legacy
++Real-Neon migration coverage must prove rejected/superseded/expired rows converge
++to that exact synthetic command/revision, serialize with no Restore action, and make
++Restore's winning predicate affect zero rows. It must also execute pending legacy
+ `Dismiss -> Restore -> Add`: proposal remains pending while hidden, Restore returns
+ the same proposal ID, Add atomically marks it applied and creates one work item,
+ and replay creates neither a second proposal nor a second work item. Audit commands
+@@ -861,8 +903,10 @@ Only a separately confirmed, current-member `restore` command can undo a no-work
+ terminal decision; it never restores `added`, rewrites a version, or deletes work.
+ Dismiss/keep CAS `(state='pending|current', state_revision=expected)`; Restore CAS
+ the exact terminal state, `state_revision=expected`, and
+-`last_transition_command_id=expected_terminal_transition_id`. Each winner inserts
+-one immutable succeeded command/transition, increments revision, and returns the
++`last_transition_command_id=expected_terminal_transition_id`, with
++`terminal_origin='review_command' AND restore_eligible=true`. A legacy-terminal
++candidate therefore cannot win Restore even with an exact revision/transition ID.
++Each winner inserts one immutable succeeded command/transition, increments revision, and returns the
+ persisted result state/revision/transition. Mismatch is `409 stale_state` with the
+ latest safe card; request retries replay only their stored immutable result.
+ 
+@@ -885,10 +929,14 @@ subject commands are separated so summary Add is unrepresentable:
+ | `GET /api/agent/meeting-review/:type/:id/adjustments?after_sequence=&limit=` | Subject-referenced conversation events only, current membership required |
+ 
+ List envelope is exactly `{schema_version:1,items,next_cursor}` where `items` is
+-the strict discriminated union. Summary command success is exactly
+-`{schema_version:1,status,summary_artifact,duplicate,run_id?}`. Action command
+-success is exactly
+-`{schema_version:1,status,action_candidate,duplicate,proposal_id?,work_item?,run_id?}`.
++the strict state-discriminated union. Summary command success is a
++state-discriminated union exactly
++`{schema_version:1,status,command,summary_artifact,duplicate,run_id?}` whose artifact has
++the literal actions for its resulting state. Action command success is a
++state-discriminated union exactly
++`{schema_version:1,status,command,action_candidate,duplicate,proposal_id?,work_item?,run_id?}`:
++only `added` requires `proposal_id` and `work_item`, every other state forbids them,
++and Adjust alone may return `run_id`.
+ Public errors are closed: `invalid_request` 400, `not_found` 404,
+ `stale_version|stale_state|stale_suggestion|terminal|idempotency_conflict` 409, bounded
+ `adjustment_failed` 422/502 by retryability, and generic 500. Private denial and
+@@ -896,9 +944,10 @@ database codes never serialize.
+ 
+ Projection invariants are executable fixtures, not prose: `next_cursor` is
+ `string|null`; unknown keys/null optionals reject; a summary card never contains
+-destination/suggestions/choices/result/add; an action result exists only when
+-state is `added` and is always `{kind:'work_item',id,href}`; dismissed/kept cards
+-expose only `restore:true`, while added exposes all actions false;
++destination/suggestions/choices/result/add; literal action tuples match state and
++order exactly; an action result exists only when state is `added` and is always
++`{kind:'work_item',id,href}`; review-command dismissed/kept cards expose only
++`['restore']`, while legacy-terminal dismissed and added expose `[]`;
+ `kept_as_follow_up` has no proposal/result; first success has
+ `duplicate:false`, actor-equal replay has identical subject/result IDs and
+ `duplicate:true`; a command result never mixes summary and action keys; run IDs
+@@ -1048,7 +1097,10 @@ Compatibility rules:
+   planned destinations. Keep-follow-up terminates promotion and writes no memory
+   or work item. Refresh, Adjust, and Dismiss create zero Product-Suite records.
+ - Golden decoder fixtures prove exact union/command/result/error keys and cross-
+-  language parity; invalid null/unknown/mixed/terminal combinations reject.
++  language parity. Invalid vectors include current+Restore, dismissed+Add,
++  added-without-result, non-added-with-result, legacy-terminal+Restore,
++  restore-eligible legacy terminal, wrong action order, null/unknown/mixed keys,
++  and terminal origin without its matching state; every vector rejects.
+ 
+ ### Authorization/routes
+ 
+@@ -1082,6 +1134,9 @@ Dave (removed member), and Eve (provider/label spoof):
+   nothing; confirmed parent/dependencies preserve DAG/team/current access;
+ - FK/check/immutability triggers reject cross-tenant and partial provenance;
+ - backfill dry/apply/reapply deterministic; legacy states map without new work;
++  rejected/superseded/expired rows have one stable synthetic transition/revision,
++  no Restore projection, and a Restore CAS affects zero rows; pending legacy
++  Dismiss->Restore->Add retains and applies exactly one proposal;
+ - old ingest is 410 and static/runtime writer inventory proves zero legacy writes
+   before backfill; meeting Add changes the memory count by exactly zero;
+ - response-key snapshots unchanged; migration fresh-clone/parity and cleanup
+@@ -1221,7 +1276,9 @@ the declared dependent base, never by editing another worktree.
+    auth/projection/migration contracts recorded; Forge dependency B -> A approved.
+ 2. **Schema/codec:** security/data/API approve exact tables, immutable triggers,
+    derivation/hash/provenance checks, relational evidence FKs, command leases,
+-   strict codecs/golden projections, legacy mapping, and no destructive migration.
++    strict state/result/action codecs and golden invalid projections, explicit
++    restore-ineligible legacy terminal origin plus deterministic synthetic migration
++    transitions, legacy mapping, and no destructive migration.
+ 3. **Call-site inventory:** security signs the complete meeting/memory/knowledge/
+    proposal/work-item/child/tool matrix; known-ID and revocation failures are green.
+ 4. **Distinct-subject promotion:** product/security approve that summary artifacts
+diff --git a/docs/work/2026-08-09-meeting-authority-pr-b/tasks.md b/docs/work/2026-08-09-meeting-authority-pr-b/tasks.md
+index a1e0434..e4c301f 100644
+--- a/docs/work/2026-08-09-meeting-authority-pr-b/tasks.md
++++ b/docs/work/2026-08-09-meeting-authority-pr-b/tasks.md
+@@ -105,15 +105,19 @@ B2 development, but B2's GitHub base must be the exact B1 head.
+ `packages/contracts/contracts/meeting-review.json`, index/d.ts exports, conversation
+ JS/JSON/d.ts/tests, and new shared valid/invalid golden fixtures.
+ 
+-**Implement:** Exact summary/action cards, typed Adjust union
++**Implement:** Exact state-discriminated summary/action cards with literal ordered
++allowed-action tuples and state-required/forbidden result fields, typed Adjust union
+ `simple_task|planned_work_item|keep_as_follow_up`, confirmed terminal request,
+-Add/Dismiss/Restore commands, provenance hashes/derivation kind, and disjoint
+-command results/errors. Reject unknown keys, null optionals, mixed subject fields,
+-summary Add, terminal result mismatches, >3 chips/choices, malformed IDs/hashes.
++Add/Dismiss/Restore commands, explicit terminal origin/restore eligibility,
++provenance hashes/derivation kind, and disjoint command results/errors. Reject
++unknown keys, null optionals, mixed subject fields, summary Add, terminal result
++mismatches, legacy-terminal Restore, wrong action order, >3 chips/choices, and
++malformed IDs/hashes.
+ 
+-**RED:** missing exports and permissive fixtures pass. **GREEN:** JSON/JS/d.ts and
+-platform-neutral fixtures drift together; exact valid cases pass and every invalid
+-shape fails closed.
++**RED:** missing exports and permissive fixtures pass, including added-without-result,
++non-added-with-result, current+Restore, dismissed+Add, legacy-terminal+Restore, and
++wrong action order. **GREEN:** JSON/JS/d.ts and platform-neutral fixtures drift
++together; exact valid cases pass and every golden invalid shape fails closed.
+ 
+ **Commit:** `feat(contracts): freeze meeting review protocols`
+ **Expected:** one language-neutral v1 wire contract. **Estimate:** 6-8 files,
+@@ -129,7 +133,8 @@ tables, separate command ledgers, suggestion table, and two relational evidence
+ tables. Add `derivation_kind`, source-projection and version-content hashes, source-only partial
+ uniques keyed by source row+revision (allow A->B->A hashes), conditional source-vs-
+ adjustment and actor-kind checks, nullable-only-inside-initial-transaction current
+-version pointers, monotonic state revisions/last transition IDs, immutable command
++version pointers, monotonic state revisions/last transition IDs, explicit terminal
++origin/restore eligibility checks, immutable command
+ results, command token/lease/attempt fields, candidate-unique proposal index,
+ all-or-none proposal/work provenance, and typed composite FKs binding all
+ provenance/evidence. Add/verify composite `(tenant_id,id)` uniques on every
+@@ -333,8 +338,10 @@ and Add reuses/applies it. No permanent expiry policy. Assert B1 sentinel before
+ **RED:** apply proceeds while legacy writer sentinel is active, leaks content,
+ terminalizes a pending proposal on Dismiss, or duplicates on Dismiss->Restore->Add.
+ **GREEN:** dry/apply/reapply converges; quarantine is content-free; hidden pending
+-proposal keeps its ID/status, Restore re-shows it, Add applies it once; missing
+-cutover aborts.
++proposal keeps its ID/status, Restore re-shows it, Add applies it once. Rejected/
++superseded/expired rows get the deterministic UUIDv5 synthetic succeeded Dismiss
++command, revision 1, legacy terminal origin, and restore-ineligible literal; reapply
++is a no-op and Restore CAS affects zero rows; missing cutover aborts.
+ 
+ **Commit:** `feat(meeting): backfill review after cutover`
+ **Expected:** reconciled review state without writer race. **Estimate:** 4-7 files,
+@@ -379,10 +386,13 @@ tests; app registration/tests.
+ versions/events, winning-CAS current authorization, and `agent_runs.transcript`
+ always NULL. Typed simple/planned constrains nonterminal output. Typed confirmed
+ keep bypasses model and deterministically terminates. Dismiss/Restore are explicit
+-authorized CAS; Restore cannot undo Added. Expose exact strict projections/errors.
++authorized CAS; Restore requires review-command origin plus restore eligibility and
++cannot undo Added or a migrated legacy terminal. Expose exact state-discriminated
++strict projections/errors.
+ 
+ **RED:** model can terminalize; free text terminates; transcript persists; late
+-run beats revoke/Add/Dismiss; Restore reopens Added; response fixtures drift.
++run beats revoke/Add/Dismiss; Restore reopens Added or a legacy terminal; response
++fixtures drift or admit an invalid action/result state.
+ **GREEN:** event/run/version ordering, no partial versions, exact routes/statuses,
+ terminal/restore races, denial matrix, and golden decoders pass in real Neon.
+ Dismiss/keep requests fence expected revision; Restore additionally fences the
+@@ -408,13 +418,15 @@ convergence, winning-write authorization, strict projections, and Restore rules.
+ network/hooks/provider/fixtures/tests; old meeting-actions removal after migration;
+ `AppRoot.tsx` focused provider tests.
+ 
+-**Implement:** Decode golden union/results/errors; subject-specific methods; no
++**Implement:** Decode golden state unions/results/errors and literal allowed actions;
++subject-specific methods; no
+ summary Add; typed Adjust choices/confirmation; per-card claims/errors; stale card
+ replacement; Restore; inert unknown state; stable replay invalidation.
+ 
+-**RED:** unknown/null/mixed cards pass, summary Add is constructible, or replay/
+-stale state duplicates work. **GREEN:** shared golden fixtures and repository/hook
+-tests pass with one call per activation and retained drafts.
++**RED:** unknown/null/mixed cards pass, summary Add is constructible, a legacy
++terminal exposes Restore, result/action literals mismatch state, or replay/stale
++state duplicates work. **GREEN:** shared valid/invalid golden fixtures and repository/
++hook tests pass with one call per activation and retained drafts.
+ 
+ **Commit:** `feat(web): add strict meeting review data layer`
+ **Expected:** safe client state, no rendering change. **Estimate:** 8-11 files,
+@@ -433,11 +445,14 @@ Undo, loading/empty/error/stale/in-flight states, responsive/a11y/focus/live reg
+ Run the resolved command to create ephemeral Neon, migrate/seed, start both APIs
+ and web, execute API probes and Playwright, report nonzero counts, and cleanup.
+ 
+-**RED:** Testing Library/axe/Playwright expose summary Add, implicit keep, missing
++**RED:** Testing Library/axe/Playwright expose summary Add, Restore for a migrated
++legacy terminal, implicit keep, missing
+ confirmation/Undo, focus/announcement/zoom defects, revocation leaks, automatic
+ work, duplicate Add, or non-null Adjust run transcript. **GREEN:** full actor and
+ source-to-review-to-result matrix passes at desktop/mobile, 320px/400%, keyboard,
+-axe and NVDA script; missing service/credential/skip/zero/timeout/cleanup exits nonzero.
++axe and NVDA script. Rejected/superseded/expired legacy cards have no Restore in UI
++or wire, while pending legacy Dismiss->Restore->Add reuses one proposal; missing
++service/credential/skip/zero/timeout/cleanup exits nonzero.
+ 
+ **Commit:** `test(meeting): prove review-gated promotion end to end`
+ **Expected:** exact-head executable API+web+browser evidence. **Estimate:** 8-11
+-- 
+2.51.0.windows.1
+

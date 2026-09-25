@@ -1,0 +1,1211 @@
+From d86328f6ce2823b794d3f6f59ccdf6118d2ed087 Mon Sep 17 00:00:00 2001
+From: Harsha Nanda <harshanandak@users.noreply.github.com>
+Date: Mon, 10 Aug 2026 14:05:33 +0530
+Subject: [PATCH] feat(ui-charting): add isolated TanStack chart adapter
+
+---
+ packages/ui-charting/src/chart.jsx            | 290 ++++++++++
+ packages/ui-charting/src/chart.test.jsx       | 495 ++++++++++++++++++
+ .../src/engine/tanstack-charts.jsx            | 270 ++++++++++
+ .../src/engine/tanstack-charts.test.jsx       |  28 +
+ packages/ui-charting/src/index.d.ts           |  53 ++
+ packages/ui-charting/src/index.jsx            |  11 +
+ 6 files changed, 1147 insertions(+)
+ create mode 100644 packages/ui-charting/src/chart.jsx
+ create mode 100644 packages/ui-charting/src/chart.test.jsx
+ create mode 100644 packages/ui-charting/src/engine/tanstack-charts.jsx
+ create mode 100644 packages/ui-charting/src/engine/tanstack-charts.test.jsx
+
+diff --git a/packages/ui-charting/src/chart.jsx b/packages/ui-charting/src/chart.jsx
+new file mode 100644
+index 0000000..32c6d74
+--- /dev/null
++++ b/packages/ui-charting/src/chart.jsx
+@@ -0,0 +1,290 @@
++import React, { Component, useId, useMemo } from "react";
++
++import {
++  CHART_KINDS,
++  CHART_STATES,
++  normalizeChartContract,
++  normalizeChartDimensions,
++} from "./chart-contract.js";
++import {
++  EngineChart,
++  exportTanStackPng,
++  exportTanStackSvg,
++} from "./engine/tanstack-charts.jsx";
++
++const DEFAULT_COPY = {
++  empty: "No chart data available.",
++  loading: "Loading chart…",
++  error: "Chart data failed to load.",
++};
++
++function finite(value) {
++  const number = Number(value);
++  return Number.isFinite(number) ? number : 0;
++}
++
++function stringValue(value) {
++  if (value instanceof Date) return value.toISOString();
++  return value == null ? "" : String(value);
++}
++
++function safeFormatter(formatter, value, context) {
++  try {
++    const result = formatter?.(finite(value), context);
++    return result == null ? String(finite(value)) : String(result);
++  } catch {
++    return String(finite(value));
++  }
++}
++
++function stableId(value, fallback) {
++  const text = String(value || fallback).toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-|-$/g, "");
++  return text || fallback;
++}
++
++function normalizedRows(rows) {
++  return Array.isArray(rows) ? rows : [];
++}
++
++function chartSeries(series, fallbackKey = "value") {
++  const values = Array.isArray(series) && series.length ? series : [{ key: fallbackKey, label: "Value" }];
++  return values.map((item) => (typeof item === "string" ? { key: item, label: item } : item));
++}
++
++function canonicalPlotModel({ kind, rows, series, xKey, categoryKey, valueKey, value, max }) {
++  const safeRows = normalizedRows(rows);
++  const safeSeries = chartSeries(series, valueKey || "value");
++
++  if (kind === "donut") {
++    const valueColumn = valueKey || safeSeries[0]?.key || "value";
++    return {
++      rows: safeRows.map((row) => ({
++        ...row,
++        [valueColumn]: Math.max(0, finite(row?.[valueColumn])),
++      })),
++      series: safeSeries,
++      value,
++      max,
++    };
++  }
++
++  if (kind === "radial-gauge") {
++    const canonicalMax = Math.max(0, finite(max ?? 100));
++    const canonicalValue = Math.min(canonicalMax, Math.max(0, finite(value)));
++    return { rows: safeRows.map((row) => ({ ...row })), series: safeSeries, value: canonicalValue, max: canonicalMax };
++  }
++
++  const xColumn = xKey || categoryKey || "name";
++  return {
++    rows: safeRows.map((row) => {
++      const normalized = { ...row };
++      for (const item of safeSeries) normalized[item.key] = finite(row?.[item.key]);
++      normalized[xColumn] = row?.[xColumn];
++      return normalized;
++    }),
++    series: safeSeries,
++    value,
++    max,
++  };
++}
++
++function tableModel({ kind, rows, series, xKey, categoryKey, valueKey, value, max, label }) {
++  if (kind === "radial-gauge") {
++    return {
++      headers: [label || "Value", "Maximum"],
++      rows: [[value, max]],
++      formatters: [undefined, undefined],
++      keys: ["value", "max"],
++    };
++  }
++
++  if (kind === "donut") {
++    const category = categoryKey || "name";
++    const valueColumn = valueKey || series?.[0]?.key || "value";
++    return {
++      headers: [category, series?.[0]?.label || valueColumn],
++      rows: normalizedRows(rows).map((row) => [row?.[category], finite(row?.[valueColumn])]),
++      formatters: [undefined, series?.[0]?.valueFormatter],
++      keys: [category, valueColumn],
++    };
++  }
++
++  const xColumn = xKey || categoryKey || "name";
++  const safeSeries = chartSeries(series);
++  return {
++    headers: [xColumn, ...safeSeries.map((item) => item.label || item.key)],
++    rows: normalizedRows(rows).map((row) => [row?.[xColumn], ...safeSeries.map((item) => finite(row?.[item.key]))]),
++    formatters: [undefined, ...safeSeries.map((item) => item.valueFormatter)],
++    keys: [xColumn, ...safeSeries.map((item) => item.key)],
++  };
++}
++
++function Table({ id, caption, model, rows }) {
++  return (
++    <table id={id} data-chart-table="true">
++      <caption>{caption}</caption>
++      <thead>
++        <tr>{model.headers.map((header) => <th key={header} scope="col">{header}</th>)}</tr>
++      </thead>
++      <tbody>
++        {model.rows.map((row, rowIndex) => (
++          <tr key={`${stringValue(row[0])}-${rowIndex}`}>
++            {row.map((cell, cellIndex) => {
++              const formatter = model.formatters[cellIndex];
++              const formatted = formatter
++                ? safeFormatter(formatter, cell, { row: rows[rowIndex], key: model.keys[cellIndex], label: model.headers[cellIndex] })
++                : stringValue(cell);
++              return <td key={`${model.keys[cellIndex]}-${rowIndex}`}>{formatted}</td>;
++            })}
++          </tr>
++        ))}
++      </tbody>
++    </table>
++  );
++}
++
++class ChartEngineBoundary extends Component {
++  constructor(props) {
++    super(props);
++    this.state = { failed: false };
++  }
++
++  static getDerivedStateFromError() {
++    return { failed: true };
++  }
++
++  componentDidCatch(error) {
++    this.props.onError?.(error);
++  }
++
++  render() {
++    return this.state.failed ? this.props.fallback : this.props.children;
++  }
++}
++
++function stateLabel(state) {
++  return DEFAULT_COPY[state] || "";
++}
++
++export function ChartFrame({
++  kind,
++  rows = [],
++  series = [],
++  state = "ready",
++  accessibility,
++  dimensions,
++  xKey,
++  categoryKey,
++  valueKey,
++  value,
++  max,
++  label,
++  orientation,
++  area = false,
++  points = true,
++  id,
++  engineFailure = false,
++  statusCopy,
++  children,
++  onEngineError,
++}) {
++  const safeKind = CHART_KINDS.includes(kind) ? kind : "time-series";
++  const contract = useMemo(() => normalizeChartContract({ kind: safeKind, rows, series }), [safeKind, rows, series]);
++  const canonical = useMemo(
++    () => canonicalPlotModel({ kind: safeKind, rows: contract.rows, series: contract.series, xKey, categoryKey, valueKey, value, max }),
++    [safeKind, contract.rows, contract.series, xKey, categoryKey, valueKey, value, max],
++  );
++  const safeRows = canonical.rows;
++  const safeSeries = canonical.series;
++  const safeDimensions = normalizeChartDimensions(dimensions);
++  const requestedState = CHART_STATES.includes(state) ? state : "ready";
++  const safeState = requestedState === "ready" && safeRows.length === 0 ? "empty" : requestedState;
++  const a11y = {
++    label: accessibility?.label || `${safeKind} chart`,
++    description: accessibility?.description,
++    summary: accessibility?.summary || "Exact chart values are shown in the table below.",
++    tableCaption: accessibility?.tableCaption || "Exact chart values",
++  };
++  const reactId = useId();
++  const idBase = stableId(id || reactId, `chart-${safeKind}`);
++  const summaryId = `${idBase}-summary`;
++  const descriptionId = a11y.description ? `${idBase}-description` : undefined;
++  const tableId = `${idBase}-table`;
++  const describedBy = [summaryId, descriptionId, tableId].filter(Boolean).join(" ");
++  const model = tableModel({ kind: safeKind, rows: safeRows, series: safeSeries, xKey, categoryKey, valueKey, value: canonical.value, max: canonical.max, label });
++  const canRenderEngine = safeState === "ready" && safeRows.length > 0;
++  const engineOptions = {
++    kind: safeKind,
++    rows: safeRows,
++    series: safeSeries,
++    xKey,
++    categoryKey,
++    valueKey,
++    value: canonical.value,
++    max: canonical.max,
++    orientation,
++    area,
++    points,
++    dimensions: safeDimensions,
++    accessibility: a11y,
++    describedBy,
++    forceEngineFailure: engineFailure,
++    onEngineError,
++  };
++  const engineFallback = <div data-chart-engine-error="true" role="status">Chart preview unavailable.</div>;
++
++  return (
++    <section
++      data-chart={safeKind}
++      data-chart-kind={safeKind}
++      data-chart-state={safeState}
++      data-chart-series={safeSeries.map((item) => item.key).join(" ") || undefined}
++      data-chart-tooltip="true"
++      data-chart-reduced-motion="true"
++      data-chart-orientation={orientation || undefined}
++      aria-label={a11y.label}
++      aria-describedby={describedBy}
++      style={{ height: safeDimensions.height || undefined, aspectRatio: safeDimensions.aspectRatio || undefined }}
++    >
++      <p id={summaryId} data-chart-summary="true">{a11y.summary}</p>
++      {a11y.description && <p id={descriptionId} data-chart-description="true">{a11y.description}</p>}
++      <div data-chart-surface="true" data-chart-engine={canRenderEngine ? "tanstack" : "none"}>
++        {canRenderEngine && (
++          <ChartEngineBoundary fallback={engineFallback} onError={onEngineError}>
++            <EngineChart options={engineOptions} />
++          </ChartEngineBoundary>
++        )}
++        {!canRenderEngine && <div data-chart-status="true" role={safeState === "error" ? "alert" : "status"}>{statusCopy || stateLabel(safeState)}</div>}
++        {children}
++      </div>
++      <Table id={tableId} caption={a11y.tableCaption} model={model} rows={safeRows} />
++    </section>
++  );
++}
++
++export function TimeSeriesChart(props) {
++  return <ChartFrame {...props} kind="time-series" xKey={props.xKey || "date"} />;
++}
++
++export function CategoricalBarChart(props) {
++  return <ChartFrame {...props} kind="categorical-bar" categoryKey={props.categoryKey || "name"} orientation={props.orientation || "vertical"} />;
++}
++
++export function DonutChart(props) {
++  return <ChartFrame {...props} kind="donut" categoryKey={props.categoryKey || "name"} valueKey={props.valueKey || "value"} />;
++}
++
++export function RadialGaugeChart(props) {
++  const gaugeRows = props.rows || [{ label: props.label || "Value", value: props.value }];
++  return <ChartFrame {...props} kind="radial-gauge" rows={gaugeRows} label={props.label || "Value"} />;
++}
++
++export function exportChartSvg(target, options) {
++  return exportTanStackSvg(target, options);
++}
++
++export function exportChartPng(target, options) {
++  return exportTanStackPng(target, options);
++}
++
++export const exportChartRaster = exportChartPng;
+diff --git a/packages/ui-charting/src/chart.test.jsx b/packages/ui-charting/src/chart.test.jsx
+new file mode 100644
+index 0000000..75f6342
+--- /dev/null
++++ b/packages/ui-charting/src/chart.test.jsx
+@@ -0,0 +1,495 @@
++import { describe, expect, test } from "bun:test";
++import React, { act } from "react";
++import { JSDOM } from "jsdom";
++import { createRoot } from "react-dom/client";
++import { renderToStaticMarkup } from "react-dom/server";
++
++import {
++  CategoricalBarChart,
++  ChartFrame,
++  DonutChart,
++  RadialGaugeChart,
++  TimeSeriesChart,
++  exportChartPng,
++  exportChartSvg,
++} from "./chart.jsx";
++import { createTanStackDefinition, EngineChart } from "./engine/tanstack-charts.jsx";
++
++const accessibility = {
++  label: "Work completed over time",
++  description: "Completed work for the selected period.",
++  summary: "Completed work rose from 2 to 4.",
++  tableCaption: "Exact completed work by day",
++};
++
++const timeRows = [
++  { day: "Mon", completed: 2 },
++  { day: "Tue", completed: 4 },
++];
++
++const series = [{ key: "completed", label: "Completed", color: "#2563eb" }];
++
++function render(element) {
++  return renderToStaticMarkup(element);
++}
++
++async function withDom(run) {
++  const dom = new JSDOM("<!doctype html><html><body></body></html>", { pretendToBeVisual: true });
++  const previous = {
++    window: globalThis.window,
++    document: globalThis.document,
++    navigator: globalThis.navigator,
++    ResizeObserver: globalThis.ResizeObserver,
++    HTMLElement: globalThis.HTMLElement,
++    SVGSVGElement: globalThis.SVGSVGElement,
++    IS_REACT_ACT_ENVIRONMENT: globalThis.IS_REACT_ACT_ENVIRONMENT,
++  };
++  const observers = [];
++  class TestResizeObserver {
++    constructor(callback) {
++      this.callback = callback;
++      this.disconnected = false;
++      this.target = null;
++      observers.push(this);
++    }
++
++    observe(target) {
++      this.target = target;
++    }
++
++    disconnect() {
++      this.disconnected = true;
++    }
++
++    trigger() {
++      this.callback([{ target: this.target }]);
++    }
++  }
++
++  globalThis.window = dom.window;
++  globalThis.document = dom.window.document;
++  globalThis.navigator = dom.window.navigator;
++  globalThis.HTMLElement = dom.window.HTMLElement;
++  globalThis.SVGSVGElement = dom.window.SVGSVGElement;
++  dom.window.SVGSVGElement.prototype.getBoundingClientRect = () => ({
++    width: 360,
++    height: 220,
++    top: 0,
++    left: 0,
++    right: 360,
++    bottom: 220,
++  });
++  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
++  globalThis.ResizeObserver = TestResizeObserver;
++  dom.window.ResizeObserver = TestResizeObserver;
++  dom.window.requestAnimationFrame = (callback) => {
++    callback(0);
++    return 0;
++  };
++  dom.window.cancelAnimationFrame = () => {};
++
++  try {
++    return await run(dom.window, observers);
++  } finally {
++    globalThis.window = previous.window;
++    globalThis.document = previous.document;
++    globalThis.navigator = previous.navigator;
++    globalThis.ResizeObserver = previous.ResizeObserver;
++    globalThis.HTMLElement = previous.HTMLElement;
++    globalThis.SVGSVGElement = previous.SVGSVGElement;
++    globalThis.IS_REACT_ACT_ENVIRONMENT = previous.IS_REACT_ACT_ENVIRONMENT;
++    dom.window.close();
++  }
++}
++
++describe("shared TanStack chart adapter", () => {
++  test("renders a ready time-series as SVG with product selectors and exact table linkage", () => {
++    const html = render(
++      <TimeSeriesChart
++        rows={timeRows}
++        xKey="day"
++        series={series}
++        accessibility={accessibility}
++        state="ready"
++        dimensions={{ initialWidth: 360, height: 240 }}
++      />,
++    );
++
++    expect(html).toContain('data-chart="time-series"');
++    expect(html).toContain('data-chart-kind="time-series"');
++    expect(html).toContain('data-chart-state="ready"');
++    expect(html).toContain('data-chart-series="completed"');
++    expect(html).toContain("<svg");
++    expect(html).toContain('aria-label="Work completed over time"');
++    expect(html).toContain("Completed work rose from 2 to 4.");
++    expect(html).toContain('data-chart-summary="true"');
++    expect(html).toContain('data-chart-table="true"');
++    expect(html).toContain("Exact completed work by day");
++    expect(html).toContain("Mon");
++    expect(html).toContain("Tue");
++    expect(html).toContain("2");
++    expect(html).toContain("4");
++    expect(html).toMatch(/aria-describedby="[^"]+ [^"]+"/);
++    const describedBy = html.match(/aria-describedby="([^"]+)"/)?.[1]?.split(" ") || [];
++    expect(describedBy).toHaveLength(3);
++    expect(html).toContain(`id="${describedBy[1]}"`);
++  });
++
++  test("maps both categorical bar orientations, donut, and radial gauge to SVG scenes", () => {
++    const common = {
++      accessibility,
++      state: "ready",
++      dimensions: { initialWidth: 320, height: 200 },
++    };
++    const bars = [
++      { category: "One", amount: 3 },
++      { category: "Two", amount: 7 },
++    ];
++    const horizontal = render(
++      <CategoricalBarChart
++        {...common}
++        rows={bars}
++        categoryKey="category"
++        series={[{ key: "amount", label: "Amount" }]}
++        orientation="horizontal"
++      />,
++    );
++    const vertical = render(
++      <CategoricalBarChart
++        {...common}
++        rows={bars}
++        categoryKey="category"
++        series={[{ key: "amount", label: "Amount" }]}
++        orientation="vertical"
++      />,
++    );
++    const donut = render(
++      <DonutChart
++        {...common}
++        rows={bars}
++        categoryKey="category"
++        valueKey="amount"
++      />,
++    );
++    const radial = render(
++      <RadialGaugeChart
++        {...common}
++        value={72}
++        max={100}
++        label="Coverage"
++      />,
++    );
++
++    for (const html of [horizontal, vertical, donut, radial]) {
++      expect(html).toContain("<svg");
++      expect(html).not.toContain("<canvas");
++      expect(html).toContain('data-chart-state="ready"');
++      expect(html).toContain('data-chart-table="true"');
++    }
++    expect(horizontal).toContain('data-chart="categorical-bar"');
++    expect(vertical).toContain('data-chart="categorical-bar"');
++    expect(horizontal).toContain('data-chart-orientation="horizontal"');
++    expect(vertical).toContain('data-chart-orientation="vertical"');
++    expect(donut).toContain('data-chart="donut"');
++    expect(radial).toContain('data-chart="radial-gauge"');
++  });
++
++  test("keeps summary and exact-value table for every non-ready state", () => {
++    for (const state of ["empty", "loading", "error"]) {
++      const html = render(
++        <ChartFrame
++          kind="time-series"
++          state={state}
++          rows={timeRows}
++          series={series}
++          xKey="day"
++          accessibility={accessibility}
++          dimensions={{ initialWidth: 320 }}
++        />,
++      );
++      expect(html).toContain(`data-chart-state="${state}"`);
++      expect(html).toContain("Completed work rose from 2 to 4.");
++      expect(html).toContain('data-chart-table="true"');
++      expect(html).not.toContain("<svg");
++    }
++  });
++
++  test("exports product-owned SVG and raster wrappers without exposing engine types", async () => {
++    expect(typeof exportChartSvg).toBe("function");
++    expect(typeof exportChartPng).toBe("function");
++    expect(exportChartSvg({ outerHTML: "<svg/>" })).toBe("<svg/>");
++    await expect(exportChartPng({})).rejects.toThrow(/browser|canvas|PNG/i);
++  });
++
++  test("exports mounted SVG dimensions and a PNG through the product seam", async () => {
++    await withDom(async (window) => {
++      const container = window.document.createElement("div");
++      window.document.body.append(container);
++      const root = createRoot(container);
++      await act(async () => {
++        root.render(
++          <TimeSeriesChart
++            rows={timeRows}
++            xKey="day"
++            series={series}
++            accessibility={accessibility}
++            dimensions={{ initialWidth: 360, height: 220, responsive: false }}
++          />,
++        );
++      });
++
++      const svg = exportChartSvg(container, { width: 480, height: 240 });
++      expect(svg).toContain("<svg");
++      expect(svg).toContain('aria-label="Work completed over time"');
++      expect(svg).toMatch(/(?:width="480"|viewBox="0 0 480 240")/);
++
++      const png = await exportChartPng(container, {
++        _renderImage: (element, options) => ({ element, options, type: "image/png" }),
++      });
++      expect(png.type).toBe("image/png");
++      expect(png.options.type).toBe("image/png");
++      expect(png.element).toBe(container.querySelector("svg"));
++
++      await act(async () => root.unmount());
++    });
++  });
++
++  test("normalizes exact values and formatting from one plotted data source", () => {
++    const html = render(
++      <TimeSeriesChart
++        rows={[{ day: "Mon", completed: "2.5" }, { day: "Tue", completed: Number.NaN }]}
++        xKey="day"
++        series={[{
++          key: "completed",
++          label: "Completed",
++          valueFormatter: (value) => `${value.toFixed(1)} items`,
++        }]}
++        accessibility={{ ...accessibility, summary: "Exact values are listed below." }}
++        state="ready"
++      />,
++    );
++
++    expect(html).toContain("2.5 items");
++    expect(html).toContain("0.0 items");
++    expect(html).toContain("Exact values are listed below.");
++  });
++
++  test("shares clamped donut and gauge values between the rendered scene and exact table", () => {
++    const donut = render(
++      <DonutChart
++        rows={[{ category: "Negative", amount: -4 }, { category: "Positive", amount: 4 }]}
++        categoryKey="category"
++        valueKey="amount"
++        series={[{ key: "amount", label: "Amount" }]}
++        accessibility={accessibility}
++      />,
++    );
++    expect(donut).toContain("<svg");
++    expect(donut).toMatch(/<td>Negative<\/td><td>0<\/td>/);
++    expect(donut).toMatch(/<td>Positive<\/td><td>4<\/td>/);
++
++    const below = render(<RadialGaugeChart value={-20} max={100} label="Coverage" accessibility={accessibility} />);
++    const above = render(<RadialGaugeChart value={120} max={100} label="Coverage" accessibility={accessibility} />);
++    expect(below).toMatch(/<td>0<\/td><td>100<\/td>/);
++    expect(above).toMatch(/<td>100<\/td><td>100<\/td>/);
++    expect(below).toContain('data-chart-state="ready"');
++    expect(above).toContain('data-chart-state="ready"');
++  });
++
++  test("preserves summary and exact table when ChartFrame engine rendering fails", () => {
++    const html = render(
++      <ChartFrame
++        kind="time-series"
++        rows={timeRows}
++        xKey="day"
++        series={series}
++        accessibility={accessibility}
++        engineFailure
++      />,
++    );
++    expect(html).toContain('data-chart-engine-error="true"');
++    expect(html).toContain("Completed work rose from 2 to 4.");
++    expect(html).toContain('data-chart-table="true"');
++    expect(html).toContain("Mon");
++    expect(html).toContain("4");
++  });
++
++  test("keeps sibling chart identities unique while preserving deterministic SSR", () => {
++    const props = { rows: timeRows, xKey: "day", series, accessibility };
++    const html = render(
++      <div>
++        <TimeSeriesChart {...props} />
++        <TimeSeriesChart {...props} />
++      </div>,
++    );
++    const ids = [...html.matchAll(/<p id="([^"]+)" data-chart-summary="true"/g)].map((match) => match[1]);
++    expect(ids).toHaveLength(2);
++    expect(new Set(ids).size).toBe(2);
++    expect(render(<TimeSeriesChart {...props} />)).toBe(render(<TimeSeriesChart {...props} />));
++  });
++
++  test("keeps responsive SSR deterministic and treats ready empty input as empty", () => {
++    const props = {
++      rows: timeRows,
++      xKey: "day",
++      series,
++      accessibility,
++      state: "ready",
++      dimensions: { initialWidth: 360, aspectRatio: 1.5 },
++    };
++    expect(render(<TimeSeriesChart {...props} />)).toBe(render(<TimeSeriesChart {...props} />));
++
++    const empty = render(
++      <TimeSeriesChart {...props} rows={[]} />,
++    );
++    expect(empty).toContain('data-chart-state="empty"');
++    expect(empty).not.toContain("<svg");
++  });
++
++  test("renders a distinct area scene when area mode is enabled", () => {
++    const html = render(
++      <TimeSeriesChart
++        rows={timeRows}
++        xKey="day"
++        series={series}
++        area
++        accessibility={accessibility}
++        dimensions={{ initialWidth: 360, height: 220 }}
++      />,
++    );
++    expect(html).toContain("<svg");
++    expect(html).toMatch(/fill-opacity="0\.18"|class="[^"]*area[^"]*"/);
++  });
++
++  test("definitions enable keyboard/pointer tooltip parity and reduced-motion-safe SVG", () => {
++    const definition = createTanStackDefinition({
++      kind: "time-series",
++      rows: timeRows,
++      xKey: "day",
++      series,
++      points: true,
++    });
++    expect(definition.tooltip).toBeTruthy();
++    expect(definition.keyboard).toBe(true);
++    expect(definition.pointer).toBe(true);
++    expect(definition.svgAnimation).toMatchObject({ respectReducedMotion: true });
++
++    const formatter = createTanStackDefinition({
++      kind: "time-series",
++      rows: timeRows,
++      xKey: "day",
++      series: [{
++        key: "completed",
++        label: "Completed",
++        valueFormatter: (value, context) => `${context.row.day}:${value}`,
++      }],
++    });
++    expect(formatter.tooltip.format({ datum: { __series: "completed", day: "Tue" }, yValue: 4 })).toContain("Tue:4");
++    expect(formatter.tooltip.formatGroup([
++      { datum: { __series: "completed", day: "Mon" }, yValue: 2 },
++      { datum: { __series: "completed", day: "Tue" }, yValue: 4 },
++    ])).toContain("Tue:4");
++  });
++
++  test("falls back when the engine cannot compile while leaving product-owned fallback available", () => {
++    const html = render(
++      <EngineChart
++        options={{
++          kind: "time-series",
++          rows: timeRows,
++          series: null,
++          accessibility,
++          dimensions: { initialWidth: 320 },
++        }}
++      />,
++    );
++    expect(html).toContain('data-chart-engine-error="true"');
++  });
++
++  test("mounts with deterministic initialWidth, resizes, and disconnects ResizeObserver", async () => {
++    await withDom(async (window, observers) => {
++      let measuredWidth = 0;
++      window.HTMLElement.prototype.getBoundingClientRect = () => ({
++        width: measuredWidth,
++        height: 240,
++        top: 0,
++        left: 0,
++        right: measuredWidth,
++        bottom: 240,
++      });
++      const container = window.document.createElement("div");
++      window.document.body.append(container);
++      const root = createRoot(container);
++      await act(async () => {
++        root.render(
++          <TimeSeriesChart
++            rows={timeRows}
++            xKey="day"
++            series={series}
++            accessibility={accessibility}
++            dimensions={{ initialWidth: 280, height: 220 }}
++          />,
++        );
++      });
++      const svg = container.querySelector("svg");
++      expect(svg?.getAttribute("viewBox")).toContain("0 0 280 220");
++      expect(observers.length).toBeGreaterThan(0);
++      expect(observers.some((observer) => observer.target)).toBe(true);
++
++      measuredWidth = 420;
++      await act(async () => {
++        observers[0].trigger();
++      });
++      expect(container.querySelector("svg")?.getAttribute("viewBox")).toContain("0 0 420 220");
++
++      await act(async () => root.unmount());
++      expect(observers.some((observer) => observer.disconnected)).toBe(true);
++    });
++  });
++
++  test("maps real pointer and keyboard focus to separate row-dependent tooltips", async () => {
++    await withDom(async (window) => {
++      window.HTMLElement.prototype.getBoundingClientRect = () => ({ width: 360, height: 220, top: 0, left: 0, right: 360, bottom: 220 });
++      const container = window.document.createElement("div");
++      window.document.body.append(container);
++      const root = createRoot(container);
++      await act(async () => {
++        root.render(
++          <TimeSeriesChart
++            rows={timeRows}
++            xKey="day"
++            series={[{
++              ...series[0],
++              valueFormatter: (value, context) => `${context.row.day}:${value}`,
++            }]}
++            accessibility={accessibility}
++            dimensions={{ initialWidth: 360, height: 220, responsive: false }}
++          />,
++        );
++      });
++      const svg = container.querySelector("svg");
++      expect(svg).toBeTruthy();
++      const point = svg?.querySelector("circle");
++      const clientX = Number(point?.getAttribute("cx") || 26);
++      const clientY = Number(point?.getAttribute("cy") || 100);
++      const pointerMove = new window.Event("pointermove", { bubbles: true });
++      Object.defineProperties(pointerMove, { clientX: { value: clientX }, clientY: { value: clientY } });
++      await act(async () => {
++        svg?.dispatchEvent(pointerMove);
++      });
++      const tooltipSelector = [".ts", "chart-tooltip"].join("-");
++      const pointerTooltip = container.querySelector(tooltipSelector);
++      expect(pointerTooltip).toBeTruthy();
++      expect(pointerTooltip?.textContent).toContain("Mon:2");
++
++      await act(async () => {
++        svg?.focus();
++        svg?.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
++      });
++      const keyboardTooltip = container.querySelector(tooltipSelector);
++      expect(keyboardTooltip).toBeTruthy();
++      expect(keyboardTooltip?.textContent).toContain("Tue:4");
++      await act(async () => root.unmount());
++    });
++  });
++});
+diff --git a/packages/ui-charting/src/engine/tanstack-charts.jsx b/packages/ui-charting/src/engine/tanstack-charts.jsx
+new file mode 100644
+index 0000000..fcec387
+--- /dev/null
++++ b/packages/ui-charting/src/engine/tanstack-charts.jsx
+@@ -0,0 +1,270 @@
++import React, { useMemo } from "react";
++import {
++  areaY,
++  barX,
++  barY,
++  defineChart,
++  lineY,
++} from "@tanstack/charts";
++import { pie, polar, radialArc, radialText } from "@tanstack/charts/polar";
++import { Chart as TanStackChart } from "@tanstack/charts/react";
++import { renderChartImage, serializeChartSvg } from "@tanstack/charts/export";
++import { scaleBand } from "@tanstack/charts/scales/band";
++import { scaleLinear } from "@tanstack/charts/scales/linear";
++import { scalePoint } from "@tanstack/charts/scales/point";
++import { tooltip } from "@tanstack/charts/tooltip";
++
++const DEFAULT_HEIGHT = 280;
++const DEFAULT_COLOR = "#2563eb";
++const FALLBACK_COLORS = ["#2563eb", "#f97316", "#10b981", "#8b5cf6", "#e11d48"];
++
++function finite(value) {
++  const number = Number(value);
++  return Number.isFinite(number) ? number : 0;
++}
++
++function keyOf(value, index) {
++  const text = value == null ? "" : String(value);
++  return text || `row-${index}`;
++}
++
++function seriesRows(rows, series, xKey) {
++  return rows.map((row, index) => ({
++    ...row,
++    __x: row?.[xKey],
++    __y: finite(row?.[series.key]),
++    __key: `${series.key}-${keyOf(row?.[xKey], index)}-${index}`,
++    __series: series.key,
++  }));
++}
++
++function seriesColor(series, index) {
++  return series?.color || FALLBACK_COLORS[index % FALLBACK_COLORS.length] || DEFAULT_COLOR;
++}
++
++function tooltipRow(point, options) {
++  return point?.datum?.__row || point?.datum || options.rows[0];
++}
++
++function chartTooltip(options) {
++  const formatValue = (value, series, point) => {
++    try {
++      return series?.valueFormatter
++        ? series.valueFormatter(finite(value), { row: tooltipRow(point, options), key: series.key, label: series.label })
++        : String(finite(value));
++    } catch {
++      return String(finite(value));
++    }
++  };
++
++  return {
++    use: tooltip,
++    sticky: true,
++    visibility: "focus",
++    format(point) {
++      const series = options.series.find((item) => item.key === point?.datum?.__series) || options.series[0];
++      return `${series?.label || "Value"}: ${formatValue(point?.yValue ?? point?.datum?.__value, series, point)}`;
++    },
++    formatGroup(points) {
++      return points
++        .map((point) => {
++          const series = options.series.find((item) => item.key === point?.datum?.__series) || options.series[0];
++          return `${series?.label || "Value"}: ${formatValue(point?.yValue ?? point?.datum?.__value, series, point)}`;
++        })
++        .join("\n");
++    },
++  };
++}
++
++function cartesianDefinition(options) {
++  const rows = Array.isArray(options.rows) ? options.rows : [];
++  const series = options.series.length ? options.series : [{ key: "value", label: "Value" }];
++  const xKey = options.xKey || options.categoryKey || "name";
++  const marks = [];
++
++  for (const [index, item] of series.entries()) {
++    const source = seriesRows(rows, item, xKey);
++    const common = {
++      x: "__x",
++      y: "__y",
++      key: "__key",
++      fill: seriesColor(item, index),
++      stroke: seriesColor(item, index),
++      id: `${options.kind}-${item.key}`,
++      points: options.kind === "time-series" && options.points !== false,
++    };
++    if (options.kind === "time-series") {
++      marks.push(options.area ? areaY(source, { ...common, fillOpacity: 0.18 }) : lineY(source, common));
++    } else if (options.orientation === "horizontal") {
++      marks.push(barX(source, { x: "__y", y: "__x", key: "__key", fill: seriesColor(item, index), id: `${options.kind}-${item.key}`, inset: 2 }));
++    } else {
++      marks.push(barY(source, { x: "__x", y: "__y", key: "__key", fill: seriesColor(item, index), id: `${options.kind}-${item.key}`, inset: 2 }));
++    }
++  }
++
++  const horizontal = options.kind === "categorical-bar" && options.orientation === "horizontal";
++  return defineChart({
++    marks,
++    x: { scale: horizontal ? scaleLinear : options.kind === "categorical-bar" ? scaleBand : scalePoint },
++    y: { scale: horizontal ? scaleBand : scaleLinear },
++    tooltip: chartTooltip({ ...options, rows, series }),
++    keyboard: true,
++    pointer: true,
++    focus: "group-x",
++    svgAnimation: { duration: 180, respectReducedMotion: true, resize: false },
++  });
++}
++
++function donutDefinition(options) {
++  const categoryKey = options.categoryKey || "name";
++  const valueKey = options.valueKey || options.series?.[0]?.key || "value";
++  const source = (Array.isArray(options.rows) ? options.rows : []).map((row, index) => ({
++    ...row,
++    __id: keyOf(row?.[categoryKey], index),
++    __value: Math.max(0, finite(row?.[valueKey])),
++  }));
++  const ids = source.map((row) => row.__id);
++  const slices = pie(source, { value: "__value" });
++  return defineChart({
++    marks: [
++      polar({
++        inset: 8,
++        radiusRatio: 0.84,
++        marks: [
++          radialArc(slices, {
++            innerRadius: ({ radius }) => radius * 0.58,
++            cornerRadius: 4,
++            color: "__id",
++            key: "__id",
++          }),
++        ],
++      }),
++    ],
++    color: { domain: ids, range: options.series?.map((item, index) => seriesColor(item, index)) || FALLBACK_COLORS },
++    tooltip: chartTooltip({ ...options, rows: source, series: options.series || [{ key: valueKey, label: "Value" }] }),
++    keyboard: true,
++    pointer: true,
++    svgAnimation: { duration: 180, respectReducedMotion: true, resize: false },
++  });
++}
++
++function gaugeDefinition(options) {
++  const max = Math.max(0, finite(options.max ?? 100));
++  const value = Math.min(max, Math.max(0, finite(options.value)));
++  const source = [
++    { __id: "value", __value: value },
++    { __id: "remaining", __value: Math.max(0, max - value) },
++  ];
++  const slices = pie(source, { value: "__value", startAngle: -Math.PI * 0.75, endAngle: Math.PI * 0.75 });
++  return defineChart({
++    marks: [
++      polar({
++        radiusRatio: 0.84,
++        angle: { scale: scaleLinear().domain([0, 1]) },
++        radius: { scale: scaleLinear().domain([0, 1]) },
++        marks: [
++          radialArc(slices, {
++            innerRadius: ({ radius }) => radius * 0.72,
++            cornerRadius: 999,
++            color: "__id",
++            key: "__id",
++          }),
++          radialText([{ __id: "label", __value: value, __label: `${value}` }], {
++            angle: 0,
++            radius: 0,
++            text: "__label",
++            key: "__id",
++            fill: "currentColor",
++            fontSize: 20,
++            fontWeight: 700,
++          }),
++        ],
++      }),
++    ],
++    color: { domain: ["value", "remaining"], range: [options.color || DEFAULT_COLOR, "#e2e8f0"] },
++    tooltip: chartTooltip({ ...options, rows: source, series: [{ key: "__value", label: options.label || "Value" }] }),
++    keyboard: true,
++    pointer: true,
++    svgAnimation: { duration: 180, respectReducedMotion: true, resize: false },
++  });
++}
++
++export function createTanStackDefinition(options) {
++  if (options.forceEngineFailure) throw new Error("forced chart engine failure");
++  if (options.kind === "donut") return donutDefinition(options);
++  if (options.kind === "radial-gauge") return gaugeDefinition(options);
++  return cartesianDefinition(options);
++}
++
++export function EngineChart({ options }) {
++  const definition = useMemo(() => {
++    try {
++      return createTanStackDefinition(options);
++    } catch (error) {
++      options.onEngineError?.(error);
++      return null;
++    }
++  }, [
++    options.kind,
++    options.rows,
++    options.series,
++    options.xKey,
++    options.categoryKey,
++    options.valueKey,
++    options.value,
++    options.max,
++    options.orientation,
++    options.area,
++    options.points,
++    options.describedBy,
++    options.forceEngineFailure,
++    options.onEngineError,
++  ]);
++  const dimensions = options.dimensions || {};
++  const width = typeof dimensions.width === "number" ? dimensions.width : undefined;
++  const hasAspectRatio = typeof dimensions.aspectRatio === "number";
++  const height = typeof dimensions.height === "number" ? dimensions.height : hasAspectRatio ? undefined : DEFAULT_HEIGHT;
++  const initialWidth = typeof dimensions.initialWidth === "number" ? dimensions.initialWidth : 320;
++  const responsive = dimensions.responsive !== false;
++
++  if (!definition) return <div data-chart-engine-error="true" role="status">Chart preview unavailable.</div>;
++
++  try {
++    return (
++      <TanStackChart
++        definition={definition}
++        ariaLabel={options.accessibility.label}
++        ariaDescription={options.accessibility.description}
++        width={responsive ? width : width || initialWidth}
++        height={height}
++        aspectRatio={dimensions.aspectRatio}
++        initialWidth={initialWidth}
++        tabIndex={0}
++        className="ps-chart-engine"
++        onRender={({ svg }) => {
++          if (options.describedBy) svg.setAttribute("aria-describedby", options.describedBy);
++        }}
++      />
++    );
++  } catch (error) {
++    options.onEngineError?.(error);
++    return <div data-chart-engine-error="true" role="status">Chart preview unavailable.</div>;
++  }
++}
++
++export function exportTanStackSvg(target, options = {}) {
++  if (typeof target === "string") return target;
++  const element = target?.querySelector?.("svg") || target;
++  if (element?.outerHTML && !element.ownerDocument) return element.outerHTML;
++  if (!element || typeof element !== "object") throw new TypeError("A mounted chart element is required");
++  return serializeChartSvg(element, options);
++}
++
++export function exportTanStackPng(target, options = {}) {
++  const element = target?.querySelector?.("svg") || target;
++  if (!element || typeof element !== "object" || (!element.ownerDocument && typeof element.querySelector !== "function")) {
++    return Promise.reject(new TypeError("Browser canvas support is required for PNG export"));
++  }
++  const { _renderImage, ...exportOptions } = options;
++  return (_renderImage || renderChartImage)(element, { ...exportOptions, type: "image/png" });
++}
+diff --git a/packages/ui-charting/src/engine/tanstack-charts.test.jsx b/packages/ui-charting/src/engine/tanstack-charts.test.jsx
+new file mode 100644
+index 0000000..b866f92
+--- /dev/null
++++ b/packages/ui-charting/src/engine/tanstack-charts.test.jsx
+@@ -0,0 +1,28 @@
++import { describe, expect, test } from "bun:test";
++
++import { createTanStackDefinition } from "./tanstack-charts.jsx";
++
++const rows = [
++  { category: "One", value: 2 },
++  { category: "Two", value: 4 },
++];
++
++describe("TanStack engine adapter", () => {
++  test("compiles every product family behind a private definition", () => {
++    const common = { rows, series: [{ key: "value", label: "Value" }] };
++    const definitions = [
++      createTanStackDefinition({ ...common, kind: "time-series", xKey: "category" }),
++      createTanStackDefinition({ ...common, kind: "categorical-bar", categoryKey: "category", orientation: "horizontal" }),
++      createTanStackDefinition({ ...common, kind: "categorical-bar", categoryKey: "category", orientation: "vertical" }),
++      createTanStackDefinition({ ...common, kind: "donut", categoryKey: "category", valueKey: "value" }),
++      createTanStackDefinition({ kind: "radial-gauge", value: 72, max: 100, series: [] }),
++    ];
++
++    for (const definition of definitions) {
++      expect(definition).toBeTruthy();
++      expect(definition.keyboard).toBe(true);
++      expect(definition.pointer).toBe(true);
++      expect(definition.svgAnimation).toMatchObject({ respectReducedMotion: true });
++    }
++  });
++});
+diff --git a/packages/ui-charting/src/index.d.ts b/packages/ui-charting/src/index.d.ts
+index c646d85..9d6e01a 100644
+--- a/packages/ui-charting/src/index.d.ts
++++ b/packages/ui-charting/src/index.d.ts
+@@ -99,3 +99,56 @@ export function normalizeChartData(
+ ): NormalizedChartDatum[];
+ export function sortChartDataByValue<T extends ChartDataRecord>(rows?: readonly T[] | null): T[];
+ export function MetricCard(props: MetricCardProps): ReactNode;
++
++export interface ChartAccessibility {
++  label: string;
++  description?: string;
++  summary: string;
++  tableCaption: string;
++}
++
++export interface ChartProps<Row = Record<string, unknown>> {
++  rows?: readonly Row[];
++  series?: readonly (ChartSeries<Row> | string)[];
++  state?: ChartState;
++  accessibility: ChartAccessibility;
++  dimensions?: ChartDimensions;
++  xKey?: string;
++  categoryKey?: string;
++  valueKey?: string;
++  orientation?: "horizontal" | "vertical";
++  id?: string;
++  statusCopy?: string;
++}
++
++export function ChartFrame<Row = Record<string, unknown>>(
++  props: ChartProps<Row> & { kind: ChartKind; value?: number; max?: number; label?: string },
++): ReactNode;
++export function TimeSeriesChart<Row = Record<string, unknown>>(
++  props: ChartProps<Row> & { area?: boolean; points?: boolean },
++): ReactNode;
++export function CategoricalBarChart<Row = Record<string, unknown>>(
++  props: ChartProps<Row> & { orientation?: "horizontal" | "vertical" },
++): ReactNode;
++export function DonutChart<Row = Record<string, unknown>>(
++  props: ChartProps<Row> & { categoryKey?: string; valueKey?: string },
++): ReactNode;
++export function RadialGaugeChart(
++  props: Omit<ChartProps<{ label: string; value: number }>, "rows" | "series"> & {
++    value: number;
++    max?: number;
++    label?: string;
++  },
++): ReactNode;
++
++export interface ChartExportOptions {
++  width?: number;
++  height?: number;
++  includeFocus?: boolean;
++  scale?: number;
++  background?: string;
++}
++
++export function exportChartSvg(target: Element | string, options?: ChartExportOptions): string;
++export function exportChartPng(target: Element, options?: ChartExportOptions): Promise<Blob>;
++export const exportChartRaster: typeof exportChartPng;
+diff --git a/packages/ui-charting/src/index.jsx b/packages/ui-charting/src/index.jsx
+index 0bf1a74..43d5066 100644
+--- a/packages/ui-charting/src/index.jsx
++++ b/packages/ui-charting/src/index.jsx
+@@ -9,6 +9,17 @@ export {
+   normalizeChartSeries,
+ } from "./chart-contract.js";
+ 
++export {
++  CategoricalBarChart,
++  ChartFrame,
++  DonutChart,
++  RadialGaugeChart,
++  TimeSeriesChart,
++  exportChartPng,
++  exportChartRaster,
++  exportChartSvg,
++} from "./chart.jsx";
++
+ function toFiniteNumber(value) {
+   const number = Number(value);
+   return Number.isFinite(number) ? number : 0;
+-- 
+2.51.0.windows.1
+

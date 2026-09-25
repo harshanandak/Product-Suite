@@ -1,0 +1,1934 @@
+From ad0b3798ffadfd60f5c21a7acc8a1f37b321ab6c Mon Sep 17 00:00:00 2001
+From: Harsha Nanda <harshanandak@users.noreply.github.com>
+Date: Sun, 9 Aug 2026 01:45:34 +0530
+Subject: [PATCH] docs(plan): harden meeting authority PR B
+
+---
+ .../2026-08-09-meeting-authority-pr-b/plan.md | 590 ++++++++----
+ .../tasks.md                                  | 890 ++++++++----------
+ 2 files changed, 805 insertions(+), 675 deletions(-)
+
+diff --git a/docs/work/2026-08-09-meeting-authority-pr-b/plan.md b/docs/work/2026-08-09-meeting-authority-pr-b/plan.md
+index 7237bce..763fb45 100644
+--- a/docs/work/2026-08-09-meeting-authority-pr-b/plan.md
++++ b/docs/work/2026-08-09-meeting-authority-pr-b/plan.md
+@@ -22,11 +22,11 @@ Action-candidate cards expose `Add`, `Adjust`, and `Dismiss`. Action `Add` is th
+ only promotion command: it applies the displayed immutable candidate version,
+ preserves the meeting conversation as the access origin, and converges to exactly
+ one restricted work item. Action `Adjust` offers at most these three natural-
+-language planning choices:
++language planning choices with separate typed values:
+ 
+-1. `Make this a simple task`
+-2. `Turn this into a planned work item`
+-3. `Keep this as a meeting follow-up`
++1. `simple_task` - `Make this a simple task`
++2. `planned_work_item` - `Turn this into a planned work item`
++3. `keep_as_follow_up` - `Keep this as a meeting follow-up`
+ 
+ `Dismiss` removes the subject from the review queue without deleting its source
+ evidence and creates no Product-Suite record. Summary and action adjustments use
+@@ -37,8 +37,10 @@ version and remain unset on Add.
+ 
+ ## Dependencies and stage gates
+ 
+-PR B does not branch for DEV until all of the following are merged and live-state
+-verified:
++PR B is implemented as a native GitHub stack, not as a merge-then-start train.
++The first branch starts only after all of the following are merged and live-state
++verified; later branches may be developed and reviewed concurrently on their
++declared parent branch:
+ 
+ 1. `59efc6dc-07a1-4b31-9942-ba2f1fcac8e1` establishes one Neon topology,
+    migration root/order/runner, and fresh-clone path.
+@@ -50,9 +52,18 @@ verified:
+ 4. The PR B Forge dependency on PR A is explicitly approved and recorded. This
+    PLAN does not mutate the dependency graph on its own.
+ 
+-Every implementation layer starts from the previously merged exact `origin/main`,
+-re-proves its own Forge lease, re-runs conflict/migration-order checks, and stops
+-at its own approval gate. No layer branches from this PLAN worktree.
++Until that handoff lands, every task uses the blocking placeholder
++`{{PR_A_EPHEMERAL_NEON_API_WEB_BROWSER_COMMAND}}`. PR A owns replacing it with one
++checked-in command and file path that creates an isolated Neon branch/database,
++runs canonical migrations, seeds identity/conversation/meeting data, starts
++meeting-api + platform-api + platform-web against that database, runs API probes
++and Playwright, reports nonzero test counts, and cleans up in `finally`. Missing
++credentials, missing service, skip, zero tests, timeout, or cleanup failure must
++exit nonzero. PR B cannot substitute an ad hoc local script or call this PASS while
++the placeholder remains unresolved.
++
++Every stack branch re-proves its own Forge lease and re-runs conflict/migration-
++order checks. No implementation branch descends from this PLAN worktree.
+ 
+ ## Baseline evidence at PLAN head
+ 
+@@ -75,8 +86,8 @@ at its own approval gate. No layer branches from this PLAN worktree.
+    tasks, work items, or dependencies.
+ 2. Meeting source, access conversation, summary artifact/version, action
+    candidate/version, actor, agent run, collaboration events, proposal, work item,
+-   and suggestion evidence are
+-   linked through same-tenant constraints and explicit internal projections.
++   and relational suggestion evidence are linked through same-tenant constraints
++   and explicit internal projections; evidence is not an opaque JSONB pseudo-FK.
+ 3. Every existing meeting and meeting-derived direct read, list, action,
+    retrieval, ranking, proposal, work-item child, and tool path evaluates the
+    authenticated caller's current membership before content leaves its
+@@ -85,14 +96,17 @@ at its own approval gate. No layer branches from this PLAN worktree.
+    input, or projection. Direct IDs return the same not-found result for missing
+    and denied resources.
+ 5. Only an action candidate accepts `Add`; it is authenticated, writer-authorized,
+-   stale-version fenced, idempotent, and exactly-once at the work-item boundary.
++   stale-version fenced, actor-bound idempotent, crash-reclaimable, and exactly-once
++   at the proposal/work-item/candidate/command boundary.
+    Summary Add is absent from codecs, routes, UI, and database transitions.
+ 6. At most three suggestions are attached to a version. Each is high-confidence,
+    evidence-referenced, same-tenant, currently caller-visible, and exactly typed.
+    Add applies only suggestion IDs visibly presented and confirmed by the click.
+ 7. `Adjust` appends a caller event and agent event to the existing meeting
+    conversation, mints one attributable `agent_runs` row, validates bounded
+-   structured output, and appends one immutable version. It has no write tools.
++   structured output, keeps `agent_runs.transcript` NULL, and appends one immutable
++   version. It has no write tools. Only an explicit typed human choice can make
++   `keep_as_follow_up` terminal; free-text/model output remains nonterminal.
+ 8. Summary-artifact and action-candidate state machines are independently
+    enforced. Dismiss is durable across refresh/retry and cannot be reopened by
+    source rematerialization or a late adjustment response.
+@@ -105,11 +119,18 @@ at its own approval gate. No layer branches from this PLAN worktree.
+ 11. Unit, route, contract, migration, real-Neon, and Playwright suites prove the
+     Alice/Bob/Carol/Dave matrix, revocation, concurrency, retry, compatibility,
+     response keys, and zero automatic work creation.
++12. The verified upstream `(provider,subject)` survives meeting-token exchange as
++    a signed immutable carrier and is re-resolved on every request; identity remap
++    or revocation fails closed, including at the winning Add/Adjust/Dismiss write.
++13. Every current transcript/search/export/chat/translate endpoint is either
++    current-member authorized before any read or intentionally fail-closed. Only
++    new bounded search capability remains deferred.
+ 
+ ## Out of scope
+ 
+-- `search_meetings`, raw transcript retrieval, transcript excerpts, embeddings of
+-  denied content, or model-visible denial counts; PR C owns bounded search.
++- New `search_meetings`, expanded transcript discovery/excerpts, or embeddings of
++  meeting content; PR C owns expansion. PR B still secures or fail-closes every
++  existing transcript/search/export/chat/translate path.
+ - Provider connectors, calendar/participant ACL import, email/label identity
+   inference, public links, guests, federation, or provider-owned policy.
+ - An organization-publish/declassification UI or command. Ordinary Add remains
+@@ -144,7 +165,10 @@ at its own approval gate. No layer branches from this PLAN worktree.
+   review card.
+ - `proposals/apply.ts` already provides the review/apply seam and exactly-once
+   convergence through proposal state plus `work_items.applied_from_proposal_id`
+-  and `memories.source_proposal_id`. Extend it; do not create a second write path.
++  and `memories.source_proposal_id`, but it is write-first/flip-last and invokes
++  best-effort `buildCaptureInput`/`createMemory` after accept. Meeting provenance
++  must bypass capture and use one new atomic Neon convergence seam; zero memory
++  delta is a required assertion.
+ - Collaboration PR #163 provides stable actors, current memberships, immutable
+   ordered events, typed references, per-conversation idempotency, and
+   `agent_runs.conversation_id`. A run is evidence, not the actor.
+@@ -154,6 +178,14 @@ at its own approval gate. No layer branches from this PLAN worktree.
+ - PR A freezes public response shapes before adding origin columns. PR B must use
+   separate internal authority projections rather than reintroducing `SELECT *`,
+   `RETURNING *`, or unrestricted `to_jsonb`.
++- `POST /auth/session/exchange` currently converts a verified hosted token to an
++  app token whose `sub` is the internal user ID and does not preserve the verified
++  upstream provider/subject. PR B freezes a signed carrier and verifies its live
++  identity mapping on every meeting request.
++- Existing `/meetings/{id}/transcript`, `/meetings/search/transcripts`, export,
++  translate, analysis, chat/voice, speaker-edit, and helper reads still use legacy
++  owner filters in `backend/server.py`. They are in the current security scope,
++  not deferred search expansion.
+ 
+ ## Selected architecture
+ 
+@@ -173,10 +205,12 @@ authenticated human's explicit approval. It is not a second Inbox click. The
+ applied proposal remains the audit record and exactly-once anchor.
+ 
+ Action-candidate destination is versioned as `simple_task` or
+-`planned_work_item`; both create one restricted work item. `meeting_follow_up` is
+-an Adjust planning choice, not a destination enum: accepting that choice dismisses
+-the action candidate from promotion while preserving its revised text as meeting
+-evidence in the conversation. Decision and follow-up evidence remains in the
++`planned_work_item`; both create one restricted work item. Adjust requests carry
++an optional typed human choice `simple_task|planned_work_item|keep_as_follow_up`
++separately from free text. Only an explicit `keep_as_follow_up` button/confirmation
++request may execute the deterministic terminal transition. Free-text Adjust and
++model output can revise content or recommend a destination but cannot infer or
++trigger terminal follow-up state. Decision and follow-up evidence remains in the
+ meeting domain in MVP and is never silently duplicated into memory.
+ 
+ ### Exact database schema
+@@ -192,9 +226,10 @@ PR A. Names below are final; only the numeric revision placeholder changes.
+ | `meeting_action_destination` | `simple_task`, `planned_work_item` |
+ | `meeting_action_candidate_state` | `pending`, `added`, `dismissed`, `kept_as_follow_up` |
+ | `meeting_candidate_suggestion_kind` | `owner`, `due_date`, `parent`, `dependency` |
+-| `meeting_summary_command_kind` | `adjust`, `dismiss` |
+-| `meeting_action_command_kind` | `add`, `adjust`, `dismiss`, `keep_as_follow_up` |
+-| `meeting_review_command_status` | `running`, `succeeded`, `failed` |
++| `meeting_summary_command_kind` | `adjust`, `dismiss`, `restore` |
++| `meeting_action_command_kind` | `add`, `adjust`, `dismiss`, `keep_as_follow_up`, `restore` |
++| `meeting_version_derivation_kind` | `source`, `adjustment` |
++| `meeting_review_command_status` | `running`, `succeeded`, `failed_retryable`, `failed_terminal` |
+ 
+ #### `meeting_summary_artifacts` and `meeting_summary_versions`
+ 
+@@ -210,14 +245,23 @@ meeting_summary_review_state DEFAULT 'current'`, optional same-tenant
+ `summary_artifact_id UUID`, `version_number INTEGER >=1`, optional
+ `previous_version_id UUID`, `title TEXT` (1..160 code points), `body TEXT`
+ (1..8000), `source_line TEXT` (one line, <=240), `source_summary_id TEXT`,
+-`source_content_hash TEXT` (SHA-256), `created_by_actor_id UUID`, `source_run_id
+-UUID`, optional `source_user_event_id UUID` and `source_agent_event_id UUID`, and
+-`created_at`. Unique `(tenant_id,summary_artifact_id,version_number)` and
+-`(tenant_id,summary_artifact_id,source_content_hash)` plus same-tenant composite
+-FKs establish the chain. V1 has no prior/events; adjusted versions require the
+-immediately preceding version and both events. UPDATE/DELETE triggers make
+-versions immutable. Decisions/follow-ups referenced by the card remain owning-
+-domain meeting evidence links; they are not copied into this row or memory.
++`derivation_kind meeting_version_derivation_kind`, `source_projection_hash TEXT`
++(SHA-256 of the canonical source row projection), `version_content_hash TEXT`
++(SHA-256 of canonical displayed title/body/source line), `created_by_actor_id UUID`,
++`source_run_id UUID`, optional `source_user_event_id UUID` and
++`source_agent_event_id UUID`, and `created_at`.
++
++Constraints are exact: unique `(tenant_id,summary_artifact_id,version_number)`;
++partial unique `(tenant_id,summary_artifact_id,source_projection_hash) WHERE
++derivation_kind='source'`; same-tenant composite FKs establish every chain edge.
++For `source`, source summary/hash/run/actor are required and both collaboration
++events are NULL; `previous_version_id` is NULL only for v1 and otherwise points to
++the immediately previous version. For `adjustment`, previous version, source run,
++user event, agent event, and agent actor are required; it carries forward the
++source projection hash but may repeat it because only source rows are partially
++unique. Every row has a non-null content hash. UPDATE/DELETE triggers make versions
++immutable. Decisions/follow-ups remain tenant-bound owning-domain evidence links;
++they are not copied into this row or memory.
+ 
+ #### `meeting_action_candidates`
+ 
+@@ -261,7 +305,9 @@ Constraints/indexes:
+ | `body` | TEXT NOT NULL, at most 8,000 code points |
+ | `source_line` | TEXT NOT NULL, one line, at most 240 code points |
+ | `source_record_id` | TEXT NOT NULL; exact action-item row used for this version |
+-| `source_content_hash` | TEXT NOT NULL; SHA-256 of canonical source projection |
++| `derivation_kind` | `meeting_version_derivation_kind` NOT NULL |
++| `source_projection_hash` | TEXT NOT NULL; SHA-256 of canonical source projection |
++| `version_content_hash` | TEXT NOT NULL; SHA-256 of canonical displayed version |
+ | `created_by_actor_id` | UUID NOT NULL; service actor for v1, agent actor for Adjust |
+ | `source_run_id` | UUID NOT NULL |
+ | `source_user_event_id` | UUID NULL; required for adjusted versions |
+@@ -270,10 +316,15 @@ Constraints/indexes:
+ 
+ Constraints/indexes:
+ 
+-- unique `(tenant_id, candidate_id, version_number)` and unique
+-  `(tenant_id, candidate_id, source_content_hash)` for source v1 refreshes;
++- unique `(tenant_id,candidate_id,version_number)` and partial unique
++  `(tenant_id,candidate_id,source_projection_hash) WHERE derivation_kind='source'`;
+ - same-tenant composite FKs for candidate, prior version, actor, run, and events;
+-- v1 has no prior/events; version `N>1` points to version `N-1` and both events;
++- `source` requires source record/hash/run/service actor and NULL user/agent events;
++  v1 alone has no prior, later source refresh points to `N-1`;
++- `adjustment` requires prior `N-1`, agent run/actor, and both same-conversation
++  user/agent events; it may reuse a source projection hash but must have its own
++  content hash. These conditional checks prevent source refresh from masquerading
++  as a human/agent revision or vice versa;
+ - database triggers reject `UPDATE` and `DELETE` on versions and suggestions;
+   corrections append a new version.
+ 
+@@ -293,19 +344,36 @@ the representation of uncertainty; there is no unresolved/null suggestion row.
+ | `owner_actor_id` | UUID NULL; owner only |
+ | `due_date` | DATE NULL; due-date only |
+ | `work_item_id` | UUID NULL; parent/dependency only |
+-| `evidence_refs` | JSONB NOT NULL; 1-8 opaque source IDs/windows, never quotes |
+ 
+ Checks require exactly the typed value for `kind`; unique `(version_id,position)`
+ and `(version_id,kind,coalesced-value)` prevent duplicates. Position bounds make
+ more than three chips structurally impossible. Add receives and revalidates the
+ displayed suggestion IDs; no unconfirmed or hidden row is applied.
+ 
++Evidence is relational and tenant-bound, never JSONB. Two immutable tables avoid
++polymorphic pseudo-FKs:
++
++- `meeting_summary_version_evidence_refs(tenant_id,version_id,position,
++  evidence_kind,decision_id,action_item_id,open_question_id,chapter_summary_id,
++  transcript_segment_id)` with position `0..2`;
++- `meeting_action_suggestion_evidence_refs(tenant_id,suggestion_id,position,
++  evidence_kind,decision_id,action_item_id,open_question_id,chapter_summary_id,
++  transcript_segment_id)` with position `0..7`.
++
++Each row has exactly one typed target column non-null, and `evidence_kind` must
++match it. Every target uses a composite `(tenant_id,id)` FK to its canonical PR-A
++table; version/suggestion ownership uses a same-tenant FK. Unique owner+position
++orders evidence deterministically. Missing canonical tenant-bound target means
++the evidence is omitted; no text quote, window JSON, or unverified opaque ID is
++persisted. UPDATE/DELETE triggers match the owning immutable version/suggestion.
++
+ #### Separate command ledgers
+ 
+ `meeting_summary_commands` uses `(tenant_id,summary_artifact_id,expected_version_id,
+ kind,idempotency_key,request_hash,status,actor_id,run_id,user_event_id,
+-agent_event_id,result_version_id,error_code,timestamps)`. Its kind enum contains
+-only `adjust|dismiss`, making summary Add structurally impossible.
++agent_event_id,result_version_id,claim_token,lease_expires_at,attempt_count,
++error_code,timestamps)`. Its kind enum contains only `adjust|dismiss|restore`,
++making summary Add structurally impossible.
+ 
+ `meeting_action_candidate_commands` uses:
+ 
+@@ -320,6 +388,9 @@ only `adjust|dismiss`, making summary Add structurally impossible.
+ | `request_hash` | TEXT NOT NULL; canonical semantic request hash |
+ | `status` | `meeting_review_command_status` NOT NULL |
+ | `actor_id` | UUID NOT NULL; server-derived caller actor |
++| `claim_token` | UUID NULL; required only while `running` |
++| `lease_expires_at` | TIMESTAMPTZ NULL; required only while `running` |
++| `attempt_count` | INTEGER NOT NULL DEFAULT 1, `>=1` |
+ | `run_id` | UUID NULL; Adjust only |
+ | `user_event_id`,`agent_event_id` | UUID NULL; Adjust only |
+ | `result_version_id` | UUID NULL; Adjust only |
+@@ -328,17 +399,34 @@ only `adjust|dismiss`, making summary Add structurally impossible.
+ | `error_code` | TEXT NULL; closed private codes only |
+ | timestamps | started/completed timestamps |
+ 
+-Unique `(tenant_id,candidate_id,idempotency_key)` on each ledger gives replay identity. Same key
+-plus different hash is `409 idempotency_conflict`. A succeeded row returns the
+-same result. A failed retry may re-drive only codes classified retryable. The
+-candidate terminal compare-and-set decides Add-vs-Dismiss races; one wins and the
+-other receives the stable terminal card.
++Unique `(tenant_id,candidate_id,idempotency_key)` on each ledger gives replay
++identity. Replay requires the same server-derived `actor_id` and request hash;
++same key from a different actor or different semantic request is
++`409 idempotency_conflict`. `succeeded` returns the identical result. A
++`failed_terminal` row never re-drives. `failed_retryable`, or an expired `running`
++row owned by the same actor/request, is reclaimed only by CAS that replaces
++`claim_token`, advances the lease, and increments `attempt_count`. An unexpired
++run returns `202 command_in_progress`. The token must match at closure, so an old
++worker cannot close a reclaimed attempt. The candidate terminal CAS decides
++Add-vs-Dismiss races; one wins and the other receives the stable terminal card.
++Checks require `running` to have token+lease and no completion/result/error;
++`succeeded` to clear token/lease and carry completed time plus the kind-specific
++result; `failed_retryable|failed_terminal` to clear token/lease, carry completed
++time/error, and have no proposal/work/version result. Add success requires both
++proposal and work item; Adjust success requires run/events/version; Dismiss,
++keep, and Restore success forbid all domain-result columns.
+ 
+ #### Derivative additions after PR A
+ 
+-- `proposals` and `work_items`: add action-candidate/version IDs. Retain PR A's meeting,
+-  action-item, and access-conversation columns. New meeting candidates require all
+-  applicable provenance columns together.
++- `proposals` and `work_items`: add action-candidate/version IDs. Retain PR A's
++  meeting, action-item, and access-conversation columns. Add named all-or-none
++  checks: either both candidate/version are NULL for a non-meeting legacy row, or
++  `source_meeting_id`, `source_action_item_id`, `access_conversation_id`,
++  `meeting_action_candidate_id`, and `meeting_action_candidate_version_id` are all
++  non-null and same-tenant. A partial unique index on
++  `proposals(tenant_id,meeting_action_candidate_id) WHERE
++  meeting_action_candidate_id IS NOT NULL` permits exactly one proposal per action
++  candidate. Existing `work_items.applied_from_proposal_id` remains unique.
+ - `meeting_promotions`: add action-candidate/version IDs for legacy ledger
+   compatibility; new Add dedupes by candidate, not free-form content.
+ - conversation reference domains: add `meeting_summary_artifact`,
+@@ -360,6 +448,7 @@ fail closed.
+ ```ts
+ type MeetingReviewCardType = 'summary_artifact' | 'action_candidate'
+ type MeetingActionDestination = 'simple_task' | 'planned_work_item'
++type MeetingActionPlanningChoice = MeetingActionDestination | 'keep_as_follow_up'
+ type MeetingSummaryState = 'current' | 'dismissed'
+ type MeetingActionState = 'pending' | 'added' | 'dismissed' | 'kept_as_follow_up'
+ 
+@@ -380,7 +469,7 @@ interface MeetingSummaryArtifactCardV1 {
+   links: {
+     meeting: { id: string; href: string }
+   }
+-  actions: { adjust: boolean; dismiss: boolean } // no add key
++  actions: { adjust: boolean; dismiss: boolean; restore: boolean } // no add key
+ }
+ 
+ interface MeetingActionCandidateCardV1 {
+@@ -394,15 +483,15 @@ interface MeetingActionCandidateCardV1 {
+   state: MeetingActionState
+   suggestions: readonly MeetingCandidateSuggestion[] // length 0..3
+   choices: readonly [
+-    'Make this a simple task',
+-    'Turn this into a planned work item',
+-    'Keep this as a meeting follow-up',
++    { value: 'simple_task'; label: 'Make this a simple task' },
++    { value: 'planned_work_item'; label: 'Turn this into a planned work item' },
++    { value: 'keep_as_follow_up'; label: 'Keep this as a meeting follow-up' },
+   ]
+   links: {
+     meeting: { id: string; href: string }
+     result?: { kind: 'work_item'; id: string; href: string }
+   }
+-  actions: { add: boolean; adjust: boolean; dismiss: boolean }
++  actions: { add: boolean; adjust: boolean; dismiss: boolean; restore: boolean }
+ }
+ 
+ type MeetingReviewCardV1 = MeetingSummaryArtifactCardV1 | MeetingActionCandidateCardV1
+@@ -417,7 +506,15 @@ interface MeetingReviewProvenanceV1 {
+   subject:
+     | { kind: 'summary_artifact'; id: string; version_id: string; version_number: number }
+     | { kind: 'action_candidate'; id: string; version_id: string; version_number: number }
+-  derivation: { actor_id: string; run_id: string; user_event_id?: string; agent_event_id?: string }
++  derivation: {
++    kind: 'source' | 'adjustment'
++    source_projection_hash: string
++    version_content_hash: string
++    actor_id: string
++    run_id: string
++    user_event_id?: string
++    agent_event_id?: string
++  }
+ }
+ 
+ interface AddMeetingActionCandidateV1 {
+@@ -426,27 +523,49 @@ interface AddMeetingActionCandidateV1 {
+   confirmed_suggestion_ids: readonly string[] // subset of displayed IDs, max 3
+ }
+ 
+-interface AdjustMeetingReviewSubjectV1 {
++type AdjustMeetingReviewSubjectV1 =
++  | {
++      version_id: string
++      idempotency_key: string
++      message: string // 1..2,000 code points
++      choice?: 'simple_task' | 'planned_work_item'
++    }
++  | {
++      version_id: string
++      idempotency_key: string
++      choice: 'keep_as_follow_up'
++      confirm_terminal: true
++    }
++
++interface DismissMeetingReviewSubjectV1 {
+   version_id: string
+   idempotency_key: string
+-  message: string // 1..2,000 code points
+ }
+ 
+-interface DismissMeetingReviewSubjectV1 {
++interface RestoreMeetingReviewSubjectV1 {
+   version_id: string
+   idempotency_key: string
++  confirm_restore: true
+ }
+ ```
+ 
+ Public decoders: `decodeMeetingReviewCardV1`, `decodeMeetingReviewListV1`,
+ `decodeAddMeetingActionCandidateV1`, `decodeAdjustMeetingReviewSubjectV1`,
+-`decodeDismissMeetingReviewSubjectV1`, `decodeMeetingSummaryCommandResultV1`, and
++`decodeDismissMeetingReviewSubjectV1`, `decodeRestoreMeetingReviewSubjectV1`,
++`decodeMeetingSummaryCommandResultV1`, and
+ `decodeMeetingActionCommandResultV1`. The discriminated union rejects an `add`
+ action/result/destination on summary artifacts. Internal platform API Zod schemas mirror
+ and drift-test those contracts; the web decodes before state mutation.
+ 
+ ### Materialization and legacy compatibility
+ 
++Legacy auto-ingest is killed in stack PR B1 before schema/backfill work. Its route
++returns `410 {error:'explicit_review_required'}` and its production writer is no
++longer imported/registered. A static writer inventory plus route/database tests
++prove zero calls/inserts to proposals, memories, work items, checks, dependencies,
++or `meeting_promotions`. Backfill does not run until that cutover is deployed; it
++therefore cannot race an old automatic writer.
++
+ `refreshMeetingReview` is the replacement for automatic proposal ingest.
+ It runs only after the caller is authorized for each meeting and:
+ 
+@@ -462,8 +581,8 @@ It runs only after the caller is authorized for each meeting and:
+ 6. creates zero proposals, memories, work items, checks, dependencies, or parent
+    links.
+ 
+-The old `POST /api/agent/meeting-ingest` mutating contract is retired fail-closed.
+-After the new web client switches, it returns `410` with
++The old `POST /api/agent/meeting-ingest` mutating contract is retired fail-closed
++in B1, before the new web client switches. It returns `410` with
+ `{error:'explicit_review_required'}`. It must not silently alias old “create
+ proposals” semantics to refresh.
+ 
+@@ -492,17 +611,38 @@ Repository inputs receive only the verified server caller `(provider,subject)`
+ plus server-selected tenant/resource. Request/model payloads cannot select user,
+ actor, tenant, access conversation, visibility, role, or provenance.
+ 
++Hosted token exchange freezes that identity instead of replacing it with an
++internal-only subject. `AuthUser` gains `verified_provider` and
++`verified_subject`; `provision_hosted_user_from_provider_identity` sets them from
++the verified upstream token; `create_hosted_app_token` signs immutable
++`auth_provider` and `auth_subject` claims while `sub` may remain the internal user
++for compatibility. `get_request_actor` rejects a hosted app token unless the
++current `user_auth_identities(provider,provider_user_id)` mapping resolves those
++claims to the same active internal user. Email, label, org, internal user ID, or a
++request body can never reconstruct the carrier. A provider-subject remap,
++identity disable/delete, token exchange replay after revocation, or mapping change
++between read and write denies and requires a fresh exchange.
++
+ - List/search/injection: one bounded SQL authorization join filters before count,
+   sort, rank, embedding, projection, or model input; denied rows yield an empty
+   lane.
+ - Direct read/action: load the minimal private origin, call PR A's one-statement
+   current authorization with required role, then project; missing/denied both 404.
++- Winning mutations do not rely on that earlier check: PR A's provider+subject
++  current-membership predicate is repeated inside the same SQL writable CTE/CAS
++  that changes summary/candidate/command state. Revocation or identity remap in
++  the read-to-write gap produces no event/version/proposal/work item/child/result.
+ - Reader: list/detail/history. Writer/admin: summary Adjust/Dismiss, action
+   Add/Adjust/Dismiss, and derivative mutations. Existing org/private lanes keep
+   their rules.
+ - Meeting Python routes implement the same contract/version and denial precedence
+   against the shared Neon tables; no provider/label fallback. Cross-language
+   fixtures prove the TS and Python decisions match.
++- Existing transcript detail/search/export/translate/summarize/chat/voice/speaker
++  mutation routes and helpers must call that adapter before query/model input.
++  Any current endpoint that cannot be converted in its owning stack PR returns
++  uniform 404/410 fail-closed until it is; no legacy owner filter remains an access
++  grant. Only adding a new `search_meetings` capability is deferred to PR C.
+ - Every proposal list/detail/accept/reject/undo/curator/active-rules path and every
+   memory list/detail/chain/supersede/retract/defer/restore/retrieval path filters
+   conversation rows by current membership.
+@@ -519,21 +659,48 @@ Add exists only for action candidates and operates on the current version only:
+ 
+ 1. Strictly decode body; load minimal candidate origin; derive caller actor; require
+    current writer/admin membership.
+-2. Insert/replay the command row and compare request hash. Re-authorize and
+-   compare `expected_version_id` immediately before the winning write.
++2. `claimMeetingActionCommand` inserts `running` with a random `claim_token` and
++   short lease. On conflict it locks/reads the command: same actor+hash succeeded
++   replays; another actor/hash conflicts; unexpired running returns in-progress;
++   same actor+hash may CAS-reclaim retryable/expired work with a fresh token.
+ 3. Re-resolve each confirmed suggestion: current actor/user, valid date, visible
+    same-tenant parent/dependency, compatible target team/status. Missing/stale
+    values are omitted only if not confirmed; a confirmed value that became invalid
+    returns `409 stale_suggestion` and creates nothing.
+-4. Create/reuse one conversation-scoped proposal uniquely keyed by candidate.
+-   Proposal payload contains only the reviewed version and confirmed IDs.
+-5. Apply through the existing proposal/domain command. The transaction/batch
+-   writes one work item plus activity/dependencies, proposal decision,
+-   candidate resolution, and command result. Any failed invariant leaves no
+-   externally visible result.
+-6. Replays return the same proposal/result IDs. A crash after the domain record but
+-   before command closure is repaired by the existing proposal-source unique key
+-   and candidate compare-and-set; it never creates a second record.
++4. Build the proposal/work payload through existing pure work-item validators, but
++   do not call current write-first `applyProposal` for meeting provenance.
++5. New concrete seam
++   `apps/platform-api/src/meeting/action-apply-transaction.ts::applyMeetingActionCandidateTx`
++   executes one parameterized Neon writable CTE (one `sql.query`, one database
++   transaction). The CTE locks candidate+command, matches `claim_token`, repeats
++   PR A provider/subject current-writer authorization, fences current version and
++   confirmed suggestions, inserts/reuses the candidate-unique proposal, inserts
++   the work item and created activity plus confirmed dependency children, marks
++   proposal applied, marks candidate added, and closes the command succeeded.
++   Every downstream CTE depends on the authorized winning row; zero winners means
++   zero writes. IDs are generated before the statement so the stable result is
++   returned without a second transaction.
++6. Capture eligibility is server-derived from provenance: a non-null meeting action
++   candidate ID always means capture is disabled; there is no client flag.
++   `applyProposal`/`buildCaptureInput` must defensively return no capture whenever
++   candidate provenance is present. Unit and real-Neon tests
++   compare memory counts before/after Add and require delta zero.
++
++Crash convergence is explicit:
++
++| Crash point | Durable state | Retry behavior |
++|---|---|---|
++| before command insert | none | normal first claim |
++| after claim, before validation/CTE | `running`, no domain row | same actor/hash reclaims after lease |
++| validation terminal failure | `failed_terminal`, no domain row | stable error; no re-drive |
++| transient failure before CTE | `failed_retryable`, no domain row | same actor/hash CAS-reclaims |
++| during writable CTE | transaction rollback | no proposal/work/child/candidate result; reclaim |
++| after CTE commit, before HTTP response | `succeeded` plus complete result | actor-equal replay returns identical IDs |
++| stale worker after reclaim | old token | closure/CAS affects zero rows; current attempt owns result |
++
++The partial proposal unique, existing work-item proposal unique, candidate terminal
++CAS, command token, and single CTE are all required; no compensation delete or
++best-effort completion path is part of this boundary.
+ 
+ `simple_task` is a deliberately minimal action:
+ title plus only confirmed chips. `planned_work_item` may include confirmed parent
+@@ -552,20 +719,31 @@ primitives in a dedicated, tool-free runner:
+    subject-specific artifact/candidate and displayed-version references; the
+    event key derives from command identity;
+ 2. mint one `agent_runs(kind='chat',conversation_id=<meeting conversation>,
+-   thread_id=NULL)` row, triggered by the internal user;
++   thread_id=NULL,transcript=NULL)` row, triggered by the internal user; adjustment
++   events are the only transcript authority and the run transcript stays NULL on
++   both completion and failure;
+ 3. pass only the subject kind, current reviewed version, confirmed evidence IDs, and
+    the user's adjustment message as delimited untrusted data. No raw transcript,
+    denied source, retrieval tool, mutation tool, or generic workboard prompt;
+ 4. use AI SDK v6 structured output with the strict subject-specific codec; summary
+-   output cannot contain destination or assignments, while action output may use
+-   only the two destination values and <=3 suggestions;
++   output cannot contain destination or assignments, while action output may
++   recommend only the two nonterminal destination values and <=3 suggestions. The
++   model output schema has no terminal state or `keep_as_follow_up` field;
+ 5. resolve/filter links/suggestions server-side, then in one transaction append
+    the assistant event, insert the matching immutable version `N+1`, and compare-
+    and-set `current_version_id` from N to N+1;
+-6. re-authorize immediately before commit. Revocation, Dismiss, action Add, or
+-   another winning Adjust makes the response stale and prevents a new current version;
++6. the version/event current-pointer CTE repeats provider/subject authorization in
++   the winning CAS. Revocation/remap, Dismiss, action Add, or another winning Adjust
++   makes the response stale and prevents a new current version;
+ 7. close the run `completed` or `failed` and return the stable command result.
+ 
++For an action request with typed choice `keep_as_follow_up`, the server does not
++invoke the model. After the UI's explicit terminal confirmation it runs a
++deterministic authorized CAS from `pending` to `kept_as_follow_up`, records the
++human event/command, and writes no new version, proposal, memory, or work item.
++Typed `simple_task|planned_work_item` constrains the next nonterminal version;
++free-text-only Adjust remains nonterminal regardless of its wording.
++
+ The original version and events remain immutable. Model/schema failure returns
+ the candidate to a usable pending UI; the draft message remains in the browser.
+ No partial version becomes current.
+@@ -576,7 +754,8 @@ The durable summary-artifact state machine is:
+ 
+ ```text
+ current --Adjust succeeds--> current with immutable version N+1
+-current --Dismiss succeeds-> dismissed-for-review (terminal queue state)
++current --Dismiss confirmed-> dismissed-for-review (automatic terminal queue state)
++dismissed --Restore explicit-> current (same immutable current version)
+ ```
+ 
+ Dismiss never deletes or mutates the meeting's summary evidence. There is no
+@@ -584,15 +763,18 @@ summary Add transition. The durable action-candidate state machine is:
+ 
+ ```text
+ pending --Adjust task/planned--> pending with immutable version N+1
+-pending --Adjust keep-follow-up-> kept_as_follow_up (terminal, meeting evidence only)
++pending --Confirm keep-follow-up-> kept_as_follow_up (automatic terminal, meeting evidence only)
+ pending --Add succeeds----------> added (terminal, exactly one work item)
+-pending --Dismiss succeeds------> dismissed (terminal)
++pending --Dismiss confirmed-----> dismissed (automatic terminal)
++dismissed|kept --Restore explicit-> pending (same immutable current version)
+ ```
+ 
+ Duplicate semantic commands return their recorded result. Stale versions return
+ `409 stale_version` plus the latest safe card. Add/Dismiss races are resolved by
+ one compare-and-set; the loser sees the winner's terminal state. A late Adjust
+ cannot update a terminal subject. Refresh/backfill never reopen terminal rows.
++Only a separately confirmed, current-member `restore` command can undo a no-work
++terminal decision; it never restores `added`, rewrites a version, or deletes work.
+ 
+ ### API routes and response projections
+ 
+@@ -605,9 +787,11 @@ subject commands are separated so summary Add is unrepresentable:
+ | `POST /api/agent/meeting-review/refresh` | Materialize authorized artifacts/candidates only; counts writes, always zero Product-Suite writes |
+ | `POST /api/agent/meeting-summary-artifacts/:id/adjust` | Tool-free summary revision; `201` first, `200` replay |
+ | `POST /api/agent/meeting-summary-artifacts/:id/dismiss` | Remove summary from review queue; `200` first/replay |
++| `POST /api/agent/meeting-summary-artifacts/:id/restore` | Explicit undo of dismiss; same version, no new artifact |
+ | `POST /api/agent/meeting-action-candidates/:id/add` | Exactly-once work item; `201` first, `200` replay |
+ | `POST /api/agent/meeting-action-candidates/:id/adjust` | Tool-free action revision; `201` first, `200` replay |
+ | `POST /api/agent/meeting-action-candidates/:id/dismiss` | Terminal no-work decision; `200` first/replay |
++| `POST /api/agent/meeting-action-candidates/:id/restore` | Explicit undo of dismiss/keep-follow-up only; added rejects |
+ | `GET /api/agent/meeting-review/:type/:id/adjustments?after_sequence=&limit=` | Subject-referenced conversation events only, current membership required |
+ 
+ List envelope is exactly `{schema_version:1,items,next_cursor}` where `items` is
+@@ -620,6 +804,19 @@ Public errors are closed: `invalid_request` 400, `not_found` 404,
+ `adjustment_failed` 422/502 by retryability, and generic 500. Private denial and
+ database codes never serialize.
+ 
++Projection invariants are executable fixtures, not prose: `next_cursor` is
++`string|null`; unknown keys/null optionals reject; a summary card never contains
++destination/suggestions/choices/result/add; an action result exists only when
++state is `added` and is always `{kind:'work_item',id,href}`; dismissed/kept cards
++expose only `restore:true`, while added exposes all actions false;
++`kept_as_follow_up` has no proposal/result; first success has
++`duplicate:false`, actor-equal replay has identical subject/result IDs and
++`duplicate:true`; a command result never mixes summary and action keys; run IDs
++occur only for model-backed Adjust; stale errors contain only the latest safe card
++union and closed error code. JSON mirror, JS decoder, TypeScript declaration,
++platform-api projection, and web network fixtures share golden valid/invalid
++vectors and drift-fail on any key/type/nullability change.
++
+ No endpoint returns raw version body, confidence, evidence refs, access
+ conversation, actor IDs, source run/events, request hash, prompt, or denied counts.
+ The meeting/result hrefs are server-built from already-authorized IDs.
+@@ -640,7 +837,9 @@ the navigation contract.
+   dependency order. Parent/dependency chips are real links with accessible names.
+ - Summary actions: native `Adjust` and `Dismiss`; there is no disabled or hidden
+   Add control. Pending action-candidate actions: native `Add`, `Adjust`, and
+-  `Dismiss`. No icon-only action and no default structured field form.
++  `Dismiss`. Dismissed summary/action and kept-follow-up cards expose only native
++  `Restore`; added exposes only its result link. No icon-only action and no default
++  structured field form.
+ - Provenance/details use a native `<details>` after the actions and show safe
+   source/result links only; internal IDs/evidence remain hidden.
+ 
+@@ -649,9 +848,12 @@ the navigation contract.
+ - Adjust expands an inline region beneath the same card; no modal or separate chat
+   authority. Focus moves to a visibly labelled textarea and returns to Adjust when
+   collapsed.
+-- Action Adjust shows at most the three approved choice buttons. They populate/send
+-  natural language and do not map client-side to canonical fields. Summary Adjust
+-  shows no planning choices. Free text remains valid for either subject.
++- Action Adjust shows at most the three approved choice buttons and sends their
++  exact typed value separately from free text. Simple/planned may accompany a
++  message and remain nonterminal. Keep-follow-up opens an inline confirmation that
++  names the consequence (no Product-Suite work; preserved as meeting evidence),
++  requires a second activation, and sends `confirm_terminal:true` with no model
++  call. Summary Adjust shows no planning choices. Free text alone stays nonterminal.
+ - Enter inserts a newline; `Ctrl+Enter`/`Cmd+Enter` submits; Escape collapses only
+   an empty draft. A non-empty draft is preserved.
+ - During the run, disable actions for that card only, expose a polite status, and
+@@ -667,9 +869,12 @@ the navigation contract.
+ - Per-card allowed-action pending states prevent double activation. A stale
+   conflict replaces only that card with the latest server projection. Global and
+   per-card retry errors are distinct and content-safe.
+-- Added action cards remain visible with one work-item link; dismissed/kept-
+-  follow-up cards remain compact and
+-  non-actionable. Unknown future states decode to an inert honest card, never
++- Dismiss on either subject and keep-follow-up require the same inline terminal
++  confirmation pattern. On success, a polite status/toast offers a native `Undo`
++  button that calls the explicit restore command; focus remains predictable and a
++  failed/stale undo restores the latest server card with an alert. Added action
++  cards have no Undo and remain visible with one work-item link; dismissed/kept-
++  follow-up cards remain compact with Restore only. Unknown future states decode to an inert honest card, never
+   `pending`.
+ - DOM order equals visual/tab order. Buttons/links meet at least 24x24 CSS px
+   (target 44px), focus indicator is >=3:1, normal text >=4.5:1, and meaning is not
+@@ -691,7 +896,8 @@ the navigation contract.
+   proposal rationale, work-item content, token, or credentials.
+ - Adjustment text and assistant response persist only as authorized conversation
+   events because history is a product requirement; they inherit meeting retention.
+-  `agent_runs.summary` stores a content-free result phrase and IDs only.
++  `agent_runs.summary` stores a content-free result phrase and IDs only;
++  `agent_runs.transcript` is explicitly NULL for Adjust on success and failure.
+ - Source/model text is untrusted data, not instruction. The adjust runner has no
+   tools, bounded input/output, strict schema, and server-side ID resolution.
+ - A01 is primary: current membership on every path, uniform denial, same-tenant
+@@ -704,15 +910,18 @@ the navigation contract.
+ 
+ ## Migration, rollout, compatibility, and rollback
+ 
+-1. Merge PR A and capture its exact topology/migration SHA.
+-2. Land contract/codecs and additive schema dormant. Run parity/fresh-clone and
+-   response-key snapshots before enabling writers.
+-3. Dry-run backfill, review redacted quarantine report, apply, rerun for zero
+-   mutations, and run mandatory ephemeral-Neon conformance.
+-4. Enable dual projection for authorized internal users: old reads shadow-compared
++1. Merge PR A and capture its exact topology/migration SHA and resolve the mandatory
++   orchestration-command placeholder.
++2. Land B1's legacy-ingest 410/writer removal and provider-subject carrier before
++   any backfill-capable code. Prove all old automatic write paths are unreachable.
++3. Land additive contract/schema dormant. Run parity/fresh-clone, conditional
++   provenance constraints, and response-key snapshots before enabling writers.
++4. After cutover, dry-run backfill, review redacted quarantine report, apply,
++   rerun for zero mutations, and run mandatory ephemeral-Neon conformance.
++5. Enable dual projection for authorized internal users: old reads shadow-compared
+    but never returned when new authorization denies. Any mismatch stops rollout.
+-5. Deploy backend enforcement before the new UI. Keep legacy ingest disabled.
+-6. Enable candidate refresh/commands for internal tenants, then the web flag after
++6. Deploy backend enforcement before the new UI. Keep legacy ingest disabled.
++7. Enable candidate refresh/commands for internal tenants, then the web flag after
+    exact-head API/DB evidence. Remove the flag only in a later cleanup.
+ 
+ Rollback reverts application/UI layers in reverse order and leaves additive schema,
+@@ -740,12 +949,16 @@ Compatibility rules:
+ - JS/JSON/TypeScript contract drift; strict decoder rejection; exact public keys;
+   max-three suggestions/choices; optional uncertainty omitted, not null.
+ - State transitions, canonical request hashing, replay/conflict, version chain,
+-  immutable update/delete rejection, source hash dedupe, terminal refresh.
++  immutable update/delete rejection, source-only projection-hash dedupe, repeated
++  adjustment source hashes, distinct version-content hashes, conditional
++  provenance, terminal refresh, and explicit restore.
+ - Suggestion resolution: exact active actor/date/item passes; ambiguous/inactive/
+   cross-tenant/unauthorized/stale/missing fails or is omitted before version write.
+ - Summary codec/route/state rejects Add structurally; action Add maps only simple/
+   planned destinations. Keep-follow-up terminates promotion and writes no memory
+   or work item. Refresh, Adjust, and Dismiss create zero Product-Suite records.
++- Golden decoder fixtures prove exact union/command/result/error keys and cross-
++  language parity; invalid null/unknown/mixed/terminal combinations reject.
+ 
+ ### Authorization/routes
+ 
+@@ -757,6 +970,10 @@ Dave (removed member), and Eve (provider/label spoof):
+   checks/dependencies/activity/project aggregate, agent retrieval/tool/capture;
+ - list omission and direct 404 for Bob/Carol/Dave/Eve; Alice positive;
+ - membership removed between two calls and immediately before Adjust/Add commit;
++- upstream provider/subject preserved through exchange; identity mapping revoked,
++  remapped, or changed between precheck and winning CAS denies;
++- every existing transcript/search/export/translate/analysis/chat/voice/speaker
++  endpoint/helper is authorized or returns a uniform fail-closed response;
+ - missing/mismatched origin, archived conversation, disabled actor, malformed ID,
+   and database failure deny without content/count/timing-specific response.
+ 
+@@ -765,14 +982,18 @@ Dave (removed member), and Eve (provider/label spoof):
+ - two refreshes create one summary artifact/v1 and one action candidate/v1 with
+   zero Product-Suite records;
+ - same Add key twice and two concurrent Add keys create one proposal/result;
++- same key from another actor conflicts; unexpired lease returns in-progress;
++  expired/retryable same-actor claim is token-CAS reclaimed; stale token cannot close;
+ - summary Adjust vs Dismiss and action Add vs Dismiss/keep-follow-up have one
+   terminal/current winner;
+-- crash/retry at command claim, proposal create, domain write, dependencies, proposal
+-  flip, candidate resolve, and response returns one stable result;
++- every crash-table point returns one stable atomic result or zero proposal/work/
++  child/candidate result rows;
+ - same idempotency key/different request conflicts; stale version/suggestion creates
+   nothing; confirmed parent/dependencies preserve DAG/team/current access;
+ - FK/check/immutability triggers reject cross-tenant and partial provenance;
+ - backfill dry/apply/reapply deterministic; legacy states map without new work;
++- old ingest is 410 and static/runtime writer inventory proves zero legacy writes
++  before backfill; meeting Add changes the memory count by exactly zero;
+ - response-key snapshots unchanged; migration fresh-clone/parity and cleanup
+   execute nonzero tests. Missing credentials/skip/zero tests/timeout is INCOMPLETE.
+ 
+@@ -786,101 +1007,150 @@ Dave (removed member), and Eve (provider/label spoof):
+ - action Adjust shows <=3 exact choices while summary shows none; both support free
+   text, immutable revised version, stale/fail
+   recovery, draft retention, focus return, and success announcement;
+-- Dismiss is stable after reload and creates no work;
++- free text cannot terminate; typed keep requires confirmation and no model run;
++  Adjust run transcript stays NULL; Dismiss/keep confirmation and Restore/Undo are
++  keyboard/screen-reader tested and create no work;
+ - keyboard-only, axe, NVDA announcement script, 320px, 400% zoom, reduced motion,
+   slow request, offline/error, and per-card/global loading behavior.
+-
+-## Delivery as five medium stack layers
+-
+-The issue is one design but too large for one reviewable diff. Default split:
+-
+-| Layer | Scope | Estimate | Depends on |
+-|---|---|---:|---|
+-| B1 | Contract/codecs, additive schema, projections, backfill | 16-22 files; 650-950 net LOC | merged PR A |
+-| B2 | Meeting source Python/TS current-membership enforcement | 12-18 files; 450-750 LOC | B1 |
+-| B3 | Existing derivative/proposal/work-item/child/tool enforcement | 20-28 files; 700-1,050 LOC | B2 |
+-| B4 | Review materialization, subject-specific commands, work-item integration | 18-26 files; 850-1,250 LOC | B3 |
+-| B5 | Web data/card/inline Adjust plus E2E | 18-24 files; 650-950 LOC | B4 |
+-
+-B2 and B3 may merge into one PR only if the post-RED diff stays under the project's
+-medium review threshold and has one security reviewer; they never develop in
+-parallel. B4 cannot merge before the complete B2/B3 call-site inventory is green.
+-B5 cannot ship against partial backend enforcement.
++- `{{PR_A_EPHEMERAL_NEON_API_WEB_BROWSER_COMMAND}}` is replaced with the landed
++  non-skipping command and passes API+web+browser with nonzero counts; unresolved,
++  skip, timeout, missing credential/service, or cleanup failure is INCOMPLETE.
++
++## Native GitHub stack: eight medium PRs
++
++All eight branches may be developed/reviewed as a native dependent stack after B1
++exists; no layer waits for its parent to merge before work begins. Each PR base is
++the previous branch, so GitHub shows only that layer's diff:
++
++| PR | Branch | GitHub base | Scope | Estimate |
++|---|---|---|---|---:|
++| B1 | `codex/meeting-authority-b1-cutover-identity` | `main` | legacy ingest 410/writer kill; provider-subject carrier | 10-14 files; 300-500 LOC |
++| B2 | `codex/meeting-authority-b2-contract-schema` | B1 branch | codecs, exact schema, evidence FKs, projections | 14-20 files; 500-750 LOC |
++| B3 | `codex/meeting-authority-b3-meeting-access` | B2 branch | Python/TS meeting and existing transcript/search authority | 14-20 files; 500-750 LOC |
++| B4 | `codex/meeting-authority-b4-memory-access` | B3 branch | existing memory/knowledge/retrieval caller enforcement only | 12-18 files; 400-650 LOC |
++| B5 | `codex/meeting-authority-b5-work-authority` | B4 branch | proposal/work-item/child/tool authority; atomic transaction seam | 14-20 files; 500-800 LOC |
++| B6 | `codex/meeting-authority-b6-materialize-backfill` | B5 branch | review materialization and post-cutover backfill | 10-16 files; 400-650 LOC |
++| B7 | `codex/meeting-authority-b7-review-commands` | B6 branch | Add/Adjust/Dismiss/Restore services and routes | 14-20 files; 550-850 LOC |
++| B8 | `codex/meeting-authority-b8-web-e2e` | B7 branch | strict web data/card UX and mandatory orchestration | 16-22 files; 550-850 LOC |
++
++Stack protocol is mandatory:
++
++1. Create each branch from its declared parent head and open a draft PR with
++   `Stack position`, parent PR/branch, child PR/branch, parent head SHA, and exact
++   focused validation in the body. GitHub base refs must match the table.
++2. When a lower PR head changes, update descendants bottom-up with
++   `git rebase --onto <new-parent-sha> <old-parent-sha> <child>`; rerun that layer's
++   focused gates, then update its remote ref only with exact old-SHA
++   `--force-with-lease`. Never merge parent content into a child or review a
++   cumulative diff against `main`.
++3. Before review approval, verify each PR's base ref and `merge-base` equals the
++   recorded parent head. A stale child is not reviewable/green.
++4. After a parent merges, rebase the immediate child onto the landed `origin/main`,
++   retarget only that PR to `main`, verify patch identity, then propagate changed
++   parent heads through later descendants. Do not delete a parent branch while a
++   child PR still uses it as base.
++5. CI/check success is per exact layer head. Parent green never substitutes for a
++   child gate, and no stacked branch grants merge authority.
+ 
+ ## Exact ownership
+ 
+ ### B1
+ 
+-- `packages/contracts/src/meeting-review.js` and test, JSON mirror,
+-  `src/index.js`, `src/index.d.ts`
+-- conversation contract JS/JSON/d.ts/tests for summary/action references
+-- canonical PR-A-selected migration/schema/journal files
+-- `packages/db/src/schema.ts`, `packages/db/src/schema.test.ts`
+-- `scripts/meeting-authority/backfill-meeting-review.ts` and focused tests
+-- PR A named response-projection files/tests for existing memory/proposal/work item/meeting
++- `apps/platform-api/src/meeting/ingest.ts`, route, app registration, and tests:
++  production writer removed, route fixed at 410, zero-writer inventory
++- `apps/meeting-api/backend/server.py`, `backend/security.py`, hosted auth service/
++  exchange tests: signed verified provider+subject carrier and current remap check
++- no schema/backfill/materialization writer
+ 
+ ### B2
+ 
+-- new `apps/meeting-api/backend/authorization.py` and test
+-- `backend/repositories/{meetings,history,chapters,transcripts}.py`
+-- `backend/routes/{meetings,history,chapters,state,buddy}.py`
+-- `backend/server.py` and focused authorization/response tests
+-- new `apps/platform-api/src/meeting/access.ts` and tests
+-- meeting review source tests only; no command/UI behavior
++- `packages/contracts/src/meeting-review.js`, JSON mirror, d.ts/index/tests and
++  golden valid/invalid fixtures; conversation reference contracts
++- canonical PR-A migration/schema/journal files; `packages/db/src/schema.ts`/test
++- seven review enums/tables plus two relational evidence-ref tables, partial
++  uniques, all-or-none provenance, command lease fields, immutable triggers
++- named internal/public projections and response-key snapshots; no active writer
+ 
+ ### B3
+ 
+-- `apps/platform-api/src/domain/memories.ts`, routes/memories, and tests (existing
+-  meeting-derived rows only; PR B adds no Save-to-memory writer)
+-- agent memory/knowledge retrieval, KB ingest, tools, reflection/capture callers
+-- proposal repository/apply/undo/routes and tests
+-- work-item domain/routes, checks/dependencies/projects/retrieve callers and tests
+-- static call-site conformance test enumerating every direct content table consumer
++- new `apps/meeting-api/backend/authorization.py` and parity test
++- meeting repositories/routes/server and tests for meeting, summary, chapter,
++  state, history, buddy, transcript detail/search/export/translate/analysis/chat/
++  voice/speaker mutations; static query inventory
++- new `apps/platform-api/src/meeting/access.ts` and tests
+ 
+ ### B4
+ 
+-- new `apps/platform-api/src/meeting/{review-codecs,review-repository,
+-  materialize,action-promotion,adjustment}.ts` and tests
+-- routes/meeting-review, meeting-summary-artifacts, meeting-action-candidates,
+-  meeting-ingest, app registration/tests
+-- targeted proposal apply and work-item transaction seams/tests
+-- collaboration repository/runtime reference integration/tests
+-- ephemeral-Neon meeting review command suite and package/CI command
++- existing `domain/memories.ts`, routes/memories, and tests; no new memory writer
++- agent memory/knowledge retrieval, KB ingest, reflection/capture and curator
++  callers/tests; conversation-origin filtering before rank/model input
++- memory/knowledge-only static call-site conformance slice
+ 
+ ### B5
+ 
+-- replace `apps/platform-web/src/data/meeting-actions/` with
+-  `src/data/meeting-review/` types/codecs/repository/network/hooks/provider/
+-  fixtures and tests; remove old exports only after all callers switch
+-- `boards/meetings/MeetingTriageScreen.tsx` and test
+-- `AppRoot.tsx`, router tests only where imports/providers change
+-- `e2e/meeting-loop.spec.ts` plus focused accessibility/command E2E fixture helpers
++- proposal repository/apply/capture/undo/routes and tests, including meeting
++  capture suppression and candidate-unique proposal provenance
++- work-item domain/routes, checks/dependencies/projects/agent tools and tests
++- new `meeting/action-apply-transaction.ts` plus real-Neon atomicity/convergence
++  tests; work-surface-only conformance inventory
++
++### B6
++
++- new `meeting/{review-codecs,review-repository,materialize}.ts` and tests
++- post-cutover `scripts/meeting-authority/backfill-meeting-review.ts` and redacted
++  report/unit/real-Neon tests
++- refresh/mixed-list read projection only; zero proposal/memory/work writers
++
++### B7
++
++- new `meeting/{command-claim,action-promotion,adjustment}.ts` and tests
++- `meeting/action-apply-transaction.ts` command integration only after B5 seam
++- collaboration repository/run helper changes/tests; Adjust transcript NULL
++- routes/meeting-review, summary-artifacts, action-candidates, app/tests
++
++### B8
++
++- replace web `data/meeting-actions/` with `data/meeting-review/` strict codecs,
++  repositories/hooks/provider/fixtures/tests; `AppRoot.tsx` provider wiring
++- `MeetingTriageScreen.tsx` and tests for typed choices, terminal confirmation,
++  Restore/Undo, loading/error/a11y/responsive behavior
++- `e2e/meeting-loop.spec.ts` and checked-in orchestration registration owned by the
++  resolved `{{PR_A_EPHEMERAL_NEON_API_WEB_BROWSER_COMMAND}}`
+ 
+-No task in the same layer owns the same file. Sequential layers may revisit a file
+-only after the prior layer merges.
++No two tasks in the same PR own the same file. Cross-PR revisits occur only through
++the declared dependent base, never by editing another worktree.
+ 
+ ## Approval gates
+ 
+ 1. **Dependency/topology:** Neon prerequisite and all PR A layers merged; exact
+    auth/projection/migration contracts recorded; Forge dependency B -> A approved.
+ 2. **Schema/codec:** security/data/API approve exact tables, immutable triggers,
+-   strict codecs, public projections, legacy mapping, and no destructive migration.
++   derivation/hash/provenance checks, relational evidence FKs, command leases,
++   strict codecs/golden projections, legacy mapping, and no destructive migration.
+ 3. **Call-site inventory:** security signs the complete meeting/memory/knowledge/
+    proposal/work-item/child/tool matrix; known-ID and revocation failures are green.
+ 4. **Distinct-subject promotion:** product/security approve that summary artifacts
+    have no Add codec, route, control, result, or transition; summary/decision/
+    follow-up stays meeting evidence; action Add alone creates one scoped work item
+-   through existing proposal/domain commands. Suggestions are visible, confirmed,
+-   revalidated, and never fabricated.
+-5. **Agent protocol/privacy:** tool-free Adjust, existing conversation/run identity,
+-   immutable event/version linkage, content-free logs, bounded persistence/retention.
+-6. **UX/accessibility:** product/UX/a11y approve the compact mixed card, exact choices,
+-   progressive details, action/error/focus behavior, 320px/400%, keyboard, axe/NVDA.
+-7. **Migration/real DB:** dry-run report reviewed; apply/reapply converges; mandatory
+-   ephemeral-Neon concurrency/revocation suite and exact response snapshots PASS.
+-8. **Layer/merge:** exact-head CI green for each layer; human approves each next
+-   branch. No PLAN approval authorizes DEV, push, PR, merge, or PR C.
+-9. **Deferred capability references:** product confirms reviewed Save-to-memory is
++   through the atomic Neon convergence seam. Candidate-unique proposal/all-or-none
++   provenance, actor-equal replay, crash table, capture suppression, and zero memory
++   delta pass. Suggestions are visible, confirmed, revalidated, never fabricated.
++5. **Agent protocol/privacy:** typed keep confirmation outside model output,
++   free-text nonterminal, tool-free Adjust, immutable event/version linkage,
++   `agent_runs.transcript=NULL`, content-free logs, bounded retention.
++6. **UX/accessibility:** product/UX/a11y approve compact cards, exact typed choices,
++   terminal confirmation/Restore/Undo, action/error/focus behavior, 320px/400%,
++   keyboard, axe/NVDA.
++7. **Cutover/migration/real DB:** B1 legacy ingest 410 and zero-writer evidence
++   land before post-cutover backfill; apply/reapply converges; the resolved mandatory
++   ephemeral-Neon API+web+browser command and exact response snapshots PASS.
++8. **Identity/winning-write:** provider+subject carrier, remap/revocation matrix,
++   existing transcript/search endpoint inventory, and authorization inside every
++   winning mutation CTE pass.
++9. **Stack/merge:** GitHub dependent base refs, recorded parent heads, focused diffs,
++   and exact-head CI are correct for all eight PRs; human approves each merge.
++   PLAN approval authorizes no DEV, push, PR, merge, or PR C.
++10. **Deferred capability references:** product confirms reviewed Save-to-memory is
+    issue `6d4bae06-27cb-4f3e-89b3-e470e79aa83e` and on-demand visual artifacts are
+    issue `99e8a26e-98df-4025-8566-69f4fad4ba25`, outside every PR B layer.
+ 
+diff --git a/docs/work/2026-08-09-meeting-authority-pr-b/tasks.md b/docs/work/2026-08-09-meeting-authority-pr-b/tasks.md
+index 9a19605..e0ff5ef 100644
+--- a/docs/work/2026-08-09-meeting-authority-pr-b/tasks.md
++++ b/docs/work/2026-08-09-meeting-authority-pr-b/tasks.md
+@@ -1,558 +1,418 @@
+-# Meeting authority PR B - TDD task plan
++# Meeting authority PR B - native stack TDD tasks
+ 
+ **Issue:** `9558cfaa-e34d-4412-9b8c-a84c28873387`
+ **Plan:** `plan.md`
+-**Stage:** PLAN review; no DEV authority
+-**Entry dependency:** merged PR A issue `2660c6a4-3e8d-4f4e-b3bb-eb61446c3c98`
+-
+-Each layer starts from the prior layer's merged exact `origin/main`, has its own
+-Forge lease/branch/worktree, and records RED before production edits. Missing
+-credentials, skipped/zero tests, timeouts, cleanup failures, and truncated output
+-are INCOMPLETE, never PASS. The canonical migration path/revision and PR A
+-projection names are placeholders until the dependency handoff is live-verified.
+-
+-## Layer B1 - contracts, additive schema, projections, and backfill
+-
+-### Task B1.1 - Freeze distinct summary/action codecs and provenance references
+-
+-**OWNS:**
++**Stage:** PLAN review; no DEV, push, or PR authority
++**Entry dependency:** merged PR A `2660c6a4-3e8d-4f4e-b3bb-eb61446c3c98`
+ 
+-- new `packages/contracts/src/meeting-review.js`
+-- new `packages/contracts/src/meeting-review.test.ts`
+-- new `packages/contracts/contracts/meeting-review.json`
+-- `packages/contracts/src/index.js`
+-- `packages/contracts/src/index.d.ts`
+-- `packages/contracts/src/conversation.js`
+-- `packages/contracts/src/conversation.test.ts`
+-- `packages/contracts/contracts/conversation.json`
++This is one native GitHub stack of eight medium PRs. Each branch uses the previous
++branch as its GitHub base; branches may be developed/reviewed before their parent
++merges. After any parent-head change, rebase descendants bottom-up, rerun their
++focused gates, and update only with exact-old-SHA `--force-with-lease`. After a
++parent merges, retarget/rebase only the immediate child to `main`, verify patch
++identity, then propagate new parent heads. No task edits another worktree.
+ 
+-**What to implement:** Add the exact discriminated summary-artifact and action-
+-candidate v1 enums/interfaces/decoders from `plan.md`. Summary has Adjust/Dismiss
+-only; an Add key or result is invalid. Only action candidates carry destinations,
+-planning choices, assignment suggestions, and work-item results.
+-Decoders are strict, dependency-free, Unicode-length bounded, and reject unknown
+-keys, null optionals, malformed identifiers/dates/hashes, duplicate positions,
+-and >3 suggestions/choices. Add candidate/version conversation reference domains.
+-
+-**TDD steps:**
++Every task records a real RED before production edits. Missing credentials,
++skips, zero tests, timeouts, truncated output, or cleanup failure are INCOMPLETE.
++`{{PR_A_EPHEMERAL_NEON_API_WEB_BROWSER_COMMAND}}` is a blocking placeholder that
++PR A must replace with one checked-in, non-skipping orchestration command.
+ 
+-1. Write drift and invalid-fixture tests. Run `bun test
+-   packages/contracts/src/meeting-review.test.ts
+-   packages/contracts/src/conversation.test.ts`; RED must report missing exports,
+-   unknown reference kinds, and accepted invalid fixtures.
+-2. Implement the smallest codecs/mirrors/declarations and exports.
+-3. Re-run focused tests and package contract suite; GREEN has exact JSON/JS/d.ts
+-   parity and no dependency addition.
+-4. Commit: `feat(contracts): define meeting review subject contracts`.
++## B1 - cut over legacy ingest and freeze hosted identity
+ 
+-**Expected output:** One language-neutral strict card/command/provenance contract;
+-no application or database behavior.
++**Branch:** `codex/meeting-authority-b1-cutover-identity`; **base:** `main`
++**PR estimate:** 10-14 files, 300-500 net LOC
+ 
+-### Task B1.2 - Add the canonical Neon meeting-review schema
+-
+-**OWNS:**
+-
+-- the exact canonical migration/journal files named by merged PR A
+-- `packages/db/src/schema.ts`
+-- `packages/db/src/schema.test.ts`
+-
+-**What to implement:** Add the exact seven enums and seven tables for separate
+-summary-artifact and action-candidate state machines, typed constraints, same-
+-tenant composite FKs, immutable version/suggestion triggers, action candidate/
+-version derivative columns, conversation visibility rule, indexes, and named
+-internal authority projections. Do not touch Alembic/Supabase migration roots.
+-
+-**TDD steps:**
+-
+-1. Replace migration placeholders with PR A's landed root/next revision and record
+-   its exact SHA in `decisions.md`.
+-2. Add RED schema tests for every column/check/index/FK/trigger, invalid
+-   combinations, max-three positions, cross-tenant rejection, immutable
+-   update/delete, and unchanged public response columns. Run DB schema/parity;
+-   expected failure is absent schema/revision.
+-3. Write one additive migration and matching Drizzle model. No drop/rename/rewrite.
+-4. Run focused DB tests, canonical migration parity, fresh-clone migration, and
+-   PR A response-key snapshots.
+-5. Commit: `feat(db): add meeting candidate provenance schema`.
+-
+-**Expected output:** Dormant additive schema whose constraints fail closed; no
+-writer/read path enabled.
+-
+-### Task B1.3 - Backfill review subjects without creating work
+-
+-**OWNS:**
+-
+-- new `scripts/meeting-authority/backfill-meeting-review.ts`
+-- new focused script unit test in PR A's canonical script test location
+-- new `apps/platform-api/test/db-contract/meeting-candidate-backfill.test.ts`
+-- the PR A-established DB-contract command/config files needed to register it
+-
+-**What to implement:** Dry-run-default, report-required, deterministic backfill
+-of summary artifacts from final summaries, action candidates from action items,
+-and legacy promotion states. Quarantine missing
+-origin/ambiguous sources. Map applied/rejected/pending legacy proposals exactly as
+-the plan specifies. Write no new proposal/memory/work item/dependency.
+-
+-**TDD steps:**
+-
+-1. RED unit fixtures cover new, repeated, changed pending source, terminal source
+-   change, applied/rejected/pending legacy promotion, missing/mismatched origin,
+-   ambiguous legacy links, and report redaction/order.
+-2. Implement pure classification/report functions, then bound SQL with compare-and-
+-   set writes.
+-3. RED/GREEN real-Neon test applies migration, dry-runs, applies twice, asserts
+-   identical subject/version IDs/counts and zero Product-Suite record delta.
+-4. Commit: `feat(meeting): backfill meeting review safely`.
++### Task B1.1 - Kill the automatic meeting-ingest writer first
+ 
+-**Expected output:** Reconciled review state and content-free operator report;
+-zero automatic work.
++**OWNS:** `apps/platform-api/src/meeting/ingest.ts`,
++`apps/platform-api/src/meeting/ingest.test.ts`,
++`apps/platform-api/src/routes/meeting-ingest.ts`, its test,
++`apps/platform-api/src/app.ts`, focused app test, and one new static writer-inventory test.
+ 
+-### B1 exit gate
++**Implement:** Remove production registration/import reachability of automatic
++proposal/ledger publication. Preserve only `410 {error:'explicit_review_required'}`.
++Inventory every caller of the old writer; assert no refresh/finalizer/job path can
++write proposal, memory, work item, check, dependency, or `meeting_promotions`.
+ 
+-Security/data/API approve the exact codec/schema, migration authority, immutable
+-triggers, public response snapshots, and backfill report. Merge B1 before B2.
++**RED:** Route currently publishes or reaches ingest; static inventory finds the
++writer; DB spies observe a transaction. **GREEN:** all entry points return 410,
++writer inventory is empty, and every forbidden table delta is zero.
+ 
+-## Layer B2 - meeting source current-membership enforcement
++**Commit:** `fix(meeting): disable automatic meeting promotion`
++**Expected:** no legacy writer can race later backfill. **Estimate:** 5-7 files,
++140-220 LOC.
+ 
+-### Task B2.1 - Add one Python meeting authorization adapter
+-
+-**OWNS:**
+-
+-- new `apps/meeting-api/backend/authorization.py`
+-- new `apps/meeting-api/tests/backend/test_caller_meeting_authorization.py`
+-
+-**What to implement:** Python adapter for PR A's versioned one-statement current
+-caller decision and fixed private reason precedence. Input is verified provider/
+-subject plus server-selected meeting/origin/roles; no client user/actor/tenant.
++### Task B1.2 - Preserve verified provider and subject through token exchange
+ 
+-**TDD steps:**
++**OWNS:** `apps/meeting-api/backend/server.py`, `backend/security.py`, the hosted
++identity service file selected by PR A, and focused security/exchange/regression tests.
+ 
+-1. RED decision fixtures cover active reader/writer/admin, unmapped identity,
+-   inactive org, disabled/missing actor, missing/archived origin, removed
+-   membership, role insufficiency, cross-tenant, provider/email/label spoof, and
+-   DB failure. Public denial is always not-found.
+-2. Implement parameterized SQL matching PR A's policy version and result codec.
+-3. Run Python focused tests with locked requirements and cross-language fixture
+-   parity against `authorizeCurrentMeetingCaller`.
+-4. Commit: `feat(meeting-api): enforce current conversation caller`.
++**Implement:** Add immutable `verified_provider`/`verified_subject` to `AuthUser`;
++sign `auth_provider`/`auth_subject` into the app token from the verified upstream
++token; on every request require the current identity mapping to resolve carrier
++and internal `sub` to the same active user. Never derive from email/label/body.
+ 
+-**Expected output:** One fail-closed Python adapter; no route uses it yet.
+-
+-### Task B2.2 - Guard every existing meeting content read/action
++**RED:** provider/subject disappears after exchange; revoked/deleted/remapped
++identity or forged carrier is accepted. **GREEN:** exact carrier survives exchange;
++revocation, remap, cross-user `sub`, provider override, and replay after mapping
++change all return uniform unauthorized before a meeting query.
+ 
+-**OWNS:**
++**Commit:** `fix(meeting-auth): preserve verified hosted identity`
++**Expected:** stable current provider+subject carrier. **Estimate:** 5-7 files,
++160-260 LOC.
+ 
+-- `apps/meeting-api/backend/repositories/meetings.py`
+-- `apps/meeting-api/backend/repositories/history.py`
+-- `apps/meeting-api/backend/repositories/chapters.py`
+-- `apps/meeting-api/backend/repositories/transcripts.py`
+-- `apps/meeting-api/backend/routes/meetings.py`
+-- `apps/meeting-api/backend/routes/history.py`
+-- `apps/meeting-api/backend/routes/chapters.py`
+-- `apps/meeting-api/backend/routes/state.py`
+-- `apps/meeting-api/backend/routes/buddy.py`
+-- `apps/meeting-api/backend/server.py`
+-- affected meeting route/repository tests plus one static call-site audit test
++### B1 gate
+ 
+-**What to implement:** Thread authenticated caller context to all meeting detail,
+-summary, state, chapter, history, generated artifact, buddy/tool, and mutation
+-paths. Authorize before content/count/projection/logging. Remove legacy
+-owner/team/public/participant/provider grant branches; retain fields as metadata.
++Security approves zero-writer and carrier evidence. Merge is not required before
++B2 development, but B2's GitHub base must be the exact B1 head.
+ 
+-**TDD steps:**
++## B2 - exact contracts, additive schema, and projections
+ 
+-1. RED Alice/Bob/Carol/Dave/Eve matrix on every route, including exact known IDs,
+-   revocation between calls, missing origin, and legacy visibility values.
+-2. RED static inventory enumerates every query of meeting/summary/chapter/action/
+-   decision/question/transcript content and fails when not routed through the
+-   authorization adapter.
+-3. Apply the minimum repository/route changes; use named response projections
+-   from PR A and uniform 404/empty semantics.
+-4. Run all affected meeting tests, Python lint/type checks configured by the app,
+-   and response snapshots.
+-5. Commit: `feat(meeting-api): scope meeting content to current members`.
++**Branch:** `codex/meeting-authority-b2-contract-schema`; **base:** B1 branch
++**PR estimate:** 14-20 files, 500-750 net LOC
+ 
+-**Expected output:** No existing meeting API path exposes content to a same-tenant
+-non-member; no new candidate command yet.
++### Task B2.1 - Freeze strict discriminated codecs and golden response fixtures
+ 
+-### Task B2.3 - Add the TypeScript meeting access seam
++**OWNS:** new `packages/contracts/src/meeting-review.js` and test,
++`packages/contracts/contracts/meeting-review.json`, index/d.ts exports, conversation
++JS/JSON/d.ts/tests, and new shared valid/invalid golden fixtures.
+ 
+-**OWNS:**
++**Implement:** Exact summary/action cards, typed Adjust union
++`simple_task|planned_work_item|keep_as_follow_up`, confirmed terminal request,
++Add/Dismiss/Restore commands, provenance hashes/derivation kind, and disjoint
++command results/errors. Reject unknown keys, null optionals, mixed subject fields,
++summary Add, terminal result mismatches, >3 chips/choices, malformed IDs/hashes.
+ 
+-- new `apps/platform-api/src/meeting/access.ts`
+-- new `apps/platform-api/src/meeting/access.test.ts`
+-- `apps/platform-api/src/meeting/candidates.ts` read-only authorization seam/test
+-
+-**What to implement:** Wrap PR A's server-derived primitive for direct and bounded
+-list use. Provide named private origin load and safe card projection helpers; no
+-tenant-map/provider fallback or positive cache.
++**RED:** missing exports and permissive fixtures pass. **GREEN:** JSON/JS/d.ts and
++platform-neutral fixtures drift together; exact valid cases pass and every invalid
++shape fails closed.
+ 
+-**TDD steps:**
++**Commit:** `feat(contracts): freeze meeting review protocols`
++**Expected:** one language-neutral v1 wire contract. **Estimate:** 6-8 files,
++180-280 LOC.
+ 
+-1. RED parity/role/list-omission tests mirror B2.1 and assert authorization occurs
+-   before card projection.
+-2. Implement reader/writer role helpers and one bounded authorized list predicate.
+-3. Run focused meeting/collaboration tests and type/lint.
+-4. Commit: `feat(api): add meeting derivative access seam`.
+-
+-**Expected output:** One shared TS seam ready for derivative routes.
+-
+-### B2 exit gate
+-
+-Security reviews the Python/TS decision parity and complete source call-site
+-inventory. Exact route tests and response snapshots pass. Merge B2 before B3.
++### Task B2.2 - Add exact Neon review/provenance schema
+ 
+-## Layer B3 - derivative, child, retrieval, and action enforcement
++**OWNS:** PR-A canonical migration/journal files, `packages/db/src/schema.ts`,
++`packages/db/src/schema.test.ts`, named projection files/tests.
+ 
+-### Task B3.1 - Guard existing meeting-derived memory and knowledge lanes
++**Implement:** Add eight enums and nine tables: summary/action subject/version
++tables, separate command ledgers, suggestion table, and two relational evidence
++tables. Add `derivation_kind`, source-projection and version-content hashes, source-only partial
++uniques, conditional source-vs-adjustment checks, command token/lease/attempt
++fields, candidate-unique proposal index, all-or-none proposal/work provenance, and
++typed composite FKs binding all provenance/evidence. Add immutable triggers and
++exact named internal/public projections. No destructive
++migration or active writer.
+ 
+-**OWNS:**
++**RED:** schema tests show missing checks/indexes/FKs and accept cross-tenant,
++partial provenance, adjustment-event omission, opaque evidence, and duplicate
++source versions. **GREEN:** canonical migration parity/fresh clone and real-Neon
++constraint tests pass; adjusted versions may share source hash but not content hash;
++public response snapshots are unchanged.
+ 
+-- `apps/platform-api/src/domain/memories.ts`
+-- `apps/platform-api/src/routes/memories.ts`
+-- `apps/platform-api/src/agent/memory-retrieval.ts`
+-- `apps/platform-api/src/agent/knowledge-retrieval.ts`
+-- `apps/platform-api/src/agent/kb-ingest.ts`
+-- `apps/platform-api/src/agent/reflection.ts`
+-- `apps/platform-api/src/curator/{curate,quality,relation}.ts`
+-- associated tests
+-
+-**What to implement:** Enforce the PR A origin on existing meeting-derived memory
+-and knowledge rows and apply the shared predicate before list/detail/chain/actions,
+-injection, rules, retrieval/ranking, KB ingest, reflection, and curator reads.
+-Private/org semantics remain unchanged. Meeting-derived missing origin rejects.
+-Do not add a PR B Save-to-memory writer or candidate/version memory provenance;
+-that capability is Forge issue `6d4bae06-27cb-4f3e-89b3-e470e79aa83e`.
+-
+-**TDD steps:**
+-
+-1. RED all memory routes/actions plus injection/search/rules/chunk ranking for the
+-   full actor matrix, revocation, source dedupe, and no denied count/rank.
+-2. RED existing-writer tests prove any already-supported meeting origin is copied
+-   atomically to memory/chunk and dedupe keys include access origin; PR B review
+-   commands never invoke those writers.
+-3. Implement named internal authority projections and caller-aware contexts; never
+-   add the lane after ranking.
+-4. Run focused memory/knowledge/curator suites, type/lint, and public response keys.
+-5. Commit: `feat(memory): enforce meeting conversation visibility`.
+-
+-**Expected output:** Meeting-derived memory/knowledge cannot launder into org or
+-private lanes and disappears immediately after membership removal.
+-
+-### Task B3.2 - Guard proposals and their audit/action surfaces
+-
+-**OWNS:**
+-
+-- `apps/platform-api/src/proposals/repository.ts`
+-- `apps/platform-api/src/proposals/apply.ts`
+-- `apps/platform-api/src/proposals/undo.ts`
+-- `apps/platform-api/src/proposals/capture.ts`
+-- `apps/platform-api/src/routes/proposals.ts`
+-- associated tests
+-
+-**What to implement:** Caller-aware proposal list/detail/accept/reject/undo/active-
+-rules/curator, mandatory origin propagation for meeting candidates, and no edit
+-that can clear/change access origin. Keep existing exactly-once apply semantics.
++**Commit:** `feat(db): add meeting review authority schema`
++**Expected:** dormant fail-closed additive schema. **Estimate:** 8-12 files,
++320-470 LOC.
+ 
+-**TDD steps:**
++### B2 gate
+ 
+-1. RED direct/list/action/audit matrix with current member, non-member, removed,
+-   cross-tenant, missing/mismatched origin, and known proposal ID.
+-2. RED origin propagation and edited-payload tests; meeting proposal without full
+-   source/candidate/version/origin fails before domain write.
+-3. Implement private authority projection and repeated authorization immediately
+-   before apply/undo decision.
+-4. Run proposal/apply/undo/capture/route suites and response snapshots.
+-5. Commit: `feat(proposals): preserve meeting access authority`.
+-
+-**Expected output:** A proposal never broadens source access and every action uses
+-current membership.
+-
+-### Task B3.3 - Guard restricted work items and all child/agent consumers
+-
+-**OWNS:**
++Data/security/API approve exact DDL, partial indexes, conditional provenance,
++relational evidence, and golden projections.
+ 
+-- `apps/platform-api/src/domain/work-items.ts`
+-- `apps/platform-api/src/routes/work-items.ts`
+-- `apps/platform-api/src/routes/checks.ts`
+-- `apps/platform-api/src/routes/dependencies.ts`
+-- `apps/platform-api/src/routes/projects.ts`
+-- `apps/platform-api/src/agent/retrieve.ts`
+-- `apps/platform-api/src/agent/tools.ts`
+-- affected tests
+-- new static `apps/platform-api/src/auth/content-access-conformance.test.ts`
+-
+-**What to implement:** Apply the access predicate to work-item list/update/activity,
+-child check/dependency CRUD, project aggregates, agent list/get/propose, and any
+-other direct content-table caller found by `rg`. Children inherit both endpoint
+-work-item predicates. Add/create cannot accept client origin.
+-
+-**TDD steps:**
+-
+-1. RED full matrix for item, activity, checks, dependencies, parent suggestions,
+-   aggregates, and agent tools; denied parents leak no child IDs/counts.
+-2. RED static conformance test inventories every production query of meetings,
+-   memories, chunks, proposals, work items, checks, dependencies, and candidate
+-   tables; require an approved access helper or documented content-free use.
+-3. Implement repository/domain caller context and named projections. Revalidate
+-   current access on mutations and both sides of dependency edges.
+-4. Run work-item/check/dependency/project/agent suites, type/lint, and static audit.
+-5. Commit: `feat(api): enforce derivative access on work surfaces`.
+-
+-**Expected output:** No direct or indirect platform API surface bypasses current
+-meeting membership.
+-
+-### B3 exit gate
+-
+-Security signs the static inventory and Alice/Bob/Carol/Dave/Eve negative matrix.
+-Normal non-meeting org/private behavior and public response keys are unchanged.
+-Merge B3 before commands/UI.
+-
+-## Layer B4 - materialize distinct review subjects and their command protocols
+-
+-### Task B4.1 - Materialize summary artifacts/action candidates and retire auto ingest
+-
+-**OWNS:**
+-
+-- new `apps/platform-api/src/meeting/review-codecs.ts`
+-- new `apps/platform-api/src/meeting/review-repository.ts`
+-- new `apps/platform-api/src/meeting/materialize.ts`
+-- associated tests
+-- `apps/platform-api/src/meeting/ingest.ts`
+-- `apps/platform-api/src/routes/meeting-ingest.ts`
+-
+-**What to implement:** Authorized summary-artifact and action-candidate refresh,
+-subject-specific initial/source versioning, <=3 resolved evidence links/action
+-suggestions, service-run provenance, terminal stability, and zero Product-Suite
+-writes. Retire legacy auto-proposal ingest with 410. Do not create memory.
+-
+-**TDD steps:**
+-
+-1. RED summary/action ordering, distinct subject codecs/states, source hash/idempotency, terminal refresh, source
+-   change, suggestion resolver, unauthorized omission, and exact zero write-table
+-   assertions.
+-2. RED legacy ingest route test expects `explicit_review_required` and no proposal.
+-3. Implement strict repository projections/materializer and close runs on every
+-   path.
+-4. Run focused meeting tests, route compatibility, DB contract refresh concurrency.
+-5. Commit: `feat(meeting): materialize meeting review subjects only`.
+-
+-**Expected output:** Refresh yields safe mixed cards and cannot create Product-
+-Suite work.
+-
+-### Task B4.2 - Implement action-only idempotent Add
+-
+-**OWNS:**
+-
+-- new `apps/platform-api/src/meeting/action-promotion.ts`
+-- new `apps/platform-api/src/meeting/action-promotion.test.ts`
+-- targeted transaction seams/tests in `domain/work-items.ts` and `proposals/apply.ts`
+-
+-**What to implement:** Action-candidate command claim/hash/replay, current writer
+-authorization, stale version/suggestion fences, one proposal per candidate,
+-atomic/convergent work-item apply, confirmed owner/date/parent/dependencies, and
+-terminal candidate/result update. Preserve access origin. Summary Add must be
+-absent from routes and rejected by codecs/repository entry points.
+-
+-**TDD steps:**
+-
+-1. RED summary-Add unrepresentability plus action mapping/validation for the two
+-   destinations and suggestions. Assert no
+-   approver/today/team/root/dependency fallback is treated as extracted fact.
+-2. RED retry/concurrency/failure-point tests: same/different key, two Add keys,
+-   stale version/suggestion, removed membership, proposal/domain/child/result
+-   failure, and stable replay IDs.
+-3. Refactor the smallest reusable domain transaction seam; do not bypass existing
+-   validation/provenance/activity logic or weaken apply tests.
+-4. GREEN unit/route/real-Neon tests prove one proposal/result and complete
+-   provenance/dependencies or no externally visible result.
+-5. Commit: `feat(meeting): add candidates exactly once`.
+-
+-**Expected output:** Only authenticated action Add creates exactly one restricted
+-work item; summary/review refresh/Adjust/Dismiss/keep-follow-up create none.
+-
+-### Task B4.3 - Implement subject-specific tool-free Adjust
+-
+-**OWNS:**
+-
+-- new `apps/platform-api/src/meeting/adjustment.ts`
+-- new `apps/platform-api/src/meeting/adjustment.test.ts`
+-- targeted `apps/platform-api/src/collaboration/repository.ts` and test changes
+-- targeted agent model/run helper files/tests required for a conversation-linked,
+-  tool-free structured run
+-
+-**What to implement:** Existing collaboration event + agent run protocol with a
+-strict subject discriminator. Summary Adjust has free text and no planning
+-destination/assignment output; action Adjust has exactly the three approved
+-natural-language choices. Each uses its bounded structured codec, server evidence/
+-suggestion resolution, immutable version append, current-version CAS,
+-reauthorization before commit, and content-free run summary/logging. Selecting
+-keep-as-follow-up terminates only the action candidate and persists no memory/work.
+-
+-**TDD steps:**
+-
+-1. RED asserts subject-specific user event/run/agent event/version references and
+-   one run per command; no tools/raw transcript/generic workboard prompt; summary
+-   output with Add/destination/assignments fails closed.
+-2. RED model invalid/over-length/>3 suggestions, duplicate replay, concurrent
+-   Adjust, stale/terminal race, revocation-before-commit, and partial event/version
+-   failure.
+-3. Implement dedicated structured runner using installed AI SDK/Zod only.
+-4. Run collaboration/runtime/adjust tests and real-Neon event/version ordering.
+-5. Commit: `feat(meeting): version review adjustments in conversation`.
+-
+-**Expected output:** An inline turn produces one subject-specific immutable version
+-or terminal keep-follow-up decision and zero Product-Suite work.
+-
+-### Task B4.4 - Wire strict mixed-feed and subject command routes
+-
+-**OWNS:**
+-
+-- new `apps/platform-api/src/routes/meeting-review.ts` and test
+-- new `apps/platform-api/src/routes/meeting-summary-artifacts.ts` and test
+-- `apps/platform-api/src/routes/meeting-candidates.ts` and test, renamed to
+-  `meeting-action-candidates.ts` only after all imports switch
+-- `apps/platform-api/src/app.ts`
+-- `apps/platform-api/src/app.test.ts`
+-- command-result/list projection tests
+-
+-**What to implement:** Bounded mixed list/refresh; summary adjust/dismiss; action
+-add/adjust/dismiss; subject adjustment-history routes; exact distinct v1 envelopes/
+-statuses; private error mapping; terminal CAS; and subject-scoped event read. No
+-summary Add route exists. Body cannot select authority/provenance.
+-
+-**TDD steps:**
+-
+-1. RED route matrix covers summary Add 404/absence, strict discriminated decoding,
+-   exact keys/status codes, direct 404,
+-   list omission, stale/terminal/idempotency conflicts, duplicate status, and
+-   denied adjustment events.
+-2. RED summary Adjust-vs-Dismiss and action Add-vs-Dismiss/keep-follow-up DB cases.
+-3. Wire services, implement Dismiss command/result, and register no extra route
+-   outside the existing prefix.
+-4. Run full platform API focused suites, typecheck, lint, and DB conformance.
+-5. Commit: `feat(api): expose distinct meeting review commands`.
+-
+-**Expected output:** Complete authorized backend contract for B5.
+-
+-### B4 exit gate
+-
+-Product/security/privacy approve summary-no-Add, zero work before action Add,
+-exactly-one scoped work item, suggestion confirmation/omission behavior, tool-free
+-subject Adjust, immutable versions, terminal Dismiss/keep-follow-up, redacted
+-telemetry, and real-Neon concurrency/revocation evidence.
+-Merge B4 before B5.
+-
+-## Layer B5 - compact mixed-content platform-web experience
+-
+-### Task B5.1 - Replace the action-only data layer with strict meeting review
+-
+-**OWNS:**
+-
+-- new `apps/platform-web/src/data/meeting-review/` types, codecs, repository,
+-  network repository, hooks, provider, fixtures, index, and tests
+-- removal of `apps/platform-web/src/data/meeting-actions/` after caller migration
+-- `apps/platform-web/src/AppRoot.tsx` and focused provider tests
+-
+-**What to implement:** Decode exact summary/action discriminated cards/results,
+-bounded list/refresh and subject-specific command methods, per-card mutation state,
+-stale-card replacement, replay-safe invalidation, and fixtures for every state/
+-type/suggestion count. A summary Add method cannot be constructed.
+-
+-**TDD steps:**
+-
+-1. RED wire-decoder tests reject unknown/malformed/>3 data and normalize unknown
+-   future state to inert, never pending.
+-2. RED repository/hook tests cover auth token, one call per action, command body,
+-   duplicate response, stale replacement, per-card errors, and retained Adjust draft.
+-3. Implement the smallest data/provider layer and migrate AppRoot.
+-4. Run focused web data tests, typecheck, lint.
+-5. Commit: `feat(web): add meeting review data layer`.
+-
+-**Expected output:** Typed client state with no rendering change yet.
+-
+-### Task B5.2 - Build the accessible compact card and inline Adjust
+-
+-**OWNS:**
+-
+-- `apps/platform-web/src/boards/meetings/MeetingTriageScreen.tsx`
+-- `apps/platform-web/src/boards/meetings/MeetingTriageScreen.test.tsx`
+-- new colocated candidate-card component/test only if the screen exceeds the
+-  project's component-size convention
+-
+-**What to implement:** Approved mixed card shell with icons/type/title/source and
+-0..3 chips/links. Summary exposes Adjust/Dismiss only; action candidates expose
+-Add/Adjust/Dismiss. Safe details, action-only exact choices, free text,
+-all loading/error/terminal/stale states, focus/live regions, keyboard, and
+-responsive behavior. Keep the route path.
+-
+-**TDD steps:**
+-
+-1. RED Testing Library coverage for semantic list/article/buttons, visible labels,
+-   exact action choices <=3, no summary Add, no default form, chips <=3,
+-   work-item/source links, and no raw
+-   confidence/internal provenance.
+-2. RED interaction tests for double activation, Ctrl/Cmd+Enter, newline Enter,
+-   empty/non-empty Escape, focus movement/return, live announcements, stale/fail
+-   draft recovery, added/dismissed terminal cards, and refresh-with-content.
+-3. Implement with existing design-system primitives and Lucide icons; no emoji,
+-   div-buttons, handcrafted SVG, or new dependency.
+-4. Run component tests, axe integration, typecheck/lint, and manual keyboard/NVDA
+-   script at 320px and 400% zoom.
+-5. Commit: `feat(web): review meeting candidates inline`.
++## B3 - secure meeting, transcript, and existing search surfaces
+ 
+-**Expected output:** Compact, progressive, keyboard/screen-reader operable review
+-experience; no hidden write.
++**Branch:** `codex/meeting-authority-b3-meeting-access`; **base:** B2 branch
++**PR estimate:** 14-20 files, 500-750 net LOC
+ 
+-### Task B5.3 - Prove the source-to-review-to-result loop end to end
+-
+-**OWNS:**
+-
+-- `apps/platform-web/e2e/meeting-loop.spec.ts`
+-- focused E2E fixtures/helpers owned only by this suite
+-- `apps/platform-api/test/db-contract/meeting-candidate-commands.test.ts`
+-- package/CI registration files for the mandatory command, if not already owned
+-  by B1/B4
+-
+-**What to implement:** Real DB plus browser evidence for mixed subjects, current
+-membership, summary-no-Add, zero automatic work, action Add exactly once, distinct
+-Adjust versioning, Dismiss/keep-follow-up,
+-revocation, stale/concurrency, and accessible/responsive states.
+-
+-**TDD steps:**
++### Task B3.1 - Add the Python current-caller adapter and secure all existing paths
+ 
+-1. RED against B4/B5 gaps: seed Alice/Bob/Carol/Dave, one summary/action, suggestions,
+-   and count work/proposals before any Add.
+-2. Exercise refresh -> zero work; summary Adjust -> summary version/zero work;
+-   action Adjust -> action version/zero work; keep-follow-up/Dismiss -> stable zero
+-   work; action Add/retry -> one scoped work item; revoke -> immediate denial.
+-3. Assert provenance joins, immutable prior version/events, no denied browser/model
+-   content, and branch/database cleanup in `finally`.
+-4. Run mandatory real-Neon command, Playwright desktop/mobile, axe, focused web/API
+-   suites, type/lint/build. Capture exact test counts and head SHA.
+-5. Commit: `test(meeting): prove review-gated promotion end to end`.
++**OWNS:** new `apps/meeting-api/backend/authorization.py` and test; meeting,
++history, chapters, transcripts repositories/routes; `backend/server.py`; affected
++tests; one static Python SQL/call-site inventory test.
+ 
+-**Expected output:** Non-skipping executable evidence of the full PR B boundary.
++**Implement:** PR-A provider+subject decision with fixed denial precedence. Route
++meeting/summary/state/chapter/history/buddy plus existing transcript detail/search/
++export/translate/analysis/chat/voice/speaker reads/actions through it before query,
++count, log, or model input. If a current endpoint cannot be converted in this PR,
++return uniform 404/410; owner/team/public filters are metadata, never grants.
+ 
+-### B5/final exit gate
++**RED:** Alice/Bob/Carol/Dave/Eve matrix and known IDs expose legacy endpoints;
++inventory finds unguarded content SQL. **GREEN:** every existing endpoint is guarded
++or fail-closed, revocation/remap between calls denies, and response snapshots remain
++compatible. Provision the locked Python test environment; no pytest means INCOMPLETE.
+ 
+-Security approves call-site and denial evidence; product approves summary-no-Add,
+-action-Add-only creation, and exact suggestions; UX/a11y approves the compact
+-card/Adjust flow; privacy
+-approves persistence/log redaction; mandatory Neon and E2E evidence PASS; exact-head
+-CI is green. Only then may a later authorized stage hand off the final B layer.
++**Commit:** `feat(meeting-api): enforce current caller on meeting content`
++**Expected:** no existing transcript/search bypass. **Estimate:** 10-14 files,
++340-500 LOC.
++
++### Task B3.2 - Add the TypeScript meeting-access seam and parity fixtures
++
++**OWNS:** new `apps/platform-api/src/meeting/access.ts` and test,
++`apps/platform-api/src/meeting/candidates.ts` read-only seam/tests, and cross-language
++authorization fixture registration.
++
++**Implement:** Named minimal-origin load, bounded authorized-list predicate, and
++writer predicate consuming only the verified carrier. Positive decisions are
++request-local. Match Python/PR-A denial precedence and direct 404/list omission.
++
++**RED:** carrier/membership/remap parity and authorization-before-projection fail.
++**GREEN:** TS/Python fixtures agree for all roles/failures; no positive cache or
++tenant/provider fallback exists.
++
++**Commit:** `feat(api): add meeting caller access seam`
++**Expected:** shared derivative authorization seam. **Estimate:** 4-6 files,
++160-250 LOC.
++
++### B3 gate
++
++Security signs the complete current meeting/transcript/search inventory and
++cross-language carrier/current-membership matrix.
++
++## B4 - secure existing memory and knowledge consumers
++
++**Branch:** `codex/meeting-authority-b4-memory-access`; **base:** B3 branch
++**PR estimate:** 12-18 files, 400-650 net LOC
++
++### Task B4.1 - Guard existing meeting-derived memory reads/actions
++
++**OWNS:** `apps/platform-api/src/domain/memories.ts`, routes/memories, and focused
++list/detail/chain/supersede/retract/defer/restore tests.
++
++**Implement:** Apply PR-A conversation origin/current caller before projection or
++mutation. Preserve non-meeting private/org behavior. Missing meeting origin denies.
++PR B adds no Save-to-memory writer or candidate memory provenance.
++
++**RED:** known-ID/list/action/revocation matrix leaks rows or counts. **GREEN:**
++denied direct reads are indistinguishable from missing, lists omit before count,
++and all writes reauthorize at their winning statement.
++
++**Commit:** `feat(memory): enforce meeting-origin access`
++**Expected:** existing memory lane cannot launder meeting content. **Estimate:**
++5-7 files, 170-260 LOC.
++
++### Task B4.2 - Guard retrieval, ranking, knowledge, reflection, and curator lanes
++
++**OWNS:** agent memory/knowledge retrieval, KB ingest, reflection/capture,
++`curator/{curate,quality,relation}.ts`, associated tests, and new memory/knowledge
++static conformance test.
++
++**Implement:** Filter current-member conversation rows before ranking, rules,
++model input, or ingest. Propagate existing origins to chunks atomically; do not
++introduce a PR-B review-to-memory writer.
++
++**RED:** removed member content reaches ranks/prompts/counts; inventory finds raw
++queries. **GREEN:** full actor/revocation matrix and static inventory pass with
++zero denied model content and unchanged non-meeting behavior.
++
++**Commit:** `feat(knowledge): scope meeting derivatives to current callers`
++**Expected:** complete existing memory/knowledge enforcement slice. **Estimate:**
++7-11 files, 230-390 LOC.
++
++### B4 gate
++
++Security/privacy approve no memory creation and pre-rank/current-write enforcement.
++
++## B5 - secure work surfaces and build atomic Add seam
++
++**Branch:** `codex/meeting-authority-b5-work-authority`; **base:** B4 branch
++**PR estimate:** 14-20 files, 500-800 net LOC
++
++### Task B5.1 - Guard proposal/work-item/child/tool surfaces and suppress capture
++
++**OWNS:** proposal repository/apply/capture/undo/routes and tests;
++`routes/work-items.ts`, checks, dependencies, projects, agent retrieve/tools
++files/tests; work-surface static conformance test. `domain/work-items.ts` is owned
++only by B5.2 in this PR.
++
++**Implement:** Current caller on every meeting-origin proposal/work-item/child/
++aggregate/tool read and action. Candidate provenance is immutable/all-or-none.
++`applyProposal` and `buildCaptureInput` suppress capture whenever meeting action-
++candidate provenance is non-null; eligibility is server-derived and has no client flag.
++
++**RED:** revocation/known-ID/child-count leaks; meeting proposal accept creates
++memory. **GREEN:** full matrix passes, missing origin denies, and memory count delta
++for meeting provenance is exactly zero while ordinary proposal capture stays compatible.
++
++**Commit:** `feat(api): secure meeting-derived work surfaces`
++**Expected:** no access or memory-capture bypass. **Estimate:** 8-12 files,
++260-420 LOC.
++
++### Task B5.2 - Build the single Neon proposal/work convergence seam
++
++**OWNS:** new `apps/platform-api/src/meeting/action-apply-transaction.ts` and test;
++targeted pure work-item validation/statement builders and tests; new real-Neon
++transaction conformance test.
++
++**Implement:** `applyMeetingActionCandidateTx` as one parameterized writable CTE.
++Lock candidate/command; match claim token; repeat provider+subject writer predicate;
++fence current version/suggestions; insert/reuse proposal; insert work item/activity/
++confirmed dependencies; mark proposal/candidate/command. All later CTEs depend on
++the authorized winner. Reuse existing pure validation, not current write-first apply.
++
++**RED:** revocation or crash leaves partial proposal/work/child/result rows.
++**GREEN:** real-Neon fault/concurrency tests prove one complete result or zero rows,
++candidate/proposal/work uniques converge, and memory delta is zero.
++
++**Commit:** `feat(meeting): add atomic action convergence seam`
++**Expected:** concrete atomic boundary ready for B7. **Estimate:** 6-8 files,
++240-380 LOC.
++
++### B5 gate
++
++Security/data approve the call-site inventory, capture suppression, writable CTE,
++authorization-in-winner, and real-Neon atomicity.
++
++## B6 - materialize review subjects and backfill after cutover
++
++**Branch:** `codex/meeting-authority-b6-materialize-backfill`; **base:** B5 branch
++**PR estimate:** 10-16 files, 400-650 net LOC
++
++### Task B6.1 - Materialize immutable summary artifacts and action candidates
++
++**OWNS:** new platform-api `meeting/{review-codecs,review-repository,materialize}.ts`
++and tests; mixed review list/refresh read service tests.
++
++**Implement:** Authorized source projection with `derivation_kind='source'`, both
++hashes, source-only dedupe, <=3 tenant-bound evidence links/suggestions, current
++membership before projection, and terminal stability. Write review tables only.
++
++**RED:** source refresh duplicates, evidence accepts opaque/cross-tenant IDs, or
++forbidden Product-Suite tables change. **GREEN:** concurrent refresh converges,
++changed pending source appends one source version, terminal rows stay terminal,
++and proposal/memory/work/child/ledger deltas are zero.
++
++**Commit:** `feat(meeting): materialize review subjects safely`
++**Expected:** mixed authorized review state only. **Estimate:** 6-9 files,
++220-350 LOC.
++
++### Task B6.2 - Backfill only after the legacy-writer cutover
++
++**OWNS:** new `scripts/meeting-authority/backfill-meeting-review.ts`, focused unit
++test, real-Neon backfill test, and command registration selected by PR A.
++
++**Implement:** Dry-run default, redacted required report, deterministic IDs/order,
++source derivation/hash fields, applied/rejected/pending legacy mappings, quarantine
++ambiguity, and no model/domain writer. Assert B1 410/writer sentinel before apply.
++
++**RED:** apply proceeds while legacy writer sentinel is active, leaks content, or
++creates work. **GREEN:** dry/apply/reapply converges; quarantine is content-free;
++zero Product-Suite record delta; missing cutover aborts.
++
++**Commit:** `feat(meeting): backfill review after cutover`
++**Expected:** reconciled review state without writer race. **Estimate:** 4-7 files,
++180-300 LOC.
++
++### B6 gate
++
++Data/security approve cutover sentinel, redacted report, and apply/reapply evidence.
++
++## B7 - implement review commands and strict routes
++
++**Branch:** `codex/meeting-authority-b7-review-commands`; **base:** B6 branch
++**PR estimate:** 14-20 files, 550-850 net LOC
++
++### Task B7.1 - Implement actor-bound claim/lease Add and crash convergence
++
++**OWNS:** new `meeting/command-claim.ts`, `meeting/action-promotion.ts` and tests;
++B5 transaction seam integration test; action command route service test.
++
++**Implement:** Same actor+hash replay, other actor/hash conflict, running lease,
++same-actor CAS reclaim, attempt token, retryable/terminal closure, stale-token
++fence, suggestion revalidation, and B5 atomic Add. Encode every plan crash-table
++point. Summary Add remains unrepresentable.
++
++**RED:** concurrent actors/keys, expiry, stale token, revocation immediately before
++CTE, and every crash point double-writes or strands partial state. **GREEN:** exact
++status/replay IDs, 202 in-progress, stable errors, one complete work item/result or
++zero rows, and memory delta zero in real Neon.
++
++**Commit:** `feat(meeting): add action candidates exactly once`
++**Expected:** actor-bound crash-safe action Add. **Estimate:** 6-9 files,
++250-400 LOC.
++
++### Task B7.2 - Implement Adjust, deterministic terminal commands, Restore, and routes
++
++**OWNS:** new `meeting/adjustment.ts` and test; targeted collaboration repository/
++run helper tests; routes/meeting-review, summary-artifacts, action-candidates and
++tests; app registration/tests.
++
++**Implement:** Tool-free summary/action structured runners, immutable adjustment
++versions/events, winning-CAS current authorization, and `agent_runs.transcript`
++always NULL. Typed simple/planned constrains nonterminal output. Typed confirmed
++keep bypasses model and deterministically terminates. Dismiss/Restore are explicit
++authorized CAS; Restore cannot undo Added. Expose exact strict projections/errors.
++
++**RED:** model can terminalize; free text terminates; transcript persists; late
++run beats revoke/Add/Dismiss; Restore reopens Added; response fixtures drift.
++**GREEN:** event/run/version ordering, no partial versions, exact routes/statuses,
++terminal/restore races, denial matrix, and golden decoders pass in real Neon.
++
++**Commit:** `feat(api): expose meeting review commands`
++**Expected:** complete authorized backend protocol. **Estimate:** 8-11 files,
++300-450 LOC.
++
++### B7 gate
++
++Product/security/privacy approve typed confirmation, NULL run transcript, crash
++convergence, winning-write authorization, strict projections, and Restore rules.
++
++## B8 - strict web experience and mandatory end-to-end proof
++
++**Branch:** `codex/meeting-authority-b8-web-e2e`; **base:** B7 branch
++**PR estimate:** 16-22 files, 550-850 net LOC
++
++### Task B8.1 - Replace action-only client data with strict meeting-review state
++
++**OWNS:** new `apps/platform-web/src/data/meeting-review/` codecs/types/repository/
++network/hooks/provider/fixtures/tests; old meeting-actions removal after migration;
++`AppRoot.tsx` focused provider tests.
++
++**Implement:** Decode golden union/results/errors; subject-specific methods; no
++summary Add; typed Adjust choices/confirmation; per-card claims/errors; stale card
++replacement; Restore; inert unknown state; stable replay invalidation.
++
++**RED:** unknown/null/mixed cards pass, summary Add is constructible, or replay/
++stale state duplicates work. **GREEN:** shared golden fixtures and repository/hook
++tests pass with one call per activation and retained drafts.
++
++**Commit:** `feat(web): add strict meeting review data layer`
++**Expected:** safe client state, no rendering change. **Estimate:** 8-11 files,
++220-350 LOC.
++
++### Task B8.2 - Build accessible cards and run non-skipping API/web/browser proof
++
++**OWNS:** `MeetingTriageScreen.tsx` and test; optional colocated card component/test
++only if size limit requires it; `e2e/meeting-loop.spec.ts`; focused fixture helpers;
++the checked-in registration for the resolved PR-A orchestration command.
++
++**Implement:** Compact mixed cards, 0..3 chips/links, summary Adjust/Dismiss only,
++action Add/Adjust/Dismiss, typed choices, inline terminal confirmation, Restore/
++Undo, loading/empty/error/stale/in-flight states, responsive/a11y/focus/live regions.
++Run the resolved command to create ephemeral Neon, migrate/seed, start both APIs
++and web, execute API probes and Playwright, report nonzero counts, and cleanup.
++
++**RED:** Testing Library/axe/Playwright expose summary Add, implicit keep, missing
++confirmation/Undo, focus/announcement/zoom defects, revocation leaks, automatic
++work, duplicate Add, or non-null Adjust run transcript. **GREEN:** full actor and
++source-to-review-to-result matrix passes at desktop/mobile, 320px/400%, keyboard,
++axe and NVDA script; missing service/credential/skip/zero/timeout/cleanup exits nonzero.
++
++**Commit:** `test(meeting): prove review-gated promotion end to end`
++**Expected:** exact-head executable API+web+browser evidence. **Estimate:** 8-11
++files, 330-500 LOC.
++
++### B8/final gate
++
++All eight PR base refs/parent heads are current; security/product/privacy/a11y
++gates pass; mandatory orchestration and exact-head CI are green. A later explicit
++SHIP/REVIEW stage is still required.
+ 
+ ## Stop conditions
+ 
+-Stop and return to PLAN review if implementation needs any of:
+-
+-- an unmerged/changed PR A contract or a second migration owner;
+-- provider/email/label/equality authority or tenant-only meeting access;
+-- a wildcard public row projection or client-selected authority/provenance;
+-- automatic Product-Suite work, a write from Adjust/Dismiss/refresh, or normal Add
+-  declassification;
+-- more than three suggestions/choices, hidden applied fields, fabricated defaults,
+-  unversioned mutation, mutable version/suggestion rows, or permissive stale handling;
+-- generic agent mutation tools in Adjust, raw transcript/search work, content logs,
+-  skipped real-DB evidence, weakened tests, or an oversized layer beyond the plan's
+-  review bounds.
++Stop and return to PLAN review for an unresolved PR-A command/schema placeholder,
++legacy writer still reachable, opaque/non-FK evidence, provider/email/label
++fallback, authorization outside the winning mutation, non-atomic Add, capture-
++created memory, actor-independent replay, implicit/model terminalization, non-null
++Adjust transcript, raw content logs, permissive decoder, skipped real-DB/browser
++evidence, stale/cumulative GitHub stack diff, or any layer above its estimate.
+-- 
+2.51.0.windows.1
+

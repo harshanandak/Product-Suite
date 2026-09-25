@@ -1,0 +1,59 @@
+From 4ff52c2af9c6d2bb6bb5ecb3a03e1152c5ce867c Mon Sep 17 00:00:00 2001
+From: Harsha Nanda <harshanandak@users.noreply.github.com>
+Date: Fri, 24 Jul 2026 15:50:45 +0530
+Subject: [PATCH] =?UTF-8?q?docs(memory):=20correct=20root=20cause=20?=
+ =?UTF-8?q?=E2=80=94=20thin=20usage,=20not=20reflection=20trigger?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Verified reflection.ts + proposal shapes: 4 proposals are work_item/create
+with edited_payload null. Reflection would emit 0 today (no edits to mine).
+Both capture paths (propose_memory tool, reflection) simply unexercised in 7
+runs. a5ecc5aa and 3ecc1859 are premature until usage accumulates memories.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ .../decisions.md                              | 29 ++++++++++++++++---
+ 1 file changed, 25 insertions(+), 4 deletions(-)
+
+diff --git a/docs/work/2026-07-24-memory-injection-ranker/decisions.md b/docs/work/2026-07-24-memory-injection-ranker/decisions.md
+index 7e5f878..afde684 100644
+--- a/docs/work/2026-07-24-memory-injection-ranker/decisions.md
++++ b/docs/work/2026-07-24-memory-injection-ranker/decisions.md
+@@ -53,7 +53,28 @@ ranker moot. `runReflection` is reachable only via `POST /api/agent/reflection`;
+ invokes it (issue **3ecc1859**). The #132 accept path and the Review Inbox are NOT the problem — proposals
+ are decided within ~2s.
+ 
+-**Root cause = 3ecc1859 (reflection autonomous trigger).** That is the true unblock for both capture AND
+-(downstream) this ranking issue. A cheap validation exists: manually invoking reflection on the 4 applied
+-proposals should produce memories (confirms the engine works and the ONLY gap is the trigger) — but that
+-WRITES to prod `memories`, so it needs explicit go-ahead.
++**~~Root cause = 3ecc1859~~ — CORRECTED below.** (Left for the audit trail; superseded.)
++
++## 2026-07-24 · Correction — root cause is THIN USAGE, not a single broken feeder
++
++Read `reflection.ts` and checked proposal shapes. My "reflection trigger is the bottleneck" claim was
++over-attributed. Verified facts:
++
++- All 4 proposals are `target_type='work_item'`, `operation='create'`, **`edited_payload` null (edited=0)**.
++- `runReflection` mines ONLY `target_type='work_item'` proposals with `edited_payload` set, clustered ≥2 by
++  changed-field-set. With 0 edits, **triggering reflection today returns `proposalsCreated:0` and mints
++  nothing** (early return before any write). So it would neither validate the engine nor seed the store.
++- There are **two** capture paths, and NEITHER has been exercised:
++  1. **`propose_memory` tool** (`agent/tools.ts:50`, prompted at `runtime.ts:22`) — agent proposes a
++     decision/fact memory only when a user asks to "remember/log" something. **0 `target_type='memory'`
++     proposals have ever been created.**
++  2. **Reflection** (rules from recurring human edits) — never triggered (3ecc1859) AND nothing to mine.
++
++**Corrected root cause:** the store is empty because of **thin/early usage** — the memory plumbing
++(`propose_memory` tool, reflection engine, apply path, injection) is built and appears wired, but the
++activity that produces memories (a user asking to log a decision; humans editing agent proposals) hasn't
++happened in the 7 runs so far. Both a5ecc5aa (ranker) and 3ecc1859 (reflection trigger) are **premature
++until real usage accumulates memories** — 3ecc1859 is a real latent gap, not the current binding reason.
++
++**Implication for validation:** to exercise the pipeline end-to-end, the direct path is `propose_memory`
++(create) → apply → `memories` row → injection — NOT reflection. That writes prod data; needs go-ahead.
+-- 
+2.51.0.windows.1
+

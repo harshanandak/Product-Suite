@@ -1,0 +1,949 @@
+From c396d534b275695a18458b3b40588114e346eec7 Mon Sep 17 00:00:00 2001
+From: Harsha Nanda <212836255+harshanandak@users.noreply.github.com>
+Date: Mon, 21 Sep 2026 16:21:10 +0530
+Subject: [PATCH] perf(tooling): scope first pushes from actual Git updates
+
+---
+ CHANGELOG.md                                  |   1 +
+ docs/research/prepush-affected.md             |   9 +
+ .../2026-09-21-prepush-affected/decisions.md  |  39 ++
+ docs/work/2026-09-21-prepush-affected/plan.md |  40 ++
+ .../work/2026-09-21-prepush-affected/tasks.md |  16 +
+ lefthook.yml                                  |   6 +-
+ scripts/branch-protection.js                  |  17 +-
+ scripts/prepush-classify.mjs                  |   1 +
+ scripts/prepush-gate.mjs                      |  81 +++-
+ test/branch-protection.test.js                |  38 +-
+ test/prepush-classify.test.js                 |   6 +
+ test/prepush-gate.test.js                     | 449 +++++++++++++++++-
+ 12 files changed, 667 insertions(+), 36 deletions(-)
+ create mode 100644 docs/research/prepush-affected.md
+ create mode 100644 docs/work/2026-09-21-prepush-affected/decisions.md
+ create mode 100644 docs/work/2026-09-21-prepush-affected/plan.md
+ create mode 100644 docs/work/2026-09-21-prepush-affected/tasks.md
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index a7ed52d..6b42e7a 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -24,6 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+ - Schema and domain ownership inventory for roadmap and meeting surfaces, including canonical ownership boundaries, overlap rules, and guarded discoverability links (PR #3, product-suite-waq)
+ 
+ ### Changed
++- First-push validation now uses the verified Git pre-push range to run affected checks, while unsupported updates and uncertain ranges fail closed (Forge issue `1944f7bd-fcaf-4131-b58a-3ddc1f8b753b`)
+ - Local pre-push validation runs aggregate workspace lint once before the selected checks, preserving full lint coverage, fast-mode test-only suites, and canonical CI commands (Forge issue `e54d032b-92f6-4500-adf8-5e59ffba57d2`)
+ - Bun CI runtimes now follow stable releases, local setup documents stable upgrades instead of an obsolete exact runtime pin, and root installs apply the BlockSuite icon compatibility patch (PR #188, Forge issue `b0803978-a71b-4946-a139-48e8901b9739`)
+ - Real-Neon authority conformance now proves disposable-project and production-derived-branch cleanup, direct migration versus pooled runtime binding, least-privilege CRUD and denial behavior, and exact opaque PASS evidence (PR #173, Forge issue `25faf39b-3017-42fe-94c0-87acad7279a0`)
+diff --git a/docs/research/prepush-affected.md b/docs/research/prepush-affected.md
+new file mode 100644
+index 0000000..8b9be93
+--- /dev/null
++++ b/docs/research/prepush-affected.md
+@@ -0,0 +1,9 @@
++# Affected pre-push research
++
++Completed source review on origin/main 575afded41e76b86a5633f9def2add3996590841 by Sol, with independent lead review of hook and range boundaries. Current gate infers `@{push}..HEAD` and falls back to full checks for an absent remote feature branch. Existing classifier already handles transitive workspace consumers and unknown paths. Workspace manifests are read from disk, requiring conservative invalidation on graph changes.
++
++Official source: https://lefthook.dev/configuration/use_stdin/ . Multiple jobs cannot each receive Git's stream. Use one consumer and invoke branch protection before selection. Reuse the validated parser and standalone branch-protection contract; preserve receipt handling and lint-once behavior.
++
++Rejected shortcuts: default main, HEAD~1, cached diff, three-dot diff, inference without actual push metadata, default FAST mode. Each can lose changes or coverage. Unsupported non-HEAD/multi-ref updates must not be claimed safe using another checkout's test result.
++
++Implementation and Git-fixture acceptance are recorded in docs/work/2026-09-21-prepush-affected/plan.md and tasks.md. No measured runtime benefit or completed implementation is claimed by this research record.
+diff --git a/docs/work/2026-09-21-prepush-affected/decisions.md b/docs/work/2026-09-21-prepush-affected/decisions.md
+new file mode 100644
+index 0000000..4321e02
+--- /dev/null
++++ b/docs/work/2026-09-21-prepush-affected/decisions.md
+@@ -0,0 +1,39 @@
++# Decisions and evidence
++
++## Approved implementation boundary
++
++The user authorized implementation of the next-task plan. Sol's final research corrected the original two-consumer idea: only one Lefthook job can consume stdin, so the validation entry invokes branch protection first using the same input. Unsupported non-HEAD/multi-ref shapes are rejected rather than misrepresenting current-checkout tests as proof for other objects. No gate bypass is authorized.
++
++Implementation and validation evidence will be appended here; plan.md and tasks.md remain the approved authority snapshot.
++
++## Interrupted implementation handoff
++
++Work is incomplete and uncommitted on `perf/prepush-affected`. After the interruption, the lead verified that only the three focused test files were modified; production files were unchanged. Planning and research documents are also preserved locally. No implementation commit or PR was created.
++
++Sol reported the baseline passing: `bun test test/branch-protection.test.js test/prepush-gate.test.js test/prepush-classify.test.js`, 66 tests, 447 assertions, zero failures, 9.04 seconds on Bun 1.4.2. The regression run then failed on missing single-consumer hook wiring, missing exported parser, and unsafe workspace-manifest narrowing. This is RED evidence, not a completed implementation. Some grouped Git fixtures reached their timeout because the old gate repeatedly executed the fake full suite; use dry-run for selection-only assertions while retaining fake Bun for ordering and fail-fast tests. Do not increase timeouts to hide fixture overhead.
++
++The lead independently ran `bun audit --audit-level critical`: exit 0, 1,462 packages checked, zero critical advisories, 114 advisories below that threshold. This does not mean the dependency graph has no advisories.
++
++Resume in order: verify lease and current worktree; inspect the preserved test patch; finish efficient selection fixtures; implement the approved single-consumer entry and exact-range selection; run focused GREEN and one installed-Lefthook smoke; obtain spec then quality review; run required validation; commit and push with hooks enabled; create the PR. No agents remained active after the interruption, and the stopped validation work was not restarted automatically.
++
++Compatibility review: standalone Forge branch-protection precheck has no stdin and must remain CommonJS-compatible. The actual hook should explicitly distinguish expected input from standalone use, rejecting missing hook input. Do not treat `.forge-push-token` as proof of affected application validation; current Forge's root test only proves repo-tooling. Preserve explicit `PREPUSH_GATE_FAST` behavior and do not introduce a mapping from Forge quick mode in this change.
++
++## Implementation decision
++
++The hook now has one stdin consumer: `prepush-gate.mjs --pre-push` reads the stream once and invokes the existing CommonJS branch-protection entry before any Bun command. The shared parser accepts equal-width SHA-1 or SHA-256 records. The gate rejects unsupported update shapes, narrows an existing destination from its supplied remote object, and narrows a new destination only from a distinct configured upstream with a verified fork point and ancestry. Missing evidence, changed workspace manifests, dirty workspace manifests, and unknown paths retain full validation. No FAST default, Forge quick mapping, receipt behavior, dependency, or CI coverage changed.
++
++The test fixtures use dry-run output for selection proof and reserve fake Bun execution for ordering, fail-fast, and the installed-Lefthook smoke. Process-heavy scenarios are independent tests so loaded Windows startup does not make several correct scenarios share one 30-second budget. Successful dry-run cases in the final focused run took 5.45 seconds for an ordinary first push, 7.68 seconds after upstream advanced, 8.27 seconds for a stacked base, 8.92 seconds for SHA-256, and 12.78 seconds for the divergent existing-remote proof. The installed-Lefthook smoke took 7.04 seconds. These are fixture-plus-process timings, not claimed production push savings.
++
++Final focused validation: `bun test test/branch-protection.test.js test/prepush-gate.test.js test/prepush-classify.test.js` passed 91 tests and 508 assertions with zero failures in 136.03 seconds on Bun 1.4.2. The interrupted baseline was 66 tests and 447 assertions in 9.04 seconds before real Git range fixtures were completed; wall-clock comparison is not meaningful because the final suite adds process-heavy temporary repositories and ran under different machine load.
++
++Test-performance follow-up: repeated Git init/config/base-commit/remote-ref setup was the shared cost across every range scenario. The test now creates one immutable real repository seed per object format, copies it into an isolated temporary directory for each scenario, and removes both seeds after the suite. The same focused command remained green at 91 tests and 508 assertions and fell from 136.03 seconds to 86.72 seconds on the same host and sequential runner, a 49.31-second (36.25%) reduction. The suite remains slower than the 9.04-second interrupted baseline because it now includes the approved real-Git range and installed-Lefthook scenarios; no timeout, assertion, or scenario was removed.
++
++## Review and integration validation
++
++Independent spec review approved after strengthening the divergent-remote fixture and the ambiguous first-push fallback fixtures. Independent quality review approved after consolidating raw status output into the existing Git execution helper; no new Sonar suppression remains. A tracked-dirty-manifest regression proves the exact leading-space porcelain record. Its focused check passed three tests and eleven assertions after the final helper refactor; syntax and diff checks also passed.
++
++The lead ran `bun run test:repo-tooling`: 246 tests, 5,268 assertions, zero failures in 79.03 seconds before the final behavior-preserving helper refactor. The final refactor was checked with the three focused manifest tests, and the normal push hook will run the final committed tooling suite again. `bun run lint` passed all four configured workspace lint commands with the zero-warning threshold. `bun run check:source-test` and syntax checks for all three changed JavaScript modules passed. The fresh critical-level audit again reported no critical advisories and 114 below that threshold across 1,462 packages.
++
++Validation uses the repository's targeted tooling commands under the approved local-checks/CI-integration boundary. No generic Forge validation receipt is claimed or reused. Push and PR checks remain required; this local evidence is not a merge-readiness claim.
++
++Final quality correction: the shared Git command helper now optionally returns raw output, so NUL-delimited porcelain status preserves its leading index/worktree columns without a second command boundary or suppression. The tracked dirty-manifest regression proves the exact ` M packages/db/package.json\0` record. The three workspace-manifest matches passed with 11 assertions in 29.28 seconds, and `node --check scripts/prepush-gate.mjs` passed.
+diff --git a/docs/work/2026-09-21-prepush-affected/plan.md b/docs/work/2026-09-21-prepush-affected/plan.md
+new file mode 100644
+index 0000000..1213e85
+--- /dev/null
++++ b/docs/work/2026-09-21-prepush-affected/plan.md
+@@ -0,0 +1,40 @@
++# Safe affected checks on first push
++
++Date: 2026-09-21. Classification: Refactor. Issue: 1944f7bd-fcaf-4131-b58a-3ddc1f8b753b.
++
++## Purpose and approval
++
++Reduce unnecessary local validation on a first feature push without reducing selected-suite coverage or weakening branch protection. The user approved the independently reviewed next-task plan with "lets continue on that". This artifact finalizes that external plan for implementation.
++
++## Approach
++
++Use one Lefthook pre-push entry point with `use_stdin: true`. Read Git's ref-update stream once; run existing branch protection before validation, then classify the same records. Export/reuse its validated parser and main entry where possible; keep standalone branch protection compatible with Forge.
++
++Optimize only one branch update whose local ref and OID match the current branch and HEAD. Existing destinations use Git's remote OID to local OID two-dot diff. New destinations require an unambiguous configured upstream distinct from the destination, a verified `merge-base --fork-point`, and ancestry proof. Keep `--no-renames`; missing or uncertain evidence retains full validation.
++
++Never use default-main, HEAD~1, cached changes, or three-dot shortcuts. Keep FAST opt-in. Reuse existing classification and reverse-dependency expansion. Committed workspace manifests and dirty manifests used by that graph prevent narrowing; other dirty validation-relevant files must not cause a smaller suite selection than the committed push requires.
++
++Unsupported multi-ref, tag, deletion-only, or non-HEAD updates must not be declared validated by tests of another checkout. Conservatively reject unsupported shapes before running tests with guidance to push a checked-out branch individually. Empty input in standalone invocation retains full validation; malformed Git input fails closed. Protected destination rejection always precedes any Bun command.
++
++## Success criteria
++
++- A real first push with a verifiable fork selects every affected suite and omits unrelated suites.
++- Existing alternate-remote updates use their actual remote object.
++- Shared-package consumer coverage, rename/delete visibility, unknown-path fallback, lint-once ordering, environment sanitation, validation-receipt behavior, and fail-fast semantics remain intact.
++- One stdin consumer preserves protection and does not hang in actual Lefthook invocation.
++- Git fixtures prove advanced upstream, stacked base, missing object/base, malformed records, unsupported refs, and manifest drift.
++- Focused tests and required validation pass; report selected commands and measured selector overhead, not invented end-to-end savings.
++
++## Scope and reverse path
++
++Own hook wiring, branch-protection parser reuse, pre-push range/classifier logic, focused tests, changelog and these maintainer docs. No dependencies, Forge runtime changes, GitHub settings, database writes, CI coverage changes, or default FAST mode. Revert this focused PR to restore prior hooks. Schema, API, UI, reverse product states and agent surfaces do not apply; maintainer docs do.
++
++## Technical research
++
++Remote main inspected: 575afded41e76b86a5633f9def2add3996590841. Current `@{push}..HEAD` fails when a feature's remote ref does not exist. Existing classifier already expands workspace consumers. It reads workspace manifests from disk, so manifest changes require conservative handling. Existing tests have fake Bun execution and temporary Git fixtures.
++
++Official Lefthook documentation says only one job receives stdin if several request it: https://lefthook.dev/configuration/use_stdin/ . Therefore consolidate entry, not multiple stdin consumers. Git-provided OIDs are data passed as argument arrays; never interpolate ref input into shell commands or output remote URLs/secrets. No new runtime dependency is needed. The security concern is preserving branch protection and fail-closed input validation, not a product threat-model change.
++
++## Ambiguity policy
++
++Prefer conservative full validation for uncertain ranges within the supported current-HEAD shape. Reject unsupported checkout/ref shapes rather than claiming coverage of untested objects. Use the repository decision rubric for other gaps; record decisions separately without altering approved plan/task snapshots.
+diff --git a/docs/work/2026-09-21-prepush-affected/tasks.md b/docs/work/2026-09-21-prepush-affected/tasks.md
+new file mode 100644
+index 0000000..dae6a20
+--- /dev/null
++++ b/docs/work/2026-09-21-prepush-affected/tasks.md
+@@ -0,0 +1,16 @@
++# Implementation task
++
++## Task 1: Use the actual push range for affected local validation
++
++OWNS: lefthook.yml; scripts/branch-protection.js; scripts/prepush-gate.mjs; scripts/prepush-classify.mjs; test/branch-protection.test.js; test/prepush-gate.test.js; test/prepush-classify.test.js; CHANGELOG.md; docs/work/2026-09-21-prepush-affected/decisions.md.
++
++Implement the complete plan contract as one coherent hook change: one stdin consumer, protection before validation, validated ref records, exact destination object for existing pushes, verified upstream fork point for new pushes, existing dependency closure, conservative manifest handling and unsupported-shape rejection. Preserve standalone branch-protection callers, lint-once behavior, validation receipt handling and explicit FAST semantics. Reuse existing helpers and test fixtures rather than add dependencies or a new orchestration layer.
++
++TDD steps:
++1. Read the complete owned source and test files. Run the current three focused test files as a baseline.
++2. Add failing tests for protected destinations before Bun execution, ordinary first push, advanced upstream, stacked base, alternate-remote OID, rename/delete visibility, unknown path, shared DB consumers, committed/dirty manifests, malformed records, unsupported multi-ref/tag/deletion/non-HEAD updates, missing fork point/object, and FAST default-off. Use temporary repositories with real refs for range behavior and fake Bun only for command execution.
++3. Run new tests and capture expected RED evidence before production edits.
++4. Implement the smallest change, preserving protected branches and existing exact-head/receipt contracts. Run focused tests to GREEN. Include an actual installed Lefthook smoke using a temporary repository so stdin/EOF and command ordering are exercised.
++5. Self-review and record decisions, measured selection/overhead evidence and validation in decisions.md. Commit with hooks enabled after lead's spec and quality review or when instructed by lead. Lead owns Forge transitions, final validation, push, PR and integration.
++
++Expected output: verifiable first pushes select affected checks; uncertain ranges select full checks; unsupported ref shapes are rejected before validation; protected refs are rejected before Bun; every focused regression passes with no skipped coverage.
+diff --git a/lefthook.yml b/lefthook.yml
+index c311bf8..c0ca434 100644
+--- a/lefthook.yml
++++ b/lefthook.yml
+@@ -5,8 +5,6 @@ pre-commit:
+ 
+ pre-push:
+   jobs:
+-    - name: branch protection
+-      run: node scripts/branch-protection.js
++    - name: pre-push gate
++      run: node scripts/prepush-gate.mjs --pre-push
+       use_stdin: true
+-    - name: pre-push validation
+-      run: node scripts/prepush-gate.mjs
+diff --git a/scripts/branch-protection.js b/scripts/branch-protection.js
+index 928b0cc..c45d4eb 100644
+--- a/scripts/branch-protection.js
++++ b/scripts/branch-protection.js
+@@ -69,24 +69,31 @@ function execGit(args) {
+ const PROTECTED_BRANCHES = new Set(['main', 'master']);
+ const PROTECTED_REFS = new Set([...PROTECTED_BRANCHES].map(branch => `refs/heads/${branch}`));
+ const OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
++const VALID_REFS = new Map([...PROTECTED_REFS].map((ref) => [ref, true]));
+ 
+ function isValidGitRef(ref) {
++  if (VALID_REFS.has(ref)) return VALID_REFS.get(ref);
+   try {
+     execGit(['check-ref-format', ref]);
++    VALID_REFS.set(ref, true);
+     return true;
+   } catch {
+     return false;
+   }
+ }
+ 
+-function prePushDestinations(input) {
++function parsePrePushInput(input) {
++  if (!input.trim()) return [];
+   return input.trim().split(/\r?\n/).map((line) => {
+     const fields = line.trim().split(/\s+/);
++    const localRefValid = fields[0] === 'HEAD' || fields[0] === '(delete)' || isValidGitRef(fields[0]);
+     if (fields.length !== 4 || !OBJECT_ID.test(fields[1])
+-      || !OBJECT_ID.test(fields[3]) || !isValidGitRef(fields[2])) {
++      || !OBJECT_ID.test(fields[3]) || fields[1].length !== fields[3].length
++      || !localRefValid || !isValidGitRef(fields[2])) {
+       throw new Error('malformed pre-push input');
+     }
+-    return fields[2];
++    const [localRef, localOid, remoteRef, remoteOid] = fields;
++    return { localRef, localOid, remoteRef, remoteOid };
+   });
+ }
+ 
+@@ -150,7 +157,7 @@ function main({ argv = process.argv, currentBranch: branchOverride, prePushInput
+   if (typeof prePushInput === 'string' && prePushInput.trim()) {
+     let destinations;
+     try {
+-      destinations = prePushDestinations(prePushInput);
++      destinations = parsePrePushInput(prePushInput).map(({ remoteRef }) => remoteRef);
+     } catch (error) {
+       console.error(`${RED}✗ Error: ${error.message}${RESET}`);
+       return 1;
+@@ -222,4 +229,4 @@ if (require.main === module) {
+   process.exitCode = main({ prePushInput });
+ }
+ 
+-module.exports = { main };
++module.exports = { isSafeGitRefComponent, main, parsePrePushInput };
+diff --git a/scripts/prepush-classify.mjs b/scripts/prepush-classify.mjs
+index 71fca6f..e1b6551 100644
+--- a/scripts/prepush-classify.mjs
++++ b/scripts/prepush-classify.mjs
+@@ -46,6 +46,7 @@ const DOCS_ONLY = [
+ // affect any workspace, so narrowing would be unsafe.
+ const GLOBAL_FULL = [
+   /^package\.json$/, // root manifest: scripts, shared deps, overrides
++  /^(?:apps|packages|services)\/[^/]+\/package\.json$/,
+   /^bunfig\.toml$/,
+   /^tsconfig[^/]*\.json$/, // root TS config
+   /^lefthook\.ya?ml$/,
+diff --git a/scripts/prepush-gate.mjs b/scripts/prepush-gate.mjs
+index 5c03be6..7f1f7c9 100644
+--- a/scripts/prepush-gate.mjs
++++ b/scripts/prepush-gate.mjs
+@@ -20,12 +20,14 @@
+ //     net (every test-only package/service) —
+ //     STILL runs its full suite incl. test, so fast mode can
+ //     never green-light a broken API/DB/logic change locally. The always-on cheap
+-//     checks and the docs-only fast path are unchanged, and branch protection (a
+-//     separate push-hook step) still applies. Unset (default) = full verify incl.
++//     checks and the docs-only fast path are unchanged, and this gate runs branch
++//     protection first. Unset (default) = full verify incl.
+ //     tests for every workspace, exactly as before.
+ //   PREPUSH_GATE_DRY=1        → print the classification, run nothing (tests).
+ //   PREPUSH_GATE_TEST_FILES   → comma-separated changed-file override (tests).
+ import { execFileSync, spawnSync } from "node:child_process";
++import { readFileSync } from "node:fs";
++import branchProtection from "./branch-protection.js";
+ import {
+   affectedDirsFor,
+   classify,
+@@ -36,25 +38,66 @@ import {
+   WORKSPACE_DIRS,
+ } from "./prepush-classify.mjs";
+ 
+-function git(args) {
++function git(args, { trim = true } = {}) {
+   // PATH lookup is intended: this is a local git hook running in a dev shell.
+-  return execFileSync("git", args, { encoding: "utf8" }).trim(); // NOSONAR(S4036)
++  const output = execFileSync("git", args, { encoding: "utf8" }); // NOSONAR(S4036)
++  return trim ? output.trim() : output;
++}
++
++const isZeroOid = (oid) => /^0+$/.test(oid);
++
++function hasDirtyWorkspaceManifest() {
++  const manifests = new Set(WORKSPACE_DIRS.map((dir) => `${dir}/package.json`));
++  const entries = git(
++    ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
++    { trim: false },
++  ).split("\0");
++  return entries.some((entry) => {
++    const normalized = entry.replaceAll("\\", "/");
++    return manifests.has(normalized) || manifests.has(normalized.slice(3));
++  });
++}
++
++function prePushChangedFiles(records) {
++  if (records.length !== 1) throw new Error("push one checked-out branch at a time");
++  const [update] = records;
++  const branch = git(["symbolic-ref", "--quiet", "--short", "HEAD"]);
++  const head = git(["rev-parse", "HEAD"]);
++  if (update.localRef !== `refs/heads/${branch}` || update.localOid !== head
++    || !update.remoteRef.startsWith("refs/heads/") || isZeroOid(update.localOid)) {
++    throw new Error("pre-push validation only supports the checked-out branch at HEAD");
++  }
++
++  try {
++    if (hasDirtyWorkspaceManifest()) return null;
++    let base = update.remoteOid;
++    if (isZeroOid(base)) {
++      const mergeRef = git(["config", "--get", `branch.${branch}.merge`]);
++      if (!mergeRef.startsWith("refs/heads/") || mergeRef === update.remoteRef) return null;
++      const upstream = git(["rev-parse", "--symbolic-full-name", "@{u}"]);
++      base = git(["merge-base", "--fork-point", upstream, update.localOid]);
++      git(["merge-base", "--is-ancestor", base, update.localOid]);
++    }
++    git(["cat-file", "-e", `${base}^{commit}`]);
++    const out = git(["diff", "--no-renames", "--name-only", `${base}..${update.localOid}`]);
++    return out === "" ? [] : out.split("\n");
++  } catch {
++    return null;
++  }
+ }
+ 
+ function changedFiles() {
+   if (process.env.PREPUSH_GATE_TEST_FILES !== undefined) {
+     return process.env.PREPUSH_GATE_TEST_FILES.split(",").filter(Boolean);
+   }
+-  // Diff the current branch against its push target. Notes:
++  // Standalone invocation falls back to the current branch's push target. Hook
++  // mode instead classifies the validated update read from pre-push stdin.
++  // Notes:
+   //  - Two-dot (`..`) gives the NET delta the push applies to the remote ref, so
+   //    it surfaces paths reverted/dropped by a rebase or force-push; three-dot
+   //    diffs from the merge-base and would silently hide them (under-scoping).
+   //  - `--no-renames` reports a cross-workspace move as delete(src)+add(dst), so
+   //    BOTH the losing and the gaining workspace get re-validated.
+-  //  - This only observes the CURRENT branch's push target. An explicit multi-ref
+-  //    push (`git push --all`, `git push a b`) is not classified per-extra-ref;
+-  //    reading git's pre-push stdin to cover that is deliberately avoided, since a
+-  //    blocking stdin read in a hook risks hanging every push.
+   //  - No upstream yet (first push of a branch) → null → full suite.
+   try {
+     const upstream = git(["rev-parse", "--abbrev-ref", "@{push}"]);
+@@ -101,7 +144,25 @@ function runChecks(checks) {
+ // remain local. Default (unset) = full verify.
+ const FAST = process.env.PREPUSH_GATE_FAST === "1";
+ 
+-const result = classify(changedFiles());
++let files;
++if (process.argv.includes("--pre-push")) {
++  const input = readFileSync(0, "utf8");
++  if (!input.trim()) {
++    console.error("prepush-gate: missing pre-push input");
++    process.exit(1);
++  }
++  if (branchProtection.main({ argv: [], prePushInput: input }) !== 0) process.exit(1);
++  try {
++    files = prePushChangedFiles(branchProtection.parsePrePushInput(input));
++  } catch (error) {
++    console.error(`prepush-gate: ${error.message}`);
++    process.exit(1);
++  }
++} else {
++  files = changedFiles();
++}
++
++const result = classify(files);
+ 
+ let checks;
+ if (result.kind === DOCS) {
+diff --git a/test/branch-protection.test.js b/test/branch-protection.test.js
+index 92fab55..fff253f 100644
+--- a/test/branch-protection.test.js
++++ b/test/branch-protection.test.js
+@@ -14,7 +14,7 @@ import path from "node:path";
+ const SCRIPT = path.join(import.meta.dir, "..", "scripts", "branch-protection.js");
+ const LEFTHOOK_CONFIG = path.join(import.meta.dir, "..", "lefthook.yml");
+ const require = createRequire(import.meta.url);
+-const { main } = require(SCRIPT);
++const { isSafeGitRefComponent, main, parsePrePushInput } = require(SCRIPT);
+ 
+ function exitCodeFor(branch, prePushInput) {
+   const error = spyOn(console, "error").mockImplementation(() => {});
+@@ -42,23 +42,17 @@ describe("scripts/branch-protection.js shim", () => {
+   test("uses Git's branch-name rules in the forge push fallback", () => {
+     const longBranch = `${"segment/".repeat(40)}tip`;
+     for (const branch of ["feat@api", "release+candidate", longBranch]) {
+-      expect(() => execFileSync(process.execPath, [SCRIPT], {
+-        env: { ...process.env, LEFTHOOK_GIT_BRANCH: branch },
+-        stdio: "pipe",
+-      })).not.toThrow();
++      expect(isSafeGitRefComponent(branch)).toBe(true);
+     }
+-    expect(() => execFileSync(process.execPath, [SCRIPT], {
+-      env: { ...process.env, LEFTHOOK_GIT_BRANCH: "feat..invalid" },
+-      stdio: "pipe",
+-    })).toThrow();
++    expect(isSafeGitRefComponent("feat..invalid")).toBe(false);
+   });
+ 
+-  test("runs before validation in the direct git pre-push hook", () => {
++  test("is invoked by the gate as the hook's only stdin consumer", () => {
+     const config = readFileSync(LEFTHOOK_CONFIG, "utf8");
+-    expect(config).toContain("run: node scripts/branch-protection.js");
+-    expect(config).toMatch(/run: node scripts\/branch-protection\.js\r?\n\s+use_stdin: true/);
++    expect(config).not.toContain("run: node scripts/branch-protection.js");
++    expect(config).toMatch(/run: node scripts\/prepush-gate\.mjs --pre-push\r?\n\s+use_stdin: true/);
+     expect(config).not.toContain("run: bun run lint");
+-    expect(config.indexOf("branch-protection.js")).toBeLessThan(config.indexOf("prepush-gate.mjs"));
++    expect(config.match(/use_stdin: true/g)).toHaveLength(1);
+   });
+ 
+   test("protects remote destinations instead of the checked-out branch", () => {
+@@ -75,4 +69,22 @@ describe("scripts/branch-protection.js shim", () => {
+       stdio: ["pipe", "pipe", "pipe"],
+     })).toThrow();
+   });
++
++  test("exports the validated records reused by the pre-push gate", () => {
++    const localOid = "1".repeat(40);
++    const remoteOid = "2".repeat(40);
++    expect(parsePrePushInput(`refs/heads/feature ${localOid} refs/heads/feature ${remoteOid}\n`)).toEqual([{
++      localRef: "refs/heads/feature",
++      localOid,
++      remoteRef: "refs/heads/feature",
++      remoteOid,
++    }]);
++    expect(parsePrePushInput("")).toEqual([]);
++    expect(() => parsePrePushInput("malformed\n")).toThrow("malformed pre-push input");
++    expect(() => parsePrePushInput(`refs/heads/feature ${"1".repeat(64)} refs/heads/feature ${remoteOid}\n`))
++      .toThrow("malformed pre-push input");
++    expect(parsePrePushInput(
++      `refs/heads/feature ${"1".repeat(64)} refs/heads/feature ${"2".repeat(64)}\n`,
++    )).toHaveLength(1);
++  });
+ });
+diff --git a/test/prepush-classify.test.js b/test/prepush-classify.test.js
+index 65c046a..5bc0b49 100644
+--- a/test/prepush-classify.test.js
++++ b/test/prepush-classify.test.js
+@@ -113,6 +113,12 @@ describe("prepush-gate classification", () => {
+     expect(classify(["bun.lock", "apps/platform-web/package.json"])).toContain("full-suite");
+   });
+ 
++  test("a committed workspace manifest forces the full suite", () => {
++    for (const file of ["apps/platform-web/package.json", "packages/db/package.json"]) {
++      expect(classify([file])).toContain("full-suite");
++    }
++  });
++
+   test("a single-app change is scoped to that app's suite only", () => {
+     const out = classify(["apps/platform-web/src/x.tsx"]);
+     expect(out).toContain("scoped");
+diff --git a/test/prepush-gate.test.js b/test/prepush-gate.test.js
+index e90aab3..7988e79 100644
+--- a/test/prepush-gate.test.js
++++ b/test/prepush-gate.test.js
+@@ -1,8 +1,10 @@
+-import { describe, expect, test } from "bun:test";
++import { afterAll, describe, expect, test } from "bun:test";
+ import { execFileSync, spawnSync } from "node:child_process";
+ import {
+   chmodSync,
++  cpSync,
+   existsSync,
++  mkdirSync,
+   mkdtempSync,
+   readFileSync,
+   rmSync,
+@@ -80,7 +82,7 @@ function classifyFast(files) {
+ 
+ // Execute the real gate against a fake bun binary. This proves ordering and
+ // fail-fast behavior without recursively running the repository's full suites.
+-function executeGate(files, { fast = false, dry = false, failOn } = {}) {
++function executeGate(files, { fast = false, dry = false, failOn, cwd, input, args = [] } = {}) {
+   const sandbox = mkdtempSync(path.join(tmpdir(), "prepush-gate-"));
+   const log = path.join(sandbox, "calls.jsonl");
+   const posixShim = path.join(sandbox, "bun");
+@@ -100,7 +102,7 @@ function executeGate(files, { fast = false, dry = false, failOn } = {}) {
+ 
+   try {
+     const env = gateEnv({
+-      PREPUSH_GATE_TEST_FILES: files.join(","),
++      PREPUSH_GATE_TEST_FILES: files?.join(","),
+       PREPUSH_GATE_DRY: dry ? "1" : undefined,
+       PREPUSH_GATE_FAST: fast ? "1" : undefined,
+       FAKE_BUN_LOG: log,
+@@ -108,7 +110,7 @@ function executeGate(files, { fast = false, dry = false, failOn } = {}) {
+     });
+     const pathKey = Object.keys(env).find((key) => key.toUpperCase() === "PATH") ?? "PATH";
+     env[pathKey] = `${sandbox}${path.delimiter}${env[pathKey] ?? ""}`;
+-    const result = spawnSync(process.execPath, [scriptPath], { encoding: "utf8", env });
++    const result = spawnSync(process.execPath, [scriptPath, ...args], { cwd, input, encoding: "utf8", env });
+     const calls = existsSync(log)
+       ? readFileSync(log, "utf8").trim().split(/\r?\n/).filter(Boolean).map((line) => line.split(/\s+/))
+       : [];
+@@ -118,6 +120,95 @@ function executeGate(files, { fast = false, dry = false, failOn } = {}) {
+   }
+ }
+ 
++function git(cwd, args) {
++  return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
++}
++
++function writeRepoFile(repo, file, content) {
++  const target = path.join(repo, ...file.split("/"));
++  mkdirSync(path.dirname(target), { recursive: true });
++  writeFileSync(target, content);
++}
++
++function commitFile(repo, file, content, message) {
++  writeRepoFile(repo, file, content);
++  git(repo, ["add", "--", file]);
++  git(repo, ["commit", "-m", message]);
++  return git(repo, ["rev-parse", "HEAD"]);
++}
++
++const gitSeeds = new Map();
++
++function gitSeed(objectFormat) {
++  const key = objectFormat ?? "sha1";
++  if (gitSeeds.has(key)) return gitSeeds.get(key);
++  const repo = mkdtempSync(path.join(tmpdir(), `prepush-seed-${key}-`));
++  git(repo, ["init", "-b", "main", ...(objectFormat ? [`--object-format=${objectFormat}`] : [])]);
++  git(repo, ["config", "user.name", "Prepush Test"]);
++  git(repo, ["config", "user.email", "prepush@example.invalid"]);
++  git(repo, ["remote", "add", "origin", path.join(repo, "missing-origin.git")]);
++  writeRepoFile(repo, "README.md", "base\n");
++  writeRepoFile(repo, "packages/db/package.json", "{}\n");
++  writeRepoFile(repo, "packages/ui/src/old.ts", "old\n");
++  git(repo, ["add", "."]);
++  git(repo, ["commit", "-m", "base"]);
++  const base = git(repo, ["rev-parse", "HEAD"]);
++  git(repo, ["update-ref", "refs/remotes/origin/main", base]);
++  const seed = { repo, base };
++  gitSeeds.set(key, seed);
++  return seed;
++}
++
++function createGitFixture({ objectFormat } = {}) {
++  const seed = gitSeed(objectFormat);
++  const repo = mkdtempSync(path.join(tmpdir(), "prepush-git-"));
++  rmSync(repo, { recursive: true, force: true });
++  cpSync(seed.repo, repo, { recursive: true });
++  return { repo, base: seed.base };
++}
++
++afterAll(() => {
++  for (const { repo } of gitSeeds.values()) rmSync(repo, { recursive: true, force: true });
++});
++
++function checkoutTrackedBranch(repo, name, start, upstream = "main") {
++  git(repo, ["checkout", "-b", name, start]);
++  git(repo, ["config", `branch.${name}.remote`, "origin"]);
++  git(repo, ["config", `branch.${name}.merge`, `refs/heads/${upstream}`]);
++}
++
++function updateLine(repo, remoteRef, remoteOid, localRef) {
++  const oid = git(repo, ["rev-parse", "HEAD"]);
++  const branch = git(repo, ["branch", "--show-current"]);
++  return `${localRef ?? `refs/heads/${branch}`} ${oid} ${remoteRef} ${remoteOid ?? "0".repeat(oid.length)}\n`;
++}
++
++function executeLefthook(repo, input) {
++  const sandbox = mkdtempSync(path.join(tmpdir(), "prepush-lefthook-"));
++  const log = path.join(sandbox, "calls.txt");
++  const posixShim = path.join(sandbox, "bun");
++  const windowsShim = path.join(sandbox, "bun.cmd");
++  writeFileSync(posixShim, ["#!/usr/bin/env sh", 'printf "%s\\n" "$*" >> "$FAKE_BUN_LOG"', "exit 0"].join("\n"));
++  chmodSync(posixShim, 0o755);
++  writeFileSync(windowsShim, ['@echo %*>>"%FAKE_BUN_LOG%"', "@exit /b 0"].join("\r\n"));
++  try {
++    const env = gateEnv({ FAKE_BUN_LOG: log });
++    const pathKey = Object.keys(env).find((key) => key.toUpperCase() === "PATH") ?? "PATH";
++    env[pathKey] = `${sandbox}${path.delimiter}${env[pathKey] ?? ""}`;
++    const result = spawnSync("lefthook", ["run", "pre-push", "--force", "--no-tty"], {
++      cwd: repo,
++      input,
++      encoding: "utf8",
++      env,
++      timeout: SPAWN_TIMEOUT_MS,
++    });
++    const calls = existsSync(log) ? readFileSync(log, "utf8").trim().split(/\r?\n/).filter(Boolean) : [];
++    return { status: result.status, stdout: result.stdout, stderr: result.stderr, calls };
++  } finally {
++    rmSync(sandbox, { recursive: true, force: true });
++  }
++}
++
+ // Run `fn` with `vars` temporarily present in this process's env, then restore
+ // the previous values (including deleting keys that were previously unset).
+ function withAmbientEnv(vars, fn) {
+@@ -258,6 +349,356 @@ describe("prepush-gate command execution", () => {
+ 
+ });
+ 
++describe("prepush-gate Git ranges", () => {
++  test("narrows an ordinary first push from its verified fork point", () => {
++    const { repo, base } = createGitFixture();
++    try {
++      checkoutTrackedBranch(repo, "feature", base);
++      commitFile(repo, "apps/platform-web/src/feature.tsx", "feature\n", "feature");
++      const result = executeGate(undefined, {
++        cwd: repo,
++        input: updateLine(repo, "refs/heads/feature"),
++        args: ["--pre-push"],
++        dry: true,
++      });
++      expect(result.status).toBe(0);
++      expect(result.stdout).toContain("apps/platform-web:test");
++      expect(result.stdout).not.toContain("verify:meeting-web");
++    } finally {
++      rmSync(repo, { recursive: true, force: true });
++    }
++  }, SPAWN_TIMEOUT_MS);
++
++  test("narrows a first push after its upstream advances", () => {
++    const { repo, base } = createGitFixture();
++    try {
++      checkoutTrackedBranch(repo, "feature", base);
++      const featureOid = commitFile(repo, "apps/platform-web/src/feature.tsx", "feature\n", "feature");
++      git(repo, ["checkout", "main"]);
++      const advanced = commitFile(repo, "docs/upstream.md", "advanced\n", "advance upstream");
++      git(repo, ["update-ref", "refs/remotes/origin/main", advanced]);
++      git(repo, ["checkout", "feature"]);
++      expect(git(repo, ["rev-parse", "HEAD"])).toBe(featureOid);
++      const result = executeGate(undefined, {
++        cwd: repo,
++        input: updateLine(repo, "refs/heads/feature"),
++        args: ["--pre-push"],
++        dry: true,
++      });
++      expect(result.status).toBe(0);
++      expect(result.stdout).toContain("apps/platform-web:test");
++    } finally {
++      rmSync(repo, { recursive: true, force: true });
++    }
++  }, SPAWN_TIMEOUT_MS);
++
++  test("narrows a stacked first push from its configured upstream", () => {
++    const { repo, base } = createGitFixture();
++    try {
++      git(repo, ["checkout", "-b", "stack", base]);
++      const stackOid = commitFile(repo, "packages/ui/src/stack.ts", "stack\n", "stack base");
++      git(repo, ["update-ref", "refs/remotes/origin/stack", stackOid]);
++      checkoutTrackedBranch(repo, "stacked-feature", stackOid, "stack");
++      commitFile(repo, "apps/platform-web/src/stacked.tsx", "stacked\n", "stacked feature");
++      const result = executeGate(undefined, {
++        cwd: repo,
++        input: updateLine(repo, "refs/heads/stacked-feature"),
++        args: ["--pre-push"],
++        dry: true,
++      });
++      expect(result.status).toBe(0);
++      expect(result.stdout).toContain("apps/platform-web:test");
++      expect(result.stdout).not.toContain("test:ui");
++    } finally {
++      rmSync(repo, { recursive: true, force: true });
++    }
++  }, SPAWN_TIMEOUT_MS);
++
++  test("narrows a SHA-256 first push from its verified fork point", () => {
++    const { repo, base } = createGitFixture({ objectFormat: "sha256" });
++    try {
++      checkoutTrackedBranch(repo, "feature", base);
++      commitFile(repo, "apps/platform-web/src/feature.tsx", "feature\n", "feature");
++      const result = executeGate(undefined, {
++        cwd: repo,
++        input: updateLine(repo, "refs/heads/feature"),
++        args: ["--pre-push"],
++        dry: true,
++      });
++      expect(result.status).toBe(0);
++      expect(result.stdout).toContain("classification: scoped");
++      expect(result.stdout).toContain("apps/platform-web:test");
++    } finally {
++      rmSync(repo, { recursive: true, force: true });
++    }
++  }, SPAWN_TIMEOUT_MS);
++
++  test("falls back to full when a first push has no upstream fork-point evidence", () => {
++    const { repo, base } = createGitFixture();
++    try {
++      git(repo, ["checkout", "-b", "no-upstream", base]);
++      commitFile(repo, "apps/platform-web/src/feature.tsx", "feature\n", "feature");
++      const result = executeGate(undefined, {
++        cwd: repo,
++        input: updateLine(repo, "refs/heads/no-upstream"),
++        args: ["--pre-push"],
++        dry: true,
++      });
++      expect(result.status).toBe(0);
++      expect(result.stdout).toContain("full-suite");
++    } finally {
++      rmSync(repo, { recursive: true, force: true });
++    }
++  }, SPAWN_TIMEOUT_MS);
++
++  test("falls back to full when a first push targets its configured upstream", () => {
++    const { repo, base } = createGitFixture();
++    try {
++      checkoutTrackedBranch(repo, "same", base, "same");
++      commitFile(repo, "apps/platform-web/src/feature.tsx", "feature\n", "feature");
++      const result = executeGate(undefined, {
++        cwd: repo,
++        input: updateLine(repo, "refs/heads/same"),
++        args: ["--pre-push"],
++        dry: true,
++      });
++      expect(result.status).toBe(0);
++      expect(result.stdout).toContain("full-suite");
++    } finally {
++      rmSync(repo, { recursive: true, force: true });
++    }
++  }, SPAWN_TIMEOUT_MS);
++
++  test("uses the actual remote OID instead of the configured upstream", () => {
++    const { repo, base } = createGitFixture();
++    try {
++      git(repo, ["checkout", "-b", "remote-destination", base]);
++      const remoteOid = commitFile(repo, "packages/db/src/remote.ts", "remote\n", "remote destination");
++      git(repo, ["checkout", "main"]);
++      checkoutTrackedBranch(repo, "alternate", base);
++      commitFile(repo, "apps/platform-web/src/only.tsx", "only\n", "alternate feature");
++      const result = executeGate(undefined, {
++        cwd: repo,
++        input: updateLine(repo, "refs/heads/alternate", remoteOid),
++        args: ["--pre-push"],
++        dry: true,
++      });
++      expect(result.status).toBe(0);
++      expect(result.stdout).toContain("apps/platform-web:test");
++      expect(result.stdout).toContain("packages/db:test");
++      expect(result.stdout).toContain("apps/platform-api:test");
++    } finally {
++      rmSync(repo, { recursive: true, force: true });
++    }
++  }, SPAWN_TIMEOUT_MS);
++
++  test("keeps both owners for a cross-workspace move", () => {
++    const { repo, base } = createGitFixture();
++    try {
++      git(repo, ["checkout", "-b", "move", base]);
++      mkdirSync(path.join(repo, "packages", "db", "src"), { recursive: true });
++      git(repo, ["mv", "packages/ui/src/old.ts", "packages/db/src/moved.ts"]);
++      git(repo, ["commit", "-m", "move across owners"]);
++      const result = executeGate(undefined, {
++        cwd: repo,
++        input: updateLine(repo, "refs/heads/move", base),
++        args: ["--pre-push"],
++        dry: true,
++      });
++      expect(result.status).toBe(0);
++      expect(result.stdout).toContain("test:ui");
++      expect(result.stdout).toContain("packages/db:test");
++      expect(result.stdout).toContain("apps/platform-api:test");
++    } finally {
++      rmSync(repo, { recursive: true, force: true });
++    }
++  }, SPAWN_TIMEOUT_MS);
++
++  test("keeps the former owner for a deletion", () => {
++    const { repo, base } = createGitFixture();
++    try {
++      git(repo, ["checkout", "-b", "delete", base]);
++      git(repo, ["rm", "packages/ui/src/old.ts"]);
++      git(repo, ["commit", "-m", "delete owned file"]);
++      const result = executeGate(undefined, {
++        cwd: repo,
++        input: updateLine(repo, "refs/heads/delete", base),
++        args: ["--pre-push"],
++        dry: true,
++      });
++      expect(result.status).toBe(0);
++      expect(result.stdout).toContain("test:ui");
++    } finally {
++      rmSync(repo, { recursive: true, force: true });
++    }
++  }, SPAWN_TIMEOUT_MS);
++
++  test("keeps shared DB consumer coverage", () => {
++    const { repo, base } = createGitFixture();
++    try {
++      checkoutTrackedBranch(repo, "feature", base);
++      commitFile(repo, "packages/db/src/change.ts", "db\n", "db change");
++      const result = executeGate(undefined, {
++        cwd: repo,
++        input: updateLine(repo, "refs/heads/feature", base),
++        args: ["--pre-push"],
++        dry: true,
++      });
++      expect(result.stdout).toContain("packages/db:test");
++      expect(result.stdout).toContain("apps/platform-api:test");
++      expect(result.stdout).not.toContain("verify:meeting-web");
++    } finally {
++      rmSync(repo, { recursive: true, force: true });
++    }
++  }, SPAWN_TIMEOUT_MS);
++
++  test("falls back to full for a missing remote object", () => {
++    const { repo, base } = createGitFixture();
++    try {
++      checkoutTrackedBranch(repo, "feature", base);
++      commitFile(repo, "packages/db/src/change.ts", "db\n", "db change");
++      const result = executeGate(undefined, {
++        cwd: repo,
++        input: updateLine(repo, "refs/heads/feature", "f".repeat(40)),
++        args: ["--pre-push"],
++        dry: true,
++      });
++      expect(result.status).toBe(0);
++      expect(result.stdout).toContain("full-suite");
++    } finally {
++      rmSync(repo, { recursive: true, force: true });
++    }
++  }, SPAWN_TIMEOUT_MS);
++
++  test("falls back to full for a dirty workspace manifest", () => {
++    const { repo, base } = createGitFixture();
++    try {
++      checkoutTrackedBranch(repo, "feature", base);
++      commitFile(repo, "packages/db/src/change.ts", "db\n", "db change");
++      writeRepoFile(repo, "packages/db/package.json", "{\"dirty\":true}\n");
++      expect(execFileSync(
++        "git",
++        ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
++        { cwd: repo, encoding: "utf8" },
++      )).toBe(" M packages/db/package.json\0");
++      const result = executeGate(undefined, {
++        cwd: repo,
++        input: updateLine(repo, "refs/heads/feature", base),
++        args: ["--pre-push"],
++        dry: true,
++      });
++      expect(result.stdout).toContain("full-suite");
++    } finally {
++      rmSync(repo, { recursive: true, force: true });
++    }
++  }, SPAWN_TIMEOUT_MS);
++
++  test("falls back to full for a committed workspace manifest", () => {
++    const committed = createGitFixture();
++    try {
++      checkoutTrackedBranch(committed.repo, "manifest", committed.base);
++      commitFile(committed.repo, "packages/db/package.json", "{\"name\":\"fixture\"}\n", "manifest");
++      const result = executeGate(undefined, {
++        cwd: committed.repo,
++        input: updateLine(committed.repo, "refs/heads/manifest", committed.base),
++        args: ["--pre-push"],
++        dry: true,
++      });
++      expect(result.stdout).toContain("full-suite");
++    } finally {
++      rmSync(committed.repo, { recursive: true, force: true });
++    }
++  }, SPAWN_TIMEOUT_MS);
++
++  test("falls back to full for an unknown path", () => {
++    const unknown = createGitFixture();
++    try {
++      checkoutTrackedBranch(unknown.repo, "unknown", unknown.base);
++      commitFile(unknown.repo, "unknown-root-file.txt", "unknown\n", "unknown");
++      const result = executeGate(undefined, {
++        cwd: unknown.repo,
++        input: updateLine(unknown.repo, "refs/heads/unknown", unknown.base),
++        args: ["--pre-push"],
++        dry: true,
++      });
++      expect(result.stdout).toContain("full-suite");
++    } finally {
++      rmSync(unknown.repo, { recursive: true, force: true });
++    }
++  }, SPAWN_TIMEOUT_MS);
++
++  const unsupportedInputs = [
++    ["protected destinations", (repo) => updateLine(repo, "refs/heads/main")],
++    ["multi-ref updates", (repo) => {
++      const feature = updateLine(repo, "refs/heads/feature");
++      return `${feature}${feature}`;
++    }],
++    ["tag updates", (repo) => updateLine(repo, "refs/tags/v1")],
++    ["deletions", (_repo, base) => `(delete) ${"0".repeat(base.length)} refs/heads/feature ${base}\n`],
++    ["non-HEAD updates", (_repo, base) => `refs/heads/feature ${base} refs/heads/feature ${base}\n`],
++    ["malformed records", () => "malformed\n"],
++    ["missing input", () => ""],
++  ];
++  for (const [name, inputFor] of unsupportedInputs) {
++    test(`rejects ${name} before validation`, () => {
++      const { repo, base } = createGitFixture();
++      try {
++        checkoutTrackedBranch(repo, "feature", base);
++        commitFile(repo, "apps/platform-web/src/feature.tsx", "feature\n", "feature");
++        const result = executeGate(undefined, {
++          cwd: repo,
++          input: inputFor(repo, base),
++          args: ["--pre-push"],
++        });
++        expect(result.status).not.toBe(0);
++        expect(result.calls).toEqual([]);
++      } finally {
++        rmSync(repo, { recursive: true, force: true });
++      }
++    }, SPAWN_TIMEOUT_MS);
++  }
++
++  test("standalone invocation without hook input stays full", () => {
++    const { repo, base } = createGitFixture();
++    try {
++      checkoutTrackedBranch(repo, "feature", base);
++      commitFile(repo, "apps/platform-web/src/feature.tsx", "feature\n", "feature");
++      const result = executeGate(undefined, { cwd: repo, dry: true });
++      expect(result.status).toBe(0);
++      expect(result.stdout).toContain("full-suite");
++    } finally {
++      rmSync(repo, { recursive: true, force: true });
++    }
++  }, SPAWN_TIMEOUT_MS);
++
++  test("installed Lefthook forwards one stream without hanging and protection precedes Bun", () => {
++    const { repo, base } = createGitFixture();
++    try {
++      checkoutTrackedBranch(repo, "feature", base);
++      commitFile(repo, "apps/platform-web/src/feature.tsx", "feature\n", "feature");
++      const command = `node ${JSON.stringify(scriptPath)} --pre-push`.replaceAll("\\\\", "/");
++      writeFileSync(path.join(repo, "lefthook.yml"), [
++        "pre-push:",
++        "  jobs:",
++        "    - name: pre-push gate",
++        `      run: ${command}`,
++        "      use_stdin: true",
++        "",
++      ].join("\n"));
++
++      const protectedResult = executeLefthook(repo, updateLine(repo, "refs/heads/main"));
++      expect(protectedResult.status).not.toBe(0);
++      expect(protectedResult.calls).toEqual([]);
++
++      const featureResult = executeLefthook(repo, updateLine(repo, "refs/heads/feature"));
++      expect(featureResult.status).toBe(0);
++      expect(featureResult.calls.join(" ")).toContain("apps/platform-web test");
++    } finally {
++      rmSync(repo, { recursive: true, force: true });
++    }
++  }, SPAWN_TIMEOUT_MS);
++});
++
+ describe("change-aware CI plan", () => {
+   const SHA = "a".repeat(40);
+   const BASE = "b".repeat(40);
+-- 
+2.51.0.windows.1
+

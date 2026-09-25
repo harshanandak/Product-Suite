@@ -1,0 +1,64 @@
+From 0ee465f92ac4b40c348cf66ab504be295d9aaf58 Mon Sep 17 00:00:00 2001
+From: Harsha Nanda <212836255+harshanandak@users.noreply.github.com>
+Date: Sat, 19 Sep 2026 23:23:21 +0530
+Subject: [PATCH] fix(toolchain): apply BlockSuite patch from workspace root
+
+---
+ CHANGELOG.md              |  2 +-
+ package.json              |  3 +++
+ test/repo-tooling.test.js | 12 ++++++++++++
+ 3 files changed, 16 insertions(+), 1 deletion(-)
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 2b9c2ee..5520c79 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -23,7 +23,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+ - Schema and domain ownership inventory for roadmap and meeting surfaces, including canonical ownership boundaries, overlap rules, and guarded discoverability links (PR #3, product-suite-waq)
+ 
+ ### Changed
+-- Bun CI runtimes now follow stable releases, and local setup documents stable upgrades instead of an obsolete exact runtime pin (Forge issue `b0803978-a71b-4946-a139-48e8901b9739`)
++- Bun CI runtimes now follow stable releases, local setup documents stable upgrades instead of an obsolete exact runtime pin, and root installs apply the BlockSuite icon compatibility patch (PR #188, Forge issue `b0803978-a71b-4946-a139-48e8901b9739`)
+ - Real-Neon authority conformance now proves disposable-project and production-derived-branch cleanup, direct migration versus pooled runtime binding, least-privilege CRUD and denial behavior, and exact opaque PASS evidence (PR #173, Forge issue `25faf39b-3017-42fe-94c0-87acad7279a0`)
+ - DB Contract now runs deterministic changed-surface cheap gates before protected exact-head Neon evidence; executable migration-manifest and OAuth/token/session authority paths fail closed to DB proof, while strict server-side branch protection remains the merge-time base-freshness authority (Forge issue `532329e0-7595-40c2-b939-a3a0735f8071`)
+ - DB Contract real-Neon tests now reuse migrated suite branches with transaction rollback for safe cases, preserve dedicated isolation-sensitive proofs, and emit exact-head phase evidence to reduce runtime without weakening isolation (PR #168, Forge issue `9a808ed4-16c1-48c7-8ffb-2e8a2c8aaaaf`)
+diff --git a/package.json b/package.json
+index 2f95e84..ab353aa 100644
+--- a/package.json
++++ b/package.json
+@@ -18,6 +18,9 @@
+     "services/agent-core",
+     "services/hocuspocus"
+   ],
++  "patchedDependencies": {
++    "@blocksuite/icons@2.2.17": "patches/@blocksuite%2Ficons@2.2.17.patch"
++  },
+   "scripts": {
+     "prepare": "lefthook install",
+     "lint": "bun run --filter '*' lint -- --max-warnings 0",
+diff --git a/test/repo-tooling.test.js b/test/repo-tooling.test.js
+index 6fab0b1..9ca650e 100644
+--- a/test/repo-tooling.test.js
++++ b/test/repo-tooling.test.js
+@@ -145,6 +145,18 @@ describe("repo tooling", () => {
+     }
+   });
+ 
++  test("root installs own the BlockSuite icon compatibility patch", () => {
++    const dependency = "@blocksuite/icons@2.2.17";
++    const rootPatchPath = packageJson.patchedDependencies?.[dependency];
++    const roadmapPatchPath = roadmapWebPackageJson.patchedDependencies?.[dependency];
++
++    expect(rootPatchPath).toBe("patches/@blocksuite%2Ficons@2.2.17.patch");
++    expect(roadmapPatchPath).toBe(rootPatchPath);
++    expect(readFileSync(join(rootDir, rootPatchPath), "utf8")).toBe(
++      readFileSync(join(rootDir, "apps", "roadmap-web", roadmapPatchPath), "utf8"),
++    );
++  });
++
+   test("root dependency bootstrap exposes ESLint's AJV 6 draft-04 reference", () => {
+     expect(packageJson.devDependencies.ajv).toBe("6.14.0");
+     expect(() =>
+-- 
+2.51.0.windows.1
+

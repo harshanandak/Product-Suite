@@ -1,0 +1,317 @@
+From ba70a01e7e826851adfc8865901adb063a439939 Mon Sep 17 00:00:00 2001
+From: Harsha Nanda <harshanandak@users.noreply.github.com>
+Date: Sun, 9 Aug 2026 13:24:27 +0530
+Subject: [PATCH] docs(plan): close meeting authority re-review gaps
+
+---
+ .../2026-08-08-meeting-authority-pr-a/plan.md |  71 +++++++----
+ .../tasks.md                                  | 114 ++++++++++++------
+ 2 files changed, 129 insertions(+), 56 deletions(-)
+
+diff --git a/docs/work/2026-08-08-meeting-authority-pr-a/plan.md b/docs/work/2026-08-08-meeting-authority-pr-a/plan.md
+index 60e491c..7b9fd8b 100644
+--- a/docs/work/2026-08-08-meeting-authority-pr-a/plan.md
++++ b/docs/work/2026-08-08-meeting-authority-pr-a/plan.md
+@@ -134,7 +134,7 @@ content models with named, versioned projection constants:
+ | `PROPOSAL_ROW_COLUMNS` | create/list/get and route decision returns; proposal serializers | exactly current `ProposalRow`; no origin/source linkage columns |
+ | `WORK_ITEM_ROW_COLUMNS` | work-item fetch/create/update returns | exactly current domain/API `WorkItem`; no origin/source linkage columns |
+ | `WORK_ITEM_SNAPSHOT_FIELDS` | `to_jsonb(work_items)` in proposal create/apply/undo | only currently approved target fields; never new authority/provenance columns |
+-| existing `CHUNK_COLS` plus named ingest fields | knowledge retrieval and knowledge-chunk insert/supersede/existence paths | existing recall DTO only; never return/log `access_conversation_id` |
++| `KNOWLEDGE_CHUNK_INTERNAL_COLUMNS` | knowledge retrieval and knowledge-chunk insert/supersede/existence result paths | exactly the existing recall/mutation IDs each caller consumes; never return/log `access_conversation_id` |
+ | `MEETING_PROMOTION_INTERNAL_COLUMNS` | ingest ledger, candidate exclusion, proposal apply, and DB-contract ledger reads | only IDs already consumed by each internal caller; no whole row or origin field |
+ 
+ Internal SQL may read authority columns only in A2's private repository/backfill;
+@@ -145,10 +145,18 @@ This is API compatibility, not a new API version.
+ The boundary is the SQL result, not merely the final HTTP serializer: no
+ affected repository may use `SELECT *`, `RETURNING *`, a whole-row
+ `to_jsonb(table)`, object spread of a raw row, or `json(row)` on these models.
+-Each projection test seeds a sentinel extra column and asserts it is absent from
+-repository results, route responses, proposal before-images, undo envelopes,
+-logs, and error objects. This makes later nullable columns non-observable even
+-if a caller bypasses the normal route serializer.
++For wildcard-backed meeting/memory/proposal/work-item surfaces, projection tests
++seed a sentinel extra column and assert it is absent from repository results,
++route responses, proposal before-images, undo envelopes, logs, and error
++objects. `knowledge_chunks` and `meeting_promotions` already use explicit
++select/returning lists, so their RED is structural rather than a false runtime
++leak: a static/captured-SQL test fails until the required named constants
++`KNOWLEDGE_CHUNK_INTERNAL_COLUMNS` and
++`MEETING_PROMOTION_INTERNAL_COLUMNS` exist and every affected result path uses
++one of them. GREEN freezes their exact caller-consumed keys and rejects inline,
++wildcard, whole-row JSON, raw-row spread, log, or error egress. This makes later
++nullable columns non-observable even if a caller bypasses the normal route
++serializer.
+ 
+ ## PR A2: exact Neon schema contract
+ 
+@@ -265,12 +273,20 @@ covered by its dormant CHECK.
+ 
+ `memory_visibility` remains byte-for-byte `private|org`; A2 does not add a
+ `conversation` enum value. Defense in depth is mandatory: every existing memory
+-read/update/chain/search query adds `access_conversation_id IS NULL`, and a
+-direct lookup of a non-NULL conversation-origin row returns the same public
+-`not_found`/empty-lane response as an absent row. Thus an inconsistent row
+-introduced outside the supported runner is quarantined from all current memory
+-surfaces. PR B may remove this barrier only when caller-aware conversation
+-membership enforcement lands atomically.
++read or mutation adds `access_conversation_id IS NULL`, including domain and
++route detail/source/chain/list/search/update/retract/defer/reactivate; agent
++`retrieveRulesForContext`, `retrieveForContext`, `searchMemories`, and
++`resolveChain` recall/injection/search/chain lanes in
++`agent/memory-retrieval.ts`; every memory lane in
++`agent/knowledge-retrieval.ts`; the memory export and guarded embedding update
++in `agent/kb-ingest.ts`; and the post-flip compensation deletion in
++`proposals/apply.ts`. A direct lookup of a non-NULL conversation-origin row
++returns the same public `not_found`/empty-lane response as an absent row; agent
++lanes neither return nor inject it; embedding ingest neither exports nor updates
++it; compensation does not delete it. Thus an inconsistent row introduced
++outside the supported runner is quarantined from every active memory surface.
++PR B may remove this barrier only when caller-aware conversation membership
++enforcement lands atomically.
+ 
+ ## Verified owner-only meeting backfill
+ 
+@@ -299,14 +315,21 @@ For each meeting ordered by `(tenant_id,id)`:
+    or delete.
+ 5. Set `meetings.access_tenant_id` and `meetings.conversation_id` together only
+    after all invariants succeed in one transaction. Unique constraints plus
+-   compare-and-set make repeated and concurrent runs converge.
++   compare-and-set make repeated and concurrent runs converge. For two workers
++   racing the same previously unlinked meeting, exactly one per-record report is
++   `linked` and the other is `alreadyLinked`; their report dispositions differ,
++   but both observe the same final stored origin pair.
+ 
+ The JSON report schema is fixed:
+ `schemaVersion`, migration revision, run mode, started/completed timestamps,
+ sorted `scanned|linked|alreadyLinked|quarantinedUnlinked|quarantinedLinked|
+-failed` counts, and sorted
+-`{meetingId, sourceTenantId, originState:'unlinked'|'linked', reasonCode}`
+-entries. Allowed
++failed` counts, and one sorted entry for every scanned record:
++`{meetingId, sourceTenantId,
++disposition:'linked'|'alreadyLinked'|'quarantinedUnlinked'|'quarantinedLinked',
++originState:'unlinked'|'linked', reasonCode:null|<allowed-code>}`. `linked` and
++`alreadyLinked` require `originState:'linked'` and `reasonCode:null`;
++`quarantinedUnlinked` requires `originState:'unlinked'` plus one reason;
++`quarantinedLinked` requires `originState:'linked'` plus one reason. Allowed
+ reason codes are `mapping_missing|mapping_revoked|mapping_ambiguous|
+ mapping_cross_tenant|
+ organization_inactive|actor_missing|actor_disabled|conversation_archived|
+@@ -377,14 +400,15 @@ The fixture also proves:
+ - equality/email/provider spoofing never maps a principal;
+ - cross-tenant FK rejection and identical public denial;
+ - current allow, then committed membership removal, then deny on the next call;
+-- two simultaneous backfills create one origin/membership and identical report
+-  outcomes;
++- two simultaneous backfills create one origin/membership, report one `linked`
++  and one `alreadyLinked`, and converge on the identical final stored pair;
+ - removed membership is not reactivated; archived conversation not unarchived;
+ - UUID/legacy-reference collision quarantines with no partial mutation;
+ - derivative columns reject non-NULL writes, supported backfill leaves them
+-  NULL, and `memory_visibility` enum is unchanged; repository unit/route tests
+-  separately inject a synthetic inconsistent row and prove every current memory
+-  surface hides it;
++  NULL, and `memory_visibility` enum is unchanged; A2.4 focused tests across
++  domain, routes, agent retrieval/injection, embedding ingest, and proposal
++  compensation separately inject a synthetic inconsistent row and prove every
++  current memory surface hides or refuses to mutate it;
+ - response key snapshots are identical before/after migration;
+ - branch teardown runs in `finally` and reports deletion evidence.
+ 
+@@ -420,12 +444,15 @@ and their tests. Estimate: 24-28 files, 450-700 net LOC.
+ 
+ PR A2 owns `packages/db/migrations/0020_meeting_authority_foundation.sql`, the
+ real `0020` snapshot/journal entry and `packages/db/src/{schema,meeting-schema}.ts`,
++the landed canonical runner fixture `test/migrate-database.test.js`,
+ `scripts/meeting-authority/backfill-meeting-origins.ts`, its tests,
+ `apps/platform-api/src/collaboration/repository.ts` and test,
+-`apps/platform-api/src/domain/memories.ts` and its fail-closed tests,
++`apps/platform-api/src/domain/memories.ts`, routes, agent memory/knowledge
++retrieval and ingest, proposal compensation, and all corresponding fail-closed
++tests,
+ `apps/platform-api/test/db-contract/{harness,meeting-authority-foundation.test}.ts`,
+ `apps/platform-api/vitest.db-contract.config.ts`, `apps/platform-api/package.json`,
+-and `.github/workflows/db-contract.yml`. Estimate: 14-18 files, 600-900 net LOC.
++and `.github/workflows/db-contract.yml`. Estimate: 22-26 files, 750-1,100 net LOC.
+ 
+ ## Baseline, dependency, and conflict evidence
+ 
+diff --git a/docs/work/2026-08-08-meeting-authority-pr-a/tasks.md b/docs/work/2026-08-08-meeting-authority-pr-a/tasks.md
+index 1c746ca..c55f442 100644
+--- a/docs/work/2026-08-08-meeting-authority-pr-a/tasks.md
++++ b/docs/work/2026-08-08-meeting-authority-pr-a/tasks.md
+@@ -71,11 +71,16 @@ change.
+ - new `apps/platform-api/src/meeting/authority-projections.test.ts`
+ 
+ Introduce exact `MEMORY_ROW_COLUMNS`, `PROPOSAL_ROW_COLUMNS`,
+-`WORK_ITEM_ROW_COLUMNS`, and `WORK_ITEM_SNAPSHOT_FIELDS`; replace affected
+-`SELECT *`, `RETURNING *`, and unrestricted `to_jsonb(work_items)`. RED tests add
++`WORK_ITEM_ROW_COLUMNS`, `WORK_ITEM_SNAPSHOT_FIELDS`,
++`KNOWLEDGE_CHUNK_INTERNAL_COLUMNS`, and
++`MEETING_PROMOTION_INTERNAL_COLUMNS`; replace affected `SELECT *`, `RETURNING
++*`, and unrestricted `to_jsonb(work_items)`. Wildcard-backed RED tests add
+ sentinel authority columns and prove they currently escape through repository
+-rows, route JSON, before-images, undo envelopes, logs, or errors. GREEN tests
+-prove exact current row/API/snapshot keys and unchanged values. Raw-row object
++rows, route JSON, before-images, undo envelopes, logs, or errors. Because
++knowledge-chunk and meeting-promotion callers already select explicit fields,
++their RED must instead fail on the missing required named/static constants and
++on any captured result SQL that keeps an inline list. GREEN tests prove exact
++current row/API/snapshot/internal keys and unchanged values. Raw-row object
+ spread or generic serialization is forbidden even behind an explicit route
+ serializer. Run focused suites, platform typecheck/lint, and compatibility
+ snapshots.
+@@ -91,10 +96,13 @@ apps/platform-api/src/agent/knowledge-retrieval.test.ts
+ apps/platform-api/src/agent/kb-ingest.test.ts
+ apps/platform-api/src/meeting/ingest.test.ts
+ apps/platform-api/src/meeting/candidates.test.ts
+-apps/platform-api/src/meeting/authority-projections.test.ts`. Expected RED names the
+-sentinel/wildcard egress; GREEN passes every named suite and captured SQL has no
+-affected wildcard, whole-row JSON, or authority column in returned/logged/error
+-shapes.
++apps/platform-api/src/meeting/authority-projections.test.ts`. Expected RED names
++the sentinel/wildcard egress for wildcard-backed surfaces and names the absent
++`KNOWLEDGE_CHUNK_INTERNAL_COLUMNS` / `MEETING_PROMOTION_INTERNAL_COLUMNS`
++structural contract for the already-explicit surfaces. GREEN passes every named
++suite; captured/static SQL uses the required constants and has no affected
++wildcard, inline result projection, whole-row JSON, or authority column in
++returned/logged/error shapes.
+ 
+ ### A1 validation/approval
+ 
+@@ -115,7 +123,8 @@ changes before A2 can leave draft.
+ `packages/db/migrations/meta/0020_snapshot.json`,
+ `packages/db/migrations/meta/_journal.json`,
+ `packages/db/src/schema.test.ts`, and
+-`packages/db/src/catalog-contract.test.ts`;
++`packages/db/src/catalog-contract.test.ts`, plus the landed canonical runner
++fixture `test/migrate-database.test.js`;
+ no other migration directory or runner.
+ 
+ Before RED, record the landed `0019` topology SHA, real snapshot/journal hashes,
+@@ -136,11 +145,22 @@ GREEN runs canonical generate/no-change, parity, then applies/verifies exact
+ 
+ RED: `bun test packages/db/src/schema.test.ts
+ packages/db/src/catalog-contract.test.ts` fails on absent mapping/origin/dormant
+-constraints. GREEN: the same command plus `bun run check:migration-parity`,
+-then `bun run --cwd packages/db generate -- --name
+-meeting_authority_foundation` reports no subsequent diff; canonical runner
+-fixtures apply/verify exact `0020` on both variants. Expected evidence records
+-migration/snapshot/journal hashes and zero schema diff without a second journal.
++constraints. Extend and rename the parameterized fixture in
++`test/migrate-database.test.js` to `applies and verifies candidate 0020 for both
++history variants`; it consumes the real candidate `0020` and the landed
++`original-production` and `repaired-bootstrap` floors. GREEN: the schema/catalog
++command plus `bun run check:migration-parity`, then `bun run --cwd packages/db
++generate -- --name meeting_authority_foundation` reports no subsequent diff.
++Run exactly:
++
++```text
++bun test test/migrate-database.test.js --test-name-pattern "applies and verifies candidate 0020 for both history variants"
++```
++
++Both variant cases must apply the same exact `0020` suffix and verify `NOOP` at
++floor `0020`. Expected evidence
++records both case names, migration/snapshot/journal hashes, applied/verified
++status, and zero schema diff without a second journal.
+ 
+ ### Task A2.2 - Add rerun-safe owner-only meeting backfill
+ 
+@@ -158,14 +178,18 @@ missing/revoked/ambiguous mapping, inactive
+ org, missing/disabled actor, removed/role-conflicting membership, archived/
+ conflicting conversation, UUID collision, label/provider/equality spoof,
+ transaction rollback, dry-run, repeated apply, and deterministic ordering. No
+-derivative update statement is permitted.
++derivative update statement is permitted. Fixtures assert one per-record entry
++for each exact disposition `linked|alreadyLinked|quarantinedUnlinked|
++quarantinedLinked`, with the required linked/unlinked `originState` and nullable
++versus fixed `reasonCode` pairing.
+ 
+ RED/GREEN command:
+ `bun test scripts/meeting-authority/backfill-meeting-origins.test.ts`. Expected
+ RED exposes the missing mapping/quarantine transaction; GREEN emits sorted,
+-redacted fixtures with separate `quarantinedUnlinked`/`quarantinedLinked`
+-counts and `originState`, converges on repeat/concurrent apply, and captures no
+-derivative UPDATE.
++redacted fixtures with all four disposition counts and per-record dispositions.
++Two concurrent applies must report one `linked` and one `alreadyLinked` while
++converging on the identical final stored origin pair; the reports are not
++expected to be identical. GREEN also captures no derivative UPDATE.
+ 
+ ### Task A2.3 - Add one-statement current authorization
+ 
+@@ -185,23 +209,44 @@ fixed private precedence, and byte-identical public denial for every denied row.
+ 
+ ### Task A2.4 - Quarantine conversation-origin memories until PR B
+ 
+-**OWNS:** `apps/platform-api/src/domain/memories.ts`,
+-`apps/platform-api/src/domain/memories.test.ts`,
+-`apps/platform-api/src/routes/memories.test.ts`
++**OWNS:**
++
++- `apps/platform-api/src/domain/memories.ts`,
++  `apps/platform-api/src/domain/memories.test.ts`,
++  `apps/platform-api/src/routes/memories.test.ts`
++- `apps/platform-api/src/agent/memory-retrieval.ts`,
++  `apps/platform-api/src/agent/memory-retrieval.test.ts`
++- `apps/platform-api/src/agent/knowledge-retrieval.ts`,
++  `apps/platform-api/src/agent/knowledge-retrieval.test.ts`
++- `apps/platform-api/src/agent/kb-ingest.ts`,
++  `apps/platform-api/src/agent/kb-ingest.test.ts`
++- `apps/platform-api/src/proposals/apply.ts`,
++  `apps/platform-api/src/proposals/apply.test.ts`
+ 
+ Keep `memory_visibility` exactly `private|org`. Write RED tests showing a forced
+-row with non-NULL `access_conversation_id` can currently escape through direct,
+-source, chain, list/search, update, retract, defer, and reactivate paths. Add
+-`access_conversation_id IS NULL` to every current read/update boundary so direct
+-access returns public `not_found` and collections omit the row. This is a
+-temporary fail-closed barrier, not conversation authorization; PR B may remove
+-it only with atomic caller-aware membership enforcement. GREEN also proves
+-ordinary NULL-origin memories are byte-compatible.
++row with non-NULL `access_conversation_id` can currently escape or mutate through
++domain/route direct, source, chain, list/search, update, retract, defer, and
++reactivate; agent recall/injection/search/chain in `memory-retrieval.ts`; every
++memory lane in `knowledge-retrieval.ts`; memory export and embedding update in
++`kb-ingest.ts`; and the post-flip compensation deletion in `proposals/apply.ts`.
++Add `access_conversation_id IS NULL` to every one of those SQL boundaries so
++direct access returns public `not_found`, collections/agent lanes omit and never
++inject the row, embedding ingest neither exports nor updates it, and
++compensation does not delete it. This is a temporary fail-closed barrier, not
++conversation authorization; PR B may remove it only with atomic caller-aware
++membership enforcement. GREEN also proves ordinary NULL-origin memories remain
++byte-compatible.
+ 
+ RED/GREEN command: `bun test apps/platform-api/src/domain/memories.test.ts
+-apps/platform-api/src/routes/memories.test.ts`. Expected RED returns the
+-injected conversation-origin sentinel; GREEN hides it from every named direct/
+-collection/mutation surface while NULL-origin fixtures remain unchanged.
++apps/platform-api/src/routes/memories.test.ts
++apps/platform-api/src/agent/memory-retrieval.test.ts
++apps/platform-api/src/agent/knowledge-retrieval.test.ts
++apps/platform-api/src/agent/kb-ingest.test.ts
++apps/platform-api/src/proposals/apply.test.ts`. Expected RED identifies each
++read/injection/export/update/compensation boundary that lacks the null-origin
++predicate; GREEN hides the forced row from every named surface, performs no
++embedding update or compensation delete against it, and leaves NULL-origin
++fixtures unchanged.
+ 
+ ### Task A2.5 - Make Neon conformance mandatory and executable
+ 
+@@ -228,9 +273,10 @@ Prove one SQL call and identical public denial for every denial, mapping
+ non-inference, composite FKs, committed revocation on the next call, two
+ concurrent backfills, removed/archived/collision preservation, rejected
+ non-NULL derivative writes, unchanged memory enum, exact response keys, and
+-branch deletion in `finally`. Synthetic repository/route tests—not privileged
+-real-DB constraint bypass—prove an inconsistent conversation memory is
+-invisible. Execute:
++branch deletion in `finally`. A2.4 focused tests—not privileged real-DB
++constraint bypass—prove an inconsistent conversation memory is invisible and
++immutable across domain, route, agent retrieval/injection, embedding ingest,
++and proposal compensation. Execute:
+ 
+ ```text
+ bun run --cwd apps/platform-api test:db-contract:meeting-authority
+-- 
+2.51.0.windows.1
+

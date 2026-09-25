@@ -1,0 +1,600 @@
+From 98a0db81d7cf6b342a124cb351ac550b6e73047b Mon Sep 17 00:00:00 2001
+From: Harsha Nanda <harshanandak@users.noreply.github.com>
+Date: Sun, 9 Aug 2026 04:07:50 +0530
+Subject: [PATCH] docs(plan): lock Neon meeting authority PR A
+
+---
+ .../2026-08-08-meeting-authority-pr-a/plan.md | 194 ++++++++++++++----
+ .../tasks.md                                  | 192 +++++++++++++----
+ 2 files changed, 303 insertions(+), 83 deletions(-)
+
+diff --git a/docs/work/2026-08-08-meeting-authority-pr-a/plan.md b/docs/work/2026-08-08-meeting-authority-pr-a/plan.md
+index 072bb98..60e491c 100644
+--- a/docs/work/2026-08-08-meeting-authority-pr-a/plan.md
++++ b/docs/work/2026-08-08-meeting-authority-pr-a/plan.md
+@@ -28,21 +28,32 @@ adding a second journal or runner.
+ PR A remains Forge-blocked until the prerequisite handoff provides and live
+ verification confirms all of:
+ 
+-1. one Neon project/database/schema topology for meeting, identity,
+-   collaboration, memory, proposal, and work-item tables;
+-2. the one supported migration root, runner, journal/revision rule, next
+-   available migration identifier, deployment command, and fresh-clone path;
+-3. `DATABASE_URL` provenance for both meeting and platform runtimes, with stale
++1. one configured Neon project, database `neondb`, and schema `public` for
++   meeting, identity, collaboration, memory, proposal, and work-item tables;
++2. `packages/db/src/schema.ts` plus the re-exported
++   `packages/db/src/meeting-schema.ts` as the complete Drizzle model,
++   `packages/db/migrations` as the only migration root, and
++   `packages/db/migrations/meta/_journal.json` as the only journal;
++3. reconciliation `0019_neon_authority_reconciliation.sql` applied and verified
++   with the guarded `migrate:database` runner on both recognized history
++   variants: production=`original-production`, fresh/staging/test=
++   `repaired-bootstrap`;
++4. PR A slot `0020_meeting_authority_foundation.sql` still free after rebasing
++   on the exact main commit containing `0019`, with generate/apply/verify and
++   no-change-generation commands captured in the prerequisite handoff;
++5. pooled `DATABASE_URL` provenance for both meeting and platform runtimes and
++   direct owner-scoped `MIGRATION_DATABASE_URL` for the guarded runner, with stale
+    Supabase defaults/adapters rejected in supported production configuration;
+-4. the canonical identity/tenant tables and their key/constraint shapes;
+-5. historical Alembic/Supabase files classified as immutable history or removed
++6. the canonical identity/tenant tables and their key/constraint shapes;
++7. historical Alembic/Supabase files classified as immutable history or removed
+    adapters, never a second live migration authority.
+ 
+-Before DEV, amend the placeholders below mechanically with the landed
+-`canonical_migration_root`, `canonical_next_revision`, and exact deployment
+-command from `59ef...`; re-run conflict and migration-order checks. If the
+-prerequisite does not establish all five facts, PR A stays blocked rather than
+-guessing.
++Before DEV, record the landed prerequisite merge SHA and exact `0019` snapshot/
++journal hashes. Rebase, assert `0020` is the next contiguous tag, generate from
++the real `0019` snapshot, and prove the same exact `0020` suffix applies and
++verifies on both recognized history variants. If any of these seven facts is
++missing or another migration owns `0020`, PR A stays blocked and is renumbered
++with the prerequisite handoff rather than guessing or creating another runner.
+ 
+ ## Locked security contract
+ 
+@@ -65,7 +76,7 @@ guessing.
+ - Database/migration mismatch, missing mapping/origin, inactive/revoked state,
+   ambiguous identity, and query failure deny.
+ 
+-## Delivery split
++## Delivery split and concrete GitHub stack
+ 
+ The earlier single-PR estimate was too broad. Deliver two sequential medium PRs
+ under this child, both after `59ef...` merges:
+@@ -82,9 +93,27 @@ schema, perform owner-only meeting backfill, add the one-statement authorization
+ primitive, and prove it on ephemeral Neon. No existing content call site uses
+ the new primitive until PR B.
+ 
+-A1 must merge before A2 branches. PR B still owns derivative propagation,
+-memory visibility/enforcement, candidate UX/promotion, and existing read/action
+-enforcement.
++The split is valuable because A1 removes accidental serialization paths before
++A2 adds dormant columns. Use this exact GitHub structure:
++
++1. Neon authority PR (`59ef...`) targets `main` and lands first.
++2. Branch `codex/meeting-authority-a1` from the exact updated `origin/main`; PR
++   A1 targets `main` and contains contracts/projections only.
++3. Record the reviewed A1 head SHA. Branch `codex/meeting-authority-a2` from
++   that exact head; while A1 is open, PR A2 is a draft whose GitHub base is
++   `codex/meeting-authority-a1`, so its Files view contains only A2 changes.
++4. After GitHub squash-merges A1, record the A1 merge SHA and restack only A2
++   with `git rebase --onto <A1-merge-SHA> <old-A1-head-SHA>
++   codex/meeting-authority-a2`; if patch identity is not exact, recreate A2 from
++   the merge SHA and cherry-pick only reviewed A2 commits. Retarget A2 to
++   `main`, re-prove `0020` is free, and rerun every exact-head gate. Never merge
++   A2 while its base is the feature branch or while its diff contains A1.
++5. PR B branches only from `main` after A2 is merged and verified.
++
++PR B still owns derivative propagation, conversation-aware memory visibility,
++candidate UX/promotion, and existing read/action enforcement. A2 owns only the
++dormant fail-closed barrier described below; it does not make conversation
++memory readable.
+ 
+ ## PR A1: contract and explicit response projections
+ 
+@@ -105,20 +134,33 @@ content models with named, versioned projection constants:
+ | `PROPOSAL_ROW_COLUMNS` | create/list/get and route decision returns; proposal serializers | exactly current `ProposalRow`; no origin/source linkage columns |
+ | `WORK_ITEM_ROW_COLUMNS` | work-item fetch/create/update returns | exactly current domain/API `WorkItem`; no origin/source linkage columns |
+ | `WORK_ITEM_SNAPSHOT_FIELDS` | `to_jsonb(work_items)` in proposal create/apply/undo | only currently approved target fields; never new authority/provenance columns |
++| existing `CHUNK_COLS` plus named ingest fields | knowledge retrieval and knowledge-chunk insert/supersede/existence paths | existing recall DTO only; never return/log `access_conversation_id` |
++| `MEETING_PROMOTION_INTERNAL_COLUMNS` | ingest ledger, candidate exclusion, proposal apply, and DB-contract ledger reads | only IDs already consumed by each internal caller; no whole row or origin field |
+ 
+ Internal SQL may read authority columns only in A2's private repository/backfill;
+ it cannot pass raw rows to a route or generic serializer. Projection tests
+ assert exact keys on list/detail/create/update and proposal snapshot responses.
+ This is API compatibility, not a new API version.
+ 
++The boundary is the SQL result, not merely the final HTTP serializer: no
++affected repository may use `SELECT *`, `RETURNING *`, a whole-row
++`to_jsonb(table)`, object spread of a raw row, or `json(row)` on these models.
++Each projection test seeds a sentinel extra column and asserts it is absent from
++repository results, route responses, proposal before-images, undo envelopes,
++logs, and error objects. This makes later nullable columns non-observable even
++if a caller bypasses the normal route serializer.
++
+ ## PR A2: exact Neon schema contract
+ 
+-All DDL is one migration at:
+-`<canonical_migration_root>/<canonical_next_revision>_meeting_authority_foundation.sql`.
+-The root/revision are outputs of `59ef...`, not choices made by this blocked
+-plan. There is no Alembic revision, second journal entry, search-path branch, or
+-Supabase migration. The canonical schema model/type file established by
+-`59ef...` is updated in the same PR.
++All DDL is one candidate migration at
++`packages/db/migrations/0020_meeting_authority_foundation.sql`, generated from
++and journaled after the landed `0019` snapshot. `0020` is conditional on a final
++contiguous-order check; collision blocks/renumbers the plan. There is no
++Alembic revision, second journal/runner, search-path branch, or Supabase
++migration. `packages/db/src/schema.ts` and its re-exported Meeting model are
++updated in the same PR. Apply uses direct `MIGRATION_DATABASE_URL`; applications
++continue using pooled `DATABASE_URL` against the same configured Neon
++project/`neondb`/`public` topology.
+ 
+ ### Durable principal mapping
+ 
+@@ -171,6 +213,15 @@ Constraints/indexes:
+ - application/backfill additionally requires a current active organization
+   membership for the target pair. No environment JSON map is authoritative.
+ 
++`meetings.tenant_id` and `meetings.owner_user_id` are explicitly source-system
++identifiers. They are never assumed equal to `tenants.id` or `users.id`.
++Backfill must first resolve the active tenant mapping, then the exact active
++source pair `(meetings.tenant_id, meetings.owner_user_id)`, then verify the
++mapped internal user is currently active in the mapped internal tenant. A
++provider subject resolves only through `user_auth_identities` to that internal
++user; it never substitutes for either source key. Zero, multiple, revoked, or
++cross-tenant results quarantine the meeting.
++
+ Existing `MEETING_TENANT_MAP` remains untouched in A2 only for API compatibility,
+ but neither the new primitive nor backfill reads it. Its retirement/replacement
+ belongs to the `59ef...` reconciliation and PR B call-site cutover.
+@@ -188,11 +239,38 @@ belongs to the `59ef...` reconciliation and PR B call-site cutover.
+ 
+ `meetings.access_tenant_id` and `meetings.conversation_id` are the only origin
+ fields A2 backfills. They are both null or both non-null. Every derivative
+-origin and source column remains NULL in A2. Do not add `conversation` to
+-`memory_visibility`, alter its private/org check, classify legacy derivatives,
+-or change reads. PR B owns atomic derivative propagation, quarantine enforcement,
+-dedupe changes, and the memory conversation lane after all content call sites
+-are caller-aware.
++origin and source column has no default and remains NULL in A2. Named dormant
++CHECK constraints reject every non-NULL derivative origin/source combination;
++PR B must deliberately drop those checks in the same migration that adds atomic
++propagation and enforcement. This makes accidental pre-enforcement writes fail
++at the database boundary rather than create an authorization bypass.
++
++### Nullable quarantine and fail-closed memory barrier
++
++For each pre-existing meeting, the only allowed post-backfill states are:
++
++| State | Stored meeting origin | Meaning |
++| --- | --- | --- |
++| linked | previously NULL pair becomes non-NULL | every mapping, actor, conversation, and membership invariant passed atomically |
++| already linked | same valid non-NULL pair retained | idempotent no-op after full revalidation |
++| quarantined unlinked | both fields NULL | one fixed reason code recorded; no partial write or grant |
++| quarantined linked | existing non-NULL pair retained unchanged | a current invariant failed on rerun; report only, never clear/repoint/reactivate/escalate |
++
++There is no unknown partial state: the pair-nullability check rejects it. A new
++link transaction either sets both columns or leaves both NULL. A rerun never
++rewrites an existing pair; it reports a now-invalid pair as quarantined linked,
++and later current-state authorization still denies it. Derivative tables are not
++classified or backfilled; every new derivative field remains NULL and is
++covered by its dormant CHECK.
++
++`memory_visibility` remains byte-for-byte `private|org`; A2 does not add a
++`conversation` enum value. Defense in depth is mandatory: every existing memory
++read/update/chain/search query adds `access_conversation_id IS NULL`, and a
++direct lookup of a non-NULL conversation-origin row returns the same public
++`not_found`/empty-lane response as an absent row. Thus an inconsistent row
++introduced outside the supported runner is quarantined from all current memory
++surfaces. PR B may remove this barrier only when caller-aware conversation
++membership enforcement lands atomically.
+ 
+ ## Verified owner-only meeting backfill
+ 
+@@ -225,8 +303,12 @@ For each meeting ordered by `(tenant_id,id)`:
+ 
+ The JSON report schema is fixed:
+ `schemaVersion`, migration revision, run mode, started/completed timestamps,
+-sorted counts, and sorted `{meetingId, tenantId, reasonCode}` entries. Allowed
++sorted `scanned|linked|alreadyLinked|quarantinedUnlinked|quarantinedLinked|
++failed` counts, and sorted
++`{meetingId, sourceTenantId, originState:'unlinked'|'linked', reasonCode}`
++entries. Allowed
+ reason codes are `mapping_missing|mapping_revoked|mapping_ambiguous|
++mapping_cross_tenant|
+ organization_inactive|actor_missing|actor_disabled|conversation_archived|
+ membership_removed|membership_role_conflict|origin_conflict|uuid_collision|
+ database_error`. Never include content, title, labels, email, provider subject,
+@@ -271,9 +353,26 @@ credentials scoped only to that step. Missing credentials, a skipped suite,
+ zero executed tests, cleanup failure, timeout, or truncated evidence is
+ INCOMPLETE/FAIL, never green.
+ 
+-The real-DB fixture seeds distinct meeting and platform IDs for Alice
+-(owner/admin), Bob (same platform tenant/no meeting membership), Carol (other
+-tenant), and Dave (removed membership). It proves:
++The real-DB fixture uses `neondb.public`, boots through `0019`, applies candidate
++`0020` through the canonical runner, and seeds deliberately different source
++and internal identifiers for Alice (owner/admin), Bob (same platform tenant/no
++meeting membership), Carol (other tenant), and Dave (removed membership).
++
++The authorization matrix is executable and exact:
++
++| Case | Identity/org/actor/origin/membership | Expected |
++| --- | --- | --- |
++| allow | mapped / active / active human `identity.user` / active / active allowed role | allow with internal opaque IDs |
++| unmapped | no provider-subject row | public `not_found`; private `identity_unmapped` |
++| inactive org | mapped / removed or inactive org | `not_found`; `organization_inactive` |
++| actor absent/disabled | mapped + active org / no eligible actor | `not_found`; `actor_unavailable` |
++| origin absent/archived/cross-tenant | valid caller / invalid origin | `not_found`; `origin_unavailable` |
++| membership absent/removed | valid caller + origin / no active membership | `not_found`; `membership_inactive` |
++| role too low | active membership outside allowed roles | `not_found`; `role_insufficient` |
++| database error | query fails before a reconstructable result | `not_found`; `database_unavailable` |
++
++Each denial executes exactly one SQL call and returns the identical public body.
++The fixture also proves:
+ 
+ - equality/email/provider spoofing never maps a principal;
+ - cross-tenant FK rejection and identical public denial;
+@@ -282,14 +381,20 @@ tenant), and Dave (removed membership). It proves:
+   outcomes;
+ - removed membership is not reactivated; archived conversation not unarchived;
+ - UUID/legacy-reference collision quarantines with no partial mutation;
+-- derivative columns and memory visibility remain unchanged/null;
++- derivative columns reject non-NULL writes, supported backfill leaves them
++  NULL, and `memory_visibility` enum is unchanged; repository unit/route tests
++  separately inject a synthetic inconsistent row and prove every current memory
++  surface hides it;
+ - response key snapshots are identical before/after migration;
+ - branch teardown runs in `finally` and reports deletion evidence.
+ 
+ ## Deployment, rollback, and observability
+ 
+-Order: merge/verify `59ef...`; merge A1; create a fresh A2 branch; apply its one
+-canonical Neon migration; deploy dormant repository/backfill; dry-run/report;
++Order: merge/verify `59ef...` through floor `0019`; merge A1; squash-safe
++restack/retarget A2 and assert candidate `0020`; run isolated ephemeral-Neon
++conformance; merge A2 only after its exact-head gates pass; then apply `0020` to
++any shared/staging/production target with the canonical suffix runner on the
++environment-pinned history variant; deploy dormant repository/backfill; dry-run/report;
+ approve; apply; rerun dry-run for zero mutations; run required Neon conformance.
+ There is no production feature flag in A because no read/write call site is
+ activated.
+@@ -310,14 +415,17 @@ PR A1 owns contract files plus the affected response-projection source/tests:
+ `packages/contracts/src/meeting.js`, `contracts/meeting-runtime-config.json`,
+ `src/index.d.ts`, `src/index.test.ts`; meeting `backend/server.py` and response
+ tests; platform `domain/memories.ts`, `proposals/{repository,apply,undo}.ts`,
+-`domain/work-items.ts` and their tests. Estimate: 12-16 files, 350-550 net LOC.
++`domain/work-items.ts`, knowledge/chunk and meeting-promotion egress surfaces,
++and their tests. Estimate: 24-28 files, 450-700 net LOC.
+ 
+-PR A2 owns the single migration/schema-model files named by `59ef...`,
++PR A2 owns `packages/db/migrations/0020_meeting_authority_foundation.sql`, the
++real `0020` snapshot/journal entry and `packages/db/src/{schema,meeting-schema}.ts`,
+ `scripts/meeting-authority/backfill-meeting-origins.ts`, its tests,
+ `apps/platform-api/src/collaboration/repository.ts` and test,
++`apps/platform-api/src/domain/memories.ts` and its fail-closed tests,
+ `apps/platform-api/test/db-contract/{harness,meeting-authority-foundation.test}.ts`,
+ `apps/platform-api/vitest.db-contract.config.ts`, `apps/platform-api/package.json`,
+-and `.github/workflows/db-contract.yml`. Estimate: 13-17 files, 550-800 net LOC.
++and `.github/workflows/db-contract.yml`. Estimate: 14-18 files, 600-900 net LOC.
+ 
+ ## Baseline, dependency, and conflict evidence
+ 
+@@ -338,7 +446,7 @@ and `.github/workflows/db-contract.yml`. Estimate: 13-17 files, 550-800 net LOC.
+   by this revision.
+ 
+ Out of scope: any Supabase DB path, Alembic hosted authority, derivative
+-backfill, memory visibility change, production enforcement call sites,
++backfill, a new/widened memory visibility mode, production enforcement call sites,
+ participant/provider grants, `MEETING_TENANT_MAP` as authority, explicit-share
+ UX, candidate revisions/cards, `Add`/`Adjust`/`Dismiss`, proposal/task promotion,
+ declassification, search, raw transcripts, offline ACL, positive auth caching,
+@@ -346,14 +454,16 @@ RLS, public links, external guests, federation, and destructive cleanup.
+ 
+ ## Revised approval gates
+ 
+-1. **Prerequisite gate:** `59ef...` is merged and proves one Neon topology,
+-   migration root/order/runner, config, identity tables, and fresh-clone path.
++1. **Prerequisite gate:** `59ef...` is merged/deployed through `0019` and proves
++   `neondb.public`, packages/db Drizzle ownership, both history variants,
++   runner/config/identity tables, and candidate `0020` on exact rebased main.
+ 2. **A1 API gate:** exact response-key snapshots prove new DB columns cannot
+    leak through wildcard selection, returning, JSON snapshots, or serializers.
+ 3. **A2 identity gate:** security/data approve the durable verified pair mapping
+    and rejection of equality/email/provider inference.
+-4. **A2 migration gate:** one canonical Neon migration only; nullable derivative
+-   origins, unchanged memory visibility, same-tenant FKs, non-permissive rollback.
++4. **A2 migration gate:** one canonical Neon `0020` only; nullable derivative
++   origins are DB-enforced dormant, memory enum unchanged and conversation rows
++   fail closed, same-tenant FKs hold, rollback remains non-permissive.
+ 5. **A2 backfill gate:** concurrent/repeated runs converge and never reactivate,
+    unarchive, escalate, overwrite, or collide; redacted report reviewed.
+ 6. **A2 authorization gate:** one-statement current-state query, deterministic
+diff --git a/docs/work/2026-08-08-meeting-authority-pr-a/tasks.md b/docs/work/2026-08-08-meeting-authority-pr-a/tasks.md
+index 498b4bf..1c746ca 100644
+--- a/docs/work/2026-08-08-meeting-authority-pr-a/tasks.md
++++ b/docs/work/2026-08-08-meeting-authority-pr-a/tasks.md
+@@ -6,9 +6,11 @@
+ **Stage:** blocked PLAN review; no DEV authority
+ 
+ Missing credentials/dependencies, skips, zero tests, timeouts, and truncated
+-output are INCOMPLETE, never PASS. After `59ef...` merges, re-prove Forge
+-ownership, create each PR from the newly landed exact `origin/main`, replace the
+-canonical migration placeholders, and record strict RED before production edits.
++output are INCOMPLETE, never PASS. After `59ef...` merges/deploys reconciliation
++`0019`, re-prove Forge ownership, record its exact merge/catalog/snapshot hashes,
++assert candidate `0020` is the next contiguous tag, and record strict RED before
++production edits. All DB work uses `packages/db` Drizzle on Neon
++`neondb.public`; no Alembic or Supabase database runner is permitted.
+ 
+ ## PR A1 - contract and response-shape freeze
+ 
+@@ -26,71 +28,145 @@ roles. GREEN: focused test plus contracts typecheck.
+ ### Task A1.2 - Freeze meeting API projections
+ 
+ **OWNS:** `apps/meeting-api/backend/server.py`, new
+-`apps/meeting-api/tests/backend/test_meeting_response_projection.py`
++`apps/meeting-api/tests/backend/test_meeting_response_projection.py`,
++`apps/meeting-api/backend/server.test.py`,
++`apps/meeting-api/tests/backend/test_review_regressions.py`
+ 
+ Replace meeting-table wildcard selection/returning and generic meeting response
+ serialization with `MEETING_API_COLUMNS`. Test exact keys for list/detail/update/
+ search/export fixtures and reject internal origin/mapping keys. RED:
+ `python -m pytest apps/meeting-api/tests/backend/test_meeting_response_projection.py`.
+-GREEN: same command using locked Python requirements, plus affected meeting route
+-tests. No schema change.
++GREEN: `python -m pytest
++apps/meeting-api/tests/backend/test_meeting_response_projection.py
++apps/meeting-api/backend/server.test.py
++apps/meeting-api/tests/backend/test_review_regressions.py` using locked Python
++requirements. Expected evidence is byte-identical current public keys and no
++sentinel origin/mapping key at repository or response boundaries. No schema
++change.
+ 
+ ### Task A1.3 - Freeze platform content projections
+ 
+ **OWNS:**
+ 
+-- `apps/platform-api/src/domain/memories.ts` and test
+-- `apps/platform-api/src/proposals/repository.ts` and test
+-- `apps/platform-api/src/proposals/apply.ts` and test
+-- `apps/platform-api/src/proposals/undo.ts` and test
+-- `apps/platform-api/src/domain/work-items.ts` and test
++- `apps/platform-api/src/domain/memories.ts`,
++  `apps/platform-api/src/domain/memories.test.ts`,
++  `apps/platform-api/src/routes/memories.test.ts`
++- `apps/platform-api/src/proposals/repository.ts`,
++  `apps/platform-api/src/proposals/repository.test.ts`
++- `apps/platform-api/src/proposals/apply.ts`,
++  `apps/platform-api/src/proposals/apply.test.ts`
++- `apps/platform-api/src/proposals/undo.ts`,
++  `apps/platform-api/src/proposals/undo.test.ts`
++- `apps/platform-api/src/domain/work-items.ts`,
++  `apps/platform-api/src/domain/work-items.test.ts`,
++  `apps/platform-api/src/routes/work-items.test.ts`
++- `apps/platform-api/src/agent/knowledge-retrieval.ts`,
++  `apps/platform-api/src/agent/knowledge-retrieval.test.ts`,
++  `apps/platform-api/src/agent/kb-ingest.ts`,
++  `apps/platform-api/src/agent/kb-ingest.test.ts`
++- `apps/platform-api/src/meeting/ingest.ts`,
++  `apps/platform-api/src/meeting/ingest.test.ts`,
++  `apps/platform-api/src/meeting/candidates.ts`,
++  `apps/platform-api/src/meeting/candidates.test.ts`
++- new `apps/platform-api/src/meeting/authority-projections.test.ts`
+ 
+ Introduce exact `MEMORY_ROW_COLUMNS`, `PROPOSAL_ROW_COLUMNS`,
+ `WORK_ITEM_ROW_COLUMNS`, and `WORK_ITEM_SNAPSHOT_FIELDS`; replace affected
+ `SELECT *`, `RETURNING *`, and unrestricted `to_jsonb(work_items)`. RED tests add
+-sentinel authority columns and prove they currently escape. GREEN tests prove
+-exact current row/API/snapshot keys and unchanged values. Run focused suites,
+-platform typecheck/lint, and compatibility snapshots.
++sentinel authority columns and prove they currently escape through repository
++rows, route JSON, before-images, undo envelopes, logs, or errors. GREEN tests
++prove exact current row/API/snapshot keys and unchanged values. Raw-row object
++spread or generic serialization is forbidden even behind an explicit route
++serializer. Run focused suites, platform typecheck/lint, and compatibility
++snapshots.
++
++RED/GREEN command: `bun test apps/platform-api/src/domain/memories.test.ts
++apps/platform-api/src/routes/memories.test.ts
++apps/platform-api/src/proposals/repository.test.ts
++apps/platform-api/src/proposals/apply.test.ts
++apps/platform-api/src/proposals/undo.test.ts
++apps/platform-api/src/domain/work-items.test.ts
++apps/platform-api/src/routes/work-items.test.ts
++apps/platform-api/src/agent/knowledge-retrieval.test.ts
++apps/platform-api/src/agent/kb-ingest.test.ts
++apps/platform-api/src/meeting/ingest.test.ts
++apps/platform-api/src/meeting/candidates.test.ts
++apps/platform-api/src/meeting/authority-projections.test.ts`. Expected RED names the
++sentinel/wildcard egress; GREEN passes every named suite and captured SQL has no
++affected wildcard, whole-row JSON, or authority column in returned/logged/error
++shapes.
+ 
+ ### A1 validation/approval
+ 
+ Run contract, meeting response, memory/proposal/work-item suites and static
+ checks. Spec review confirms no wildcard output remains for affected models;
+ API review confirms byte-equivalent JSON keys. Commit/push/PR only in later
+-authorized stages. Merge/verify A1 before creating A2.
++authorized stages. A2 may exist only as a draft stacked on the reviewed A1 head;
++after A1 merges, rebase/retarget A2 to `main` and verify its diff contains no A1
++changes before A2 can leave draft.
+ 
+ ## PR A2 - canonical Neon foundation
+ 
+-### Task A2.1 - Consume the prerequisite migration authority
++### Task A2.1 - Generate canonical Neon migration `0020`
+ 
+-**OWNS:** the exact canonical schema model, migration root, journal, runner tests,
+-and deployment files named by the merged `59ef...` handoff; no other migration
+-directory.
++**OWNS:** `packages/db/src/schema.ts`,
++`packages/db/src/meeting-schema.ts`,
++`packages/db/migrations/0020_meeting_authority_foundation.sql`,
++`packages/db/migrations/meta/0020_snapshot.json`,
++`packages/db/migrations/meta/_journal.json`,
++`packages/db/src/schema.test.ts`, and
++`packages/db/src/catalog-contract.test.ts`;
++no other migration directory or runner.
+ 
+-Before RED, record its topology SHA, migration root/runner/next revision and
+-replace placeholders in `plan.md`. Add one migration for
++Before RED, record the landed `0019` topology SHA, real snapshot/journal hashes,
++runner commands, and prove `0020` is free. Generate from the real `0019`
++snapshot and add one migration for
+ `meeting_tenant_mappings`, `meeting_principal_mappings`, the paired meeting
+ access tenant/origin, and nullable derivative origin/
+-source columns. Do not change memory visibility or fill derivative origins.
++source columns. Source meeting tenant/owner IDs must map explicitly to distinct
++internal tenant/user IDs. Add named dormant CHECK constraints requiring every
++derivative origin/source field to remain NULL until PR B. Do not add a memory
++visibility value or fill derivative origins.
+ 
+ RED schema tests cover exact columns, mapping status/checks/indexes, source-
+ tenant consistency, pair-nullability, composite tenant FKs, cross-tenant
+ rejection, nullable derivatives, unchanged memory enum, and fresh-clone order.
+-GREEN runs the canonical migration command, migration parity, and fresh
+-ephemeral-Neon branch migration.
++GREEN runs canonical generate/no-change, parity, then applies/verifies exact
++`0020` on both `original-production` and `repaired-bootstrap` histories.
++
++RED: `bun test packages/db/src/schema.test.ts
++packages/db/src/catalog-contract.test.ts` fails on absent mapping/origin/dormant
++constraints. GREEN: the same command plus `bun run check:migration-parity`,
++then `bun run --cwd packages/db generate -- --name
++meeting_authority_foundation` reports no subsequent diff; canonical runner
++fixtures apply/verify exact `0020` on both variants. Expected evidence records
++migration/snapshot/journal hashes and zero schema diff without a second journal.
+ 
+ ### Task A2.2 - Add rerun-safe owner-only meeting backfill
+ 
+-**OWNS:** `scripts/meeting-authority/backfill-meeting-origins.ts`, new focused
+-unit test in the canonical script test location established by `59ef...`
++**OWNS:** `scripts/meeting-authority/backfill-meeting-origins.ts`,
++`scripts/meeting-authority/backfill-meeting-origins.test.ts`
+ 
+ Implement only the exact mapping-backed meeting algorithm and fixed redacted
+-report schema. Unit RED/GREEN covers missing/revoked/ambiguous mapping, inactive
++report schema. A new source meeting ends either with both origin fields valid or
++both NULL plus one quarantine reason; there is no partial or implicit mapping.
++On rerun, a valid existing pair is an idempotent no-op and an existing pair that
++now fails a current invariant is retained unchanged and reported as quarantined;
++never clear or repoint it automatically.
++Unit RED/GREEN covers different source/internal tenant and owner IDs,
++missing/revoked/ambiguous mapping, inactive
+ org, missing/disabled actor, removed/role-conflicting membership, archived/
+ conflicting conversation, UUID collision, label/provider/equality spoof,
+ transaction rollback, dry-run, repeated apply, and deterministic ordering. No
+ derivative update statement is permitted.
+ 
++RED/GREEN command:
++`bun test scripts/meeting-authority/backfill-meeting-origins.test.ts`. Expected
++RED exposes the missing mapping/quarantine transaction; GREEN emits sorted,
++redacted fixtures with separate `quarantinedUnlinked`/`quarantinedLinked`
++counts and `originState`, converges on repeat/concurrent apply, and captures no
++derivative UPDATE.
++
+ ### Task A2.3 - Add one-statement current authorization
+ 
+ **OWNS:** `apps/platform-api/src/collaboration/repository.ts`,
+@@ -102,7 +178,32 @@ Assert one SQL call, tenant predicates at every join, fixed private-reason
+ precedence, identical public denial, no client user/actor input, no provisioning,
+ no cache, and database-failure denial. GREEN runs focused test/typecheck/lint.
+ 
+-### Task A2.4 - Make Neon conformance mandatory and executable
++RED/GREEN command:
++`bun test apps/platform-api/src/collaboration/repository.test.ts`. Expected RED
++shows the primitive/matrix is absent; GREEN proves one SQL call, tenant joins,
++fixed private precedence, and byte-identical public denial for every denied row.
++
++### Task A2.4 - Quarantine conversation-origin memories until PR B
++
++**OWNS:** `apps/platform-api/src/domain/memories.ts`,
++`apps/platform-api/src/domain/memories.test.ts`,
++`apps/platform-api/src/routes/memories.test.ts`
++
++Keep `memory_visibility` exactly `private|org`. Write RED tests showing a forced
++row with non-NULL `access_conversation_id` can currently escape through direct,
++source, chain, list/search, update, retract, defer, and reactivate paths. Add
++`access_conversation_id IS NULL` to every current read/update boundary so direct
++access returns public `not_found` and collections omit the row. This is a
++temporary fail-closed barrier, not conversation authorization; PR B may remove
++it only with atomic caller-aware membership enforcement. GREEN also proves
++ordinary NULL-origin memories are byte-compatible.
++
++RED/GREEN command: `bun test apps/platform-api/src/domain/memories.test.ts
++apps/platform-api/src/routes/memories.test.ts`. Expected RED returns the
++injected conversation-origin sentinel; GREEN hides it from every named direct/
++collection/mutation surface while NULL-origin fixtures remain unchanged.
++
++### Task A2.5 - Make Neon conformance mandatory and executable
+ 
+ **OWNS:**
+ 
+@@ -112,16 +213,24 @@ no cache, and database-failure denial. GREEN runs focused test/typecheck/lint.
+ - `apps/platform-api/package.json`
+ - `.github/workflows/db-contract.yml`
+ 
+-First replace identity stand-ins with the canonical full Neon migration/bootstrap
+-from `59ef...`. Add `test:db-contract:meeting-authority`; under CI it must fail on
+-missing credentials, skip, or zero tests. RED before production implementation
+-must show missing schema/primitive.
+-
+-GREEN uses an ephemeral Neon branch and distinct Alice/Bob/Carol/Dave IDs to
+-prove mapping non-inference, composite FKs, exact public denial, committed
+-revocation, two concurrent backfills, removed/archived/collision preservation,
+-null derivative origins, unchanged memory visibility, exact response keys, and
+-branch deletion in `finally`. Execute:
++Use the canonical full Neon migration/bootstrap from `59ef...`: `neondb.public`,
++floor `0019`, candidate suffix `0020`, and the environment-pinned history
++variant. Add `test:db-contract:meeting-authority`; under CI it must fail on
++missing credentials, skip, zero tests, cleanup failure, or non-reconstructable
++evidence. RED before production implementation must show missing schema/
++primitive.
++
++GREEN uses an ephemeral Neon branch and deliberately different source/internal
++Alice/Bob/Carol/Dave IDs. Execute the plan's exact matrix: allow; unmapped
++identity; inactive org; actor absent/disabled; origin absent/archived/
++cross-tenant; membership absent/removed; role insufficient; database failure.
++Prove one SQL call and identical public denial for every denial, mapping
++non-inference, composite FKs, committed revocation on the next call, two
++concurrent backfills, removed/archived/collision preservation, rejected
++non-NULL derivative writes, unchanged memory enum, exact response keys, and
++branch deletion in `finally`. Synthetic repository/route tests—not privileged
++real-DB constraint bypass—prove an inconsistent conversation memory is
++invisible. Execute:
+ 
+ ```text
+ bun run --cwd apps/platform-api test:db-contract:meeting-authority
+@@ -132,8 +241,9 @@ with `NEON_API_KEY`, `NEON_PROJECT_ID`, and optional canonical
+ 
+ ### A2 validation/approval
+ 
+-Run canonical migration/fresh-clone/parity, focused contracts, backfill,
+-repository, type/lint, and mandatory Neon DB contract. Security/data/API review
++Run canonical `0019 -> 0020` migration on both history variants, fresh-clone/
++parity/no-change generation, focused contracts, backfill, repository, memory
++barrier, type/lint, and mandatory Neon DB contract. Security/data/API review
+ the seven gates in `plan.md`; exact-head CI must be green. Only merge/verified A2
+ may unlock a separately approved PR B.
+ 
+@@ -141,7 +251,7 @@ may unlock a separately approved PR B.
+ 
+ Stop for plan review if work requires a Supabase path, Alembic hosted authority,
+ an unverified/equal/email/provider identity mapping, wildcard response output,
+-derivative backfill, memory visibility change, automatic reactivation/unarchive/
++derivative backfill, a new/widened memory visibility mode, automatic reactivation/unarchive/
+ role escalation, permissive fallback, skipped Neon evidence, production content
+ enforcement, candidate/promotion UX, search, raw transcripts, or a PR larger than
+ the A1/A2 bounds in `plan.md`.
+-- 
+2.51.0.windows.1
+

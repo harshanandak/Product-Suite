@@ -1,0 +1,325 @@
+From d5fec97750756816028e1049d5ce0a69173d0785 Mon Sep 17 00:00:00 2001
+From: Harsha Nanda <harshanandak@users.noreply.github.com>
+Date: Fri, 24 Jul 2026 12:33:00 +0530
+Subject: [PATCH] docs(memory): revise to additive relevance tier after review
+ panel (a5ecc5aa)
+
+Adversarial panel killed the v1 reorder: unbounded ts_rank scan (org scope
+matches all rows before LIMIT), baseline-stability/guardrail-eviction
+regression, multiplier math that out-levered relevance, and a silent
+attribution rank-flip. Pivot to the audit's original two-tier intent: keep
+Tier 1 (scope+recency baseline) byte-identical; add Tier 2, a bounded
+FTS-ranked supplement (fts @@ + ts_rank, deduped, kind<>rule, own budget).
+Additive structure lets the supplement use the GIN index (bounds the scan)
+and dissolves the backward-compat and rank-flip attacks. No migration.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ .../plan.md                                   | 287 +++++++++---------
+ 1 file changed, 146 insertions(+), 141 deletions(-)
+
+diff --git a/docs/work/2026-07-24-memory-injection-ranker/plan.md b/docs/work/2026-07-24-memory-injection-ranker/plan.md
+index 6c9abdb..60536fc 100644
+--- a/docs/work/2026-07-24-memory-injection-ranker/plan.md
++++ b/docs/work/2026-07-24-memory-injection-ranker/plan.md
+@@ -1,151 +1,156 @@
+-# Memory Injection Ranker — Design Spec
++# Memory Injection — Additive Relevance Tier (v2)
+ 
+ **Issue:** a5ecc5aa (Product-Suite kernel) — "automatic injection uses scope as the ranker."
+ **Branch:** `feat/memory-injection-ranker` (worktree `.worktrees/memory-injection-ranker`, off `origin/main` @ #138).
+-**Type:** Standard (behavior change to a hot path; no schema migration).
+-**Date:** 2026-07-24
++**Type:** Standard (adds a hot-path retrieval leg; no schema migration).
++**Date:** 2026-07-24 · **Revision:** v2 (superseded the reorder design after an adversarial review panel)
+ 
+ ---
+ 
+-## 1. Problem (verified from source)
+-
+-`retrieveForContext` (`apps/platform-api/src/agent/memory-retrieval.ts:205`), invoked every turn at
+-`runtime.ts:288`, injects the org's scope-cascade memories into the agent context. Today it:
+-
+-- Selects candidates by **tenant + `status='active'` + scope-cascade only** — the current turn's user
+-  message is **never passed in** (`runtime.ts:288` calls it with `{ tenantId, scope }`).
+-- Orders by **scope-specificity then recency** (`memory-retrieval.ts:227-229`):
+-  `case scope_type … valid_from desc, created_at desc`, caps at `MAX_CANDIDATES=100`, then greedily
+-  trims to `DEFAULT_MEMORY_TOKEN_BUDGET=800`.
+-- Uses **no relevance ranking**, even though the schema already has the machinery:
+-  - `memories.fts` tsvector + GIN index (`packages/db/migrations/0010_memory_brain.sql:60,87`) — used
+-    today only by the on-demand `search_memory` tool (`searchMemories`, `memory-retrieval.ts:320`).
+-  - `memories.embedding halfvec(1024)` + HNSW cosine index (`0013_knowledge_base.sql:47-49`) — unused
+-    by injection.
+-
+-**Consequence:** whatever the agent is actually working on this turn, it gets the same scope-top,
+-most-recent memories. A memory raised as directly relevant to the current turn is invisible unless it
+-happens to be scope-top and recent, or the agent volunteers a `search_memory` call.
+-
+-## 2. Goal & non-goals
+-
+-**Goal:** make automatic injection **query-relevant** — rank the scope-filtered candidate pool by
+-lexical relevance to the current turn, with scope-specificity and recency demoted to **bounded
+-multipliers** (nudges, not the primary sort). Scope remains a **hard security/relevance filter** (the
+-WHERE is untouched — a foreign scope is still never retrieved).
+-
+-**Non-goals (explicitly OUT — each is a separate filed issue; cite and move on):**
+-- Embeddings / HNSW ranking or any embedding backfill. FTS first; embeddings become a data-justified
+-  follow-up (see §7 measurement). 
+-- The **rules lane** (`retrieveRulesForContext`) — untouched.
+-- `hard enforcement` wiring and the `review_after` sweeper (issue 17ecd92a — separate branch).
+-- Reflection autonomous trigger (issue 3ecc1859 — separate branch).
+-- Any new config surface beyond one or two named constants in this module.
+-- The misrouted `.claude/skills/memory/SKILL.md` (issue db936a02 — separate `mem/skill-routing` branch).
+-
+-## 3. Design
+-
+-### 3.1 Thread the turn query in
+-
+-`runAgentChat` already has `messages: UIMessage[]` in scope at the call site. Extract the **last user
+-message's text** (concatenate its text parts) into a `query: string`. Pass it to `retrieveForContext`
+-as a new **optional** field: `ctx: { tenantId; scope?; budget?; query? }`.
+-
+-- `query` **optional** by design: when absent OR empty/whitespace (tool-result-only turns, empty
+-  messages), `retrieveForContext` behaves **exactly as today** — no `ts_rank`, ORDER BY
+-  `scope, valid_from desc, created_at desc`. This is the degenerate-query fallback, for free.
+-- Query extraction is a small pure helper (`lastUserQueryText(messages): string`) so it is unit-testable
+-  without a DB or a run.
+-
+-### 3.2 Rank by relevance, scope+recency as bounded multipliers
+-
+-When `query` is non-empty, change **only** the SELECT expression and ORDER BY (WHERE stays byte-identical):
+-
+-- Add a relevance term: `ts_rank(fts, websearch_to_tsquery('english', $q))`.
+-  - `websearch_to_tsquery` (not `plainto_`) so raw user text **cannot throw a tsquery syntax error** —
+-    a crash in every-turn injection is the worst failure mode — and quoted phrases are honored.
+-  - **Do NOT add `fts @@ query` to the WHERE.** A scope-specific memory with no lexical overlap must
+-    still be injectable; `ts_rank` simply returns `0` for non-matching rows. Filtering here would drop
+-    exactly the fallback we want.
+-- Combined score (bounded-multiplier model):
+-
+-  ```
+-  score = (RELEVANCE_BASE + ts_rank(fts, q)) * scope_mult(scope_type) * recency_mult(age)
+-  ```
+-
+-  - `RELEVANCE_BASE` (small, e.g. `0.01`): floor so that when `ts_rank = 0` for the whole pool, ordering
+-    **degrades gracefully to `scope_mult` then `recency_mult`** — i.e. today's behavior. When relevance
+-    is present, it dominates.
+-  - `scope_mult`: bounded, monotonic in specificity — `work_item:1.5, work_item_type:1.3, project:1.15,
+-    org:1.0`. Scope stays influential but can no longer bury a highly-relevant broader-scope memory.
+-  - `recency_mult`: bounded to **`[0.3, 1.5]`** as a function of age (newer → higher), computed in SQL
+-    from `valid_from`/`created_at`. Recency nudges ties; it no longer dominates.
+-  - Final tiebreak: `valid_from desc, created_at desc` (deterministic ordering).
+-- The exact `scope_mult` map, the recency age→multiplier curve, and `RELEVANCE_BASE` live as **named
+-  constants** at the top of the module with a one-line rationale each — tunable, not magic numbers.
+-
+-Candidate pool: keep `MAX_CANDIDATES=100`. The pool is already the full scope-matched active set (≤100);
+-the fix is that we now **rank that whole pool by relevance** instead of pre-picking the scope-top rows.
+-No `fts @@` pre-filter means no pool narrowing. (If the scope set ever exceeds 100 the cap still applies —
+-acceptable for this slice; revisit only if measurement shows truncation loss.)
+-
+-### 3.3 Instrumentation (ships INSIDE this PR)
+-
+-Without it the FTS-vs-embeddings question (§7) is unanswerable and the debate reopens evidence-free.
+-Emit **one structured log line per injection** with a stable, greppable prefix:
++## 0. Why v2 (what the review changed)
++
++The v1 spec proposed **reordering** the single always-on injection to rank the scope-filtered pool by
++`ts_rank`, with scope/recency as multipliers. A four-lens adversarial panel killed it. The decisive,
++source-verified findings:
++
++- **Perf premise was false.** `ts_rank` in the ORDER BY is evaluated for *every* WHERE-matching row
++  before `LIMIT`. The cascade includes `scope_type='org'` (matches **all** org memories) and v1
++  deliberately kept `fts @@` out of the WHERE → an unbounded full scan + per-row rank + sort, every turn.
++- **Reordering destroys the baseline's value.** The always-on block's job is a *stable* floor of org
++  guardrails. Per-turn lexical reordering can silently evict a safety-critical memory mid-task, and
++  30–50% of agent turns are pronoun/empty ("yes", "continue") → empty query → degrades to recency anyway.
++- **Multiplier math defeated its own goal** (recency band [0.3,1.5] out-levered realistic relevance
++  spread); and changing `retrieveForContext`'s output order silently changed `rank` semantics that a
++  consumer (`proposals.ts:165 order by a.rank`) actually reads.
++
++**The fix is the audit's *original* intent** ("…with a separate always-on tier"): don't reorder — **add
++a tier**. Keep the stable baseline exactly as-is; layer a small, bounded, relevance-ranked supplement on
++top. The additive structure is what lets the supplement use `fts @@` (index-assisted, bounded) without
++losing coverage — the baseline already covers the non-matching scope memories. Simpler *and* safer.
++
++## 1. Design
++
++### Tier 1 — stable baseline (UNCHANGED)
++
++`retrieveForContext` (`memory-retrieval.ts:205`) and its call at `runtime.ts:288` stay **byte-identical**:
++tenant + scope-cascade, scope-specificity then recency, `DEFAULT_MEMORY_TOKEN_BUDGET=800`. This is the
++guardrail floor — predictable, never churns. Because it is untouched, `rank` semantics, the attribution
++rail, holdout behavior, and every existing test are unaffected (the v1 backward-compat and rank-flip
++attacks simply do not apply).
++
++### Tier 2 — relevance supplement (NEW, additive)
++
++A new function `retrieveRelevanceSupplement(sql, ctx)` where
++`ctx = { tenantId, scope?, query, budget?, excludeIds? }`, returning `{ fenced, injected }` — the same
++shape as Tier 1. Called from `runtime.ts` as its **own best-effort leg** (own try/catch, own fence),
++*after* Tier 1, with `excludeIds` = the ids Tier 1 already injected.
++
++SQL (index-assisted and bounded — the perf fix):
++
++```sql
++select id, kind, title, body, scope_type
++from "memories"
++where tenant_id = $1 and status = 'active' and kind <> 'rule'
++  and (<scope-cascade clauses>)          -- identical builder to Tier 1 (hard scope filter)
++  and fts @@ websearch_to_tsquery('english', $q)   -- GIN-indexed membership → bounded scan
++  and id <> all($excludeIds)             -- dedup vs Tier 1
++order by ts_rank(fts, websearch_to_tsquery('english', $q), 1) desc,  -- norm flag 1 = ÷(1+log len)
++         valid_from desc, id desc          -- deterministic total order
++limit $k                                   -- small candidate cap (e.g. 20)
++```
++
++Then greedily token-trim to a **separate, small** `DEFAULT_SUPPLEMENT_TOKEN_BUDGET` (~300), same
++`sanitizeForFence` + `estimateTokens` discipline as Tier 1.
++
++Why each clause answers a specific attack:
++- `fts @@ …` in WHERE → **only lexically-matching rows are ranked**, GIN-indexed → **bounds the scan**
++  (kills the perf attack). Safe to filter here *because Tier 1 already guarantees the non-matching
++  scope memories are covered* — Tier 2's job is only the relevance boost.
++- `kind <> 'rule'` → the supplement never touches the rules lane; no new double-inject surface.
++- `excludeIds` → never repeats a memory Tier 1 already showed (no wasted budget, no attribution conflict
++  on `(run, memory, 'retrieved')`).
++- `ts_rank(…, 1)` → length-normalized so verbose bodies don't win on raw term-frequency.
++- **No multiplier formula.** Scope is the candidate filter, not a score term (that's Tier 1's job).
++  Pure `ts_rank desc` → nothing to mistune. `valid_from desc, id desc` is a deterministic tiebreak.
++- **Empty/whitespace query → return `{ fenced:'', injected:[] }` immediately** (no SQL). Pronoun-only and
++  tool-result-only turns simply get no supplement; the stable baseline is all they see (no regression).
++
++### Query extraction
++
++`lastUserQueryText(messages): string` — pure helper, extracts + concatenates the last user message's
++text parts, returns `''` for empty/tool-only turns. Unit-testable with no DB.
++
++### Attribution & holdout
++
++Tier 2's injected memories are attributed exactly like Tier 1 (`insertAttributions`, `via='retrieved'`,
++`suppressed=holdout`), attribution-first-then-inject, in Tier 2's own leg. On a **holdout** run: attribute
++(counterfactual logged) but **never append the fence** — identical discipline to the existing legs.
++Reusing `via='retrieved'` avoids any enum/migration; distinguishing tiers in attribution is a possible
++follow-up, not this slice.
++
++### Instrumentation (ships IN this PR, emitted in `runtime.ts`)
++
++One structured, greppable log line per run — emitted in `runtime.ts` because it has `holdout` in scope
++(retrieval functions do not):
+ 
+ ```
+-[memory-injection] { runId, tenantId, hasQuery, candidateCount, injectedCount,
+-                     topMemoryIds: [...], topTsRank: <number>, zeroHit: <bool> }
++[memory-supplement] { runId, tenantId, holdout, hasQuery,
++                      supplementCandidates, supplementInjected, topIds:[...], topRank, zeroHit }
+ ```
+ 
+-- `zeroHit = true` when `query` was present but **no candidate scored `ts_rank > 0`** (ranking degraded
+-  to scope+recency). The **zero-hit rate** across turns is the wrong-choice detector: sustained
+-  `>~20-30%` means lexical recall is failing and embeddings earn their latency.
+-- Best-effort/swallowed like the existing legs — a logging failure must never strand the run.
+-- Persisting this to a table (vs. log aggregation) is a deliberate follow-up, not this slice.
+-
+-## 4. Blast radius
+-
+-- **Files:** `apps/platform-api/src/agent/memory-retrieval.ts` (signature + SQL + constants + query helper),
+-  `apps/platform-api/src/agent/runtime.ts` (extract query, pass it at the `:288` call site).
+-- **Callers of `retrieveForContext`:** the `runtime.ts` injection leg is the production caller. The new
+-  field is optional, so any other caller/test compiles unchanged and keeps today's behavior. (Grep to
+-  confirm the full caller set during dev.)
+-- **No migration.** `memories.fts` already exists and is GIN-indexed; `ts_rank` over ≤100 rows is cheap.
+-- **Rules lane, holdout path, attribution rail:** untouched. Injection still writes attributions exactly
+-  as today; only the ORDER of `memory.injected` changes (its `rank` ordinal now reflects relevance).
+-
+-## 5. Testing (TDD, real-DB tier — no mock-green)
+-
+-- **Unit (pure):** `lastUserQueryText` — last user message extraction, multi-part text, empty/tool-only
+-  turns → `''`.
+-- **Real-DB integration** for `retrieveForContext` (seed a tenant with memories varying in scope,
+-  recency, and lexical match to a fixed query), asserting:
+-  1. **Relevance wins:** a highly lexically-relevant `project`-scope memory outranks an irrelevant but
+-     more-recent `work_item`-scope memory.
+-  2. **Scope still nudges:** with equal/zero relevance, more-specific scope ranks higher (fallback ==
+-     today's order).
+-  3. **Degenerate query** (`query=''`) reproduces today's exact ordering (regression lock).
+-  4. **Malicious query** (`ts_query`-breaking chars, e.g. `a & | ! :*`) does not throw and returns rows.
+-  5. **Recency bounded:** a very old highly-relevant memory still outranks a fresh irrelevant one (recency
+-     multiplier floor `0.3` cannot override a real relevance gap).
+-
+-## 6. Rollout / reversibility
+-
+-Single isolated behavior-change diff → single clean revert. No migration to roll back. If the log shows a
+-high zero-hit rate or a latency regression, revert the ORDER BY change alone; the query-threading and
+-instrumentation are inert without it.
+-
+-## 7. The one measured follow-up (not built here)
+-
+-FTS is the cheap, already-indexed, zero-per-turn-cost baseline and the right first bet for ≤100 short
+-structured rows. Embeddings (HNSW, already in schema) become justified **only if** the shipped zero-hit
+-metric shows lexical recall failing. Decision by measurement, not preference — the metric is the trigger.
+-
+-## 8. Open question to verify during dev (do not fix here)
+-
+-`retrieveForContext`'s WHERE has **no `kind` filter** (`memory-retrieval.ts:226`), so it may select
+-`kind='rule'` rows that `retrieveRulesForContext` also injects — possible double-injection. **Verify**
+-whether rules are excluded elsewhere (status, separate lifecycle). If it is a real double-inject, **file
+-a separate kernel issue** — it is out of scope for this ranking slice and must not expand this PR.
++- `zeroHit = hasQuery && supplementCandidates === 0` — query present but **nothing lexically matched**.
++  Because it's measured on the supplement tier only (not conflated with the always-on baseline), a
++  sustained high rate on **substantive-query turns** cleanly signals lexical recall failing → the
++  data-justified trigger to evaluate embeddings (HNSW already in schema). `hasQuery=false` turns are
++  excluded from the rate, so approval-only turns don't pollute the metric.
++- Best-effort/swallowed; a logging failure never strands the run. `holdout`-tagged so holdout runs are
++  filterable out of any derived rate.
++
++## 2. Non-goals (OUT — each its own filed issue; cite and move on)
++
++- Embeddings / HNSW ranking or backfill — FTS first; the zero-hit metric is the trigger (§1).
++- Any change to Tier 1 / `retrieveForContext`, the rules lane, or the attribution schema.
++- `hard enforcement` wiring / `review_after` sweeper (17ecd92a — separate branch).
++- Reflection autonomous trigger (3ecc1859 — separate branch).
++- Misrouted `.claude/skills/memory/SKILL.md` (db936a02 — separate `mem/skill-routing` branch).
++- **§8 pre-existing kind-less Tier-1 select** (below) — verify + file, do not fix here.
++
++## 3. Blast radius
++
++- **New:** `retrieveRelevanceSupplement` + `lastUserQueryText` + two named budget/limit constants in
++  `memory-retrieval.ts`; a new best-effort leg + the log line in `runtime.ts`.
++- **Unchanged:** `retrieveForContext`, `retrieveRulesForContext`, `insertAttributions`, all fences, every
++  existing caller and test. Injected context grows by ≤ `DEFAULT_SUPPLEMENT_TOKEN_BUDGET` and **only on
++  substantive-query turns** (empty-query turns add nothing).
++- **No migration.** `memories.fts` is `GENERATED ALWAYS … STORED` (`0010:60`, GIN `0010:87`), populated
++  for all existing rows; `ts_rank`/`@@` need only the stored tsvector.
++
++## 4. Testing (TDD, real-DB tier — no mock-green)
++
++- **Unit (pure):** `lastUserQueryText` — multi-part text, empty/tool-only → `''`.
++- **Real-DB** `retrieveRelevanceSupplement`, seeding a tenant with mixed scope/recency/lexical-match:
++  1. **Core win:** a lexically-relevant memory that is NOT scope-top (Tier 1 would trim it) is returned.
++  2. **Empty query** → `{ fenced:'', injected:[] }`, no SQL side effects.
++  3. **Malicious query** (`a & | ! :*`, quotes) → no throw; returns rows or empty.
++  4. **Dedup:** an id in `excludeIds` is never returned.
++  5. **Rules excluded:** a `kind='rule'` row is never returned even if it matches.
++  6. **Budget:** total injected tokens ≤ supplement budget.
++  7. **Length normalization:** a short on-topic memory outranks a verbose one that merely repeats the term.
++  8. **zeroHit:** query present with no lexical match → empty result (drives the log flag).
++- **Integration (`runtime`):** both fences appended on a normal run; **holdout suppresses both fences**
++  but still attributes; the `[memory-supplement]` line is emitted and `holdout`-tagged.
++
++## 5. Rollout / reversibility
++
++Purely additive: a single new leg, single-diff revert, no migration. Disabling is trivial (the leg is
++self-contained). Tier 1 is untouched, so the worst case of a Tier 2 bug is "no supplement," never a
++baseline regression.
++
++## 6. Open question to verify during dev (do NOT fix here — file separately)
++
++`retrieveForContext` (Tier 1) has **no `kind` filter** (`memory-retrieval.ts:226`), so it *may* already
++inject `kind='rule'` rows that `retrieveRulesForContext` also injects (double-inject). This is
++**pre-existing and independent** of Tier 2 (which filters `kind <> 'rule'`). Verify whether rules are
++excluded elsewhere; if it is a real double-inject, **file a separate kernel issue** — it must not expand
++this PR. (In v1's reorder design this was coupled to a rank-flip; the additive design decouples it,
++because Tier 1's order is unchanged.)
+-- 
+2.51.0.windows.1
+

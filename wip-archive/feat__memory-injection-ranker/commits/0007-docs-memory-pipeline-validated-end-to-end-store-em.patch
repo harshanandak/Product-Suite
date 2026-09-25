@@ -1,0 +1,46 @@
+From afebd8637e44c6da307cbbd6ffb835bd42beb69a Mon Sep 17 00:00:00 2001
+From: Harsha Nanda <harshanandak@users.noreply.github.com>
+Date: Fri, 24 Jul 2026 16:00:47 +0530
+Subject: [PATCH] docs(memory): pipeline validated end-to-end; store empty is a
+ usage condition
+
+Exercised real propose_memory->apply->createMemory->retrieveForContext:
+applyProposal returned applied, memory minted (active/org), injection picked
+it up. Cleaned up (store back to 0). Plumbing works; a5ecc5aa + 3ecc1859 are
+premature improvements to a working-but-unexercised pipeline.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ .../decisions.md                              | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+
+diff --git a/docs/work/2026-07-24-memory-injection-ranker/decisions.md b/docs/work/2026-07-24-memory-injection-ranker/decisions.md
+index afde684..1589e87 100644
+--- a/docs/work/2026-07-24-memory-injection-ranker/decisions.md
++++ b/docs/work/2026-07-24-memory-injection-ranker/decisions.md
+@@ -78,3 +78,22 @@ until real usage accumulates memories** — 3ecc1859 is a real latent gap, not t
+ 
+ **Implication for validation:** to exercise the pipeline end-to-end, the direct path is `propose_memory`
+ (create) → apply → `memories` row → injection — NOT reflection. That writes prod data; needs go-ahead.
++
++## 2026-07-24 · Pipeline validation — PASSED end-to-end (real code paths)
++
++Exercised the real path (not raw SQL): `createProposal` (target_type='memory', op='create') →
++`applyProposal` → `createMemory` → `retrieveForContext`. Result:
++- `applyProposal` returned `status: 'applied'`, minted memory `2cee8702…` (kind=decision, status=active,
++  scope_type=org).
++- **Injection confirmed:** `retrieveForContext(sql,{tenantId})` returned the fenced `<org_memory>` block
++  containing the new memory (`injection_contains_memory: true`).
++- **Cleaned up:** validation memory + its source proposal deleted; store back to `memories=0`,
++  `memory_proposals=0`. Prod unchanged from its prior state.
++
++**Conclusion:** the capture→memory→injection plumbing is fully functional. The empty store is a *usage*
++condition, not a code defect. Confirms both a5ecc5aa (ranker) and 3ecc1859 (reflection trigger) are
++improvements to a working-but-unexercised pipeline — real, but not urgent, and unable to demonstrate value
++until the store is populated by real usage.
++
++**Artifacts:** `apps/platform-api/scripts/capture-check.mjs` (read-only precondition check, kept). The
++prod-writing validation + cleanup scripts were removed after use.
+-- 
+2.51.0.windows.1
+

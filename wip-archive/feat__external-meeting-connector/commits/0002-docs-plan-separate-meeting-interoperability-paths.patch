@@ -1,0 +1,430 @@
+From a6a0e716a89906a6ea7b05d10c3439dd5452d7d3 Mon Sep 17 00:00:00 2001
+From: Harsha Nanda <harshanandak@users.noreply.github.com>
+Date: Sat, 8 Aug 2026 17:54:09 +0530
+Subject: [PATCH] docs(plan): separate meeting interoperability paths
+
+---
+ ...ternalmeetingconnector-interoperability.md | 156 +++++++++++++-----
+ .../plan.md                                   |  68 +++++---
+ .../tasks.md                                  |  94 +++++++----
+ 3 files changed, 213 insertions(+), 105 deletions(-)
+
+diff --git a/docs/research/externalmeetingconnector-interoperability.md b/docs/research/externalmeetingconnector-interoperability.md
+index 2f4bd4d..5c263e4 100644
+--- a/docs/research/externalmeetingconnector-interoperability.md
++++ b/docs/research/externalmeetingconnector-interoperability.md
+@@ -1,75 +1,143 @@
+-# ExternalMeetingConnector interoperability research
++# Meeting-to-action interoperability research
+ 
+ **Freshness:** 2026-08-08
+ 
+ **Issue:** `1ba32c21-490d-4308-ba81-d6874b534ec4`
+ 
+-**Scope:** decision/contract research only; no provider adoption or implementation.
++**Scope:** decision and contract research only; no provider adoption or implementation.
+ 
+-## Decision
++## Recommendation
+ 
+-Use one provider-neutral `ExternalMeetingConnector` boundary for capture that occurs outside a Product-Suite-hosted room. Develop the existing browser-local path as the MVP, integrate Recall.ai only as an explicit fallback, and defer Zoom RTMS implementation while reserving a capability-compatible adapter slot. A one-shot artifact import is a connector mode, not a fourth authority.
++Do not make one adapter pretend to solve every meeting. Product-Suite needs four explicit paths that converge only at a canonical, meeting-owned evidence boundary:
+ 
+-| Path | Choice | Bounded rationale |
++| Product path | Boundary | MVP decision |
+ |---|---|---|
+-| Browser-local capture | **DEVELOP** | It already exists in `useAudioRecorder` and `App.jsx`; place it behind the contract. Crash/network-safe slicing remains owned by sibling issue `d88d461a-c259-4dc6-a751-f2b3c6898b7a`. |
+-| Recall.ai | **INTEGRATE as fallback** | Use only when local capabilities fail or the user explicitly chooses a bot/desktop route. Product-Suite still owns meeting, transcript, ACL, retention, and run records. |
+-| Zoom RTMS | **DEFER implementation** | RTMS is active and GA, but requires credits, fixed app scopes, participant disclosures, and product-specific operational validation. Preserve the contract seam and pilot only after the exit criteria below. |
+-| Existing audio/transcript artifact | **IMPORT mode** | Accept a bounded, provenance-labelled artifact without pretending it was a live capture session. |
++| Product-Suite hosted room | `RoomProvider` | Separate LiveKit-versus-Cloudflare-RealtimeKit decision. It owns room creation, participant tokens, room media, and export—not external joins. |
++| External provider participation | `ExternalMeetingConnector` | Recall.ai is the explicit fallback for joining Zoom, Google Meet, or Teams when local capture is unavailable or unsuitable. Zoom RTMS remains a gated Zoom-specific capability, not the shape of the generic contract. |
++| Local/offline/in-room capture | Product-owned `LocalCaptureSource` | **Develop first.** Reuse the current browser capture, while exposing that shared/mixed audio has weaker speaker identity. Durable slice delivery remains owned by sibling issue `d88d461a-c259-4dc6-a751-f2b3c6898b7a`. |
++| Calendar recognition/orchestration | `MeetingRecognition` / orchestration policy | Recognize likely provider, canonical meeting, time, and join metadata; offer an eligible capture path. Calendar data never implies recording consent and never starts capture silently. |
+ 
+-## Boundary and authority
++All four paths feed canonical `MeetingEvidenceEnvelope` records. Product-Suite then creates meeting-owned transcript segments, summary candidates, and action candidates. A human review explicitly promotes an action candidate into a task; no provider transcript, summary, bot, calendar event, or model run can directly create authoritative tasks.
+ 
+-`ExternalMeetingConnector` negotiates capture capabilities, starts/stops external capture, imports artifacts, reports status, and requests provider deletion. It emits canonical Product-Suite events and artifact references.
++## Boundaries and non-authority
+ 
+-It is intentionally distinct from:
++### RoomProvider
+ 
+-- `RoomProvider`: creates Product-Suite-hosted rooms, mints participant tokens, exports room audio, and reports export completion. The existing room-provider research already defines those four operations (`docs/research/2026-07-25-meeting-experience-and-livekit.md:284`).
+-- `RealtimeAgentAdapter`: owns live agent media/turn/tool behavior, not meeting capture or transcript storage.
++Owns Product-Suite-hosted room lifecycle and media export. Existing research proposes `createRoom`, `mintParticipantToken`, `startAudioExport`, and `onExportComplete` (`docs/research/2026-07-25-meeting-experience-and-livekit.md:284`). Choosing LiveKit or Cloudflare RealtimeKit belongs to that boundary and is not decided here.
+ 
+-Providers never own the canonical meeting, transcript, ACL, provenance, retention policy, or agent/run/proposal record. Provider payloads are inputs; the Product-Suite meeting service validates and projects them into canonical records.
++### ExternalMeetingConnector
+ 
+-## Proposed minimum contract
++Represents Product-Suite in a meeting hosted by somebody else. Its minimum operations are:
+ 
+ ```text
+-negotiate(request, policy) -> CapabilityDecision
+-prepare(startRequest) -> PreparedCapture
+-start(preparedId, idempotencyKey) -> ConnectorSession
+-stop(connectorSessionId, idempotencyKey) -> StopResult
+-importArtifact(importRequest, idempotencyKey) -> ArtifactReceipt
+-status(connectorSessionId) -> ConnectorStatus
+-delete(connectorSessionId, idempotencyKey) -> DeletionReceipt
++negotiate(joinContext, policy) -> ExternalJoinCapability
++prepare(joinRequest) -> PreparedExternalJoin
++join(preparedId, idempotencyKey) -> ExternalParticipationSession
++leave(sessionId, idempotencyKey) -> LeaveResult
++status(sessionId) -> ExternalParticipationStatus
++deleteProviderArtifacts(sessionId, idempotencyKey) -> DeletionReceipt
+ ```
+ 
+-`CapabilityDecision` reports source mode (`local_live`, `provider_bot`, `provider_rtms`, `artifact_import`), media available, transcript latency, consent mechanism, visible-indicator support, allowed region, provider retention, deletion support, availability, and estimated/reserved budget. Unsupported or policy-incompatible capabilities fail closed.
++It may join as a visible bot (Recall), receive a platform-native media stream (Zoom RTMS), or report unsupported. It does not host rooms, wrap browser-local capture, own calendar scheduling, run a realtime agent, or own canonical transcripts and tasks.
+ 
+-Every canonical event includes `event_id`, `tenant_id`, `meeting_id`, `connector_session_id`, connector/version, provider event id when present, kind, occurred/received timestamps, semantic idempotency key, payload hash, artifact reference, completeness/gap state, and provenance. A verified server context—not provider metadata—derives tenant and actor identity.
++### LocalCaptureSource
+ 
+-## Safety and lifecycle requirements
++Owns explicit user-started capture on the device or in the room. It reports media shape (`microphone`, `tab`, `display`, `system_audio`), channel shape (`mixed`, `per_participant`), observed timestamps/gaps, consent/indicator state, and capture quality. It does not claim participant identity merely because speech was diarized.
+ 
+-- **Consent and recording indication:** start requires an authorized actor, an immutable consent-evidence reference, and a visible Product-Suite recording indicator. Revocation or indicator loss stops capture. Never silently switch to a more visible bot, a broader source, or a higher-cost path. Recall's desktop SDK explicitly leaves recording indication to the integrating app, so the wrapper indicator is mandatory. Zoom RTMS exposes participant disclosure/app-activity UX and app scopes to participants. [Recall desktop SDK](https://www.recall.ai/product/desktop-recording-sdk), [Zoom participant UX](https://godevelopers.zoom.us/docs/rtms/meetings/ux-participant), [W3C Screen Capture privacy indicators](https://www.w3.org/TR/screen-capture/)
+-- **ACL and provenance:** meeting capture requires canonical meeting-write/capture permission plus organization policy. Read/delete follow canonical ACLs. Provider IDs and meeting URLs are untrusted provenance, never authorization selectors.
+-- **Retention, deletion, regions:** Product-Suite applies its own raw-media/transcript/derived-data policy and records a deletion tombstone plus provider confirmation. Exact region is a negotiated allow-list; deny if a tenant-required region is unavailable. Recall defaults vary by account creation date, permanent deletion has caveats for custom metadata, and zero retention requires `retention:null`; therefore defaults must never be trusted. [Recall storage and playback](https://docs.recall.ai/docs/storage-and-playback)
+-- **Retries and idempotency:** acknowledge verified provider webhooks quickly, process asynchronously, honor `Retry-After`, deduplicate provider events, and reject same-key/different-payload conflicts. Recall documents retry behavior, 409 backoff, 429 `Retry-After`, and 507 pool exhaustion. [Recall webhook lifecycle](https://docs.recall.ai/v1.10/docs/bot-status-change-events), [Recall errors](https://docs.recall.ai/reference/errors)
+-- **Outages and gaps:** surface `degraded`, `interrupted`, `incomplete`, and `deletion_pending`; never invent missing media/transcript. Fallback that changes consent, participant visibility, region, or price requires fresh user confirmation. Local durable queue/retry behavior is delegated to the sibling issue.
+-- **Cost budgets:** reserve against per-meeting duration and org monthly recording/storage budgets before provider start; warn near thresholds and deny or stop at a hard cap. Pricing stays configurable and date-stamped, never compiled into the contract. Zoom says RTMS consumes Developer Pack credits; Recall bills storage after its included window. [Zoom RTMS overview](https://developers.zoom.us/docs/rtms/), [Recall storage and playback](https://docs.recall.ai/docs/storage-and-playback)
++### MeetingRecognition and orchestration
+ 
+-## Current platform evidence
++Associates calendar/provider metadata with a canonical Product-Suite meeting and requests capability offers from the other boundaries. It may schedule a reminder or preflight, but selection is confirmed at capture time. Provider URL, organizer, attendee, and calendar identifiers are provenance only—not ACL inputs.
+ 
+-- Browser screen capture requires a secure context, transient user activation, a fresh user choice, and has browser-varying audio support. [MDN `getDisplayMedia`](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getDisplayMedia)
+-- `MediaRecorder` timeslices are not exact and may produce delayed/larger chunks, so chunk count is not elapsed time and the connector must preserve observed timestamps/gaps. [MDN `dataavailable`](https://developer.mozilla.org/en-US/docs/Web/API/MediaRecorder/dataavailable_event)
+-- Recall supports real-time transcript/participant webhooks and WebSocket media; its guidance recommends fast webhook acknowledgement and idempotent asynchronous work. [Recall meeting-bot guide](https://www.recall.ai/blog/how-to-build-a-meeting-bot)
+-- Zoom RTMS is GA (June 25, 2025), has ongoing 2026 SDK/releases, and provides audio/video/transcript streams without a bot. It requires a General app, Developer Pack credits, RTMS lifecycle events, and fixed granular scopes. [RTMS changelog](https://developers.zoom.us/changelog/rtms), [RTMS features](https://developers.zoom.us/docs/rtms/meetings/add-features/)
++## Common convergence contract
+ 
+-## Zoom RTMS defer exit criteria
++Every source emits a `MeetingEvidenceEnvelope` containing `event_id`, canonical `tenant_id` and `meeting_id`, source kind and version, source session/provider event IDs, occurred/received timestamps, semantic idempotency key, payload hash, artifact reference, media/channel shape, completeness/gaps, consent evidence, region/retention facts, and provenance.
+ 
+-Implement only after all are true: current credit price/budget is approved; OAuth/scopes/admin approval and participant disclosure are reviewed; tenant-region and deletion expectations are documented; concurrency/failover behavior is load-tested; a small consented pilot proves the selected runtime can maintain RTMS connections; and expected volume justifies another operational adapter. The capability response remains `supported: false, reason: deferred_policy` until then.
++Transcript segments add `speaker_label`, `speaker_identity_kind` (`participant`, `generic`, `unknown`), `speaker_confidence`, timing confidence, transcription confidence when supplied, and derivation references. Confidence is evidence, not authorization. Summary/action candidates cite supporting segment IDs and inherit the weakest material provenance/completeness flags.
+ 
+-## Threat-model and test implications
++## Speaker attribution and diarization limits
+ 
+-OWASP coverage required in implementation: server-derived ACLs (A01), verified webhook/auth boundaries (A07), schema and payload-size validation (A03/A04), encrypted transport/storage and secret rotation (A02), safe defaults/region policy (A05), dependency scanning (A06), signed provenance/audit events (A08/A09), and bounded concurrency/timeouts/circuit breakers (A10).
++- A local in-room microphone commonly produces one mixed stream. Machine diarization may separate voices but yields generic labels, cannot reliably map a voice to a named participant, and is weaker for similar voices, overlap, noise, or shared microphones. Recall documents that separate participant streams improve diarization while machine diarization produces generic labels; active-speaker timelines may be inaccurate or incomplete. [Recall diarization](https://docs.recall.ai/docs/diarization)
++- Recall documents separate audio stream support for Zoom, Teams, and Google Meet, but a shared device can still contain multiple people. Hybrid diarization is bot-plus-async only, while real-time and accuracy modes differ. Capability negotiation must therefore report stream topology, label kind, and latency/cost rather than promising “perfect” speaker identity. [Recall diarization](https://docs.recall.ai/docs/diarization)
++- Teams administrators can independently disable Graph transcript access or speaker attribution; when attribution is disabled, only speaker-less transcript content is available. This must degrade to `speaker_identity_kind: unknown`, not fabricate names. [Microsoft Teams transcripts and recordings](https://learn.microsoft.com/en-us/microsoftteams/platform/graph-api/meeting-transcripts/overview-transcripts)
+ 
+-Contract tests must cover unauthorized start/delete, missing or revoked consent, indicator failure, unsupported region, over-budget denial, duplicate/out-of-order webhook, same idempotency key with a different payload, partial media gap, retry exhaustion, deletion pending/confirmed, artifact import provenance, and an attempted provider payload that selects another tenant.
++Speaker-confidence thresholds gate presentation and task promotion: low-confidence named attribution is displayed as “speaker uncertain,” and consequential action ownership must be confirmed during review.
+ 
+-## Research limitations
++## Provider implications
+ 
+-Current provider pricing, exact region inventory, tenant-specific Zoom entitlements, and production concurrency were not verified from an account. They are runtime/onboarding inputs, not assumptions. The broad repository `bun test` baseline was incomplete/failing because it collected Vitest/Playwright suites under the root Bun harness and lacked browser/Supabase environment; no failure was attributed to this documentation-only branch.
++### Recall.ai fallback
++
++Recall advertises bot support for Zoom, Google Meet, and Microsoft Teams and can deliver recordings, transcripts, and metadata. It is useful as a cross-provider participation fallback, but platform behavior, diarization mode, retention, regions, bot availability, and transcription/storage cost remain negotiated capabilities. [Recall Meeting Bot API](https://www.recall.ai/product/meeting-bot-api), [Recall diarization](https://docs.recall.ai/docs/diarization), [Recall storage](https://docs.recall.ai/docs/storage-and-playback)
++
++Recall desktop capture is not the `ExternalMeetingConnector`: it belongs under local capture and requires Product-Suite to supply its own recording indicator. [Recall desktop SDK](https://www.recall.ai/product/desktop-recording-sdk)
++
++### Zoom RTMS
++
++Zoom RTMS is GA and provides bot-free live meeting media, but it consumes Developer Pack credits and requires lifecycle handling, granular fixed scopes, and participant disclosure. Keep it behind Zoom-specific `provider_native_stream` capability/availability gates until current price, tenant entitlement, scopes, region, concurrency/failover, runtime connection, and consent UX pass a pilot. [Zoom RTMS overview](https://developers.zoom.us/docs/rtms/), [RTMS features](https://developers.zoom.us/docs/rtms/meetings/add-features/), [RTMS changelog](https://developers.zoom.us/changelog/rtms)
++
++### Google Meet
++
++The stable Meet REST API is primarily useful for meeting records, participants, and post-meeting recordings/transcripts. Google's real-time Meet Media API is still Developer Preview and requires the project, OAuth principal, and all conference participants to be enrolled; restricted media scopes can require verification and a security assessment. It is not an MVP production substitute for Recall or local capture. [Meet REST API overview](https://developers.google.com/workspace/meet/api/guides/overview), [Meet Media API overview](https://developers.google.com/workspace/meet/media-api/guides/overview), [Meet Media API setup](https://developers.google.com/workspace/meet/media-api/guides/get-started)
++
++### Microsoft Teams
++
++Teams can expose post-meeting transcripts/recordings through Graph with organization-wide or meeting-specific consent, but tenant settings can independently block access or speaker attribution. A full Teams compliance-recording bot has a specialized policy/certification and Windows-VM/Azure deployment model; it should not be smuggled into the generic MVP connector. [Teams transcripts and recordings](https://learn.microsoft.com/en-us/microsoftteams/platform/graph-api/meeting-transcripts/overview-transcripts), [Teams compliance recording](https://learn.microsoft.com/en-us/microsoftteams/teams-recording-compliance)
++
++## Consent, ACL, lifecycle, and cost
++
++- **Consent/indicator:** every capture/join starts from immutable consent evidence and an active visible indicator. Provider or mode fallback that changes participant visibility, media scope, region, latency, or cost requires reconfirmation. W3C screen capture requires user selection and emphasizes recording indicators; Recall desktop leaves notification to the app. [W3C Screen Capture](https://www.w3.org/TR/screen-capture/), [Recall desktop SDK](https://www.recall.ai/product/desktop-recording-sdk)
++- **ACL/provenance:** verified Product-Suite server context derives tenant and actor. Provider, calendar, participant, speaker, and meeting URL fields cannot select an authorization scope.
++- **Retention/deletion/regions:** Product-Suite policy applies separately from provider deletion. Record deletion tombstones and provider confirmation. Exact region is allow-listed; unavailable means deny. Recall account defaults vary and zero retention is explicit, so defaults cannot be assumed. [Recall storage](https://docs.recall.ai/docs/storage-and-playback)
++- **Retries/idempotency/outages:** acknowledge verified webhooks quickly, process asynchronously, honor `Retry-After`, deduplicate provider events, and retain explicit `degraded`, `interrupted`, `incomplete`, and `deletion_pending` states. Recall documents 409 backoff, 429 retry instructions, and 507 bot-pool exhaustion. [Recall errors](https://docs.recall.ai/reference/errors)
++- **Cost:** preflight and reserve per-meeting duration plus organization monthly capture, transcription, and storage budgets. Separate-stream or asynchronous diarization may change processing and cost. Prices are configurable, dated inputs—not contract constants. Hard caps deny or stop; the system never silently selects a more expensive path.
++
++## Meeting-to-action outcome
++
++```text
++source evidence
++  -> canonical transcript segments with provenance/confidence/gaps
++  -> meeting-owned summary candidate + action candidates
++  -> participant/reviewer correction and approval
++  -> explicit task promotion through Product-Suite task authority
++```
++
++All capture paths render the same compact post-meeting review pack. Each action candidate card shows a plain title, one-line reason/source, recommended next step, and `Add`, `Adjust`, or `Dismiss`. `Adjust` opens an inline agent conversation with at most two or three natural-language planning choices; every revision creates a new candidate version linked to its predecessor and evidence. Structured fields, confidence details, and provenance stay hidden until relevant, but remain inspectable and auditable.
++
++Action candidates contain proposed text, proposed owner, due date, evidence segment IDs, confidence, version lineage, and status (`draft`, `needs_review`, `adjusting`, `approved`, `dismissed`, `promoted`). `Add` is the explicit review approval that may invoke task promotion; it is never automatic. Promotion is idempotent and records reviewer, source candidate version, target task ID, and timestamp. Low speaker confidence, incomplete evidence, or ambiguous ownership forces `needs_review`; it never blocks preserving or adjusting the candidate.
++
++## Recommended MVP sequence
++
++1. Lock the four boundaries and common evidence/output contracts.
++2. Ship explicit local microphone/tab capture as the first source, consuming the sibling durability protocol and showing mixed-audio speaker limitations.
++3. Produce the common compact review pack; require `Add`, versioned `Adjust`, or `Dismiss` before any task promotion.
++4. Add calendar recognition for meeting association, reminders, and capability preflight—never automatic recording.
++5. Integrate Recall as an explicit Zoom/Meet/Teams join fallback with conformance, consent, region, retention, availability, diarization, and budget checks.
++6. Pilot platform-native paths separately: Zoom RTMS first when its gates pass; Google Meet Media only after production availability; Teams native/compliance paths only for justified tenant use cases.
++
++## Threat model and TDD implications
++
++OWASP implementation coverage: server-derived ACLs (A01); encrypted artifacts/secrets (A02); schema, size, URL, and webhook validation (A03/A04); deny-by-default consent/region/provider settings (A05); dependency scanning (A06); verified provider/OAuth identities (A07); hashed provenance and idempotent promotion (A08); audit events without raw transcript/media (A09); and bounded concurrency/timeouts/circuit breakers (A10).
++
++Tests must cover cross-tenant metadata injection, missing/revoked consent, indicator loss, mixed-audio unknown speakers, low-confidence action ownership, duplicate/out-of-order evidence, incomplete transcripts, `Add`/`Adjust`/`Dismiss`, revision lineage, more than three adjustment choices, duplicate task promotion, calendar recognition without capture authority, provider capability drift, cost exhaustion, unsupported region, provider outage, and deletion pending/confirmed.
++
++## Research limitations and evidence files
++
++Current account pricing, exact region inventory, tenant entitlements, real production concurrency, and diarization accuracy percentages were not verified; they remain runtime/pilot facts. The prior broad `bun test` baseline remains pre-existing/incomplete because the root Bun runner collected Vitest/Playwright suites without their browser/Supabase environment.
++
++Search outputs:
++
++- `/tmp/meet-teams-external-connector-2026-08-08.json`
++- `/tmp/google-meet-capabilities-2026-08-08.json`
++- `/tmp/recall-external-meeting-connector-2026-08-08.json`
++- `/tmp/zoom-rtms-external-meeting-connector-2026-08-08.json`
++- `/tmp/local-meeting-capture-contract-2026-08-08.json`
++- `/tmp/zoom-rtms-contract-details-2026-08-08.json`
++
++## Sources
++
++- [Recall diarization](https://docs.recall.ai/docs/diarization) (updated 2026-08-06)
++- [Google Meet Media API setup](https://developers.google.com/workspace/meet/media-api/guides/get-started) (updated 2026-04-20)
++- [Google Meet REST API overview](https://developers.google.com/workspace/meet/api/guides/overview) (updated 2026-04-20)
++- [Microsoft Teams transcripts and recordings](https://learn.microsoft.com/en-us/microsoftteams/platform/graph-api/meeting-transcripts/overview-transcripts) (updated 2026-06-30)
++- [Microsoft Teams compliance recording](https://learn.microsoft.com/en-us/microsoftteams/teams-recording-compliance) (updated 2026-07-20)
++- [Zoom RTMS documentation](https://developers.zoom.us/docs/rtms/)
++- [Recall Meeting Bot API](https://www.recall.ai/product/meeting-bot-api)
+diff --git a/docs/work/2026-08-08-external-meeting-connector/plan.md b/docs/work/2026-08-08-external-meeting-connector/plan.md
+index 7a57866..c8bdd7d 100644
+--- a/docs/work/2026-08-08-external-meeting-connector/plan.md
++++ b/docs/work/2026-08-08-external-meeting-connector/plan.md
+@@ -1,58 +1,72 @@
+-# ExternalMeetingConnector interoperability plan
++# Meeting-to-action interoperability plan
+ 
+ **Date:** 2026-08-08
+ 
+ **Issue:** `1ba32c21-490d-4308-ba81-d6874b534ec4`
+ 
+-**Status:** Draft for plan review; no implementation authorized.
++**Status:** Revised draft for human plan review; no implementation authorized.
+ 
+ ## Purpose
+ 
+-Define one provider-neutral boundary for browser-local meeting capture, a Recall.ai fallback, deferred Zoom RTMS, and artifact import without granting any provider meeting, transcript, ACL, retention, or run authority.
++Turn hosted, externally joined, locally captured, and calendar-recognized meetings into trustworthy Product-Suite meeting summaries and review-gated action candidates without collapsing four different product paths into one adapter or granting providers task/run authority.
+ 
+ ## Success criteria
+ 
+-- A small contract distinguishes external capture from `RoomProvider` and `RealtimeAgentAdapter`.
+-- Every start is capability-, policy-, consent-, region-, ACL-, and budget-checked.
+-- Canonical events are provenance-rich and idempotent; partial/outage states remain explicit.
+-- Local is the bounded MVP, Recall is an explicit fallback, Zoom RTMS remains deferred behind objective exit criteria.
+-- Provider deletion and Product-Suite retention are independently observable.
++- Four explicit boundaries: `RoomProvider`, `ExternalMeetingConnector`, `LocalCaptureSource`, and `MeetingRecognition`/orchestration.
++- All sources converge through canonical meeting evidence with provenance, completeness, media topology, and speaker confidence.
++- Local capture is the bounded MVP; Recall is an explicit external-join fallback; Zoom RTMS is capability-gated and deferred.
++- Google Meet and Teams platform constraints degrade capabilities explicitly rather than leaking provider assumptions into the contract.
++- Meeting-owned summaries/action candidates converge on one compact review pack; task creation requires explicit `Add` and is never automatic.
++- Consent/indicator, ACL, retention/deletion/region, retry/idempotency/outage, and cost budgets fail closed.
+ 
+ ## Out of scope
+ 
+-Room hosting, participant-token minting, realtime agent turns/tools, provider-owned transcripts/runs, automatic fallback without renewed disclosure, Zoom RTMS implementation, browser extension/desktop system-audio implementation, and local crash/network durability owned by sibling issue `d88d461a-c259-4dc6-a751-f2b3c6898b7a`.
++The LiveKit-versus-Cloudflare-RealtimeKit `RoomProvider` choice; realtime agent turns/tools; automatic recording from a calendar event; guaranteed identity from mixed-audio diarization; provider-authored canonical summaries/tasks/runs; Google Meet Media production integration while in Developer Preview; Teams compliance-recording infrastructure; Zoom RTMS implementation; and local durability owned by sibling issue `d88d461a-c259-4dc6-a751-f2b3c6898b7a`.
+ 
+-## Selected approach
++## Approach selected
+ 
+-Add a versioned contract with seven operations: `negotiate`, `prepare`, `start`, `stop`, `importArtifact`, `status`, and `delete`. The meeting service remains the orchestration and authority layer. Adapters translate provider/local events to canonical connector envelopes; downstream transcription and agent execution consume canonical artifacts only.
++Keep four source-specific boundaries and add a small common `MeetingEvidenceEnvelope` at the Product-Suite meeting authority. Local capture produces the first MVP evidence. Recall participates in externally hosted Zoom/Meet/Teams calls only after explicit fallback selection. Calendar recognition associates and preflights meetings but never authorizes capture. RoomProvider continues to own hosted rooms separately.
+ 
+-The selection order is policy, not hidden failover: local when requested capabilities and consent UX are available; Recall only after explicit fallback choice and cost/region preflight; import for an existing artifact; Zoom returns a deferred capability until its exit criteria pass.
++Canonical transcript segments carry speaker label kind and confidence. Product-Suite derives meeting-owned summary and action candidates with evidence references and completeness flags. Every path renders the same compact review pack: each card shows a plain title, one-line reason/source, recommended next step, and `Add`, `Adjust`, or `Dismiss`. `Adjust` opens inline agent conversation with no more than two or three natural-language planning choices and stores the revision as a new candidate version. Structured fields/provenance remain hidden until relevant. Only authorized `Add` can idempotently promote that exact candidate version into the task system.
+ 
+ ## Constraints and invariants
+ 
+-- Server context derives tenant/actor; provider fields cannot select authorization scope.
+-- `start` requires consent evidence and an active visible indicator; revocation stops capture.
+-- Same idempotency key plus different semantics is a conflict, never a second session.
+-- Webhooks are acknowledged quickly and handled asynchronously with dedupe/backoff.
+-- Exact region and hard budget are negotiated inputs; unsupported means deny.
+-- Product-Suite retention/deletion policy applies even when provider deletion is pending.
+-- Gaps, interruptions, and incomplete deletion are durable states, not success.
++- One adapter cannot claim all four paths; source capabilities remain explicit.
++- Server context derives tenant/actor; provider/calendar/speaker metadata is never authorization.
++- Consent evidence and visible recording state are mandatory at capture/join time.
++- Low-confidence speaker identity cannot silently become an action owner.
++- Same idempotency key plus different semantics is a conflict.
++- Exact region, retention, availability, diarization mode/latency, and budget are negotiated facts.
++- Fallback changes require renewed confirmation; incomplete evidence remains incomplete.
++- Provider output cannot directly create meetings, transcripts, tasks, proposals, or runs; neither candidate generation nor adjustment creates a work item.
+ 
+ ## Edge cases
+ 
+-Permission denied after preflight; local source ends mid-meeting; indicator process crashes; bot pool exhaustion; duplicate/out-of-order webhook; provider reconnect changes stream identity; webhook outage exceeds provider retry window; transcript arrives before audio metadata; deletion confirmation never arrives; region changes between prepare/start; monthly budget is consumed concurrently; imported artifact hash collides with different provenance.
++Shared conference-room microphone; overlapping/similar voices; Teams speaker attribution disabled; Google Meet Media preview/ineligible participant; Recall bot denied or pool exhausted; Zoom RTMS entitlement/concurrency unavailable; calendar event moved or duplicate join URLs; local capture source ends; transcript gaps; action owner mentioned by an uncertain speaker; repeated adjustment or stale candidate version; more than three agent choices; dismissal; duplicate promotion; deletion remains pending; budget consumed concurrently.
+ 
+ ## Ambiguity policy
+ 
+-Choose the privacy-preserving, lower-cost, non-recording outcome. Do not broaden media, switch provider, or extend retention without explicit policy and user confirmation. Unknown provider state maps to `degraded` or `incomplete`, never `complete`.
++Choose the privacy-preserving, lower-cost, non-recording result. Unknown identity stays unknown; unknown evidence stays incomplete. Do not broaden media, select another provider, assign action ownership, or promote a task below 80% decision confidence—stop for explicit review.
+ 
+ ## Technical research
+ 
+-The evidence, live-source freshness, contract sketch, threat model, and vendor choices are in [`docs/research/externalmeetingconnector-interoperability.md`](../../research/externalmeetingconnector-interoperability.md). Existing code anchors are `packages/contracts/src/meeting.js`, `apps/meeting-web/src/hooks/useAudioRecorder.js`, `apps/meeting-web/src/App.jsx`, and `apps/meeting-api/backend/server.py`.
++Current vendor evidence, contract details, diarization/confidence limits, platform implications, OWASP pass, TDD scenarios, and source JSON paths are in [`docs/research/externalmeetingconnector-interoperability.md`](../../research/externalmeetingconnector-interoperability.md). Code anchors remain `packages/contracts/src/meeting.js`, `apps/meeting-web/src/hooks/useAudioRecorder.js`, `apps/meeting-web/src/App.jsx`, and `apps/meeting-api/backend/server.py`.
+ 
+-## Plan-review gates
++## Recommended MVP sequence
+ 
+-1. Confirm local-first + explicit Recall fallback is the MVP product choice.
+-2. Confirm the meeting service, not a new control plane, owns connector sessions and canonical events.
+-3. Confirm Zoom RTMS stays contract-only/deferred until every exit criterion passes.
+-4. Confirm sibling issue `d88d461a-c259-4dc6-a751-f2b3c6898b7a` owns local durability so implementation tasks do not overlap.
++1. Lock the four boundaries and canonical evidence/output contracts.
++2. Integrate explicit local microphone/tab capture, consuming the sibling durability protocol.
++3. Add the common compact review pack with versioned `Add`/`Adjust`/`Dismiss` and review-gated task promotion.
++4. Add calendar recognition/association and capability preflight without auto-recording.
++5. Add Recall as an explicit Zoom/Google Meet/Teams fallback.
++6. Evaluate Zoom RTMS, Google Meet Media, and Teams-native paths as separate gated follow-ups.
++
++## Approval gates
++
++1. Approve the four-boundary taxonomy and confirm the hosted-room provider decision stays separate.
++2. Approve local-first MVP despite explicitly limited named-speaker confidence for mixed/in-room audio.
++3. Approve the common evidence envelope and meeting-owned summary/action-candidate model.
++4. Approve the compact review-pack UX and mandatory `Add` before idempotent task promotion; `Adjust` is versioned and offers at most two or three natural-language choices, while `Dismiss` creates no task.
++5. Approve Recall only as a disclosed, budgeted, region-compatible external-join fallback.
++6. Approve Zoom RTMS as deferred until price, entitlement/scopes, consent, region, concurrency/failover, and runtime pilot gates pass; keep Google Meet Media preview and specialized Teams native/compliance paths out of MVP.
++7. Confirm sibling issue `d88d461a-c259-4dc6-a751-f2b3c6898b7a` exclusively owns local crash/network durability.
+diff --git a/docs/work/2026-08-08-external-meeting-connector/tasks.md b/docs/work/2026-08-08-external-meeting-connector/tasks.md
+index 7b212f2..89382d5 100644
+--- a/docs/work/2026-08-08-external-meeting-connector/tasks.md
++++ b/docs/work/2026-08-08-external-meeting-connector/tasks.md
+@@ -1,55 +1,81 @@
+-# ExternalMeetingConnector implementation tasks
++# Meeting-to-action interoperability implementation tasks
+ 
+-**Status:** Proposed only; execute under `/dev` after plan approval.
++**Status:** Proposed only; execute under `/dev` after all plan approval gates pass.
+ 
+-## Task 1 — Versioned shared contract
++## Task 1 — Lock boundary and evidence contracts
+ 
+-**Owns:** `packages/contracts/contracts/meeting-external-connector.json`, `packages/contracts/src/meeting.js`, `packages/contracts/src/index.d.ts`, focused contract tests.
++**OWNS:** `packages/contracts/contracts/meeting-evidence.json`, `packages/contracts/contracts/external-meeting-connector.json`, `packages/contracts/src/meeting.js`, `packages/contracts/src/index.d.ts`, `packages/contracts/src/meeting.test.ts`.
+ 
+-RED: tests reject missing consent/tenant/provenance, invalid capability combinations, and same idempotency key with changed semantics.
+-GREEN: add the minimum operations, capability decision, canonical event, artifact receipt, and lifecycle states.
+-REFACTOR: keep provider names out of canonical types except a provenance identifier.
++**What to implement:** Define separate `RoomProvider` reference, `ExternalMeetingConnector`, `LocalCaptureSource`, and `MeetingRecognition` capability kinds plus canonical evidence/transcript confidence fields. No provider-specific fields outside provenance/capability extensions.
+ 
+-## Task 2 — Product-owned policy/orchestration core
++**TDD:** First reject a connector claiming hosted-room/local/calendar authority, missing consent/provenance, impossible stream topology, and same-key/different-payload evidence. Then implement the smallest schemas/types and make fixtures pass.
+ 
+-**Owns:** a focused connector module under `apps/meeting-api/backend/` and its unit tests; no provider network code.
++**Expected output:** Valid local, Recall, artifact, hosted-room reference, calendar-recognition, and provider-native-deferred fixtures; invalid authority/confidence fixtures fail deterministically.
+ 
+-RED: unauthorized start/delete, unsupported region, expired consent, over-budget reservation, and provider-supplied tenant selection fail closed.
+-GREEN: implement negotiation, ACL/policy checks, budget reservation, state transitions, dedupe, and canonical event persistence through existing meeting authority.
+-REFACTOR: separate pure policy decisions from I/O.
++## Task 2 — Product-owned evidence and policy core
+ 
+-## Task 3 — Browser-local adapter seam
++**OWNS:** `apps/meeting-api/backend/meeting_evidence.py`, `apps/meeting-api/tests/backend/test_meeting_evidence.py`; no provider network code.
+ 
+-**Owns:** adapter wiring around `apps/meeting-web/src/hooks/useAudioRecorder.js` and `apps/meeting-web/src/App.jsx`; consumes sibling durability protocol rather than reimplementing it.
++**What to implement:** Server-derived ACLs, consent/region/retention/budget checks, evidence idempotency, completeness/gap states, and transcript speaker identity/confidence normalization.
+ 
+-RED: user gesture/permission denial, visible-indicator loss, revocation, source-ended, and gap reporting tests.
+-GREEN: expose local capabilities and translate existing capture lifecycle to connector commands/events.
+-REFACTOR: keep browser APIs outside the shared contract.
++**TDD:** First fail cross-tenant injection, expired consent, unsupported region, exhausted budget, duplicate conflict, mixed-audio named identity without evidence, and out-of-order gaps. Implement pure policy/state transitions before persistence wiring.
+ 
+-## Task 4 — Recall fallback adapter
++**Expected output:** Deterministic canonical evidence or explicit denied/degraded/incomplete result.
+ 
+-**Owns:** Recall-specific adapter, webhook verifier/translator, fixtures, and conformance tests.
++## Task 3 — Local capture MVP seam
+ 
+-RED: invalid signature, duplicate/out-of-order webhook, 409/429/507 retry instructions, deletion pending, unsupported region, and fallback without renewed confirmation.
+-GREEN: implement prepare/start/stop/status/delete and canonical translation behind the shared boundary.
+-REFACTOR: isolate Recall payloads and configurable pricing/retention metadata.
++**OWNS:** `apps/meeting-web/src/hooks/useAudioRecorder.js`, `apps/meeting-web/src/hooks/useAudioRecorder.test.js`, `apps/meeting-web/src/App.jsx`, `apps/meeting-web/src/__tests__/App.test.js`.
+ 
+-## Task 5 — Consent, indicator, capability and budget UX
++**What to implement:** Explicit user-started microphone/tab capability, consent/indicator lifecycle, media topology and quality/gap reporting. Consume sibling durability APIs; do not recreate storage/retry/finalization.
+ 
+-**Owns:** meeting-web connector chooser/status UI and focused accessibility tests.
++**TDD:** First cover denied permission, source-ended, indicator loss, revocation, mixed stream, generic/unknown speaker labels, and sibling queue degraded state. Then translate existing capture events to canonical evidence.
+ 
+-RED: no start without disclosure/consent; provider/price/region changes require reconfirmation; indicator and degraded/incomplete states remain visible and screen-reader announced.
+-GREEN: implement local-first selection, explicit Recall fallback, hard-budget denial, stop/delete controls, and provenance/status display.
+-REFACTOR: share presentation over canonical capability/status data.
++**Expected output:** A local meeting produces provenance-rich evidence and visibly disclaims uncertain speaker identity.
+ 
+-## Task 6 — Conformance and operational evidence
++## Task 4 — Meeting-owned summaries and review-gated actions
+ 
+-**Owns:** adapter conformance suite, runbook/reference docs, and metrics with no raw media/transcript payloads.
++**OWNS:** `packages/contracts/contracts/meeting-review-pack.json`, `packages/contracts/src/meeting-review-pack.test.ts`, `apps/meeting-api/backend/meeting_actions.py`, `apps/meeting-api/tests/backend/test_meeting_actions.py`; no provider adapters.
+ 
+-RED: every adapter must pass lifecycle, idempotency, outage, deletion, ACL, provenance, region, consent, and budget scenarios.
+-GREEN: add fixtures for local, Recall, import, and Zoom-deferred capability; document alarms and deletion reconciliation.
+-REFACTOR: ensure telemetry contains identifiers/hashes/states only.
++**What to implement:** Evidence-citing summary/action candidates, weakest-material completeness/confidence propagation, version lineage, and the compact review-pack behavior. Each card exposes a plain title, one-line reason/source, recommended next step, and `Add`/`Adjust`/`Dismiss`; `Adjust` returns at most two or three natural-language planning choices and versions the revision. Only `Add` invokes idempotent promotion through existing task authority. Structured fields/provenance are progressively disclosed.
+ 
+-## Explicit deferral
++**TDD:** First prevent direct provider/model task creation, low-confidence owner auto-assignment, promotion without `Add`, stale-version/duplicate promotion, more than three adjustment choices, and work-item creation from `Adjust` or `Dismiss`. Then implement candidate versions, review actions, and auditable promotion.
+ 
+-Do not implement Zoom RTMS in these tasks. After the research exit criteria pass, file/claim a separate issue with its own adapter and operational pilot. Do not absorb sibling issue `d88d461a-c259-4dc6-a751-f2b3c6898b7a` (local crash/network-safe persistence and retry).
++**Expected output:** Meeting evidence yields a compact, common review pack; only authorized `Add` of the current version yields one canonical task with evidence and reviewer provenance.
++
++## Task 5 — Calendar recognition and orchestration
++
++**OWNS:** `apps/meeting-api/backend/meeting_recognition.py`, `apps/meeting-api/tests/backend/test_meeting_recognition.py`; no calendar provider implementation beyond an approved existing boundary.
++
++**What to implement:** Normalize provider/join metadata, associate or request confirmation for a canonical meeting, and present eligible source choices/reminders without capture authority.
++
++**TDD:** First cover duplicate/moved events, ambiguous meeting association, untrusted organizer/provider URL, unsupported provider, and attempted silent start. Then implement recognition and preflight offers.
++
++**Expected output:** A calendar event can prepare a reviewed meeting/source offer but can never record by itself.
++
++## Task 6 — Recall external-join fallback
++
++**OWNS:** `apps/meeting-api/backend/connectors/recall.py`, `apps/meeting-api/tests/backend/test_recall_connector.py`, `apps/meeting-api/tests/backend/fixtures/recall/`.
++
++**What to implement:** Zoom/Google Meet/Teams bot capability negotiation and join/leave/status/deletion behind `ExternalMeetingConnector`, including disclosure, region, retention, diarization topology/latency, availability, and budget facts.
++
++**TDD:** First cover invalid signature, denied join, duplicate/out-of-order webhook, 409/429/507, shared-device speaker uncertainty, unsupported region, and fallback without renewed confirmation. Then implement the bounded adapter.
++
++**Expected output:** Explicitly selected Recall sessions emit canonical evidence without owning meetings/transcripts/tasks/runs.
++
++## Task 7 — Conformance, UX, and operational evidence
++
++**OWNS:** `apps/meeting-web/src/components/meeting/MeetingReviewPack.jsx`, `apps/meeting-web/src/components/meeting/__tests__/MeetingReviewPack.test.jsx`, `apps/meeting-api/tests/backend/test_meeting_source_conformance.py`, `docs/reference/MEETING_INTEROPERABILITY.md`.
++
++**What to implement:** The shared compact review-pack presentation plus visible source/recording/degraded/confidence/cost states; progressive disclosure of structured provenance; deletion reconciliation; conformance for lifecycle, authority, consent, ACL, provenance, region, budget, diarization, and outages.
++
++**TDD:** First require accessible `Add`/`Adjust`/`Dismiss`, inline adjustment with two or three choices, version visibility, uncertain-speaker labeling, incomplete-evidence review gates, hard-budget denial, deletion pending/confirmed, and metrics without raw transcript/media. Then implement shared presentation and operational checks.
++
++**Expected output:** Local and Recall paths share evidence/output behavior while retaining distinct capabilities and failure semantics.
++
++## Explicit deferrals
++
++- Do not choose or implement LiveKit versus Cloudflare RealtimeKit here.
++- Do not implement Zoom RTMS until every approval/exit gate passes; create a separate issue/pilot.
++- Do not implement Google Meet Media while production eligibility is unmet.
++- Do not treat Teams Graph artifact access or compliance recording as the generic external connector; scope tenant-specific follow-ups separately.
++- Do not absorb sibling issue `d88d461a-c259-4dc6-a751-f2b3c6898b7a`.
+-- 
+2.51.0.windows.1
+

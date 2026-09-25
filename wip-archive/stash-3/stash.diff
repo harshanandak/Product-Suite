@@ -1,0 +1,1056 @@
+diff --git a/.beads/export-state.json b/.beads/export-state.json
+new file mode 100644
+index 0000000..5f51413
+--- /dev/null
++++ b/.beads/export-state.json
+@@ -0,0 +1 @@
++{"last_dolt_commit":"0plo7hdkus9lh5opntsq6unksb7kggfg","timestamp":"2026-06-01T15:36:37.7959116+05:30","issues":24,"memories":0}
+\ No newline at end of file
+diff --git a/.beads/issues.jsonl b/.beads/issues.jsonl
+index 0d0920e..37f840c 100644
+--- a/.beads/issues.jsonl
++++ b/.beads/issues.jsonl
+@@ -1,7 +1,24 @@
++{"_type":"issue","id":"product-suite-71k","title":"PR9 Chat Block Extraction","description":"PR9 continues the building-blocks transformation after merged and verified PR8. Scope: create packages/ui-chat, lift reusable chat presentation and thread normalization from roadmap-web without creating chat-web, let meeting-web consume the shared chat block where appropriate, and keep service-specific API/auth/persistence wiring in app shells.","status":"closed","priority":1,"issue_type":"epic","owner":"harshanandak@users.noreply.github.com","created_at":"2026-05-18T12:59:56Z","created_by":"Harsha Nanda","updated_at":"2026-05-18T14:20:04Z","closed_at":"2026-05-18T14:20:04Z","close_reason":"PR9 Chat Block Extraction merged and main fast-forwarded to e6dcf51","comments":[{"id":"019e3b2e-80bc-71f5-b1ec-86951ed7c764","issue_id":"product-suite-71k","author":"Harsha Nanda","text":"Stage: none -\u003e plan\nSummary: Started PR9 Chat Block Extraction planning in isolated worktree.\nDecisions: Classified as Standard feature slice because it creates a shared chat UI package and app consumers without auth/data migration changes.\nArtifacts: .worktrees/pr9-chat-block-extraction\nNext: Research roadmap chat surfaces, meeting chat usage, and reusable package boundaries.","created_at":"2026-05-18T13:02:44Z"},{"id":"019e3b39-1190-7ca1-b4c2-712b35931c20","issue_id":"product-suite-71k","author":"Harsha Nanda","text":"Stage: plan -\u003e dev -\u003e validate\nSummary: Implemented PR9 shared chat package in commit 90826e1 with ui-chat components/helpers, meeting-web consumer wiring, roadmap helper adoption, and CI/tooling docs updates.\nDecisions: Kept Supabase, AI routes, assistant runtime, auth, and routing inside app shells; package owns only presentation and pure data helpers.\nArtifacts: packages/ui-chat apps/meeting-web/src/components/chat/ChatPanel.jsx apps/roadmap-web/src/hooks/use-chat-threads.ts test/repo-tooling.test.js\nNext: Run full pre-push validation and ship PR linked to product-suite-71k.","created_at":"2026-05-18T13:14:16Z"},{"id":"019e3b47-61df-7065-a381-74365308fa28","issue_id":"product-suite-71k","author":"Harsha Nanda","text":"Stage: validate -\u003e ship\nSummary: PR9 branch pushed and GitHub PR #10 created for shared chat block extraction.\nDecisions: PR is ready for review with full local pre-push validation passing.\nArtifacts: https://github.com/harshanandak/Product-Suite/pull/10 feat/pr9-chat-block-extraction\nNext: Run /review after GitHub checks and reviewer bots complete.","created_at":"2026-05-18T13:29:54Z"}],"dependency_count":0,"dependent_count":0,"comment_count":3}
++{"_type":"issue","id":"product-suite-613","title":"PR8 Meeting Block Extraction","description":"PR8 continues the building-blocks transformation after merged PR7. Scope: create packages/ui-meeting, move shared meeting presentation out of meeting-web, let roadmap-web consume meeting surfaces through package import, and keep meeting-web as a shell without route/app-shell coupling in the shared block.","notes":"Stage: none -\u003e plan\nSummary: Started PR8 Meeting Block Extraction planning in isolated worktree.\nDecisions: Classified as Standard feature slice because it creates a shared UI package and changes two app consumers without auth/data migration changes.\nArtifacts: .worktrees/pr8-meeting-block-extraction\nNext: Research meeting-web presentation surfaces and roadmap-web consumption points before writing design and TDD tasks.\nStage: plan -\u003e dev -\u003e validate\nSummary: Implemented PR8 meeting block extraction in commit 4621a51: added packages/ui-meeting, thinned meeting-web summary screen into a shell wrapper, added a roadmap-web consumer, and updated package/CI wiring.\nDecisions: Kept package presentation-only with shell slots for buddy/chat; no routing, auth, SDK, or persistence in the shared block.\nArtifacts: packages/ui-meeting apps/meeting-web/src/components/meeting/SummaryFirstMeetingScreen.jsx apps/roadmap-web/src/components/meetings/workspace-meeting-surface.tsx\nNext: Push branch and open PR linked to product-suite-613.\nStage: validate -\u003e ship\nSummary: PR8 branch pushed and GitHub PR #9 created for shared meeting block extraction.\nDecisions: PR is ready for review with local pre-push validation passing; GitHub checks were queried immediately after PR creation.\nArtifacts: https://github.com/harshanandak/Product-Suite/pull/9\nNext: Run /review after GitHub checks and reviewer bots complete.","status":"closed","priority":1,"issue_type":"epic","owner":"harshanandak@users.noreply.github.com","created_at":"2026-05-18T11:42:24Z","created_by":"Harsha Nanda","updated_at":"2026-05-18T12:55:46Z","closed_at":"2026-05-18T12:55:46Z","close_reason":"Merged and verified on main (PR #9)","dependency_count":0,"dependent_count":0,"comment_count":0}
++{"_type":"issue","id":"product-suite-0rs","title":"PR7 SDK / Typed Client Layer","description":"PR7 continues the building-blocks transformation after merged PR6. Scope: create packages/sdk, replace meeting-web ad hoc axios request/response shapes from apps/meeting-web/src/lib/api.js, and add typed clients for shared service surfaces without hidden runtime coupling or duplicate endpoint definitions.","status":"closed","priority":1,"issue_type":"epic","owner":"harshanandak@users.noreply.github.com","created_at":"2026-05-17T13:18:24Z","created_by":"Harsha Nanda","updated_at":"2026-05-18T11:36:15Z","closed_at":"2026-05-18T11:36:15Z","close_reason":"Merged and verified on main in PR #8","dependency_count":0,"dependent_count":0,"comment_count":0}
++{"_type":"issue","id":"product-suite-fto","title":"PR6 Auth Provider Rollout","description":"PR6 continues the building-blocks transformation after merged PR5. Scope: switch both web apps to one canonical IdP model, update meeting-api verification to a JWKS/OIDC flow, remove Supabase-auth-as-truth from the roadmap shell, and update env/docs/migration notes while preserving session continuity and tenant/workspace claim correctness.","notes":"Stage: none complete -\u003e ready for plan\nSummary: Started PR6 Auth Provider Rollout planning in isolated worktree.\nDecisions: Treat PR6 as critical because it changes authentication provider and token verification boundaries.\nArtifacts: .worktrees/pr6-auth-provider-rollout\nNext: Document research, RLS constraints, design approach, and TDD task list before dev.\nStage: plan artifacts created\nSummary: PR6 research, design, and TDD task list created on feat/pr6-auth-provider-rollout.\nDecisions: Compatibility-first rollout; canonical Neon/Better Auth identity, preserve Supabase data/RLS semantics until each path has an auth bridge.\nArtifacts: docs/research/pr6-auth-provider-rollout.md docs/plans/2026-05-16-pr6-auth-provider-rollout-design.md docs/plans/2026-05-16-pr6-auth-provider-rollout-tasks.md\nNext: Review task list, then start /dev with Task 1 baseline status test.\nStage: dev -\u003e validate -\u003e ship-ready\nSummary: Implemented PR6 canonical auth boundary in commit f88945e: signed roadmap canonical claims, route-auth middleware switch, RLS auth.uid audit, canonical meeting-api JWKS config, and env/docs rollout notes.\nDecisions: Compatibility-first rollout preserved Supabase data/RLS behavior; roadmap route/session truth now uses signed canonical claims. Forge ship adapter was blocked in the worktree by missing authoritative workflow state, so shipping continues through GitHub CLI using fresh validation evidence.\nArtifacts: apps/roadmap-web/src/lib/canonical-auth.ts apps/roadmap-web/src/lib/canonical-auth-middleware.ts apps/meeting-api/backend/config.py apps/meeting-api/backend/security.py docs/research/pr6-auth-provider-rollout.md\nNext: Push feat/pr6-auth-provider-rollout and create PR for review.\nStage: ship -\u003e review\nSummary: PR created for PR6 Auth Provider Rollout: https://github.com/harshanandak/Product-Suite/pull/7. Branch feat/pr6-auth-provider-rollout pushed at f88945e.\nDecisions: PR body links product-suite-fto and includes validation evidence; automated checks were polled for 60 seconds and remaining Roadmap Web CI, Roadmap Playwright, and CodeRabbit were still pending at handoff while backend, meeting-web, repo-tooling, Railway deploy, and Vercel previews were green.\nArtifacts: https://github.com/harshanandak/Product-Suite/pull/7\nNext: Run /review after pending GitHub checks and CodeRabbit complete.\nStage: review feedback addressed\nSummary: Addressed all five unresolved review threads on PR #7 in commit 164bbe0: restored legacy Supabase callback code exchange as a compatibility bridge to signed canonical cookies, changed callback profile/team checks to maybeSingle with fail-closed error handling, made provider-claim token sanitization case-insensitive, and made malformed expires_at fail closed with regression tests.\nDecisions: Did not resolve GitHub threads directly because the user asked to fix them, not to mark review threads resolved.\nArtifacts: apps/roadmap-web/src/app/auth/callback/route.ts apps/roadmap-web/src/app/auth/callback/route.test.ts apps/roadmap-web/src/lib/canonical-auth.ts apps/roadmap-web/src/lib/__tests__/canonical-auth.test.ts\nNext: Wait for refreshed PR checks and reviewer bots.","status":"closed","priority":1,"issue_type":"epic","assignee":"Harsha Nanda","owner":"harshanandak@users.noreply.github.com","created_at":"2026-05-16T10:40:12Z","created_by":"Harsha Nanda","updated_at":"2026-05-17T13:13:41Z","closed_at":"2026-05-17T13:13:41Z","close_reason":"Merged and verified on main (PR #7)","dependency_count":0,"dependent_count":0,"comment_count":0}
++{"_type":"issue","id":"product-suite-9e2","title":"Fix dependency audit vulnerabilities blocking PR5 validation","description":"Validation blocker found during PR5 /validate on 2026-05-16.\n\nCommand:\n- bun audit\n\nResult:\n- exit 1\n- 26 vulnerabilities: 10 high, 13 moderate, 3 low\n\nReported packages:\n- ip-address \u003c=10.1.0 via workspace:frontend \u003e shadcn\n- kysely \u003e=0.26.0 \u003c0.28.17 via workspace:frontend \u003e @neondatabase/neon-js\n- next \u003e=16.0.0 \u003c16.2.5 via workspace:next-app \u003e next, @vercel/speed-insights, workspace:frontend \u003e @neondatabase/neon-js\n- fast-uri \u003c=3.1.1 via workspace:frontend \u003e ajv and @neondatabase/neon-js\n- mermaid \u003e=11.0.0-alpha.1 \u003c=11.14.0 via workspace:next-app \u003e streamdown\n- hono \u003c4.12.18 via workspace:frontend \u003e shadcn\n\nThis is outside PR5 auth-contract scope, but it blocks the workflow security gate required before /ship.","status":"closed","priority":1,"issue_type":"bug","owner":"harshanandak@users.noreply.github.com","created_at":"2026-05-16T08:31:08Z","created_by":"Harsha Nanda","updated_at":"2026-05-16T08:51:57Z","closed_at":"2026-05-16T08:51:57Z","close_reason":"Fixed by dependency updates and adapter-only Neon import; bun audit now reports no vulnerabilities.","labels":["dependencies","security","validation"],"dependency_count":0,"dependent_count":0,"comment_count":0}
++{"_type":"issue","id":"product-suite-ef5","title":"PR5 Auth Contracts And Adapters","description":"PR5 adds shared auth contracts and provider adapters across Product-Suite without changing login providers. Scope: define AuthClaims, TokenVerifier, SessionBridge, and WorkspaceAccessResolver; wrap current roadmap-web Supabase, meeting-web hosted auth, and meeting-api verification behavior behind compatible adapters; prove existing auth flows still pass.","notes":"Blocked during /validate by product-suite-9e2: bun audit exits 1 with 26 dependency vulnerabilities (10 high, 13 moderate, 3 low). App/API CI gates pass; /ship is blocked by the security gate.\nValidation blocker product-suite-9e2 fixed: bun audit reports no vulnerabilities; bun run test:prepush passed after dependency updates and meeting-web adapter import narrowing.\nShip created GitHub PR #6: https://github.com/harshanandak/Product-Suite/pull/6\nReview started for PR #6: completed checks are passing and Vercel previews are ready; waiting on Roadmap Web CI typecheck-and-build, Roadmap Web Playwright test, and CodeRabbit review.","status":"closed","priority":1,"issue_type":"epic","owner":"harshanandak@users.noreply.github.com","created_at":"2026-05-16T08:01:16Z","created_by":"Harsha Nanda","updated_at":"2026-05-16T10:32:20Z","closed_at":"2026-05-16T10:32:20Z","close_reason":"Closed","comments":[{"id":"019e2fce-4784-783e-bcd0-441567d2375b","issue_id":"product-suite-ef5","author":"Harsha Nanda","text":"Stage: none complete → ready for plan\nSummary: Started PR5 Auth Contracts And Adapters planning from clean main in isolated worktree.\nDecisions: PR5 will not switch providers provider rollout remains PR6.\nArtifacts: .worktrees/pr5-auth-contracts-and-adapters\nNext: Create research, design, and TDD task list for auth contracts/adapters.","created_at":"2026-05-16T08:01:48Z"},{"id":"019e2fd4-1d02-7eb2-a738-442ca391e5de","issue_id":"product-suite-ef5","author":"Harsha Nanda","text":"Stage: plan complete → ready for dev\nSummary: PR5 research, design, and TDD task list created and committed.\nDecisions: Compatibility-first auth contracts/adapters only no provider rollout in PR5.\nArtifacts: docs/research/pr5-auth-contracts-and-adapters.md docs/plans/2026-05-16-pr5-auth-contracts-and-adapters-design.md docs/plans/2026-05-16-pr5-auth-contracts-and-adapters-tasks.md\nNext: Implement auth contract artifact, claim validation, adapter mapping helpers, and docs context.","created_at":"2026-05-16T08:08:11Z"}],"dependency_count":0,"dependent_count":0,"comment_count":2}
+ {"_type":"issue","id":"product-suite-shj","title":"Verify cleanup: remove locked PR4 worktree directory","description":"PR #4 merged and main CI is healthy, but the deregistered worktree directory \u003cLOCAL_WORKTREE_PATH\u003e remains locked by another local process and could not be removed during /verify.","status":"closed","priority":1,"issue_type":"bug","owner":"harshanandak@users.noreply.github.com","created_at":"2026-04-25T14:14:31Z","created_by":"Harsha Nanda","updated_at":"2026-05-15T14:54:11Z","closed_at":"2026-05-15T14:54:11Z","close_reason":"Closed","dependency_count":0,"dependent_count":0,"comment_count":0}
+ {"_type":"issue","id":"product-suite-9cy","title":"Fix postcss vulnerability blocking PR4 validate","description":"Validation is blocked by bun audit reporting GHSA-qx2v-qp2m-jg93 for postcss \u003c8.5.10 in the current dependency tree. Investigate the transitive path from meeting-web and roadmap-web dependencies, update to a patched version or compatible overrides, and re-run bun audit before resuming PR4 ship readiness.","status":"closed","priority":1,"issue_type":"bug","owner":"harshanandak@users.noreply.github.com","created_at":"2026-04-25T08:41:21Z","created_by":"Harsha Nanda","updated_at":"2026-04-25T08:50:26Z","closed_at":"2026-04-25T08:50:26Z","close_reason":"Fixed in 4e82387 by pinning postcss 8.5.10 and regenerating bun.lock; bun audit now passes.","dependency_count":0,"dependent_count":0,"comment_count":0}
+ {"_type":"issue","id":"product-suite-84m","title":"PR2 Validation Baseline","description":"Plan and execute PR2 so Product Suite has one root-level validation baseline across roadmap-web, meeting-web, and meeting-api before deeper refactors.","status":"closed","priority":1,"issue_type":"epic","owner":"harshanandak@users.noreply.github.com","created_at":"2026-04-24T09:00:39Z","created_by":"Harsha Nanda","updated_at":"2026-04-24T12:32:26Z","closed_at":"2026-04-24T12:32:26Z","close_reason":"Merged and verified on main (PR #2)","dependency_count":0,"dependent_count":0,"comment_count":0}
+-{"_type":"issue","id":"product-suite-y2f","title":"Post-merge: leftover PR1 worktree directory locked by Dolt process","description":"After verifying merged PR #1 on origin/main, the feature branch was deleted and the Git worktree registration was removed. The leftover directory \u003cLOCAL_WORKTREE_PATH\u003e could not be fully deleted because .beads/dolt files (journal.idx, LOCK, dolt-server.log) are held open by running dolt.exe sql-server processes. Cleanup needs follow-up once the locking process is identified or stopped.","status":"closed","priority":1,"issue_type":"bug","owner":"harshanandak@users.noreply.github.com","created_at":"2026-04-24T07:18:19Z","created_by":"Harsha Nanda","updated_at":"2026-04-24T07:21:09Z","closed_at":"2026-04-24T07:21:09Z","close_reason":"Cleanup completed during verify: stopped Dolt server on port 63720, removed leftover PR1 directory, feature branch already deleted.","dependency_count":0,"dependent_count":0,"comment_count":0}
++{"_type":"issue","id":"product-suite-y2f","title":"Post-merge: leftover PR1 worktree directory locked by Dolt process","description":"After verifying merged PR #1 on origin/main, the feature branch was deleted and the Git worktree registration was removed. The leftover directory \u003cLOCAL_WORKTREE_PATH\u003e could not be fully deleted because .beads/dolt files (journal.idx, LOCK, dolt-server.log) are held open by running dolt.exe sql-server processes. Cleanup needs follow-up once the locking process is identified or stopped.","status":"closed","priority":1,"issue_type":"bug","owner":"harshanandak@users.noreply.github.com","created_at":"2026-04-24T07:18:19Z","created_by":"Harsha Nanda","updated_at":"2026-05-11T06:54:02Z","closed_at":"2026-04-24T07:21:09Z","close_reason":"Cleanup completed during verify: stopped Dolt server on port 63720, removed leftover PR1 directory, feature branch already deleted.","dependency_count":0,"dependent_count":0,"comment_count":0}
++{"_type":"issue","id":"product-suite-81q","title":"PR18 Clerk Auth Foundation","description":"Research: docs/research/pr18-clerk-auth-foundation.md\n\nDesign: docs/plans/pr18-clerk-auth-foundation-design.md","status":"closed","priority":2,"issue_type":"feature","owner":"harshanandak@users.noreply.github.com","created_at":"2026-05-30T22:00:25Z","created_by":"Harsha Nanda","updated_at":"2026-05-30T22:09:11Z","closed_at":"2026-05-30T22:09:11Z","close_reason":"Closed","dependency_count":0,"dependent_count":0,"comment_count":0}
++{"_type":"issue","id":"product-suite-1yh","title":"PR18 Clerk Auth Foundation","description":"PR18 introduces Clerk as the canonical user-facing auth foundation without changing database ownership. Scope: Clerk env contracts, platform shell provider/middleware expectations, shared Clerk auth claims, safe redirect/callback contract, backend JWT/JWKS validation contract, and user/org sync plus event identity design for PR19.","design":"Design: docs/plans/2026-05-31-pr18-clerk-auth-foundation-design.md; Tasks: docs/plans/2026-05-31-pr18-clerk-auth-foundation-tasks.md; Research: docs/research/pr18-clerk-auth-foundation.md; Decisions: docs/plans/2026-05-31-pr18-clerk-auth-foundation-decisions.md; Task count: 7","acceptance_criteria":"Plan PR18 from current main/worktree with research, design, TDD task list, durable plan links, and repo-tooling guard passing so the issue is ready for /dev.","notes":"PR18 plan artifacts created on feat/pr18-clerk-auth-foundation. Validation: bun run test:repo-tooling passed.\nTask 1/7 done: Durable Plan State | 27 tests | e8cdd09 | 0 gates\nTask 2/7 done: Clerk Environment Contract | 9 contracts tests plus source-test coupling | 364366b | 0 gates\nTask 3/7 done: Shared Clerk Auth Claims Contract | 11 contracts tests plus source-test coupling | 6def9e9 | 0 gates\nTask 4/7 done: Redirect And Callback Contract | 14 contracts tests plus source-test coupling | 4679948 | 0 gates\nTask 5/7 done: Backend JWT/JWKS Validation Contract | 17 contracts tests plus source-test coupling | 84c4602 | 0 gates\nTask 6/7 done: User/Org Sync And Event Identity Design | 19 contracts tests plus source-test coupling | 7096bd0 | 0 gates\nTask 7/7 done: Beads And Stage Context | contracts/repo-tooling/source-test validation | 7096bd0 | 0 gates","status":"closed","priority":2,"issue_type":"epic","owner":"harshanandak@users.noreply.github.com","created_at":"2026-05-23T11:34:10Z","created_by":"Harsha Nanda","updated_at":"2026-06-01T10:06:36Z","closed_at":"2026-06-01T10:06:36Z","close_reason":"Merged and verified on main (PR #19)","comments":[{"id":"019e54a1-2498-7f1b-83a7-f241586b4f34","issue_id":"product-suite-1yh","author":"Harsha Nanda","text":"Stage: none complete → ready for plan","created_at":"2026-05-23T11:38:27Z"},{"id":"019e7ae9-05d0-777f-aa87-42aca2a60662","issue_id":"product-suite-1yh","author":"Harsha Nanda","text":"Stage: none complete -\u003e ready for plan\nSummary: PR18 planning started from existing worktree and issue after PR17 merge.\nDecisions: Use Clerk as canonical auth provider per PR17; keep database ownership unchanged in PR18.\nArtifacts: docs/research/pr18-clerk-auth-foundation.md docs/plans/2026-05-31-pr18-clerk-auth-foundation-design.md docs/plans/2026-05-31-pr18-clerk-auth-foundation-tasks.md docs/plans/2026-05-31-pr18-clerk-auth-foundation-decisions.md\nNext: Complete plan metadata and move to /dev.","created_at":"2026-05-30T22:02:32Z"},{"id":"019e7ae9-0e35-7e3a-805a-1c4ae2d607d9","issue_id":"product-suite-1yh","author":"Harsha Nanda","text":"Stage: plan complete -\u003e ready for dev\nSummary: PR18 plan artifacts created and repo-tooling guard passes.\nDecisions: Contract-first Clerk foundation before schema migrations or module cutover.\nArtifacts: docs/research/pr18-clerk-auth-foundation.md docs/plans/2026-05-31-pr18-clerk-auth-foundation-design.md docs/plans/2026-05-31-pr18-clerk-auth-foundation-tasks.md docs/plans/2026-05-31-pr18-clerk-auth-foundation-decisions.md test/repo-tooling.test.js\nNext: Start /dev with Task 1 durable plan state, then Clerk env contract.","created_at":"2026-05-30T22:02:34Z"},{"id":"019e822f-f7f2-7d5c-8cc1-cf6792a6ccc6","issue_id":"product-suite-1yh","author":"Harsha Nanda","text":"Stage: dev complete -\u003e ready for validate\nSummary: PR18 dev completed through all 7 tasks. Implemented Clerk env, claims, return-intent, JWT payload, platform identity sync, and event identity contracts with focused validation passing.\nDecisions: Kept PR18 contract-first; no PR19 schema migrations, no analytics sink, and no service-specific runtime cutover.\nArtifacts: packages/contracts/src/auth.js packages/contracts/src/auth.test.ts packages/contracts/src/index.js packages/contracts/src/index.d.ts packages/contracts/src/index.test.ts packages/contracts/contracts/auth-core.json\nNext: Run /validate on feat/pr18-clerk-auth-foundation with contracts, repo-tooling, source coupling, and broader PR18 gates.","created_at":"2026-06-01T07:57:22Z"},{"id":"019e825f-56b1-726b-b096-b3429230b87a","issue_id":"product-suite-1yh","author":"Harsha Nanda","text":"Stage: validate + ship + review complete -\u003e ready for premerge\nSummary: PR #19 created and review feedback addressed. Full pre-push validation passed after review fixes; GitHub checks are green.\nDecisions: Treated default bun audit advisories as pre-existing non-critical dependency debt because PR18 did not change dependency files; kept PR18 scoped to contracts.\nArtifacts: https://github.com/harshanandak/Product-Suite/pull/19 packages/contracts/src/auth.js packages/contracts/src/auth.test.ts packages/contracts/src/index.d.ts\nNext: Run /premerge for final docs/handoff, then merge/verify.","created_at":"2026-06-01T08:49:07Z"},{"id":"019e8292-6664-766a-b623-0d1aa32d5b30","issue_id":"product-suite-1yh","author":"Harsha Nanda","text":"Stage: review complete -\u003e ready for premerge\nSummary: Re-ran /review for PR #19. Addressed all latest Codex/CodeRabbit threads; all review threads are resolved and GitHub checks are green on 6e18735.\nDecisions: Canonicalize return intent pathnames before allowlist checks while preserving signed query strings; fail closed when Clerk JWT authorized parties are not configured.\nArtifacts: packages/contracts/src/auth.js packages/contracts/src/auth.test.ts commits 8ecf612 6e18735 https://github.com/harshanandak/Product-Suite/pull/19\nNext: Run /premerge for final docs/handoff.","created_at":"2026-06-01T09:44:53Z"}],"dependency_count":0,"dependent_count":0,"comment_count":6}
++{"_type":"issue","id":"product-suite-do6","title":"PR17 Platform Auth And Data Consolidation Plan","description":"Plan PR17 for the next Product Suite platform phase: single-domain platform shell, Clerk as canonical auth, unified Supabase Postgres as the physical database, Meeting/Roadmap/Canvas/Agent module ownership, edge cases, mitigations, validation gates, and follow-up PR sequence.","acceptance_criteria":"Design doc and task list exist; durable building-blocks plan marks PR16 merged/verified and PR17 active; repo-tooling guard passes; follow-up PR18-PR23 sequence is explicit.","status":"closed","priority":2,"issue_type":"epic","owner":"harshanandak@users.noreply.github.com","created_at":"2026-05-21T09:55:58Z","created_by":"Harsha Nanda","updated_at":"2026-05-23T11:06:50Z","closed_at":"2026-05-23T11:06:50Z","close_reason":"Closed","dependency_count":0,"dependent_count":0,"comment_count":0}
++{"_type":"issue","id":"product-suite-bc8","title":"PR16 Hocuspocus Provider Controlled Rollout","description":"PR16 continues after merged PR15. Scope: plan and implement a controlled Hocuspocus provider rollout path that can enable Roadmap canvas collaboration behind explicit runtime gates while preserving Supabase fallback and rollback behavior.","design":"Design: docs/plans/2026-05-20-pr16-hocuspocus-provider-controlled-rollout-design.md; Tasks: docs/plans/2026-05-20-pr16-hocuspocus-provider-controlled-rollout-tasks.md; Research: docs/research/pr16-hocuspocus-provider-controlled-rollout.md; Task count: 4","acceptance_criteria":"Plan PR16 from current main with research, design, and TDD task list for a minimal controlled provider rollout slice.","notes":"PR16 plan branch/worktree created: feat/pr16-hocuspocus-provider-controlled-rollout at .worktrees/pr16-hocuspocus-provider-controlled-rollout. PR: https://github.com/harshanandak/Product-Suite/pull/17. Validation: bun run test:repo-tooling, bun run check:source-test, bun run test:prepush passed.","status":"closed","priority":2,"issue_type":"epic","owner":"harshanandak@users.noreply.github.com","created_at":"2026-05-20T17:35:24Z","created_by":"Harsha Nanda","updated_at":"2026-05-30T21:42:52Z","closed_at":"2026-05-30T21:42:52Z","close_reason":"Closed","dependency_count":0,"dependent_count":0,"comment_count":0}
++{"_type":"issue","id":"product-suite-yo0","title":"PR15 Hocuspocus Provider Cutover Readiness","description":"Plan and implement the next Product-Suite building-block slice after PR14: connect Roadmap's client/provider inputs and Hocuspocus runtime dependencies enough to prove cutover readiness without removing the Supabase fallback until readiness is validated.","status":"closed","priority":2,"issue_type":"epic","owner":"harshanandak@users.noreply.github.com","created_at":"2026-05-20T16:12:57Z","created_by":"Harsha Nanda","updated_at":"2026-05-20T17:29:24Z","closed_at":"2026-05-20T17:29:24Z","close_reason":"Merged and verified on main (PR #16)","comments":[{"id":"019e462e-75bf-7880-b327-42d865261e7e","issue_id":"product-suite-yo0","author":"Harsha Nanda","text":"Stage transition none -\u003e plan. Summary: Started PR15 planning after PR14 merge verification. Decision: selected Hocuspocus provider cutover readiness from PR14 follow-up constraints; preserve Supabase fallback until provider/token/runtime readiness is proven. Artifacts: .worktrees/pr15-hocuspocus-provider-cutover-readiness. Next: write research, design, and TDD task artifacts.","created_at":"2026-05-20T16:18:30Z"},{"id":"019e464e-ba09-75c2-a465-0ee646ad4c45","issue_id":"product-suite-yo0","author":"Harsha Nanda","text":"Dev stage complete. Implemented document-aware canvas realtime options, HybridProvider document forwarding, Roadmap Hocuspocus provider factory, token factory boundary, env note, and tests. Commit: e62176d. Focused validation passed: ui-canvas 5 tests, hybrid-provider 3 tests, canvas-boundary 12 tests, roadmap typecheck, repo-tooling 27 tests, source-test coupling.","created_at":"2026-05-20T16:53:45Z"}],"dependency_count":0,"dependent_count":0,"comment_count":2}
++{"_type":"issue","id":"product-suite-36p","title":"PR14 Realtime Service Runtime Wiring","description":"Plan and implement the next Product-Suite building-block slice after PR13: turn the Hocuspocus boundary into runtime wiring without removing the legacy Supabase realtime fallback.","status":"closed","priority":2,"issue_type":"epic","owner":"harshanandak@users.noreply.github.com","created_at":"2026-05-20T09:09:16Z","created_by":"Harsha Nanda","updated_at":"2026-05-20T16:10:15Z","closed_at":"2026-05-20T16:10:15Z","close_reason":"Merged and verified on main (PR #15)","comments":[{"id":"019e44a6-1071-702c-b322-d80bc64dcaaf","issue_id":"product-suite-36p","author":"Harsha Nanda","text":"Stage transition none -\u003e plan. Summary: Started PR14 planning after PR13 merge verification. Decision: selected realtime service runtime wiring because PR13 explicitly left deployment/runtime wiring out of scope. Artifacts: .worktrees/pr14-realtime-service-runtime-wiring. Next: write research, design, and TDD task artifacts.","created_at":"2026-05-20T09:09:54Z"},{"id":"019e44b2-6058-7ef2-aaa5-05c87443edef","issue_id":"product-suite-36p","author":"Harsha Nanda","text":"Plan stage complete. Summary: PR14 research, design, tasks, durable plan update, and repo-tooling guard are committed and pushed on feat/pr14-realtime-service-runtime-wiring. Validation: bun run test:repo-tooling and full pre-push validation passed. Next: start /dev Task 1 from docs/plans/2026-05-20-pr14-realtime-service-runtime-wiring-tasks.md.","created_at":"2026-05-20T09:23:21Z"}],"dependency_count":0,"dependent_count":0,"comment_count":2}
++{"_type":"issue","id":"product-suite-6w3","title":"PR13 Realtime Transport Split","description":"PR13 continues the building-blocks transformation after merged PR12. Scope: move canonical Yjs collaboration transport toward service ownership while preserving current Roadmap canvas behavior and keeping persistence/auth boundaries explicit.","design":"Design: docs/plans/2026-05-19-pr13-realtime-transport-split-design.md; Tasks: docs/plans/2026-05-19-pr13-realtime-transport-split-tasks.md; Research: docs/research/pr13-realtime-transport-split.md; Task count: 5","acceptance_criteria":"Plan PR13 from current main; create an isolated branch/worktree and task list for a minimal, validated realtime transport split.","notes":"PR13 plan branch/worktree created: feat/pr13-realtime-transport-split at .worktrees/pr13-realtime-transport-split. Plan artifacts: docs/research/pr13-realtime-transport-split.md; docs/plans/2026-05-19-pr13-realtime-transport-split-design.md; docs/plans/2026-05-19-pr13-realtime-transport-split-tasks.md. Baseline: bun run test:repo-tooling passed.","status":"closed","priority":2,"issue_type":"epic","owner":"harshanandak@users.noreply.github.com","created_at":"2026-05-19T10:34:11Z","created_by":"Harsha Nanda","updated_at":"2026-05-30T21:43:00Z","closed_at":"2026-05-30T21:43:00Z","close_reason":"Closed","comments":[{"id":"019e3fd1-79c5-7305-aff5-b36f19afd56a","issue_id":"product-suite-6w3","author":"Harsha Nanda","text":"Stage: none complete → ready for plan\nSummary: PR13 plan artifacts created from verified main.\nDecisions: Use services/hocuspocus for service-owned transport contracts keep persistence and deployment switch out of scope.\nArtifacts: docs/research/pr13-realtime-transport-split.md docs/plans/2026-05-19-pr13-realtime-transport-split-design.md docs/plans/2026-05-19-pr13-realtime-transport-split-tasks.md\nNext: Review task list, then begin Task 1 TDD for hocuspocus service tooling.","created_at":"2026-05-19T10:39:13Z"}],"dependency_count":0,"dependent_count":0,"comment_count":1}
++{"_type":"issue","id":"product-suite-4xw","title":"PR12 Agent-Core Service","description":"PR12 continues the building-blocks transformation after merged PR11. Scope: move heavy agent orchestration out of Roadmap shell routes into a service-owned agent-core boundary while preserving current shell behavior.","notes":"PR12 plan branch/worktree created: feat/pr12-agent-core-service at .worktrees/pr12-agent-core-service. Plan artifacts: docs/research/pr12-agent-core-service.md; docs/plans/2026-05-19-pr12-agent-core-service-design.md; docs/plans/2026-05-19-pr12-agent-core-service-tasks.md. Baseline: bun run test:repo-tooling passed.\nTask 1/5 done: Register Agent-Core Service Tooling | 27 tests | 1000058 | 0 gates\nTask 2/5 done: Build Injectable Agent-Core Executor | 4 tests | e3ec27f | 0 gates\nTask 3/5 done: Wire Roadmap Agent Loop Through Agent-Core | 2 focused Roadmap tests plus typecheck | 45fdd60 | 0 gates\nTask 4/5 done: Preserve Route Behavior Through Integration Tests | 4 focused Roadmap tests plus typecheck | db6ae35 | 0 gates\nTask 5/5 done: Validate And Ship PR12 | test:prepush passed; bun audit passed; branch pushed | 9425865 | 0 gates\nReview complete for PR #13: addressed review feedback in commits 327ed82 and 9048030; all GitHub checks green; all review threads resolved; PR mergeable CLEAN at head 9048030.","status":"closed","priority":2,"issue_type":"epic","assignee":"Harsha Nanda","owner":"harshanandak@users.noreply.github.com","created_at":"2026-05-19T08:35:36Z","created_by":"Harsha Nanda","updated_at":"2026-05-19T10:30:58Z","closed_at":"2026-05-19T10:30:58Z","close_reason":"Merged and verified on main (PR #13)","dependency_count":0,"dependent_count":0,"comment_count":0}
++{"_type":"issue","id":"product-suite-w4r","title":"PR11 Planning And Charting Blocks","description":"PR11 continues the building-blocks transformation after merged PR10. Scope: extract lower-risk reusable planning and charting UI blocks into shared packages while keeping roadmap-specific routing, persistence, and workspace orchestration inside roadmap-web.","design":"# PR11 Planning And Charting Blocks Design\n\nFeature: `pr11-planning-and-charting-blocks`\nDate: 2026-05-18\nStatus: planned\nBeads: `product-suite-w4r`\n\n## Purpose\n\nExtract the lowest-risk planning and charting presentation blocks after PR10 proved the shared-package path for canvas boundaries. This should reduce Roadmap shell bulk while keeping Roadmap-specific routing, persistence, workspace orchestration, and AI tools inside `apps/roadmap-web`.\n\n## Success Criteria\n\n- `packages/ui-planning` exists with pure planning types/helpers and SSR-tested reusable planning presentation.\n- `packages/ui-charting` exists with SSR-tested reusable charting/metric presentation and pure helpers.\n- `apps/roadmap-web` consumes at least one export from each package.\n- Root validation, repo-tooling tests, and CI path filters include both packages.\n- Existing Roadmap tests and build remain green.\n\n## Out Of Scope\n\n- Moving Supabase data access or route handlers.\n- Moving AI agent planning tools.\n- Moving full Gantt/editor/canvas behavior.\n- Replacing existing charting libraries.\n- Extracting Roadmap dummy data as shared package API.\n\n## Approach Selected\n\nUse the same small private-package pattern already proven by `ui-meeting`, `ui-chat`, and `ui-canvas`.\n\n`ui-planning` will start with plain record types, deterministic helper functions, and a small presentation block. `ui-charting` will start with metric/trend presentation and pure chart data helpers. Roadmap wrappers will continue to own workspace IDs, data fetching, callbacks, permissions, and route decisions.\n\nThis is preferred over moving the full `work-items-view`, analytics dashboards, or Gantt/timeline implementation because those components are still deeply coupled to Roadmap shell state and data semantics.\n\n## Constraints\n\n- Packages must not import `@/` aliases.\n- Packages must not fetch, mutate, route, or know about Supabase.\n- Package tests must prove SSR-safe rendering and pure helper behavior.\n- Any new package must be wired through root workspaces, validation scripts, CI filters, docs, and repo-tooling tests.\n\n## Edge Cases\n\n- Empty planning records render a stable empty state.\n- Missing item titles fall back to deterministic labels without throwing.\n- Unknown timeline phases group under a safe fallback.\n- Trend values handle positive, negative, neutral, and missing states.\n- Helper functions must not mutate caller-owned arrays.\n\n## Ambiguity Policy\n\nUse the existing 7-dimension decision gate. Proceed when a choice is clearly within this document's scope and confidence is at least 80%. Stop and ask before moving full Roadmap dashboards, Gantt behavior, API routes, or persistence into a package.\n\n## Technical Research\n\nLocal research found these reusable candidates:\n\n- `apps/roadmap-web/src/components/analytics/metric-card.tsx` is presentational and a good first `ui-charting` candidate.\n- `apps/roadmap-web/src/app/(dashboard)/workspaces/[id]/_components/timeline-view.tsx` performs shell-specific mapping into a timeline component, so only pure normalization helpers or a smaller timeline summary should move.\n- `apps/roadmap-web/src/app/(dashboard)/workspaces/[id]/_components/work-items-view.tsx` contains large dummy data and should not be lifted whole.\n- Root package/CI/test patterns from PR8-PR10 should be extended rather than reinvented.\n\nOWASP notes:\n\n- A01 Broken Access Control: not directly applicable because PR11 does not move auth, permissions, or server access checks.\n- A03 Injection: package helpers render caller-supplied strings through React text nodes and must not introduce raw HTML rendering.\n- A04 Insecure Design: scope control is the main mitigation; packages must stay presentational and cannot own persistence decisions.\n- A05 Security Misconfiguration: CI path filters must include both packages so package changes cannot bypass validation.\n- A08 Software And Data Integrity Failures: tests must assert package helpers are deterministic and do not mutate input records.\n\nTDD scenarios:\n\n1. `ui-planning` renders provided work item records and an empty state without Roadmap imports.\n2. `ui-planning` groups timeline records deterministically and preserves caller input order.\n3. `ui-charting` renders metric card value, description, and trend affordance without Roadmap imports.\n4. Repo-tooling test fails until workspace/scripts/CI/docs include the new packages.\n5. Roadmap integration test fails until Roadmap consumes package exports.\n","acceptance_criteria":"ui-planning and ui-charting packages exist; roadmap consumes at least one export from each; root validation, repo-tooling tests, and CI path filters include both packages; Roadmap validation remains green","notes":"Plan artifacts: docs/research/pr11-planning-and-charting-blocks.md; docs/plans/2026-05-18-pr11-planning-and-charting-blocks-design.md; docs/plans/2026-05-18-pr11-planning-and-charting-blocks-tasks.md. beads-context.sh metadata helpers are blocked by CRLF pipefail parsing on Windows.","status":"closed","priority":2,"issue_type":"epic","owner":"harshanandak@users.noreply.github.com","created_at":"2026-05-18T15:14:20Z","created_by":"Harsha Nanda","updated_at":"2026-05-19T08:31:42Z","closed_at":"2026-05-19T08:31:42Z","close_reason":"Merged and verified on main (PR #12)","dependency_count":0,"dependent_count":0,"comment_count":0}
++{"_type":"issue","id":"product-suite-c46","title":"PR10 Canvas Boundary Extraction","description":"PR10 continues the building-blocks transformation after merged PR9. Scope: isolate roadmap canvas transport, persistence, and auth boundaries behind shell-owned interfaces before extracting a reusable canvas package; keep BlockSuite/Next build hacks and Supabase-specific behavior out of public package APIs.","notes":"Shipped as PR #11: https://github.com/harshanandak/Product-Suite/pull/11. GitHub CI, Vercel deployments, and CodeRabbit passed after PR creation.","status":"closed","priority":2,"issue_type":"epic","owner":"harshanandak@users.noreply.github.com","created_at":"2026-05-18T14:20:42Z","created_by":"Harsha Nanda","updated_at":"2026-05-18T15:12:32Z","closed_at":"2026-05-18T15:12:32Z","close_reason":"Merged and verified on main (PR #11)","external_ref":"gh-11","dependency_count":0,"dependent_count":0,"comment_count":0}
++{"_type":"issue","id":"product-suite-nn9","title":"PR5 Auth Contracts And Adapters","description":"Research: docs/research/pr5-auth-contracts-and-adapters.md","status":"closed","priority":2,"issue_type":"feature","owner":"harshanandak@users.noreply.github.com","created_at":"2026-05-16T08:06:07Z","created_by":"Harsha Nanda","updated_at":"2026-05-16T10:39:28Z","closed_at":"2026-05-16T10:39:28Z","close_reason":"Closed","dependency_count":0,"dependent_count":0,"comment_count":0}
+ {"_type":"issue","id":"product-suite-q1c","title":"PR4 Contracts Nucleus","description":"Plan and execute PR4 so Product Suite gets a minimal shared contracts nucleus spanning roadmap-web, meeting-web, and meeting-api without freezing app-local domain truth too early.","notes":"Validation blocked on product-suite-9cy after bun audit reported GHSA-qx2v-qp2m-jg93 (postcss \u003c8.5.10). All typecheck, lint, build, and test checks passed; only the security scan failed.\nValidate blocker resolved in 4e82387 by pinning postcss 8.5.10 at the root override level and regenerating bun.lock. bun audit, validate:meeting-web, validate:roadmap-web, validate:meeting-api, test:contracts, and repo-tooling tests all passed afterward.","status":"closed","priority":2,"issue_type":"epic","owner":"harshanandak@users.noreply.github.com","created_at":"2026-04-24T15:28:40Z","created_by":"Harsha Nanda","updated_at":"2026-04-25T14:14:31Z","closed_at":"2026-04-25T14:14:31Z","close_reason":"Merged and verified on main (PR #4)","comments":[{"id":"019dc3cd-6074-7a6b-b9af-0d66196a5338","issue_id":"product-suite-q1c","author":"Harsha Nanda","text":"Validate result: branch is up to date with main and all scoped PR4 code checks passed, but bun audit failed on GHSA-qx2v-qp2m-jg93 for postcss \u003c8.5.10. Tracking blocker: product-suite-9cy.","created_at":"2026-04-25T08:41:50Z"},{"id":"019dc3d5-19b5-774e-919c-930ef49b1184","issue_id":"product-suite-q1c","author":"Harsha Nanda","text":"Security blocker fixed in 4e82387. Added a root postcss 8.5.10 override, regenerated bun.lock, and re-ran the full scoped PR4 validation set successfully: bun audit, bun run test:contracts, bun test test/repo-tooling.test.js, bun run validate:meeting-web, bun run validate:roadmap-web, bun run validate:meeting-api.","created_at":"2026-04-25T08:50:16Z"},{"id":"019dc3d7-b480-78da-af25-84d96ea13fd6","issue_id":"product-suite-q1c","author":"Harsha Nanda","text":"PR created: https://github.com/harshanandak/Product-Suite/pull/4. Ship summary: PR4 contracts nucleus with packages/contracts, web app adoption, meeting-api runtime payload validation, and the postcss 8.5.10 audit fix. Review focus: shared contract surface stays minimal and does not imply false domain unification.","created_at":"2026-04-25T08:53:07Z"},{"id":"019dc411-4a6c-734a-85f4-7e74e6c49818","issue_id":"product-suite-q1c","author":"Harsha Nanda","text":"Review update: resolved the live-sync blocker by moving roadmap shared aliases into a companion supabase module, added contracts-triggered CI coverage for meeting-web/roadmap-web/meeting-api workflows, added a real pre-commit source-test coupling check, added contracts package type declarations and artifact parity tests, and fixed meeting-web runtime-config alias handling. Commit: f345d43.","created_at":"2026-04-25T09:56:01Z"}],"dependency_count":0,"dependent_count":0,"comment_count":4}
+ {"_type":"issue","id":"product-suite-waq","title":"PR3 Schema And Domain Inventory","description":"Plan and execute PR3 so Product Suite has one written schema and domain ownership inventory across roadmap-web and meeting-api before shared contracts work begins.","status":"closed","priority":2,"issue_type":"epic","owner":"harshanandak@users.noreply.github.com","created_at":"2026-04-24T12:32:50Z","created_by":"Harsha Nanda","updated_at":"2026-04-24T15:25:32Z","closed_at":"2026-04-24T15:25:32Z","close_reason":"Merged and verified on main (PR #3)","comments":[{"id":"019dbf7b-2166-7246-a551-e732b5131873","issue_id":"product-suite-waq","author":"Harsha Nanda","text":"Stage: none complete → ready for plan","created_at":"2026-04-24T12:33:31Z"},{"id":"019dbf8c-840b-7d84-b456-3096f5c78294","issue_id":"product-suite-waq","author":"Harsha Nanda","text":"Stage: none complete -\u003e ready for plan\nSummary: PR2 verified on main and PR3 planning docs are committed on feat/pr3-schema-and-domain-inventory.\nArtifacts: docs/plans/2026-04-24-pr3-schema-and-domain-inventory-design.md, docs/plans/2026-04-24-pr3-schema-and-domain-inventory-tasks.md, docs/research/pr3-schema-and-domain-inventory.md\nNext: Review the task list and confirm whether PR3 should proceed into /dev using targeted validation only because the repo-wide baseline is already red outside PR3 scope.","created_at":"2026-04-24T12:52:30Z"},{"id":"019dbfdf-60f3-7d24-b4c5-ac76f3f15bfb","issue_id":"product-suite-waq","author":"Harsha Nanda","text":"Stage: ship complete -\u003e ready for review\nSummary: PR #3 created from feat/pr3-schema-and-domain-inventory with PR3 schema inventory docs, tests, and discoverability links.\nArtifacts: https://github.com/harshanandak/Product-Suite/pull/3, feat/pr3-schema-and-domain-inventory\nNext: review the scoped validation rationale and any docs-only CI feedback.","created_at":"2026-04-24T14:23:01Z"},{"id":"019dbfe5-2ac2-7cd2-98c3-c35e383438b2","issue_id":"product-suite-waq","author":"Harsha Nanda","text":"Stage: review complete -\u003e ready for premerge\nSummary: Addressed PR3 review feedback by adding the missing artifact matrix row, extending the guard test, and fixing the stale Alembic filename reference.\nArtifacts: e00adb4, docs/architecture/schema-domain-ownership.md, test/domain-inventory.test.js, docs/plans/2026-04-24-pr3-schema-and-domain-inventory-design.md\nNext: premerge can focus on doc completeness and merge readiness.","created_at":"2026-04-24T14:29:20Z"},{"id":"019dbfec-f25f-7dce-8f6c-1ae35371165f","issue_id":"product-suite-waq","author":"Harsha Nanda","text":"Stage: premerge complete -\u003e ready for verify\nSummary: Added the PR3 changelog entry on the feature branch and pushed the final premerge doc update.\nArtifacts: cf4f9e4, CHANGELOG.md, https://github.com/harshanandak/Product-Suite/pull/3\nNext: merge PR #3 in GitHub UI, then run /verify.","created_at":"2026-04-24T14:37:50Z"}],"dependency_count":0,"dependent_count":0,"comment_count":5}
+ {"_type":"issue","id":"product-suite-hms","title":"Setup verification","status":"closed","priority":4,"issue_type":"task","owner":"harshanandak@users.noreply.github.com","created_at":"2026-04-22T06:50:12Z","created_by":"Harsha Nanda","updated_at":"2026-04-22T06:50:13Z","closed_at":"2026-04-22T06:50:13Z","close_reason":"Setup smoke test","dependency_count":0,"dependent_count":0,"comment_count":0}
+diff --git a/docs/forge/TOOLCHAIN.md b/docs/forge/TOOLCHAIN.md
+new file mode 100644
+index 0000000..075f2d6
+--- /dev/null
++++ b/docs/forge/TOOLCHAIN.md
+@@ -0,0 +1,643 @@
++# Forge Toolchain Reference
++
++Complete reference for all tools integrated with the Forge workflow.
++
++## Overview
++
++```
++┌─────────────────────────────────────────────────────────────────┐
++│                        FORGE TOOLCHAIN                          │
++├─────────────────────────────────────────────────────────────────┤
++│                                                                 │
++│  ┌─────────────┐   ┌─────────────────────┐                     │
++│  │   BEADS     │   │  EXTERNAL SERVICES  │                     │
++│  │   (bd)      │   │                     │                     │
++│  │             │   │  Parallel AI        │                     │
++│  │ Git-backed  │   │  Greptile           │                     │
++│  │ Issue       │   │  SonarCloud         │                     │
++│  │ Tracking    │   │  GitHub CLI         │                     │
++│  └─────────────┘   └─────────────────────┘                     │
++│        │                     │                                 │
++│        └─────────────────────┘                                 │
++│                          │                                      │
++│                    ┌─────▼─────┐                                │
++│                    │   FORGE   │                                │
++│                    │  7-Stage  │                                │
++│                    │  Workflow │                                │
++│                    └───────────┘                                │
++│                                                                 │
++└─────────────────────────────────────────────────────────────────┘
++```
++
++---
++
++## Shell Model
++
++Forge commands and repo scripts run under the shell shown below:
++
++| Platform | Shell used by Forge commands and scripts |
++| --- | --- |
++| Windows | Git Bash for helper-backed Forge stage flows |
++| macOS/Linux | Default login shell |
++
++Windows gotchas:
++
++- Forge runtime health enforces Git Bash on Windows for helper-backed flows and reports `Git Bash is required on Windows for helper-backed flows.` when it is missing.
++- Native PowerShell is still used by some bootstrap paths, such as Beads installation, but it is not the enforced shell for helper-backed stage execution.
++- WSL may be useful for adjacent development tasks, but it is not the Windows shell policy currently enforced by Forge runtime checks.
++
++---
++
++## Beads - Dolt-Backed Issue Tracking
++
++**Package**: `@beads/bd`  
++**Repository**: [github.com/steveyegge/beads](https://github.com/steveyegge/beads)  
++**Purpose**: Distributed issue tracking designed for AI coding agents
++
++### Current Forge Target
++
++- Forge now targets the stable Beads `v1.0.0` release for repo setup and CI.
++- Routine team sync still goes through `forge sync`.
++- Use `bd` directly for Beads features Forge does not wrap yet, such as `bd init`, `bd comments`, `bd dep`, `bd blocked`, `bd backup`, and `bd dolt *`.
++
++### Install or Update Beads
++
++**Recommended**:
++```bash
++bunx forge setup
++bd --version
++```
++
++**Manual install**:
++```bash
++# Windows
++irm https://raw.githubusercontent.com/steveyegge/beads/main/install.ps1 | iex
++bd --version
++
++# CI / pinned Linux install
++BD_VERSION="1.0.0"
++BD_URL="https://github.com/steveyegge/beads/releases/download/v${BD_VERSION}/beads_${BD_VERSION}_linux_amd64.tar.gz"
++mkdir -p "$HOME/.local/bin"
++curl -fsSL "$BD_URL" | tar -xz -C "$HOME/.local/bin" bd
++chmod +x "$HOME/.local/bin/bd"
++```
++
++Verify the installed CLI before using it:
++
++```bash
++bd --version
++bd doctor
++```
++
++### Supported Repo Layout
++
++Forge treats `.beads/` as the repo-local Beads home directory. The layout in this repository currently includes:
++
++```text
++.beads/
++├── config.yaml
++├── issues.jsonl
++├── metadata.json
++├── team-map.jsonl
++├── hooks/
++└── .gitignore
++```
++
++Legacy local database cache files are no longer part of the supported Forge setup instructions. When you need JSONL snapshots for migration verification or CI diffing, generate them explicitly with `bd backup --force`.
++
++### Migrate Legacy SQLite Data
++
++Use the repo wrapper instead of hand-editing `.beads/`:
++
++```bash
++bash scripts/beads-migrate-to-dolt.sh
++```
++
++Default paths used by the wrapper:
++
++- `--project-root`: current working directory
++- `--legacy-backup-dir`: `.beads/backup`
++- `--snapshot-root`: `.beads-migration-snapshots`
++- `--migrated-dir`: `.beads-migrated`
++- `--export-dir`: `.beads-migrated-export`
++
++What the wrapper does:
++
++1. Snapshots the current `.beads/` directory into `.beads-migration-snapshots/<timestamp>/current-beads`.
++2. Restores the legacy JSONL backup into a fresh migrated workspace.
++3. Exports a fresh backup snapshot for parity verification.
++4. Verifies issue IDs, dependency edges, comment IDs, config keys, and record counts.
++5. Writes `.beads-migrated/migration-manifest.json` on success.
++
++rollback behavior:
++
++- The wrapper automatically restores the pre-migration `.beads/` snapshot if parity verification fails.
++- If you need to inspect or restore manually, use the timestamped snapshot under `.beads-migration-snapshots/`.
++
++See the script help for explicit path overrides:
++
++```bash
++bash scripts/beads-migrate-to-dolt.sh --help
++```
++
++### Post-Upgrade Smoke Verification
++
++Run the repo smoke harness after upgrading:
++
++```bash
++bash scripts/beads-upgrade-smoke.sh
++```
++
++The harness records a machine-readable summary at `.artifacts/beads-upgrade-smoke/summary.json` by default and exercises this sequence:
++
++1. `bd create` primary smoke issue
++2. `bd create` dependent smoke issue
++3. `bd list --json --limit=0`
++4. `bd show <id> --json`
++5. `bd dep add <child> <parent>`
++6. `bd close <id>` cleanup for both smoke issues
++7. `bd sync` compatibility check
++
++If any command fails, the summary captures `failedStep`, command output, and cleanup state. This is intentional: the harness does not silently substitute a different command for `bd sync`.
++
++### Day-to-Day Commands
++
++```bash
++# Find work
++forge ready
++forge show <id>
++forge claim <id>
++
++# Issue operations
++forge create "Title"
++forge list
++forge update <id> --priority 2
++forge close <id>
++
++# Direct beads operations
++bd comments add <id> "Progress update"
++bd dep add <child> <parent>
++bd dep cycles
++bd backup --force
++bd dolt status
++
++# Routine repo sync
++forge sync
++```
++
++### Session Workflow
++
++```bash
++# Start of session
++forge ready
++forge show <id>
++forge claim <id>
++
++# During work
++bd comments add <id> "Progress update"
++forge update <id> --notes "Found edge case"
++
++# End of session
++forge close <id>
++forge sync
++```
++
++---
++
++## MCP Servers
++
++### Context7 - Library Documentation
++
++**Package**: `@upstash/context7-mcp@2` (pin to major version, not `@latest`)
++**Purpose**: Up-to-date documentation and code examples for any programming library
++**Used in**: `/plan` stage (Phase 2 research); any library lookup
++
++Context7 provides current documentation that may be more recent than the AI's training data.
++
++**Installation**:
++
++**Claude Code**: Add to `.mcp.json` in your project root:
++
++
++```json
++{
++  "mcpServers": {
++    "context7": {
++      "command": "bunx",
++      "args": ["--bun", "@upstash/context7-mcp@latest"]
++    }
++  }
++}
++```
++
++**Cline (VSCode)**:
++1. Open VSCode Settings
++2. Search for "Cline MCP"
++3. Add Context7 server configuration
++
++**Cursor**: Check Cursor Settings → MCP Servers for configuration options
++
++**Other agents**: If your agent supports MCP, configure using the JSON format above
++
++**Usage**:
++```
++# The AI will automatically use Context7 when you ask about libraries
++"How do I use React Query's useMutation hook?"
++"What's the latest Next.js App Router API?"
++"Show me Supabase RLS policy examples"
++```
++
++**When to use Context7**:
++- Before implementing a library feature
++- When official docs may have changed since AI training
++- To verify API signatures and patterns
++- For current best practices
++
++### grep.app - Code Search
++
++**Package**: `@ai-tools-all/grep_app_mcp` (recommended) or `@galprz/grep-mcp`
++**Website**: [grep.app](https://grep.app)
++**Purpose**: Search across 1M+ public GitHub repositories for real-world code examples
++**Used in**: `/plan` stage (Phase 2 research); finding implementation patterns
++
++grep.app provides code search across public GitHub repositories to find real-world examples and patterns.
++
++**Installation (Claude Code)**:
++
++Add to `.mcp.json` in your project root:
++
++```json
++{
++  "mcpServers": {
++    "context7": {
++      "command": "bunx",
++      "args": ["--bun", "@upstash/context7-mcp@latest"]
++    },
++    "grep-app": {
++      "command": "bunx",
++      "args": ["--bun", "@ai-tools-all/grep_app_mcp"]
++    }
++  }
++}
++```
++
++**Usage**:
++```
++# The AI will use grep.app when you need real-world examples
++"Find examples of React useEffect cleanup patterns"
++"Show me how others implement JWT authentication in Express"
++"Search for rate limiting implementations in Node.js"
++```
++
++**When to use grep.app**:
++
++- Finding real-world implementation examples
++- Discovering coding patterns in production code
++- Validating implementation approaches
++- Learning from open source projects
++
++**Context7 vs grep.app**:
++
++| Tool           | Purpose                        | Use When                                  |
++|----------------|--------------------------------|-------------------------------------------|
++| **Context7**   | Official library documentation | You need API reference, official patterns |
++| **grep.app**   | Real code in the wild          | You want to see how others solve problems |
++
++---
++
++## External Services
++
++### Parallel AI - Web Research
++
++**Website**: [platform.parallel.ai](https://platform.parallel.ai)
++**Used in**: `/plan` stage (Phase 2 research)
++
++4 APIs for research:
++- **Search** - Web search with AI analysis
++- **Extract** - Scrape specific URLs
++- **Task** - Structured data enrichment
++- **Deep Research** - Multi-source analysis
++
++```bash
++# Setup
++# 1. Get key from https://platform.parallel.ai
++# 2. Add to .env.local
++PARALLEL_API_KEY=your-key
++
++# Test
++API_KEY=$(grep "^PARALLEL_API_KEY=" .env.local | cut -d= -f2)
++curl -s -X POST "https://api.parallel.ai/v1beta/search" \
++  -H "x-api-key: $API_KEY" \
++  -H "Content-Type: application/json" \
++  -H "parallel-beta: search-extract-2025-10-10" \
++  -d '{"objective": "Next.js authentication best practices 2026"}'
++```
++
++---
++
++## Code Review Tools
++
++Choose ONE code review tool based on your needs:
++
++| Tool | Pricing | Best For | Setup |
++|------|---------|----------|-------|
++| **GitHub Code Quality** | FREE | All GitHub repos | Built-in, zero setup |
++| **CodeRabbit** | FREE (OSS) | Open source projects | GitHub App |
++| **Greptile** | $99+/mo | Enterprise | API key |
++
++### Option 1: GitHub Code Quality (FREE, Recommended)
++
++**Status**: Built-in to GitHub
++**Used in**: `/review` stage
++
++Zero setup required - GitHub's code quality features are enabled by default.
++
++Features:
++- Automatic code scanning
++- Dependency vulnerability alerts
++- Secret scanning
++- Code navigation
++
++### Option 2: CodeRabbit (FREE for Open Source)
++
++**Website**: [coderabbit.ai](https://coderabbit.ai)
++**Used in**: `/review` stage
++
++AI-powered code review with deep context understanding.
++
++```bash
++# Setup
++# 1. Go to https://coderabbit.ai
++# 2. Install the GitHub App
++# 3. Enable for your repositories
++
++# Configuration (optional)
++# Create .coderabbit.yaml in repo root
++```
++
++### Option 3: Greptile (Paid - Enterprise)
++
++**Website**: [greptile.com](https://greptile.com)
++**Used in**: `/review` stage
++
++Enterprise-grade AI code review that understands your codebase.
++
++```bash
++# Setup
++# 1. Get key from https://app.greptile.com
++# 2. Add to .env.local
++GREPTILE_API_KEY=your-key
++
++# 3. Index repository (one-time)
++curl -X POST "https://api.greptile.com/v2/repositories" \
++  -H "Authorization: Bearer $GREPTILE_API_KEY" \
++  -H "Content-Type: application/json" \
++  -d '{"remote": "github", "repository": "owner/repo"}'
++```
++
++---
++
++## Code Quality Tools
++
++Choose ONE code quality scanner based on your needs:
++
++| Tool | Pricing | Best For | Requirement |
++|------|---------|----------|-------------|
++| **ESLint** | FREE | All projects | Built-in |
++| **SonarCloud** | 50k LoC free | Cloud-first teams | API key |
++| **SonarQube Community** | FREE | Self-hosted, unlimited | Docker |
++
++### Option 1: ESLint Only (FREE, Recommended)
++
++**Status**: Built-in
++**Used in**: `/validate` stage
++
++No external server required - uses your project's linting configuration.
++
++```bash
++# Already configured via package.json or eslint.config.js
++bun run lint
++```
++
++### Option 2: SonarCloud (Cloud-Hosted)
++
++**Website**: [sonarcloud.io](https://sonarcloud.io)
++**Used in**: `/validate` stage
++**Free Tier**: 50,000 lines of code
++
++Static analysis for bugs, vulnerabilities, code smells.
++
++```bash
++# Setup
++# 1. Create project at https://sonarcloud.io
++# 2. Get token from Security settings
++# 3. Add to .env.local
++SONAR_TOKEN=your-token
++SONAR_ORGANIZATION=your-org
++SONAR_PROJECT_KEY=your-project
++
++# 4. Create sonar-project.properties
++echo "sonar.organization=$SONAR_ORGANIZATION
++sonar.projectKey=$SONAR_PROJECT_KEY
++sonar.sources=src" > sonar-project.properties
++
++# 5. Run analysis
++bunx sonarqube-scanner
++```
++
++### Option 3: SonarQube Community (Self-Hosted, FREE)
++
++**Website**: [sonarqube.org](https://www.sonarsource.com/products/sonarqube/)
++**Used in**: `/validate` stage
++**Pricing**: FREE, unlimited lines of code
++
++Self-hosted code quality analysis - no cloud dependency.
++
++```bash
++# Setup with Docker
++docker run -d --name sonarqube \
++  -p 9000:9000 \
++  sonarqube:community
++
++# Access at http://localhost:9000
++# Default credentials: admin/admin
++
++# Add to .env.local
++SONARQUBE_URL=http://localhost:9000
++SONARQUBE_TOKEN=your-token  # Generate in SonarQube UI
++
++# Create sonar-project.properties
++echo "sonar.host.url=$SONARQUBE_URL
++sonar.login=$SONARQUBE_TOKEN
++sonar.projectKey=your-project
++sonar.sources=src" > sonar-project.properties
++
++# Run analysis
++bunx sonarqube-scanner
++```
++
++**Docker Compose (Production)**:
++```yaml
++# docker-compose.yml
++version: '3'
++services:
++  sonarqube:
++    image: sonarqube:community
++    ports:
++      - "9000:9000"
++    environment:
++      - SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true
++    volumes:
++      - sonarqube_data:/opt/sonarqube/data
++      - sonarqube_logs:/opt/sonarqube/logs
++
++volumes:
++  sonarqube_data:
++  sonarqube_logs:
++```
++
++---
++
++### GitHub CLI - PR Workflow
++
++**Installation**: [cli.github.com](https://cli.github.com)
++**Used in**: `/ship`, `/review`, `/premerge` stages
++
++```bash
++# Install
++# macOS: brew install gh
++# Windows: winget install GitHub.cli
++# Linux: sudo apt install gh
++
++# Authenticate
++gh auth login
++
++# Common commands
++gh pr create --title "..." --body "..."
++gh pr view <number>
++gh pr checks <number>
++gh pr merge <number> --squash --delete-branch
++gh issue create --title "..." --body "..."
++```
++
++---
++
++## Global CLI Tools
++
++### Beads (`bd`) — Minimum Version
++
++**Recommended stable version**: `v1.0.0`
++**Check installed version**:
++```bash
++bd --version
++```
++
++**Install / Update**:
++```bash
++# Recommended
++bunx forge setup
++
++# Windows — use PowerShell installer (npm has EPERM bug)
++irm https://raw.githubusercontent.com/steveyegge/beads/main/install.ps1 | iex
++```
++
++> **Why Forge + Beads?** Forge wraps the supported day-to-day issue workflow
++> (`forge ready`, `forge create`, `forge close`, `forge sync`) while Beads
++> remains the underlying store for initialization, dependencies, comments, and
++> Dolt-backed sync internals.
++
++---
++
++## Integration with Forge Stages
++
++| Stage | Tools Used |
++|-------|------------|
++| `/status` | `forge ready`, `forge list`, `git status` |
++| `/plan` (Phase 2) | Parallel AI, Context7, grep.app, codebase exploration |
++| `/plan` | `forge create`, `git checkout -b` |
++| `/dev` | Tests, code, `forge update`, `/tasks save` |
++| `/validate` | Type check, lint, tests, SonarCloud |
++| `/ship` | `forge close`, `gh pr create` |
++| `/review` | `gh pr view`, Greptile, SonarCloud |
++| `/premerge` | `forge sync`, doc updates, hand off PR |
++| `/verify` | Documentation cross-check |
++
++---
++
++## Quick Reference Card
++
++### Beads (Issue Tracking)
++
++```bash
++bd init                     # Initialize
++forge ready                 # Find unblocked work
++forge create "Title"        # Create issue
++forge show <id>             # View details
++forge update <id> --status X   # Update status
++bd dep add <a> <b>          # a depends on b
++forge close <id>            # Complete
++forge sync                  # Routine repo sync
++bash scripts/beads-migrate-to-dolt.sh
++bash scripts/beads-upgrade-smoke.sh
++```
++
++### GitHub CLI
++
++```bash
++gh auth login               # Authenticate
++gh pr create                # Create PR
++gh pr view <n>              # View PR
++gh pr checks <n>            # Check status
++gh pr merge <n> --squash    # Merge
++```
++
++---
++
++## Troubleshooting
++
++### Beads
++
++**"bd: command not found"**
++```bash
++# macOS / Linux
++bun add -g @beads/bd
++# Or use bunx @beads/bd <command>
++
++# Windows — use PowerShell installer
++irm https://raw.githubusercontent.com/steveyegge/beads/main/install.ps1 | iex
++```
++
++**Windows EPERM error during `npm install -g @beads/bd`**
++```bash
++# npm @beads/bd has a known EPERM bug on Windows (Issue #1031)
++# Use the PowerShell installer instead:
++irm https://raw.githubusercontent.com/steveyegge/beads/main/install.ps1 | iex
++```
++
++**"database locked"**
++```bash
++forge sync
++```
++
++**Issues not showing after git pull**
++```bash
++forge sync  # Re-syncs Beads state through the Forge wrapper
++```
++
++### GitHub CLI
++
++**"gh: not authenticated"**
++```bash
++gh auth login
++gh auth status
++```
++
++---
++
++## Resources
++
++- **Beads**: [github.com/steveyegge/beads](https://github.com/steveyegge/beads)
++- **Parallel AI**: [platform.parallel.ai](https://platform.parallel.ai)
++- **Greptile**: [greptile.com](https://greptile.com)
++- **SonarCloud**: [sonarcloud.io](https://sonarcloud.io)
++- **GitHub CLI**: [cli.github.com](https://cli.github.com)
+diff --git a/docs/forge/VALIDATION.md b/docs/forge/VALIDATION.md
+new file mode 100644
+index 0000000..3ab81f6
+--- /dev/null
++++ b/docs/forge/VALIDATION.md
+@@ -0,0 +1,363 @@
++# Validation & Enforcement
++
++Forge includes built-in validation and TDD enforcement to ensure quality and consistency.
++
++## Table of Contents
++
++- [Git Hooks](#git-hooks)
++- [Validation CLI](#validation-cli)
++- [Validators by Stage](#validators-by-stage)
++- [Override Mechanisms](#override-mechanisms)
++- [Configuration](#configuration)
++
++---
++
++## Git Hooks
++
++Forge uses [Lefthook](https://github.com/evilmartians/lefthook) for fast, language-agnostic git hooks.
++
++### Pre-Commit Hook
++
++**Purpose**: Enforce TDD by blocking commits of source code without tests.
++
++**Trigger**: Before every commit
++
++**Checks**:
++- Detects staged source files (`.js`, `.ts`, `.py`, `.go`, `.java`, `.rb`, etc.)
++- Verifies corresponding test files exist (`.test.js`, `.spec.ts`, etc.)
++- Excludes config files, test files, and documentation
++
++**Behavior**:
++When source code lacks tests, offers guided recovery:
++
++```
++⚠️  Looks like you're committing source code without tests:
++
++  - src/user-service.js
++
++📋 TDD Reminder:
++  Write tests BEFORE implementation (RED-GREEN-REFACTOR)
++
++What would you like to do?
++  1. Unstage source files (keep tests staged)
++  2. Continue anyway (I have a good reason)
++  3. Abort commit (let me add tests)
++
++Your choice (1-3):
++```
++
++**Override**:
++```bash
++git commit --no-verify  # Skip in emergencies
++```
++
++### Pre-Push Hook
++
++**Purpose**: Ensure all tests pass before pushing to remote.
++
++**Trigger**: Before every push
++
++**Checks**:
++- Runs `bun test`
++- Verifies all tests pass
++
++**Override**:
++```bash
++LEFTHOOK=0 git push  # Skip all hooks
++```
++
++---
++
++## Validation CLI
++
++The `forge-preflight` CLI checks prerequisites for each workflow stage.
++
++### Usage
++
++```bash
++forge-preflight <command>
++```
++
++### Commands
++
++| Command | Purpose | When to Use |
++|---------|---------|-------------|
++| `status` | Check project prerequisites | Setup, onboarding |
++| `dev` | Validate before `/dev` | Before implementation |
++| `ship` | Validate before `/ship` | Before creating PR |
++
++---
++
++## Validators by Stage
++
++### `forge-preflight status`
++
++**Purpose**: Check basic project setup
++
++**Checks**:
++- ✓ Git repository initialized
++- ✓ `package.json` exists
++- ✓ Test framework configured (`bun test` script)
++- ✓ Node.js installed
++
++**Example**:
++```bash
++$ forge-preflight status
++
++Checking project prerequisites...
++
++Validation Results:
++
++  ✓ Git repository
++  ✓ package.json exists
++  ✓ Test framework configured
++  ✓ Node.js installed
++
++✅ All checks passed!
++```
++
++---
++
++### `forge-preflight dev`
++
++**Purpose**: Validate before starting implementation (`/dev`)
++
++**Checks**:
++- ✓ On feature branch (`feat/*`, `fix/*`, `docs/*`)
++- ✓ Plan file exists (`docs/plans/*.md`)
++- ✓ Research file exists (`docs/research/*.md`)
++- ✓ Test directory exists
++
++**Example**:
++```bash
++$ forge-preflight dev
++
++Validating prerequisites for /dev stage...
++
++Validation Results:
++
++  ✓ On feature branch
++  ✓ Plan file exists
++  ✓ Research file exists
++  ✓ Test directory exists
++
++✅ All checks passed!
++```
++
++**Failed Example**:
++```bash
++$ forge-preflight dev
++
++Validating prerequisites for /dev stage...
++
++Validation Results:
++
++  ✗ On feature branch
++    Not on a feature branch. Create one: git checkout -b feat/your-feature
++  ✓ Plan file exists
++  ✗ Research file exists
++    No research file found in docs/research/. Run: /research
++
++❌ Some checks failed. Please fix the issues above.
++```
++
++---
++
++### `forge-preflight ship`
++
++**Purpose**: Validate before creating PR (`/ship`)
++
++**Checks**:
++- ✓ Tests exist (`.test.js`, `.spec.ts` files)
++- ✓ Tests pass (`bun test` succeeds)
++- ✓ Documentation updated (`README.md` or `docs/`)
++- ✓ No uncommitted changes
++
++**Example**:
++```bash
++$ forge-preflight ship
++
++Validating prerequisites for /ship stage...
++
++Validation Results:
++
++  ✓ Tests exist
++  ✓ Tests pass
++  ✓ Documentation updated
++  ✓ No uncommitted changes
++
++✅ All checks passed!
++```
++
++---
++
++## Override Mechanisms
++
++### Git Hooks
++
++**Emergency Override** (use sparingly):
++
++```bash
++# Skip pre-commit hook
++git commit --no-verify -m "Emergency hotfix"
++
++# Skip pre-push hook
++LEFTHOOK=0 git push
++```
++
++**When to use**:
++- Emergency hotfixes
++- Work-in-progress commits (before pushing)
++- Non-code commits (docs, config)
++
++**When NOT to use**:
++- Regular development
++- Public repositories
++- Production deployments
++
++### Validation CLI
++
++The CLI provides guidance but doesn't block actions. You can proceed manually if checks fail.
++
++---
++
++## Configuration
++
++### Lefthook Configuration
++
++Edit `lefthook.yml` to customize hooks:
++
++```yaml
++pre-commit:
++  commands:
++    tdd-check:
++      run: node .forge/hooks/check-tdd.js
++      stage_fixed: false
++      tags: tdd
++      glob: "*.{js,ts,jsx,tsx,py,go,java,rb}"
++
++pre-push:
++  commands:
++    tests:
++      run: bun test
++      tags: tests
++```
++
++**Options**:
++- `run`: Command to execute
++- `stage_fixed`: Auto-stage modified files (false = safer)
++- `tags`: Categorize hooks
++- `glob`: File patterns to trigger hook
++
++### Custom Test Patterns
++
++Edit `.forge/hooks/check-tdd.js` to add custom test patterns:
++
++```javascript
++// Around line 72
++const testPatterns = [
++  `${basename}.test${ext}`,
++  `${basename}.spec${ext}`,
++  `test/${basename}.test${ext}`,
++  `tests/${basename}.test${ext}`,
++  `__tests__/${basename}.test${ext}`,
++  // Add custom patterns here
++  `${dir}/__tests__/${basename}${ext}`,
++  `spec/${basename}_spec${ext}`,  // RSpec style
++];
++```
++
++### Validation CLI Customization
++
++Edit `bin/forge-preflight.js` to add custom validators:
++
++```javascript
++function validateCustomStage() {
++  console.log('Validating custom stage...\n');
++
++  check('Custom check', () => {
++    // Your validation logic
++    return true;
++  }, 'Custom error message');
++
++  return printResults();
++}
++```
++
++---
++
++## Installation
++
++Hooks are automatically installed when you run:
++
++```bash
++# Install lefthook (one-time)
++bun add -d lefthook
++
++# Set up Forge
++bunx forge setup
++```
++
++The hooks will be automatically installed in your project's `.git/hooks/` directory.
++
++**Manual installation** (if needed):
++
++```bash
++# If you prefer global installation
++bun install -g lefthook
++
++# Install hooks
++lefthook install
++```
++
++---
++
++## Troubleshooting
++
++### Hooks not running
++
++```bash
++# Check lefthook installation
++lefthook version
++
++# Reinstall hooks
++lefthook install
++
++# Check git hooks directory
++ls -la .git/hooks/
++```
++
++### False positives
++
++If the hook incorrectly flags a file:
++
++1. **Short-term**: Use `--no-verify` to skip
++2. **Long-term**: Update exclusion patterns in `.forge/hooks/check-tdd.js`
++
++### Tests failing on push
++
++```bash
++# Run tests locally
++bun test
++
++# Fix failures, then
++git push
++```
++
++---
++
++## Best Practices
++
++1. **Write tests first**: Let the hooks guide you to TDD
++2. **Don't abuse overrides**: Only use `--no-verify` in emergencies
++3. **Keep tests fast**: Pre-push hooks run on every push
++4. **Document exceptions**: If you override, explain why in commit message
++5. **Update validators**: Customize for your project's needs
++
++---
++
++## See Also
++
++- [Workflow Guide](../AGENTS.md) - Complete 7-stage workflow
++- [TDD Guide](../CLAUDE.md) - TDD principles and practices
++- [Lefthook Docs](https://github.com/evilmartians/lefthook) - Full hook configuration

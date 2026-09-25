@@ -1,0 +1,550 @@
+From 6d79d78a4ff9266dc81f7163984e6d58e3180535 Mon Sep 17 00:00:00 2001
+From: Harsha Nanda <harshanandak@users.noreply.github.com>
+Date: Mon, 10 Aug 2026 08:37:50 +0530
+Subject: [PATCH] docs(plan): design durable meeting capture
+
+---
+ .../plan.md                                   | 287 ++++++++++++++++++
+ .../tasks.md                                  | 236 ++++++++++++++
+ 2 files changed, 523 insertions(+)
+ create mode 100644 docs/work/2026-08-10-meeting-capture-durability/plan.md
+ create mode 100644 docs/work/2026-08-10-meeting-capture-durability/tasks.md
+
+diff --git a/docs/work/2026-08-10-meeting-capture-durability/plan.md b/docs/work/2026-08-10-meeting-capture-durability/plan.md
+new file mode 100644
+index 0000000..b796d10
+--- /dev/null
++++ b/docs/work/2026-08-10-meeting-capture-durability/plan.md
+@@ -0,0 +1,287 @@
++# Crash- and network-safe local meeting capture
++
++**Feature:** `meeting-capture-durability`
++**Issue:** `d88d461a-c259-4dc6-a751-f2b3c6898b7a`
++**Date:** 2026-08-10
++**Classification:** Critical — recorded audio, tenant authorization, browser persistence, retention, and finalization correctness
++**Status:** PLAN revised after independent review; human approval and mandatory dependency gates are required before DEV
++**Base:** `origin/main@5a4ed8d8f52b7fe78044fac000602b9cd6552ee0`
++**Branch/worktree:** `codex/meeting-capture-durability-plan` / `.worktrees/meeting-capture-durability-plan`
++
++## Outcome
++
++Make the existing botless browser microphone capture resilient to renderer crashes, reloads, and transient network loss. Each slice is committed to an origin-scoped IndexedDB outbox before it becomes upload-eligible, identified by an immutable `capture_session_id` plus a zero-based monotonic `sequence`, retried idempotently, and deleted locally only after a matching durable server acknowledgement.
++
++This issue owns durable capture completion: after the server proves the full terminal sequence is contiguous, it returns a versioned `meeting.capture.completed` result/event. Issue `ce942338-35af-4960-ae83-ebc55bdbbe2a` consumes that event later and exclusively owns meeting status compatibility, final summary/chapters/candidates, rendered-artifact refresh, and transcript-to-action proof. It is not an input dependency of this plan.
++
++This issue does not add a bot, provider SDK, local AI, native desktop audio, a new transcription engine, or a second meeting authority.
++
++## Verified baseline
++
++- `apps/meeting-web/src/hooks/useAudioRecorder.js` emits WAV blobs on a timer and resets in-memory `chunkIndexRef` to zero on every recording start.
++- `apps/meeting-web/src/App.jsx` sends each blob immediately through `transcribeAudio`; a failed request is toasted but not persisted or retried across reload.
++- `packages/sdk/src/meeting.js` maps that call to `POST /meetings/{meeting_id}/transcribe` with `chunk_index`, `elapsed_seconds`, and `chunk_duration_seconds`.
++- `apps/meeting-api/backend/server.py` authenticates and owner-scopes the meeting, optionally archives audio, transcribes inline, inserts fresh transcript segment IDs, and returns `chunk_index`. It has no `capture_session_id`, digest-bound idempotency, durable raw-slice ACK, gap status, or capture-complete event.
++- Canonical `audio_assets` lacks capture-session/sequence/digest/contiguous-ledger fields. Neither it nor `jobs.payload` is an acceptable substitute for the canonical capture ledger.
++
++## Mandatory external entry gate: `ce3127d7...`
++
++No server or browser implementation slice in this plan may start until issue `ce3127d7-2ae0-4eff-aa37-1101762d0d0b` is:
++
++1. separately planned and human-approved through the Neon/Drizzle authority lane;
++2. implemented, migrated, rollback-tested, security-tested, and merged;
++3. present on current `origin/main` at an exact recorded landed SHA;
++4. publishing an immutable raw-slice read handle/stream plus a durable post-commit STT work-claim contract with restart/startup recovery. The dependency must prove crash-after-ACK-before-scheduling recovery, missing or expired raw objects, duplicate worker delivery, and retention-versus-processing races without weakening raw ACK semantics.
++5. verified to provide tenant-bound capture sessions, unique `(capture_session_id, sequence)`, digest conflict protection, durable raw-slice acceptance, contiguous watermark/gaps, immutable terminal intent, consent/provenance/retention/deletion fields, and concurrency/idempotency semantics; and
++6. accompanied by the exact canonical repository/adapter file paths that downstream server tasks may own.
++
++There is no `jobs.payload` fallback, in-memory fallback, filename/metadata encoding, parallel table, raw SQL side path, or provisional browser-only endpoint. If the landed schema/adapter contract differs from this plan, return to PLAN before DEV. Server task ownership remains deliberately deferred to the exact adapter files published by the landed dependency; this document does not invent them.
++
++## Selected server acknowledgement and processing semantics
++
++The product roadmap calls for slice-and-queue capture where persistence, not transcription latency, defines delivery correctness.
++
++### Raw acceptance ledger
++
++- The canonical ledger exposes `reserved -> processing -> acknowledged | failed` recovery states from `ce3127d7...`.
++- `acknowledged` means both the raw slice and its canonical ledger mutation committed durably. The API must never return a valid slice ACK before that commit.
++- If raw object storage and the ledger cannot commit atomically, the landed dependency must define a recoverable reservation/reconciliation protocol. A precommit `2xx`, optimistic ACK, transcript response, object existence guess, or queued job is never an ACK.
++- Identical `(capture_session_id, sequence, digest)` replay returns the same raw-acceptance result. Same session/sequence with changed digest or immutable metadata is a terminal conflict.
++- Out-of-order raw slices may reach `acknowledged`, but `contiguous_through` advances only across a gap-free prefix.
++
++### Asynchronous idempotent STT
++
++- Transcription begins only from committed `acknowledged` raw slices and is asynchronous relative to the client ACK.
++- STT claim/retry is idempotent by the canonical slice identity and cannot create duplicate transcript evidence.
++- Retryable STT failure does not revoke a valid raw ACK or make the browser retain an already-ACKed Blob. It remains observable/retryable server work.
++- A raw acceptance `failed` state never produces an ACK. The status contract distinguishes raw acceptance failure from downstream STT state without returning transcript/audio content.
++
++### Capture finalize
++
++- Stop first persists the final partial slice and immutable `expected_terminal_sequence`.
++- Finalize succeeds only when server status proves `0..expected_terminal_sequence` raw-ACKed contiguously.
++- Repeated identical finalize converges. A different terminal sequence conflicts.
++- Success emits/returns versioned `meeting.capture.completed/v1` containing only the server-derived meeting/capture identity, immutable terminal sequence, contiguous boundary, contract version, and server completion time or the exact landed equivalent.
++- This result ends d88's authority. `ce942338...` later consumes it for summary/candidate/artifact finalization; d88 neither waits for nor implements those outcomes.
++
++## Success criteria
++
++1. `ce3127d7...` is landed on `origin/main` at an exact recorded SHA before any d88 server/browser DEV work; implementation uses only its published canonical adapters and never `jobs.payload`.
++2. A captured slice becomes upload-eligible only after its IndexedDB write transaction completes. Persistence failure prevents all later sequence emission and retains the uncommitted recorder buffer for retry/stop handling.
++3. Records are keyed by `[capture_session_id, sequence]`; sequence is monotonic, immutable, and never reset for a recovered session. Blob, digest, timing, MIME, consent/provenance references, retry metadata, and state survive reload.
++4. The server returns ACK only after raw slice plus canonical ledger commit. Identical replay converges; changed replay conflicts; async STT cannot delay, manufacture, revoke, or duplicate raw ACK.
++5. Exactly one foreground drain lease uploads a session with bounded concurrency. Offline, timeout, `429`, and retryable `5xx` remain durable and resume on reload, explicit retry, foreground hints, or optional Background Sync.
++6. The client deletes a local Blob only in a transaction that validates ACK session, sequence, digest, and contract version. Lost ACK causes safe replay.
++7. Stop awaits a serialized, awaitable recorder flush. The final buffer is not cleared until its IndexedDB transaction completes; final sequence is frozen only after that durable commit.
++8. Durable capture finalize is idempotent and gap-gated, and returns the versioned capture-complete result/event. Missing middle slices, authorization changes, conflicts, and partial raw acceptance never render capture complete.
++9. Consent remains explicit and visible. Capture cannot begin/resume under a different user/tenant, after logout, or without server-bound consent/provenance. Reload never restarts microphone capture automatically.
++10. Quota/backpressure is bounded and visible. `QuotaExceededError`, denied storage, unsupported APIs, delayed IndexedDB, or high backlog pauses capture before silent loss.
++11. Server capability and browser rollout flag are explicit and tested. Flag-off blocks only new Start/session creation; existing outboxes can drain, reconcile, finalize, and delete throughout the declared recovery window.
++12. ACKed local audio is removed promptly; unACKed recovery data has bounded expiry and explicit discard. Logs/telemetry contain state/counters/timings/error classes only and never sensitive content or raw identifiers.
++13. Deterministic tests cover delayed/rejected IndexedDB, stop during flush, offline/reload, duplicates, out-of-order delivery, lost ACK, STT retry, quota/backpressure, auth/tenant change, discard/retention, missing sequence, capture-complete replay, and flag rollback; affected fast and full gates pass at their stage.
++
++## Out of scope
++
++- RealtimeKit rooms, Recall, Zoom RTMS, LiveKit talkback/agents, participant bots, calendar recognition, Chrome extension capture, and provider-owned durable state.
++- Tauri/native desktop audio, native encrypted spools, OS credential stores, WASAPI, Core Audio, PipeWire, signing, installers, and updaters.
++- Local transcription, summarization, diarization, candidates, work-item creation, or any local AI.
++- Unified chat, caller-authority review UI, `Add`/`Adjust`/`Dismiss`, and promotion.
++- Schema/migration/repository design owned by `ce3127d7...`; d88 only consumes its exact landed adapters.
++- Meeting summary/chapter/candidate/artifact finalization owned by `ce942338...`.
++- Service Worker or Background Sync as a correctness dependency.
++
++## Three approaches
++
++### A. Memory queue with retry timers
++
++Smallest diff, but reload/crash loses blobs, duplicate ownership across tabs is undefined, and it cannot meet persist-before-send.
++
++### B. IndexedDB transactional outbox with foreground drain — selected
++
++Persist each immutable slice envelope before send; recover/drain on boot and foreground; use the canonical ledger for idempotent raw ACK, status reconciliation, and capture finalize. This is the smallest design that makes crash recovery and upload retry the same state machine.
++
++### C. Service Worker owns all delivery
++
++Potentially improves closed-tab upload but adds worker lifecycle/versioning complexity and depends on Background Sync that is not broadly available. The selected outbox can later be drained by a worker without changing correctness.
++
++## Browser design
++
++### Data flow
++
++```text
++explicit Start + auth + server-bound consent + capability/flag gate
++                              |
++                      recorder WAV buffer
++                              |
++                 serialized awaitable flush queue
++                              |
++              IndexedDB readwrite durable commit
++              (slice + next_sequence atomically)
++                              |
++                    upload-eligible outbox row
++                              |
++             authenticated canonical raw ingest
++                              |
++            raw slice + canonical ledger commit
++                              |
++ matching ACK + contiguous boundary + contract version
++                              |
++          validate ACK then delete local Blob atomically
++                              |
++ Stop -> await final flush -> freeze terminal sequence
++                              |
++ status reconcile -> gap-free -> capture finalize
++                              |
++             meeting.capture.completed/v1
++                              |
++     later ce942 consumes for summaries/candidates/artifacts
++```
++
++### IndexedDB model and invariants
++
++Use the native IndexedDB API behind a small repository. Exact object-store names/version are implementation details fixed by tests.
++
++- **sessions**, keyed by `capture_session_id`: meeting reference, server contract/capability version, consent/provenance reference, `next_sequence`, expected terminal sequence, contiguous boundary, state, drain lease, expiry, and non-secret auth-subject binding reference.
++- **slices**, keyed by `[capture_session_id, sequence]`: Blob, digest, MIME/codec, timing, bytes, state, attempts, retry time, and redacted error class.
++
++One readwrite transaction stores the slice and advances `next_sequence`. Only transaction completion resolves the flush promise and authorizes upload. The standard `durability: "strict"` hint is used when supported, with feature detection.
++
++The recorder flush path is a single serialized promise chain:
++
++1. snapshot current audio samples without discarding them;
++2. await digest/envelope creation;
++3. await IndexedDB commit;
++4. only then clear exactly those samples and allow the next sequence;
++5. on rejection, retain the samples, block later emission, pause capture, and surface recovery/error; and
++6. Stop awaits the active flush, then enqueues/awaits the final partial flush before freezing `expected_terminal_sequence`.
++
++Tests use controlled deferred/rejected transactions to prove sequence `N+1` cannot appear while `N` is unresolved, a rejected flush does not discard its buffer, concurrent timer/Stop flushes serialize, and Stop cannot finalize before the final durable commit.
++
++A leased foreground drainer prevents ordinary multi-tab duplication; server idempotency remains mandatory because leases expire during crashes. Reload validates all records as untrusted, reauthenticates, reconciles status, and asks the user to resume drain/discard. It never calls `getUserMedia` automatically.
++
++### Quota and backpressure
++
++- Use `navigator.storage.estimate()` before Start and periodically; reserve headroom because values are approximate.
++- Request `navigator.storage.persist()` only through explicit capture/recovery UX and report denial honestly.
++- Production byte/backlog limits come from the landed capability/codec contract; tests inject small deterministic caps.
++- Default to one in-flight slice per session unless the server capability declares otherwise. Honor `Retry-After` and bounded jittered backoff.
++- At high-water or write failure, pause before accepting more samples. Never discard a buffer or continue recording without durable capacity.
++- `online`, focus, visibility, and optional Background Sync are wake hints only. Never begin IndexedDB work from unload handlers.
++
++### Capability and rollout flag
++
++The server owns capability `meeting_capture_durability_v1` in the existing runtime-config/capability surface (`packages/contracts/src/meeting.js`, `apps/meeting-api/backend/routes/runtime.py`, registration in `apps/meeting-api/backend/server.py`). It declares contract version, new-session availability, recovery operations, and limits. The browser owns normalized flag `durableCaptureEnabled` in `apps/meeting-web/src/lib/runtimeConfig.js` and consumes both flag and server capability.
++
++Start/create requires **both** browser flag on and a compatible server capability. Recovery operations are separate and remain enabled for sessions already present locally/server-side even when new-session availability or the browser flag is off. Tests prove flag-off/capability-off rejects only new Start/create while old outboxes still call ingest/status/finalize/delete during the recovery window. Removing recovery capability before the window closes is a release blocker, not rollback.
++
++### Consent, authority, provenance, retention
++
++- Start is an explicit user action with the existing visible recording indicator.
++- Session creation binds server-derived actor/tenant, meeting, immutable consent evidence, source/provenance, codec, and retention before the recorder starts.
++- IndexedDB stores no token, credential, or client-selected tenant/owner. Current auth is checked for every drain/finalize/delete.
++- Logout or subject change releases the local lease and blocks upload; another user cannot adopt the session.
++- ACKed Blobs delete promptly. UnACKed Blobs follow the landed recovery retention and remain visible for discard. Offline local discard must not claim remote deletion.
++- Browser storage is not confidential against same-origin XSS, local profile access, malware, or user-cleared site data. Privacy relies on minimization, short retention, CSP/XSS controls, and accurate disclosure.
++
++### Observability and redaction
++
++Allowed: random diagnostic correlation, app/build/contract version, state transition, sequence count/range, queued bytes/count/age, raw-acceptance/STT state, retry/error class, status class, ACK/contiguous latency, flush/drain/finalize duration, quota/persistence and flag/capability outcome.
++
++Forbidden: audio/Blob, transcript/summary/candidate text, tokens/cookies/headers, raw meeting/session/user/tenant IDs, participant/calendar/consent content, digest, filename, storage path, signed URL, provider response, or exception body containing them.
++
++## Security/privacy pass
++
++| Risk | Required mitigation |
++|---|---|
++| OWASP A01 access control | Server derives actor/tenant and checks meeting/session on create/ingest/status/finalize/delete; foreign resources remain undisclosed. |
++| A02 local confidentiality | HTTPS; no token in IndexedDB; minimum retention; do not claim browser encryption as a boundary. |
++| A03 injection/untrusted storage | Validate IndexedDB and multipart data identically; fixed codec/size contract; no client filesystem/path authority. |
++| A04 insecure design | Canonical ledger prerequisite, no precommit ACK, serialized persist-before-send, digest conflict, ACK-validated deletion, gap-gated capture finalize. |
++| A05 misconfiguration | Secure context, explicit capability/flag, bounded limits, no wildcard CORS/debug audio, recovery preserved during rollback. |
++| A06 components | Native IndexedDB; no storage dependency without separate review. |
++| A07 auth | Authenticate every operation; block logout/subject change; never store bearer tokens with audio. |
++| A08 integrity | Immutable identity/digest/terminal sequence; idempotent raw/STT/finalize; validate reloaded state. |
++| A09 monitoring | Redacted state metrics and conflict/security events; test log canaries and telemetry failures. |
++| A10 SSRF | Configured meeting API only; storage paths/URLs never client-selectable. |
++
++## Seven-PR ordered train
++
++Every PR is independently reversible and targets <=300 changed production-code lines excluding tests, docs, generated files, and lockfiles. Each begins only after its predecessor lands on `origin/main` and its exact SHA is recorded.
++
++| PR | Outcome | Exact known ownership | Entry gate | Rollback |
++|---|---|---|---|---|
++| 1 | Versioned contract, SDK, server capability, browser flag normalization | `packages/contracts/src/meeting.js`, contract declarations/tests; `packages/sdk/src/meeting.js`, declarations/tests; `apps/meeting-api/backend/server.py`, `apps/meeting-api/backend/config.py`, `apps/meeting-api/backend/routes/runtime.py`, `apps/meeting-api/tests/backend/test_runtime_payload.py`, `apps/meeting-api/tests/backend/test_config.py`; browser runtime-config files/tests named above | `ce3127d7...` exact landed SHA and adapter paths recorded; human approves amended plan | Disable new-session capability/flag; no data path exists yet |
++| 2 | Authenticated raw ingest + status over canonical ledger, ACK only after raw+ledger commit | `apps/meeting-api/backend/server.py`, focused API tests, and **only** adapter files published by `ce3127d7...` | PR1 landed; canonical adapter contract verified | Disable create; retain ingest/status for recovery |
++| 3 | Async idempotent STT from committed ACKed slices | Existing provider/transcription seam in `server.py`, focused worker/service tests, and the dependency-published immutable raw-read and durable work-claim adapters only | PR2 landed; raw ACK chaos proof green; `ce3127d7...` restart-recovery contract verified | Stop new STT claims; preserve raw ACK/status and retryable ledger state |
++| 4 | Gap-gated capture finalize, versioned capture-complete result/event, delete/discard | Contract/SDK additions if required, `server.py`, focused tests, published adapter files only | PR3 landed; event schema approved | Disable new starts; preserve ingest/status/finalize/delete compatibility |
++| 5 | Native IndexedDB outbox, leases, ACK deletion, quota primitives | `apps/meeting-web/src/lib/captureOutbox.js` and focused tests | PR4 landed/capability available | Disable new browser Start; keep schema reader/recovery |
++| 6 | Serialized awaitable recorder flush, durable sequencing, backpressure, Start flag/capability gate | `useAudioRecorder.js`, new durable capture hook, `runtimeConfig.js`, focused tests | PR5 landed; deferred/rejected-IDB RED matrix accepted | Flag off new Start; retain outbox/drain compatibility |
++| 7 | Drain/reconcile/reload/finalize/delete UX and end-to-end privacy/recovery proof | New drain module/tests, `App.jsx`, existing API adapter, focused flow/privacy tests | PR6 landed; recovery window configured; capture-complete contract fixed | Flag off new Start; old outboxes continue all recovery operations |
++
++Server canonical adapter ownership is intentionally not guessed. Before PR2/3/4 DEV, copy the exact `ce3127d7...` landed paths into the Forge issue and each PR's ownership list. If that creates >300 production lines or overlaps another active owner, split within the same ordered train only after PLAN amendment.
++
++## Validation matrix
++
++| Case | Expected proof |
++|---|---|
++| Delayed IndexedDB | No upload or sequence `N+1`; buffer remains until `N` transaction completes. |
++| Rejected IndexedDB | Buffer not discarded; later sequence blocked; recorder pauses; Stop reports blocked, never complete. |
++| Timer flush races Stop | One serialized chain; Stop awaits active flush and final partial durable commit. |
++| Offline/reload | Pending row survives; foreground recovery drains after current-auth reconciliation without auto-recording. |
++| Lost response after raw commit | Identical replay returns same ACK; local deletion follows matching response; STT still runs once. |
++| Precommit failure | No ACK, no local deletion, recoverable reserved/processing/failed state per canonical ledger. |
++| Duplicate / changed duplicate | Identical converges; changed digest conflicts and retains local Blob. |
++| Out of order `0,2,1` | Individual raw ACKs allowed; boundary stays `0`, then advances through `2`; finalize blocked until gap closes. |
++| Async STT retry/failure | Raw ACK remains valid; idempotent retry does not duplicate transcript; status distinguishes failure. |
++| Missing final/middle slice | Capture finalize fails precondition and emits no capture-complete event. |
++| Repeated capture finalize | Same terminal request/event converges; changed terminal conflicts. |
++| Two tabs | One local lease; forced race remains safe through server idempotency. |
++| Quota/high backlog | New capture pauses before loss; recovery/discard remains available. |
++| Auth/tenant change | Drain/finalize/delete block; no authority transfer or foreign-resource disclosure. |
++| Flag/capability off after capture | New Start/create blocked; existing outbox still ingests, reconciles, finalizes, and deletes. |
++| Recovery window expiry | New starts already off; operator sees remaining recoveries; capability removal remains blocked until policy satisfied. |
++| Privacy canaries | Logs/telemetry contain no forbidden values, even on malformed local/server errors. |
++
++## Rollout and rollback
++
++1. Land/verify `ce3127d7...`; no d88 code before its exact SHA is recorded.
++2. Land PR1 capability/flag off by default.
++3. Land server PRs with synthetic audio in non-production and recovery APIs enabled.
++4. Land browser persistence/flush/drain PRs; internal allowlist only.
++5. Measure raw ACK latency, reservation recovery, contiguous lag, STT retry, backlog/quota, flag state, and recovery-window population before widening.
++
++Rollback always sets new-session availability and the browser flag off first. It never disables compatible ingest/status/finalize/delete for existing sessions until the declared recovery window closes and remaining recoveries are resolved. It never clears IndexedDB, drops ledger state, restores direct fire-and-forget `/transcribe` for durable sessions, or treats downstream transcript/summary success as raw ACK.
++
++## Dependencies and sequencing
++
++- Mandatory prerequisite: `ce3127d7-2ae0-4eff-aa37-1101762d0d0b`, exact landed SHA before PR1 and before all server/browser slices.
++- d88 owns raw durability, async STT triggering/idempotency, gap status, capture finalize, and versioned capture-complete result/event.
++- `ce942338...` depends on and consumes d88 later. It owns meeting terminal status compatibility, final summary/chapters/candidates, artifacts, and transcript-to-action E2E. d88 does not depend on it.
++- External connector and desktop lanes consume the landed d88 contract later.
++
++## Human DEV checkpoint
++
++Approval must explicitly confirm:
++
++1. `ce3127d7...` is human-approved, merged, and present on current `origin/main` at an exact SHA, with canonical adapter paths and no `jobs.payload` fallback.
++2. ACK means raw slice plus canonical ledger commit; `reserved/processing/acknowledged/failed` recovery and async idempotent STT semantics are accepted.
++3. d88 owns versioned capture-complete; `ce942338...` is a downstream consumer, not an entry gate.
++4. Serialized recorder flush semantics, quota/backpressure behavior, and delayed/rejected-IDB test matrix are accepted.
++5. Seven ordered <=300-production-line PRs, exact known ownership, deferred canonical adapter ownership, and per-PR rollback are accepted.
++6. `meeting_capture_durability_v1` plus `durableCaptureEnabled` rollout behavior preserves old-session recovery when new Start/create is off.
++7. Privacy/retention/redaction and the recovery-window policy are approved.
++
++No gate is approved by this PLAN. DEV must re-prove the lease, rebase on current `origin/main`, record the dependency SHA and exact paths, and start PR1 only after human approval.
++
++## Ambiguity policy
++
++Use the `/dev` seven-dimension rubric. Below 80% confidence, or for any change to dependency/schema/adapter paths, endpoint/event fields, ACK boundary, STT state, codec, retention, consent, auth, tenant derivation, flag/recovery, finalize, or deletion semantics, stop and return to human PLAN review.
++
++## Technical sources
++
++- [Indexed Database API 3.0](https://www.w3.org/TR/IndexedDB/) — transactional atomicity, durability hints, ordered requests, and commit/abort behavior.
++- [MDN: Using IndexedDB](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API/Using_IndexedDB) — same-origin storage and why asynchronous unload transactions are unsafe.
++- [MDN: Storage quotas and eviction criteria](https://developer.mozilla.org/en-US/docs/Web/API/Storage_API/Storage_quotas_and_eviction_criteria) and [StorageManager.estimate](https://developer.mozilla.org/en-US/docs/Web/API/StorageManager/estimate) — best-effort/persistent storage, approximate quotas, eviction, and `QuotaExceededError`.
++- [MDN: Background Synchronization API](https://developer.mozilla.org/en-US/docs/Web/API/Background_Synchronization_API) — limited availability; optional enhancement only.
++- [OWASP HTML5 Security Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/HTML5_Security_Cheat_Sheet.html) — IndexedDB is accessible to same-origin XSS/local profile access and must be treated as untrusted.
++- [OWASP File Upload Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html) and [Logging Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html) — authorize/validate uploads and exclude sensitive data from logs.
+diff --git a/docs/work/2026-08-10-meeting-capture-durability/tasks.md b/docs/work/2026-08-10-meeting-capture-durability/tasks.md
+new file mode 100644
+index 0000000..6da921f
+--- /dev/null
++++ b/docs/work/2026-08-10-meeting-capture-durability/tasks.md
+@@ -0,0 +1,236 @@
++# Tasks: crash- and network-safe local meeting capture
++
++**Issue:** `d88d461a-c259-4dc6-a751-f2b3c6898b7a`
++**Plan:** [`plan.md`](./plan.md)
++**State:** Human DEV checkpoint; no DEV until `ce3127d7...` lands and this amended plan is approved
++**Delivery:** Seven sequential, independently reversible PRs; each <=300 changed production-code lines excluding tests/docs/generated files/lockfiles
++
++## Non-negotiable dependency and DEV gate
++
++Before any task product code:
++
++1. Re-prove the live d88 Forge lease under the DEV actor and rebase on current `origin/main`.
++2. Verify `ce3127d7-2ae0-4eff-aa37-1101762d0d0b` is separately human-approved, merged, and present at an exact recorded `origin/main` SHA.
++3. Copy its exact canonical ledger/repository/adapter paths and contract version into the d88 issue. Those paths become server PR ownership; no path is invented in this task list.
++4. Verify unique session/sequence plus digest, raw+ledger commit ACK, `reserved/processing/acknowledged/failed`, contiguous watermark/gaps, immutable terminal intent, consent/provenance/retention/deletion, concurrency/idempotency, migration/rollback/security evidence, an immutable raw-slice read handle/stream, and durable post-commit STT work claiming with startup recovery.
++5. Verify dependency RED/GREEN evidence for crash after raw ACK before scheduling, restart sweep, missing/expired raw object, duplicate worker delivery, and retention-versus-processing races.
++6. Reject `jobs.payload`, in-memory, filename/metadata, raw SQL, or second-authority fallbacks.
++7. Human approves the seven gates in `plan.md` and authorizes PR1 only.
++
++Gate evidence commands:
++
++```powershell
++git rev-parse origin/main
++forge issue show ce3127d7-2ae0-4eff-aa37-1101762d0d0b --json
++forge issue owns d88d461a-c259-4dc6-a751-f2b3c6898b7a
++bun run test:contracts
++bun run test:sdk
++```
++
++## PR1 — Versioned contract, capability, SDK, and browser flag
++
++### Task 1 — Freeze capture durability v1 and rollback controls
++
++**Requirement anchor:** Success criteria 1, 4, 8, 11; dependency, ACK, capture-complete, and rollback contracts.
++**OWNS:** `packages/contracts/src/meeting.js`, `packages/contracts/src/index.d.ts`, `packages/contracts/src/index.test.ts`, `packages/sdk/src/meeting.js`, `packages/sdk/src/index.d.ts`, `packages/sdk/src/meeting.test.ts`, `apps/meeting-api/backend/server.py`, `apps/meeting-api/backend/config.py`, `apps/meeting-api/backend/routes/runtime.py`, `apps/meeting-api/tests/backend/test_runtime_payload.py`, `apps/meeting-api/tests/backend/test_config.py`, `apps/meeting-web/src/lib/runtimeConfig.js`, `apps/meeting-web/src/lib/__tests__/runtimeConfig.test.js`
++**What to implement:** Define exact create/bind, raw ingest/ACK, status/gaps, capture finalize/completed-v1, and delete methods/types. Define server capability `meeting_capture_durability_v1` and normalized browser flag `durableCaptureEnabled`. Capability exposes contract version, new-session availability, recovery availability, and limits. Flag/capability off blocks only new Start/create; recovery operations remain separately callable. No legacy `/transcribe` fallback for a durable session.
++
++**TDD steps:**
++
++1. Write tests for exact request/response/event fields, encoded IDs, raw ACK contract version/digest, capture-complete v1, capability incompatibility, default-off settings, and flag-off recovery behavior. Prove the server capability is registered through `server.py`/`config.py`, new Start/create is blocked when off, and existing-session recovery operations remain advertised.
++2. Run RED separately: `bun run test:contracts`; `bun run test:sdk`; `bun run --cwd apps/meeting-web test -- --run src/lib/__tests__/runtimeConfig.test.js`; `node scripts/meeting-api-validation.mjs test apps/meeting-api/tests/backend/test_runtime_payload.py apps/meeting-api/tests/backend/test_config.py`.
++3. Implement only the contract/transport/config surfaces; no data endpoint or schema work.
++4. Run the same commands GREEN, then `bun run --cwd apps/meeting-web lint` and `bun run validate:meeting-api:lint`.
++5. Commit: `feat(meeting): define durable capture v1`
++
++**Expected output:** One versioned cross-stack contract and reversible new-session/recovery controls.
++**Production budget:** <=220 lines.
++**Entry:** dependency gate plus amended plan approval.
++**Rollback:** set new-session capability/flag off; no durable data exists yet.
++
++## PR2 — Canonical raw ingest and gap-aware status
++
++### Task 2 — ACK only after raw slice plus canonical ledger commit
++
++**Requirement anchor:** Success criteria 1, 4-6, 9, 12; OWASP A01/A03/A08.
++**OWNS now:** `apps/meeting-api/backend/server.py`, `apps/meeting-api/tests/backend/test_capture_durability.py`
++**Deferred OWNS:** exact canonical adapter files published by landed `ce3127d7...`; copy paths into Forge before DEV. No other persistence file may be touched.
++**What to implement:** Register authenticated session/create, raw ingest, and status over the canonical adapter. Bind server-derived actor/tenant/meeting/consent/provenance. ACK only after raw storage plus ledger commit reaches canonical `acknowledged`; never on reservation, queue, object guess, transcript, or precommit `2xx`. Identical retry returns stable ACK; changed identity content conflicts. Status returns contiguous boundary, gaps, and redacted raw/STT states without foreign disclosure.
++
++**TDD steps:**
++
++1. Write tests for unauthenticated/foreign/cross-tenant actors; commit delay/failure; reserved/processing/acknowledged/failed recovery; identical/changed retry; `0,2,1`; malformed ACK; invalid MIME/size/timing; no `jobs.payload` write.
++2. Run RED: `node scripts/meeting-api-validation.mjs test apps/meeting-api/tests/backend/test_capture_durability.py`.
++3. Implement using only the landed canonical adapter; route orchestration remains thin.
++4. Run GREEN focused, then `bun run validate:meeting-api`.
++5. Commit: `feat(meeting-api): commit durable raw slice ACKs`
++
++**Expected output:** Raw acceptance is durable, tenant-safe, gap-aware, and independent of STT latency.
++**Production budget:** <=300 lines.
++**Entry:** PR1 exact landed SHA; canonical adapter paths recorded.
++**Rollback:** disable new create; preserve ingest/status for existing sessions.
++
++## PR3 — Asynchronous idempotent STT
++
++### Task 3 — Process acknowledged slices exactly once
++
++**Requirement anchor:** Success criteria 4, 12-13; async STT semantics.
++**OWNS now:** existing transcription/provider orchestration in `apps/meeting-api/backend/server.py`, `apps/meeting-api/tests/backend/test_capture_transcription.py`
++**Deferred OWNS:** only canonical immutable raw-read and durable post-commit work-claim adapter files published by `ce3127d7...` and named before DEV.
++**What to implement:** Claim only committed acknowledged raw slices for asynchronous STT through the dependency-published durable queue/claim contract, and read audio only through its immutable raw-slice handle/stream. Make claim/retry idempotent by canonical slice identity; prevent duplicate transcript evidence. Startup recovery must sweep committed-but-unclaimed work after a crash between ACK commit and scheduling. Retryable STT failure remains server work and never revokes/manufactures the raw ACK or changes browser deletion semantics. Preserve redacted status distinctions.
++
++**TDD steps:**
++
++1. Write tests for ACK-before-STT, crash after ACK commit before scheduling, startup/restart sweep, delayed provider, crash after claim, retryable/terminal provider failure, missing or expired raw object, duplicate worker delivery/claim, retention-versus-processing race, no duplicate transcript, and raw ACK stability.
++2. Run RED: `node scripts/meeting-api-validation.mjs test apps/meeting-api/tests/backend/test_capture_transcription.py`.
++3. Implement the smallest async/idempotent orchestration over the published adapter.
++4. Run GREEN focused, then `bun run validate:meeting-api`.
++5. Commit: `feat(meeting-api): transcribe durable slices asynchronously`
++
++**Expected output:** Raw delivery is fast/durable; STT retry is independent and exactly-once at the evidence boundary.
++**Production budget:** <=260 lines.
++**Entry:** PR2 landed; raw commit/ACK chaos tests green.
++**Rollback:** stop new STT claims; retain raw ACK/status and recoverable server state.
++
++## PR4 — Capture finalize, completion event, and deletion
++
++### Task 4 — Complete capture only at the contiguous terminal boundary
++
++**Requirement anchor:** Success criteria 6, 8, 11-13; d88/ce942 ownership boundary.
++**OWNS now:** `packages/contracts/src/meeting.js`, `packages/contracts/src/index.d.ts`, `packages/sdk/src/meeting.js`, `packages/sdk/src/index.d.ts`, `apps/meeting-api/backend/server.py`, `apps/meeting-api/tests/backend/test_capture_finalize.py`
++**Deferred OWNS:** only canonical adapter files from `ce3127d7...` recorded before DEV.
++**What to implement:** Add idempotent capture finalize and delete/discard. Freeze one expected terminal sequence, reject gaps/changed terminal intent, and return/emit `meeting.capture.completed/v1` only after raw ACKs are contiguous. The event ends d88 authority and contains no summary/candidate/artifact result. `ce942338...` consumes later; it is not called or awaited here. Delete is actor-bound/idempotent and preserves truthful local/remote pending states.
++
++**TDD steps:**
++
++1. Write tests for empty-contract case, final partial, missing middle/final slice, repeated/changed finalize, lost completion response, unauthorized/deleted session, exactly-one versioned event, idempotent delete, and zero summary/candidate/artifact calls.
++2. Run RED: `node scripts/meeting-api-validation.mjs test apps/meeting-api/tests/backend/test_capture_finalize.py`; then `bun run test:contracts`; `bun run test:sdk`.
++3. Implement the narrow capture terminal boundary over the canonical adapter.
++4. Run GREEN for each focused command, then `bun run validate:meeting-api`.
++5. Commit: `feat(meeting-api): finalize contiguous capture sessions`
++
++**Expected output:** A stable capture-complete event that downstream `ce942...` can consume without circular ownership.
++**Production budget:** <=300 lines.
++**Entry:** PR3 landed; event schema approved.
++**Rollback:** disable new starts; preserve ingest/status/finalize/delete for recovery.
++
++## PR5 — Native IndexedDB outbox
++
++### Task 5 — Persist and validate the local capture ledger
++
++**Requirement anchor:** Success criteria 2-3, 5-6, 9-10, 12.
++**OWNS:** `apps/meeting-web/src/lib/captureOutbox.js`, `apps/meeting-web/src/lib/__tests__/captureOutbox.test.js`
++**What to implement:** Dependency-free IndexedDB sessions/slices repository. Atomically put Blob/envelope and advance sequence with strict durability hint where supported. Validate reloads, ordered scans, matching ACK deletion, immutable terminal sequence, expiring drain lease, quota/abort/version errors, retention/discard state. Persist no auth token or raw user/tenant ID.
++
++**TDD steps:**
++
++1. Write tests for completion-gated eligibility, abort/no sequence advance, compound uniqueness, reload order, digest/terminal immutability, mismatched ACK retention, two-tab lease race, corrupt record quarantine, quota error, and flag-off recovery access.
++2. Run RED: `bun run --cwd apps/meeting-web test -- --run src/lib/__tests__/captureOutbox.test.js`.
++3. Implement with injected IndexedDB factory/clock.
++4. Run GREEN focused, then `bun run --cwd apps/meeting-web lint`.
++5. Commit: `feat(meeting-web): persist capture outbox`
++
++**Expected output:** A crash-recoverable local prefix with evidence-driven deletion.
++**Production budget:** <=260 lines.
++**Entry:** PR4 landed and capability available.
++**Rollback:** flag off new Start; retain outbox reader/recovery; never clear/downgrade destructively.
++
++## PR6 — Serialized recorder flush, sequencing, and Start gate
++
++### Task 6 — Await every durable flush before advancing or stopping
++
++**Requirement anchor:** Success criteria 2, 7, 9-11, 13; independent-review flush blocker.
++**OWNS:** `apps/meeting-web/src/hooks/useAudioRecorder.js`, `apps/meeting-web/src/hooks/useDurableCapture.js`, `apps/meeting-web/src/__tests__/meetingHooks.test.js`, `apps/meeting-web/src/hooks/useDurableCapture.test.js`, `apps/meeting-web/src/lib/runtimeConfig.js`, `apps/meeting-web/src/lib/__tests__/runtimeConfig.test.js`
++**What to implement:** One serialized awaitable flush chain. Snapshot without clearing; await digest/envelope and IndexedDB commit; then clear exactly committed samples and allow next sequence. Rejection retains buffer, blocks all later sequence emission, pauses capture, and surfaces recovery. Stop awaits active timer flush, then awaits final partial durable commit before freezing terminal sequence. Start requires compatible server capability plus browser flag; flag-off never blocks old-session recovery functions.
++
++**TDD steps:**
++
++1. Write controlled deferred-IDB test: while sequence N commit is pending, N+1 is never emitted/uploaded.
++2. Write rejected-IDB test: N buffer remains, N+1 never exists, capture pauses, Stop does not freeze/finalize.
++3. Write timer/Stop race test: Stop awaits current flush and one final partial commit; no double flush or buffer loss.
++4. Write reload/start tests: sequence resumes durably; no microphone auto-start; flag/capability off blocks only new Start/create while recovery APIs remain callable.
++5. Run RED: `bun run --cwd apps/meeting-web test -- --run src/hooks/useDurableCapture.test.js src/__tests__/meetingHooks.test.js src/lib/__tests__/runtimeConfig.test.js`.
++6. Implement the narrow orchestration/recorder contract.
++7. Run GREEN focused, then `bun run --cwd apps/meeting-web lint` and `bun run --cwd apps/meeting-web build`.
++8. Commit: `feat(meeting-web): serialize durable recorder flushes`
++
++**Expected output:** No sequence advance, buffer discard, or Stop success can outrun local durability.
++**Production budget:** <=300 lines.
++**Entry:** PR5 landed; delayed/rejected-IDB RED assertions reviewed.
++**Rollback:** flag off new Start; keep durable hook/outbox recovery compatible.
++
++## PR7 — Drain, recovery, capture completion, and E2E proof
++
++### Task 7 — Drain idempotently across offline, reload, and lost ACK
++
++**Requirement anchor:** Success criteria 4-6, 9, 11-13.
++**OWNS:** `apps/meeting-web/src/lib/captureDrain.js`, `apps/meeting-web/src/lib/__tests__/captureDrain.test.js`, `apps/meeting-web/src/lib/api.js`
++**What to implement:** Bounded foreground drain acquires lease, reconciles status, prioritizes lowest gap, sends through SDK, validates exact ACK identity/digest/version/boundary, and deletes only after validation. Retry offline/timeout/`429`/approved `5xx`; block auth/tenant/digest/contract errors. Online/focus/visibility/Background Sync only wake the same algorithm. Flag-off still drains existing sessions.
++
++**TDD steps:**
++
++1. Write tests for offline boot/reload, lost ACK after commit, identical/changed replay, precommit failure, `0,2,1`, two drainers, timeout/`429`/`5xx`, auth change, malformed `2xx`, and flag-off recovery.
++2. Run RED: `bun run --cwd apps/meeting-web test -- --run src/lib/__tests__/captureDrain.test.js`.
++3. Implement a pure injected state machine.
++4. Run GREEN focused and meeting-web lint.
++5. Commit within PR7: `feat(meeting-web): drain durable capture outbox`
++
++**Expected output:** Retry/reload is bounded and raw-commit evidence drives deletion.
++
++### Task 8 — Stop at capture-complete and prove recovery/privacy
++
++**Requirement anchor:** Success criteria 7-13; capture-complete/ce942 boundary and rollout rollback.
++**OWNS:** `apps/meeting-web/src/App.jsx`, `apps/meeting-web/src/__tests__/durableCaptureFlow.test.jsx`, `apps/meeting-web/src/__tests__/capturePrivacy.test.js`, `apps/meeting-api/tests/backend/test_capture_durability_e2e.py`
++**What to implement:** Wire existing UI to durable recorder/drain. Stop awaits final durable flush, drains/reconciles until contiguous, invokes capture finalize, and renders capture-complete only from v1 result. It does not refresh/finalize summaries/candidates/artifacts. Add truthful recovering/offline/storage-full/auth-blocked/gap/conflict/discard states. Prove flag-off blocks new Start while old outboxes ingest/status/finalize/delete throughout recovery window. Use synthetic audio and forbidden-value log canaries.
++
++**TDD steps:**
++
++1. Write tests for final flush, gap block, reload during drain, repeated capture finalize, auth loss, deletion pending, recovery-window behavior, capture-complete rendering, no ce942 summary/candidate/artifact call, no task creation, and privacy canaries.
++2. Run RED: `bun run --cwd apps/meeting-web test -- --run src/__tests__/durableCaptureFlow.test.jsx src/__tests__/capturePrivacy.test.js`; `node scripts/meeting-api-validation.mjs test apps/meeting-api/tests/backend/test_capture_durability_e2e.py`.
++3. Implement only the existing UI wiring/status needed for truthful recovery and capture completion.
++4. Run GREEN focused, then all affected commands below.
++5. Commit within PR7: `test(meeting): prove durable capture recovery`
++
++**Expected output:** Deterministic proof of no committed unACKed loss, no duplicate transcript, fail-closed capture completion, rollback-safe recovery, and redacted observability.
++
++**Combined PR7 production budget:** <=300 lines across Tasks 7-8. Tests do not count. If production code exceeds the cap, return to PLAN; do not create an eighth PR silently.
++**Entry:** PR6 landed; recovery window configured; capture-complete v1 fixed.
++**Rollback:** flag/capability off new Start/create; existing sessions keep ingest/status/finalize/delete until recovery closure.
++
++## Per-PR and final validation
++
++Focused Python tests use the validation helper directly with exact paths:
++
++```powershell
++node scripts/meeting-api-validation.mjs test apps/meeting-api/tests/backend/test_capture_durability.py
++```
++
++Full affected final gates:
++
++```powershell
++bun run test:contracts
++bun run test:sdk
++bun run --cwd apps/meeting-web test
++bun run --cwd apps/meeting-web lint
++bun run --cwd apps/meeting-web build
++bun run validate:meeting-api
++```
++
++Do not append file arguments to `bun run validate:meeting-api:test`; that script already supplies the test root. Do not invoke the Forge `/validate` stage from DEV without explicit stage authorization.
++
++Store exact dependency/base/head SHAs, canonical adapter paths, RED/GREEN summaries, changed production-line counts, fixtures, skipped-test count, rollback flag/capability proof, and redacted crash/network matrix in the d88 issue. Missing environment evidence is `INCOMPLETE`, never PASS.
++
++## YAGNI and ownership check
++
++Every task maps to an amended success criterion. No task owns schema/migrations, native desktop capture, connectors/providers, calendar, local AI, meeting summary/chapter/candidate/artifact finalization, caller review/promotion, unified chat, or general service-worker infrastructure. Server adapter ownership is deferred to the exact landed `ce3127d7...` paths and must not be guessed.
++
++## PLAN -> human DEV checkpoint
++
++After amendment, update d88 design/acceptance and record:
++
++- **summary:** mandatory exact-SHA `ce3127d7...` gate; seven ordered PRs; d88 capture-complete boundary;
++- **decisions:** raw+ledger commit ACK, async idempotent STT, no `jobs.payload`, serialized awaitable flush, ce942 downstream only, recovery survives flag-off;
++- **artifacts:** `plan.md`, `tasks.md`, amended commit SHA;
++- **next:** no DEV until dependency lands and human approves the amended seven gates; then PR1 only.
++
++Do not approve a gate, implement, push, or open a PR during PLAN.
+-- 
+2.51.0.windows.1
+

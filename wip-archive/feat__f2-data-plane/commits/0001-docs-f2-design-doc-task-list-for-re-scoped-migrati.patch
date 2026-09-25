@@ -1,0 +1,309 @@
+From 292d288277898dfe45f50d6e693c3ed392dcd030 Mon Sep 17 00:00:00 2001
+From: Harsha Nanda <harshanandak@users.noreply.github.com>
+Date: Fri, 11 Sep 2026 01:58:31 +0530
+Subject: [PATCH] docs(f2): design doc + task list for re-scoped migration pack
+ #1
+
+---
+ docs/work/2026-09-11-f2-data-plane/plan.md  | 110 +++++++++++++
+ docs/work/2026-09-11-f2-data-plane/tasks.md | 171 ++++++++++++++++++++
+ 2 files changed, 281 insertions(+)
+ create mode 100644 docs/work/2026-09-11-f2-data-plane/plan.md
+ create mode 100644 docs/work/2026-09-11-f2-data-plane/tasks.md
+
+diff --git a/docs/work/2026-09-11-f2-data-plane/plan.md b/docs/work/2026-09-11-f2-data-plane/plan.md
+new file mode 100644
+index 0000000..f139ce0
+--- /dev/null
++++ b/docs/work/2026-09-11-f2-data-plane/plan.md
+@@ -0,0 +1,110 @@
++# F2 Data Plane — Migration Pack #1 (re-scoped)
++
++Date: 2026-09-11
++Branch: `feat/f2-data-plane` (worktree `.worktrees/f2-data-plane`, based on `origin/main` @ 044fcc4)
++Issue: `product-suite-5q8` (PS tracker)
++
++## Purpose
++
++F2 was specced in June against a greenfield `infra/db/` plane with a neutral runner and Supabase-CLI-replacing codegen. None of that is how the repo actually grew. The plane lives in `packages/db` (Drizzle, hand-authored SQL, migrations 0000-0021), the runner is `scripts/migrate-database.mjs`, and the CI gate is `DB Contract / db-contract`. What F2 still owes is the ladder pieces F3 and the Phase 1 lanes need, plus three infra gates that disagree with each other.
++
++Scope A (approved in session): build the genuinely missing pieces where the plane lives, skip legacy-only value migrations, fix the drift items.
++
++## Success criteria
++
++1. Migration `0022` ships: `project_teams`, `checks.project_id` + at-most-one-parent constraint, proposals candidate idempotency columns + partial unique index, `connections` (user|workspace scope, encrypted credentials), item visibility (`org`|`restricted`) + `visibility_grants`, `playbooks` + `projects.playbook_ref`.
++2. `bun run check:migration-parity` passes with a real `meta/0022_snapshot.json` (chain hop from 0019, the gate's documented tolerance). The `SNAPSHOTLESS_MIGRATION_BASELINE` list is untouched.
++3. Contracts extended (Check parent, Visibility, Playbook, Connection, ProjectTeam) with drift-guard tests green.
++4. platform-api enforces visibility on work-item and check reads; a route test proves a restricted item is hidden without a grant and visible with one. Check writes accept a project parent and reject both parents at once.
++5. Infra drift fixed: `drizzle-kit generate` script removed from `packages/db/package.json` (and its config reference), expected-pending pins updated to `0018-0022`, `database-authority.json` suffix policy aligned and bound by a test.
++6. Local lanes green in the worktree: `packages/db` tests, `verify:platform-api`, `test:repo-tooling` (baseline flake list below).
++7. Production apply of 0018-0022 via the human-gated deploy job, then re-fetch `__drizzle_migrations` to prove the tags landed. This is an out-of-band step, not CI.
++
++## Out of scope
++
++- Legacy-only value migrations (`timeline_items` fold, milestones rebind, `workspaces.phase` retirement, status drop). The legacy Supabase DB is deleted at Phase 2 and the new plane never had those tables.
++- Historical snapshot chain repair for 0012-0018, 0020, 0021 (separate workstream, referenced as issue `1c8d790e`).
++- Connections HTTP routes / connect UI (Agent lane builds the connect flow on top of the table + crypto module).
++- Team-scoped visibility (`org`|`team`|`restricted` per DESIGN). No team-membership model exists in the codebase, so `team` cannot be enforced honestly today. Follow-up when memberships land.
++- Agent / automation / connector / MCP catalog tables — later packs.
++- Codegen replacing Supabase typegen. Contracts are hand-authored with drift guards; no pain to fix yet.
++
++## Approach selected
++
++One migration (`0022`) for the whole pack, one PR. Table naming follows the current vocabulary: the DESIGN `project_departments` junction is built as `project_teams` because PR #79 promoted departments to the `teams` table. Proposals idempotency is reconciled onto the DESIGN 4-tuple via nullable `source_*` columns and a partial unique index; existing dedup mechanisms (`meeting_promotions`, `applied_from_proposal_uniq`, `memories_source_proposal_uniq`) stay as second guards. Visibility ships as `org | restricted` with grants; `team` waits for memberships. Connections ship schema + contract + an AES-256-GCM crypto module, no routes.
++
++### Snapshot strategy (the one hard constraint)
++
++The parity ratchet requires a `meta/0022_snapshot.json` and forbids both hand-writing one and extending the baseline. `drizzle-kit generate` works against the holed chain: probed on 2026-09-11, it emitted snapshot `9285dcfa-...` with `prevId` = 0019's id — exactly the chain hop the gate documents. Its generated SQL is unusable (it re-diffs 0020/0021 changes), so:
++
++1. Make every `schema.ts` edit first.
++2. Run `drizzle-kit generate` once; keep only `meta/0022_snapshot.json`; discard the generated SQL and journal entry.
++3. Hand-author `0022_f2_data_plane.sql` + the matching `_journal.json` entry (idx 22).
++4. Prove with `bun run check:migration-parity`.
++
++This breaks AGENTS §6.1 (`generate` is forbidden) for one bounded step, deliberately and visibly, because the ratchet demands a snapshot and no sanctioned generator exists. Recorded in the PR body. The SQL stays hand-authored.
++
++## Constraints
++
++- Host-neutral SQL: no `auth`/`storage` schemas, no RLS, app-layer authz. Must satisfy `packages/db/test/sql-firewall.test.ts`.
++- Migration style: `--> statement-breakpoint` separators, head comment explains why, journal `idx` is 0-based.
++- Contracts are hand-authored across `enums.js`, `work-items.js`, `index.d.ts`, `contracts/*.json`, kept in sync by `work-items.test.ts` / `enums.test.ts`.
++- Visibility enforcement is one shared predicate used by list and detail reads; fail closed (restricted without grant = not found).
++- No hook, lint, test, or gate bypass anywhere.
++
++## Edge cases (decisions)
++
++- Check parents: neither parent allowed (loose check), both parents = 400 at the API and a DB check constraint (`num_nonnulls(...) <= 1`) as the backstop.
++- Restricted visibility: the caller sees the item when a `visibility_grants` row exists, or when they are the assignee. Without that, an item set to restricted by its creator would vanish for everyone.
++- Proposals: `source_candidate_id IS NULL` rows are exempt from the unique index, so agent/reflection proposals (no candidate concept) keep working. Meeting ingest populates the 4-tuple from the candidate id it already holds.
++- Connections: owner is the creating user for `user` scope; workspace scope is stored but admin gating lands with the connect flow.
++- Snapshot `when` timestamp is set by hand to the day of generation.
++
++## Rollback (per migration-spec discipline)
++
++`0022` down path, in reverse order: drop FK + column `projects.playbook_ref`; drop `playbooks`; drop `visibility` columns; drop `visibility_grants`; drop `connections`; drop the proposals index + 4 columns; drop the checks constraint + index + `project_id`; restore `checks.work_item_id NOT NULL` (fails if loose or project-parented checks exist — delete them first); drop `project_teams`; drop the two enums. Pins and scripts revert in the same commit. Production has no outside users yet, so data loss on rollback is acceptable and stated here.
++
++## Technical Research
++
++### DRY / reuse
++
++- Migration + schema pattern: `packages/db/src/schema.ts` + hand-authored `NNNN_name.sql` + journal + snapshot; tests assert schema metadata via `getTableConfig` and read raw SQL with `readFileSync` (`packages/db/src/schema.test.ts:152-160,193-209`).
++- Route pattern: Hono + `clerkAuth` + tenant-scoped raw SQL; write routes go through `recordWrite` provenance (`apps/platform-api/src/routes/checks.ts`, `provenance/record-write.ts`).
++- Visibility precedent: memory lanes pin `visibility = 'org'` / `visibility = 'private' AND owner_user_id = $n` in SQL (`apps/platform-api/src/agent/memory-retrieval.ts:390-429`); item visibility follows the same shape.
++- Idempotency precedent: partial unique indexes already carry dedup (`0014_work_item_applied_from_proposal_partial.sql:11`, `0011_memory_source_proposal_uniq.sql:9`).
++- No encryption utility exists (zero hits for AES/cipher); the connections module is new.
++
++### Blast radius
++
++- `checks.work_item_id` nullability: route reads/writes (`routes/checks.ts:13,54-63,89-137,181,234`), route tests, contract `Check` (`index.d.ts:894-905`, `work-items.js:204-213`, `work-items-core.json:96-105`), web repository filter (`apps/platform-web/src/data/work-items/network-repository.ts:160-204`). Python backend and `packages/sdk` have zero checks consumers.
++- `work_items.department` stays untouched (deprecated column with live consumers in domain + write allowlist).
++- Proposals writers: `proposals/repository.ts:145` (shared helper), `agent/tools.ts:160,205`, `agent/reflection.ts:120`, raw insert `meeting/ingest.ts:188`.
++- Expected-pending pins: `scripts/migrate-database.mjs:339-343,722`, `scripts/migration-evidence.mjs:206-210`, plus their tests.
++
++### OWASP (what applies here)
++
++| Risk | Applies | Mitigation in this pack |
++|---|---|---|
++| A01 Broken access control | Yes | Visibility predicate on every ladder read; fail-closed 404; grants checked server-side. |
++| A02 Cryptographic failures | Yes | AES-256-GCM, random IV per record, key from env only (`CONNECTIONS_ENCRYPTION_KEY`), no plaintext logging. |
++| A03 Injection | Yes | Parameterized SQL only; constraint and column names are static constants. |
++| A04 Insecure design | Yes | Idempotency enforced in the DB, not the app; XOR parent rule at DB + API. |
++| A09 Logging/monitoring | Low | Reuse existing route error logging; never log encrypted payloads or keys. |
++
++### TDD scenarios (minimum set)
++
++1. Happy: create a check with `project_id` only; create one with `work_item_id` only; both 201.
++2. Error: create a check with both parents or a foreign parent → 400/404; DB constraint rejects a direct both-parents insert.
++3. Edge: restricted work item hidden from a caller without a grant (404), visible with a grant; assignee still sees it.
++4. Idempotency: replaying the same meeting candidate insert hits the partial unique index and is skipped, not duplicated.
++5. Crypto: round-trip encrypt/decrypt; tampered ciphertext and wrong key both fail closed.
++
++### Alternatives considered
++
++- Extend `SNAPSHOTLESS_MIGRATION_BASELINE` for 0022: rejected, it is exactly the gate-weakening the ratchet exists to stop.
++- Rebuild the whole snapshot chain first: rejected as separate workstream, not needed for a valid chain hop.
++- Name the junction `project_departments`: rejected in favor of `project_teams`, the vocabulary the codebase already uses.
++
++## Ambiguity policy
++
++Use the 7-dimension rubric scoring per the /dev decision gate. >= 80% confidence: proceed and document. < 80%: stop and ask.
+diff --git a/docs/work/2026-09-11-f2-data-plane/tasks.md b/docs/work/2026-09-11-f2-data-plane/tasks.md
+new file mode 100644
+index 0000000..f10a5d2
+--- /dev/null
++++ b/docs/work/2026-09-11-f2-data-plane/tasks.md
+@@ -0,0 +1,171 @@
++# F2 Data Plane — Task List (migration pack #1, re-scoped)
++
++Design: [plan.md](plan.md) · Branch: `feat/f2-data-plane` · Issue: `product-suite-5q8`
++
++Waves run sequentially; tasks in the same wave touch disjoint files. Gate commands: `bun run check:migration-parity`, `bun run --cwd packages/db test`, `bun run verify:platform-api`, `bun run test:repo-tooling`.
++
++Baseline (worktree, 2026-09-11): db tests 45/45 green; parity green. Pre-existing Windows-only flakes to ignore unless they worsen: `apps/platform-api/test/db-contract/branch-lease.test.ts` (temp-dir cleanup ENOTEMPTY) and `test/branch-protection.test.js` (2 shim timeouts).
++
++---
++
++## Wave 1 — Contracts
++
++### Task 1: Contract vocabulary for the pack
++
++File(s): `packages/contracts/src/enums.js`, `packages/contracts/contracts/enums.json`, `packages/contracts/src/work-items.js`, `packages/contracts/contracts/work-items-core.json`, `packages/contracts/src/index.d.ts`, `packages/contracts/src/enums.test.ts`, `packages/contracts/src/work-items.test.ts`
++
++What to implement: add `ITEM_VISIBILITY_VALUES = ["org", "restricted"]` and `CONNECTION_SCOPE_VALUES = ["user", "workspace"]`; mirror both in `enums.json`. In the work-items core: `Check.work_item_id` becomes nullable and `Check.project_id` (nullable string) is added; `Project.playbook_ref` (nullable string) added; `visibility` added to `WORK_ITEM_PATCH_FIELDS`; new objects `Playbook` (id, kind, name, phases, timestamps), `ProjectTeam` (id, project_id, team_id, timestamps), `Connection` (id, owner_user_id, scope, server_ref, label, created_at, updated_at — never the credential value). Update `index.d.ts` interfaces and the JSON mirrors to match exactly; the drift-guard tests assert JS/JSON/.d.ts equality.
++
++TDD steps:
++1. Write test: extend `enums.test.ts` (new value sets mirrored) and `work-items.test.ts` (new objects included in the field-set equality table; `Check.work_item_id` nullable, `Check.project_id` present; `visibility` in patch fields).
++2. Run test: `bun run test:contracts` — confirm RED on the new assertions.
++3. Implement: the JS constants, JSON mirrors, and `.d.ts` interfaces.
++4. Run test: `bun run test:contracts` — GREEN.
++5. Commit: `feat(contracts): item visibility, playbook, project-team, connection, check parent`
++
++OWNS: `packages/contracts/src/enums.js`, `packages/contracts/contracts/enums.json`, `packages/contracts/src/work-items.js`, `packages/contracts/contracts/work-items-core.json`, `packages/contracts/src/index.d.ts`, `packages/contracts/src/enums.test.ts`, `packages/contracts/src/work-items.test.ts`
++
++Expected output: `test:contracts` green; `work-items-core.json` mirrors the `.d.ts` field sets exactly.
++
++---
++
++## Wave 2 — Schema
++
++### Task 2: Schema.ts for the pack
++
++File(s): `packages/db/src/schema.ts`, `packages/db/src/schema.test.ts`
++
++What to implement: enums `itemVisibilityEnum('item_visibility', ['org','restricted'])`, `connectionScopeEnum('connection_scope', ['user','workspace'])`; tables `projectTeams` (`tenant_id`, `project_id` FK cascade, `team_id` FK cascade, unique `(project_id, team_id)`, tenant index, timestamps), `connections` (`tenant_id`, `owner_user_id`, `scope` default `user`, `server_ref`, `label`, `credentials_encrypted`, provenance + timestamps, tenant index), `visibilityGrants` (`tenant_id`, `object_type` with CHECK in `('work_item','check')`, `object_id`, `user_id`, unique `(object_type, object_id, user_id)`), `playbooks` (`tenant_id`, `kind`, `name`, `phases` jsonb default `{}`, provenance + timestamps, unique `(tenant_id, kind)`); `checks.workItemId` loses `.notNull()`, gains `projectId` FK cascade + check constraint `num_nonnulls(work_item_id, project_id) <= 1` + project index; `proposals` gains `sourceType`, `sourceId`, `sourceCandidateId`, `targetKind` (all text nullable) + partial unique index on `(tenant_id, source_type, source_id, source_candidate_id, target_kind)` where `source_candidate_id is not null`; `workItems` and `checks` gain `visibility` default `org`; `projects` gains `playbookRef` uuid FK set-null.
++
++TDD steps:
++1. Write test: extend `schema.test.ts` — new enums' `enumValues`, new tables' column sets and unique indexes via `getTableConfig`, `checks.work_item_id` nullable + `project_id` present, `proposals` new columns, `visibility` defaults.
++2. Run test: `bun run --cwd packages/db test` — RED.
++3. Implement: `schema.ts` changes only.
++4. Run test: `bun run --cwd packages/db test` — GREEN.
++5. Commit: `feat(db): schema for project teams, check parents, visibility, playbooks, connections`
++
++OWNS: `packages/db/src/schema.ts`, `packages/db/src/schema.test.ts`
++
++Expected output: db package tests green; schema metadata matches the contract vocabulary.
++
++---
++
++## Wave 3 — Migration
++
++### Task 3: Migration 0022, journal entry, snapshot, SQL assertions
++
++File(s): `packages/db/migrations/0022_f2_data_plane.sql`, `packages/db/migrations/meta/_journal.json`, `packages/db/migrations/meta/0022_snapshot.json`, `packages/db/src/schema.test.ts`
++
++What to implement: run `drizzle-kit generate` once (probe procedure in plan.md), keep only `meta/0022_snapshot.json` (verify fresh unique `id`, `prevId === e848e2ad-21c7-493f-bece-ffccfe967da7`), discard generated SQL + its journal entry. Hand-author `0022_f2_data_plane.sql` mirroring Task 2 with `--> statement-breakpoint` separators, head comment explaining why, and the exact DDL: two enums, four tables, checks alterations + `num_nonnulls` constraint, proposals four columns + partial unique index, visibility columns, `projects.playbook_ref`. Add journal entry `{ idx: 22, tag: "0022_f2_data_plane", breakpoints: true, when: <generation day> }`. Add SQL-content assertions to `schema.test.ts` (raw `readFileSync` pattern) for the constraint, the partial index, and each table.
++
++TDD steps:
++1. Write test: SQL-content assertions added; run `bun run check:migration-parity` with the `.sql` present but no journal entry — confirm RED (orphan SQL file).
++2. Implement: snapshot generation + SQL + journal entry.
++3. Run test: `bun run check:migration-parity` — GREEN; `bun run --cwd packages/db test` — GREEN.
++4. Commit: `feat(db): migration 0022 — pack #1 DDL with snapshot`
++
++OWNS: `packages/db/migrations/0022_f2_data_plane.sql`, `packages/db/migrations/meta/_journal.json`, `packages/db/migrations/meta/0022_snapshot.json`, `packages/db/src/schema.test.ts`
++
++Expected output: parity passes with the real snapshot; no change to `SNAPSHOTLESS_MIGRATION_BASELINE`.
++
++---
++
++## Wave 4 — Infra drift + API surfaces
++
++### Task 4: Align the migration gate pins and remove the forbidden generate script
++
++File(s): `packages/db/package.json`, `config/database-authority.json`, `scripts/migrate-database.mjs`, `scripts/migration-evidence.mjs`, `test/migrate-database.test.js`, `test/migration-evidence.test.js`, `test/neon-production-preflight-workflow.test.js`
++
++What to implement: delete the `generate` script from `packages/db/package.json` and the `drizzle.generateCommand` reference in `config/database-authority.json`; set `p0ProductionAllowedSuffixes` to `[["0018", "0022"]]`; update the expected-pending ladder (`migrate-database.mjs:339-343`, `:722`; `migration-evidence.mjs:206-210`) so the pending set is `0018-0022` at each applied-floor step (appliedLast 0017 → 0018,0019,0020,0021,0022 … appliedLast 0021 → 0022; appliedLast 0022 → none); keep their tests in lockstep. Add one repo-tooling test binding the config suffix policy to the journal's real tags so the two cannot drift again.
++
++TDD steps:
++1. Write test: update/extend the three test files for the new expected sets; add the binding test under `test/`.
++2. Run test: `bun run test:repo-tooling` — RED on the pins.
++3. Implement: script + config updates.
++4. Run test: `bun run test:repo-tooling` — GREEN (pre-existing shim flakes aside).
++5. Commit: `fix(db): align production pending pins to 0022; drop forbidden generate script`
++
++OWNS: `packages/db/package.json`, `config/database-authority.json`, `scripts/migrate-database.mjs`, `scripts/migration-evidence.mjs`, `test/migrate-database.test.js`, `test/migration-evidence.test.js`, `test/neon-production-preflight-workflow.test.js`
++
++Expected output: no gate weakened; every pin names 0018-0022; config and journal agree under test.
++
++### Task 5: Checks route — project parent + XOR validation
++
++File(s): `apps/platform-api/src/routes/checks.ts`, `apps/platform-api/src/routes/checks.test.ts`, `apps/platform-api/src/routes/checks-writes.test.ts`
++
++What to implement: create accepts `work_item_id` XOR `project_id` (both null allowed); both present → 400; parent must belong to a caller tenant (foreign parent → 404); list can filter by `project_id` and joins/filters on the right parent; `toCheck` surfaces `project_id`. Write path keeps `recordWrite` provenance.
++
++TDD steps:
++1. Write test: project-parented create → 201; both parents → 400; foreign project → 404; list by `project_id` returns the row (mock `sql` pattern from the write test).
++2. Run test: `bun run verify:platform-api` — RED.
++3. Implement: route changes.
++4. Run test: `bun run verify:platform-api` — GREEN.
++5. Commit: `feat(platform-api): checks accept a project parent with XOR rule`
++
++OWNS: `apps/platform-api/src/routes/checks.ts`, `apps/platform-api/src/routes/checks.test.ts`, `apps/platform-api/src/routes/checks-writes.test.ts`
++
++Expected output: checks CRUD works for both parents; the at-most-one-parent rule is enforced at API and DB.
++
++### Task 6: Proposals candidate idempotency at the meeting seam
++
++File(s): `apps/platform-api/src/meeting/ingest.ts`, `apps/platform-api/src/meeting/ingest.test.ts`
++
++What to implement: the raw proposals insert populates `source_type='meeting'`, `source_id` (meeting id available in scope), `source_candidate_id=candidate.id`, `target_kind='work_item'`; a replay of the same candidate hits `proposals_source_candidate_uniq` and is skipped exactly like the ledger guard (23505 on that constraint name), never duplicated. `meeting_promotions` stays as the second guard.
++
++TDD steps:
++1. Write test: same candidate processed twice → one proposal row, second pass reports skipped; different candidate ids → both land.
++2. Run test: `bun run verify:platform-api` — RED.
++3. Implement: insert columns + conflict handling.
++4. Run test: `bun run verify:platform-api` — GREEN.
++5. Commit: `feat(platform-api): meeting proposals idempotent per candidate`
++
++OWNS: `apps/platform-api/src/meeting/ingest.ts`, `apps/platform-api/src/meeting/ingest.test.ts`
++
++Expected output: true retries dedupe at the proposals table, not only at the ledger.
++
++### Task 7: Connections crypto module
++
++File(s): `apps/platform-api/src/connections/crypto.ts`, `apps/platform-api/src/connections/crypto.test.ts`
++
++What to implement: AES-256-GCM via Web Crypto. Key read from `CONNECTIONS_ENCRYPTION_KEY` (base64, 32 bytes; missing/invalid key throws at call time, never at import). Envelope `v1.<iv-b64url>.<ciphertext-b64url>`, fresh random IV per encryption. Decrypt fails closed on tamper, wrong key, or malformed envelope. No key or plaintext in error messages or logs.
++
++TDD steps:
++1. Write test: round-trip; tampered ciphertext rejects; wrong key rejects; missing key throws; envelope carries version prefix.
++2. Run test: `bun run verify:platform-api` — RED.
++3. Implement: `crypto.ts`.
++4. Run test: `bun run verify:platform-api` — GREEN.
++5. Commit: `feat(platform-api): AES-GCM connection credential envelope`
++
++OWNS: `apps/platform-api/src/connections/crypto.ts`, `apps/platform-api/src/connections/crypto.test.ts`
++
++Expected output: encrypt/decrypt proven; credentials never leave encrypted at rest.
++
++---
++
++## Wave 5 — Visibility enforcement
++
++### Task 8: Visibility predicate on ladder reads
++
++File(s): `apps/platform-api/src/domain/visibility.ts` (new), `apps/platform-api/src/domain/work-items.ts`, `apps/platform-api/src/routes/work-items.ts`, `apps/platform-api/src/routes/checks.ts`, `apps/platform-api/src/routes/work-items.test.ts`, `apps/platform-api/src/routes/checks.test.ts`
++
++What to implement: one shared SQL predicate `visibleToCaller(itemAlias, params)`: `visibility = 'org' OR EXISTS (visibility_grants for caller) OR assignee_id = caller`. Apply to work-item list + detail and check list + detail; restricted without grant → 404 (fail closed, no existence leak). Create/patch accepts `visibility` and validates the enum. Agent/retrieval surfaces are explicitly out of scope this pack.
++
++TDD steps:
++1. Write test: restricted item → 404 for a caller without a grant; 200 with a grant row; assignee sees it; default `org` unchanged.
++2. Run test: `bun run verify:platform-api` — RED.
++3. Implement: predicate module + route wiring.
++4. Run test: `bun run verify:platform-api` — GREEN.
++5. Commit: `feat(platform-api): item visibility enforced on ladder reads`
++
++OWNS: `apps/platform-api/src/domain/visibility.ts`, `apps/platform-api/src/domain/work-items.ts`, `apps/platform-api/src/routes/work-items.ts`, `apps/platform-api/src/routes/checks.ts`, `apps/platform-api/src/routes/work-items.test.ts`, `apps/platform-api/src/routes/checks.test.ts`
++
++Expected output: hidden means hidden; grants and assignee are the only doors.
++
++---
++
++## Exit gate
++
++- [ ] `bun run check:migration-parity` green (real 0022 snapshot, baseline untouched)
++- [ ] `bun run --cwd packages/db test`, `bun run verify:platform-api`, `bun run test:repo-tooling` green (pre-existing Windows flakes excluded, named in plan.md)
++- [ ] Design + acceptance recorded on `product-suite-5q8`
++- [ ] PR body records the one-time `drizzle-kit generate` snapshot step and the production apply step for 0018-0022
+-- 
+2.51.0.windows.1
+

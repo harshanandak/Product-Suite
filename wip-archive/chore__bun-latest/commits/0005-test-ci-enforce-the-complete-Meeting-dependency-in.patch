@@ -1,0 +1,28 @@
+From 382c0f3ec290d59e2723eb63bf76b73438272a7e Mon Sep 17 00:00:00 2001
+From: Harsha Nanda <212836255+harshanandak@users.noreply.github.com>
+Date: Sun, 20 Sep 2026 01:08:44 +0530
+Subject: [PATCH] test(ci): enforce the complete Meeting dependency install
+ command
+
+---
+ test/lock-meeting-api-ci.test.js | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/test/lock-meeting-api-ci.test.js b/test/lock-meeting-api-ci.test.js
+index 1e84f1b..1a8056c 100644
+--- a/test/lock-meeting-api-ci.test.js
++++ b/test/lock-meeting-api-ci.test.js
+@@ -17,6 +17,10 @@ test("meeting-api CI installs a complete hash-locked wheel set", () => {
+   );
+ 
+   expect(install).toBeDefined();
++  const installCommand = install.run.replace(/\s+/g, " ").trim();
++  expect(installCommand).toBe(
++    `python -m pip install --only-binary=:all: --require-hashes -r ${lockPath}`,
++  );
+   expect(install.run).toMatch(/^python -m pip install\b/);
+   expect(install.run).toContain("--only-binary=:all:");
+   expect(install.run).toContain("--require-hashes");
+-- 
+2.51.0.windows.1
+

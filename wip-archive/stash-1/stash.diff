@@ -1,0 +1,1444 @@
+diff --git a/apps/platform-api/src/routes/dependencies.ts b/apps/platform-api/src/routes/dependencies.ts
+index 894fb49..5fbeab3 100644
+--- a/apps/platform-api/src/routes/dependencies.ts
++++ b/apps/platform-api/src/routes/dependencies.ts
+@@ -129,10 +129,10 @@ dependenciesRoutes.post('/', async (c) => {
+ 
+     // Cycle guard + insert as a SINGLE atomic statement. Adding source → target
+     // closes a cycle iff `target` already reaches `source` via existing edges, so
+-    // we insert only WHERE NOT EXISTS such a path. Neon's HTTP driver has no
+-    // interactive transactions, so folding the check into the INSERT is how we keep
+-    // check-and-insert atomic — a separate check-then-insert could let two
+-    // concurrent requests each pass the check and then both write a cycle.
++    // we insert only WHERE NOT EXISTS such a path. Folding the check into the INSERT
++    // keeps check-and-insert atomic without a transaction — a separate
++    // check-then-insert could let two concurrent requests each pass the check and
++    // then both write a cycle.
+     let rows: DependencyRow[]
+     try {
+       rows = (await sql`
+diff --git a/apps/platform-web/src/verify-workboard.tsx b/apps/platform-web/src/verify-workboard.tsx
+new file mode 100644
+index 0000000..8f4c553
+--- /dev/null
++++ b/apps/platform-web/src/verify-workboard.tsx
+@@ -0,0 +1,26 @@
++import { createRoot } from "react-dom/client";
++import { MotionConfig } from "motion/react";
++
++import { ThemeProvider } from "@product-suite/ui";
++
++import "./styles.css";
++import { WorkboardScreen } from "./boards/workboard/WorkboardScreen";
++import { createMockWorkItemRepository } from "@/data/work-items";
++
++// Throwaway verify harness (NOT shipped) — renders the real WorkboardScreen over
++// the mock repository so the table cells can be screenshotted without the Clerk
++// auth gate. Mirrors how the screen sits inside the shell <main>.
++const rootElement = document.getElementById("root");
++if (!rootElement) {
++  throw new Error("Root element #root not found");
++}
++
++createRoot(rootElement).render(
++  <MotionConfig reducedMotion="user">
++    <ThemeProvider defaultTheme="light">
++      <div className="h-screen overflow-y-auto bg-background p-6 text-foreground">
++        <WorkboardScreen repository={createMockWorkItemRepository()} />
++      </div>
++    </ThemeProvider>
++  </MotionConfig>,
++);
+diff --git a/apps/platform-web/verify-workboard.html b/apps/platform-web/verify-workboard.html
+new file mode 100644
+index 0000000..4809709
+--- /dev/null
++++ b/apps/platform-web/verify-workboard.html
+@@ -0,0 +1,12 @@
++<!doctype html>
++<html lang="en" class="h-full">
++  <head>
++    <meta charset="UTF-8" />
++    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
++    <title>Verify Workboard</title>
++  </head>
++  <body class="h-full">
++    <div id="root" class="h-full"></div>
++    <script type="module" src="/src/verify-workboard.tsx"></script>
++  </body>
++</html>
+diff --git a/column-ux-roadmap.md b/column-ux-roadmap.md
+new file mode 100644
+index 0000000..7c78284
+--- /dev/null
++++ b/column-ux-roadmap.md
+@@ -0,0 +1,320 @@
++# Workboard Table Column UX — Prioritized Implementation Roadmap
++
++Synthesis of five per-dimension audits (column sizing, data display/readability, inline
++editing, filtering/search/grouping, selection/bulk processing) into one sequenced plan.
++Verified against source: `packages/ui/src/components/table.tsx` (the `<Table>` wrapper
++hardcodes `overflow-x-auto` and forwards className to the inner `w-full` `<table>`),
++`WorkboardTable.tsx` (the `columnStyle`/`cellStyle` flex model lines 530-549, the
++`max-h-[75vh] overflow-auto` scroll container line 747, the `flex w-full` header / `width:100%`
++body rows), and the 8 `ColumnId`s in `filter-state.ts`.
++
++## Sequencing logic
++
++The headline ask — **resizable columns (drag to extend/minimise)** — leads at rank 1 even
++though it is L-effort, because it is the explicit centerpiece AND it forces the structural
++layout change (drop the `<Table>` wrapper, render `<table>` directly in the scroll container,
++move to CSS-variable widths) that several later items depend on. Rank 2 is the genuine
++correctness P0 (bulk actions mutating filtered-out rows — a silent data-mutation bug). Rank 3
++is a cheap P0 that restores the basic "this cell is editable" signal. After the P0s, items are
++ordered P1→P3 and within a tier by impact/effort, with explicit dependencies called out.
++
++Cross-audit conflict resolved: **column widths persist table-locally** (per-column
++`localStorage`, NOT in `WorkboardFilterState`, which is documented ephemeral view state),
++while **filter/search/group/column-visibility state persists to the URL** (TanStack Router).
++These are two separate persistence layers by design; do not merge them.
++
++---
++
++## Ranked roadmap
++
++### Rank 1 — Resizable columns (CENTERPIECE) · P0 · Column sizing · L · high
++The headline feature. Today every width is hardcoded in `COLUMN_SPECS` and applied through the
++flex `columnStyle`/`cellStyle`; there is no width state, no handle, no persistence. Implement a
++table-local `useColumnWidths` hook driving per-column CSS variables, header-border drag handles
++(pointer + keyboard + double-click autofit), min/max clamps, per-column `localStorage`, and a
++reset. Forces the layout move below. **Full design in the spec section.**
++Files: `apps/platform-web/src/boards/workboard/table/WorkboardTable.tsx`,
++`apps/platform-web/src/boards/workboard/toolbar/WorkboardToolbar.tsx`,
++`apps/platform-web/src/boards/workboard/WorkboardScreen.tsx`,
++`packages/ui/src/components/table.tsx` (reference only — do not edit the shared primitive).
++
++### Rank 2 — Bulk actions silently mutate filtered-out rows · P0 · Selection · M · high
++Selection persists across filter changes, but the toolbar shows raw `selection.size` and
++`handleBulkApply` writes to `[...filterState.selection]`. Select 5 → filter hides 3 → toolbar
++says "5 selected", header reads all-selected, "Set phase" mutates 3 invisible rows. Make the
++**visible** set the single source of truth for both count and bulk target: prune `selection`
++to the rendered row ids when `rows`/`items` change, OR surface "5 selected (3 hidden)" with a
++"Select only visible" affordance and scope writes to visible ids. Decide which (product call).
++Files: `WorkboardScreen.tsx`, `WorkboardTable.tsx`, `toolbar/WorkboardToolbar.tsx`.
++
++### Rank 3 — Editable cells look identical to read-only (ghost chevron killed) · P0 · Inline editing · S · high
++`INLINE_SELECT_CLASS = "[&>svg]:hidden"` (`display:none`) overrides `select.tsx`'s opacity-based
++ghost chevron, so it NEVER appears — even on hover/focus. Editable Type/Phase/Priority/Owner
++cells are byte-identical to read-only badges; zero affordance on touch. Reveal the chevron on
++row hover/focus (`group-hover:[&>svg]:inline group-focus-within:[&>svg]:inline`) instead of
++killing it. Cheap, high-impact discoverability fix.
++Files: `WorkboardTable.tsx`, `packages/ui/src/components/select.tsx`.
++
++### Rank 4 — Surface save/bulk failures with toasts + restore focus · P1 · Inline editing + Selection · M · high
++Merges three findings. `commitPatch` does `.catch(() => undefined)` and `handleBulkApply` uses
++empty `catch {}` then clears selection unconditionally — failed inline edits silently revert and
++failed bulk rows are lost. The `sonner` primitive exists but no `<Toaster/>` is mounted.
++**Shared prerequisite: mount `<Toaster/>` once in `WorkboardScreen`.** Then: toast on inline
++rejection + `aria-live`; in bulk, collect failed ids, keep them selected, toast "Updated 47 of
++50 — 3 failed. Retry?", only clear succeeded ids; and on selection→0, move focus to the
++select-all header checkbox (today focus drops to `<body>` when the bulk fieldset unmounts).
++Files: `WorkboardScreen.tsx`, `WorkboardTable.tsx`, `toolbar/WorkboardToolbar.tsx`,
++`apps/platform-web/src/data/work-items/use-work-items.ts`, `packages/ui/src/components/sonner.tsx`.
++
++### Rank 5 — Tags inline cell clips its own input/chips · P1 · Inline editing + Data display · M · medium
++Same defect flagged by two audits. `TagInput` forced to `flex-nowrap overflow-hidden` in a
++~10rem cell squeezes the `flex-1` input toward zero and clips extra chips with no `+N`. Render a
++compact `TagList`-style summary with a `+N` counter at rest, expanding to the full `TagInput`
++on focus/click (mirrors the read-only `TagList max={3}` path that is already better).
++Files: `WorkboardTable.tsx`, `packages/ui/src/components/tag-input.tsx`.
++
++### Rank 6 — Badge color system: Priority/Phase ramps + family differentiation · P1 · Data display · M · high
++Merges three findings. In dark mode `bg-accent`/`bg-secondary`/`bg-muted` are all neutral
++(chroma 0, ~0.09 L apart) so High/Med/Low and Plan/Execute/Review collapse to near-identical
++grays; `bg-muted` is simultaneously Type, Priority-low, Phase-plan, Health-on_track and the
++Archived chip, killing cross-column scannability; and the loudest badge is `done` (least
++actionable). Give Priority and Phase dedicated chroma-bearing token ramps that survive both
++themes (or interim: a colored leading dot on every level); render Type as an outlined category
++tag so "category" reads distinct from filled "status" badges; invert weight so `execute` is
++emphasized and `done` is quiet.
++Files: `packages/ui/src/components/priority-badge.tsx`, `phase-pill.tsx`,
++`work-item-type-badge.tsx`, `health-badge.tsx`, `packages/ui/src/styles/tokens.css`.
++
++### Rank 7 — Shift-click range selection + larger hit target · P1 · Selection · M · high
++Selecting N rows = N clicks; the only target is a 16px checkbox and the rest of the row is inert.
++Track the last-toggled flattened index in a ref; on shift-click select the inclusive range over
++`flatRows` order (skipping group headers); update the anchor on plain clicks. Enlarge the click
++area to the whole leading selection cell.
++Files: `WorkboardTable.tsx`.
++
++### Rank 8 — Persist filter/search/group/column state + saved views · P1 · Filtering · L · high
++The entire `WorkboardFilterState` lives in plain `useState`; a reload or a hop to the Graph
++sub-board route drops all facets, search, grouping and column visibility, and there is no way to
++name/share a view. Serialize to URL search params via TanStack Router (sets as comma lists,
++default-equal facets omitted) so views are reload-safe, back-button-able and shareable; layer
++named quick-view chips ("My open", "This week") on that substrate. Minimum first step:
++`localStorage` keyed by board. (Kept separate from rank-1 width persistence by design.)
++Files: `WorkboardScreen.tsx`, `filter-state.ts`.
++
++### Rank 9 — Searchable Owner/Department facets · P1 · Filtering · M · high
++`FacetFilterMenu` renders every option as a scroll-only checkbox; Owner/Department grow with the
++workspace with no type-to-find. Add an optional `searchable` prop (auto when `options.length > ~8`)
++that renders a `cmdk` Command input + filtered list (cmdk already ships in `CommandPalette.tsx`).
++Files: `toolbar/FacetFilterMenu.tsx`, `toolbar/WorkboardToolbar.tsx`.
++
++### Rank 10 — Expose selection as a grid to assistive tech · P1/P2 · Selection · S · medium
++Container is `role="table"` while rows carry `aria-selected`/`data-state="selected"` — a plain
++table is not a selection container, so selection isn't announced. Promote to `role="grid"` +
++`aria-multiselectable="true"`, switch cell `role="cell"`→`"gridcell"` (also resolves the
++JSDoc/code drift the inline-editing audit flagged), and mount one persistent `sr-only`
++`aria-live` region for the selected count (today's count lives inside the conditionally-mounted
++bulk fieldset and announces unreliably). **Couple with rank 15** — grid role sets the keyboard
++expectation roving nav fulfills.
++Files: `WorkboardTable.tsx`, `toolbar/WorkboardToolbar.tsx`.
++
++### Rank 11 — Wire (or delete) the "/" search shortcut · P1 · Filtering · S · medium · QUICK WIN
++A `<kbd>/</kbd>` badge promises focus-search but no handler exists (`ShellLayout` only binds
++Cmd/Ctrl+K and 1-5 and early-returns inside inputs). Add a window keydown listener that focuses
++the search input on `/` when focus is not in a field — or delete the badge.
++Files: `toolbar/WorkboardToolbar.tsx`, `apps/platform-web/src/shell/ShellLayout.tsx`.
++
++### Rank 12 — Unify Clear-filters scope + count search · P2 · Filtering · S · medium · QUICK WIN
++Two "Clear filters" controls behave differently (toolbar keeps `search`, empty-state clears it),
++and `activeFilterCount` ignores search so a search-only empty board shows no Clear button. Make
++the toolbar Clear reset search too, and include trimmed search in `activeFilterCount`.
++Files: `toolbar/WorkboardToolbar.tsx`, `WorkboardScreen.tsx`.
++
++### Rank 13 — Row-state differentiation (selected vs hover vs group vs archived) · P2 · Data display + Selection · M · medium
++Selected (`bg-muted`), hover (`bg-muted/50`) and group header (`bg-muted/40`) are the same hue
++differing only in opacity — and hovering a selected row lightens it. Archived rows use blanket
++`opacity-60` over already-muted text, dimming status badges too. Give selection a distinct cue
++(leading accent bar + `bg-primary/10`, `data-[state=selected]:hover:bg-primary/15` so selected
++wins over hover); strengthen the swimlane band (full-opacity `bg-muted` + `border-y`); replace
++archived opacity with a muted token + a non-contrast cue (left rail / strikethrough title)
++keeping badges at full opacity.
++Files: `packages/ui/src/components/table.tsx`, `WorkboardTable.tsx`.
++
++### Rank 14 — Sticky + collapsible swimlane headers + per-swimlane select-all · P2 · Data display + Selection + Grouping · L · medium
++**Depends on rank 1** (the swimlane row must already carry `var(--table-width)`). Group rows are
++ordinary virtualized rows: not sticky, not collapsible, no checkbox, label starts at x=0. Make
++the active group header `position:sticky; top:<header-height>` (react-virtual sticky-active
++pattern), add a collapse toggle that drops the bucket from `flatRows`, add a tri-state checkbox
++that selects exactly that bucket, surface group counts, and indent the label to the Name column.
++Files: `WorkboardTable.tsx`, `toolbar/WorkboardToolbar.tsx`.
++
++### Rank 15 — Grid keyboard navigation (roving tabindex) · P2 · Inline editing + Selection · L · medium
++Merges two findings. ~9 tab stops per editable row, no roving tabindex, no Space-to-toggle,
++no Cmd/Ctrl+A, no Escape-to-clear. Add roving-tabindex cell nav: one Tab stop per cell, Arrow
++keys between cells, Enter/Space to enter the inline control, Escape to return to the cell /
++clear selection, Shift+Arrow to extend a range, Cmd/Ctrl+A to select visible. Minimum viable:
++defer each inline control's tabindex until its cell is focused, and wire Escape to clear.
++**Couple with rank 10.**
++Files: `WorkboardTable.tsx`, `toolbar/WorkboardToolbar.tsx`.
++
++### Rank 16 — Expand the bulk-action cluster · P2 · Selection · M · medium
++The cluster only offers Set phase / Set priority, yet the two most common batch ops — reassign
++Owner and Archive/Unarchive — are missing. Route bulk Owner (AssigneePicker menu),
++Archive/Unarchive and optionally Type through the existing `onBulkApply(patch)` seam (already
++accepts an arbitrary `WorkItemPatch`; no new plumbing).
++Files: `toolbar/WorkboardToolbar.tsx`, `WorkboardScreen.tsx`.
++
++### Rank 17 — Touch / no-hover affordances · P2 · Inline editing · S · medium
++Copy-title, row Actions and tag-remove are all `opacity-0 group-hover:opacity-100`; on coarse
++pointers there is no hover and `:focus-visible` rarely fires from touch, so they are unusable.
++Gate the hover-reveal behind `@media (hover:hover)` and keep controls visible at reduced opacity
++on coarse pointers. Apply uniformly.
++Files: `WorkboardTable.tsx`, `packages/ui/src/components/tag-input.tsx`.
++
++### Rank 18 — Broaden search scope + scoped placeholder + debounce · P2 · Filtering · M · medium
++`searchMatches` tests only title + tags, so owner/department/type queries return an unexplained
++empty board. Broaden it to owner name, department and type label (resolve owner id via the
++owners list); set a scoped placeholder; feed the term through `useDeferredValue`; and fix the
++WebKit `::-webkit-search-cancel-button` overlapping the badge.
++Files: `filter-state.ts`, `toolbar/WorkboardToolbar.tsx`, `WorkboardScreen.tsx`.
++
++### Rank 19 — Filter legibility + toolbar declutter · P2 · Filtering · M · medium
++Facet triggers show a count but not which values are active; no removable chips; no per-facet
++Select-all/Clear or option counts; the single flex-wrap row of ~10 controls reflows. Render a
++removable filter-chip row beneath the toolbar, add Select-all/Clear + per-option counts inside
++each facet, and consolidate the 5 facet buttons + the decorative `FilterIcon` into one "Filter"
++popover showing a total active count.
++Files: `toolbar/WorkboardToolbar.tsx`, `toolbar/FacetFilterMenu.tsx`, `WorkboardScreen.tsx`.
++
++### Rank 20 — Readability & feedback polish bundle · P3 · Mixed · S · low
++Low-effort, low-risk cleanups: Due left-align (or move to last data column) to kill the interior
++whitespace river; drop the redundant Source tooltip (chip already shows the label); read-only
++Owner `block truncate` + avatar parity with the editable picker; in-flight pending cell
++treatment during optimistic save; duplicate/blank tag-add feedback; `aria-invalid` on rejected
++inline selects; unify the ghost editable-cell hover token; relabel Group "none" → "No grouping".
++Files: `WorkboardTable.tsx`, `provenance-chip.tsx`, `tag-input.tsx`, `select.tsx`,
++`toolbar/WorkboardToolbar.tsx`, `filter-state.ts`, `assignee-picker.tsx`, `use-work-items.ts`.
++
++---
++
++## Resizable columns — concrete spec
++
++**Approach.** Resize cannot be bolted on. Two blockers: (a) the shared `<Table>` primitive wraps
++`<table>` in a hardcoded `relative w-full overflow-x-auto` div and forwards className to the
++inner `w-full` table, so under row virtualization (wrapper height = `getTotalSize()`, thousands
++of px) the horizontal scrollbar is parked off-screen and unreachable; (b) the `flex w-full` /
++row `width:100%` model can express neither fixed dragged widths nor horizontal overflow. Fix
++both **in `WorkboardTable` only** (the sole consumer of the primitive): stop using `<Table>` and
++render `<table className="w-max …" style={{minWidth:"100%"}}>` directly inside the existing
++`scrollRef` (`max-h-[75vh] overflow-auto`) so ONE fixed-height container scrolls both axes and
++the sticky header stays pinned. Convert the 8 data `ColumnSpec`s from rem to px and drive each
++width from a CSS custom property; mutate the variable imperatively during drag and commit to
++React state + `localStorage` only on pointer-up. Mirror the already-installed
++`@tanstack/react-table` CSS-variable column-sizing pattern without adopting the headless table.
++Selection (2.5rem) and Actions (3rem) columns stay fixed with no handle.
++
++**Components to touch.** `WorkboardTable.tsx` (layout swap, `columnStyle` rewrite, handles,
++autofit refs); new colocated hook `table/useColumnWidths.ts`; `WorkboardToolbar.tsx` (global
++"Reset column widths" item in the Columns dropdown); `WorkboardScreen.tsx` (thread one
++`onResetColumnWidths` prop Screen→Toolbar; do NOT lift the width map); `table.tsx` and
++`filter-state.ts` as read-only references (no edits). Extend `WorkboardTable.test.tsx`.
++
++**Per-column width state.** Table-local `useColumnWidths(columns)` returns
++`{ widths: Record<ColumnId, number>, tableWidth, onPointerResizeStart, onKeyResize, autofit,
++reset }`. `widths` are px seeded from each spec's new px default; each `ColumnSpec` gains
++`minWidthPx` (default 64) and `maxWidthPx` (default 720). `tableWidth = SELECT + Σ(visible data
++widths) + (showActions ? ACTIONS : 0)`. Width is NOT added to `WorkboardFilterState` (documented
++ephemeral view state). Widths and `--table-width` are published as CSS variables on the scroll
++container; data cells become `flex:0 0 var(--col-<id>)`; Name/Tags drop `flex-grow`.
++
++**Persistence.** `localStorage`, keyed per column: `workboard.table.colw.v1.<columnId>`. Read on
++mount under `typeof window !== "undefined"` + try/catch; ignore `NaN` and unknown ids so adding/
++removing a `ColumnId` can never corrupt stored state. Hidden columns keep their stored width
++(orthogonal to visibility). Written only on pointer-up / keyboard-commit / autofit. `reset()`
++clears the per-column keys and restores defaults. Separate from the rank-8 URL filter layer.
++
++**Drag-handle UX.** Each resizable `<TableHead>` is `position:relative` with a focusable handle
++as its last child: `<span role="separator" aria-orientation="vertical" aria-label="Resize {col}
++column" aria-valuemin/max/now tabIndex={0}>`, a 6-8px hit area straddling the right border via
++`translate-x-1/2`, transparent → `hover:bg-border` → `data-[dragging]:bg-ring` /
++`focus-visible:bg-ring`, `cursor-col-resize`, `touch-none select-none`. PointerDown: setPointer
++Capture, record startX/startWidth, set `document.body` cursor/userSelect. PointerMove
++(rAF-throttled): `clamp(startWidth + dx, min, max)` → `container.style.setProperty('--col-<id>',
++…)` + recompute `--table-width`; NO setState. PointerUp: read final var, commit to state +
++`localStorage`, clear body styles. Keyboard: Arrow ±16 (Shift ±64), Home=min, End=max,
++Enter/Space/double-click = **autofit** (max `scrollWidth` over a ref-callback `Map` of mounted
++cell nodes + padding, clamped — honest best-effort fit-to-visible under virtualization). Global
++reset in the Columns dropdown.
++
++**Edge cases.**
++- *Virtualizer:* width is a CSS variable, never virtualizer input; no `measure()` on resize (row
++  height unchanged); rAF-batched var writes + state-on-pointerup-only mean mounted cells never
++  re-render mid-drag (driving width from state would re-render every virtual cell per mousemove).
++- *Sticky header:* header now lives in the SAME single scroll container as the body, so it
++  scrolls horizontally in lock-step and stays pinned vertically (`sticky top-0 z-10`); the header
++  row carries `var(--table-width)` so its bottom hairline spans the scrolled width.
++- *Grow columns:* Name/Tags lose `flex-grow` (grow makes dragging meaningless — freed space just
++  reflows); every data cell becomes `flex:0 0 var(--col-<id>)`.
++- *Min widths / overflow:* clamp each resize to `[minWidthPx, maxWidthPx]`; add
++  `overflow-hidden text-ellipsis` to ALL data cells so a shrunk column truncates inside its box
++  instead of spilling into its neighbor.
++- *Horizontal-scrollbar trap:* must NOT reuse the shared `<Table>` wrapper (its `overflow-x-auto`
++  under virtualization makes the x-scrollbar unreachable).
++- *Fill-when-narrow:* `minWidth:100%` on the `<table>` so it fills the viewport when summed widths
++  are smaller and scrolls when they exceed it (no ragged right gap); the swimlane group row also
++  takes `var(--table-width)` so its `bg-muted/40` spans the full scrolled width.
++
++**Build steps (ordered).**
++1. Add px defaults + `minWidthPx`/`maxWidthPx` to the 8 `ColumnSpec`s (rem→px so all sizing is
++   one unit).
++2. Build `useColumnWidths` (state seeded from defaults; per-column `localStorage` read/write with
++   `typeof window` + try/catch + NaN/unknown-id guards; `clamp`, `autofit`, `reset`).
++3. Replace the `<Table>` wrapper with a direct `<table className="w-max" minWidth:100%>` inside
++   `scrollRef`, keeping TableHeader/Body/Row/Head/Cell; publish `--table-width` and `--col-*` on
++   the scroll container.
++4. Rewrite `columnStyle` data path to `flex:0 0 var(--col-<id>)`, drop grow; set header row, body
++   `offsetStyle`, and swimlane row to `width:var(--table-width)`; add `overflow-hidden
++   text-ellipsis` to data cells.
++5. Add the `role="separator"` handle to each resizable head with pointer + keyboard + dblclick
++   handlers wired to the hook; set body cursor/userSelect during an active drag.
++6. Add the autofit ref-callback `Map` of mounted cell content nodes; implement fit-to-visible.
++7. Add "Reset column widths" (`DropdownMenuSeparator` + item) to the Columns dropdown, threaded
++   via one `onResetColumnWidths` prop Screen→Toolbar; keep the width map in the table hook.
++8. Extend `WorkboardTable.test.tsx`: handle renders `role="separator"` + `aria-valuenow`;
++   ArrowRight increases width and persists to the `localStorage` key; `reset()` restores default;
++   min clamp holds (assert committed state/vars — jsdom has no layout). Keep existing
++   colcount/header-order tests green (handles are not `columnheader`s).
++
++---
++
++## Quick wins (S-effort, visible, independent of the resize refactor)
++- **Reveal the ghost chevron** on row hover/focus (rank 3) — restores the editable-cell signal.
++- **Wire or delete the "/" search hint** (rank 11) — stop promising behavior that doesn't exist.
++- **Unify Clear-filters + count search** in `activeFilterCount` (rank 12).
++- **`overflow-hidden text-ellipsis`** on fixed data cells — stops Owner/Type names spilling into
++  the next column today (also a prerequisite for shrinking under resize).
++- **Drop the redundant Source tooltip**; **left-align Due** (rank 20).
++- **Relabel Group "none" → "No grouping"** (rank 20).
++- **Persistent `sr-only` live region** for the selected count (part of rank 10).
++
++## Risks
++- **Test regressions:** existing colcount / header-order / explicit-ARIA tests in
++  `WorkboardTable.test.tsx` will break from the layout swap and the `role="grid"`/`gridcell`
++  change — resize handles must NOT be counted as `columnheader`s; update assertions deliberately.
++- **Virtualizer jank:** if column width ever flows through React state instead of the CSS
++  variable, every mounted virtual cell re-renders per mousemove. Keep drag writes imperative;
++  setState only on pointer-up.
++- **Selection-semantics change:** the rank-2 fix alters the current cross-filter persistence
++  behavior — explicitly choose prune-to-visible vs. surface "N hidden". This is a product call,
++  not just a code fix.
++- **`localStorage` column-set drift:** ignore `NaN`/unknown ids on read so adding/removing a
++  `ColumnId` in `COLUMN_IDS` can never corrupt stored widths.
++- **Forking from the shared primitive:** rendering `<table>` directly (rather than editing
++  `table.tsx`) is a deliberate blast-radius mitigation, but WorkboardTable then diverges from the
++  `<Table>` component — track drift if the primitive evolves.
++- **Coupling:** rank 10 (grid role) and rank 15 (roving keyboard nav) must ship together — a grid
++  role implies arrow-key navigation; one without the other breaks the AT contract. Rank 14
++  depends on rank 1's `var(--table-width)` swimlane row.
++- **Shared `<Toaster/>` prerequisite:** rank 4's inline-rollback and bulk-failure toasts both
++  no-op until a single `<Toaster/>` is mounted in `WorkboardScreen`.
++- **URL persistence interactions:** rank 8 serialization must omit default-equal facets and
++  coexist with selection persistence and the separate Graph route.
+diff --git a/docs/design/2026-07-10-work-ontology-and-phasing-design.md b/docs/design/2026-07-10-work-ontology-and-phasing-design.md
+new file mode 100644
+index 0000000..8d1e95e
+--- /dev/null
++++ b/docs/design/2026-07-10-work-ontology-and-phasing-design.md
+@@ -0,0 +1,435 @@
++# Work Ontology & Release Phasing — Design
++
++**Date:** 2026-07-10
++**Status:** PROPOSED — awaiting founder review.
++**Supersedes:** the "modes at the Project level" clause of
++[2026-07-10-vision-and-architecture.md](../plans/2026-07-10-vision-and-architecture.md) §6. All other
++clauses of that document stand.
++
++**Evidence base** (all URL-cited, all with explicit "could not verify" sections):
++- [Open-source Linear alternatives — license audit](#appendix-a-license-audit) (below)
++- [`docs/research/2026-07-10-nesting-depth-evidence.md`](../research/2026-07-10-nesting-depth-evidence.md)
++- [`docs/research/2026-07-10-linear-huly-plane-teardown.md`](../research/2026-07-10-linear-huly-plane-teardown.md)
++- [`docs/research/2026-07-10-meeting-web-capture-and-stt.md`](../research/2026-07-10-meeting-web-capture-and-stt.md)
++
++---
++
++## 1. The decision that started this
++
++**Do we build on top of an open-source Linear alternative?** No. Copy the ontology, not the code.
++
++Two independent reasons, either sufficient:
++
++1. **Licensing.** Every actively-maintained candidate is copyleft. Plane, Vikunja, Kan and Leantime
++   are AGPL-3.0 — the network clause forces source disclosure for anything served over HTTP. Huly is
++   EPL-2.0 (file-level). OpenProject is GPL-3.0 *and* demands a CLA. Operately ships a non-standard
++   "Other" license. Focalboard is AGPL-or-commercial and unmaintained; Tegon is AGPL and archived;
++   Taiga is MPL but dead since Dec 2023. The only fully permissive candidate, Kaneo (MIT), is a plain
++   kanban board weaker than what we already have.
++2. **Stack.** Plane is Django, OpenProject is Rails, Huly is a custom Rust transactor, Focalboard is
++   Go. We are Hono-on-Workers + Neon + Clerk + a React SPA. Forking means abandoning our stack, our
++   design system, and the shipped Workboard to maintain someone else's monolith. Embedding means two
++   auth systems and split-brain data.
++
++Concepts are not copyrightable. Code is. We take the object model and the architectural reasoning,
++and we read docs and engineering write-ups — never source.
++
++---
++
++## 2. The ontology
++
++### 2.1 What was wrong
++
++`work_items` carried **two competing grouping axes**: `department TEXT NOT NULL` and
++`project_id UUID NULL`. Every item was filed by department but only *maybe* by project. Neither axis
++was authoritative, so "where does this go?" had no answer. That — not the absence of a hierarchy —
++is the source of the confusion.
++
++### 2.2 The shape
++
++Linear's docs settle who owns what. Workflow states are configured **per team**, and two teams may
++have different ones. Cycles belong to teams and toggle on/off per team. Triage is a team inbox. Every
++issue belongs to exactly one team; **project is optional** on an issue. A project may span multiple
++teams, carries its own status/health/milestones, and owns no workflow. Initiatives group *projects*,
++not issues.
++
++```
++Tenant (= Clerk Org = Workspace — one level, unchanged)
++  └── Team ............ MANDATORY owner. Carries the mode. Owns workflow, cycles, triage, key.
++        └── Work item .... the atom. status, assignee, priority, type.
++              ├── Sub-item ...... a FULL work item with a parent_id.
++              └── Checklist item  frozen: title, status, due_date.
++
++  └── Project ......... OPTIONAL, cross-team OUTCOME container.
++                        status, lead, target date, milestones. Owns NO workflow.
++        └── (Initiative — deferred — groups projects, not items.)
++```
++
++### 2.3 Naming, and why not "connected tasks"
++
++We already ship `work_item_dependencies` with `blocks` / `depends_on` / `relates_to`. Those *are*
++connections: a DAG, many-to-many, no ownership. A parent/child edge is a different animal: a tree,
++exactly one parent, cascading delete, progress rollup. Naming the tree "connected" hands one word to
++both relationships and destroys the distinction users most need — *this blocks that* versus *this is
++part of that*.
++
++Vikunja is the cautionary case: it models parent/child as just another relation kind, and so "there
++is no single-parent constraint to violate; the DB cannot stop a cycle."
++
++| Layer | Name | Definition |
++|---|---|---|
++| Container | **Project** | Cross-team outcome. Owns milestones, not workflow. |
++| Partition | **Team** | Mandatory owner. Carries the mode. |
++| Unit | **Item** | The atom: status, assignee, priority, type. |
++| Child | **Sub-item** | A full Item that has a parent. Rare; see §2.6. |
++| Checklist | **Step** | A row in an Item's *Checklist*. Frozen at title, status, due date. |
++
++**Rejected: `Task` as the top-level word.** Renaming `work item` → *Task* (with *Items* beneath it)
++was considered and rejected twice over. First, an "Item" nested inside a "Task" sounds *smaller than
++its parent* — the same inversion bug, relocated. Second, and decisively: **the schema's `tasks` table
++IS the checklist.** A UI where "Task" means `work_items` while `tasks` means checklist rows is a
++permanent trap, and a specifically dangerous one here — `work_items.source` has an `agent` value, so
++an agent instructed to "create a task" writes the wrong table.
++
++**Item** is "work item" minus "work": the UI label stays adjacent to the schema name. It is also
++monday.com's atom at scale. Checklist rows are **Steps**, under a section headed **Checklist** — which
++dissolves the "item appears twice" collision.
++
++**Labels only. No rename in schema or contracts.** `work_item` stays in the schema, `WorkItem` stays
++in `packages/contracts`. Renaming the contract type is a **major semver break and Forge depends on
++it**. Label map, to be carried into the canonical doc:
++
++| UI label | Backing |
++|---|---|
++| Item | `work_items` |
++| Sub-item | `work_items` with `parent_id` |
++| Step | `tasks` |
++| Checklist | the `tasks` collection under one Item |
++
++### 2.4 Decisions
++
++| # | Decision | Rationale |
++|---|---|---|
++| O1 | `teams` table; `work_items.team_id NOT NULL` | `department` was Linear's Team, badly typed. Team is the mandatory owner. Departments map 1:1 (founder-confirmed). |
++| O2 | **Modes live on Team**, not Project | §6 amendment. See §3. |
++| O3 | `project_id` stays NULLABLE | With modes on Team, unprojected items are governed by their team. **No fake Inbox projects** — they pollute the project list and corrupt import semantics, since most Linear issues have no project. A team backlog view surfaces them. |
++| O4 | `work_items.parent_id UUID NULL`, self-FK | Reverses the earlier "keep it flat." Binding decision #2 (migration target) changes the constraint set: a Linear sub-issue carries assignee, priority and dependencies, and has no lossless landing in a checklist. Lossless import beats structural purity. |
++| O5 | **Depth cap is a mode policy, not a schema constraint** | See §2.5. The move that dissolves the migration-target contradiction. |
++| O6 | `tasks` **survives**, frozen at `title/status/due_date` | See §2.6. |
++| O7 | Single parent FK + cycle prevention on write | OpenProject: *"Can I set multiple parents for one work package? No."* A single parent is what makes a recursive CTE terminate. |
++| O8 | Rollups **always derived, never stored** | OpenProject sums children's progress and *ignores* work manually entered on parents. Stored rollups drift. |
++| O9 | Status **categories** locked in now | Our `phase` enum is already the category layer. Lock the principle immediately: a custom state name always maps to an immutable category. Every burndown, automation and rollup reads the category, never the name. Retrofitting this under modes is misery. |
++| O10 | Client-minted UUIDs on create | Trivial; enables optimistic UI. Linear's Object Pool is keyed by client-known UUID; the human ID is a projection. |
++
++### 2.5 Depth: cap at 1, as policy
++
++- **Schema:** `parent_id` unconstrained. Store `depth` and preserved imported-parent lineage.
++- **Policy:** native creation depth defaults to **1**, a knob in mode config.
++- **Imports** land at **true depth** with `source='import'`, bypassing the cap. The UI renders the
++  real tree.
++
++Why 1:
++
++- **Jira held that line for 20+ years, in writing.** JRASERVER-4446, closed *Won't Do* (2017):
++  *"we should focus on making Jira simpler and easier to use rather then introduce additional
++  complexity."* Premium adds levels only *above* epic. Jira stayed dominant.
++- **Asana ships deep nesting and its own blog begs users not to use it** — *"we recommend not going
++  more than a single 'layer' deep."* Subtasks don't appear by default in Timeline, Calendar, List,
++  Board, Workload or Rules. Users petition Asana to *add* a cap.
++- **The asymmetry is decisive.** ClickUp's docs admit that lowering the cap does not touch existing
++  trees — *"any existing nested subtasks are not impacted."* Lowering is impossible. monday.com
++  *raised* depth from 1 to 4 and could ship it only on **newly created boards**, because the storage
++  *shape* changed. Raising is cheap **if the shape is already right**. So: ship the cap low, ship the
++  shape deep.
++- **We already have a second tier.** work item → sub-item → checklist item is Jira's exact shape.
++
++The strongest argument against, recorded honestly: we are a migration target and Linear is the
++marquee source. It is defused twice — the import bypasses the cap, and **Linear's issue depth is not
++documented anywhere**, so we cannot be "lossy by N" against an unspecified N. (The widely-repeated
++"5 levels" figure applies to Linear *initiatives*, not issues.)
++
++### 2.6 Why `tasks` survives
++
++The teardown recommends collapsing `work_items` + `tasks` into one table with a `type_id` FK, on the
++grounds that *no surveyed product ships a two-table split.* That conflates two different things.
++
++Plane's and OpenProject's single-table lesson is about **work-item types** — bug, feature, epic,
++milestone as *data* rather than an enum. We already honor that with `work_items.type`, and their
++evidence argues for eventually promoting `type` to a table with per-type properties. It does **not**
++argue for merging checklists into issues. Every product cited has **both**: Linear has sub-issues
++*and* markdown checklists; Jira has sub-tasks *and* checklists.
++
++Once `parent_id` exists, the "two-table hierarchy tax" disappears: hierarchy, rollups and relations
++are written once, against `work_items` only. `tasks` joins nothing. Making a five-item checklist mint
++five full work items would pollute boards, counts and identifiers.
++
++**Guard rail + pressure valve.** `tasks` is frozen at `title/status/due_date`. The moment anyone asks
++for an assignee, a priority or a dependency on one, the answer is **promote to sub-item** — a
++one-click action. Build it; it is cheap and it is where the pressure goes.
++
++### 2.6.1 Sub-items have no create button
++
++The founder's challenge — *"why would any person add a sub-task? Make it a checklist instead"* — is
++correct about the **affordance**, and it is upheld.
++
++- **There is no "Add sub-item" action in the default UI.** The everyday way to break work down is the
++  Checklist.
++- **Sub-items are born exactly two ways:** an **import**, or a **promote-from-checklist**.
++- `parent_id` remains in the schema for import fidelity and as promote's landing spot.
++- A mode may later enable direct sub-item creation (Jira-refugee teams expect it). That is a **mode
++  toggle**, not a default.
++
++Keep promote. A Step that grows an assignee or a discussion needs somewhere to go; without the valve,
++users file duplicate Items instead.
++
++### 2.6.2 Status: categories and statuses replace `phase`
++
++The current `phase` enum — `plan | execute | review | done` — carries several jobs and is missing two
++states. `plan` is being used as a backlog; there is no way to say an Item died rather than shipped.
++
++**Migration-target positioning forces the fix:** Linear's **Backlog** and **Canceled** have no lossless
++home in our enum, so import breaks today.
++
++- **Immutable categories** (global, never mode-editable): `backlog | unstarted | started | completed |
++  canceled`, plus reserved `triage`.
++- **Per-team `statuses` table** — `(team_id, name, category, position)`. `work_items` gains `status_id`.
++  Teams customize *names* and order; categories are fixed. Every rollup, burndown and automation reads
++  the **category**, never the name.
++
++Resolving the specific gaps:
++
++| Question | Ruling |
++|---|---|
++| Is "planning" the backlog? | Yes — and **Backlog and Unstarted are two separate categories**, not one with a flag. "Ideas nobody has committed to" ≠ "agreed, not begun." A flag corrupts both the import mapping and the board columns. |
++| Is **Review** a category? | **No — a status inside `started`.** Linear has no Review category; inventing one breaks import. |
++| "Does this need review, or can it be pushed?" | A **mode policy**: the mode declares review-required-before-`completed`. It lives where workflow enforcement already lives. Jira-tight enforces; Notion-loose does not. |
++| Is **Triage** a category or a view over `source`? | **A category** (reserved), so Linear triage imports losslessly; the inbox UI is a category filter. A mode toggle decides whether `source != 'manual'` items land in `triage` or `backlog`. It is **not** merely a view over `source`: **source is provenance, triage is state.** An accepted agent-created Item leaves triage but keeps its source. |
++
++**Guard rail:** categories are globally immutable. Modes own status *sets*, review policy, the triage
++toggle, and the depth cap — but never category semantics. Otherwise import and cross-team reporting
++both die.
++
++### 2.7 Migration
++
++Expand/contract, additive, zero-downtime — as discipline against live traffic, **not** as a driver
++workaround (see §5.1).
++
++**One wave, not three.** `teams`, the status-category refactor, and `parent_id` all touch
++`work_items`. `statuses` depends on `team_id`. Migrate once, and do it **before `phase` data
++accrues** — i.e. before Phase 1 onboarding, never during.
++
++1. `CREATE TABLE teams`
++2. `INSERT INTO teams SELECT DISTINCT department …` (1:1, founder-confirmed)
++3. `ALTER TABLE work_items ADD COLUMN team_id`; backfill via update-join; `SET NOT NULL`
++4. `CREATE TABLE statuses (team_id, name, category, position)`; seed a default set per team
++5. `ALTER TABLE work_items ADD COLUMN status_id`; backfill from `phase`:
++   `plan→backlog`, `execute→started`, `review→started` + an "In Review" status, `done→completed`
++6. `ADD COLUMN parent_id`, `ADD COLUMN depth`
++7. `projects` enrichment: `status`, `lead_id`, `target_date`
++
++`phase` is retained, deprecated, alongside `department` — both dropped in the same future major.
++
++`department` is retained, deprecated, for one full contract cycle — **Forge depends on it**. Dropping
++it is the future major. Contracts take a **minor** semver bump; everything here is additive.
++
++Cycle-safe reparenting is a single `UPDATE` guarded by a `NOT EXISTS` recursive CTE. For the residual
++A→B / B→A race under read-committed, use `sql.transaction()` at Serializable.
++
++### 2.8 Deferred
++
++Cycles (team-scoped when built), initiatives (group projects), project milestones, per-team `ENG-123`
++identifiers, the `/sync/delta` endpoint, the persisted offline transaction queue, Vikunja-style
++auto-inverse relations.
++
++---
++
++## 3. Amendment to the canonical doc, §6
++
++**Current text** puts the mode preset at the Project level with an org default and ceiling.
++
++**Why it is wrong.** Modes bundle required fields, workflow/phase enforcement, cycles on-or-off, task
++structure, who-can-edit-shape, and agent autonomy. In Linear, *Team* owns exactly those. Putting them
++on Project breaks twice:
++
++1. A project may span multiple teams — so a cross-team project would impose one team's workflow on
++   another team's items.
++2. `project_id` is nullable, so items with no project would be **ungoverned**. Making project
++   mandatory to fix this requires fake per-team Inbox projects, which corrupt import semantics.
++
++**Amended text.** *Modes are presets applied at the **TEAM** level, with an org default and an
++optional ceiling. Project is a first-class cross-team outcome container — status, lead, target date,
++milestones — and does not own workflow. Project-level overrides: deferred.*
++
++This also makes the migration-target positioning honest: Linear and Jira imports map team→team,
++workflow-per-team, losslessly.
++
++---
++
++## 4. Release phasing
++
++### 4.1 The capture problem, stated plainly
++
++A browser cannot reliably hear the other participants.
++
++- Per Chrome's own browser-compat-data: `getDisplayMedia({audio:true})` captures entire-system audio
++  **only on Windows/ChromeOS when sharing a whole screen**. On **Linux and macOS it captures tab
++  audio only**. **Firefox: no audio capture. Safari: no. All mobile browsers: no.** And `video:false`
++  throws a `TypeError` — you must carry a video track you discard.
++- **None** of Otter, Fireflies, Fathom, Granola, tl;dv or Read.ai capture from a plain web page. Each
++  uses a bot, a desktop app, or an extension. Granola's docs: *"The web interface … is for viewing and
++  editing existing notes only — it cannot capture or transcribe."*
++- Both credible "no account" open-source precedents **abandoned the browser**: Meetily (MIT) is a
++  Tauri desktop app; Vexa (Apache-2.0) is a self-hosted bot.
++
++And "just upload your recording" does not rescue it. Verified against vendor docs:
++
++| Platform | Free tier records? | Audio-only export |
++|---|---|---|
++| Google Meet | **No** — needs Business Standard+/Enterprise/Edu Plus, or Google One ≥2 TB | No (MP4 only) |
++| Zoom | **Local yes**, cloud needs Pro+ | Yes (`audio_only.m4a`) |
++| Microsoft Teams | **No** — free Teams cannot record at all | No (MP4; Personal-tier expires in 30 days) |
++
++Two of three gate recording behind a paid seat. Upload is a fallback for a paid-tier minority, not an
++onboarding path.
++
++### 4.2 The capture ladder
++
++One `CaptureSource` seam, three tiers, cheapest first:
++
++- **Tier 0 — Upload.** Universal fallback and demo. Zero marginal cost; the pipeline exists.
++- **Tier 1 — Chrome tab capture.** The loophole: macOS gives *tab* audio, and **Google Meet runs in a
++  tab**. "Capture this tab" + mic covers Meet-in-browser on every desktop Chrome platform, with no
++  bot and no desktop app. Ships in weeks. Degrade **honestly**: tell Safari/Firefox/mobile users it
++  cannot work, rather than failing silently.
++- **Tier 2 — Self-hosted bot. The flagship.** **Deploy Vexa (Apache-2.0); do not build a bot.** It is
++  the "no third-party login" promise made literal: open-source, self-hosted, working regardless of the
++  attendee's OS or browser. Pin to a specific commit and stay fork-ready — Screenpipe relicensed from
++  AGPL to proprietary on 2026-06-10.
++
++**Accepted architectural exception:** bots need containers, not Workers. **"All-Cloudflare" governs
++the app plane** (SPA, API, DB). The media-capture plane legitimately lives in containers. Stated
++explicitly rather than pretended away.
++
++### 4.3 STT and diarization
++
++- **Hosted default: Cloudflare Workers AI `whisper-large-v3-turbo`, $0.0306/recording-hour** — ~25×
++  cheaper than Deepgram streaming, already inside our stack, no new vendor.
++- **Self-host default: faster-whisper** — MIT code *and* MIT weights, CPU int8 viable, no account.
++- **BYO-key adapters** for Deepgram / AssemblyAI / Groq / Sarvam when live captions matter. Every one
++  is REST/WS + bearer token.
++- Keep the existing Python `SpeechProvider` seam. Add `supportsStreaming` and `supportsDiarization`
++  capability flags so the UI degrades honestly.
++- **Diarization: do NOT adopt pyannote or WhisperX.** pyannote's weights sit behind a HuggingFace
++  accept-conditions wall plus a marketing opt-in, and **WhisperX inherits that gate** — it silently
++  breaks the no-third-party-login promise. Keep the heuristic for v1; adopt **NVIDIA streaming
++  Sortformer** (CC-BY-4.0, ungated) when diarization matters.
++- In-Worker inference is **impossible**: 10 MB bundle cap, 128 MB memory, 5 min CPU.
++- A Worker **can** hold a long-lived WebSocket for a whole meeting. **One Durable Object per meeting +
++  WebSocket Hibernation** is the natural session object. We do **not** need an SFU — we ship one
++  client's audio to one backend, not media between participants.
++
++### 4.4 Phases
++
++| Phase | Weeks | Ships | Onboards | The one thing that sinks it |
++|---|---|---|---|---|
++| **1** | 1–4 | Workboard GA in `platform-web`; ontology migration | First users, on the workboard | The migration destabilizing the live app — **migrate before onboarding, not during** |
++| **2** | 3–8 (overlaps) | Meeting surfaces in `platform-web` against the existing Python API; Tier 0 + Tier 1 capture; **timeboxed 2-week Vexa self-host spike, starting week one** | Meeting users | The **capture spike**. Second risk: the Clerk↔Python auth bridge |
++| **3** | 8–16 | Bot GA; proposals spine + first workboard MCP toolset; transcription strangler (Cut 2) | — | The rebuild going big-bang |
++
++If the Vexa spike fails, meeting GA slides into Phase 3 while workboard growth continues. The plan
++degrades gracefully rather than inverting.
++
++**Strangler reorder: transcription moves FIRST, not last**, in two cuts.
++
++- **Cut 1 (days):** add a `workers-ai` provider to the existing Python `SpeechProvider` registry,
++  calling Workers AI over REST. $0.03/hr, no new vendor, no migration.
++- **Cut 2:** move the transcription job (ingest → transcribe → persist) to a Worker + queue. It is the
++  compute-heavy stateless piece — the right first endpoint to strangle.
++
++### 4.5 The agent plane is a trap as scoped
++
++AG-UI + CopilotKit + model router + memory, before any board has an agent, is a six-month hole. The
++minimal increment that genuinely parallelizes:
++
++**the `proposals` table + review UI + ONE MCP toolset over the workboard API.**
++
++Proposals is the spine both boards' agents write through. Build the spine, not the plane. Note that
++`proposals` is currently **prose in `DESIGN.md` only** — no table, no code — yet the canonical doc
++makes it the guard rail for agent-first setup.
++
++### 4.6 `apps/meeting-web`
++
++**Freeze it.** Bugfix-only reference implementation. Build meeting surfaces fresh in `platform-web`
++(they need the design system anyway); delete `meeting-web` at parity. Folding it in now imports
++Python-era UI debt; amending the "one app" decision reverses a FINAL decision for convenience.
++
++### 4.7 The honest v1 pitch
++
++Not "post-meeting intelligence" held hostage to a file users often cannot produce:
++
++> *The open-source meeting notetaker you can self-host — your calls never touch a third party — whose
++> notes become action items on your team's board.*
++
++Interim line until the bot is GA: *"works today for Chrome-attended meetings and any recording you
++have."*
++
++---
++
++## 5. Corrections to previously-held beliefs
++
++### 5.1 "The Neon HTTP driver has no interactive transactions" — FALSE
++
++This was inherited from a code comment (`apps/platform-api/src/routes/dependencies.ts`) and repeated
++into design reasoning. Neon's docs:
++
++- Over **HTTP**: `sql.transaction(queries, {isolationLevel, readOnly, deferrable})` runs multiple
++  statements in one atomic **non-interactive** transaction, with a selectable isolation level.
++- Over **WebSockets**: `Pool`/`Client` give **full interactive transactions**, explicitly supported on
++  Cloudflare Workers. The only constraint is that the Pool/Client is created, used and closed inside a
++  single request handler.
++- Schema migrations run through drizzle-kit against a direct connection, where transactions were
++  always available.
++
++**Impact:** it invalidated the "migrations must be single idempotent statements" rationale, and it was
++the decisive leg of the depth-cap argument (that depth-1 makes a concurrent-move cycle race
++impossible). Neither conclusion changed; both rationales did. **Follow-up: fix the comment.**
++
++### 5.2 "Linear caps sub-issues at 5 levels" — FALSE
++
++The 5-level cap applies to **initiatives**. Linear's sub-issue depth is not documented anywhere.
++
++---
++
++## Appendix A: license audit
++
++Verified via `gh api repos/OWNER/REPO/license` on 2026-07-10.
++
++| Tool | Repo | SPDX | State |
++|---|---|---|---|
++| Plane | makeplane/plane | **AGPL-3.0** | active |
++| Huly | hcengineering/platform | EPL-2.0 | active |
++| Focalboard | mattermost-community/focalboard | AGPL-or-commercial | **unmaintained** |
++| OpenProject | opf/openproject | GPL-3.0 | active, **CLA required** |
++| Kaneo | usekaneo/kaneo | **MIT** | active |
++| Vikunja | go-vikunja/vikunja | AGPL-3.0 | active |
++| Tegon | RedPlanetHQ/tegon | AGPL-3.0 | **archived** |
++| Kan | kanbn/kan | AGPL-3.0 | active |
++| Operately | operately/operately | **"Other" (non-standard)** | active |
++| Taiga | kaleidos-ventures/taiga | MPL-2.0 | **dead since Dec 2023** |
++| Leantime | Leantime/leantime | AGPL-3.0 | active, **CLA required** |
++
++Dependencies we *do* adopt: **Vexa** (Apache-2.0), **LiveKit server** (Apache-2.0, only if a join-bot
++needs WebRTC), **faster-whisper** (MIT), **whisper.cpp** (MIT), **Sortformer** (CC-BY-4.0),
++**CopilotKit** (MIT). Pin licenses; re-check at every bump.
++
++---
++
++## Open questions
++
++1. **Sub-item depth cap default per mode.** Jira-tight = 1. Does Notion-loose = 3?
++2. **Mode config typing.** `mode_config` must not become an untyped JSONB swamp. Version the presets in
++   `packages/contracts`; the Forge version-skew gate must cover mode *semantics*, not just field shape.
++3. **Importer vs mode enforcement.** Imported items missing required fields must bypass validation with
++   `source='import'` plus a reconcile queue — otherwise Jira-tight mode makes import impossible.
++4. **Drizzle vs Alembic ownership of `teams`.** Declare Drizzle the owner, in writing, now.
++5. Whether free-tier Zoom local recordings are common enough to make Tier 0 worth prominent placement.
+diff --git a/docs/plans/2026-07-10-vision-and-architecture.md b/docs/plans/2026-07-10-vision-and-architecture.md
+index b15b9be..53f2683 100644
+--- a/docs/plans/2026-07-10-vision-and-architecture.md
++++ b/docs/plans/2026-07-10-vision-and-architecture.md
+@@ -101,8 +101,18 @@ Mechanisms (apply across the spectrum):
+ 
+ ## 6. Modes & inheritance (Jira / Linear / Notion strictness)
+ 
+-**Strictness is a PRESET, applied at the PROJECT level, with an ORG-level DEFAULT + optional ceiling.**
+-Resolution is inherit → override within bounds.
++> **AMENDED 2026-07-10.** This section originally placed the mode preset at the **Project** level. That
++> was wrong and is superseded by
++> [2026-07-10-work-ontology-and-phasing-design.md](../design/2026-07-10-work-ontology-and-phasing-design.md) §3.
++> Modes bundle workflow enforcement, cycles on-or-off and required fields — and **Team** owns exactly
++> those. Placing them on Project broke twice: a project may span multiple teams (imposing one team's
++> workflow on another team's items), and `project_id` is nullable (leaving unprojected items
++> ungoverned). Amended text below.
++
++**Strictness is a PRESET, applied at the TEAM level, with an ORG-level DEFAULT + optional ceiling.**
++Resolution is inherit → override within bounds. **Project is a first-class cross-team OUTCOME container**
++— status, lead, target date, milestones — and **does not own workflow**. Project-level overrides are
++deferred.
+ 
+ A **mode is a bundle of guard-rail settings**:
+ - required fields
+@@ -120,13 +130,17 @@ The three named presets:
+ | **Linear** | medium | **the default sweet spot** |
+ | **Notion** | loosest | freeform, minimal enforcement |
+ 
+-Presets are **starting points a project further customizes** — not fixed tiers. A **Project becomes a
+-first-class thing** that carries its resolved mode/config, stored as **project settings resolved from
+-the org default** (org sets a default + optional ceiling; project inherits then overrides within
+-bounds).
++Presets are **starting points a team further customizes** — not fixed tiers. A **Team becomes a
++first-class thing** that carries its resolved mode/config, stored as **team settings resolved from
++the org default** (org sets a default + optional ceiling; team inherits then overrides within
++bounds). This mirrors Linear, where the Team — not the Project — owns workflow states, cycles, triage
++and the issue prefix, and it makes Jira/Linear import map team→team losslessly.
+ 
+-**Implementation is ADDITIVE:** the fixed `work_items` backbone stays exactly as built; a **per-project
+-config/policy object governs behavior** on top of it. No schema is torn up to add modes.
++**Implementation is ADDITIVE:** the fixed `work_items` backbone stays; `department` is promoted to a
++`teams` table (`team_id NOT NULL`), `parent_id` is added for sub-items, and a **per-team config/policy
++object governs behavior** on top. The sub-item **depth cap is a mode policy, not a schema constraint** —
++default 1 for native creation, bypassed by importers so migration stays lossless. No schema is torn up
++to add modes.
+ 
+ ## 7. Forge ↔ Product-Suite integration
+ 
+@@ -208,7 +222,7 @@ memory.
+ - **The Workboard's fixed schema is the CORRECT protected backbone** (§4–§5), not a limitation to be
+   "fixed" by making it schema-less. Keep it fixed; extend via views + Canvas + per-project config.
+ - **The next layer after the API cutover** (finish Neon/Clerk, move `meeting-api` + agent runtime off
+-  Railway into TS/Workers) is the **per-project mode/config object (§6) + agent-first setup (§9)** —
++  Railway into TS/Workers) is the **per-team mode/config object (§6, amended) + agent-first setup (§9)** —
+   both additive on top of the existing backbone.
+ - **BlockSuite is the next big ADOPT — for the Canvas surface only** (§3, §4). It does **not** touch
+   the workboard dependency **graph**, which stays on **React Flow** (the earlier "re-contract off
+diff --git a/docs/research/2026-07-10-linear-huly-plane-teardown.md b/docs/research/2026-07-10-linear-huly-plane-teardown.md
+new file mode 100644
+index 0000000..d77cf23
+--- /dev/null
++++ b/docs/research/2026-07-10-linear-huly-plane-teardown.md
+@@ -0,0 +1,236 @@
++# Architecture & Logic Teardown — Linear, Huly, Plane, AppFlowy, Teable, NocoDB, Focalboard, OpenProject, Vikunja, Operately
++
++**Date:** 2026-07-10
++**Audience:** team building on Hono + Cloudflare Workers, Neon Postgres (HTTP driver), Clerk, React 19 / Vite / TanStack SPA.
++**Method:** public engineering blogs, talks, docs, README/architecture files and API docs only. No source code was read, copied or paraphrased line-by-line (Plane, AppFlowy and Vikunja are AGPL; Huly is EPL-2.0). AI-generated code wikis (DeepWiki, readmex) were deliberately excluded as sources. Every claim below carries a URL; everything that could not be sourced is quarantined in the final section.
++
++---
++
++## A. Linear
++
++Primary source: a reverse-engineering study of the Linear Sync Engine (LSE), publicly endorsed by Linear's CTO as *"a pretty awesome (and correct) write-up of our sync engine … probably the best documentation that exists — internally or externally"* ([wzhudev/reverse-linear-sync-engine](https://github.com/wzhudev/reverse-linear-sync-engine)), plus Tuomas Artman's own talks ([Scaling the Linear Sync Engine](https://linear.app/now/scaling-the-linear-sync-engine), [Local-First Conf talk](https://www.youtube.com/watch?v=VLgmjzERT08)).
++
++### A1. The sync engine architecture
++
++Three layers, not one:
++
++1. **Object Pool (in-memory).** Domain entities — `Issue`, `Team`, `Organization`, `Comment` — are *models* with properties and references to other models. Hydrated models live in an Object Pool, "a large map for retrieving models by their **UUIDs**," implemented as a `modelLookup` map on the `SyncClient`. Properties are made observable via **MobX** (`makeObservable`, `@Computed`, `@Action`), so React views re-render automatically on mutation. ([README, Introduction & Ch. 1–2](https://github.com/wzhudev/reverse-linear-sync-engine))
++2. **IndexedDB (local durable store).** Two databases: `linear_databases` (metadata about other DBs) and `linear_database_<id>` per workspace, holding models, metadata and a `__transactions` table. ([Ch. 2 takeaway](https://github.com/wzhudev/reverse-linear-sync-engine))
++3. **Server + WebSocket delta stream.** Mutations become *transactions* sent to the server, executed there, then rebroadcast to all clients as **delta packets**. ([Introduction](https://github.com/wzhudev/reverse-linear-sync-engine))
++
++The linchpin is the **sync ID**: "the global version number of the database. It helps determine whether the client is up to date." On WebSocket handshake the server returns `{ lastSyncId, lastSequentialSyncId, databaseVersion, userSyncGroups }`; the client compares the server's `lastSyncId` with its own and, on divergence, requests the missing delta packets and applies them. ([Ch. 4](https://github.com/wzhudev/reverse-linear-sync-engine)) The delta endpoint takes `lastSyncId`/`toSyncId` bounds.
++
++### A2. Optimistic updates & conflict resolution
++
++**Server-authoritative, last-writer-wins, with client-side rebase — not CRDT.**
++
++A `TransactionQueue` manages four arrays. New transactions land in `createdTransactions`; a microtask scheduler (`commitCreatedTransactions`) flushes them into `queuedTransactions` and stamps a shared `batchIndex`, so **transactions created in the same event loop batch together**. On enqueue they are persisted to the `__transactions` table, "so if the client closes before these transactions are sent to the server, it can reload them from this table and resend them." Mutations go out as GraphQL. ([Ch. 3](https://github.com/wzhudev/reverse-linear-sync-engine))
++
++When an inbound delta packet conflicts with an in-flight local transaction, LSE calls `rebaseTransactions`: each pending `UpdateTransaction` has its `original` value reset to the server's value and the in-memory model is re-derived — "Following the **last-writer-wins** principle… It is similar to Operational Transformation (OT)." A `completedButUnsyncedTransactions` queue holds transactions whose `syncIdNeededForCompletion` has not yet arrived; they are retired once the delta's `lastSyncId` passes them. ([Ch. 4](https://github.com/wzhudev/reverse-linear-sync-engine))
++
++### A3. Sub-100ms interactions
++
++Because **every read is a local read**: the UI queries the in-memory Object Pool, never the network. Boot picks one of three **bootstrap modes** — `full` (fetch all models from server), `local` (load from IndexedDB, then catch up via deltas), `partial` (fetch a subset). Full bootstrap fires only when no stores are ready, `lastSyncId` is undefined, or models are outdated. ([Ch. 2](https://github.com/wzhudev/reverse-linear-sync-engine))
++
++What is *not* eagerly loaded is governed by a per-model **`loadStrategy`**: only `instant` models hydrate at boot; others hydrate lazily, "meaning its properties can be loaded only when accessed." Lazy loads are served from IndexedDB when possible, otherwise a partial bootstrap: `GET /sync/bootstrap?type=partial&onlyModels=Issue,Attachment&syncGroups=…&firstSyncId=…`. Which models can be fetched cheaply is decided by **partial indexes** plus `coveringPartialIndexValues`, which tell the client whether a given reference collection was already fetched (avoiding a redundant network hydration). **Sync groups** scope which deltas a user receives. ([Ch. 2, Ch. 4](https://github.com/wzhudev/reverse-linear-sync-engine))
++
++### A4. ID scheme
++
++Two IDs per issue. Internally, models are keyed by **UUID** in the Object Pool. ([Introduction](https://github.com/wzhudev/reverse-linear-sync-engine)) Externally, the human identifier is `<team identifier>-<number>` (e.g. `ENG-123`); the team identifier is a per-team setting under Team settings → General. ([Linear docs, Teams](https://linear.app/docs/teams)) The structural reason it works: **"Issues are tied to teams"** and the team is the numbering scope. ([ibid.](https://linear.app/docs/teams))
++
++Design lesson: the UUID is what the sync engine moves; the human ID is a projection. A UUID minted client-side is what makes offline creation and rebase possible at all.
++
++### A5. Workflow states
++
++Statuses are **team-specific**, ordered, and slotted into **fixed categories** — Backlog, Unstarted, Started, Completed, Canceled, plus reserved *Duplicate* and *Triage*. "Teams can reorder statuses within each status category, but the categories themselves stay in a fixed order," and a team must always retain at least one status per category. Duplicate is system-managed and cannot be renamed. Each team has a **default status** for new issues. ([Linear docs, Issue status](https://linear.app/docs/configuring-workflows))
++
++This is the important modelling decision: **customisable status names over a closed set of semantic categories.** Every rollup, burndown and automation reads the category, never the name.
++
++---
++
++## B. Huly
++
++### B1. The transactor
++
++Huly is **30+ microservices**. The **transactor** (port 3332) is "the core transaction processing engine. Maintains WebSocket connections for real-time updates, processes all data mutations, enforces business logic, and publishes events to the message queue." ([platform/ARCHITECTURE_OVERVIEW.md](https://github.com/hcengineering/platform/blob/develop/ARCHITECTURE_OVERVIEW.md))
++
++*Why it exists*: it centralises the write path. Every mutation is funnelled through one stateful, socket-holding service that can enforce invariants and fan out events. Other services are consumers, not writers.
++
++### B2. Storage
++
++**CockroachDB** is the primary application database, holding "ALL business data including users, workspaces, documents, transactions, and metadata," with MinIO/`datalake` for blobs and Elasticsearch (via the `fulltext` service) for search. Events flow asynchronously Transactor/Workspace → **Redpanda** (Kafka) → consumers (fulltext, media, process). ([ARCHITECTURE_OVERVIEW.md](https://github.com/hcengineering/platform/blob/develop/ARCHITECTURE_OVERVIEW.md); [hulygun](https://github.com/hcengineering/hulygun) is the Kafka→transactor router.) Collaborative rich-text is *not* handled by the transactor: the **collaborator** service (port 3078) does "real-time document collaboration using Y.js CRDT." ([ibid.](https://github.com/hcengineering/platform/blob/develop/ARCHITECTURE_OVERVIEW.md))
++
++So: **transactions for domain objects, CRDT only for prose.** That split is the reusable insight.
++
++### B3. Model / plugin architecture
++
++The public API surface reveals the model: documents are addressed by `_class` (and "results will include all subclasses of the target class"), written with `createDoc(class, space, attrs)`, and extended by **mixins** — `createMixin` / `updateMixin` take `{ objectId, objectClass, objectSpace, mixin, attributes }`. ([api-client README](https://github.com/hcengineering/huly.core/blob/main/packages/api-client/README.md)) A `Space` is the containment/permission unit. Plugins declare classes and attach mixins to *existing* classes — that is how a module adds fields to `Issue` without owning `Issue`.
++
++---
++
++## C. Plane
++
++### C1. Data model
++
++`Workspace` → `Project` → work items, with cycles, modules and pages inside the project. "At the top level, workspaces contain everything… Inside workspaces, you create projects… Within projects, you manage work items." ([Core concepts](https://docs.plane.so/introduction/core-concepts))
++
++Both Cycles and Modules are **optional, per-project feature toggles**: "By default, Modules are turned on for all new projects. If you need to turn them on or off later, head to Project settings and toggle the Modules feature" ([Modules](https://docs.plane.so/core-concepts/modules)); same for Cycles via Settings → Features ([Cycles](https://docs.plane.so/core-concepts/cycles)).
++
++### C2. Module vs Cycle — why both
++
++They are **orthogonal axes**, one by *scope*, one by *time*.
++
++- **Cycle = time.** "A set period of time where your team focuses on completing specific tasks… similar to sprints in Agile." Cycles have start/due dates; **by default two cycles cannot have overlapping dates**, and only one cycle is Active at a time (the current date falls in its range) unless Parallel Cycles is enabled. States are derived from dates: Active / Upcoming / Completed. ([Cycles](https://docs.plane.so/core-concepts/cycles))
++- **Module = scope.** "Smaller, focused projects… track progress on a new feature, a milestone like a marketing campaign, or discrete pieces of your software architecture such as a microservice." Modules carry an **explicit lifecycle state** — Backlog, Planned, In Progress, Paused, Completed, Cancelled — a lead, members, and optional dates. ([Modules](https://docs.plane.so/core-concepts/modules))
++
++The cardinality differs and this is the tell: **a work item can belong to many Modules simultaneously** ("a work item can belong to both a Feature module and a Release module simultaneously") but has *one* Cycle, linked "as a property within any work item." ([Modules](https://docs.plane.so/core-concepts/modules); [Cycles](https://docs.plane.so/core-concepts/cycles)) Cycle is a scalar FK on the issue; Module is a join table.
++
++### C3. Self-host architecture
++
++Deployed as Docker Compose or Kubernetes/Helm ([Self-hosting overview](https://developers.plane.so/self-hosting/overview)). The stateful dependencies are documented explicitly and all three are externalisable: **PostgreSQL** (default Postgres 15.5 in-container), **Redis** (default 7.2.4), and **S3-compatible object storage** (default MinIO, with presigned uploads requiring `s3:GetObject` / `s3:PutObject` and a CORS policy). ([Configure external services](https://developers.plane.so/self-hosting/govern/database-and-storage)) Minimum footprint: 2 cores / 4 GB RAM, 8 GB recommended. ([Docker Compose](https://developers.plane.so/self-hosting/methods/docker-compose))
++
++---
++
++## E. AppFlowy
++
++**Field types as a two-part model.** A cell is addressed by `(row_id, field_id)` and stores **opaque raw data**; the `Field` carries a `field_ty` and a **`TypeOption`** which formats it. Reading a cell means: resolve Database → Field → TypeOption (e.g. `DateTypeOption`) → Row → Cell → format. The same raw bytes render differently under different `DateFormat`/`TimeFormat`. ([Database View](https://docs.appflowy.io/docs/documentation/software-contributions/architecture/frontend/database-view))
++
++**Views.** "AppFlowy has three types of views that share the same database. A single database can have multiple views and these views can be converted to each other" — Grid, Board, Calendar "share the same data structs defined in the backend." ([ibid.](https://docs.appflowy.io/docs/documentation/software-contributions/architecture/frontend/database-view)) The split that matters: **fields and rows are shared; layout settings, filters and sorts are per-view.**
++
++**Sync.** AppFlowy Cloud depends on **GoTrue** (auth, "source of truth for user creation/deletion/verification"), **Postgres** (essential storage), **Redis** (cache/session), and **MinIO** (S3-compatible blobs). ([AppFlowy Cloud Architecture](https://docs.appflowy.io/docs/documentation/appflowy-cloud/architecture)) Collaborative objects are built on the **`collab` crate wrapping `yrs`** (the Rust Yjs port) — documents are a block tree inside a YDoc. ([AppFlowy-Collab](https://github.com/AppFlowy-IO/AppFlowy-Collab))
++
++Concept to take: **`TypeOption` is a per-field-type config blob**, not a column type. Adding a field type never changes the row's storage shape.
++
++## F. Teable
++
++The design bet: **"every table that seems simple on Teable is actually a real database table,"** and "the table structure created in Teable will be completely consistent with the structure in the database, so you can use any standard database tool for data migration and easily query data through SQL statements." ([Postgres-Airtable Fusion](https://blog.teable.io/blog/data-reimagined-postgres-airtable-fusion))
++
++What it buys: no row ceiling ("Airtable's highest limit of 100,000 rows" vs "no upper limit"), a 1M-row test table answering "complex filtering or statistical queries… in about 200 milliseconds," and real indexes. ([ibid.](https://blog.teable.io/blog/data-reimagined-postgres-airtable-fusion))
++
++What it costs — **inferred, not documented** (see Unverified): user-defined fields become **DDL**. Every field add/rename/retype is `ALTER TABLE` on a live table, which is a migration, not a row write. Teable still needs Formula, Link, Lookup and Rollup fields ([ibid.](https://blog.teable.io/blog/data-reimagined-postgres-airtable-fusion)) — computed and cross-table fields that a physical column cannot express by itself and that force a dependency graph outside the schema.
++
++## G. NocoDB
++
++The opposite bet: NocoDB connects to an **external, pre-existing** Postgres/MySQL/SQL Server/Oracle database as a "Data Source," introspecting its schema rather than owning it. Two independent toggles govern the blast radius: **"Allow Data Edit"** and **"Allow Schema Edit"** — the latter lets users "create, modify and delete tables, fields and relationships within the connected datasource from NocoDB UI," and it can be left **off**. ([Connect to a Data source](https://nocodb.com/docs/product-docs/data-sources/connect-to-data-source)) Because the source schema can drift underneath, NocoDB exposes an explicit **Sync Metadata** operation to reconcile. ([Sync with Data source](https://docs.nocodb.com/data-sources/sync-with-data-source))
++
++Pattern to take: **presentation metadata (views, filters, permissions) lives in its own tables and never touches the data schema.** That is what makes read-only mode possible.
++
++## H. Focalboard — negative signal
++
++The repo's own README opens with: **"This repository is currently not maintained. If you're interested in becoming a maintainer please let us know here"**, and "This repository only contains standalone Focalboard." ([README](https://github.com/mattermost-community/focalboard/blob/main/README.md); [Call for Maintainers #5038](https://github.com/mattermost-community/focalboard/issues/5038)) The plugin lives on separately as [mattermost-plugin-boards](https://github.com/mattermost/mattermost-plugin-boards).
++
++Read it as: the **standalone** product died; the version embedded in a product people already opened every day survived. Mattermost never published a post-mortem, so *why* is inference — but the surviving artifact is the integrated one.
++
++## I. OpenProject — one type to rule them all
++
++**"Work packages are items in a project (such as tasks, features, risks, user stories, bugs, change requests)… Work packages have a type, an ID, a subject"** and "Types are the different items a work package can represent, such as task, feature, bug, phase, milestone." Types are configured in system administration. ([Work packages](https://www.openproject.org/docs/user-guide/work-packages/)) Admins "can create and manage as many work package types as needed," each with its own color, copied workflow, default description template, and a **`Is milestone`** flag. ([Manage work package types](https://www.openproject.org/docs/system-admin-guide/manage-work-packages/work-package-types/))
++
++So the type is **a row in a `types` table plus a FK on the work package** — not a subclass, not a second table. Everything else (hierarchy, relations, progress rollup, Gantt) is written once against `WorkPackage`.
++
++Two structural consequences documented explicitly:
++- Hierarchy is a **single parent FK**: *"Can I set multiple parents for one work package? **No, this is not possible.**"* ([FAQ](https://www.openproject.org/docs/user-guide/work-packages/work-packages-faq/))
++- Parent progress is **derived, never stored**: OpenProject "sums up the progress of the children weighted by the Work… of each child," and "**Work manually added to work packages with children is ignored.**" ([ibid.](https://www.openproject.org/docs/user-guide/work-packages/work-packages-faq/))
++
++The only type-level hierarchy constraint is the milestone flag; there is no per-type "can be parent of" matrix. ([Manage work package types](https://www.openproject.org/docs/system-admin-guide/manage-work-packages/work-package-types/))
++
++## J. Vikunja / Operately — one idea each
++
++**Vikunja: parent/child is just another relation kind.** Relations are typed and **auto-inverse** — Subtask↔Parent task, Blocking↔Blocked by, Precedes↔Follows, Duplicate of↔Duplicates, Copied from↔Copied to, and a symmetric Related. "The linked task will show the opposite relation automatically." Users even pick a **default relation type** in settings. ([Task Relations](https://vikunja.io/docs/task-relation-kinds/)) One `task_relations` table with `(task_id, other_task_id, kind)` and an inverse map replaces a parent FK *and* a blocked-by table. The cost: you lose the DB-level guarantee of a single parent.
++
++**Operately: unified status across goals and projects.** Its v1.0 Work Map "gives you a clear, hierarchical view of all ongoing work… with goals and projects organized in a parent-child structure," having "unified statuses for both goals and projects, making it easy to scan all work at a glance." ([Operately v1.0 release notes](https://operately.com/releases/v100/)) Same lesson as Linear's status categories, applied across *entity kinds*: if two things appear in one list, they need one status vocabulary.
++
++---
++
++## D. Synthesis — for a Workers + Neon team
++
++### First, a correction to the brief's premise
++
++The Neon serverless driver **does support interactive transactions — over WebSockets, not HTTP**. Neon's own guidance: "**HTTP**: Querying over an HTTP fetch request is faster for single, non-interactive transactions, also referred to as 'one-shot queries'," while WebSockets cover session/interactive use ([Neon serverless driver](https://neon.com/docs/serverless/serverless-driver)). Over HTTP you still get a non-interactive `transaction()` batch — multiple statements, one round trip, atomic. That is enough for everything below. Do not architect around "no transactions."
++
++### What is viable on Workers + Neon
++
++**Viable, unchanged:** Linear's *client-side* half — Object Pool, IndexedDB persistence, transaction queue, lazy hydration by load strategy. None of it touches the server design. Also viable: Linear's monotonic `syncId` (a Postgres sequence / `BIGSERIAL` on a `sync_actions` table) and a `GET /sync/delta?lastSyncId=…&toSyncId=…` endpoint served by a stateless Worker doing one-shot Neon queries. Also viable: the entire Plane data model (plain relational rows) and Linear's status-category model (an enum column plus a per-team ordered status table).
++
++**Requires Durable Objects:** the delta *fan-out*. A Worker is stateless and cannot hold the client sockets. Durable Objects exist precisely for this — "Each Durable Object has a globally-unique name, which allows you to send requests to a specific object from anywhere… coordinate between multiple clients," with **WebSocket Hibernation** so idle sockets do not bill for wall-clock compute ([Cloudflare Durable Objects](https://developers.cloudflare.com/durable-objects/)). Shape: one DO per workspace (or per Linear-style *sync group*), holding sockets, broadcasting deltas, and — critically — *not* being the source of truth. Postgres stays authoritative; the DO is a pub/sub relay plus a `lastSyncId` watermark.
++
++**Traps.**
++1. **Do not build Huly's transactor.** It is a stateful, socket-holding, single write-path service backed by CockroachDB and Kafka ([ARCHITECTURE_OVERVIEW.md](https://github.com/hcengineering/platform/blob/develop/ARCHITECTURE_OVERVIEW.md)). Recreating it on Workers means making a DO the write bottleneck for a whole workspace. You would forfeit Neon and inherit the coordination cost for a product that does not yet have Huly's 30-service surface.
++2. **Do not reach for CRDTs for issue data.** Linear ships LWW + rebase for a full issue tracker ([Ch. 4](https://github.com/wzhudev/reverse-linear-sync-engine)); even Huly confines CRDT to Y.js in the `collaborator` service for prose ([ibid.](https://github.com/hcengineering/platform/blob/develop/ARCHITECTURE_OVERVIEW.md)). Field-level LWW on a server-authoritative row is correct and vastly cheaper.
++3. **Do not start with full bootstrap + full local mirror.** Linear needed `loadStrategy`, partial indexes, `coveringPartialIndexValues` and sync groups to keep bootstrap tractable ([Ch. 2](https://github.com/wzhudev/reverse-linear-sync-engine)). That machinery is the *end* of the road, not the start.
++4. **Do not model Cycle as a many-to-many.** Plane's own default forbids overlapping cycles and one active cycle ([Cycles](https://docs.plane.so/core-concepts/cycles)).
++
++### Top 5 stealable ideas, ranked by impact ÷ cost
++
++| # | Idea | Why it wins | Source |
++|---|---|---|---|
++| 1 | **Fixed status *categories*, customisable status names** (Backlog/Unstarted/Started/Completed/Canceled + Duplicate/Triage) | Near-zero build cost; every burndown, automation and rollup you will ever write reads the category, so you never re-derive "is this done?" | [linear.app/docs/configuring-workflows](https://linear.app/docs/configuring-workflows) |
++| 2 | **Monotonic workspace `syncId` + `/sync/delta?lastSyncId=…`** | One `BIGSERIAL` column buys resumable catch-up, missed-message detection and offline reconciliation. Works on stateless Workers with one-shot Neon queries. | [Ch. 4](https://github.com/wzhudev/reverse-linear-sync-engine) |
++| 3 | **Client-minted UUID + persisted transaction queue, batched per event-loop tick** | Delivers the perceived speed. `__transactions` survives a browser close and resends; the microtask `batchIndex` collapses a burst of edits into one round trip. | [Ch. 3](https://github.com/wzhudev/reverse-linear-sync-engine) |
++| 4 | **Two-axis planning: scalar Cycle FK on the issue, many-to-many Module join** | Free at the schema level, and it is the exact distinction (time vs scope) that users already understand from Plane and Jira. | [Modules](https://docs.plane.so/core-concepts/modules), [Cycles](https://docs.plane.so/core-concepts/cycles) |
++| 5 | **Per-model `loadStrategy` (instant vs lazy) + sync groups scoping the delta stream** | Higher cost than the above, but it is what keeps bootstrap sub-second at scale, and sync groups map 1:1 onto "which Durable Object do I connect to." | [Ch. 2](https://github.com/wzhudev/reverse-linear-sync-engine) |
++
++Deliberately *not* in the top 5: Huly's mixin/plugin model. It is elegant, and it is the right answer only once third parties extend your entities.
++
++### D1. One entity with a type field, or two tables?
++
++**Nobody in this survey ships a two-table task/issue split.** Every product that could have, did not:
++
++| Product | Entity | Type mechanism | Evidence |
++|---|---|---|---|
++| OpenProject | `WorkPackage` | `type` FK → admin-managed types table (task, bug, milestone, phase, feature…) | ["Work packages have a **type**, an ID, a subject"](https://www.openproject.org/docs/user-guide/work-packages/) |
++| Plane | Work item | **"Every work item in Plane has a type."** Enabling the feature auto-creates `Task` (default) and `Epic`; admins add Bug/Story/etc. | [Work Item Types](https://docs.plane.so/core-concepts/issues/issue-types) |
++| Linear | `Issue` | No type field at all — differentiation is by *status category* and label | [Issue status](https://linear.app/docs/configuring-workflows) |
++| Vikunja | `Task` | No type — "Tasks are the core building blocks… Every to-do item, action item, or piece of work lives as a task" ([Tasks](https://vikunja.io/help/tasks/)); differentiation via relation kind | [Task Relations](https://vikunja.io/docs/task-relation-kinds/) |
++| Huly | `Doc` subclass | `_class` + **mixins** — extend an existing class without forking it | [api-client](https://github.com/hcengineering/huly.core/blob/main/packages/api-client/README.md) |
++
++The strongest evidence is Plane's: it began with a single `Issue`, and when customers demanded Epics it **added a type field and per-type custom properties** rather than a second table — and made the switch **irreversible**: *"Work Item Types cannot be disabled once turned on for a project."* ([Work Item Types](https://docs.plane.so/core-concepts/issues/issue-types)) OpenProject's per-type behaviour (own workflow, own colour, own description template, `Is milestone` flag) shows how far one table stretches before you need two. ([Manage work package types](https://www.openproject.org/docs/system-admin-guide/manage-work-packages/work-package-types/))
++
++Both also converged on **scoped sequential human IDs**: Plane "assigns a sequential identifier based on your project (e.g., `PROJ-1`)" ([Manage work items](https://docs.plane.so/core-concepts/issues/overview)); OpenProject defaults to an instance-wide `#12345` but lets admins enable project-based `PROJ-123` ([Work packages](https://www.openproject.org/docs/user-guide/work-packages/)); Linear scopes to the team, `ENG-123` ([Teams](https://linear.app/docs/teams)).
++
++**Recommendation:** collapse `work_items` + `tasks` into one table with a `type_id` FK and a per-type property bag. A two-table split forces every hierarchy query, every rollup, every view and every relation table to be written twice, and it hard-codes today's taxonomy into the schema. The only argued case for two tables is a *container* whose lifecycle genuinely differs — which is what Plane models as Cycle and Module (Section C2), not as a second issue table.
++
++### D2. Is parent/child depth-limited, and is the limit documented?
++
++**No product in this survey documents a maximum hierarchy depth.** What *is* documented is narrower and more useful:
++
++- **OpenProject** — depth: not documented. **Cardinality is**: *"Can I set multiple parents for one work package? No, this is not possible."* ([FAQ](https://www.openproject.org/docs/user-guide/work-packages/work-packages-faq/)) One type-level constraint exists: types flagged `Is milestone` **cannot have sub work packages**. ([Manage work package types](https://www.openproject.org/docs/system-admin-guide/manage-work-packages/work-package-types/))
++- **Plane** — depth: not documented on the [work items](https://docs.plane.so/core-concepts/issues/overview) or [work item types](https://docs.plane.so/core-concepts/issues/issue-types) pages. Notably, sub-work items may now **cross project boundaries**. ([Changelog, 2026-03-31](https://plane.so/changelog/2026-03-31-vote-on-work-items-link-sub-work-items-across-projects))
++- **Linear** — depth: not documented (`linear.app/docs/sub-issues` returns 404). The client computes an `Issue.parents` chain, implying multi-level. ([Appendix A](https://github.com/wzhudev/reverse-linear-sync-engine))
++- **Vikunja** — depth: not documented. Parent/child is a *relation kind*, so **there is no single-parent constraint to violate**; the DB cannot stop a cycle. ([Task Relations](https://vikunja.io/docs/task-relation-kinds/))
++- **AppFlowy** — depth: not documented. Documents are a **block tree** (arbitrarily nested blocks) inside a YDoc. ([AppFlowy-Collab](https://github.com/AppFlowy-IO/AppFlowy-Collab))
++- **Huly** — not sourced.
++
++**Recommendation:** do not impose a UI depth limit; impose the two invariants everyone else relies on. (1) **Single parent FK** — OpenProject's flat "no" is the cheapest correctness win, and it is what makes a recursive CTE terminate. (2) **Cycle prevention on write**, since a self-referencing FK does not give it to you. Then note the operational trap: OpenProject derives parent progress from children and **ignores manually-entered work on parents** ([FAQ](https://www.openproject.org/docs/user-guide/work-packages/work-packages-faq/)) — the moment you have a hierarchy, rollup fields must be computed, not stored, or they will disagree.
++
++### D3. Additions to the "what to steal" list
++
++Slot these below the original five, above the mixin model:
++
++6. **AppFlowy's `TypeOption`** — a per-field-type JSON config attached to the field, with the cell storing opaque raw data. Lets you add field types without a migration. ([Database View](https://docs.appflowy.io/docs/documentation/software-contributions/architecture/frontend/database-view))
++7. **Shared fields/rows, per-view layout+filters+sorts** — the single cheapest way to ship Grid/Board/Calendar over one dataset. ([ibid.](https://docs.appflowy.io/docs/documentation/software-contributions/architecture/frontend/database-view))
++8. **NocoDB's Data Edit / Schema Edit toggles** — keep presentation metadata in your own tables so the data schema stays untouched and read-only mode is a config flag, not a rewrite. ([Connect to a Data source](https://nocodb.com/docs/product-docs/data-sources/connect-to-data-source))
++9. **Vikunja's auto-inverse typed relations** — one table, one inverse map, and blocked-by/duplicates/precedes come free. ([Task Relations](https://vikunja.io/docs/task-relation-kinds/))
++
++**New trap: Teable's model on Neon.** Mapping user-defined fields to physical columns means every field edit is `ALTER TABLE`. On Neon's HTTP driver each statement is its own round trip and DDL cannot be wrapped in an interactive transaction, so a multi-step field migration has no rollback boundary — and Workers have a wall-clock budget. Teable's payoff is raw SQL access and unlimited rows ([Teable](https://blog.teable.io/blog/data-reimagined-postgres-airtable-fusion)); if you don't need those, a JSONB property bag keyed by `field_id` (AppFlowy's shape) is strictly cheaper.
++
++---
++
++## Unverified / could not source
++
++The following were considered but **could not be confirmed from a citable public source** and should be treated as open questions:
++
++1. **Linear's server-side stack.** Which database, how `syncId` is allocated, whether deltas are persisted per workspace or globally. The reverse-engineering study is client-side only; the CTO's endorsement covers the client description.
++2. **Whether Linear mints issue UUIDs on the client.** The Object Pool is keyed by UUID and offline creation implies it, but no source states it directly.
++3. **The exact rationale for `ENG-123`.** No Linear post explaining the human-ID choice was found; the team-scoped numbering is documented, the reasoning is inferred.
++4. **Linear's GraphQL mutation-to-delta latency, delta packet wire format, and how `lastSequentialSyncId` differs from `lastSyncId`.**
++5. **Plane's service topology.** Docs name Postgres, Redis and S3/MinIO as the external dependencies, but the individual containers (API, web, worker/beat-worker, live, admin, space) and whether a broker such as RabbitMQ is used were **not** confirmed from docs. Do not cite a service list without checking `docker-compose.yml`.
++6. **Whether Plane allows an issue in multiple cycles when Parallel Cycles is enabled.** Docs confirm parallel cycles exist; they do not state the issue↔cycle cardinality under that flag.
++7. **Huly's transaction storage shape** (append-only event log vs current-state rows). "Transactions" are listed among the data CockroachDB stores; event-sourcing is implied by the name `transactor` but never asserted in the architecture doc.
++8. **Huly's historical MongoDB usage.** Current docs say CockroachDB; older deployments reportedly used MongoDB, unverified here.
++9. **Why Mattermost stopped maintaining standalone Focalboard.** The unmaintained status and the plugin/standalone split are documented ([README](https://github.com/mattermost-community/focalboard/blob/main/README.md), [#5038](https://github.com/mattermost-community/focalboard/issues/5038)); no post-mortem, blog post or public rationale was found. "Integrated survived, standalone didn't" is a reading of the outcome, not a sourced claim about intent.
++10. **What actually breaks in Teable's physical-column model.** No Teable doc enumerates the trade-offs. The `ALTER TABLE`-per-field-edit consequence, Postgres's 1600-column ceiling, and the dependency graph needed for Formula/Lookup/Rollup are **inferred from the design** plus the documented existence of those field types. Do not present them to the founder as Teable's stated position.
++11. **AppFlowy's per-view vs shared data boundary.** The docs confirm Grid/Board/Calendar share one database and that layout settings are view-specific; whether filters and sorts are per-view or per-database was **not** confirmed from the official page.
++12. **Hierarchy depth limits — all products.** Not documented anywhere (Plane, Linear, OpenProject, AppFlowy, Vikunja, Huly). Absence of a documented limit is not proof no limit exists in code; it means no product advertises one, and none was found in docs.
++13. **Huly's parent/child model and depth.** Not sourced at all.
++14. **Operately and Vikunja beyond the single idea each.** Only the Work Map / unified-status note and the relation-kind table were verified; neither product's storage or sync design was investigated.
++15. **AppFlowy-Cloud's Redis Streams delta propagation and S3-vs-Postgres tiering by document size.** Widely repeated in AI-generated wikis (DeepWiki), **not** found in `docs.appflowy.io`. Deliberately excluded from the body above.
+diff --git a/docs/research/2026-07-10-meeting-web-capture-and-stt.md b/docs/research/2026-07-10-meeting-web-capture-and-stt.md
+new file mode 100644
+index 0000000..3de9814
+--- /dev/null
++++ b/docs/research/2026-07-10-meeting-web-capture-and-stt.md
+@@ -0,0 +1,193 @@
++# Web-First Meeting Capture & STT — Research
++
++**Date:** 2026-07-10. All prices/licenses fetched on this date. Claims labelled `[claim]` (vendor self-reported), `[verified]` (primary doc/spec/license text), `[reasoning]` (my inference). Unsourced items are quarantined in **Could Not Verify**.
++
++---
++
++## 1. The Capture Problem
++
++### 1.1 What `getDisplayMedia({audio:true})` actually captures
++
++This is the single most important finding, and it is worse than it looks. From MDN's browser-compat-data (`api/MediaDevices.json`, node `getDisplayMedia.audio_capture_support`) [verified]:
++
++| Browser | Audio capture via getDisplayMedia |
++|---|---|
++| Chrome | **74+**, with the note: *"On Windows and ChromeOS, the entire system audio can be captured when sharing an entire screen. On Linux and macOS, only the audio of a tab can be captured."* |
++| Edge | mirrors Chrome |
++| **Firefox** | **NO** (`version_added: false`) |
++| **Safari** | **NO** (`version_added: false`) |
++| Chrome Android / Firefox Android / Safari iOS | **NO** |
++
++Source: https://github.com/mdn/browser-compat-data/blob/main/api/MediaDevices.json · rendered at https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getDisplayMedia#browser_compatibility
++
++Corroborating facts:
++- `getDisplayMedia()` itself: Chrome 72+, Firefox 66+, Safari 13+, **Safari iOS: NO**, **Chrome Android: NO** [verified, same BCD file].
++- MDN: audio is captured only *"if audio is supported and available for the display surface chosen by the user"*, and *"Browser support for audio tracks varies… Check the compatibility table."* MDN explicitly notes the audio source *"might be the selected window, the entire computer's audio system, or the user's microphone."* https://developer.mozilla.org/en-US/docs/Web/API/Screen_Capture_API/Using_Screen_Capture#capturing_shared_audio [verified]
++- `video: false` **rejects with TypeError** — you cannot request audio-only. You must take a video track you don't want. https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getDisplayMedia [verified]
++- `systemAudio` option: Chrome 105+ only, default `include`; Firefox/Safari absent [verified, BCD]. Chrome's own doc confirms the picker asymmetry: *"Sharing tab audio is offered in 'Chrome Tab' pane, but not in 'Entire Screen' pane"* and warns *"System audio… includes remote participants' own audio, and should not be transmitted back to them."* https://developer.chrome.com/docs/web-platform/screen-sharing-controls [verified]
++
++**Verdict on the browser API.** A pure web app can hear other participants **only** on Chrome/Edge desktop. On **macOS — the notetaker market's dominant platform — you cannot get system audio at all**; you can only capture *one tab's* audio, so it works only if the meeting is a browser tab (Meet, Zoom Web, Teams web) and the user picks exactly that tab. On Windows/ChromeOS you can get full system audio, but only if the user shares an *entire screen*. Firefox, Safari, and **all mobile browsers give you nothing**. Every session requires an explicit user picker gesture, and you're forced to carry a video track you discard. [verified + reasoning]
++
++### 1.2 What real notetakers do (nobody relies on the browser)
++
++| Product | Mechanism | Source |
++|---|---|---|
++| Otter (OtterPilot) | **Bot joins as participant**, calendar-driven | https://help.otter.ai/hc/en-us/articles/26010355877911 |
++| Fireflies | **Bot** (fred@fireflies.ai); also Google Meet **SDK** integration ("no visible bot… every attendee must approve") + **desktop app** | https://guide.fireflies.ai/articles/9554534786 · https://guide.fireflies.ai/articles/3309351579 |
++| Fathom | **Bot** + **desktop app or browser extension** | https://help.fathom.video/en/articles/449088 |
++| Granola | **Desktop only, no bot.** *"There is no meeting bot — Granola runs only on your computer and uses your system audio and microphone."* *"The web interface at notes.granola.ai is for viewing and editing existing notes only — it cannot capture or transcribe."* | https://docs.granola.ai/help-center/taking-notes/transcription |
++| tl;dv | **Bot** or bot-free **desktop app** ("records system audio in the background") | https://intercom.help/tldv/en/articles/14433337-bot-free-recording |
++| Read.ai | **Bot** + bot-free **desktop app** + Meet add-on | https://www.read.ai/articles/why-is-read-ai-in-my-meeting-what-to-know |
++
++**None of the six capture from a plain web page with no extension, no bot, and no desktop app.** Stated plainly, because it is the core constraint on this product. [verified]
++
++### 1.3 The bot-joins-the-meeting layer
++
++- **Recall.ai** — universal Meeting Bot API (Zoom/Meet/Teams) + Desktop Recording SDK + Calendar API. **Pay-as-you-go $0.50 / recording-hour**; built-in transcription **+$0.15 / recording-hour**; no platform fee. https://www.recall.ai/pricing · https://www.recall.ai/blog/new-recall-ai-pricing-for-2026 [verified, fetched 2026-07-10]
++- **Vexa** (`Vexa-ai/vexa`) — **Apache-2.0**, self-hosted Docker/K8s. Bot joins Meet/Teams/Zoom, streams speaker-attributed transcripts. Whisper transcription unit is self-hostable for air-gapped use. https://github.com/Vexa-ai/vexa [verified]
++- **Attendee** (`attendee-labs/attendee`) — "open source API for managing meeting bots." Django + Postgres + Redis, single Docker image; Deepgram for realtime STT. Notably: *"Google Meet doesn't provide any support at all, so you need to run a full instance of Google Meet in Chrome."* https://github.com/attendee-labs/attendee [verified; **license text unconfirmed**]
++- **Zoom RTMS** is the sanctioned no-bot path: *"Instead of having participant bots or automated clients in meetings, use RTMS apps to collect the media data."* https://developers.zoom.us/docs/rtms/ [verified]
++
++**Cost of each option in UX friction:**
++
++| Option | Hears all participants? | Friction |
++|---|---|---|
++| `getDisplayMedia` tab audio | Yes, if meeting is a tab | Chrome/Edge desktop only; picker every session; **no macOS system audio**; no Safari/Firefox/mobile |
++| Bot joins call | Yes, all platforms | Visible participant; consent/ToS burden; ~$0.50/hr (Recall) or you operate headless Chrome |
++| Desktop app | Yes | Not a web app — an install, per-OS audio drivers |
++| Browser extension | Meet/Teams web only | Store review; per-platform DOM/caption coupling |
++| Platform APIs (Zoom RTMS, Meet SDK) | Yes | Per-platform integration, app review, admin install |
++
++---
++
++## 2. STT Options
++
++### 2.1 Self-hostable (no account)
++
++| Engine | License (code / weights) | Streaming | Speed | Diarization | CPU-only |
++|---|---|---|---|---|---|
++| [openai/whisper](https://github.com/openai/whisper) | MIT / MIT | No (30s chunks) | reference, slowest | No | slow |
++| [whisper.cpp](https://github.com/ggml-org/whisper.cpp) | MIT / MIT | Yes (`whisper-stream`) | large-v2 65s w/ FlashAttn [claim] | `tinydiarize` (turn-only) | **Yes — its design**; WASM build |
++| [faster-whisper](https://github.com/SYSTRAN/faster-whisper) | MIT / MIT | No (chunked) | large-v2 int8 59s vs 2m23s ref; CPU small int8 1m42s vs 6m58s [claim] | No | **Yes, strong (int8)** |
++| [WhisperX](https://github.com/m-bain/whisperX) | BSD-2 / (wraps others) | No (batched) | 60–70× RT batched [claim, [arXiv 2303.00747](https://arxiv.org/abs/2303.00747)] | **Yes** (pyannote) | Yes |
++| [Parakeet-tdt-0.6b-v2](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2) | CC-BY-4.0 / CC-BY-4.0 | Not by default | **WER 6.05 / RTFx 3386** [claim, self-reported] | No | GPU-first |
++| [Moonshine](https://github.com/moonshine-ai/moonshine) | MIT / **EN MIT; other langs non-commercial** | **Yes** (streaming models) | 107ms MacBook / 802ms Pi5 [claim] | No | **Yes, excellent** |
++| [Vosk](https://github.com/alphacep/vosk-api) | Apache-2.0 / Apache-2.0 | **Yes, zero-latency** | 50MB models | speaker ID, not diarization | **Yes, primary target** |
++| [Kyutai STT](https://github.com/kyutai-labs/delayed-streams-modeling) | MIT+Apache / **CC-BY-4.0** | **Yes, native** (0.5s delay) | H100 = 400 streams RT [claim] | No | GPU-oriented |
++| [whisper_streaming](https://github.com/ufal/whisper_streaming) | see CNV | Yes | 3.3s latency [[arXiv 2307.14743](https://arxiv.org/html/2307.14743)] | No | Yes |
++| [WhisperLive](https://github.com/collabora/WhisperLive) | MIT | Yes | backend-dependent | **Yes** (pyannote online) | Yes |
++
++### 2.2 Hosted APIs (all are REST/WS + bearer token ⇒ **BYO-key is trivial for every one** [reasoning])
++
++| Provider | Streaming | Diarization | ~USD/hr |
++|---|---|---|---|
++| [Groq whisper-large-v3-turbo](https://groq.com/pricing) | **No — batch only** | No | **$0.04** |
++| [Speechmatics](https://www.speechmatics.com/pricing) | Yes | Yes | from $0.129 |
++| [AssemblyAI Universal-Streaming](https://www.assemblyai.com/pricing) | Yes | Yes (self-correcting labels) | **$0.15** |
++| [Deepgram Nova-3](https://deepgram.com/pricing) | Yes, WS | Yes | ~$0.26 batch / ~$0.46 stream (see CNV) |
++| [Sarvam saarika/saaras](https://www.sarvam.ai/api-pricing) | Yes | Add-on | ₹30/hr ≈ $0.35 |
++| [Gladia Solaria](https://www.gladia.io/pricing) | Yes, "sub-300ms" | Yes, all tiers | $0.61 async / $0.75 RT (PAYG) |
++| [OpenAI](https://platform.openai.com/docs/pricing) | Realtime API (WS) | Historically none | gpt-realtime-whisper $1.02 |
++| [**Cloudflare Workers AI** `@cf/openai/whisper-large-v3-turbo`](https://developers.cloudflare.com/workers-ai/models/whisper-large-v3-turbo/) | Batch: Yes (no streaming API documented) | No | **$0.00051/audio-min = $0.0306/hr** |
++
++Workers AI is the cheapest hosted option on this table by ~25× versus Deepgram streaming, and it's already inside your stack. [verified pricing; comparison is reasoning]
++
++### 2.3 In-browser (no server)
++
++- **Moonshine Web** — React+Vite, `moonshine-base` ONNX, *"runs locally in the browser using Transformers.js and WebGPU-acceleration (or WASM as a fallback)"*, Apache-2.0. https://github.com/huggingface/transformers.js-examples/tree/main/moonshine-web [verified]
++- **whisper-web** (xenova) — Whisper via Transformers.js, 3.3k stars. https://github.com/xenova/whisper-web [verified]
++- **whisper.cpp** ships `whisper.wasm` / `stream.wasm` browser targets. [verified]
++
++**Honest read:** these exist, are real, and demo well on small models with WebGPU. I did **not** find an independent 2026 benchmark of sustained hour-long meeting transcription in-browser (see CNV). [reasoning] Treat in-browser STT as a *privacy/offline demo tier and a self-host fallback*, not the default quality path: it competes for the same GPU as the user's video call.
++
++---
++
++## 3. Diarization
++
++| System | Code | Weights | Gated? | Streaming |
++|---|---|---|---|---|
++| [pyannote.audio](https://github.com/pyannote/pyannote-audio) | **MIT** | seg-3.0 / diar-3.1 = MIT; **community-1 = CC-BY-4.0** | **Yes — HF accept-conditions wall + marketing opt-in** | Offline |
++| [NVIDIA streaming Sortformer 4spk-v2](https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2) | — | **CC-BY-4.0** | **No wall** | **Yes** (0.32s / 1.04s configs); ≤4 speakers |
++| [3D-Speaker](https://github.com/modelscope/3D-Speaker) | Apache-2.0 | Apache-2.0 | **No** | Offline |
++| [ReDimNet](https://github.com/IDRnD/redimnet) / [SpeechBrain ECAPA](https://huggingface.co/speechbrain/spkrec-ecapa-voxceleb) | MIT / Apache-2.0 | ungated | No | embeddings **only** — you supply VAD + clustering |
++
++**The open, license-clean answer is NVIDIA streaming Sortformer** (CC-BY-4.0, no gate, genuinely streaming) with **3D-Speaker (Apache-2.0)** as the offline pipeline. pyannote is the most turnkey but its HF gate is a hard blocker for the "no proprietary account" promise — WhisperX inherits that gate (it wraps pyannote community-1 and needs `--hf_token`). There is a commercial arm, **pyannoteAI**, selling hosted `precision-2`. [verified]
++
++---
++
++## 4. Transport / Architecture on Cloudflare
++
++From https://developers.cloudflare.com/workers/platform/limits/ [verified]:
++- **Memory: 128 MB. Worker size: 10 MB. CPU time: max 5 min (default 30s).**
++- **Duration (wall clock): HTTP request = *no limit* while the client stays connected.** Durable Objects (RPC/HTTP) = **unlimited** while the caller stays connected.
++- Cron/Queue/DO-alarm handlers = 15 min.
++
++⇒ **A Worker can hold a long-lived WebSocket for a whole meeting.** [verified]
++⇒ **In-Worker Whisper inference is impossible**: a 10 MB bundle cap and 128 MB memory cannot hold Whisper weights, and 5 min CPU won't cover an hour of audio. Inference must go to Workers AI (separate GPU service) or an external provider. [reasoning, grounded in the limits above]
++
++**Durable Objects + WebSocket Hibernation** is the right primitive: *"Clients remain connected while the Durable Object is not in memory"*, *"Billable Duration (GB-s) charges do not accrue during hibernation"*, and it wakes on message. Restore state via `serializeAttachment`/`deserializeAttachment`. https://developers.cloudflare.com/durable-objects/best-practices/websockets/ [verified] One DO per meeting = the natural session/coordination object.
++
++**Cloudflare Realtime** ships **RealtimeKit** (high-level SDK), the **Realtime SFU** (low-level, *"Requires deep WebRTC knowledge. No SDK provided"*), and **TURN**. https://developers.cloudflare.com/realtime/ [verified]
++**LiveKit server is Apache-2.0** and self-hostable. https://github.com/livekit/livekit + [LICENSE](https://raw.githubusercontent.com/livekit/livekit/master/LICENSE) [verified]
++
++**Recommendation:** you do not need an SFU. You are not routing media between participants — you are shipping one client's audio to one backend. **Raw WebSocket → Durable Object** is sufficient and far cheaper in complexity than SFU/WebRTC. Add LiveKit only if you later build a bot that must *join* WebRTC calls. [reasoning]
++
++**Rust/WASM:** useful in exactly two places — (a) **client-side**: resample/VAD/Opus-encode in the browser before upload, and the in-browser engine tier (whisper.cpp WASM, Transformers.js ONNX+WebGPU); (b) **self-host container**: whisper.cpp / faster-whisper. It is **not** useful inside a Worker (bundle + memory caps). [reasoning]
++
++---
++
++## 5. The No-Lock-In Design
++
++The standard pattern is what you already have in FastAPI: a **provider interface + adapters**, with three tiers — (1) a bundled default engine that needs no account, (2) BYO-key adapters for every hosted API, (3) an optional hosted default. Evidence from the field:
++
++- **Meetily** (`Zackriya-Solutions/meeting-minutes`) — **MIT**, Tauri (Rust + Next.js), captures **mic + system audio** at the OS layer, local Whisper/Parakeet + Ollama, fully offline. Rationale: data sovereignty. https://github.com/Zackriya-Solutions/meeting-minutes [verified]
++- **Vexa** — Apache-2.0, bot-based, Whisper self-hostable, air-gap ready. README: *"Every meeting-AI tool… sends your conversations to their cloud and rents you access back. Vexa inverts that."* [verified]
++- **Amurex** — **AGPL-3.0**, browser extension for Meet/Teams web, self-hostable backend. https://github.com/thepersonalaicompany/amurex [verified; capture mechanism not documented → CNV]
++- **Screenpipe** — **license flipped 2026-06-10 to a proprietary source-available "Screenpipe Commercial License"**: free only for personal/non-commercial/eval; commercial use requires payment; hosting-as-a-service prohibited. https://github.com/mediar-ai/screenpipe/blob/main/LICENSE.md [verified]
++
++**The lesson:** Screenpipe is the cautionary tale (AGPL → commercial) and the reason to pick permissive deps deliberately. Meetily (MIT) and Vexa (Apache-2.0) are the credible "no account" precedents — and **both abandoned the browser for capture**: Meetily is a desktop app, Vexa is a bot.
++
++---
++
++## 6. Synthesis
++
++**Capture strategy.** Ship a **three-tier capture ladder** behind one `CaptureSource` seam:
++1. **Tier 0 (web, today):** `getDisplayMedia({video:{displaySurface:"browser"}, audio:true, systemAudio:"exclude", selfBrowserSurface:"exclude"})` + `getUserMedia` mic, mixed via WebAudio. Works on Chrome/Edge desktop for tab-based meetings. Detect and *tell the user* on Safari/Firefox/mobile rather than failing silently. Discard the forced video track.
++2. **Tier 1 (self-host parity):** a **bot** (Vexa/Attendee-style headless Chrome) for users who want all platforms and no per-session picker.
++3. **Tier 2 (hosted convenience):** Recall.ai at $0.50/hr, or a desktop helper.
++
++Do not pretend Tier 0 is sufficient. It is a Chrome-desktop, tab-meeting feature — and on macOS it cannot hear system audio at all.
++
++**Default self-hosted STT:** **faster-whisper** (MIT code + MIT weights, viable CPU int8, drop-in) with **whisper.cpp** for the CPU/edge and WASM build. **Default hosted:** **Cloudflare Workers AI whisper-large-v3-turbo** at **$0.0306/hr** — same stack, no new vendor — with **Deepgram/AssemblyAI as BYO-key streaming adapters** when live captions matter. Keep the existing `SpeechProvider` seam; add `supportsStreaming` and `supportsDiarization` capability flags so the UI degrades honestly.
++
++**Diarization default:** streaming **Sortformer** (CC-BY-4.0, ungated). Avoid pyannote in the default path — its HF gate breaks "no proprietary account."
++
++### Top 5 decisions by impact/cost
++1. **Accept that "web-first" ≠ "browser-captures-everything"** — ship the capture ladder, not one mechanism. (Highest impact, zero code cost: it's a scoping decision.)
++2. **One Durable Object per meeting, WebSocket Hibernation** — long-lived session, no idle billing, unlimited wall time. Cheap, exactly fits.
++3. **Workers AI as hosted default** ($0.0306/hr) — 25× cheaper than Deepgram streaming, no new vendor.
++4. **faster-whisper as the bundled self-host engine** — MIT top-to-bottom, CPU-viable, no account.
++5. **Sortformer over pyannote** for diarization — the only choice consistent with the no-account promise.
++
++### Top 3 traps
++1. **macOS has no system audio in the browser, ever.** Chrome's own compat note says Linux/macOS get *tab audio only*. Any roadmap assuming otherwise is dead on arrival for the majority of notetaker users.
++2. **pyannote's HuggingFace gate** silently contaminates "fully open" — WhisperX inherits it. You'd ship a self-host story that demands a HF account and a terms click.
++3. **License drift in your dependencies.** Screenpipe went proprietary on 2026-06-10; Moonshine's non-English weights are non-commercial. Pin licenses and re-check at each bump.
++
++---
++
++## Could Not Verify
++
++- **Deepgram Nova-3 exact per-minute price** (pricing table is JS/image-rendered); the $0.0043/min batch and $0.0077/min streaming figures come from a **secondary** source, not Deepgram's page. Diarization add-on price unknown.
++- **AssemblyAI Universal-Streaming latency in ms** — page says only "ultra-low latency."
++- **Speechmatics** real-time-vs-batch price split; exact latency figure.
++- **OpenAI gpt-4o-transcribe / mini per-minute** from the primary pricing page (only `gpt-realtime-whisper $0.017/min` appeared there); whether gpt-4o-transcribe offers diarization at all.
++- **Sarvam diarization surcharge** (~$0.53/hr) — secondary source.
++- **Cloudflare Workers AI whisper: no streaming interface.** The model page documents a single base64 request and `Batch: Yes`; it does **not** explicitly state that streaming is unsupported. Absence of a documented WS API is my inference.
++- **Live HuggingFace Open ASR Leaderboard ordering** — the Space is JS-rendered and did not load. Canary-Qwen ~5.63% / Granite ~5.85% WER are from secondary blogs. Only `parakeet-tdt-0.6b-v2` WER 6.05 / RTFx 3386 was read from its HF card (self-reported).
++- **All self-hosted speed/WER numbers above are project self-reported**, not independently reproduced.
++- **Independent benchmark of sustained in-browser (WASM/WebGPU) hour-long meeting transcription** — none found. The "usable in 2026?" question is therefore *unproven*, not *answered*.
++- **`attendee` SPDX license** — README says "open source"; license file text unread.
++- **`whisper_streaming` exact license** — LICENSE file not read.
++- **Amurex capture mechanism** — README does not state it; that it reads Meet/Teams caption DOM is a guess, not a finding.
++- **Zoom/Meet/Teams recording-consent policy pages** — not fetched verbatim; consent claims come from Fireflies'/Read.ai's own docs.
+diff --git a/docs/research/2026-07-10-nesting-depth-evidence.md b/docs/research/2026-07-10-nesting-depth-evidence.md
+new file mode 100644
+index 0000000..6bde282
+--- /dev/null
++++ b/docs/research/2026-07-10-nesting-depth-evidence.md
+@@ -0,0 +1,103 @@
++# How deep should issue nesting go? Evidence review
++
++Date: 2026-07-10. Question: 1 level, ~3 levels, or unlimited — and what does real-world evidence say?
++
++Every factual claim below has a URL. Claims marked **[snippet-only]** come from search-result summaries I did not open directly and should be re-verified before being quoted externally. Reasoning is labeled as reasoning.
++
++---
++
++## 1. Evidence table — vendors' actual limits
++
++| Vendor | Documented depth | Changed over time? | Sentiment / source |
++|---|---|---|---|
++| **Jira** | Epic → Story/Task → Sub-task. A sub-task cannot have sub-tasks. Premium "Plans" adds levels **above** epic only; you cannot insert a level below epic or below sub-task. | **Deliberately refused.** JRASERVER-4446 closed **Won't Do** (Atlassian, 6 Nov 2017). Support-reference count 19. | Atlassian: *"we are not planning to invest in more extensive issue hierarchies… we strongly believe that we should focus on making Jira simpler and easier to use rather then introduce additional complexity on both conceptual and technical level."* ([JRASERVER-4446](https://jira.atlassian.com/browse/JRASERVER-4446)); hierarchy-above-epic-only ([docs](https://support.atlassian.com/jira-software-cloud/docs/configure-custom-hierarchy-levels-in-advanced-roadmaps/)) |
++| **Linear** | Sub-issues nest; the docs page states no depth cap. Separately, **initiatives** are explicitly capped at **five levels**. | Yes — sub-initiatives shipped 10 Jul 2025 *with* a 5-level cap. | *"Initiatives can now be nested up to five levels deep"* ([changelog](https://linear.app/changelog/2025-07-10-sub-initiatives)); [issue docs](https://linear.app/docs/parent-and-sub-issues) |
++| **Asana** | Subtasks nest (users describe it as "endless"). | No change found. | Asana's **own blog tells you not to use it**: *"we recommend not going more than a single 'layer' deep"* ([Asana](https://blog.asana.com/2020/11/asana-tips-subtasks/)). Users ask Asana to **add a cap**: *"my clients and teams can create endless sub-tasks on simple projects that don't need them… I rarely see a need for more than 3 levels"* ([forum](https://forum.asana.com/t/limit-sub-task-depth/8510)) |
++| **ClickUp** | Up to **7** levels of nested subtasks, **default 3**, admin-configurable. Max **1,000** subtasks per task including nested. | Yes — shipped as an opt-in ClickApp with a conservative default. | [ClickUp docs](https://help.clickup.com/hc/en-us/articles/6304431740055-Create-nested-subtasks) |
++| **GitHub Issues** | **8** levels of nested sub-issues, **100** sub-issues per parent. | Sub-issues are new (2024–25); the cap shipped with the feature. | [GitHub docs](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/adding-sub-issues) |
++| **monday.com** | **Up to 4 levels** of subitems — **only on newly created "multi-level" boards**. | **Yes — raised from 1 level.** *"You asked, we delivered… subitems of subitems are finally here!"* | [monday docs](https://support.monday.com/hc/en-us/articles/29810815287570-Multiple-levels-of-subitems-on-monday-com) |
++| **Notion** | Sub-items nest; **no depth cap stated in the help doc**. The doc instead exposes display modes (`Nested in toggle` / `Flattened list`) and filter modes (`Parents only` / `Parents and sub-items` / `Sub-items only`). | Not established. | [Notion docs](https://www.notion.com/help/tasks-and-dependencies) |
++| **OpenProject** | Parent/child work-package hierarchy; **no depth limit found in the docs I checked**. | Not established. | [OpenProject docs](https://www.openproject.org/docs/user-guide/work-packages/work-package-relations-hierarchies/) |
++| Height, Shortcut, Plane | **Not verified** — see §6. | — | — |
++
++### The strongest signals
++
++1. **Jira restricted and stayed restricted for 20+ years**, in writing, on complexity grounds. Their escape valve was *upward* hierarchy and third-party apps, never downward.
++2. **monday.com went the other way — and could not retrofit.** Multi-level subitems are *"only available on newly created boards."* Raising a depth cap was not a config flip; it needed a new board type ([monday docs](https://support.monday.com/hc/en-us/articles/29810815287570-Multiple-levels-of-subitems-on-monday-com)).
++3. **ClickUp cannot enforce a *lowered* cap on existing data.** *"When you reduce the number of subtask levels, any existing nested subtasks are not impacted."* Deep trees survive; you only stop new ones ([ClickUp docs](https://help.clickup.com/hc/en-us/articles/6304431740055-Create-nested-subtasks)). **Lowering a cap is effectively impossible.**
++4. **Asana allows it and advises against it.** The vendor's own guidance is 1 level.
++
++---
++
++## 2. Failure modes of DEEP nesting (each with a source)
++
++- **Children are invisible in views by default.** Asana, in its own words: *"Unlike tasks, subtasks don't show up on Timeline or Calendar View. And while you *can* select a drop-down to show subtasks in List and Board View — subtasks don't show up by default in those project views, either."* Also excluded from Workload and Rules. ([Asana](https://blog.asana.com/2020/11/asana-tips-subtasks/))
++- **Nested children can't be rendered in flat table/board views.** GitHub shipped 8-level sub-issues, then users asked for a way to see them: *"if you view issues in a table, there is no way to create a view where you can see a parent issue, with it's sub issues showing in rows directly beneath it. You can group by parent issue. But then this doesn't work well for filtering and sorting."* — 11 comments, 46 votes, still **Unanswered**. ([GitHub discussion #161692](https://github.com/orgs/community/discussions/161692))
++- **Filter semantics become a product decision you must ship.** Notion's sub-item docs must offer three filter modes (`Parents only`, `Parents and sub-items`, `Sub-items only`) and two display modes — and board/calendar/gallery views support *only* `Parents only`. Depth forces per-view semantics. ([Notion](https://www.notion.com/help/tasks-and-dependencies))
++- **Conceptual + technical complexity, per the vendor.** Atlassian's stated reason for refusing. ([JRASERVER-4446](https://jira.atlassian.com/browse/JRASERVER-4446))
++- **Users request a cap because teammates over-nest.** ([Asana forum](https://forum.asana.com/t/limit-sub-task-depth/8510))
++- **Per-parent volume caps are needed anyway** — ClickUp 1,000 incl. nested; GitHub 100 per parent.
++- **[snippet-only]** Parent completion hides incomplete descendants ([Asana forum](https://forum.asana.com/t/completed-task-with-incomplete-subtasks/51714)); large subtask lists force repeated "load more" and users report getting lost navigating back to the parent ([Asana forum](https://forum.asana.com/t/subtask-expansion-feedback-for-tasks-with-lots-of-subtasks/1103367)).
++
++**Verdict:** "a task buried N levels deep is invisible" is **not a strawman**. It is documented by Asana itself, and it is the top open complaint on GitHub's newer, capped implementation. Notification storms, estimate double-counting, and drag-reorder complexity are plausible but I found **no direct evidence** — see §6.
++
++---
++
++## 3. Failure modes of TOO-SHALLOW nesting (each with a source)
++
++- **Users abuse issue links as a fake hierarchy — and lose all hierarchy features.** Atlassian community, on wanting a bug under a sub-task: *"Using issue links is almost certainly the way to go here. The downside is that Jira doesn't understand issue links as parent/child relationships, and therefore doesn't give you hierarchy-related features."* ([community](https://community.atlassian.com/forums/Jira-questions/Is-there-a-way-to-create-a-bug-within-a-subtask-Do-not-want-to/qaq-p/1932633))
++- **Users abuse labels and custom fields** to fake a level Jira won't give them. **[snippet-only]** ([community](https://community.atlassian.com/forums/Jira-questions/How-to-create-additional-Sub-task-types/qaq-p/2688274))
++- **Users leave for third-party apps.** Atlassian itself points customers at the paid **Structure** plugin in the Won't Do notice ([JRASERVER-4446](https://jira.atlassian.com/browse/JRASERVER-4446)); JXL / "Hierarchy for Jira" occupy the same niche.
++- **Users add a checklist as a pseudo-level below sub-task.** **[snippet-only]** — the recurring Atlassian-community workaround is *"use checklists to add one more hierarchy level below the subtask."* This is exactly the layer we already have.
++- **Even paying customers can't fix it.** Jira Premium Plans adds levels *above* epic only; you cannot insert a level below epic. ([Atlassian docs](https://support.atlassian.com/jira-software-cloud/docs/configure-custom-hierarchy-levels-in-advanced-roadmaps/))
++- **The demand is persistent.** JRASERVER-4446 accumulated a 19-customer support-reference count before its 2017 Won't Do, and Atlassian maintained a mirrored JRACLOUD-4446 for Cloud. (Creation date not verified.)
++
++**Verdict:** shallow nesting produces *workarounds and app purchases*, not tool abandonment. Jira remained dominant for two decades with a 1-level sub-task rule. That is the single most load-bearing fact in this report.
++
++---
++
++## 4. Transfer analysis to our constraints — **this section is reasoning, not cited evidence**
++
++**We already have a second level.** Our `tasks` table is a flat per-work-item checklist. Adding `parent_id` on work items with a **1-level cap** gives us: work item → child work item → checklist task. That is Jira's shape exactly (Story → Sub-task → checklist), and it is one tier richer than Asana's own recommendation. The Jira-community "use checklists as the extra level below sub-task" workaround is us, natively.
++
++**What depth costs us specifically:**
++
++- **Cycle prevention.** At depth ≤ 1 the invariant is `parent.parent_id IS NULL` — a single-row check, no recursion. At depth 3 every move must walk ancestors. With the Neon **HTTP driver and no interactive transactions**, that walk happens inside one statement, so two concurrent moves that are each individually valid can jointly create a cycle. Preventing that needs either serializable retries (awkward over HTTP) or a materialized `path`/`ltree` with a unique-prefix invariant. **Depth 1 makes the race impossible.**
++- **Reorder/move as single-statement CTEs.** Fine at depth 1 (recompute siblings under one parent). At depth 3, a move re-parents a whole subtree — the CTE must update every descendant's `depth`/`path` in one statement, doable but materially harder to get right without a transaction.
++- **Rollups.** Depth 1 → `GROUP BY parent_id`, one index. Depth N → a recursive CTE per read, or a maintained rollup column with the fan-out invalidation problem. Progress ambiguity ("does a parent's own estimate count, or only its children's?") is a *product* question that only appears once you have grandchildren.
++- **Import fidelity.** Jira sub-tasks are 1 level → **lossless**. Linear sub-issues nest deeper and Linear publishes no cap → a Linear import is **potentially lossy at any cap we pick**. The mitigation at depth 1: re-parent every descendant to the top-level ancestor and preserve the original parent id in a metadata column, so a later cap raise can *reconstruct* the tree. Do this on day one; it is cheap now and impossible retroactively if we discard the field.
++
++**Asymmetry — the decisive argument.** The evidence says the two directions are not symmetric:
++- **Raising** a cap: ClickUp raises/lowers it with a dropdown; Linear shipped 5-level initiatives as an additive feature. For us it is a validation constant + view work. Data already conforms.
++- **Lowering** a cap: ClickUp's own docs admit they **cannot** — existing deep trees are grandfathered forever. monday.com raised depth but had to gate it to **new boards**, i.e. even raising is expensive if the *storage shape* changes.
++
++So: ship the cap low, but ship the **storage shape** (a `depth` int column, a preserved `original_parent_external_id`) that a deeper tree would need. The trap monday fell into was a shape change, not a constant change.
++
++---
++
++## 5. Recommendation
++
++**Cap at 1 level of `parent_id` on work items (a parent must itself have `parent_id IS NULL`), keep `tasks` as the checklist tier, and store `depth` + imported-parent lineage from day one so the cap can be raised to 3 later without a data migration.**
++
++**Confidence: moderate-high (~75%).** It is what Jira enforced for two decades, what Asana explicitly recommends despite allowing more, what ClickUp defaults to within one level, and it is the only depth at which our HTTP-driver cycle-prevention problem disappears entirely.
++
++**The strongest argument against it:** *we are a migration target, and Linear is our marquee source.* Linear sub-issues nest past one level and publish no cap, so every Linear import at depth 1 is visibly lossy on day one — the moment a user's tree flattens, we have broken the one promise a migration tool makes. Jira imports are clean; Linear imports are not. If Linear migrations are the primary acquisition channel, the correct cap is **3**, accepting the recursive-CTE and cycle-race cost, because import fidelity is a first-impression, one-shot property and depth is a slow-burn one. Note that this argument is decided by *who our importing users actually are*, not by the depth literature — and the mitigation (preserve original lineage, flatten with a visible banner) only partially defuses it.
++
++---
++
++## 6. Could not verify / no evidence found
++
++Stated plainly, not filled in:
++
++- **Height, Shortcut, Plane** — no depth documentation retrieved. Unknown.
++- **OpenProject** — hierarchy exists; **no stated depth limit found**. Unknown, not "unlimited."
++- **Linear's issue-level depth cap** — the docs page describes sub-issues without stating any cap. The widely-repeated "5 levels" figure applies to **initiatives**, not issues. I found **no** authoritative statement of Linear's sub-issue depth limit.
++- **Notion's depth cap** — third-party posts claim ~10 levels and recommend 2–3 for performance; **Notion's own help doc states no limit.** Treat the number as unverified.
++- **Quantitative data** — I searched for the share of issues that have children and average real-world tree depth in Jira/Linear/GitHub workspaces. **No study, vendor report, or dataset found.** Nothing to report; do not let anyone cite a number here.
++- **Notification storms, sprint/estimate double-counting, drag-reorder complexity** — commonly asserted, but I found **no** primary report tying them to nesting depth. Plausible; unevidenced.
++- **Reddit / Hacker News threads** — searches surfaced no substantive r/jira, r/agile, r/projectmanagement, or HN thread on nesting depth. The vendor forums (Asana, Atlassian, GitHub) carried all the real signal.
++- **A vendor that shipped deep nesting and then removed it** — the strongest possible evidence. **Does not appear to exist.** ClickUp made lowering *impossible*, which is the closest thing.
++
++---
++
++*Compiled 2026-07-10 from primary vendor documentation, vendor issue trackers, and vendor community forums.*
