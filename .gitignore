@@ -43,3 +43,7 @@ parallel-research/
 # Windows shell redirection artifacts
 NUL
 .forge-push-token
+
+# Forge: shared config is committed; project state and generated skills are local.
+.forge/state.sqlite*
+.agents/skills/

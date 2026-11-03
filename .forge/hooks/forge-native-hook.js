@@ -156,7 +156,7 @@ function resolveEnforcement(projectRoot) {
   let protectedPaths = null;
   if (config.__raw) {
     tddDisabled = rawKeyDisabled(config.__raw, 'rail.tdd_intent') || rawKeyDisabled(config.__raw, 'tdd_intent');
-    if (/^\s*protectedPaths\s*:\s*\[\s*\]\s*$/m.test(config.__raw)) protectedPaths = [];
+    if (/^protectedPaths\s*:\s*\[\s*\]\s*$/m.test(config.__raw)) protectedPaths = [];
   } else {
     // `forge gate disable` writes workflow.gates['rail.tdd_intent']; the `full`
     // profile writes top-level rails.tdd_intent. Honor either shape.

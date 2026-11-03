@@ -64,59 +64,6 @@
             "command": "node \"$CLAUDE_PROJECT_DIR/.forge/hooks/forge-native-hook.js\" --intent protected-path --harness claude"
           }
         ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.forge/hooks/forge-native-hook.js\" --intent tdd-gate --harness claude"
-          }
-        ]
-      }
-    ],
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "forge hooks session-start --harness claude"
-          }
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "forge hooks inbox-pickup --harness claude"
-          },
-          {
-            "type": "command",
-            "command": "forge hooks shepherd-events --harness claude"
-          }
-        ]
-      }
-    ],
-    "PreCompact": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "forge hooks capture --harness claude --trigger precompact"
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "forge hooks capture --harness claude --trigger stop"
-          }
-        ]
       }
     ]
   }
