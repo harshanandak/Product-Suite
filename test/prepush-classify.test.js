@@ -35,6 +35,17 @@ describe("prepush-gate classification", () => {
     ).toContain("docs-only");
   });
 
+  test("Forge config and nested metadata count as docs-only", () => {
+    for (const file of [".forge/config.yaml", ".forge/metadata/example.json"]) {
+      expect(classifyFiles([file])).toEqual({ kind: "docs-only", reason: "docs/design only" });
+    }
+  });
+
+  test("Forge config riding along preserves the workspace classification", () => {
+    const file = "apps/platform-web/src/x.tsx";
+    expect(classifyFiles([".forge/config.yaml", file])).toEqual(classifyFiles([file]));
+  });
+
   test("cross-cutting / infra changes force the full suite", () => {
     expect(classify(["lefthook.yml"])).toContain("full-suite");
     expect(classify(["apps/meeting-web/vercel.json"])).toContain("full-suite");
