@@ -40,6 +40,7 @@ const DOCS_ONLY = [
   /^AGENTS\.md$/,
   /^\.sonarcloud\.properties$/,
   /^\.claude\//,
+  /^\.forge\//,
 ];
 
 // Cross-cutting / infra paths that force the FULL suite — a change here can
