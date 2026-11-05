@@ -6,3 +6,25 @@ blocks:
   memory:
     source:
       builtin: forge/memory
+  check:
+    source:
+      builtin: forge/check
+    config:
+      commands:
+        lint:
+          argv:
+            - bun
+            - run
+            - lint
+        typecheck:
+          argv:
+            - bun
+            - run
+            - --filter
+            - "*"
+            - typecheck
+        test:
+          argv:
+            - bun
+            - run
+            - test:prepush
