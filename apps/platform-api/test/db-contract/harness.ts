@@ -44,6 +44,8 @@ import { createDb, createSql, migrationStatements, type Database, type Sql } fro
 import { createBranchLeaseCoordinator, type BranchLease } from './branch-lease'
 import { createEphemeralBranch, deleteEphemeralBranchStrict, NeonBranchError, type EphemeralBranch } from './neon-branch'
 import { workerRuntimeConfig } from './runtime-config'
+import { measurePhase, telemetryPathFromEnv, type TelemetryPhase } from './telemetry'
+import { reportTransportFailure } from './transport-diagnostic'
 export { assertConformanceMarker } from './conformance-marker'
 
 /** The only migration-history variants accepted by the authority contract. */
@@ -1511,13 +1513,39 @@ export async function query<Row = Record<string, unknown>>(
   return exec(sql, text, params) as unknown as Promise<Row[]>
 }
 
+const isTransactionControl = (statement: string, control: 'BEGIN' | 'COMMIT'): boolean =>
+  new RegExp(`^${control}\\s*;?$`, 'i').test(statement.trim())
+
+/** Execute one migration while preserving its explicit transaction boundary, if present. */
+export async function applyHarnessMigrationFile(
+  sql: Sql,
+  file: string,
+  recordApplied: () => void | Promise<void> = () => undefined,
+): Promise<void> {
+  const statements = migrationStatements(file)
+  const explicitlyWrapped = statements.length > 2
+    && isTransactionControl(statements[0]!, 'BEGIN')
+    && isTransactionControl(statements.at(-1)!, 'COMMIT')
+
+  if (explicitlyWrapped) {
+    const inner = statements.slice(1, -1)
+    await sql.transaction((transaction) => inner.map((statement) => transaction.query(statement)))
+  } else {
+    for (const statement of statements) {
+      await exec(sql, statement)
+    }
+  }
+
+  await recordApplied()
+}
+
 /**
- * Apply the complete migration chain to a fresh branch, exactly as `drizzle-kit
- * migrate` would: walk `meta/_journal.json` in `idx` order and execute each
+ * Apply the complete migration chain to a fresh branch: walk `meta/_journal.json`
+ * in `idx` order and execute each
  * migration file's statements (split on drizzle's `--> statement-breakpoint`, the
- * separator it guarantees between top-level statements). The neon-http driver runs
- * one statement per round-trip and has no multi-statement transactions, so each
- * statement is executed individually — the same way the migrator does over HTTP.
+ * separator it guarantees between top-level statements). Ordinary migrations run
+ * one statement per round-trip. Files with an explicit outer transaction use the
+ * neon-http transaction API so the boundary survives its stateless requests.
  *
  * Bootstrap first: repaired historical migrations conditionally add FKs to
  * canonical identity tables. The harness creates canonical test-only identity
@@ -1573,14 +1601,12 @@ async function applyHarnessMigrations(sql: Sql, options: { recordJournal?: boole
 
   for (const entry of ordered) {
     const file = readFileSync(resolve(MIGRATIONS_DIR, `${entry.tag}.sql`), 'utf8')
-    const statements = migrationStatements(file)
-    for (const statement of statements) {
-      await exec(sql, statement)
-    }
-    if (options.recordJournal) {
-      const hash = createHash('sha256').update(file.replace(/\r\n?/g, '\n'), 'utf8').digest('hex')
-      await exec(sql, `insert into drizzle.__drizzle_migrations (hash, created_at) values ($1, $2)`, [hash, entry.idx])
-    }
+    await applyHarnessMigrationFile(sql, file, async () => {
+      if (options.recordJournal) {
+        const hash = createHash('sha256').update(file.replace(/\r\n?/g, '\n'), 'utf8').digest('hex')
+        await exec(sql, `insert into drizzle.__drizzle_migrations (hash, created_at) values ($1, $2)`, [hash, entry.idx])
+      }
+    })
   }
 }
 
@@ -1614,8 +1640,18 @@ export async function prepareHarnessDatabase(
   sql: Sql,
   setup: HarnessDatabaseSetup = canonicalHarnessDatabaseSetup,
 ): Promise<void> {
-  await setup.provisionRoles(connectionUri)
-  await setup.applyMigrations(sql)
+  try {
+    await setup.provisionRoles(connectionUri)
+  } catch (error) {
+    reportTransportFailure('prepare', 'websocket', error)
+    throw error
+  }
+  try {
+    await setup.applyMigrations(sql)
+  } catch (error) {
+    reportTransportFailure('prepare', 'http', error)
+    throw error
+  }
 }
 
 /** Seed the baseline fixture and return its ids. */
@@ -1659,38 +1695,110 @@ export async function seedBaseline(sql: Sql): Promise<Seed> {
   return { tenantId, teamId, userId, runId, statusIds, defaultStatusId: statusIds.Backlog }
 }
 
+export interface DedicatedDbDependencies {
+  acquireLease(): Promise<BranchLease>
+  createBranch(): Promise<EphemeralBranch>
+  createSql(connectionUri: string): Sql
+  createDb(connectionUri: string): Database
+  prepare(connectionUri: string, sql: Sql): Promise<void>
+  seed(sql: Sql): Promise<Seed>
+  deleteBranch(branchId: string): Promise<void>
+}
+
+class ProvenDedicatedDeletionTelemetryFailure {
+  constructor(readonly cause: unknown) {}
+}
+
+const defaultDedicatedDbDependencies: DedicatedDbDependencies = {
+  acquireLease: async () => {
+    const runtime = workerRuntimeConfig()
+    return createBranchLeaseCoordinator({
+      runToken: runtime.runToken,
+      rootDir: runtime.leaseRoot,
+    }).acquire('dedicated')
+  },
+  createBranch: createEphemeralBranch,
+  createSql,
+  createDb,
+  prepare: prepareHarnessDatabase,
+  seed: seedBaseline,
+  deleteBranch: deleteEphemeralBranchStrict,
+}
+
 /**
  * Provision an ephemeral Neon branch, migrate + seed it, run `body`, and ALWAYS
  * delete the branch — even if the body throws. The branch is fully isolated, so
  * tests never contend for shared rows and teardown is a single API call.
  */
-export async function withDedicatedDbBranch<T>(body: (ctx: DbBranchContext) => Promise<T>): Promise<T> {
-  const runtime = workerRuntimeConfig()
-  const lease = await createBranchLeaseCoordinator({
-    runToken: runtime.runToken,
-    rootDir: runtime.leaseRoot,
-  }).acquire('dedicated')
-  let created: EphemeralBranch
-  try {
-    created = await createEphemeralBranch()
-  } catch (error) {
-    await handleDedicatedCreateFailure(error, lease)
+export async function withDedicatedDbBranch<T>(
+  body: (ctx: DbBranchContext) => Promise<T>,
+  dependencies: DedicatedDbDependencies = defaultDedicatedDbDependencies,
+): Promise<T> {
+  const telemetryPath = telemetryPathFromEnv()
+  const measured = async <V>(phase: TelemetryPhase, operation: () => Promise<V>): Promise<V> => {
+    let operationFailure: unknown
+    let hasOperationFailure = false
+    try {
+      return await measurePhase(telemetryPath, phase, async () => {
+        try {
+          return await operation()
+        } catch (error) {
+          operationFailure = error
+          hasOperationFailure = true
+          throw error
+        }
+      })
+    } catch (error) {
+      if (hasOperationFailure) throw operationFailure
+      throw error
+    }
   }
-  const { branchId, connectionUri } = created!
+  const deleteMeasured = async (branchId: string): Promise<void> => {
+    let deletionProven = false
+    try {
+      await measured('delete', async () => {
+        await dependencies.deleteBranch(branchId)
+        deletionProven = true
+      })
+    } catch (error) {
+      if (deletionProven) throw new ProvenDedicatedDeletionTelemetryFailure(error)
+      throw error
+    }
+  }
+  const lease = await dependencies.acquireLease()
+  let created: EphemeralBranch | undefined
+  try {
+    created = await measured('create', async () => {
+      const branch = await dependencies.createBranch()
+      created = branch
+      return branch
+    })
+  } catch (error) {
+    if (!created) return handleDedicatedCreateFailure(error, lease)
+    await finishDedicatedBranchLifecycle(created.branchId, lease, error, true, deleteMeasured)
+    throw error
+  }
+  const { branchId, connectionUri } = created
   let value: T | undefined
   let primary: unknown
   let hasPrimary = false
   try {
-    const sql = createSql(connectionUri)
-    const db = createDb(connectionUri)
-    await prepareHarnessDatabase(connectionUri, sql)
-    const seed = await seedBaseline(sql)
+    const sql = dependencies.createSql(connectionUri)
+    const db = dependencies.createDb(connectionUri)
+    await measured('prepare', () => dependencies.prepare(connectionUri, sql))
+    const seed = await dependencies.seed(sql)
     value = await body({ db, sql, seed, branchId })
   } catch (error) {
     primary = error
     hasPrimary = true
   }
-  await finishDedicatedBranchLifecycle(branchId, lease, primary, hasPrimary)
+  await finishDedicatedBranchLifecycle(
+    branchId,
+    lease,
+    primary,
+    hasPrimary,
+    deleteMeasured,
+  )
   return value as T
 }
 
@@ -1716,10 +1824,17 @@ export async function finishDedicatedBranchLifecycle(
   deleteBranch: (branchId: string) => Promise<void> = deleteEphemeralBranchStrict,
 ): Promise<void> {
   let cleanup: NeonBranchError | NeonConformanceError | undefined
+  let telemetry: unknown
+  let hasTelemetry = false
   try {
     await deleteBranch(branchId)
   } catch (error) {
-    cleanup = dedicatedCleanupFailure(error)
+    if (error instanceof ProvenDedicatedDeletionTelemetryFailure) {
+      telemetry = error.cause
+      hasTelemetry = true
+    } else {
+      cleanup = dedicatedCleanupFailure(error)
+    }
   }
   if (!cleanup) {
     try {
@@ -1728,11 +1843,12 @@ export async function finishDedicatedBranchLifecycle(
       cleanup = new NeonBranchError('DB_CONTRACT_BRANCH_LEASE_RELEASE_UNPROVEN')
     }
   }
-  if (hasPrimary && cleanup) {
-    throw new AggregateError([primary, cleanup], 'DB_CONTRACT_TEST_AND_CLEANUP_FAILED')
-  }
-  if (hasPrimary) throw primary
-  if (cleanup) throw cleanup
+  const failures: unknown[] = []
+  if (hasPrimary) failures.push(primary)
+  if (hasTelemetry) failures.push(telemetry)
+  if (cleanup) failures.push(cleanup)
+  if (failures.length === 1) throw failures[0]
+  if (failures.length > 1) throw new AggregateError(failures, 'DB_CONTRACT_TEST_AND_CLEANUP_FAILED')
 }
 
 /** Preserve the strict control-plane code while discarding unknown cleanup details. */

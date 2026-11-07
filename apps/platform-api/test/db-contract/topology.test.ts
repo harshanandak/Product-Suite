@@ -33,6 +33,7 @@ type RoutedHelper = 'transactional' | 'dedicated'
 interface CallSite {
   readonly title: string
   readonly helpers: readonly string[]
+  readonly position: number
   readonly suiteScope?: string
 }
 
@@ -127,6 +128,7 @@ function readCallSites(suiteId: string): {
         callSites.push({
           title: titleArgument.text,
           helpers: callback ? collectHelpers(callback) : [],
+          position: node.getStart(source),
           suiteScope: nearestSuiteScope(node),
         })
       }
@@ -254,6 +256,18 @@ describe('db-contract topology lock', () => {
     }
   })
 
+  it('uses one transactional suite resource per routed file', () => {
+    for (const suiteId of ROUTED_SUITES) {
+      const { transactionalAliases } = readCallSites(suiteId)
+      const hasTransactionalAssertions = SUITE_MANIFEST.some(
+        (entry) => entry.suiteId === suiteId && entry.executionClass === 'transactional-suite',
+      )
+
+      expect(transactionalAliases.size, `${suiteId} transactional resource count`)
+        .toBe(hasTransactionalAssertions ? 1 : 0)
+    }
+  })
+
   it('keeps mixed files from holding a suite lease while dedicated tests run', () => {
     for (const suiteId of ['accept-path', 'baseline', 'meeting-ingest']) {
       const { callSites } = readCallSites(suiteId)
@@ -268,6 +282,15 @@ describe('db-contract topology lock', () => {
       expect(dedicatedScopes.size, `${suiteId} dedicated lifecycle scope`).toBeGreaterThan(0)
       expect([...transactionalScopes].some((scope) => dedicatedScopes.has(scope)), `${suiteId} lifecycle overlap`)
         .toBe(false)
+
+      const transactionalPositions = callSites
+        .filter(({ helpers }) => helpers.some((helper) => helper !== 'withDedicatedDbBranch'))
+        .map(({ position }) => position)
+      const dedicatedPositions = callSites
+        .filter(({ helpers }) => helpers.includes('withDedicatedDbBranch'))
+        .map(({ position }) => position)
+      expect(Math.max(...transactionalPositions), `${suiteId} transactional assertions run before dedicated assertions`)
+        .toBeLessThan(Math.min(...dedicatedPositions))
     }
   })
 })

@@ -315,6 +315,32 @@ describe.skipIf(!hasNeonCreds())(
       })
     })
 
+    it('a run with no candidates still mints the run and proposes nothing', async () => {
+      await runTransactionalDb(async ({ sql, seed }) => {
+        await createAlembicOwnedTables(sql)
+        const tenantMap = identityMap(seed.tenantId)
+        await seedMeeting(sql, seed.tenantId)
+
+        const result = await runMeetingIngest(sql, { tenantId: seed.tenantId, tenantMap })
+
+        expect(result.proposalsCreated).toBe(0)
+        expect(result.skippedDuplicate).toBe(0)
+        expect(result.skippedUnmappedTenant).toBe(0)
+        expect(result.proposalIds).toEqual([])
+
+        const runs = await query(
+          sql,
+          `select id from agent_runs where tenant_id = $1 and triggered_by = 'meeting-ingest'`,
+          [seed.tenantId],
+        )
+        expect(runs).toHaveLength(1)
+        const proposals = await query(sql, `select id from proposals where tenant_id = $1`, [
+          seed.tenantId,
+        ])
+        expect(proposals).toHaveLength(0)
+      })
+    })
+
     })
 
     describe('dedicated assertions', () => {
@@ -361,33 +387,5 @@ describe.skipIf(!hasNeonCreds())(
 
     })
 
-    describe('transactional tail assertions', () => {
-    const runTransactionalTailDb = withTransactionalDb('meeting-ingest-tail') as unknown as TransactionalRunner
-    it('a run with no candidates still mints the run and proposes nothing', async () => {
-      await runTransactionalTailDb(async ({ sql, seed }) => {
-        await createAlembicOwnedTables(sql)
-        const tenantMap = identityMap(seed.tenantId)
-        await seedMeeting(sql, seed.tenantId)
-
-        const result = await runMeetingIngest(sql, { tenantId: seed.tenantId, tenantMap })
-
-        expect(result.proposalsCreated).toBe(0)
-        expect(result.skippedDuplicate).toBe(0)
-        expect(result.skippedUnmappedTenant).toBe(0)
-        expect(result.proposalIds).toEqual([])
-
-        const runs = await query(
-          sql,
-          `select id from agent_runs where tenant_id = $1 and triggered_by = 'meeting-ingest'`,
-          [seed.tenantId],
-        )
-        expect(runs).toHaveLength(1)
-        const proposals = await query(sql, `select id from proposals where tenant_id = $1`, [
-          seed.tenantId,
-        ])
-        expect(proposals).toHaveLength(0)
-      })
-    })
-    })
   },
 )

@@ -25,6 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 - First-push validation now uses the verified Git pre-push range to run affected checks, while unsupported updates and uncertain ranges fail closed (Forge issue `1944f7bd-fcaf-4131-b58a-3ddc1f8b753b`)
+- DB Contract mixed suites now share one transactional branch lifecycle before their dedicated assertions, removing two redundant database preparation phases while preserving rollback and dedicated-branch isolation (Forge issue `5210cc14-ad2c-444a-9ea1-a28a1a68cb64`)
 - Local pre-push validation runs aggregate workspace lint once before the selected checks, preserving full lint coverage, fast-mode test-only suites, and canonical CI commands (Forge issue `e54d032b-92f6-4500-adf8-5e59ffba57d2`)
 - Bun CI runtimes now follow stable releases, local setup documents stable upgrades instead of an obsolete exact runtime pin, and root installs apply the BlockSuite icon compatibility patch (PR #188, Forge issue `b0803978-a71b-4946-a139-48e8901b9739`)
 - Real-Neon authority conformance now proves disposable-project and production-derived-branch cleanup, direct migration versus pooled runtime binding, least-privilege CRUD and denial behavior, and exact opaque PASS evidence (PR #173, Forge issue `25faf39b-3017-42fe-94c0-87acad7279a0`)
